@@ -1,8 +1,7 @@
 # Trade-Bot
 
-# Trade-Bot
-
 ## What This Is
+
 - Algorithmic trading system for Crypto (Binance, OKX)
 - Real-money capable after mandatory 30-day paper validation gate
 - Single-screen dashboard — every control, chart, and mode on one page
@@ -11,8 +10,8 @@
 ---
 
 ## Architecture
-```
-Binance / OKX WebSocket
+
+```Binance / OKX WebSocket
         │
         ▼
 Regime Detector (HMM — 3 states: ranging · trending · volatile)
@@ -53,6 +52,7 @@ Portfolio Engine → SQLite → Dashboard
 ---
 
 ## Trading Modes
+
 - **AUTOMATIC** — no approvals, all signals execute immediately
 - **RESTRICTED** — autonomous below notional limit · approval required above it · auto-skip on timeout
 - **MANUAL** — every signal waits for approval · nothing executes without it
@@ -60,6 +60,7 @@ Portfolio Engine → SQLite → Dashboard
 ---
 
 ## Timeframes
+
 - **SCALPING** `(15s – 5m)` — paper only unless regime = trending + spread < 2 ticks
 - **INTRADAY** `(15m – 4h)` — primary real-money timeframe under $10k capital
 - **SWING**    `(4h – 1D)`  — activates when Sharpe > 1.5 confirmed on 30-day paper
@@ -70,6 +71,7 @@ Portfolio Engine → SQLite → Dashboard
 ---
 
 ## Signal Validation Pipeline
+
 - Labels generated via triple-barrier method (profit-taking · stop-loss · time-exit barriers)
 - Validation via Combinatorial Purged Cross-Validation (CPCV) — standard k-fold invalid for time-series
 - Minimum 500 out-of-sample trades before any timeframe goes live
@@ -79,6 +81,7 @@ Portfolio Engine → SQLite → Dashboard
 ---
 
 ## Risk System
+
 - **Daily drawdown circuit breaker** — halts all trading at configurable % daily loss
 - **Consecutive loss halt** — halts after N losing trades in a row (configurable)
 - **Regime gate** — no new positions when HMM state = volatile
@@ -90,7 +93,8 @@ Portfolio Engine → SQLite → Dashboard
 
 ---
 
-## Dashboard (http://localhost:5173)
+## Dashboard (<http://localhost:5173>)
+
 - Equity curve — 30-day area chart
 - Daily P&L % — bar chart
 - Live signal feed — direction · confidence · meta score · regime · Kelly fraction
@@ -106,6 +110,7 @@ Portfolio Engine → SQLite → Dashboard
 ---
 
 ## Stack
+
 - Python 3.11+
 - XGBoost 2.x — primary classifier + meta-label classifier
 - hmmlearn — regime detection
@@ -119,8 +124,8 @@ Portfolio Engine → SQLite → Dashboard
 ---
 
 ## Project Structure
-```
-trade-bot/
+
+```trade-bot/
 ├── src/
 │   ├── config.py                  # all settings, hot-reloadable at runtime
 │   ├── data/
@@ -162,11 +167,13 @@ trade-bot/
 ---
 
 ## Setup
+
 ```bash
 bash bootstrap.sh
 ```
 
 **After bootstrap completes:**
+
 ```bash
 # Terminal 1 — backend
 source .venv/bin/activate
@@ -182,6 +189,7 @@ cd frontend && npm run dev
 ---
 
 ## Requirements
+
 - Python 3.11+
 - Node.js 18+
 - Internet connection (Binance / OKX public WebSocket for market data)
@@ -190,8 +198,8 @@ cd frontend && npm run dev
 ---
 
 ## Environment Variables (.env)
-```
-BINANCE_API_KEY=
+
+```BINANCE_API_KEY=
 BINANCE_API_SECRET=
 OKX_API_KEY=
 OKX_API_SECRET=
@@ -204,6 +212,7 @@ FRONTEND_PORT=5173
 ---
 
 ## Live Trading Gate (30-Day Rule)
+
 - System runs paper mode for 30 days minimum before live is considered
 - Per-timeframe gate — each timeframe validates independently
 - Gate criteria per timeframe:
@@ -217,6 +226,7 @@ FRONTEND_PORT=5173
 ---
 
 ## References
+
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley.
 - Chan, E. (2013). *Algorithmic Trading: Winning Strategies and Their Rationale*. Wiley.
 - Kelly, J.L. (1956). A New Interpretation of Information Rate. *Bell System Technical Journal*, 35(4).
