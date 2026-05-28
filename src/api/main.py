@@ -3,7 +3,6 @@ FastAPI backend — REST endpoints + WebSocket hub for dashboard.
 """
 from __future__ import annotations
 import asyncio
-import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -14,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.config       import get_settings, update_settings
+from src.config       import get_settings
 from src.data.storage import Database
 from src.engine.orchestrator import Orchestrator
 
@@ -25,8 +24,8 @@ _db:           Database     | None = None
 _orchestrator: Orchestrator | None = None
 _ws_clients:   list[WebSocket]     = []
 
-async def broadcast(msg: dict):
-    dead = []
+async def broadcast(msg: dict[str, Any]) -> None:
+    dead: list[WebSocket] = []
     for ws in _ws_clients:
         try:
             await ws.send_json(msg)
@@ -80,7 +79,7 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         _ws_clients.remove(ws)
 
-async def _handle_ws_message(ws: WebSocket, msg: dict):
+async def _handle_ws_message(ws: WebSocket, msg: dict[str, Any]) -> None:
     action = msg.get("action")
     if action == "approve":
         await _orchestrator.resolve_approval(str(msg["signal_id"]), True)
@@ -91,7 +90,7 @@ async def _handle_ws_message(ws: WebSocket, msg: dict):
 
 # ── REST endpoints ────────────────────────────────────────────────────────────
 @app.get("/api/status")
-async def get_status():
+async def get_status() -> dict[str, Any]:
     return _orchestrator.status() if _orchestrator else {}
 
 class ConfigUpdate(BaseModel):
@@ -119,9 +118,9 @@ async def get_performance(days: int = 30):
     return await _db.get_daily_performance(days)
 
 @app.get("/api/positions")
-async def get_positions():
-    if _orchestrator and _orchestrator._paper_exec:
-        return _orchestrator._paper_exec.open_positions()
+async def get_positions() -> list[dict[str, Any]]:
+    if _orchestrator:
+        return _orchestrator.open_positions()
     return []
 
 @app.get("/api/health")

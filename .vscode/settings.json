@@ -1,0 +1,7 @@
+﻿{
+    "python-envs.defaultEnvManager": "ms-python.python:Venv",
+    "python.defaultInterpreterPath": ".venv\\bin\\python",
+    "python.analysis.extraPaths": [
+        "src"
+    ]
+}

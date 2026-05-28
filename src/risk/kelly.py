@@ -1,82 +1,459 @@
 """
-Kelly criterion position sizing.
-Fractional Kelly (half-Kelly) used for robustness.
+Kelly position sizing — half-Kelly with hard ceiling.
 
-Reference: Kelly, J.L. (1956). A New Interpretation of Information Rate.
-           Bell System Technical Journal, 35(4), 917-926.
-           Thorp, E.O. (2006). The Kelly Criterion in Blackjack, Sports Betting,
-           and the Stock Market. Handbook of Asset and Liability Management.
+Kelly (1956) "A New Interpretation of Information Rate", Bell System
+Technical Journal 35(4): 917–926.
+
+Implementation follows AFML Ch.10 (López de Prado 2018):
+  - Kelly fraction f* = (p·b - q) / b  where b = win/loss ratio
+  - Half-Kelly multiplier = 0.5 (spec)
+  - Hard ceiling = 0.25 of capital (spec)
+  - Position size = f × capital / entry_price, quantised to exchange precision
+
+All sizing functions are pure (no I/O, no side effects) so they are
+trivially testable and reusable across paper and live executors.
 """
+
 from __future__ import annotations
-import numpy as np
+
+import math
+from dataclasses import dataclass
+from typing import Final
+
 import structlog
 
-log = structlog.get_logger()
+from src.config import RiskSettings, get_settings
 
-HALF_KELLY = 0.5   # fractional Kelly multiplier — reduces drawdown significantly
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants (from spec — never weakened)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MULTIPLIER: Final[float] = 0.5   # half-Kelly
+_DEFAULT_CEILING: Final[float] = 0.25    # 25% of capital max
+
+
+# ---------------------------------------------------------------------------
+# Result dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class KellyResult:
+    """
+    Position sizing outcome for a single trade.
+
+    kelly_fraction   : raw Kelly fraction f* before multiplier/ceiling
+    adjusted_fraction: f* × multiplier, capped at ceiling
+    capital_usd      : equity used for sizing
+    entry_price      : asset entry price
+    quantity         : asset units to trade (quantised)
+    notional_usd     : quantity × entry_price
+    is_capped        : True when ceiling binding (raw × mult > ceiling)
+    """
+
+    kelly_fraction: float
+    adjusted_fraction: float
+    capital_usd: float
+    entry_price: float
+    quantity: float
+    notional_usd: float
+    is_capped: bool
+
+    @property
+    def position_size_pct(self) -> float:
+        """Adjusted fraction expressed as percentage of capital."""
+        return self.adjusted_fraction * 100.0
+
+
+# ---------------------------------------------------------------------------
+# Core Kelly formula — Kelly (1956)
+# ---------------------------------------------------------------------------
+
 
 def kelly_fraction(
-    win_prob:     float,
-    avg_win:      float,
-    avg_loss:     float,
-    half_kelly:   float = HALF_KELLY,
+    win_probability: float,
+    win_loss_ratio: float,
 ) -> float:
     """
-    Compute Kelly fraction.
-    f* = (p * b - q) / b
-    where p = win_prob, q = 1-p, b = avg_win / avg_loss
+    Compute the raw Kelly fraction.
 
-    Returns clamped value in [0, 0.25] — never bet more than 25% even at maximum Kelly.
+    f* = (p·b - q) / b
+
+    where:
+      p = win probability
+      q = 1 - p  (loss probability)
+      b = win/loss ratio (average win magnitude / average loss magnitude)
+
+    Parameters
+    ----------
+    win_probability : probability of a winning trade, in (0, 1)
+    win_loss_ratio  : ratio of average win to average loss, > 0
+
+    Returns
+    -------
+    Raw Kelly fraction in [0, 1].  Clipped to [0, 1] — negative Kelly
+    (negative edge) returns 0.0, meaning do not bet.
+
+    Raises
+    ------
+    ValueError : if inputs are outside valid ranges.
     """
-    if avg_loss <= 0 or avg_win <= 0:
-        return 0.0
-    q = 1.0 - win_prob
-    b = avg_win / avg_loss
-    f = (win_prob * b - q) / b
-    f_fractional = f * half_kelly
-    return float(np.clip(f_fractional, 0.0, 0.25))
+    if not 0.0 < win_probability < 1.0:
+        raise ValueError(
+            f"win_probability must be in (0, 1), got {win_probability}"
+        )
+    if win_loss_ratio <= 0.0:
+        raise ValueError(
+            f"win_loss_ratio must be > 0, got {win_loss_ratio}"
+        )
+
+    p = win_probability
+    q = 1.0 - p
+    b = win_loss_ratio
+    f_star = (p * b - q) / b
+
+    # Clip to [0, 1] — negative edge → no bet; f* > 1 is theoretically
+    # impossible for b > 0 and valid p, but guard defensively.
+    return float(max(0.0, min(1.0, f_star)))
+
+
+def half_kelly_fraction(
+    win_probability: float,
+    win_loss_ratio: float,
+    multiplier: float | None = None,
+    ceiling: float | None = None,
+    cfg: RiskSettings | None = None,
+) -> tuple[float, float, bool]:
+    """
+    Compute the half-Kelly adjusted fraction with ceiling.
+
+    Parameters
+    ----------
+    win_probability : P(win) estimated from model output
+    win_loss_ratio  : average_win / average_loss from historical trades
+    multiplier      : Kelly multiplier (default 0.5 from config)
+    ceiling         : maximum fraction (default 0.25 from config)
+    cfg             : RiskSettings; loaded from global config if None
+
+    Returns
+    -------
+    (raw_fraction, adjusted_fraction, is_capped) where:
+      raw_fraction      = f* (Kelly formula output)
+      adjusted_fraction = min(f* × multiplier, ceiling)
+      is_capped         = True when ceiling was binding
+    """
+    if cfg is None:
+        cfg = get_settings().risk
+
+    mult = multiplier if multiplier is not None else cfg.kelly_multiplier
+    cap = ceiling if ceiling is not None else cfg.kelly_ceiling
+
+    raw = kelly_fraction(win_probability, win_loss_ratio)
+    adjusted = raw * mult
+    capped = adjusted > cap
+    adjusted = min(adjusted, cap)
+
+    log.debug(
+        "kelly.computed",
+        win_prob=round(win_probability, 4),
+        win_loss_ratio=round(win_loss_ratio, 4),
+        raw_fraction=round(raw, 4),
+        adjusted_fraction=round(adjusted, 4),
+        multiplier=mult,
+        ceiling=cap,
+        is_capped=capped,
+    )
+    return raw, adjusted, capped
+
+
+# ---------------------------------------------------------------------------
+# Probability-based Kelly — uses XGBoost probabilities directly
+# ---------------------------------------------------------------------------
+
+
+def kelly_from_model_probs(
+    p_long: float,
+    avg_win_usd: float,
+    avg_loss_usd: float,
+    direction: int,
+    cfg: RiskSettings | None = None,
+) -> tuple[float, float, bool]:
+    """
+    Compute half-Kelly fraction from model output probabilities.
+
+    The XGBoost direction model outputs P(long).  We treat this as the
+    win probability for the chosen direction:
+      - If direction=1 (long):  win_prob = p_long
+      - If direction=0 (short): win_prob = 1 - p_long
+
+    win_loss_ratio is computed from historical trade averages.
+    If no trade history is available yet, falls back to a conservative
+    win_loss_ratio of 1.0 (equal payoff assumption).
+
+    Parameters
+    ----------
+    p_long       : XGBoost P(long) for this bar
+    avg_win_usd  : average winning trade PnL in USD (> 0)
+    avg_loss_usd : average absolute losing trade PnL in USD (> 0)
+    direction    : 1 = long, 0 = short
+    cfg          : RiskSettings
+
+    Returns
+    -------
+    (raw_fraction, adjusted_fraction, is_capped)
+    """
+    if cfg is None:
+        cfg = get_settings().risk
+
+    win_prob = p_long if direction == 1 else (1.0 - p_long)
+
+    # Guard edge cases from model output noise
+    win_prob = max(0.01, min(0.99, win_prob))
+
+    win_loss_ratio = 1.0
+    if avg_win_usd > 0.0 and avg_loss_usd > 0.0:
+        win_loss_ratio = avg_win_usd / avg_loss_usd
+
+    # Floor win_loss_ratio at 0.1 to prevent division instability
+    win_loss_ratio = max(0.1, win_loss_ratio)
+
+    return half_kelly_fraction(
+        win_probability=win_prob,
+        win_loss_ratio=win_loss_ratio,
+        cfg=cfg,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Position sizing — converts fraction to quantity
+# ---------------------------------------------------------------------------
 
 
 def size_position(
-    capital:      float,
-    kelly_frac:   float,
-    entry_price:  float,
-    max_pct:      float = 0.05,
-) -> tuple[float, float]:
+    adjusted_fraction: float,
+    capital_usd: float,
+    entry_price: float,
+    amount_precision: float = 8.0,
+    min_amount: float = 0.0,
+    min_cost: float = 0.0,
+    max_position_pct: float | None = None,
+    cfg: RiskSettings | None = None,
+) -> KellyResult | None:
     """
-    Convert Kelly fraction to position size.
-    Returns (qty, notional_usd).
-    Hard cap at max_pct of capital.
+    Convert a Kelly fraction into a concrete position size.
+
+    Applies a second guard: adjusted_fraction is also capped at
+    max_position_size_pct / 100 (spec: 5% of capital max).
+
+    Quantises quantity to exchange amount_precision decimal places.
+
+    Parameters
+    ----------
+    adjusted_fraction  : half-Kelly output (already capped at ceiling)
+    capital_usd        : current equity in USD
+    entry_price        : asset price at entry
+    amount_precision   : decimal places for quantity (exchange-specific)
+    min_amount         : minimum order quantity (exchange-specific)
+    min_cost           : minimum order notional USD (exchange-specific)
+    max_position_pct   : override max position % (default from config)
+    cfg                : RiskSettings
+
+    Returns
+    -------
+    KellyResult if position meets minimum size requirements, else None.
+    None signals the signal engine to skip this trade.
+
+    Raises
+    ------
+    ValueError : if capital_usd or entry_price are non-positive.
     """
-    notional = capital * min(kelly_frac, max_pct)
-    qty      = notional / entry_price if entry_price > 0 else 0.0
-    return float(qty), float(notional)
+    if capital_usd <= 0.0:
+        raise ValueError(f"capital_usd must be > 0, got {capital_usd}")
+    if entry_price <= 0.0:
+        raise ValueError(f"entry_price must be > 0, got {entry_price}")
+
+    if cfg is None:
+        cfg = get_settings().risk
+
+    max_pct = (max_position_pct or cfg.max_position_size_pct) / 100.0
+
+    # Enforce max position size cap on top of Kelly ceiling
+    raw_kelly = adjusted_fraction
+    final_fraction = min(adjusted_fraction, max_pct)
+    is_capped = final_fraction < raw_kelly
+
+    notional_raw = final_fraction * capital_usd
+    quantity_raw = notional_raw / entry_price
+
+    # Quantise to exchange precision
+    decimal_places = int(amount_precision)
+    quantity = _floor_to_precision(quantity_raw, decimal_places)
+
+    if quantity <= 0.0:
+        log.debug(
+            "kelly.size_zero",
+            quantity_raw=quantity_raw,
+            decimal_places=decimal_places,
+        )
+        return None
+
+    notional = quantity * entry_price
+
+    # Check exchange minimums
+    if min_amount > 0.0 and quantity < min_amount:
+        log.debug(
+            "kelly.below_min_amount",
+            quantity=quantity,
+            min_amount=min_amount,
+        )
+        return None
+
+    if min_cost > 0.0 and notional < min_cost:
+        log.debug(
+            "kelly.below_min_cost",
+            notional=notional,
+            min_cost=min_cost,
+        )
+        return None
+
+    result = KellyResult(
+        kelly_fraction=raw_kelly,
+        adjusted_fraction=final_fraction,
+        capital_usd=capital_usd,
+        entry_price=entry_price,
+        quantity=quantity,
+        notional_usd=notional,
+        is_capped=is_capped,
+    )
+
+    log.info(
+        "kelly.position_sized",
+        fraction=round(final_fraction, 4),
+        capital_usd=round(capital_usd, 2),
+        entry_price=round(entry_price, 2),
+        quantity=quantity,
+        notional_usd=round(notional, 2),
+        is_capped=is_capped,
+    )
+    return result
 
 
-class KellySizer:
-    """Stateful sizer that tracks trade history to update win/loss stats."""
+# ---------------------------------------------------------------------------
+# Full sizing pipeline — single entry point for executors
+# ---------------------------------------------------------------------------
 
-    def __init__(self, lookback: int = 50):
-        self._lookback = lookback
-        self._results:  list[float] = []   # list of pnl_pct values
 
-    def record(self, pnl_pct: float):
-        self._results.append(pnl_pct)
-        if len(self._results) > self._lookback:
-            self._results.pop(0)
+def compute_position_size(
+    p_long: float,
+    direction: int,
+    capital_usd: float,
+    entry_price: float,
+    avg_win_usd: float = 0.0,
+    avg_loss_usd: float = 0.0,
+    amount_precision: float = 8.0,
+    min_amount: float = 0.0,
+    min_cost: float = 0.0,
+    cfg: RiskSettings | None = None,
+) -> KellyResult | None:
+    """
+    End-to-end position sizing from model output to exchange quantity.
 
-    def fraction(self) -> float:
-        if len(self._results) < 10:
-            return 0.005   # ultra-conservative before history exists
-        wins  = [r for r in self._results if r > 0]
-        loses = [r for r in self._results if r <= 0]
-        if not wins or not loses:
-            return 0.005
-        win_prob = len(wins) / len(self._results)
-        avg_win  = float(np.mean(wins))
-        avg_loss = float(abs(np.mean(loses)))
-        frac = kelly_fraction(win_prob, avg_win, avg_loss)
-        log.debug("kelly fraction", win_prob=round(win_prob,3), avg_win=round(avg_win,4),
-                  avg_loss=round(avg_loss,4), fraction=round(frac,4))
-        return frac
+    Called by both paper and live executors.  Returns None if the
+    computed size fails any minimum threshold.
 
+    Parameters
+    ----------
+    p_long         : XGBoost P(long) for this bar
+    direction      : 1=long, 0=short
+    capital_usd    : current equity in USD
+    entry_price    : asset price at entry
+    avg_win_usd    : average winning trade PnL USD (0.0 = use default ratio)
+    avg_loss_usd   : average losing trade |PnL| USD (0.0 = use default ratio)
+    amount_precision: exchange amount decimal places
+    min_amount     : exchange minimum order quantity
+    min_cost       : exchange minimum order notional USD
+    cfg            : RiskSettings
+
+    Returns
+    -------
+    KellyResult or None.
+    """
+    if cfg is None:
+        cfg = get_settings().risk
+
+    raw_frac, adj_frac, _ = kelly_from_model_probs(
+        p_long=p_long,
+        avg_win_usd=avg_win_usd,
+        avg_loss_usd=avg_loss_usd,
+        direction=direction,
+        cfg=cfg,
+    )
+
+    return size_position(
+        adjusted_fraction=adj_frac,
+        capital_usd=capital_usd,
+        entry_price=entry_price,
+        amount_precision=amount_precision,
+        min_amount=min_amount,
+        min_cost=min_cost,
+        cfg=cfg,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Historical win/loss statistics helper
+# ---------------------------------------------------------------------------
+
+
+def compute_win_loss_stats(
+    pnl_series: list[float],
+) -> tuple[float, float, float]:
+    """
+    Compute win probability, average win, and average loss from PnL history.
+
+    Parameters
+    ----------
+    pnl_series : list of realised PnL values (positive = win, negative = loss)
+
+    Returns
+    -------
+    (win_probability, avg_win_usd, avg_loss_usd)
+
+    If fewer than 10 trades available, returns conservative defaults:
+    (0.5, 1.0, 1.0) — equal-probability, equal-payoff assumption.
+    """
+    if len(pnl_series) < 10:
+        return 0.5, 1.0, 1.0
+
+    wins = [p for p in pnl_series if p > 0.0]
+    losses = [abs(p) for p in pnl_series if p < 0.0]
+
+    if not wins or not losses:
+        return 0.5, 1.0, 1.0
+
+    win_prob = len(wins) / len(pnl_series)
+    avg_win = sum(wins) / len(wins)
+    avg_loss = sum(losses) / len(losses)
+
+    return win_prob, avg_win, avg_loss
+
+
+# ---------------------------------------------------------------------------
+# Internal utility
+# ---------------------------------------------------------------------------
+
+
+def _floor_to_precision(value: float, decimal_places: int) -> float:
+    """
+    Floor a float to a given number of decimal places.
+
+    Uses floor (not round) to avoid over-ordering on exchanges.
+    """
+    if decimal_places < 0:
+        raise ValueError(f"decimal_places must be >= 0, got {decimal_places}")
+    if decimal_places == 0:
+        return float(math.floor(value))
+    factor = 10 ** decimal_places
+    return math.floor(value * factor) / factor

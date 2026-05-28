@@ -5,7 +5,7 @@ execution routing, and position lifecycle.
 from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Any
 import structlog
 
 from src.config            import get_settings, Settings
@@ -188,7 +188,7 @@ class Orchestrator:
             risk_keys = {"daily_drawdown_halt_pct", "consecutive_loss_halt", "max_position_pct"}
             self._risk_gate.update_params(**{k: v for k, v in kwargs.items() if k in risk_keys})
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         cfg = get_settings()
         equity = self._paper_exec.equity if self._paper_exec else 0.0
         return {
@@ -205,6 +205,11 @@ class Orchestrator:
             "engines_active":   len(self._engines),
             "pending_approvals": len(self._approval_queue),
         }
+
+    def open_positions(self) -> list[dict[str, Any]]:
+        if self._paper_exec:
+            return self._paper_exec.open_positions()
+        return []
 
     async def resume(self):
         if self._risk_gate:
