@@ -77,7 +77,7 @@ Timeout on approval requests: configurable (default 60s), auto-skip on timeout.
 bash bootstrap.sh
 ```
 
-Then open:http://localhost:5173
+Then open: <http://localhost:5173>
 
 ## API Keys
 
