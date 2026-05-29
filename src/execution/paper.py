@@ -36,7 +36,7 @@ import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings
 from src.data.storage import EquityRecord, StorageBackend, TradeRecord
-from src.risk.gates import DrawdownTracker, GateResult
+from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -45,7 +45,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_PAPER_FEE_PCT: Final[float] = 0.001   # 0.1% taker fee (Binance standard)
+_PAPER_FEE_PCT: Final[float] = 0.001  # 0.1% taker fee (Binance standard)
 _TRADING_MODE: Final[TradingMode] = TradingMode.PAPER
 
 
@@ -257,24 +257,41 @@ class PaperExecutor:
 
         if mode == ExecutionMode.AUTOMATIC:
             trade_id = await self._open_position_internal(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
-                current_price, approved_by="auto",
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
+                current_price,
+                approved_by="auto",
             )
             return trade_id, "opened" if trade_id else "rejected"
 
         if mode == ExecutionMode.RESTRICTED:
             if kelly_result.notional_usd <= self._risk_cfg.notional_limit_usd:
                 trade_id = await self._open_position_internal(
-                    symbol, timeframe, direction, kelly_result,
-                    regime_state, meta_label_prob, raw_signal,
-                    current_price, approved_by="auto_below_limit",
+                    symbol,
+                    timeframe,
+                    direction,
+                    kelly_result,
+                    regime_state,
+                    meta_label_prob,
+                    raw_signal,
+                    current_price,
+                    approved_by="auto_below_limit",
                 )
                 return trade_id, "opened" if trade_id else "rejected"
             # Above limit — needs approval
             req_id = await self._enqueue_approval(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
             )
             # Wait for approval with timeout
             approved, operator = await self._await_approval(
@@ -283,25 +300,42 @@ class PaperExecutor:
             if not approved:
                 return None, "skipped"
             trade_id = await self._open_position_internal(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
-                current_price, approved_by=operator,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
+                current_price,
+                approved_by=operator,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
         if mode == ExecutionMode.MANUAL:
             req_id = await self._enqueue_approval(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
             )
             # Wait indefinitely (no timeout in MANUAL — operator must decide)
             approved, operator = await self._await_approval(req_id, timeout_s=None)
             if not approved:
                 return None, "rejected"
             trade_id = await self._open_position_internal(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
-                current_price, approved_by=operator,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
+                current_price,
+                approved_by=operator,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -455,11 +489,7 @@ class PaperExecutor:
 
     def pending_approvals(self) -> list[dict[str, object]]:
         """Return all unresolved approval requests as dicts for the API."""
-        return [
-            req.to_dict()
-            for req in self._approval_queue.values()
-            if not req.resolved
-        ]
+        return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
 
     # ------------------------------------------------------------------
     # State queries
@@ -478,9 +508,9 @@ class PaperExecutor:
                 "quantity": p.quantity,
                 "notional_usd": round(p.notional_usd, 2),
                 "unrealized_pnl": round(p.unrealized_pnl, 4),
-                "unrealized_pnl_pct": round(
-                    p.unrealized_pnl / p.notional_usd * 100.0, 3
-                ) if p.notional_usd > 0 else 0.0,
+                "unrealized_pnl_pct": round(p.unrealized_pnl / p.notional_usd * 100.0, 3)
+                if p.notional_usd > 0
+                else 0.0,
                 "regime_at_entry": p.regime_at_entry,
                 "entry_ts": p.entry_ts,
             }
@@ -512,9 +542,7 @@ class PaperExecutor:
 
     async def get_consecutive_losses(self, symbol: str) -> int:
         """Query storage for trailing consecutive loss count."""
-        return await self._storage.count_consecutive_losses(
-            symbol, TradingMode.PAPER.value
-        )
+        return await self._storage.count_consecutive_losses(symbol, TradingMode.PAPER.value)
 
     async def get_daily_pnl(self, symbol: str) -> float:
         """Query storage for today's realized PnL."""
@@ -635,7 +663,7 @@ class PaperExecutor:
             timeframe=timeframe,
             direction=direction,
             notional_usd=kelly_result.notional_usd,
-            entry_price=0.0,   # filled at execution time
+            entry_price=0.0,  # filled at execution time
             quantity=kelly_result.quantity,
             kelly_fraction=kelly_result.adjusted_fraction,
             regime_state=regime_state,

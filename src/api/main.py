@@ -24,7 +24,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, cast
 
 import structlog
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -33,7 +33,8 @@ from pydantic import BaseModel
 
 from src.config import ExecutionMode, get_settings, invalidate_settings_cache
 from src.data.fetcher import open_fetcher
-from src.data.storage import StorageBackend, open_storage
+from src.data.storage import StorageBackend
+from src.execution.live import LiveExecutor
 from src.engine.orchestrator import Orchestrator
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -142,12 +143,12 @@ async def health() -> dict[str, Any]:
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
     orch = _state.orchestrator
-    executor = orch._executor  # noqa: SLF001
+    executor = cast(LiveExecutor, orch._executor)  # noqa: SLF001
     cfg = get_settings()
 
     equity_usd = executor.equity_usd if executor else 0.0
     cash_usd = executor.cash_usd if executor else 0.0
-    positions = executor.open_positions() if executor else []
+    positions = executor.open_positions() if executor else [] # type: ignore
     approvals = executor.pending_approvals() if executor else []
 
     # Latest regime for primary timeframe
@@ -269,7 +270,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
 @app.get("/approvals")
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
-    executor = _state.orchestrator._executor  # noqa: SLF001
+    executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
     if executor is None:
         return {"approvals": []}
     return {"approvals": executor.pending_approvals()}
@@ -281,7 +282,7 @@ async def resolve_approval(
     body: ResolveApprovalRequest,
 ) -> dict[str, Any]:
     """Approve or reject a pending trade."""
-    executor = _state.orchestrator._executor  # noqa: SLF001
+    executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
 
@@ -315,6 +316,7 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
             detail=f"Invalid mode {body.mode!r}. Must be one of: automatic, restricted, manual",
         )
     import os
+
     os.environ["EXECUTION_MODE"] = new_mode.value
     invalidate_settings_cache()
     log.info("api.execution_mode_changed", new_mode=new_mode.value)
@@ -376,14 +378,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             await asyncio.sleep(heartbeat)
 
-            executor = _state.orchestrator._executor  # noqa: SLF001
+            executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
             if executor is None:
                 continue
 
             payload: dict[str, Any] = {
                 "type": "tick",
                 "equity_usd": round(executor.equity_usd, 2),
-                "cash_usd": round(executor.cash_usd, 2),
+                "cash_usd": round(executor.cash_usd, 2), # type: ignore
                 "positions": executor.open_positions(),
                 "pending_approvals": executor.pending_approvals(),
                 "trading_mode": get_settings().trading_mode.value,

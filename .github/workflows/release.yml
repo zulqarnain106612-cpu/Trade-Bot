@@ -1,0 +1,210 @@
+name: Release — Tag · Build · Publish Artifacts
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: "Force a release even without [release] tag in commit"
+        required: false
+        default: "false"
+
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # GATE — only proceed if CI passed on this exact commit
+  # ───────────────────────────────────────────────────────────────────────────
+  gate:
+    name: Gate — Verify CI Green
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check commit message and CI status
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          FORCE="${{ github.event.inputs.force_release }}"
+
+          # Skip auto-fix commits
+          if echo "$COMMIT_MSG" | grep -q "\[auto-fix\]"; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping release — auto-fix commit."
+            exit 0
+          fi
+
+          # Only release if commit contains [release] tag or force flag set
+          if echo "$COMMIT_MSG" | grep -q "\[release\]" || [ "$FORCE" = "true" ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "No [release] tag in commit message — skipping release."
+          fi
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # BUILD — produce backend wheel + frontend dist
+  # ───────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build Artifacts
+    runs-on: ubuntu-latest
+    needs: gate
+    if: needs.gate.outputs.should_release == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python build tools
+        run: |
+          python -m pip install --upgrade pip build
+          pip install -e ".[dev]"
+
+      - name: Run backend tests (gate before release)
+        env:
+          TRADING_MODE: paper
+          BINANCE_API_KEY: dummy
+          BINANCE_API_SECRET: dummy
+          OKX_API_KEY: dummy
+          OKX_API_SECRET: dummy
+          OKX_PASSPHRASE: dummy
+          LOG_LEVEL: WARNING
+        run: |
+          pytest tests/ -v --tb=short --junitxml=test-results-release.xml
+
+      - name: Build Python wheel
+        run: python -m build --wheel --outdir dist/
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_BASE: ""
+        run: npm run build
+
+      - name: Package frontend dist
+        run: |
+          cd frontend
+          tar -czf ../dist/frontend-dist.tar.gz dist/
+
+      - name: Compute version
+        id: version
+        run: |
+          VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml','rb') as f:
+              d=tomllib.load(f)
+          print(d['project']['version'])
+          ")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.version.outputs.tag }}
+          path: dist/
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results
+          path: test-results-release.xml
+          retention-days: 14
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # PUBLISH — create GitHub Release and attach artifacts
+  # ───────────────────────────────────────────────────────────────────────────
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [gate, build]
+    if: needs.gate.outputs.should_release == 'true'
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ needs.build.outputs.tag }}
+          path: dist/
+
+      - name: Create Git tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ needs.build.outputs.tag }}
+          git push origin ${{ needs.build.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: "Trade-Bot ${{ needs.build.outputs.tag }}"
+          body: |
+            ## Trade-Bot ${{ needs.build.outputs.tag }}
+
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref_name }}
+            **Built:** ${{ github.event.head_commit.timestamp }}
+
+            ### Artifacts
+            - `tradebot-*.whl` — Python wheel (FastAPI backend + engine)
+            - `frontend-dist.tar.gz` — React/Vite dashboard (production build)
+
+            ### Install
+            ```bash
+            pip install tradebot-*.whl
+            ```
+          files: |
+            dist/*.whl
+            dist/frontend-dist.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

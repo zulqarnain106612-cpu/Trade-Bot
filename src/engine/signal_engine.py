@@ -34,17 +34,15 @@ from src.config import Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.features.pipeline import (
-    FEATURE_COLUMNS,
     build_inference_features,
 )
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.risk.gates import (
     GateResult,
-    GateStatus,
     RiskGateContext,
     evaluate_all_gates,
 )
-from src.risk.kelly import KellyResult, compute_position_size, compute_win_loss_stats
+from src.risk.kelly import KellyResult, compute_position_size
 from src.models.trainer import ModelTrainer
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -206,14 +204,28 @@ class SignalEngine:
 
         # 5. Regime prediction
         try:
-            history_df = bars[
-                ["frac_diff", "realized_vol_ratio", "atr_momentum",
-                 "rolling_sharpe", "volume_zscore"]
-            ] if all(
-                c in bars.columns
-                for c in ["frac_diff", "realized_vol_ratio", "atr_momentum",
-                          "rolling_sharpe", "volume_zscore"]
-            ) else None
+            history_df = (
+                bars[
+                    [
+                        "frac_diff",
+                        "realized_vol_ratio",
+                        "atr_momentum",
+                        "rolling_sharpe",
+                        "volume_zscore",
+                    ]
+                ]
+                if all(
+                    c in bars.columns
+                    for c in [
+                        "frac_diff",
+                        "realized_vol_ratio",
+                        "atr_momentum",
+                        "rolling_sharpe",
+                        "volume_zscore",
+                    ]
+                )
+                else None
+            )
         except Exception:
             history_df = None
 
@@ -271,9 +283,7 @@ class SignalEngine:
             return self._skip("kelly_size_zero")
 
         # 9. Meta-label gate
-        meta_label, p_bet = self._trainer.predict_meta(
-            self._meta_model, vec, p_long
-        )
+        meta_label, p_bet = self._trainer.predict_meta(self._meta_model, vec, p_long)
 
         if meta_label == 0:
             return SignalResult(

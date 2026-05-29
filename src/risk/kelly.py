@@ -30,8 +30,8 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # Constants (from spec — never weakened)
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MULTIPLIER: Final[float] = 0.5   # half-Kelly
-_DEFAULT_CEILING: Final[float] = 0.25    # 25% of capital max
+_DEFAULT_MULTIPLIER: Final[float] = 0.5  # half-Kelly
+_DEFAULT_CEILING: Final[float] = 0.25  # 25% of capital max
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +101,9 @@ def kelly_fraction(
     ValueError : if inputs are outside valid ranges.
     """
     if not 0.0 < win_probability < 1.0:
-        raise ValueError(
-            f"win_probability must be in (0, 1), got {win_probability}"
-        )
+        raise ValueError(f"win_probability must be in (0, 1), got {win_probability}")
     if win_loss_ratio <= 0.0:
-        raise ValueError(
-            f"win_loss_ratio must be > 0, got {win_loss_ratio}"
-        )
+        raise ValueError(f"win_loss_ratio must be > 0, got {win_loss_ratio}")
 
     p = win_probability
     q = 1.0 - p
@@ -455,5 +451,5 @@ def _floor_to_precision(value: float, decimal_places: int) -> float:
         raise ValueError(f"decimal_places must be >= 0, got {decimal_places}")
     if decimal_places == 0:
         return float(math.floor(value))
-    factor = 10 ** decimal_places
+    factor = 10**decimal_places
     return math.floor(value * factor) / factor

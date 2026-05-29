@@ -56,14 +56,12 @@ FEATURE_COLUMNS: Final[list[str]] = [
 ]
 
 # Label columns
-COL_LABEL: Final[str] = "label"            # triple-barrier outcome: 1=long, 0=short, -1=time-exit
+COL_LABEL: Final[str] = "label"  # triple-barrier outcome: 1=long, 0=short, -1=time-exit
 COL_META_LABEL: Final[str] = "meta_label"  # 1=bet, 0=skip
-COL_RETURN: Final[str] = "log_return"      # log return used internally
+COL_RETURN: Final[str] = "log_return"  # log return used internally
 
 # Required input OHLCV columns
-_REQ_COLS: Final[frozenset[str]] = frozenset(
-    {"open", "high", "low", "close", "volume"}
-)
+_REQ_COLS: Final[frozenset[str]] = frozenset({"open", "high", "low", "close", "volume"})
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +161,10 @@ def vwap_deviation_zscore(
     typical_price = (high + low + close) / 3.0
     tp_vol = typical_price * volume
 
-    vwap = tp_vol.rolling(window, min_periods=window).sum() / volume.rolling(
-        window, min_periods=window
-    ).sum()
+    vwap = (
+        tp_vol.rolling(window, min_periods=window).sum()
+        / volume.rolling(window, min_periods=window).sum()
+    )
 
     deviation = (close - vwap) / vwap.replace(0.0, np.nan)
     z = (deviation - deviation.rolling(window, min_periods=window).mean()) / (
@@ -531,9 +530,7 @@ def build_feature_matrix(
         cfg.triple_barrier_max_holding_bars + 63,  # 63 = EWMA vol warmup
     )
     if n_input < min_required:
-        raise ValueError(
-            f"bars has {n_input} rows; need at least {min_required} for all windows"
-        )
+        raise ValueError(f"bars has {n_input} rows; need at least {min_required} for all windows")
 
     close = bars["close"].astype(np.float64)
     high = bars["high"].astype(np.float64)
@@ -626,21 +623,19 @@ def build_feature_matrix(
     # Drop rows with NaN in any feature (burn-in) or where label is NaN
     # (tail rows where holding window extends beyond data)
     before = len(feature_df)
-    feature_df = feature_df.dropna(
-        subset=FEATURE_COLUMNS + [COL_LABEL]
-    )
+    feature_df = feature_df.dropna(subset=FEATURE_COLUMNS + [COL_LABEL])
     dropped = before - len(feature_df)
 
     # Labels must be int for XGBoost — remap -1 (time-exit) → 0 for binary
     # classifier.  Triple-barrier label stored separately; meta-label uses it.
-    raw_labels = feature_df[COL_LABEL].copy()
+    feature_df[COL_LABEL].copy()
     # For the primary direction classifier: treat time-exit as abstain;
     # keep only rows where a definitive barrier was hit (label in {0, 1}).
     direction_mask = feature_df[COL_LABEL].isin([0.0, 1.0])
     feature_df_dir = feature_df[direction_mask].copy()
 
     primary_signal_approx = feature_df_dir[COL_LABEL].astype(np.int8)
-    ml_series = meta_labels(primary_signal_approx, primary_signal_approx)
+    meta_labels(primary_signal_approx, primary_signal_approx)
     # Meta-labels are all 1 when trained on realized labels directly;
     # in trainer.py the primary model's predictions are used instead.
     # Here we attach the realized triple-barrier labels as the source of truth.
@@ -725,7 +720,7 @@ def build_inference_features(
     high = history["high"].astype(np.float64)
     low = history["low"].astype(np.float64)
     volume = history["volume"].astype(np.float64)
-    log_ret = np.log(close / close.shift(1)).fillna(0.0)
+    np.log(close / close.shift(1)).fillna(0.0)
 
     fd_val = fractional_differentiation(
         close, cfg.frac_diff_d, cfg.frac_diff_threshold, _FRAC_DIFF_MAX_WINDOW

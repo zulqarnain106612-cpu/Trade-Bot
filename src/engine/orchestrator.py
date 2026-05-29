@@ -18,7 +18,6 @@ Authority:
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime, timezone
 from typing import Union
 
@@ -43,7 +42,7 @@ from src.risk.kelly import compute_win_loss_stats
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
-_RETRAIN_INTERVAL_TICKS: int = 96   # 96 × 15m = 24 h
+_RETRAIN_INTERVAL_TICKS: int = 96  # 96 × 15m = 24 h
 _HISTORY_BARS_FOR_TRAIN: int = 2000
 _REGIME_LOOKBACK_BARS: int = 500
 
@@ -103,7 +102,8 @@ class Orchestrator:
         # Create executor
         if self._cfg.trading_mode == TradingMode.LIVE:
             self._executor = LiveExecutor(
-                self._storage, self._fetcher,
+                self._storage,
+                self._fetcher,
                 starting_capital=self._cfg.starting_capital_usd,
             )
         else:
@@ -115,8 +115,7 @@ class Orchestrator:
 
         # Bootstrap bars for all timeframes concurrently
         bootstrap_tasks = [
-            self._fetcher.bootstrap_history(self._symbol, tf)
-            for tf in self._timeframes
+            self._fetcher.bootstrap_history(self._symbol, tf) for tf in self._timeframes
         ]
         await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
 
@@ -334,10 +333,7 @@ class Orchestrator:
             )
 
         # Scheduled retraining on primary timeframe
-        if (
-            tf == self._primary_tf
-            and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0
-        ):
+        if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
             asyncio.create_task(
                 self._train_models(tf),
                 name=f"retrain_{tf.value}",
@@ -370,7 +366,7 @@ class Orchestrator:
             return
 
         import pandas as pd
-        import numpy as np
+
         bars = pd.DataFrame(
             {
                 "open": [r.open for r in records],
@@ -408,8 +404,7 @@ class Orchestrator:
             meta_result = await loop.run_in_executor(
                 None, trainer.train_meta_label, fm, dir_result.model
             )
-            trainer.save(dir_result.model, meta_result.model,
-                         self._cfg.storage.model_dir, version)
+            trainer.save(dir_result.model, meta_result.model, self._cfg.storage.model_dir, version)
 
             # Persist metrics to storage
             await self._storage.insert_model_metrics(
@@ -428,9 +423,9 @@ class Orchestrator:
                     self._cfg.storage.model_dir, self._symbol, tf.value
                 )
                 engine = self._engines[tf.value]
-                engine._direction_model = new_dir   # noqa: SLF001
-                engine._meta_model = new_meta        # noqa: SLF001
-                engine._detector = detector          # noqa: SLF001
+                engine._direction_model = new_dir  # noqa: SLF001
+                engine._meta_model = new_meta  # noqa: SLF001
+                engine._detector = detector  # noqa: SLF001
 
             self._log.info(
                 "orchestrator.training_complete",
@@ -454,15 +449,12 @@ class Orchestrator:
                 now = datetime.now(tz=timezone.utc)
                 # Seconds until next midnight
                 next_midnight = (
-                    now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    .timestamp() + 86400
+                    now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() + 86400
                 )
                 sleep_s = max(1.0, next_midnight - now.timestamp())
                 await asyncio.sleep(sleep_s)
                 if self._executor is not None:
-                    self._executor.drawdown_tracker.reset_daily(
-                        self._executor.equity_usd
-                    )
+                    self._executor.drawdown_tracker.reset_daily(self._executor.equity_usd)
                     self._log.info(
                         "orchestrator.daily_reset",
                         equity_usd=self._executor.equity_usd,

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Final
 
 import structlog
 
@@ -432,15 +431,11 @@ def evaluate_all_gates(
         cfg = get_settings().risk
 
     gates = [
-        lambda: check_daily_drawdown(
-            ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg
-        ),
+        lambda: check_daily_drawdown(ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg),
         lambda: check_consecutive_losses(ctx.consecutive_loss_count, cfg),
         lambda: check_regime_gate(ctx.regime_state),
         lambda: check_position_size(ctx.notional_usd, ctx.capital_usd, cfg),
-        lambda: check_live_gate(
-            ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass
-        ),
+        lambda: check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
     ]
 
     for gate_fn in gates:
@@ -458,9 +453,7 @@ def evaluate_all_gates(
         "risk.gate.pass",
         regime=ctx.regime_state,
         consecutive_losses=ctx.consecutive_loss_count,
-        drawdown_pct=round(
-            (ctx.daily_pnl_usd / ctx.starting_equity_usd) * 100.0, 3
-        )
+        drawdown_pct=round((ctx.daily_pnl_usd / ctx.starting_equity_usd) * 100.0, 3)
         if ctx.starting_equity_usd > 0
         else 0.0,
         notional_usd=ctx.notional_usd,

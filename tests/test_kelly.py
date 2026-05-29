@@ -4,7 +4,6 @@ import pytest
 
 from src.config import invalidate_settings_cache
 from src.risk.kelly import (
-    KellyResult,
     _floor_to_precision,
     compute_position_size,
     compute_win_loss_stats,
@@ -61,8 +60,8 @@ class TestKellyFraction:
 
     def test_symmetric_long_short(self):
         # Negative edge clips to 0; short side (p=0.4, b=0.5) has negative edge
-        f_long  = kelly_fraction(0.6, 2.0)
-        f_short = kelly_fraction(0.4, 0.5)   # (0.4*0.5-0.6)/0.5 = -0.8 → clipped 0
+        f_long = kelly_fraction(0.6, 2.0)
+        f_short = kelly_fraction(0.4, 0.5)  # (0.4*0.5-0.6)/0.5 = -0.8 → clipped 0
         assert f_long > 0.0
         assert f_short == 0.0
 
@@ -204,9 +203,12 @@ class TestSizePosition:
 class TestComputePositionSize:
     def test_full_pipeline_long(self):
         result = compute_position_size(
-            p_long=0.75, direction=1,
-            capital_usd=1000.0, entry_price=30000.0,
-            avg_win_usd=20.0, avg_loss_usd=10.0,
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
         )
         assert result is not None
         assert result.quantity > 0
@@ -214,15 +216,19 @@ class TestComputePositionSize:
 
     def test_full_pipeline_short(self):
         result = compute_position_size(
-            p_long=0.25, direction=0,
-            capital_usd=1000.0, entry_price=30000.0,
+            p_long=0.25,
+            direction=0,
+            capital_usd=1000.0,
+            entry_price=30000.0,
         )
         assert result is not None
 
     def test_low_confidence_still_sizes(self):
         result = compute_position_size(
-            p_long=0.51, direction=1,
-            capital_usd=1000.0, entry_price=30000.0,
+            p_long=0.51,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
         )
         assert result is not None
 

@@ -39,9 +39,9 @@ from src.risk.kelly import KellyResult
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-_LIVE_FEE_FALLBACK: Final[float] = 0.001   # fallback if exchange fee missing
-_ORDER_CONFIRM_POLLS: Final[int] = 10       # max polls for order confirmation
-_ORDER_CONFIRM_INTERVAL: Final[float] = 0.5 # seconds between polls
+_LIVE_FEE_FALLBACK: Final[float] = 0.001  # fallback if exchange fee missing
+_ORDER_CONFIRM_POLLS: Final[int] = 10  # max polls for order confirmation
+_ORDER_CONFIRM_INTERVAL: Final[float] = 0.5  # seconds between polls
 
 
 # ---------------------------------------------------------------------------
@@ -225,22 +225,38 @@ class LiveExecutor:
 
         if mode == ExecutionMode.AUTOMATIC:
             trade_id = await self._place_and_record(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal, approved_by="auto",
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
+                approved_by="auto",
             )
             return trade_id, "opened" if trade_id else "rejected"
 
         if mode == ExecutionMode.RESTRICTED:
             if kelly_result.notional_usd <= self._risk_cfg.notional_limit_usd:
                 trade_id = await self._place_and_record(
-                    symbol, timeframe, direction, kelly_result,
-                    regime_state, meta_label_prob, raw_signal,
+                    symbol,
+                    timeframe,
+                    direction,
+                    kelly_result,
+                    regime_state,
+                    meta_label_prob,
+                    raw_signal,
                     approved_by="auto_below_limit",
                 )
                 return trade_id, "opened" if trade_id else "rejected"
             req_id = await self._enqueue_approval(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
             )
             approved, operator = await self._await_approval(
                 req_id, self._risk_cfg.approval_timeout_s
@@ -248,22 +264,39 @@ class LiveExecutor:
             if not approved:
                 return None, "skipped"
             trade_id = await self._place_and_record(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal, approved_by=operator,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
+                approved_by=operator,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
         if mode == ExecutionMode.MANUAL:
             req_id = await self._enqueue_approval(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
             )
             approved, operator = await self._await_approval(req_id, timeout_s=None)
             if not approved:
                 return None, "rejected"
             trade_id = await self._place_and_record(
-                symbol, timeframe, direction, kelly_result,
-                regime_state, meta_label_prob, raw_signal, approved_by=operator,
+                symbol,
+                timeframe,
+                direction,
+                kelly_result,
+                regime_state,
+                meta_label_prob,
+                raw_signal,
+                approved_by=operator,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -392,11 +425,7 @@ class LiveExecutor:
         return True
 
     def pending_approvals(self) -> list[dict[str, object]]:
-        return [
-            req.to_dict()
-            for req in self._approval_queue.values()
-            if not req.resolved
-        ]
+        return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
 
     # ------------------------------------------------------------------
     # State queries
@@ -415,9 +444,9 @@ class LiveExecutor:
                 "quantity": p.quantity,
                 "notional_usd": round(p.notional_usd, 2),
                 "unrealized_pnl": round(p.unrealized_pnl, 4),
-                "unrealized_pnl_pct": round(
-                    p.unrealized_pnl / p.notional_usd * 100.0, 3
-                ) if p.notional_usd > 0 else 0.0,
+                "unrealized_pnl_pct": round(p.unrealized_pnl / p.notional_usd * 100.0, 3)
+                if p.notional_usd > 0
+                else 0.0,
                 "regime_at_entry": p.regime_at_entry,
                 "entry_ts": p.entry_ts,
             }

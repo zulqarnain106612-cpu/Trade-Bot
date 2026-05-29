@@ -11,7 +11,6 @@ from src.config import (
 )
 from src.risk.gates import (
     DrawdownTracker,
-    GateResult,
     GateStatus,
     RiskGateContext,
     check_consecutive_losses,

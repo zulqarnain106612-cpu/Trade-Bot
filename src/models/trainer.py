@@ -32,16 +32,12 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import KFold
 from xgboost import XGBClassifier
 
 from src.config import XGBoostSettings, FeatureSettings, get_settings
 from src.data.storage import ModelMetricsRecord
 from src.features.pipeline import (
     FEATURE_COLUMNS,
-    COL_LABEL,
-    COL_META_LABEL,
-    COL_RETURN,
     FeatureMatrix,
     meta_labels,
 )
@@ -119,9 +115,7 @@ def build_cpcv_folds(
     embargo_size = max(1, int(n_samples * embargo_pct))
 
     folds: list[CPCVFold] = []
-    for fold_id, test_group_ids in enumerate(
-        combinations(range(n_splits), n_test_splits)
-    ):
+    for fold_id, test_group_ids in enumerate(combinations(range(n_splits), n_test_splits)):
         test_group_set = set(test_group_ids)
         test_idx = np.concatenate([groups[g] for g in sorted(test_group_set)])
         test_start = int(test_idx.min())
@@ -487,7 +481,7 @@ class ModelTrainer:
         dir_preds = (dir_probs >= 0.5).astype(np.int8)
 
         # Meta-labels: 1 when direction model agrees with realized outcome
-        y_dir = fm.labels.to_numpy(dtype=np.int8)
+        fm.labels.to_numpy(dtype=np.int8)
         meta_y = meta_labels(
             pd.Series(dir_preds, index=fm.labels.index, dtype=np.int8),
             fm.labels,
@@ -745,13 +739,15 @@ class ModelTrainer:
                 # Not enough for eval set — disable early stopping for this fold
                 model.set_params(early_stopping_rounds=None)
                 model.fit(
-                    X[tr], y[tr],
+                    X[tr],
+                    y[tr],
                     sample_weight=weights[tr],
                     verbose=False,
                 )
             else:
                 model.fit(
-                    X[tr_inner], y[tr_inner],
+                    X[tr_inner],
+                    y[tr_inner],
                     sample_weight=weights[tr_inner],
                     eval_set=[(X[val_inner], y[val_inner])],
                     verbose=False,

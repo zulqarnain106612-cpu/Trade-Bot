@@ -7,7 +7,6 @@ import pytest
 from src.config import invalidate_settings_cache
 from src.features.pipeline import (
     FEATURE_COLUMNS,
-    COL_FRAC_DIFF,
     COL_LABEL,
     COL_META_LABEL,
     COL_OFI,
@@ -19,7 +18,6 @@ from src.features.pipeline import (
     FeatureMatrix,
     _compute_daily_vol,
     _frac_diff_weights,
-    _FRAC_DIFF_MAX_WINDOW,
     atr_momentum,
     build_feature_matrix,
     build_inference_features,
@@ -50,13 +48,15 @@ def synthetic_bars() -> pd.DataFrame:
     high = close + np.abs(np.random.randn(N) * 30)
     low = close - np.abs(np.random.randn(N) * 30)
     volume = pd.Series(np.abs(np.random.randn(N) * 100 + 500), dtype=np.float64)
-    return pd.DataFrame({
-        "open": close * 0.999,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-    })
+    return pd.DataFrame(
+        {
+            "open": close * 0.999,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        }
+    )
 
 
 # ─── _frac_diff_weights ───────────────────────────────────────────────────────
