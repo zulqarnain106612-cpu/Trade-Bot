@@ -1,0 +1,1462 @@
+--- src/features/pipeline.py
+ 520:         raise ValueError(f"bars DataFrame missing required columns: {missing}")
+ 521: 
+ 522:     n_input = len(bars)
+ 523:     min_required = max(
+ 524:         cfg.vwap_window,
+ 525:         cfg.ofi_window,
+ 526:         cfg.realized_vol_window_long,
+ 527:         cfg.atr_window,
+ 528:         cfg.sharpe_window,
+ 529:         cfg.volume_zscore_window,
+ 530:         cfg.triple_barrier_max_holding_bars + 63,  # 63 = EWMA vol warmup
+ 531:     )
+ 532:     if n_input < min_required:
+ 533:         raise ValueError(f"bars has {n_input} rows; need at least {min_required} for all windows")
+ 534: 
+ 535:     close = bars["close"].astype(np.float64)
+ 536:     high = bars["high"].astype(np.float64)
+ 537:     low = bars["low"].astype(np.float64)
+ 538:     volume = bars["volume"].astype(np.float64)
+ 539: 
+ 540:     log_ret = np.log(close / close.shift(1))
+ 541: 
+ 542:     # ------------------------------------------------------------------ #
+ 543:     # 1. Fractional differentiation (AFML Ch.5)
+ 544:     # ------------------------------------------------------------------ #
+ 545:     fd = fractional_differentiation(
+ 546:         close,
+ 547:         d=cfg.frac_diff_d,
+ 548:         threshold=cfg.frac_diff_threshold,
+ 549:         max_window=_FRAC_DIFF_MAX_WINDOW,
+ 550:     )
+ 551: 
+ 552:     # ------------------------------------------------------------------ #
+ 553:     # 2. VWAP deviation z-score
+ 554:     # ------------------------------------------------------------------ #
+ 555:     vwap_dev = vwap_deviation_zscore(high, low, close, volume, window=cfg.vwap_window)
+ 556: 
+ 557:     # ------------------------------------------------------------------ #
+ 558:     # 3. OFI — live snapshot override or OHLCV proxy
+ 559:     # ------------------------------------------------------------------ #
+ 560:     if ofi_snapshots is not None:
+ 561:         ofi_series = ofi_snapshots.reindex(bars.index).rename(COL_OFI)
+ 562:     else:
+ 563:         ofi_series = order_flow_imbalance(close, volume, window=cfg.ofi_window)
+ 564: 
+ 565:     # ------------------------------------------------------------------ #
+ 566:     # 4. Realized volatility ratio
+ 567:     # ------------------------------------------------------------------ #
+ 568:     rv_ratio = realized_vol_ratio(
+ 569:         close,
+ 570:         short_window=cfg.realized_vol_window_short,
+ 571:         long_window=cfg.realized_vol_window_long,
+ 572:     )
+ 573: 
+ 574:     # ------------------------------------------------------------------ #
+ 575:     # 5. ATR momentum
+ 576:     # ------------------------------------------------------------------ #
+ 577:     atr_mom = atr_momentum(high, low, close, window=cfg.atr_window)
+ 578: 
+ 579:     # ------------------------------------------------------------------ #
+ 580:     # 6. Rolling Sharpe
+ 581:     # ------------------------------------------------------------------ #
+ 582:     r_sharpe = rolling_sharpe(close, window=cfg.sharpe_window)
+ 583: 
+ 584:     # ------------------------------------------------------------------ #
+ 585:     # 7. Volume z-score
+ 586:     # ------------------------------------------------------------------ #
+ 587:     vol_z = volume_zscore(volume, window=cfg.volume_zscore_window)
+ 588: 
+ 589:     # ------------------------------------------------------------------ #
+ 590:     # 8. Daily vol — shared by triple-barrier + trainer sample weights
+ 591:     # ------------------------------------------------------------------ #
+ 592:     daily_vol = _compute_daily_vol(log_ret.fillna(0.0))
+ 593: 
+ 594:     # ------------------------------------------------------------------ #
+ 595:     # 9. Triple-barrier labels (AFML Ch.3)
+ 596:     # ------------------------------------------------------------------ #
+ 597:     tb_labels = triple_barrier_labels(
+ 598:         close,
+ 599:         pt_multiplier=cfg.triple_barrier_pt_multiplier,
+ 600:         sl_multiplier=cfg.triple_barrier_sl_multiplier,
+ 601:         max_holding=cfg.triple_barrier_max_holding_bars,
+ 602:         daily_vol=daily_vol,
+ 603:     )
+ 604: 
+ 605:     # ------------------------------------------------------------------ #
+ 606:     # Assemble feature matrix — drop any row with NaN in features or label
+ 607:     # ------------------------------------------------------------------ #
+ 608:     feature_df = pd.DataFrame(
+ 609:         {
+ 610:             COL_FRAC_DIFF: fd,
+ 611:             COL_VWAP_DEV: vwap_dev,
+ 612:             COL_OFI: ofi_series,
+ 613:             COL_REALIZED_VOL_RATIO: rv_ratio,
+ 614:             COL_ATR_MOMENTUM: atr_mom,
+ 615:             COL_ROLLING_SHARPE: r_sharpe,
+ 616:             COL_VOLUME_ZSCORE: vol_z,
+ 617:             COL_LABEL: tb_labels,
+ 618:             COL_RETURN: log_ret,
+ 619:         },
+ 620:         index=bars.index,
+ 621:     )
+ 622: 
+ 623:     # Drop rows with NaN in any feature (burn-in) or where label is NaN
+ 624:     # (tail rows where holding window extends beyond data)
+ 625:     before = len(feature_df)
+ 626:     feature_df = feature_df.dropna(subset=FEATURE_COLUMNS + [COL_LABEL])
+ 627:     dropped = before - len(feature_df)
+ 628: 
+ 629:     # Labels must be int for XGBoost — remap -1 (time-exit) → 0 for binary
+ 630:     # classifier.  Triple-barrier label stored separately; meta-label uses it.
+ 631:     feature_df[COL_LABEL].copy()
+ 632:     # For the primary direction classifier: treat time-exit as abstain;
+ 633:     # keep only rows where a definitive barrier was hit (label in {0, 1}).
+ 634:     direction_mask = feature_df[COL_LABEL].isin([0.0, 1.0])
+ 635:     feature_df_dir = feature_df[direction_mask].copy()
+ 636: 
+ 637:     primary_signal_approx = feature_df_dir[COL_LABEL].astype(np.int8)
+ 638:     meta_labels(primary_signal_approx, primary_signal_approx)
+ 639:     # Meta-labels are all 1 when trained on realized labels directly;
+ 640:     # in trainer.py the primary model's predictions are used instead.
+ 641:     # Here we attach the realized triple-barrier labels as the source of truth.
+ 642:     ml_series_full = meta_labels(
+ 643:         feature_df_dir[COL_LABEL].astype(np.int8),
+ 644:         feature_df_dir[COL_LABEL].astype(np.int8),
+ 645:     )
+ 646: 
+ 647:     log.info(
+ 648:         "pipeline.complete",
+ 649:         n_input=n_input,
+ 650:         n_output=len(feature_df_dir),
+ 651:         dropped=dropped,
+ 652:         label_long=(feature_df_dir[COL_LABEL] == 1.0).sum(),
+ 653:         label_short=(feature_df_dir[COL_LABEL] == 0.0).sum(),
+ 654:     )
+ 655: 
+ 656:     return FeatureMatrix(
+ 657:         features=feature_df_dir[FEATURE_COLUMNS],
+ 658:         labels=feature_df_dir[COL_LABEL].astype(np.int8),
+ 659:         meta=ml_series_full,
+ 660:         daily_vol=daily_vol.reindex(feature_df_dir.index),
+ 661:         log_returns=feature_df_dir[COL_RETURN],
+ 662:         dropped_rows=dropped,
+ 663:     )
+ 664: 
+ 665: 
+ 666: # ---------------------------------------------------------------------------
+ 667: # Inference-time feature builder — single new bar appended to history
+ 668: # ---------------------------------------------------------------------------
+ 669: 
+ 670: 
+ 671: def build_inference_features(
+ 672:     history: pd.DataFrame,
+ 673:     cfg: FeatureSettings | None = None,
+ 674:     live_ofi: float | None = None,
+ 675: ) -> pd.Series | None:
+ 676:     """
+ 677:     Compute feature vector for the most recent bar only.
+ 678: 
+ 679:     Accepts a history DataFrame (must include current bar as last row).
+ 680:     Returns a pd.Series of FEATURE_COLUMNS or None if not enough history.
+ 681: 
+ 682:     Parameters
+ 683:     ----------
+ 684:     history  : OHLCV DataFrame, last row = most recent closed bar
+ 685:     cfg      : FeatureSettings (optional, loaded from config if None)
+ 686:     live_ofi : real-time OFI scalar from OrderBookSnapshot (optional).
+ 687:                When provided, overrides the OHLCV-derived OFI for the
+ 688:                last row only.
+ 689: 
+ 690:     Returns
+ 691:     -------
+ 692:     pd.Series indexed by FEATURE_COLUMNS, or None if insufficient data.
+ 693:     """
+ 694:     if cfg is None:
+ 695:         cfg = get_settings().features
+ 696: 
+ 697:     missing = _REQ_COLS - set(history.columns)
+ 698:     if missing:
+ 699:         raise ValueError(f"history DataFrame missing required columns: {missing}")
+ 700: 
+ 701:     n = len(history)
+ 702:     min_rows = max(
+ 703:         cfg.vwap_window,
+ 704:         cfg.ofi_window,
+ 705:         cfg.realized_vol_window_long,
+ 706:         cfg.atr_window,
+ 707:         cfg.sharpe_window,
+ 708:         cfg.volume_zscore_window,
+ 709:         64,  # EWMA vol warmup
+ 710:     )
+ 711:     if n < min_rows:
+ 712:         log.debug(
+ 713:             "pipeline.inference_insufficient",
+ 714:             n_rows=n,
+ 715:             min_required=min_rows,
+ 716:         )
+ 717:         return None
+ 718: 
+ 719:     close = history["close"].astype(np.float64)
+ 720:     high = history["high"].astype(np.float64)
+ 721:     low = history["low"].astype(np.float64)
+ 722:     volume = history["volume"].astype(np.float64)
+ 723:     np.log(close / close.shift(1)).fillna(0.0)
+ 724: 
+ 725:     fd_val = fractional_differentiation(
+ 726:         close, cfg.frac_diff_d, cfg.frac_diff_threshold, _FRAC_DIFF_MAX_WINDOW
+ 727:     ).iloc[-1]
+ 728:     vwap_val = vwap_deviation_zscore(high, low, close, volume, cfg.vwap_window).iloc[-1]
+ 729: 
+ 730:     if live_ofi is not None:
+ 731:         ofi_val = float(live_ofi)
+ 732:     else:
+ 733:         ofi_val = order_flow_imbalance(close, volume, cfg.ofi_window).iloc[-1]
+ 734: 
+ 735:     rv_val = realized_vol_ratio(
+ 736:         close, cfg.realized_vol_window_short, cfg.realized_vol_window_long
+ 737:     ).iloc[-1]
+ 738:     atr_val = atr_momentum(high, low, close, cfg.atr_window).iloc[-1]
+ 739:     sharpe_val = rolling_sharpe(close, cfg.sharpe_window).iloc[-1]
+ 740:     volz_val = volume_zscore(volume, cfg.volume_zscore_window).iloc[-1]
+
+--- src/risk/gates.py
+   1: """
+   2: Risk gate engine — hard limits that block new positions.
+   3: 
+   4: Gates (all must pass for a trade to proceed):
+   5:   1. Daily drawdown halt     : daily PnL < -2% of starting equity → halt
+   6:   2. Consecutive loss halt   : 3+ consecutive losses → halt
+   7:   3. Regime gate             : no new positions when regime = volatile
+   8:   4. Max position size       : position notional ≤ 5% of capital
+   9:   5. Live gate               : both models must pass OOS thresholds before
+  10:                                live trading is permitted
+  11: 
+  12: Gates are evaluated in order; first failure short-circuits the rest.
+  13: All thresholds read from RiskSettings — never hard-coded here.
+  14: 
+  15: Authority:
+  16:   - López de Prado (2018) AFML Ch.3 (stop-loss barriers as risk gates)
+  17:   - Chan (2013) Algorithmic Trading Ch.7 (drawdown controls)
+  18: """
+  19: 
+  20: from __future__ import annotations
+  21: 
+  22: from dataclasses import dataclass
+  23: from enum import Enum
+  24: 
+  25: import structlog
+  26: 
+  27: from src.config import (
+  28:     REGIME_VOLATILE,
+  29:     RiskSettings,
+  30:     TradingMode,
+  31:     get_settings,
+  32: )
+  33: 
+  34: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  35: 
+  36: 
+  37: # ---------------------------------------------------------------------------
+  38: # Gate result types
+  39: # ---------------------------------------------------------------------------
+  40: 
+  41: 
+  42: class GateStatus(str, Enum):
+  43:     """Outcome of a risk gate evaluation."""
+  44: 
+  45:     PASS = "pass"
+  46:     HALT_DRAWDOWN = "halt_drawdown"
+  47:     HALT_CONSECUTIVE_LOSSES = "halt_consecutive_losses"
+  48:     HALT_REGIME = "halt_regime"
+  49:     HALT_POSITION_SIZE = "halt_position_size"
+  50:     HALT_LIVE_GATE = "halt_live_gate"
+  51:     HALT_PAPER_ONLY = "halt_paper_only"
+  52: 
+  53: 
+  54: @dataclass(frozen=True)
+  55: class GateResult:
+  56:     """
+  57:     Outcome of evaluating the full risk gate stack.
+  58: 
+  59:     status    : first gate that fired (or PASS)
+  60:     passed    : True only when status == GateStatus.PASS
+  61:     reason    : human-readable explanation
+  62:     details   : structured context for logging / API
+  63:     """
+  64: 
+  65:     status: GateStatus
+  66:     passed: bool
+  67:     reason: str
+  68:     details: dict[str, object]
+  69: 
+  70:     @classmethod
+  71:     def pass_gate(cls, details: dict[str, object] | None = None) -> "GateResult":
+  72:         return cls(
+  73:             status=GateStatus.PASS,
+  74:             passed=True,
+  75:             reason="all gates passed",
+  76:             details=details or {},
+  77:         )
+  78: 
+  79:     @classmethod
+  80:     def fail(
+  81:         cls,
+  82:         status: GateStatus,
+  83:         reason: str,
+  84:         details: dict[str, object] | None = None,
+  85:     ) -> "GateResult":
+  86:         return cls(
+  87:             status=status,
+  88:             passed=False,
+  89:             reason=reason,
+  90:             details=details or {},
+  91:         )
+  92: 
+  93: 
+  94: # ---------------------------------------------------------------------------
+  95: # Individual gate functions — pure, testable
+  96: # ---------------------------------------------------------------------------
+  97: 
+  98: 
+  99: def check_daily_drawdown(
+ 100:     daily_pnl_usd: float,
+ 101:     starting_equity_usd: float,
+ 102:     cfg: RiskSettings | None = None,
+ 103: ) -> GateResult:
+ 104:     """
+ 105:     Gate 1: daily drawdown halt.
+ 106: 
+ 107:     Blocks new positions when today's realized PnL has fallen below
+ 108:     -N% of starting equity (spec: N=2%).
+ 109: 
+ 110:     Parameters
+ 111:     ----------
+ 112:     daily_pnl_usd      : today's net realized PnL in USD (negative = loss)
+ 113:     starting_equity_usd: equity at the start of the trading day
+ 114: 
+ 115:     Returns
+ 116:     -------
+ 117:     GateResult — PASS or HALT_DRAWDOWN.
+ 118:     """
+ 119:     if cfg is None:
+ 120:         cfg = get_settings().risk
+ 121: 
+ 122:     if starting_equity_usd <= 0.0:
+ 123:         return GateResult.fail(
+ 124:             GateStatus.HALT_DRAWDOWN,
+ 125:             reason="starting_equity_usd is zero or negative",
+ 126:             details={"starting_equity_usd": starting_equity_usd},
+ 127:         )
+ 128: 
+ 129:     drawdown_pct = (daily_pnl_usd / starting_equity_usd) * 100.0
+ 130:     threshold = -cfg.daily_drawdown_halt_pct
+ 131: 
+ 132:     if drawdown_pct <= threshold:
+ 133:         return GateResult.fail(
+ 134:             GateStatus.HALT_DRAWDOWN,
+ 135:             reason=(
+ 136:                 f"Daily drawdown {drawdown_pct:.2f}% ≤ threshold {threshold:.2f}% "
+ 137:                 f"— trading halted for remainder of session"
+ 138:             ),
+ 139:             details={
+ 140:                 "daily_pnl_usd": round(daily_pnl_usd, 2),
+ 141:                 "starting_equity_usd": round(starting_equity_usd, 2),
+ 142:                 "drawdown_pct": round(drawdown_pct, 4),
+ 143:                 "threshold_pct": threshold,
+ 144:             },
+ 145:         )
+ 146: 
+ 147:     return GateResult.pass_gate(
+ 148:         details={
+ 149:             "daily_pnl_usd": round(daily_pnl_usd, 2),
+ 150:             "drawdown_pct": round(drawdown_pct, 4),
+ 151:             "threshold_pct": threshold,
+ 152:         }
+ 153:     )
+ 154: 
+ 155: 
+ 156: def check_consecutive_losses(
+ 157:     consecutive_loss_count: int,
+ 158:     cfg: RiskSettings | None = None,
+ 159: ) -> GateResult:
+ 160:     """
+ 161:     Gate 2: consecutive loss halt.
+ 162: 
+ 163:     Blocks new positions after N consecutive losing trades (spec: N=3).
+ 164:     Resets when a winning trade occurs (tracked externally by executor).
+ 165: 
+ 166:     Parameters
+ 167:     ----------
+ 168:     consecutive_loss_count : number of trailing consecutive losing trades
+ 169: 
+ 170:     Returns
+ 171:     -------
+ 172:     GateResult — PASS or HALT_CONSECUTIVE_LOSSES.
+ 173:     """
+ 174:     if cfg is None:
+ 175:         cfg = get_settings().risk
+ 176: 
+ 177:     if consecutive_loss_count >= cfg.consecutive_loss_halt:
+ 178:         return GateResult.fail(
+ 179:             GateStatus.HALT_CONSECUTIVE_LOSSES,
+ 180:             reason=(
+ 181:                 f"{consecutive_loss_count} consecutive losses ≥ "
+ 182:                 f"halt threshold {cfg.consecutive_loss_halt}"
+ 183:             ),
+ 184:             details={
+ 185:                 "consecutive_losses": consecutive_loss_count,
+ 186:                 "threshold": cfg.consecutive_loss_halt,
+ 187:             },
+ 188:         )
+ 189: 
+ 190:     return GateResult.pass_gate(
+ 191:         details={
+ 192:             "consecutive_losses": consecutive_loss_count,
+ 193:             "threshold": cfg.consecutive_loss_halt,
+ 194:         }
+ 195:     )
+ 196: 
+ 197: 
+ 198: def check_regime_gate(
+ 199:     regime_state: int,
+ 200: ) -> GateResult:
+ 201:     """
+ 202:     Gate 3: regime volatility gate.
+ 203: 
+ 204:     Blocks all new positions when the HMM regime detector returns
+ 205:     state = REGIME_VOLATILE (state index 2).
+ 206: 
+ 207:     Parameters
+ 208:     ----------
+ 209:     regime_state : current canonical regime index (0=ranging, 1=trending, 2=volatile)
+ 210: 
+ 211:     Returns
+ 212:     -------
+ 213:     GateResult — PASS or HALT_REGIME.
+ 214:     """
+ 215:     if regime_state == REGIME_VOLATILE:
+ 216:         return GateResult.fail(
+ 217:             GateStatus.HALT_REGIME,
+ 218:             reason="Regime is VOLATILE — no new positions permitted",
+ 219:             details={"regime_state": regime_state, "volatile_index": REGIME_VOLATILE},
+ 220:         )
+ 221: 
+ 222:     regime_names: dict[int, str] = {0: "ranging", 1: "trending", 2: "volatile"}
+ 223:     return GateResult.pass_gate(
+ 224:         details={
+ 225:             "regime_state": regime_state,
+ 226:             "regime_name": regime_names.get(regime_state, "unknown"),
+ 227:         }
+ 228:     )
+ 229: 
+ 230: 
+ 231: def check_position_size(
+ 232:     notional_usd: float,
+ 233:     capital_usd: float,
+ 234:     cfg: RiskSettings | None = None,
+ 235: ) -> GateResult:
+ 236:     """
+ 237:     Gate 4: maximum position size.
+ 238: 
+ 239:     Rejects the trade if the requested notional exceeds
+ 240:     max_position_size_pct of current capital (spec: 5%).
+ 241: 
+ 242:     Parameters
+ 243:     ----------
+ 244:     notional_usd : proposed trade notional in USD
+ 245:     capital_usd  : current equity in USD
+ 246: 
+ 247:     Returns
+ 248:     -------
+ 249:     GateResult — PASS or HALT_POSITION_SIZE.
+ 250:     """
+ 251:     if cfg is None:
+ 252:         cfg = get_settings().risk
+ 253: 
+ 254:     if capital_usd <= 0.0:
+ 255:         return GateResult.fail(
+ 256:             GateStatus.HALT_POSITION_SIZE,
+ 257:             reason="capital_usd is zero or negative",
+ 258:             details={"capital_usd": capital_usd},
+ 259:         )
+ 260: 
+ 261:     position_pct = (notional_usd / capital_usd) * 100.0
+ 262:     if position_pct > cfg.max_position_size_pct:
+ 263:         return GateResult.fail(
+ 264:             GateStatus.HALT_POSITION_SIZE,
+ 265:             reason=(
+ 266:                 f"Position {position_pct:.2f}% of capital exceeds "
+ 267:                 f"max {cfg.max_position_size_pct:.1f}%"
+ 268:             ),
+ 269:             details={
+ 270:                 "notional_usd": round(notional_usd, 2),
+ 271:                 "capital_usd": round(capital_usd, 2),
+ 272:                 "position_pct": round(position_pct, 4),
+ 273:                 "max_pct": cfg.max_position_size_pct,
+ 274:             },
+ 275:         )
+ 276: 
+ 277:     return GateResult.pass_gate(
+ 278:         details={
+ 279:             "notional_usd": round(notional_usd, 2),
+ 280:             "position_pct": round(position_pct, 4),
+ 281:             "max_pct": cfg.max_position_size_pct,
+ 282:         }
+ 283:     )
+ 284: 
+ 285: 
+ 286: def check_live_gate(
+ 287:     trading_mode: TradingMode,
+ 288:     direction_gate_pass: bool,
+ 289:     meta_gate_pass: bool,
+ 290: ) -> GateResult:
+ 291:     """
+ 292:     Gate 5: live trading model quality gate.
+ 293: 
+ 294:     Live trading is only permitted when:
+ 295:       - trading_mode == TradingMode.LIVE
+ 296:       - Both direction and meta-label models pass OOS thresholds
+ 297:         (OOS Sharpe > 1.5, max DD < 15%, ≥ 500 trades — stored in DB)
+ 298: 
+ 299:     In paper mode this gate always passes (paper needs no quality guard).
+ 300: 
+ 301:     Parameters
+ 302:     ----------
+ 303:     trading_mode       : current TradingMode
+ 304:     direction_gate_pass: latest direction model live_gate_pass from DB
+ 305:     meta_gate_pass     : latest meta-label model live_gate_pass from DB
+ 306: 
+ 307:     Returns
+ 308:     -------
+ 309:     GateResult — PASS or HALT_LIVE_GATE.
+ 310:     """
+ 311:     if trading_mode == TradingMode.PAPER:
+ 312:         return GateResult.pass_gate(
+ 313:             details={"trading_mode": trading_mode.value, "gate_check": "skipped_paper"}
+ 314:         )
+ 315: 
+ 316:     if not direction_gate_pass or not meta_gate_pass:
+ 317:         return GateResult.fail(
+ 318:             GateStatus.HALT_LIVE_GATE,
+ 319:             reason=(
+ 320:                 "Live gate blocked: models have not passed OOS validation thresholds. "
+ 321:                 "Run trainer and verify OOS Sharpe > 1.5, max DD < 15%, trades ≥ 500."
+ 322:             ),
+ 323:             details={
+ 324:                 "direction_gate_pass": direction_gate_pass,
+ 325:                 "meta_gate_pass": meta_gate_pass,
+ 326:                 "trading_mode": trading_mode.value,
+ 327:             },
+ 328:         )
+ 329: 
+ 330:     return GateResult.pass_gate(
+ 331:         details={
+ 332:             "direction_gate_pass": direction_gate_pass,
+ 333:             "meta_gate_pass": meta_gate_pass,
+ 334:             "trading_mode": trading_mode.value,
+ 335:         }
+ 336:     )
+ 337: 
+ 338: 
+ 339: def check_paper_minimum_days(
+
+--- src/engine/signal_engine.py
+   1: """
+   2: Signal engine — per-timeframe signal computation pipeline.
+   3: 
+   4: On every tick for a given (symbol, timeframe):
+   5:   1. Gap-fill bars from exchange into storage
+   6:   2. Load recent bars, build feature vector
+   7:   3. Predict HMM regime
+   8:   4. Evaluate risk gates (regime, drawdown, consecutive losses)
+   9:   5. Run XGBoost direction classifier → P(long)
+  10:   6. Run meta-label gate → P(bet)
+  11:   7. Compute Kelly position size
+  12:   8. Check position-size gate
+  13:   9. Return SignalResult to orchestrator
+  14: 
+  15: The signal engine owns no state beyond its injected dependencies.
+  16: All state lives in storage or the executor.
+  17: 
+  18: Authority:
+  19:   - López de Prado (2018) AFML Ch.3–4 signal construction
+  20:   - Hamilton (1989) regime gate
+  21:   - Kelly (1956) position sizing
+  22: """
+  23: 
+  24: from __future__ import annotations
+  25: 
+  26: from dataclasses import dataclass
+  27: from typing import Final
+  28: 
+  29: import pandas as pd
+  30: import structlog
+  31: from xgboost import XGBClassifier
+  32: 
+  33: from src.config import Timeframe, get_settings
+  34: from src.data.fetcher import MarketDataFetcher
+  35: from src.data.storage import StorageBackend
+  36: from src.features.pipeline import (
+  37:     build_inference_features,
+  38: )
+  39: from src.regime.detector import RegimeDetector, RegimePrediction
+  40: from src.risk.gates import (
+  41:     GateResult,
+  42:     RiskGateContext,
+  43:     evaluate_all_gates,
+  44: )
+  45: from src.risk.kelly import KellyResult, compute_position_size
+  46: from src.models.trainer import ModelTrainer
+  47: 
+  48: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  49: 
+  50: # Minimum bars in storage before a signal can be generated
+  51: _MIN_BARS_FOR_SIGNAL: Final[int] = 300
+  52: 
+  53: 
+  54: # ---------------------------------------------------------------------------
+  55: # Signal result
+  56: # ---------------------------------------------------------------------------
+  57: 
+  58: 
+  59: @dataclass(frozen=True)
+  60: class SignalResult:
+  61:     """
+  62:     Complete output of one signal engine tick.
+  63: 
+  64:     tradeable     : True when all gates pass and meta-label says bet
+  65:     direction     : 1=long, 0=short (valid only when tradeable)
+  66:     p_long        : XGBoost P(long)
+  67:     p_bet         : meta-label P(bet)
+  68:     kelly_result  : position sizing (None when not tradeable)
+  69:     regime        : current regime prediction
+  70:     gate_result   : final gate evaluation result
+  71:     skip_reason   : human-readable reason when not tradeable
+  72:     """
+  73: 
+  74:     tradeable: bool
+  75:     direction: int
+  76:     p_long: float
+  77:     p_bet: float
+  78:     kelly_result: KellyResult | None
+  79:     regime: RegimePrediction | None
+  80:     gate_result: GateResult | None
+  81:     skip_reason: str
+  82: 
+  83: 
+  84: # ---------------------------------------------------------------------------
+  85: # SignalEngine
+  86: # ---------------------------------------------------------------------------
+  87: 
+  88: 
+  89: class SignalEngine:
+  90:     """
+  91:     Stateless per-timeframe signal computation engine.
+  92: 
+  93:     One instance per (symbol, timeframe).  Injected with fitted models
+  94:     and shared infrastructure objects by the orchestrator.
+  95: 
+  96:     Usage::
+  97: 
+  98:         engine = SignalEngine(
+  99:             symbol='BTC/USDT',
+ 100:             timeframe=Timeframe.INTRADAY,
+ 101:             storage=storage,
+ 102:             fetcher=fetcher,
+ 103:             detector=detector,
+ 104:             direction_model=direction_model,
+ 105:             meta_model=meta_model,
+ 106:             trainer=trainer,
+ 107:         )
+ 108:         result = await engine.tick(
+ 109:             capital_usd=1000.0,
+ 110:             daily_pnl_usd=-5.0,
+ 111:             starting_equity_usd=1000.0,
+ 112:             consecutive_loss_count=1,
+ 113:             direction_gate_pass=True,
+ 114:             meta_gate_pass=True,
+ 115:         )
+ 116:     """
+ 117: 
+ 118:     def __init__(
+ 119:         self,
+ 120:         symbol: str,
+ 121:         timeframe: Timeframe,
+ 122:         storage: StorageBackend,
+ 123:         fetcher: MarketDataFetcher,
+ 124:         detector: RegimeDetector,
+ 125:         direction_model: XGBClassifier,
+ 126:         meta_model: XGBClassifier,
+ 127:         trainer: ModelTrainer,
+ 128:     ) -> None:
+ 129:         self._symbol = symbol
+ 130:         self._timeframe = timeframe
+ 131:         self._storage = storage
+ 132:         self._fetcher = fetcher
+ 133:         self._detector = detector
+ 134:         self._direction_model = direction_model
+ 135:         self._meta_model = meta_model
+ 136:         self._trainer = trainer
+ 137:         self._cfg = get_settings()
+ 138:         self._log = log.bind(
+ 139:             component="signal_engine",
+ 140:             symbol=symbol,
+ 141:             timeframe=timeframe.value,
+ 142:         )
+ 143: 
+ 144:     # ------------------------------------------------------------------
+ 145:     # Main tick — called by orchestrator on every bar close
+ 146:     # ------------------------------------------------------------------
+ 147: 
+ 148:     async def tick(
+ 149:         self,
+ 150:         capital_usd: float,
+ 151:         daily_pnl_usd: float,
+ 152:         starting_equity_usd: float,
+ 153:         consecutive_loss_count: int,
+ 154:         direction_gate_pass: bool,
+ 155:         meta_gate_pass: bool,
+ 156:         avg_win_usd: float = 0.0,
+ 157:         avg_loss_usd: float = 0.0,
+ 158:     ) -> SignalResult:
+ 159:         """
+ 160:         Run one full signal computation cycle.
+ 161: 
+ 162:         Parameters
+ 163:         ----------
+ 164:         capital_usd           : current equity for position sizing
+ 165:         daily_pnl_usd         : today's realized PnL for drawdown gate
+ 166:         starting_equity_usd   : day-start equity for drawdown % calc
+ 167:         consecutive_loss_count: trailing loss streak for consecutive gate
+ 168:         direction_gate_pass   : direction model passed OOS live gate
+ 169:         meta_gate_pass        : meta model passed OOS live gate
+
+--- src/api/main.py
+   1: """
+   2: FastAPI dashboard API.
+   3: 
+   4: Endpoints:
+   5:   GET  /health                     — system health + storage counts
+   6:   GET  /status                     — equity, positions, regime, execution mode
+   7:   GET  /trades                     — paginated trade history
+   8:   GET  /equity                     — equity curve for charting
+   9:   GET  /regime/{timeframe}         — latest regime snapshot
+  10:   GET  /approvals                  — pending approval requests
+  11:   POST /approvals/{id}/resolve     — approve or reject a pending trade
+  12:   POST /execution-mode             — switch AUTOMATIC/RESTRICTED/MANUAL at runtime
+  13:   WS   /ws                         — live push of equity + positions + signals
+  14: 
+  15: WebSocket push format (JSON):
+  16:   { "type": "tick", "equity_usd": ..., "positions": [...], "regime": {...} }
+  17:   { "type": "approval", "request": {...} }
+  18:   { "type": "trade", "trade": {...} }
+  19: """
+  20: 
+  21: from __future__ import annotations
+  22: 
+  23: import asyncio
+  24: import json
+  25: from contextlib import asynccontextmanager
+  26: from datetime import datetime, timezone
+  27: from typing import Any, AsyncIterator
+  28: 
+  29: import structlog
+  30: from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+  31: from fastapi.middleware.cors import CORSMiddleware
+  32: from pydantic import BaseModel
+  33: 
+  34: from src.config import ExecutionMode, get_settings, invalidate_settings_cache
+  35: from src.data.fetcher import open_fetcher
+  36: from src.data.storage import StorageBackend
+  37: from src.engine.orchestrator import Orchestrator
+  38: 
+  39: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  40: 
+  41: # ---------------------------------------------------------------------------
+  42: # Application state — shared across requests
+  43: # ---------------------------------------------------------------------------
+  44: 
+  45: 
+  46: class AppState:
+  47:     storage: StorageBackend
+  48:     orchestrator: Orchestrator
+  49:     ws_clients: list[WebSocket]
+  50: 
+  51:     def __init__(self) -> None:
+  52:         self.ws_clients = []
+  53: 
+  54: 
+  55: _state = AppState()
+  56: 
+  57: # ---------------------------------------------------------------------------
+  58: # Lifespan
+  59: # ---------------------------------------------------------------------------
+  60: 
+  61: 
+  62: @asynccontextmanager
+  63: async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+  64:     """Initialize all subsystems on startup, clean up on shutdown."""
+  65:     cfg = get_settings()
+  66:     _state.storage = StorageBackend()
+  67:     await _state.storage.initialize()
+  68: 
+  69:     async with open_fetcher(_state.storage) as fetcher:
+  70:         _state.orchestrator = Orchestrator(_state.storage, fetcher)
+  71:         await _state.orchestrator.startup()
+  72: 
+  73:         # Run orchestrator in background
+  74:         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
+  75: 
+  76:         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
+  77:         yield
+  78: 
+  79:         # Shutdown
+  80:         _state.orchestrator.stop()
+  81:         try:
+  82:             await asyncio.wait_for(orch_task, timeout=10.0)
+  83:         except asyncio.TimeoutError:
+  84:             orch_task.cancel()
+  85:         await _state.orchestrator.shutdown()
+  86:         await _state.storage.close()
+  87:         log.info("api.shutdown_complete")
+  88: 
+  89: 
+  90: # ---------------------------------------------------------------------------
+  91: # App
+  92: # ---------------------------------------------------------------------------
+  93: 
+  94: app = FastAPI(
+  95:     title="Trade Bot API",
+  96:     version="1.0.0",
+  97:     lifespan=lifespan,
+  98: )
+  99: 
+ 100: cfg = get_settings()
+ 101: app.add_middleware(
+ 102:     CORSMiddleware,
+ 103:     allow_origins=cfg.api.cors_origins,
+ 104:     allow_credentials=True,
+ 105:     allow_methods=["*"],
+ 106:     allow_headers=["*"],
+ 107: )
+ 108: 
+ 109: # ---------------------------------------------------------------------------
+ 110: # Request / response models
+ 111: # ---------------------------------------------------------------------------
+ 112: 
+ 113: 
+ 114: class ResolveApprovalRequest(BaseModel):
+ 115:     approved: bool
+ 116:     operator: str
+ 117: 
+ 118: 
+ 119: class SetExecutionModeRequest(BaseModel):
+
+--- src/config.py
+   1: """
+   2: Production configuration for the algorithmic trading bot.
+   3: 
+   4: Authority sources:
+   5:   - Pydantic-Settings v2 docs (https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+   6:   - López de Prado (2018) AFML — risk parameter foundations
+   7:   - Kelly (1956) A New Interpretation of Information Rate — position sizing constants
+   8: """
+   9: 
+  10: from __future__ import annotations
+  11: 
+  12: import os
+  13: from enum import Enum
+  14: from functools import lru_cache
+  15: from pathlib import Path
+  16: from typing import Final
+  17: 
+  18: from pydantic import Field, field_validator, model_validator
+  19: from pydantic_settings import BaseSettings, SettingsConfigDict
+  20: 
+  21: 
+  22: # ---------------------------------------------------------------------------
+  23: # Enumerations — runtime-switchable modes
+  24: # ---------------------------------------------------------------------------
+  25: 
+  26: 
+  27: class TradingMode(str, Enum):
+  28:     """Paper vs live gate — requires TRADING_MODE=live in .env to unlock live."""
+  29: 
+  30:     PAPER = "paper"
+  31:     LIVE = "live"
+  32: 
+  33: 
+  34: class ExecutionMode(str, Enum):
+  35:     """
+  36:     Dashboard-switchable execution approval model.
+  37: 
+  38:     AUTOMATIC   — no approvals required, bot fires freely within risk gates.
+  39:     RESTRICTED  — autonomous below notional_limit_usd, approval above it;
+  40:                   auto-skip trade on approval_timeout_s.
+  41:     MANUAL      — every trade queued for explicit operator approval.
+  42:     """
+  43: 
+  44:     AUTOMATIC = "automatic"
+  45:     RESTRICTED = "restricted"
+  46:     MANUAL = "manual"
+  47: 
+  48: 
+  49: class Timeframe(str, Enum):
+  50:     """Three concurrent timeframe streams — all run in paper simultaneously."""
+  51: 
+  52:     SCALPING = "1m"
+  53:     INTRADAY = "15m"
+  54:     SWING = "4h"
+  55: 
+  56: 
+  57: # ---------------------------------------------------------------------------
+  58: # Exchange sub-settings
+  59: # ---------------------------------------------------------------------------
+  60: 
+  61: 
+  62: class BinanceSettings(BaseSettings):
+  63:     """Binance primary exchange credentials."""
+  64: 
+  65:     model_config = SettingsConfigDict(env_prefix="BINANCE_", env_file=".env", extra="ignore")
+  66: 
+  67:     api_key: str = Field(default="", description="Binance API key")
+  68:     api_secret: str = Field(default="", description="Binance API secret")
+  69:     testnet: bool = Field(default=True, description="Use Binance testnet when True")
+  70:     base_url: str = Field(
+  71:         default="https://testnet.binance.vision",
+  72:         description="REST base URL, auto-switched by testnet flag",
+  73:     )
+  74:     ws_url: str = Field(
+  75:         default="wss://testnet.binance.vision/ws",
+  76:         description="WebSocket base URL",
+  77:     )
+  78:     rate_limit_per_minute: int = Field(default=1200, ge=1)
+  79: 
+  80:     @model_validator(mode="after")
+  81:     def resolve_urls(self) -> "BinanceSettings":
+  82:         if not self.testnet:
+  83:             self.base_url = "https://api.binance.com"
+  84:             self.ws_url = "wss://stream.binance.com:9443/ws"
+  85:         return self
+  86: 
+  87: 
+  88: class OKXSettings(BaseSettings):
+  89:     """OKX secondary exchange credentials."""
+  90: 
+  91:     model_config = SettingsConfigDict(env_prefix="OKX_", env_file=".env", extra="ignore")
+  92: 
+  93:     api_key: str = Field(default="", description="OKX API key")
+  94:     api_secret: str = Field(default="", description="OKX API secret")
+  95:     passphrase: str = Field(default="", description="OKX API passphrase")
+  96:     testnet: bool = Field(default=True, description="Use OKX demo trading when True")
+  97:     base_url: str = Field(
+  98:         default="https://www.okx.com",
+  99:         description="REST base URL (same host, flag controls endpoint path)",
+ 100:     )
+ 101:     rate_limit_per_second: int = Field(default=10, ge=1)
+ 102: 
+ 103: 
+ 104: # ---------------------------------------------------------------------------
+ 105: # Risk constants — López de Prado (2018) AFML + Kelly (1956)
+ 106: # ---------------------------------------------------------------------------
+ 107: 
+ 108: 
+ 109: class RiskSettings(BaseSettings):
+ 110:     """
+ 111:     Hard risk limits — never weakened at runtime.
+ 112: 
+ 113:     daily_drawdown_halt_pct  : halt trading when daily PnL drops below this %
+ 114:                                of starting equity (López de Prado, Ch.3 stop-loss).
+ 115:     consecutive_loss_halt    : halt after N consecutive losing trades.
+ 116:     max_position_size_pct    : maximum single-position size as % of capital.
+ 117:     kelly_multiplier         : fractional Kelly multiplier = 0.5 (half-Kelly).
+ 118:     kelly_ceiling            : hard cap on Kelly fraction regardless of estimate.
+ 119:     oos_sharpe_threshold     : out-of-sample Sharpe required before live gate opens.
+
+--- src/execution/live.py
+   1: """
+   2: Live trading executor — real money order placement via ccxt.
+   3: 
+   4: Mirrors PaperExecutor's interface exactly so the orchestrator can
+   5: swap executors by trading_mode without any logic changes.
+   6: 
+   7: Safety layers:
+   8:   - Requires TRADING_MODE=live in environment (enforced by config)
+   9:   - All risk gates evaluated before any order is placed
+  10:   - Every order confirmed via exchange before position is recorded
+  11:   - Partial fills tracked; position only opened on confirmed fill
+  12:   - Full audit trail in storage identical to paper executor
+  13: 
+  14: Fee model: actual exchange fees reported in order response.
+  15: Slippage: actual fill price from order response (not request price).
+  16: 
+  17: Authority:
+  18:   - ccxt unified API — market orders, fetch_order
+  19:   - Chan (2013) Ch.6 — live execution infrastructure
+  20: """
+  21: 
+  22: from __future__ import annotations
+  23: 
+  24: import asyncio
+  25: import time
+  26: import uuid
+  27: from dataclasses import dataclass, field
+  28: from datetime import datetime, timezone
+  29: from typing import Any, Final
+  30: 
+  31: import ccxt.async_support as ccxt
+  32: import structlog
+  33: 
+  34: from src.config import ExecutionMode, TradingMode, get_settings
+  35: from src.data.fetcher import MarketDataFetcher
+  36: from src.data.storage import EquityRecord, StorageBackend, TradeRecord
+  37: from src.risk.gates import DrawdownTracker
+  38: from src.risk.kelly import KellyResult
+  39: 
+  40: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  41: 
+  42: _LIVE_FEE_FALLBACK: Final[float] = 0.001  # fallback if exchange fee missing
+  43: _ORDER_CONFIRM_POLLS: Final[int] = 10  # max polls for order confirmation
+  44: _ORDER_CONFIRM_INTERVAL: Final[float] = 0.5  # seconds between polls
+  45: 
+  46: 
+  47: # ---------------------------------------------------------------------------
+  48: # Live position dataclass
+  49: # ---------------------------------------------------------------------------
+  50: 
+  51: 
+  52: @dataclass
+  53: class LivePosition:
+  54:     """Single confirmed open live position."""
+  55: 
+  56:     trade_id: str
+  57:     exchange_order_id: str
+  58:     symbol: str
+  59:     timeframe: str
+  60:     direction: int
+  61:     entry_price: float
+  62:     quantity: float
+  63:     notional_usd: float
+  64:     entry_ts: int
+  65:     kelly_fraction: float
+  66:     regime_at_entry: int
+  67:     meta_label_prob: float
+  68:     raw_signal: float
+  69:     approved_by: str
+  70:     execution_mode: str
+  71:     fee_usd: float
+  72:     unrealized_pnl: float = field(default=0.0)
+  73:     current_price: float = field(default=0.0)
+  74: 
+  75:     def mark(self, price: float) -> float:
+  76:         self.current_price = price
+  77:         if self.direction == 1:
+  78:             self.unrealized_pnl = (price - self.entry_price) * self.quantity
+  79:         else:
+  80:             self.unrealized_pnl = (self.entry_price - price) * self.quantity
+  81:         return self.unrealized_pnl
+  82: 
+  83: 
+  84: # ---------------------------------------------------------------------------
+  85: # Approval request — identical shape to paper executor
+  86: # ---------------------------------------------------------------------------
+  87: 
+  88: 
+  89: @dataclass
+
+--- src/engine/orchestrator.py
+   1: """
+   2: Orchestrator — top-level async event loop coordinating all subsystems.
+   3: 
+   4: Responsibilities:
+   5:   - Bootstrap history and train initial models on startup
+   6:   - Schedule per-timeframe ticks aligned to bar close times
+   7:   - Route tradeable signals to the correct executor (paper / live)
+   8:   - Snapshot regime state to storage after each tick
+   9:   - Schedule periodic model retraining
+  10:   - Reset daily equity tracker at UTC midnight
+  11:   - Expose stop() for clean shutdown from API
+  12: 
+  13: Authority:
+  14:   - Chan (2013) Algorithmic Trading Ch.5 — event-driven architecture
+  15:   - López de Prado (2018) AFML Ch.17 — regime-gated execution
+  16: """
+  17: 
+  18: from __future__ import annotations
+  19: 
+  20: import asyncio
+  21: from datetime import datetime, timezone
+  22: from typing import Union
+  23: 
+  24: import structlog
+  25: 
+  26: from src.config import (
+  27:     TIMEFRAME_SECONDS,
+  28:     Timeframe,
+  29:     TradingMode,
+  30:     get_settings,
+  31: )
+  32: from src.data.fetcher import MarketDataFetcher
+  33: from src.data.storage import RegimeSnapshotRecord, StorageBackend
+  34: from src.execution.paper import PaperExecutor
+  35: from src.execution.live import LiveExecutor
+  36: from src.engine.signal_engine import SignalEngine, SignalResult
+  37: from src.features.pipeline import build_feature_matrix
+  38: from src.models.trainer import ModelTrainer
+  39: from src.regime.detector import RegimeDetector
+  40: from src.risk.kelly import compute_win_loss_stats
+  41: 
+  42: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  43: 
+  44: # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
+  45: _RETRAIN_INTERVAL_TICKS: int = 96  # 96 × 15m = 24 h
+  46: _HISTORY_BARS_FOR_TRAIN: int = 2000
+  47: _REGIME_LOOKBACK_BARS: int = 500
+  48: 
+  49: AnyExecutor = Union[PaperExecutor, LiveExecutor]
+  50: 
+  51: 
+  52: class Orchestrator:
+  53:     """
+  54:     Top-level async coordinator for the trading bot.
+  55: 
+  56:     Usage::
+  57: 
+  58:         orch = Orchestrator(storage, fetcher)
+  59:         await orch.startup()
+  60:         await orch.run()          # blocks until stop() called
+  61:         await orch.shutdown()
+  62: 
+  63:     Or use the FastAPI lifespan handler which calls startup/shutdown.
+  64:     """
+  65: 
+  66:     def __init__(
+  67:         self,
+  68:         storage: StorageBackend,
+  69:         fetcher: MarketDataFetcher,
+  70:     ) -> None:
+  71:         self._storage = storage
+  72:         self._fetcher = fetcher
+  73:         self._cfg = get_settings()
+  74:         self._symbol = self._cfg.primary_symbol
+  75:         self._timeframes = self._cfg.active_timeframes
+  76:         self._primary_tf = self._cfg.primary_timeframe
+  77: 
+  78:         self._executor: AnyExecutor | None = None
+  79:         self._engines: dict[str, SignalEngine] = {}
+  80:         self._detectors: dict[str, RegimeDetector] = {}
+  81:         self._trainers: dict[str, ModelTrainer] = {}
+  82: 
+  83:         self._running: bool = False
+  84:         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
+  85:         self._stop_event: asyncio.Event = asyncio.Event()
+  86:         self._log = log.bind(component="orchestrator", symbol=self._symbol)
+  87: 
+  88:     # ------------------------------------------------------------------
+  89:     # Startup — bootstrap all subsystems
+
+--- src/regime/detector.py
+   1: """
+   2: GaussianHMM regime detector — Hamilton (1989) 3-state switching model.
+   3: 
+   4: States:
+   5:   0 = ranging   (low volatility, mean-reverting)
+   6:   1 = trending  (directional, sustained momentum)
+   7:   2 = volatile  (high volatility, risk-off — blocks new positions)
+   8: 
+   9: The detector:
+  10:   1. Trains a GaussianHMM on a feature observation matrix
+  11:   2. Assigns canonical state labels by volatility ranking
+  12:      (lowest vol → ranging, highest → volatile) so state indices
+  13:      are stable across re-trains regardless of HMM initialisation order
+  14:   3. Exposes predict_current() for live regime classification
+  15:   4. Persists / loads the fitted model via joblib
+  16: 
+  17: Authority:
+  18:   Hamilton (1989) "A New Approach to the Economic Analysis of
+  19:     Nonstationary Time Series and the Business Cycle", Econometrica 57(2).
+  20:   López de Prado (2018) AFML — regime as a signal gate (Ch.17).
+  21: """
+  22: 
+  23: from __future__ import annotations
+  24: 
+  25: import hashlib
+  26: import time
+  27: from dataclasses import dataclass
+  28: from pathlib import Path
+  29: from typing import Final
+  30: 
+  31: import joblib
+  32: import numpy as np
+  33: import pandas as pd
+  34: import structlog
+  35: from hmmlearn.hmm import GaussianHMM
+  36: from sklearn.preprocessing import StandardScaler
+  37: 
+  38: from src.config import (
+  39:     REGIME_RANGING,
+  40:     REGIME_TRENDING,
+  41:     REGIME_VOLATILE,
+  42:     HMMSettings,
+  43:     get_settings,
+  44: )
+  45: 
+  46: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  47: 
+  48: # ---------------------------------------------------------------------------
+  49: # HMM observation features — subset of the full feature matrix.
+  50: # Using vol ratio, frac diff, ATR momentum gives the HMM the clearest
+  51: # signal to separate the three regimes without redundancy.
+  52: # ---------------------------------------------------------------------------
+  53: 
+  54: HMM_FEATURE_COLS: Final[list[str]] = [
+  55:     "frac_diff",
+  56:     "realized_vol_ratio",
+  57:     "atr_momentum",
+  58:     "rolling_sharpe",
+  59:     "volume_zscore",
+  60: ]
+  61: 
+  62: _MODEL_FILENAME: Final[str] = "hmm_{symbol}_{timeframe}.joblib"
+  63: 
+  64: 
+  65: # ---------------------------------------------------------------------------
+  66: # Result dataclass
+  67: # ---------------------------------------------------------------------------
+  68: 
+  69: 
+  70: @dataclass(frozen=True)
+  71: class RegimePrediction:
+  72:     """
+  73:     Single-bar regime prediction.
+  74: 
+  75:     state       : canonical regime index (0=ranging, 1=trending, 2=volatile)
+  76:     prob_ranging   : posterior probability of ranging state
+  77:     prob_trending  : posterior probability of trending state
+  78:     prob_volatile  : posterior probability of volatile state
+  79:     is_volatile    : True when state == REGIME_VOLATILE — used by risk gate
+  80:     """
+  81: 
+  82:     state: int
+  83:     prob_ranging: float
+  84:     prob_trending: float
+  85:     prob_volatile: float
+  86: 
+  87:     @property
+  88:     def is_volatile(self) -> bool:
+  89:         return self.state == REGIME_VOLATILE
+  90: 
+  91:     @property
+  92:     def dominant_prob(self) -> float:
+  93:         return max(self.prob_ranging, self.prob_trending, self.prob_volatile)
+  94: 
+  95:     def as_dict(self) -> dict[str, object]:
+  96:         return {
+  97:             "regime_state": self.state,
+  98:             "prob_ranging": round(self.prob_ranging, 6),
+  99:             "prob_trending": round(self.prob_trending, 6),
+ 100:             "prob_volatile": round(self.prob_volatile, 6),
+ 101:             "is_volatile": self.is_volatile,
+ 102:         }
+ 103: 
+ 104: 
+ 105: # ---------------------------------------------------------------------------
+ 106: # State labeling — Hamilton (1989) stable canonical assignment
+ 107: # ---------------------------------------------------------------------------
+ 108: 
+ 109: 
+ 110: def _assign_canonical_states(
+ 111:     model: GaussianHMM,
+ 112:     n_components: int,
+ 113: ) -> dict[int, int]:
+ 114:     """
+ 115:     Map raw HMM state indices to canonical {ranging=0, trending=1, volatile=2}.
+ 116: 
+ 117:     Hamilton (1989) HMM states have no guaranteed ordering — two runs on
+ 118:     the same data may swap indices.  We break this degeneracy by sorting
+ 119:     states on their mean realised-volatility observation (column 1 of means,
+
+--- src/risk/kelly.py
+   1: """
+   2: Kelly position sizing — half-Kelly with hard ceiling.
+   3: 
+   4: Kelly (1956) "A New Interpretation of Information Rate", Bell System
+   5: Technical Journal 35(4): 917–926.
+   6: 
+   7: Implementation follows AFML Ch.10 (López de Prado 2018):
+   8:   - Kelly fraction f* = (p·b - q) / b  where b = win/loss ratio
+   9:   - Half-Kelly multiplier = 0.5 (spec)
+  10:   - Hard ceiling = 0.25 of capital (spec)
+  11:   - Position size = f × capital / entry_price, quantised to exchange precision
+  12: 
+  13: All sizing functions are pure (no I/O, no side effects) so they are
+  14: trivially testable and reusable across paper and live executors.
+  15: """
+  16: 
+  17: from __future__ import annotations
+  18: 
+  19: import math
+  20: from dataclasses import dataclass
+  21: from typing import Final
+  22: 
+  23: import structlog
+  24: 
+  25: from src.config import RiskSettings, get_settings
+  26: 
+  27: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  28: 
+  29: # ---------------------------------------------------------------------------
+  30: # Constants (from spec — never weakened)
+  31: # ---------------------------------------------------------------------------
+  32: 
+  33: _DEFAULT_MULTIPLIER: Final[float] = 0.5  # half-Kelly
+  34: _DEFAULT_CEILING: Final[float] = 0.25  # 25% of capital max
+  35: 
+  36: 
+  37: # ---------------------------------------------------------------------------
+  38: # Result dataclass
+  39: # ---------------------------------------------------------------------------
+  40: 
+  41: 
+  42: @dataclass(frozen=True)
+  43: class KellyResult:
+  44:     """
+  45:     Position sizing outcome for a single trade.
+  46: 
+  47:     kelly_fraction   : raw Kelly fraction f* before multiplier/ceiling
+  48:     adjusted_fraction: f* × multiplier, capped at ceiling
+  49:     capital_usd      : equity used for sizing
+  50:     entry_price      : asset entry price
+  51:     quantity         : asset units to trade (quantised)
+  52:     notional_usd     : quantity × entry_price
+  53:     is_capped        : True when ceiling binding (raw × mult > ceiling)
+  54:     """
+  55: 
+  56:     kelly_fraction: float
+  57:     adjusted_fraction: float
+  58:     capital_usd: float
+  59:     entry_price: float
+  60:     quantity: float
+  61:     notional_usd: float
+  62:     is_capped: bool
+  63: 
+  64:     @property
+  65:     def position_size_pct(self) -> float:
+  66:         """Adjusted fraction expressed as percentage of capital."""
+  67:         return self.adjusted_fraction * 100.0
+  68: 
+  69: 
+  70: # ---------------------------------------------------------------------------
+  71: # Core Kelly formula — Kelly (1956)
+  72: # ---------------------------------------------------------------------------
+  73: 
+  74: 
+  75: def kelly_fraction(
+  76:     win_probability: float,
+  77:     win_loss_ratio: float,
+  78: ) -> float:
+  79:     """
+  80:     Compute the raw Kelly fraction.
+  81: 
+  82:     f* = (p·b - q) / b
+  83: 
+  84:     where:
+  85:       p = win probability
+  86:       q = 1 - p  (loss probability)
+  87:       b = win/loss ratio (average win magnitude / average loss magnitude)
+  88: 
+  89:     Parameters
+
+--- src/data/fetcher.py
+   1: """
+   2: Async market data fetcher — Binance (primary) + OKX (secondary).
+   3: 
+   4: Responsibilities:
+   5:   - Bootstrap historical OHLCV bars from exchange into SQLite storage
+   6:   - Incremental gap-fill on every tick cycle
+   7:   - Live WebSocket bar streaming (Binance only; OKX polled as fallback)
+   8:   - Order-book snapshot fetch for OFI feature computation
+   9:   - Exponential-backoff retry on transient network / rate-limit errors
+  10: 
+  11: Authority sources:
+  12:   - ccxt unified API docs (https://docs.ccxt.com/)
+  13:   - Binance Spot API v3 (https://binance-docs.github.io/apidocs/spot/en/)
+  14:   - OKX REST API v5 (https://www.okx.com/docs-v5/)
+  15:   - Chan (2013) Algorithmic Trading — data quality requirements
+  16: """
+  17: 
+  18: from __future__ import annotations
+  19: 
+  20: import asyncio
+  21: import time
+  22: from datetime import datetime, timezone
+  23: from typing import Any
+  24: 
+  25: import ccxt.async_support as ccxt
+  26: import structlog
+  27: 
+  28: from src.config import (
+  29:     EXCHANGE_BINANCE,
+  30:     EXCHANGE_OKX,
+  31:     TIMEFRAME_SECONDS,
+  32:     BinanceSettings,
+  33:     OKXSettings,
+  34:     Timeframe,
+  35:     get_settings,
+  36: )
+  37: from src.data.storage import BarRecord, StorageBackend
+  38: 
+  39: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+  40: 
+  41: # ---------------------------------------------------------------------------
+  42: # Constants
+  43: # ---------------------------------------------------------------------------
+  44: 
+  45: _MAX_BARS_PER_REQUEST: int = 1000          # ccxt / Binance max per call
+  46: _INITIAL_HISTORY_DAYS: int = 90           # bootstrap lookback window
+  47: _RETRY_ATTEMPTS: int = 5
+  48: _RETRY_BASE_DELAY_S: float = 1.0          # doubles each attempt (exponential backoff)
+  49: _ORDERBOOK_DEPTH: int = 20                # levels fetched for OFI
+  50: 
+  51: 
+  52: # ---------------------------------------------------------------------------
+  53: # OrderBook snapshot — typed transport for OFI feature
+  54: # ---------------------------------------------------------------------------
+  55: 
+  56: 
+  57: class OrderBookSnapshot:
+  58:     """
+  59:     Bids and asks as price-quantity pairs, timestamped.
+
+--- src/data/storage.py
+   1: """
+   2: Async SQLite storage layer — aiosqlite, WAL mode, typed queries.
+   3: 
+   4: Schema owns five tables:
+   5:   bars            — OHLCV + volume per symbol/timeframe
+   6:   trades          — paper and live trade records with full audit trail
+   7:   regime_snapshots — HMM state at every bar (Hamilton 1989)
+   8:   model_metrics   — CPCV OOS metrics per model version (AFML Ch.7)
+   9:   equity_curve    — timestamped equity snapshots for drawdown tracking
+  10: 
+  11: Authority sources:
+  12:   - aiosqlite docs (https://aiosqlite.omnilib.dev/en/latest/)
+  13:   - SQLite WAL mode (https://www.sqlite.org/wal.html)
+  14:   - López de Prado (2018) AFML — trade audit requirements
+  15: """
+  16: 
+  17: from __future__ import annotations
+  18: 
+  19: import asyncio
+  20: from contextlib import asynccontextmanager
+  21: from datetime import datetime, timezone
+  22: from typing import AsyncIterator, Final
+  23: 
+  24: import aiosqlite
+  25: import structlog
+  26: 
+  27: from src.config import ExecutionMode, Timeframe, TradingMode, get_settings
+  28: 
+  29: log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)

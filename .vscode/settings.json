@@ -1,7 +1,27 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:venv",
-    "python.defaultInterpreterPath": ".venv\\bin\\python",
-    "python.analysis.extraPaths": [
-        "src"
-    ]
+  "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "src"
+  ],
+  "python.analysis.typeCheckingMode": "basic",
+  "python.linting.enabled": true,
+  "python.linting.ruffEnabled": true,
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll": true,
+    "source.fixAll.eslint": true
+  },
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.python"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
 }

@@ -1,0 +1,60 @@
+--- src/features/pipeline.py
+ 490: def build_feature_matrix(
+ 493:     cfg: FeatureSettings | None = None,
+ 515:     if cfg is None:
+ 516:         cfg = get_settings().features
+ 671: def build_inference_features(
+ 673:     cfg: FeatureSettings | None = None,
+ 694:     if cfg is None:
+ 695:         cfg = get_settings().features
+
+--- src/risk/gates.py
+  99: def check_daily_drawdown(
+ 102:     cfg: RiskSettings | None = None,
+ 119:     if cfg is None:
+ 156: def check_consecutive_losses(
+ 158:     cfg: RiskSettings | None = None,
+ 174:     if cfg is None:
+ 198: def check_regime_gate(
+ 231: def check_position_size(
+ 234:     cfg: RiskSettings | None = None,
+ 251:     if cfg is None:
+ 286: def check_live_gate(
+ 339: def check_paper_minimum_days(
+ 341:     cfg: RiskSettings | None = None,
+ 409:     cfg: RiskSettings | None = None,
+ 430:     if cfg is None:
+
+--- src/engine/signal_engine.py
+
+--- src/api/main.py
+  35: from src.data.fetcher import open_fetcher
+  69:     async with open_fetcher(_state.storage) as fetcher:
+
+--- src/config.py
+ 109: class RiskSettings(BaseSettings):
+ 211: class FeatureSettings(BaseSettings):
+
+--- src/execution/live.py
+
+--- src/engine/orchestrator.py
+
+--- src/regime/detector.py
+ 169:         cfg: HMMSettings | None = None,
+
+--- src/risk/kelly.py
+ 123:     cfg: RiskSettings | None = None,
+ 143:     if cfg is None:
+ 177:     cfg: RiskSettings | None = None,
+ 203:     if cfg is None:
+ 238:     cfg: RiskSettings | None = None,
+ 273:     if cfg is None:
+ 354:     cfg: RiskSettings | None = None,
+ 379:     if cfg is None:
+
+--- src/data/fetcher.py
+ 234:     Or use open_fetcher() context manager.
+ 633: def open_fetcher(storage: StorageBackend) -> _FetcherContextManager:
+ 639:         async with open_fetcher(storage) as fetcher:
+
+--- src/data/storage.py
