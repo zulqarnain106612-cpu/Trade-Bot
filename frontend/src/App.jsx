@@ -1,433 +1,421 @@
-
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine
-} from 'recharts'
+} from "recharts";
 
-// ── colour palette ────────────────────────────────────────────────────────────
-const C = {
-  bg:       '#0a0a0f',
-  panel:    '#12121a',
-  border:   '#1e1e2e',
-  accent:   '#6366f1',
-  green:    '#22c55e',
-  red:      '#ef4444',
-  yellow:   '#f59e0b',
-  muted:    '#64748b',
-  text:     '#e2e8f0',
-  textDim:  '#94a3b8',
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const WS  = API.replace(/^http/, "ws") + "/ws";
+
+const REGIME_COLOR = { 0: "#22c55e", 1: "#3b82f6", 2: "#ef4444" };
+const REGIME_NAME  = { 0: "RANGING",  1: "TRENDING", 2: "VOLATILE" };
+const MODE_COLORS  = {
+  automatic:  "bg-green-600",
+  restricted: "bg-yellow-600",
+  manual:     "bg-red-600",
+};
+
+function fmt(n, d = 2) {
+  if (n == null) return "—";
+  return Number(n).toFixed(d);
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n, d=2) => (typeof n === 'number' ? n.toFixed(d) : '—')
-const pct  = n => (typeof n === 'number' ? (n >= 0 ? '+' : '') + n.toFixed(2) + '%' : '—')
-const clr  = n => n >= 0 ? C.green : C.red
+function tsToTime(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString();
+}
 
-// ── tiny components ───────────────────────────────────────────────────────────
-const Panel = ({ children, style={} }) => (
-  <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8,
-                padding: '12px 16px', ...style }}>
-    {children}
-  </div>
-)
-
-const Badge = ({ label, active, onClick, color=C.accent }) => (
-  <button onClick={onClick} style={{
-    background:   active ? color : 'transparent',
-    border:       `1px solid ${active ? color : C.border}`,
-    color:        active ? '#fff' : C.muted,
-    borderRadius: 4, padding: '4px 10px', cursor: 'pointer',
-    fontSize: 12, fontWeight: 600, transition: 'all .15s',
-  }}>{label}</button>
-)
-
-const Pill = ({ label, value, color }) => (
-  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-    <span style={{ fontSize:10, color: C.muted, textTransform:'uppercase', letterSpacing:1 }}>{label}</span>
-    <span style={{ fontSize:15, fontWeight:700, color: color || C.text }}>{value}</span>
-  </div>
-)
-
-const Toggle = ({ label, value, onChange }) => (
-  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-    <span style={{ fontSize:12, color:C.textDim }}>{label}</span>
-    <div onClick={() => onChange(!value)} style={{
-      width:36, height:20, borderRadius:10, cursor:'pointer',
-      background: value ? C.accent : C.border, position:'relative', transition:'background .2s',
-    }}>
-      <div style={{
-        position:'absolute', top:2, left: value ? 16 : 2,
-        width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left .2s',
-      }}/>
+// ─── Regime Badge ────────────────────────────────────────────────────────────
+function RegimeBadge({ regime }) {
+  if (!regime) return <span className="text-gray-400 text-xs">No regime data</span>;
+  const col = REGIME_COLOR[regime.state] || "#94a3b8";
+  const name = REGIME_NAME[regime.state] || "UNKNOWN";
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="inline-block w-3 h-3 rounded-full"
+        style={{ background: col }}
+      />
+      <span className="font-mono font-bold text-sm" style={{ color: col }}>
+        {name}
+      </span>
+      <span className="text-xs text-gray-400">
+        R:{fmt(regime.prob_ranging, 3)} T:{fmt(regime.prob_trending, 3)} V:{fmt(regime.prob_volatile, 3)}
+      </span>
     </div>
-  </div>
-)
+  );
+}
 
-const Slider = ({ label, value, min, max, step=0.001, onChange }) => (
-  <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-    <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
-      <span style={{ color:C.textDim }}>{label}</span>
-      <span style={{ color:C.text, fontWeight:600 }}>{(value*100).toFixed(1)}%</span>
+// ─── Execution Mode Switcher ─────────────────────────────────────────────────
+function ModeSwitcher({ current, onSwitch }) {
+  const modes = ["automatic", "restricted", "manual"];
+  return (
+    <div className="flex gap-1">
+      {modes.map(m => (
+        <button
+          key={m}
+          onClick={() => onSwitch(m)}
+          className={`px-3 py-1 rounded text-xs font-bold uppercase transition-all
+            ${current === m ? MODE_COLORS[m] + " text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}
+        >
+          {m}
+        </button>
+      ))}
     </div>
-    <input type="range" min={min} max={max} step={step} value={value}
-      onChange={e => onChange(parseFloat(e.target.value))}
-      style={{ width:'100%', accentColor: C.accent }} />
-  </div>
-)
+  );
+}
 
-// ── main app ─────────────────────────────────────────────────────────────────
-export default function App() {
-  const ws        = useRef(null)
-  const [status,  setStatus]  = useState({})
-  const [trades,  setTrades]  = useState([])
-  const [perf,    setPerf]    = useState([])
-  const [signals, setSignals] = useState([])
-  const [approvals, setApprovals] = useState([])
-  const [connected, setConnected] = useState(false)
+// ─── Equity Chart ────────────────────────────────────────────────────────────
+function EquityChart({ curve, startingCapital }) {
+  if (!curve || curve.length === 0)
+    return <div className="flex items-center justify-center h-48 text-gray-500 text-sm">No equity data yet</div>;
 
-  // ── fetch initial data ────────────────────────────────────────────────────
-  const fetchData = useCallback(async () => {
-    try {
-      const [t, p, s] = await Promise.all([
-        fetch('/api/trades?limit=50').then(r=>r.json()),
-        fetch('/api/performance?days=30').then(r=>r.json()),
-        fetch('/api/status').then(r=>r.json()),
-      ])
-      setTrades(t)
-      setPerf([...p].reverse())
-      setStatus(s)
-    } catch {}
-  }, [])
-
-  // ── WebSocket ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const connect = () => {
-      const sock = new WebSocket(`ws://${location.host}/ws`)
-      ws.current = sock
-
-      sock.onopen  = () => { setConnected(true); fetchData() }
-      sock.onclose = () => { setConnected(false); setTimeout(connect, 2000) }
-
-      sock.onmessage = e => {
-        const msg = JSON.parse(e.data)
-        if (msg.type === 'status')          setStatus(msg.data)
-        if (msg.type === 'signal')          setSignals(p => [msg.data, ...p].slice(0,50))
-        if (msg.type === 'approval_request') setApprovals(p => [...p, msg.data])
-        if (msg.type === 'trade_opened')     fetchData()
-        if (msg.type === 'config_updated')   fetchData()
-      }
-    }
-    connect()
-    const iv = setInterval(fetchData, 10000)
-    return () => { clearInterval(iv); ws.current?.close() }
-  }, [fetchData])
-
-  // ── config updater ────────────────────────────────────────────────────────
-  const setConfig = useCallback(async (key, value) => {
-    await fetch('/api/config', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key, value }),
-    })
-  }, [])
-
-  // ── approval handlers ─────────────────────────────────────────────────────
-  const resolveApproval = (signal_id, approved) => {
-    ws.current?.send(JSON.stringify({ action: approved ? 'approve' : 'reject', signal_id }))
-    setApprovals(p => p.filter(a => a.signal_id !== signal_id))
-  }
-
-  // ── resume ────────────────────────────────────────────────────────────────
-  const resume = async () => {
-    await fetch('/api/resume', { method:'POST' })
-    fetchData()
-  }
-
-  // ── equity curve from trades ──────────────────────────────────────────────
-  const equityCurve = perf.map(d => ({
-    date:   d.date?.slice(5),
-    equity: d.ending_equity,
-    pnl:    d.pnl_pct * 100,
-  }))
-
-  // ── timeframe multi-select ────────────────────────────────────────────────
-  const toggleTimeframe = tf => {
-    const cur  = status.active_timeframes || []
-    const next = cur.includes(tf) ? cur.filter(x=>x!==tf) : [...cur, tf]
-    if (next.length === 0) return
-    setConfig('active_timeframes', next)
-    setStatus(s => ({ ...s, active_timeframes: next }))
-  }
-
-  // ── execution mode ────────────────────────────────────────────────────────
-  const setMode = mode => {
-    setConfig('execution_mode', mode)
-    setStatus(s => ({ ...s, execution_mode: mode }))
-  }
-
-  const halted = status.halted
+  const data = curve.map(p => ({
+    t: new Date(p.ts).toLocaleTimeString(),
+    equity: p.equity_usd,
+    dd: p.drawdown_pct,
+  }));
 
   return (
-    <div style={{ minHeight:'100vh', background: C.bg, color: C.text, padding:16 }}>
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+        <XAxis dataKey="t" tick={{ fontSize: 10, fill: "#9ca3af" }} interval="preserveStartEnd" />
+        <YAxis
+          tick={{ fontSize: 10, fill: "#9ca3af" }}
+          domain={["auto", "auto"]}
+          tickFormatter={v => `$${fmt(v, 0)}`}
+        />
+        <Tooltip
+          contentStyle={{ background: "#1f2937", border: "1px solid #374151", fontSize: 11 }}
+          formatter={(v, n) => [n === "equity" ? `$${fmt(v)}` : `${fmt(v, 3)}%`, n]}
+        />
+        <ReferenceLine y={startingCapital} stroke="#6b7280" strokeDasharray="4 2" />
+        <Line type="monotone" dataKey="equity" stroke="#3b82f6" dot={false} strokeWidth={2} name="equity" />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
 
-      {/* ── header ──────────────────────────────────────────────────────── */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{ width:8, height:8, borderRadius:'50%',
-            background: connected ? C.green : C.red,
-            boxShadow: connected ? `0 0 8px ${C.green}` : 'none' }} />
-          <span style={{ fontWeight:700, fontSize:18 }}>Trade-Bot</span>
-          <span style={{ fontSize:11, color:C.muted }}>
-            {status.trading_mode === 'live' ? '🔴 LIVE' : '🟡 PAPER'}
-          </span>
-        </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          {halted && (
-            <button onClick={resume} style={{
-              background:'transparent', border:`1px solid ${C.yellow}`,
-              color: C.yellow, borderRadius:4, padding:'4px 12px',
-              cursor:'pointer', fontSize:12, fontWeight:600,
-            }}>⚠ HALTED — Resume</button>
-          )}
-          <span style={{ fontSize:11, color:C.muted }}>
-            {status.engines_active || 0} engines · {status.pending_approvals || 0} pending
-          </span>
-        </div>
+// ─── Positions Table ─────────────────────────────────────────────────────────
+function PositionsTable({ positions }) {
+  if (!positions || positions.length === 0)
+    return <p className="text-gray-500 text-sm py-4 text-center">No open positions</p>;
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="text-gray-400 border-b border-gray-700">
+          {["Symbol","TF","Dir","Entry","Current","Qty","Notional","Unreal PnL","Regime"].map(h => (
+            <th key={h} className="py-1 px-2 text-left font-medium">{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {positions.map(p => {
+          const pnlColor = p.unrealized_pnl >= 0 ? "text-green-400" : "text-red-400";
+          return (
+            <tr key={p.trade_id} className="border-b border-gray-800 hover:bg-gray-800/50">
+              <td className="py-1 px-2 font-mono">{p.symbol}</td>
+              <td className="py-1 px-2">{p.timeframe}</td>
+              <td className={`py-1 px-2 font-bold ${p.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+                {p.direction.toUpperCase()}
+              </td>
+              <td className="py-1 px-2 font-mono">${fmt(p.entry_price, 2)}</td>
+              <td className="py-1 px-2 font-mono">${fmt(p.current_price, 2)}</td>
+              <td className="py-1 px-2 font-mono">{p.quantity}</td>
+              <td className="py-1 px-2 font-mono">${fmt(p.notional_usd, 2)}</td>
+              <td className={`py-1 px-2 font-mono font-bold ${pnlColor}`}>
+                ${fmt(p.unrealized_pnl, 4)} ({fmt(p.unrealized_pnl_pct, 2)}%)
+              </td>
+              <td className="py-1 px-2">
+                <span style={{ color: REGIME_COLOR[p.regime_at_entry] }}>
+                  {REGIME_NAME[p.regime_at_entry]}
+                </span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ─── Approval Queue ───────────────────────────────────────────────────────────
+function ApprovalQueue({ approvals, onResolve }) {
+  const [operator, setOperator] = useState("operator");
+  if (!approvals || approvals.length === 0)
+    return <p className="text-gray-500 text-sm py-2 text-center">No pending approvals</p>;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs text-gray-400">Operator ID:</span>
+        <input
+          value={operator}
+          onChange={e => setOperator(e.target.value)}
+          className="bg-gray-700 text-white text-xs px-2 py-1 rounded w-32"
+        />
       </div>
-
-      {/* ── approval banners ─────────────────────────────────────────────── */}
-      {approvals.map(a => (
-        <div key={a.signal_id} style={{
-          background:`${C.yellow}18`, border:`1px solid ${C.yellow}`,
-          borderRadius:8, padding:'10px 16px', marginBottom:10,
-          display:'flex', alignItems:'center', justifyContent:'space-between',
-        }}>
-          <div style={{ fontSize:12 }}>
-            <b style={{ color:C.yellow }}>APPROVAL REQUIRED</b>
-            {'  '}{a.symbol} {a.direction?.toUpperCase()} ${a.notional?.toFixed(2)}
-            {'  '}confidence: {(a.confidence*100).toFixed(1)}%
-            {'  '}meta: {(a.meta_score*100).toFixed(1)}%
-            {'  '}regime: {a.regime}
+      {approvals.map(req => (
+        <div key={req.request_id}
+          className="bg-gray-800 border border-gray-700 rounded p-3 flex items-center justify-between gap-4">
+          <div className="flex-1 text-xs space-y-0.5">
+            <div className="flex gap-4">
+              <span className={`font-bold ${req.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+                {req.direction?.toUpperCase()} {req.symbol}
+              </span>
+              <span className="text-gray-400">{req.timeframe}</span>
+              <span className="font-mono">${fmt(req.notional_usd)}</span>
+            </div>
+            <div className="text-gray-400">
+              Kelly: {fmt(req.kelly_fraction, 4)} | Meta: {fmt(req.meta_label_prob, 3)} | Signal: {fmt(req.raw_signal, 3)}
+            </div>
           </div>
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={() => resolveApproval(a.signal_id, true)}
-              style={{ background:C.green, border:'none', color:'#fff',
-                borderRadius:4, padding:'4px 14px', cursor:'pointer', fontWeight:600 }}>
-              Approve
+          <div className="flex gap-2">
+            <button
+              onClick={() => onResolve(req.request_id, true, operator)}
+              className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded font-bold"
+            >
+              APPROVE
             </button>
-            <button onClick={() => resolveApproval(a.signal_id, false)}
-              style={{ background:C.red, border:'none', color:'#fff',
-                borderRadius:4, padding:'4px 14px', cursor:'pointer', fontWeight:600 }}>
-              Skip
+            <button
+              onClick={() => onResolve(req.request_id, false, operator)}
+              className="bg-red-800 hover:bg-red-700 text-white text-xs px-3 py-1.5 rounded font-bold"
+            >
+              REJECT
             </button>
           </div>
         </div>
       ))}
-
-      {/* ── top metrics row ──────────────────────────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:16 }}>
-        <Panel><Pill label="Equity" value={`$${fmt(status.equity)}`} /></Panel>
-        <Panel><Pill label="Session P&L" value={pct(status.session_pnl_pct)} color={clr(status.session_pnl_pct)} /></Panel>
-        <Panel><Pill label="Regime" value={signals[0]?.regime || '—'} /></Panel>
-        <Panel><Pill label="Confidence" value={signals[0] ? `${(signals[0].confidence*100).toFixed(1)}%` : '—'} /></Panel>
-        <Panel><Pill label="Meta Gate" value={signals[0] ? `${(signals[0].meta_score*100).toFixed(1)}%` : '—'} /></Panel>
-      </div>
-
-      {/* ── main grid ────────────────────────────────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 320px', gap:16 }}>
-
-        {/* left column */}
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-
-          {/* equity curve */}
-          <Panel style={{ height:200 }}>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:600 }}>EQUITY CURVE (30 DAY)</div>
-            <ResponsiveContainer width="100%" height={155}>
-              <AreaChart data={equityCurve}>
-                <defs>
-                  <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={C.accent} stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor={C.accent} stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={C.border} strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fill:C.muted, fontSize:9 }} />
-                <YAxis tick={{ fill:C.muted, fontSize:9 }} />
-                <Tooltip contentStyle={{ background:C.panel, border:`1px solid ${C.border}`, fontSize:11 }}/>
-                <Area type="monotone" dataKey="equity" stroke={C.accent} fill="url(#eq)" strokeWidth={2} dot={false}/>
-              </AreaChart>
-            </ResponsiveContainer>
-          </Panel>
-
-          {/* daily pnl bars */}
-          <Panel style={{ height:160 }}>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:600 }}>DAILY P&L %</div>
-            <ResponsiveContainer width="100%" height={115}>
-              <AreaChart data={equityCurve}>
-                <CartesianGrid stroke={C.border} strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fill:C.muted, fontSize:9 }} />
-                <YAxis tick={{ fill:C.muted, fontSize:9 }} />
-                <ReferenceLine y={0} stroke={C.border} />
-                <Tooltip contentStyle={{ background:C.panel, border:`1px solid ${C.border}`, fontSize:11 }}/>
-                <Area type="monotone" dataKey="pnl" stroke={C.green} fill={`${C.green}22`} strokeWidth={1.5} dot={false}/>
-              </AreaChart>
-            </ResponsiveContainer>
-          </Panel>
-
-          {/* trades table */}
-          <Panel>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:600 }}>RECENT TRADES</div>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
-              <thead>
-                <tr style={{ color:C.muted }}>
-                  {['Time','Symbol','TF','Dir','Entry','Exit','P&L','Status','Mode'].map(h => (
-                    <th key={h} style={{ textAlign:'left', padding:'4px 6px', fontWeight:500 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {trades.slice(0,20).map(t => (
-                  <tr key={t.id} style={{ borderTop:`1px solid ${C.border}` }}>
-                    <td style={{ padding:'4px 6px', color:C.muted }}>{t.ts_open?.slice(11,16)}</td>
-                    <td style={{ padding:'4px 6px' }}>{t.symbol}</td>
-                    <td style={{ padding:'4px 6px', color:C.muted }}>{t.timeframe}</td>
-                    <td style={{ padding:'4px 6px', color: t.direction==='long' ? C.green : C.red }}>
-                      {t.direction?.toUpperCase()}
-                    </td>
-                    <td style={{ padding:'4px 6px' }}>{fmt(t.entry_price,2)}</td>
-                    <td style={{ padding:'4px 6px', color:C.muted }}>{t.exit_price ? fmt(t.exit_price,2) : '—'}</td>
-                    <td style={{ padding:'4px 6px', color: t.pnl >= 0 ? C.green : C.red }}>
-                      {t.pnl != null ? pct(t.pnl_pct*100) : '—'}
-                    </td>
-                    <td style={{ padding:'4px 6px', color:C.muted }}>{t.status}</td>
-                    <td style={{ padding:'4px 6px', color: t.mode==='live' ? C.red : C.yellow }}>
-                      {t.mode?.toUpperCase()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Panel>
-        </div>
-
-        {/* right column — controls */}
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-
-          {/* execution mode */}
-          <Panel>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:600 }}>EXECUTION MODE</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              {['automatic','restricted','manual'].map(m => (
-                <button key={m} onClick={() => setMode(m)} style={{
-                  background: status.execution_mode === m ? C.accent : 'transparent',
-                  border: `1px solid ${status.execution_mode === m ? C.accent : C.border}`,
-                  color: status.execution_mode === m ? '#fff' : C.muted,
-                  borderRadius:4, padding:'6px 0', cursor:'pointer',
-                  fontSize:12, fontWeight:600, textTransform:'uppercase',
-                  letterSpacing:1, transition:'all .15s',
-                }}>{m}</button>
-              ))}
-            </div>
-          </Panel>
-
-          {/* timeframes */}
-          <Panel>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:600 }}>TIMEFRAMES</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              {['scalping','intraday','swing'].map(tf => (
-                <div key={tf} onClick={() => toggleTimeframe(tf)} style={{
-                  display:'flex', alignItems:'center', justifyContent:'space-between',
-                  padding:'6px 10px', borderRadius:4, cursor:'pointer',
-                  border:`1px solid ${(status.active_timeframes||[]).includes(tf) ? C.accent : C.border}`,
-                  background:(status.active_timeframes||[]).includes(tf) ? `${C.accent}18` : 'transparent',
-                  transition:'all .15s',
-                }}>
-                  <span style={{ fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:1 }}>{tf}</span>
-                  <div style={{
-                    width:10, height:10, borderRadius:'50%',
-                    background:(status.active_timeframes||[]).includes(tf) ? C.accent : C.border,
-                  }}/>
-                </div>
-              ))}
-              <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
-                Real capital routes only to timeframes with confirmed positive expectancy.
-                All active timeframes run in paper simultaneously.
-              </div>
-            </div>
-          </Panel>
-
-          {/* risk sliders */}
-          <Panel>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:600 }}>RISK PARAMETERS</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-              <Slider label="Daily Drawdown Halt"
-                value={status.daily_drawdown_halt_pct ?? 0.02}
-                min={0.005} max={0.1} step={0.005}
-                onChange={v => setConfig('daily_drawdown_halt_pct', v)}
-              />
-              <Slider label="Max Position Size"
-                value={status.max_position_pct ?? 0.05}
-                min={0.005} max={0.25} step={0.005}
-                onChange={v => setConfig('max_position_pct', v)}
-              />
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
-                  <span style={{ color:C.textDim }}>Restricted Limit (USD)</span>
-                  <span style={{ color:C.text, fontWeight:600 }}>${status.restricted_notional_limit ?? 50}</span>
-                </div>
-                <input type="range" min={10} max={500} step={10}
-                  value={status.restricted_notional_limit ?? 50}
-                  onChange={e => setConfig('restricted_notional_limit', parseFloat(e.target.value))}
-                  style={{ width:'100%', accentColor:C.accent }} />
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
-                  <span style={{ color:C.textDim }}>Consec. Loss Halt</span>
-                  <span style={{ color:C.text, fontWeight:600 }}>{status.consecutive_loss_halt ?? 3} trades</span>
-                </div>
-                <input type="range" min={2} max={10} step={1}
-                  value={status.consecutive_loss_halt ?? 3}
-                  onChange={e => setConfig('consecutive_loss_halt', parseInt(e.target.value))}
-                  style={{ width:'100%', accentColor:C.accent }} />
-              </div>
-            </div>
-          </Panel>
-
-          {/* live signals feed */}
-          <Panel style={{ flex:1 }}>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:600 }}>SIGNAL FEED</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:280, overflowY:'auto' }}>
-              {signals.slice(0,15).map((s, i) => (
-                <div key={i} style={{
-                  padding:'6px 8px', borderRadius:4,
-                  border:`1px solid ${s.direction==='long' ? `${C.green}44` : `${C.red}44`}`,
-                  background: s.direction==='long' ? `${C.green}0a` : `${C.red}0a`,
-                  fontSize:10,
-                }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:2 }}>
-                    <span style={{ fontWeight:700, color: s.direction==='long' ? C.green : C.red }}>
-                      {s.direction?.toUpperCase()} {s.symbol}
-                    </span>
-                    <span style={{ color:C.muted }}>{s.timeframe}</span>
-                  </div>
-                  <div style={{ display:'flex', gap:8, color:C.muted }}>
-                    <span>conf {(s.confidence*100).toFixed(0)}%</span>
-                    <span>meta {(s.meta_score*100).toFixed(0)}%</span>
-                    <span>kelly {(s.kelly_frac*100).toFixed(1)}%</span>
-                    <span>{s.regime}</span>
-                  </div>
-                </div>
-              ))}
-              {signals.length === 0 && (
-                <div style={{ color:C.muted, fontSize:11, textAlign:'center', paddingTop:20 }}>
-                  Waiting for signals...
-                </div>
-              )}
-            </div>
-          </Panel>
-        </div>
-      </div>
     </div>
-  )
+  );
 }
 
+// ─── Trade History ────────────────────────────────────────────────────────────
+function TradeHistory({ trades }) {
+  if (!trades || trades.length === 0)
+    return <p className="text-gray-500 text-sm py-4 text-center">No trades yet</p>;
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="text-gray-400 border-b border-gray-700">
+          {["Time","Symbol","TF","Dir","Entry","Exit","PnL","PnL%","Reason","Kelly","Regime"].map(h => (
+            <th key={h} className="py-1 px-2 text-left font-medium">{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {trades.map(t => {
+          const pnlColor = t.pnl_usd == null ? "" : t.pnl_usd >= 0 ? "text-green-400" : "text-red-400";
+          return (
+            <tr key={t.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+              <td className="py-1 px-2">{tsToTime(t.entry_ts)}</td>
+              <td className="py-1 px-2 font-mono">{t.symbol}</td>
+              <td className="py-1 px-2">{t.timeframe}</td>
+              <td className={`py-1 px-2 font-bold ${t.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+                {t.direction?.toUpperCase()}
+              </td>
+              <td className="py-1 px-2 font-mono">${fmt(t.entry_price, 2)}</td>
+              <td className="py-1 px-2 font-mono">{t.exit_price ? `$${fmt(t.exit_price, 2)}` : "open"}</td>
+              <td className={`py-1 px-2 font-mono font-bold ${pnlColor}`}>
+                {t.pnl_usd != null ? `$${fmt(t.pnl_usd, 4)}` : "—"}
+              </td>
+              <td className={`py-1 px-2 font-mono ${pnlColor}`}>
+                {t.pnl_pct != null ? `${fmt(t.pnl_pct, 3)}%` : "—"}
+              </td>
+              <td className="py-1 px-2 text-gray-400">{t.exit_reason || "—"}</td>
+              <td className="py-1 px-2 font-mono">{fmt(t.kelly_fraction, 4)}</td>
+              <td className="py-1 px-2" style={{ color: REGIME_COLOR[t.regime_at_entry] }}>
+                {REGIME_NAME[t.regime_at_entry]}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ─── Stats Cards ──────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, color }) {
+  return (
+    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+      <div className="text-xs text-gray-400 mb-1">{label}</div>
+      <div className={`text-2xl font-bold font-mono ${color || "text-white"}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tick, setTick]           = useState(null);
+  const [curve, setCurve]         = useState([]);
+  const [trades, setTrades]       = useState([]);
+  const [connected, setConnected] = useState(false);
+  const [tab, setTab]             = useState("positions");
+  const wsRef = useRef(null);
+
+  const startingCapital = 1000;
+
+  // WebSocket
+  useEffect(() => {
+    function connect() {
+      const ws = new WebSocket(WS);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnected(true);
+      };
+
+      ws.onmessage = e => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "tick") setTick(msg);
+        } catch (_) {}
+      };
+
+      ws.onerror = () => setConnected(false);
+
+      ws.onclose = () => {
+        setConnected(false);
+        setTimeout(connect, 3000);
+      };
+    }
+    connect();
+    return () => wsRef.current?.close();
+  }, []);
+
+  // REST: equity curve + trades
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [eqRes, trRes] = await Promise.all([
+          fetch(`${API}/equity?limit=288`),
+          fetch(`${API}/trades?limit=50`),
+        ]);
+        if (eqRes.ok) {
+          const eq = await eqRes.json();
+          setCurve(eq.curve || []);
+        }
+        if (trRes.ok) {
+          const tr = await trRes.json();
+          setTrades(tr.trades || []);
+        }
+      } catch (_) {}
+    }
+    fetchData();
+    const id = setInterval(fetchData, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const switchMode = useCallback(async mode => {
+    try {
+      await fetch(`${API}/execution-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+    } catch (_) {}
+  }, []);
+
+  const resolveApproval = useCallback(async (id, approved, operator) => {
+    try {
+      await fetch(`${API}/approvals/${id}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved, operator }),
+      });
+    } catch (_) {}
+  }, []);
+
+  const equity      = tick?.equity_usd ?? 0;
+  const cash        = tick?.cash_usd ?? 0;
+  const pnl         = equity - startingCapital;
+  const pnlPct      = startingCapital > 0 ? (pnl / startingCapital) * 100 : 0;
+  const positions   = tick?.positions ?? [];
+  const approvals   = tick?.pending_approvals ?? [];
+  const regime      = tick?.regime ?? null;
+  const mode        = tick?.execution_mode ?? "manual";
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white font-sans text-sm">
+      {/* Header */}
+      <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h1 className="text-lg font-bold tracking-tight">⚡ Trade Bot</h1>
+          <span className={`text-xs px-2 py-0.5 rounded font-bold ${connected ? "bg-green-900 text-green-400" : "bg-red-900 text-red-400"}`}>
+            {connected ? "LIVE" : "DISCONNECTED"}
+          </span>
+          <span className="text-xs text-gray-400">
+            {tick?.trading_mode?.toUpperCase() || "PAPER"}
+          </span>
+        </div>
+        <ModeSwitcher current={mode} onSwitch={switchMode} />
+      </header>
+
+      <main className="px-6 py-4 space-y-4">
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="Equity" value={`$${fmt(equity)}`}
+            sub={`Cash: $${fmt(cash)}`} />
+          <StatCard label="Total PnL"
+            value={`${pnl >= 0 ? "+" : ""}$${fmt(pnl)}`}
+            sub={`${pnl >= 0 ? "+" : ""}${fmt(pnlPct, 2)}%`}
+            color={pnl >= 0 ? "text-green-400" : "text-red-400"} />
+          <StatCard label="Open Positions" value={positions.length}
+            sub={`${approvals.length} pending approval${approvals.length !== 1 ? "s" : ""}`}
+            color={approvals.length > 0 ? "text-yellow-400" : "text-white"} />
+          <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <div className="text-xs text-gray-400 mb-2">Regime</div>
+            <RegimeBadge regime={regime} />
+          </div>
+        </div>
+
+        {/* Equity Chart */}
+        <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+            Equity Curve
+          </h2>
+          <EquityChart curve={curve} startingCapital={startingCapital} />
+        </div>
+
+        {/* Tabs */}
+        <div className="bg-gray-800 rounded-lg border border-gray-700">
+          <div className="flex border-b border-gray-700">
+            {[
+              { id: "positions", label: "Positions", badge: positions.length },
+              { id: "approvals", label: "Approvals", badge: approvals.length },
+              { id: "trades",    label: "Trades",    badge: null },
+            ].map(({ id, label, badge }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-colors
+                  ${tab === id
+                    ? "border-blue-500 text-blue-400"
+                    : "border-transparent text-gray-400 hover:text-white"}`}
+              >
+                {label}
+                {badge > 0 && (
+                  <span className="ml-1.5 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                    {badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="p-4 overflow-x-auto">
+            {tab === "positions" && <PositionsTable positions={positions} />}
+            {tab === "approvals" && (
+              <ApprovalQueue approvals={approvals} onResolve={resolveApproval} />
+            )}
+            {tab === "trades" && <TradeHistory trades={trades} />}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

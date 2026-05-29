@@ -1,116 +1,728 @@
 """
-Paper trading execution — simulates fills at market price with realistic slippage.
-Tracks virtual portfolio in memory + persists to DB.
+Paper trading executor.
+
+Simulates trade execution against live market prices without placing
+real orders.  Handles all three execution modes:
+
+  AUTOMATIC   — fire immediately when all gates pass
+  RESTRICTED  — fire below notional_limit_usd; queue approval above it;
+                auto-skip on approval_timeout_s
+  MANUAL      — every trade queued for explicit operator approval
+
+Position lifecycle:
+  open_position()  → stores entry, deducts notional from cash
+  close_position() → computes PnL, returns cash + PnL, persists trade record
+  mark_to_market() → updates unrealized PnL from current price
+
+Equity tracking:
+  Equity = cash + sum(unrealized PnL of open positions)
+  Snapshot written to storage on every close and every mark-to-market cycle.
+
+Authority:
+  - Chan (2013) Algorithmic Trading Ch.2 — paper trading methodology
+  - López de Prado (2018) AFML Ch.10 — execution cost modelling
 """
+
 from __future__ import annotations
-from datetime import datetime, timezone
+
+import asyncio
+import time
+import uuid
 from dataclasses import dataclass, field
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Final
+
 import structlog
 
-log = structlog.get_logger()
+from src.config import ExecutionMode, TradingMode, get_settings
+from src.data.storage import EquityRecord, StorageBackend, TradeRecord
+from src.risk.gates import DrawdownTracker, GateResult
+from src.risk.kelly import KellyResult
 
-SLIPPAGE_BPS = 5      # 5 basis points slippage simulation
-FEE_TAKER_BPS = 7     # Binance taker fee ~0.07%
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_PAPER_FEE_PCT: Final[float] = 0.001   # 0.1% taker fee (Binance standard)
+_TRADING_MODE: Final[TradingMode] = TradingMode.PAPER
+
+
+# ---------------------------------------------------------------------------
+# Position dataclass
+# ---------------------------------------------------------------------------
+
 
 @dataclass
 class PaperPosition:
-    symbol:      str
-    direction:   Literal["long", "short"]
+    """
+    Single open paper position.
+
+    direction     : 1 = long, 0 = short
+    entry_price   : simulated fill price
+    quantity      : asset units held
+    notional_usd  : entry_price × quantity (before fees)
+    unrealized_pnl: marked-to-market PnL (updated by mark_to_market)
+    """
+
+    trade_id: str
+    symbol: str
+    timeframe: str
+    direction: int
     entry_price: float
-    qty:         float
-    notional:    float
-    ts_open:     datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    trade_id:    int = 0
+    quantity: float
+    notional_usd: float
+    entry_ts: int
+    kelly_fraction: float
+    regime_at_entry: int
+    meta_label_prob: float
+    raw_signal: float
+    approved_by: str
+    execution_mode: str
+    fee_usd: float
+    unrealized_pnl: float = field(default=0.0)
+    current_price: float = field(default=0.0)
+
+    def mark(self, price: float) -> float:
+        """Update unrealized PnL from current market price."""
+        self.current_price = price
+        if self.direction == 1:
+            self.unrealized_pnl = (price - self.entry_price) * self.quantity
+        else:
+            self.unrealized_pnl = (self.entry_price - price) * self.quantity
+        return self.unrealized_pnl
+
+
+# ---------------------------------------------------------------------------
+# Approval request — used in RESTRICTED and MANUAL modes
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ApprovalRequest:
+    """
+    Pending trade awaiting operator approval.
+
+    resolved  : set to True when approved or rejected
+    approved  : True = proceed, False = skip
+    operator  : ID of approving operator (or 'auto_timeout')
+    """
+
+    request_id: str
+    symbol: str
+    timeframe: str
+    direction: int
+    notional_usd: float
+    entry_price: float
+    quantity: float
+    kelly_fraction: float
+    regime_state: int
+    meta_label_prob: float
+    raw_signal: float
+    created_at: float  # time.monotonic()
+
+    resolved: bool = field(default=False)
+    approved: bool = field(default=False)
+    operator: str = field(default="")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "request_id": self.request_id,
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "direction": "long" if self.direction == 1 else "short",
+            "notional_usd": round(self.notional_usd, 2),
+            "entry_price": round(self.entry_price, 4),
+            "quantity": self.quantity,
+            "kelly_fraction": round(self.kelly_fraction, 4),
+            "regime_state": self.regime_state,
+            "meta_label_prob": round(self.meta_label_prob, 4),
+            "raw_signal": round(self.raw_signal, 4),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Paper executor
+# ---------------------------------------------------------------------------
+
 
 class PaperExecutor:
-    def __init__(self, initial_capital: float = 1000.0):
-        self._capital:   float = initial_capital
-        self._positions: dict[str, PaperPosition] = {}
-        self._equity:    float = initial_capital
+    """
+    Paper trading executor.
 
-    @property
-    def capital(self) -> float:
-        return self._capital
+    Manages open positions, approval queues, equity tracking, and
+    trade persistence.  Thread-safe via asyncio.Lock.
 
-    @property
-    def equity(self) -> float:
-        return self._equity
+    Lifecycle::
 
-    def open_position(
+        executor = PaperExecutor(storage, starting_capital=1000.0)
+        await executor.initialize()
+
+        sizing_result = compute_position_size(...)
+        result = await executor.open_position(signal)
+
+        await executor.mark_to_market({"BTC/USDT": 31000.0})
+        await executor.close_position(trade_id, exit_price, reason)
+
+        await executor.shutdown()
+    """
+
+    def __init__(
         self,
-        symbol:    str,
-        direction: Literal["long", "short"],
-        qty:       float,
-        price:     float,
-        trade_id:  int = 0,
-    ) -> float:
-        """Simulate open. Returns actual fill price after slippage."""
-        slip = price * SLIPPAGE_BPS / 10000
-        fee  = price * qty * FEE_TAKER_BPS / 10000
-        fill = price + (slip if direction == "long" else -slip)
-        notional = fill * qty
-        self._capital  -= (notional + fee)
-        self._positions[symbol] = PaperPosition(
-            symbol=symbol, direction=direction,
-            entry_price=fill, qty=qty, notional=notional, trade_id=trade_id,
-        )
-        log.info("paper open", symbol=symbol, direction=direction, fill=round(fill,4),
-                 qty=round(qty,6), notional=round(notional,2))
-        return fill
+        storage: StorageBackend,
+        starting_capital: float | None = None,
+    ) -> None:
+        cfg = get_settings()
+        self._storage = storage
+        self._cfg = cfg
+        self._risk_cfg = cfg.risk
+        self._starting_capital: float = starting_capital or cfg.starting_capital_usd
+        self._cash: float = self._starting_capital
+        self._peak_equity: float = self._starting_capital
 
-    def close_position(
+        self._positions: dict[str, PaperPosition] = {}  # trade_id → position
+        self._approval_queue: dict[str, ApprovalRequest] = {}  # request_id → request
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._drawdown_tracker = DrawdownTracker(self._starting_capital)
+        self._initialized: bool = False
+        self._log = log.bind(component="paper_executor")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def initialize(self) -> None:
+        """Restore equity state from storage if prior session exists."""
+        latest = await self._storage.latest_equity(TradingMode.PAPER.value)
+        if latest is not None:
+            self._cash = latest.cash_usd
+            self._peak_equity = latest.peak_equity_usd
+            self._drawdown_tracker = DrawdownTracker(self._starting_capital)
+            self._drawdown_tracker.update(latest.equity_usd)
+            self._log.info(
+                "paper.initialized_from_storage",
+                equity_usd=latest.equity_usd,
+                cash_usd=latest.cash_usd,
+            )
+        else:
+            self._log.info(
+                "paper.initialized_fresh",
+                starting_capital=self._starting_capital,
+            )
+        self._initialized = True
+
+    async def shutdown(self) -> None:
+        """Persist final equity snapshot on clean shutdown."""
+        await self._snapshot_equity()
+        self._log.info("paper.shutdown", open_positions=len(self._positions))
+
+    # ------------------------------------------------------------------
+    # Execution mode routing
+    # ------------------------------------------------------------------
+
+    async def submit_signal(
         self,
         symbol: str,
-        price:  float,
-        reason: str = "signal",
-    ) -> tuple[float, float, float]:
+        timeframe: str,
+        direction: int,
+        kelly_result: KellyResult,
+        regime_state: int,
+        meta_label_prob: float,
+        raw_signal: float,
+        current_price: float,
+    ) -> tuple[str | None, str]:
         """
-        Close open position.
-        Returns (exit_price, pnl, pnl_pct).
+        Route a signal through the correct execution mode.
+
+        Returns (trade_id, outcome) where outcome is one of:
+          'opened'    — position opened immediately
+          'queued'    — approval request created (RESTRICTED/MANUAL)
+          'skipped'   — auto-skip on timeout (RESTRICTED only)
+          'rejected'  — gate failed or operator rejected
+
+        Parameters
+        ----------
+        symbol          : trading symbol
+        timeframe       : bar timeframe
+        direction       : 1=long, 0=short
+        kelly_result    : position sizing from kelly.compute_position_size()
+        regime_state    : current HMM regime (0/1/2)
+        meta_label_prob : meta-label gate probability
+        raw_signal      : direction model P(long)
+        current_price   : latest mark price for simulated fill
         """
-        if symbol not in self._positions:
-            return price, 0.0, 0.0
+        self._require_initialized()
+        mode = self._cfg.execution_mode
 
-        pos  = self._positions.pop(symbol)
-        slip = price * SLIPPAGE_BPS / 10000
-        fee  = price * pos.qty * FEE_TAKER_BPS / 10000
-        fill = price - (slip if pos.direction == "long" else -slip)
+        if mode == ExecutionMode.AUTOMATIC:
+            trade_id = await self._open_position_internal(
+                symbol, timeframe, direction, kelly_result,
+                regime_state, meta_label_prob, raw_signal,
+                current_price, approved_by="auto",
+            )
+            return trade_id, "opened" if trade_id else "rejected"
 
-        if pos.direction == "long":
-            pnl = (fill - pos.entry_price) * pos.qty - fee
-        else:
-            pnl = (pos.entry_price - fill) * pos.qty - fee
+        if mode == ExecutionMode.RESTRICTED:
+            if kelly_result.notional_usd <= self._risk_cfg.notional_limit_usd:
+                trade_id = await self._open_position_internal(
+                    symbol, timeframe, direction, kelly_result,
+                    regime_state, meta_label_prob, raw_signal,
+                    current_price, approved_by="auto_below_limit",
+                )
+                return trade_id, "opened" if trade_id else "rejected"
+            # Above limit — needs approval
+            req_id = await self._enqueue_approval(
+                symbol, timeframe, direction, kelly_result,
+                regime_state, meta_label_prob, raw_signal,
+            )
+            # Wait for approval with timeout
+            approved, operator = await self._await_approval(
+                req_id, self._risk_cfg.approval_timeout_s
+            )
+            if not approved:
+                return None, "skipped"
+            trade_id = await self._open_position_internal(
+                symbol, timeframe, direction, kelly_result,
+                regime_state, meta_label_prob, raw_signal,
+                current_price, approved_by=operator,
+            )
+            return trade_id, "opened" if trade_id else "rejected"
 
-        pnl_pct = pnl / pos.notional if pos.notional > 0 else 0.0
-        self._capital += pos.notional + pnl
-        self._equity   = self._capital
-        log.info("paper close", symbol=symbol, reason=reason, fill=round(fill,4),
-                 pnl=round(pnl,4), pnl_pct=f"{pnl_pct:.3%}")
-        return fill, pnl, pnl_pct
+        if mode == ExecutionMode.MANUAL:
+            req_id = await self._enqueue_approval(
+                symbol, timeframe, direction, kelly_result,
+                regime_state, meta_label_prob, raw_signal,
+            )
+            # Wait indefinitely (no timeout in MANUAL — operator must decide)
+            approved, operator = await self._await_approval(req_id, timeout_s=None)
+            if not approved:
+                return None, "rejected"
+            trade_id = await self._open_position_internal(
+                symbol, timeframe, direction, kelly_result,
+                regime_state, meta_label_prob, raw_signal,
+                current_price, approved_by=operator,
+            )
+            return trade_id, "opened" if trade_id else "rejected"
 
-    def mark_to_market(self, prices: dict[str, float]) -> float:
-        """Recalculate equity using current prices."""
-        unrealized = 0.0
-        for sym, pos in self._positions.items():
-            if sym in prices:
-                if pos.direction == "long":
-                    unrealized += (prices[sym] - pos.entry_price) * pos.qty
-                else:
-                    unrealized += (pos.entry_price - prices[sym]) * pos.qty
-        self._equity = self._capital + unrealized
-        return self._equity
+        # Should never reach — ExecutionMode enum is exhaustive
+        raise RuntimeError(f"Unknown execution mode: {mode!r}")  # pragma: no cover
 
-    def open_positions(self) -> list[dict]:
+    # ------------------------------------------------------------------
+    # Position management
+    # ------------------------------------------------------------------
+
+    async def close_position(
+        self,
+        trade_id: str,
+        exit_price: float,
+        exit_reason: str,
+    ) -> float:
+        """
+        Close an open paper position.
+
+        Computes PnL (net of simulated fees), returns cash to pool,
+        persists exit to storage, updates equity snapshot.
+
+        Parameters
+        ----------
+        trade_id    : UUID from open_position
+        exit_price  : simulated fill price at exit
+        exit_reason : 'profit_target' | 'stop_loss' | 'time_exit' | 'manual'
+
+        Returns
+        -------
+        Net PnL in USD.
+
+        Raises
+        ------
+        KeyError : if trade_id not found in open positions.
+        """
+        async with self._lock:
+            if trade_id not in self._positions:
+                raise KeyError(f"No open paper position with trade_id={trade_id!r}")
+
+            pos = self._positions.pop(trade_id)
+            exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+            # Gross PnL
+            if pos.direction == 1:  # long
+                gross_pnl = (exit_price - pos.entry_price) * pos.quantity
+            else:  # short
+                gross_pnl = (pos.entry_price - exit_price) * pos.quantity
+
+            exit_fee = exit_price * pos.quantity * _PAPER_FEE_PCT
+            total_fee = pos.fee_usd + exit_fee
+            net_pnl = gross_pnl - exit_fee
+            pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
+
+            # Return cash: original notional + net PnL (fees already deducted at entry)
+            self._cash += pos.notional_usd + net_pnl
+            equity = self._equity_usd()
+            self._peak_equity = max(self._peak_equity, equity)
+            self._drawdown_tracker.update(equity)
+
+        # Persist exit to storage (outside lock to avoid blocking)
+        await self._storage.update_trade_exit(
+            trade_id=trade_id,
+            exit_price=exit_price,
+            exit_ts=exit_ts,
+            pnl_usd=round(net_pnl, 8),
+            pnl_pct=round(pnl_pct, 8),
+            exit_reason=exit_reason,
+            fee_usd=exit_fee,
+        )
+        await self._snapshot_equity()
+
+        self._log.info(
+            "paper.position_closed",
+            trade_id=trade_id,
+            symbol=pos.symbol,
+            direction=pos.direction,
+            entry_price=round(pos.entry_price, 4),
+            exit_price=round(exit_price, 4),
+            quantity=pos.quantity,
+            net_pnl=round(net_pnl, 4),
+            pnl_pct=round(pnl_pct * 100, 3),
+            exit_reason=exit_reason,
+            total_fee=round(total_fee, 4),
+        )
+        return net_pnl
+
+    async def mark_to_market(
+        self,
+        prices: dict[str, float],
+    ) -> float:
+        """
+        Update unrealized PnL for all open positions.
+
+        Parameters
+        ----------
+        prices : symbol → current market price mapping
+
+        Returns
+        -------
+        Total unrealized PnL across all open positions.
+        """
+        async with self._lock:
+            total_unrealized = 0.0
+            for pos in self._positions.values():
+                price = prices.get(pos.symbol)
+                if price is not None and price > 0.0:
+                    pos.mark(price)
+                total_unrealized += pos.unrealized_pnl
+
+            equity = self._cash + total_unrealized
+            self._peak_equity = max(self._peak_equity, equity)
+            self._drawdown_tracker.update(equity)
+
+        await self._snapshot_equity()
+        return total_unrealized
+
+    # ------------------------------------------------------------------
+    # Approval queue — used by API to resolve RESTRICTED/MANUAL requests
+    # ------------------------------------------------------------------
+
+    async def resolve_approval(
+        self,
+        request_id: str,
+        approved: bool,
+        operator: str,
+    ) -> bool:
+        """
+        Resolve a pending approval request.
+
+        Called by the API websocket handler when an operator clicks
+        Approve or Reject on the dashboard.
+
+        Returns True if the request was found and resolved.
+        """
+        async with self._lock:
+            req = self._approval_queue.get(request_id)
+            if req is None or req.resolved:
+                return False
+            req.resolved = True
+            req.approved = approved
+            req.operator = operator
+
+        self._log.info(
+            "paper.approval_resolved",
+            request_id=request_id,
+            approved=approved,
+            operator=operator,
+        )
+        return True
+
+    def pending_approvals(self) -> list[dict[str, object]]:
+        """Return all unresolved approval requests as dicts for the API."""
+        return [
+            req.to_dict()
+            for req in self._approval_queue.values()
+            if not req.resolved
+        ]
+
+    # ------------------------------------------------------------------
+    # State queries
+    # ------------------------------------------------------------------
+
+    def open_positions(self) -> list[dict[str, object]]:
+        """Return all open positions as dicts for the API."""
         return [
             {
-                "symbol":      p.symbol,
-                "direction":   p.direction,
-                "entry_price": p.entry_price,
-                "qty":         p.qty,
-                "notional":    p.notional,
-                "ts_open":     p.ts_open.isoformat(),
+                "trade_id": p.trade_id,
+                "symbol": p.symbol,
+                "timeframe": p.timeframe,
+                "direction": "long" if p.direction == 1 else "short",
+                "entry_price": round(p.entry_price, 4),
+                "current_price": round(p.current_price, 4),
+                "quantity": p.quantity,
+                "notional_usd": round(p.notional_usd, 2),
+                "unrealized_pnl": round(p.unrealized_pnl, 4),
+                "unrealized_pnl_pct": round(
+                    p.unrealized_pnl / p.notional_usd * 100.0, 3
+                ) if p.notional_usd > 0 else 0.0,
+                "regime_at_entry": p.regime_at_entry,
+                "entry_ts": p.entry_ts,
             }
             for p in self._positions.values()
         ]
 
+    @property
+    def cash_usd(self) -> float:
+        return self._cash
+
+    @property
+    def equity_usd(self) -> float:
+        return self._equity_usd()
+
+    @property
+    def starting_capital(self) -> float:
+        return self._starting_capital
+
+    @property
+    def peak_equity(self) -> float:
+        return self._peak_equity
+
+    @property
+    def drawdown_tracker(self) -> DrawdownTracker:
+        return self._drawdown_tracker
+
+    def position_count(self) -> int:
+        return len(self._positions)
+
+    async def get_consecutive_losses(self, symbol: str) -> int:
+        """Query storage for trailing consecutive loss count."""
+        return await self._storage.count_consecutive_losses(
+            symbol, TradingMode.PAPER.value
+        )
+
+    async def get_daily_pnl(self, symbol: str) -> float:
+        """Query storage for today's realized PnL."""
+        return await self._storage.daily_pnl(symbol, TradingMode.PAPER.value)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _open_position_internal(
+        self,
+        symbol: str,
+        timeframe: str,
+        direction: int,
+        kelly_result: KellyResult,
+        regime_state: int,
+        meta_label_prob: float,
+        raw_signal: float,
+        current_price: float,
+        approved_by: str,
+    ) -> str | None:
+        """
+        Open a paper position and persist trade record.
+
+        Returns trade_id on success, None if cash is insufficient.
+        """
+        entry_fee = current_price * kelly_result.quantity * _PAPER_FEE_PCT
+        notional = kelly_result.notional_usd
+
+        async with self._lock:
+            if self._cash < notional + entry_fee:
+                self._log.warning(
+                    "paper.insufficient_cash",
+                    cash=round(self._cash, 2),
+                    needed=round(notional + entry_fee, 2),
+                )
+                return None
+
+            trade_id = str(uuid.uuid4())
+            entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            self._cash -= notional + entry_fee
+
+            pos = PaperPosition(
+                trade_id=trade_id,
+                symbol=symbol,
+                timeframe=timeframe,
+                direction=direction,
+                entry_price=current_price,
+                quantity=kelly_result.quantity,
+                notional_usd=notional,
+                entry_ts=entry_ts,
+                kelly_fraction=kelly_result.adjusted_fraction,
+                regime_at_entry=regime_state,
+                meta_label_prob=meta_label_prob,
+                raw_signal=raw_signal,
+                approved_by=approved_by,
+                execution_mode=self._cfg.execution_mode.value,
+                fee_usd=entry_fee,
+                current_price=current_price,
+            )
+            self._positions[trade_id] = pos
+
+        # Persist entry record (exit fields are None until close)
+        trade_record = TradeRecord(
+            id=trade_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            trading_mode=TradingMode.PAPER.value,
+            execution_mode=self._cfg.execution_mode.value,
+            direction=direction,
+            entry_price=current_price,
+            exit_price=None,
+            quantity=kelly_result.quantity,
+            notional_usd=notional,
+            entry_ts=entry_ts,
+            exit_ts=None,
+            pnl_usd=None,
+            pnl_pct=None,
+            fee_usd=entry_fee,
+            kelly_fraction=kelly_result.adjusted_fraction,
+            regime_at_entry=regime_state,
+            meta_label_prob=meta_label_prob,
+            exit_reason=None,
+            approved_by=approved_by,
+            raw_signal=raw_signal,
+        )
+        await self._storage.insert_trade(trade_record)
+        await self._snapshot_equity()
+
+        self._log.info(
+            "paper.position_opened",
+            trade_id=trade_id,
+            symbol=symbol,
+            direction="long" if direction == 1 else "short",
+            entry_price=round(current_price, 4),
+            quantity=kelly_result.quantity,
+            notional_usd=round(notional, 2),
+            kelly_fraction=round(kelly_result.adjusted_fraction, 4),
+            approved_by=approved_by,
+        )
+        return trade_id
+
+    async def _enqueue_approval(
+        self,
+        symbol: str,
+        timeframe: str,
+        direction: int,
+        kelly_result: KellyResult,
+        regime_state: int,
+        meta_label_prob: float,
+        raw_signal: float,
+    ) -> str:
+        """Create an ApprovalRequest and add to the queue."""
+        req_id = str(uuid.uuid4())
+        req = ApprovalRequest(
+            request_id=req_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            direction=direction,
+            notional_usd=kelly_result.notional_usd,
+            entry_price=0.0,   # filled at execution time
+            quantity=kelly_result.quantity,
+            kelly_fraction=kelly_result.adjusted_fraction,
+            regime_state=regime_state,
+            meta_label_prob=meta_label_prob,
+            raw_signal=raw_signal,
+            created_at=time.monotonic(),
+        )
+        async with self._lock:
+            self._approval_queue[req_id] = req
+
+        self._log.info(
+            "paper.approval_queued",
+            request_id=req_id,
+            symbol=symbol,
+            direction=direction,
+            notional_usd=round(kelly_result.notional_usd, 2),
+        )
+        return req_id
+
+    async def _await_approval(
+        self,
+        request_id: str,
+        timeout_s: float | None,
+    ) -> tuple[bool, str]:
+        """
+        Poll the approval queue until resolved or timeout.
+
+        Returns (approved, operator_id).
+        On timeout: marks rejected with operator='auto_timeout'.
+        On MANUAL with no timeout: polls indefinitely.
+        """
+        poll_interval = 0.25
+        elapsed = 0.0
+
+        while True:
+            async with self._lock:
+                req = self._approval_queue.get(request_id)
+                if req is None:
+                    return False, ""
+                if req.resolved:
+                    self._approval_queue.pop(request_id, None)
+                    return req.approved, req.operator
+
+            if timeout_s is not None and elapsed >= timeout_s:
+                async with self._lock:
+                    req = self._approval_queue.pop(request_id, None)
+                    if req is not None:
+                        req.resolved = True
+                        req.approved = False
+                        req.operator = "auto_timeout"
+                self._log.warning(
+                    "paper.approval_timeout",
+                    request_id=request_id,
+                    timeout_s=timeout_s,
+                )
+                return False, "auto_timeout"
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+    def _equity_usd(self) -> float:
+        """Total equity = cash + sum of unrealized PnL."""
+        return self._cash + sum(p.unrealized_pnl for p in self._positions.values())
+
+    async def _snapshot_equity(self) -> None:
+        """Write current equity state to storage."""
+        equity = self._equity_usd()
+        unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+        daily_pnl = self._drawdown_tracker.daily_pnl_usd
+        daily_pct = self._drawdown_tracker.daily_pnl_pct
+        dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+
+        record = EquityRecord(
+            ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+            trading_mode=TradingMode.PAPER.value,
+            equity_usd=round(equity, 8),
+            cash_usd=round(self._cash, 8),
+            unrealized_pnl=round(unrealized, 8),
+            daily_pnl_usd=round(daily_pnl, 8),
+            daily_pnl_pct=round(daily_pct, 8),
+            peak_equity_usd=round(self._peak_equity, 8),
+            drawdown_pct=round(dd_pct, 8),
+        )
+        await self._storage.insert_equity(record)
+
+    def _require_initialized(self) -> None:
+        if not self._initialized:
+            raise RuntimeError(
+                "PaperExecutor not initialized — call await executor.initialize() first."
+            )

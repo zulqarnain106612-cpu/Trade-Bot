@@ -1,98 +1,175 @@
-# Trade-Bot — Institutional-Grade Algorithmic Trading System
+# Trade Bot
 
-## Architecture
-
-```Market Data (Binance/OKX WebSocket)
-         │
-         ▼
- Regime Detector (HMM 3-state)
-         │
-         ▼
- Feature Pipeline (fractional diff · VWAP · OFI · realized vol)
-         │
-         ▼
- Primary Model (XGBoost direction classifier)
-         │
-         ▼
- Meta-Label Gate (XGBoost: should we bet at all?)
-         │
-         ▼
- Kelly Position Sizer
-         │
-         ▼
- Triple-Barrier Risk Gate (stop · take-profit · time-exit)
-         │
-    ┌────▼────┐
-    │  Mode   │  AUTOMATIC / RESTRICTED / MANUAL
-    └────┬────┘
-         │
- Execution Engine (Paper / Live)
-         │
- Binance REST · OKX REST
-         │
- Portfolio Engine (P&L · drawdown · exposure)
-         │
- Dashboard (FastAPI + React, real-time WebSocket)
-```
+Production algorithmic trading bot — Binance (primary) + OKX (secondary).
 
 ## Stack
 
-- Python 3.11+ — signal research, ML, portfolio, API
-- Rust — WAL journal, execution hot path
-- XGBoost 2.x — primary + meta-label classifiers
-- hmmlearn — regime detection
-- FastAPI + WebSocket — dashboard backend
-- React + Recharts — dashboard frontend
-- SQLite — local trade/signal/performance storage
-- CCXT — unified Binance/OKX REST adapter
+Python 3.11+ · FastAPI · XGBoost · GaussianHMM · React + Vite · SQLite (WAL)
+
+## Signal Architecture
+
+| Layer | Implementation |
+
+|---|---|
+| Regime | GaussianHMM 3-state (ranging / trending / volatile) |
+| Features | Fractional diff (d=0.4), VWAP dev, OFI, realized vol ratio, ATR momentum, rolling Sharpe, volume z-score |
+| Direction | XGBoost classifier → P(long) |
+| Meta-label | XGBoost gate → P(bet) |
+| Labeling | Triple-barrier method (AFML Ch.3) |
+| Validation | CPCV — Combinatorial Purged Cross-Validation (AFML Ch.7) |
+| Sizing | Half-Kelly (multiplier=0.5, ceiling=0.25) |
+
+## Risk Gates (hard limits)
+
+- Daily drawdown halt: **2%**
+- Consecutive loss halt: **3 trades**
+- Regime gate: no new positions when state = **volatile**
+- Max position size: **5% of capital**
+- Default: **paper** — live requires `TRADING_MODE=live` in `.env`
+- Live gate: OOS Sharpe > 1.5 · max DD < 15% · 500+ trades
 
 ## Timeframes
 
-- SCALPING  (15s–5m) — paper only unless regime = trending + spread < 2 ticks
-- INTRADAY  (15m–4h) — primary real-money timeframe under $10k capital
-- SWING     (4h–1D)  — activated when Sharpe > 1.5 confirmed on 30-day paper
+| Stream | Interval | Role |
 
-All 3 run simultaneously in paper. Real capital routes only to timeframes
-with confirmed positive expectancy in the current regime.
+|---|---|---|
+| Scalping | 1m | Paper only |
+| Intraday | 15m | Primary real-money |
+| Swing | 4h | Paper only |
 
-## Trading Modes
+## Execution Modes (runtime switchable via dashboard or POST /execution-mode)
 
-- AUTOMATIC  — no approvals, all trades execute
-- RESTRICTED — autonomous below notional limit, approval required above it
-- MANUAL     — every trade requires explicit approval, none execute without it
+| Mode | Behaviour |
 
-Timeout on approval requests: configurable (default 60s), auto-skip on timeout.
+|---|---|
+| AUTOMATIC | No approvals — fires within risk gates |
+| RESTRICTED | Auto below notional limit; approval above; auto-skip on timeout |
+| MANUAL | Every trade queued for explicit operator approval |
 
-## Safety Gates (non-negotiable, cannot be disabled from dashboard)
+## Directory Structure
 
-1. Daily drawdown circuit breaker — halts all trading at configurable % loss
-2. Consecutive loss halt — halts after N losing trades in a row
-3. Regime-change halt — exits all positions when HMM regime shifts unexpectedly
-4. Max position size — hard cap as % of total capital
-5. Paper-first enforcement — system boots in PAPER mode, live requires explicit flag
+```src/
+  config.py               Settings, enums, constants
+  data/
+    fetcher.py            ccxt OHLCV + order-book fetch
+    storage.py            Async SQLite (bars, trades, regime, metrics, equity)
+  features/
+    pipeline.py           7-feature pipeline + triple-barrier labels
+  regime/
+    detector.py           GaussianHMM fit / predict / persist
+  models/
+    trainer.py            XGBoost direction + meta-label + CPCV
+  risk/
+    kelly.py              Half-Kelly sizing
+    gates.py              All hard risk gates
+  execution/
+    paper.py              Paper executor (all 3 execution modes)
+    live.py               Live executor (ccxt market orders)
+  engine/
+    signal_engine.py      Per-timeframe signal pipeline
+    orchestrator.py       Main async event loop
+  api/
+    main.py               FastAPI REST + WebSocket dashboard API
+frontend/
+  src/
+    App.jsx               React dashboard (equity chart, positions, approvals)
+    main.jsx              Entry point
+  index.html
+  package.json
+  vite.config.js
+tests/
+  test_risk_gates.py
+  test_kelly.py
+  test_features.py
+```
 
 ## Setup
 
+### 1. Python environment
+
 ```bash
-bash bootstrap.sh
+cd D:\Trade-Bot\Trade-Bot
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+pip install -r requirements.txt
 ```
 
-Then open: <http://localhost:5173>
+### 2. Environment file
 
-## API Keys
+Create `.env` in the project root:
 
-Set in dashboard Settings panel or in .env:
+```env
+# Exchange credentials
+BINANCE_API_KEY=your_key
+BINANCE_API_SECRET=your_secret
+BINANCE_TESTNET=true
 
-```BINANCE_API_KEY=...
-BINANCE_API_SECRET=...
-OKX_API_KEY=...
-OKX_API_SECRET=...
-OKX_PASSPHRASE=...
-TRADING_MODE=paper   # change to 'live' only after 30-day paper validation
+OKX_API_KEY=your_key
+OKX_API_SECRET=your_secret
+OKX_PASSPHRASE=your_passphrase
+OKX_TESTNET=true
+
+# Trading
+TRADING_MODE=paper          # change to 'live' only after 30+ paper days
+EXECUTION_MODE=manual       # automatic | restricted | manual
+PRIMARY_SYMBOL=BTC/USDT
+STARTING_CAPITAL_USD=1000.0
+
+# Risk overrides (optional — defaults shown)
+RISK_DAILY_DRAWDOWN_HALT_PCT=2.0
+RISK_CONSECUTIVE_LOSS_HALT=3
+RISK_MAX_POSITION_SIZE_PCT=5.0
+RISK_KELLY_MULTIPLIER=0.5
+RISK_KELLY_CEILING=0.25
+
+# API
+API_HOST=0.0.0.0
+API_PORT=8000
+API_CORS_ORIGINS=["http://localhost:5173"]
 ```
+
+### 3. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:5173
+```
+
+### 4. Backend
+
+```bash
+cd D:\Trade-Bot\Trade-Bot
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+## Tests
+
+```bash
+pytest tests/ -v --tb=short
+```
+
+## Live Trading Checklist
+
+Run this checklist before setting `TRADING_MODE=live`:
+
+- [ ] ≥ 30 calendar days paper trading completed
+- [ ] Direction model: OOS Sharpe > 1.5
+- [ ] Direction model: max drawdown < 15%
+- [ ] Direction model: ≥ 500 OOS trades
+- [ ] Meta-label model: all same thresholds
+- [ ] Both models persisted to `models/artifacts/`
+- [ ] Both metrics rows have `live_gate_pass=1` in database
+- [ ] `BINANCE_TESTNET=false` confirmed
+- [ ] Risk parameters reviewed and unchanged
+- [ ] `EXECUTION_MODE` set to `restricted` or `manual` for first live session
+
+Set `TRADING_MODE=live` in `.env` — this is the only way to unlock live trading.
 
 ## References
 
-- López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley.
-- Chan, E. (2013). *Algorithmic Trading: Winning Strategies and Their Rationale*. Wiley.
-- Kelly, J.L. (1956). A New Interpretation of Information Rate. *Bell System Technical Journal*.
+- López de Prado (2018) *Advances in Financial Machine Learning* — Ch.3–5, 7, 10, 17
+- Hamilton (1989) "A New Approach to the Economic Analysis of Nonstationary Time Series" — *Econometrica* 57(2)
+- Kelly (1956) "A New Interpretation of Information Rate" — *Bell System Technical Journal* 35(4)
+- Chan (2013) *Algorithmic Trading: Winning Strategies and Their Rationale*
+- Chen & Guestrin (2016) "XGBoost: A Scalable Tree Boosting System"
