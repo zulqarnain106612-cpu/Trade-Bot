@@ -5,9 +5,6 @@ src/__init__.py
 src/config.py
 src/api/__init__.py
 src/api/main.py
-src/data/__init__.py
-src/data/fetcher.py
-src/data/storage.py
 src/engine/__init__.py
 src/engine/orchestrator.py
 src/engine/signal_engine.py
