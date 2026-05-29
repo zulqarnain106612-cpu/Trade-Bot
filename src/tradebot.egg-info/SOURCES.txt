@@ -28,3 +28,6 @@ src/tradebot.egg-info/SOURCES.txt
 src/tradebot.egg-info/dependency_links.txt
 src/tradebot.egg-info/requires.txt
 src/tradebot.egg-info/top_level.txt
+tests/test_features.py
+tests/test_kelly.py
+tests/test_risk_gates.py
