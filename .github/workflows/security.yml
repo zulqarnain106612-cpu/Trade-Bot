@@ -2,7 +2,6 @@ name: Dependency Security Audit
 
 on:
   schedule:
-    # Every Monday 07:00 UTC
     - cron: "0 7 * * 1"
   push:
     paths:
@@ -13,10 +12,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────
-  # Python — resolve the dep graph without downloading wheels, then audit.
-  # Cold-runner time: ~25s instead of 10-15 minutes.
-  # ─────────────────────────────────────────────────────────────────────────
   audit-python:
     name: Python — pip-audit
     runs-on: ubuntu-latest
@@ -31,38 +26,20 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install pip-audit (only tool needed)
-        # The full project stack is NOT installed here.
-        # pip-audit resolves the dependency graph via the PyPI JSON API
-        # without downloading any wheels, keeping this step fast.
+      - name: Install pip-audit only
         run: python -m pip install --upgrade pip pip-audit
 
-      - name: Resolve dependency list (no wheel downloads)
-        # pip install --dry-run --report writes a JSON manifest of what
-        # *would* be installed without actually downloading anything.
-        # Requires pip >= 22.2 (ubuntu-latest ships pip 24+).
+      - name: Resolve dependency versions without downloading wheels
         shell: bash
         run: |
-          pip install \
+          python -m pip install \
             --dry-run \
             --ignore-installed \
             --report resolved.json \
             -e ".[dev]" \
             --quiet 2>/dev/null || true
 
-          # Extract name==version pairs for pip-audit
-          python3 - <<'PY'
-          import json
-          with open("resolved.json") as f:
-              data = json.load(f)
-          pkgs = [
-              f"{p['metadata']['name']}=={p['metadata']['version']}"
-              for p in data.get("install", [])
-          ]
-          with open("requirements-resolved.txt", "w") as f:
-              f.write("\n".join(pkgs))
-          print(f"Resolved {len(pkgs)} packages")
-          PY
+          python3 extract_resolved.py
 
       - name: Audit resolved packages
         shell: bash
@@ -72,9 +49,7 @@ jobs:
             --requirement requirements-resolved.txt \
             --output json \
             --format json \
-            > pip-audit.json || AUDIT_EXIT=$?
-
-          # Also emit human-readable to the log
+            > pip-audit.json 2>&1 || AUDIT_EXIT=$?
           pip-audit \
             --strict \
             --requirement requirements-resolved.txt \
@@ -90,9 +65,6 @@ jobs:
             requirements-resolved.txt
           retention-days: 30
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Frontend — npm audit (fast, uses lock file)
-  # ─────────────────────────────────────────────────────────────────────────
   audit-frontend:
     name: Frontend — npm audit
     runs-on: ubuntu-latest

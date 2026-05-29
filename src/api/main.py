@@ -148,7 +148,7 @@ async def status() -> dict[str, Any]:
 
     equity_usd = executor.equity_usd if executor else 0.0
     cash_usd = executor.cash_usd if executor else 0.0
-    positions = executor.open_positions() if executor else [] # type: ignore
+    positions = executor.open_positions() if executor else []  # type: ignore
     approvals = executor.pending_approvals() if executor else []
 
     # Latest regime for primary timeframe
@@ -385,7 +385,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             payload: dict[str, Any] = {
                 "type": "tick",
                 "equity_usd": round(executor.equity_usd, 2),
-                "cash_usd": round(executor.cash_usd, 2), # type: ignore
+                "cash_usd": round(executor.cash_usd, 2),  # type: ignore
                 "positions": executor.open_positions(),
                 "pending_approvals": executor.pending_approvals(),
                 "trading_mode": get_settings().trading_mode.value,
