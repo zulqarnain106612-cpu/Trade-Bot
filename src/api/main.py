@@ -248,7 +248,7 @@ async def equity_curve(
     }
 
 
-@app.get("/regime/{timeframe}")
+@app.get("/regime/{timeframe}", responses={404: {"description": "No regime data for timeframe"}})
 async def regime(timeframe: str) -> dict[str, Any]:
     """Latest regime snapshot for a timeframe."""
     cfg = get_settings()
@@ -276,7 +276,13 @@ async def approvals() -> dict[str, Any]:
     return {"approvals": executor.pending_approvals()}
 
 
-@app.post("/approvals/{request_id}/resolve")
+@app.post(
+    "/approvals/{request_id}/resolve",
+    responses={
+        503: {"description": "Executor not initialized"},
+        404: {"description": "Approval request not found or already resolved"},
+    },
+)
 async def resolve_approval(
     request_id: str,
     body: ResolveApprovalRequest,
@@ -299,7 +305,10 @@ async def resolve_approval(
     return {"resolved": True, "approved": body.approved, "operator": body.operator}
 
 
-@app.post("/execution-mode")
+@app.post(
+    "/execution-mode",
+    responses={400: {"description": "Invalid execution mode"}},
+)
 async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
     """
     Switch execution mode at runtime.

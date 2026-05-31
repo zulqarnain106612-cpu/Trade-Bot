@@ -31,7 +31,7 @@ class TestKellyFraction:
 
     def test_negative_edge_returns_zero(self):
         # p=0.3, b=1.0 → (0.3 - 0.7)/1 = -0.4 → clipped to 0
-        assert kelly_fraction(0.3, 1.0) == 0.0
+        assert abs(kelly_fraction(0.3, 1.0)) < 1e-9
 
     def test_high_edge_clipped_at_one(self):
         result = kelly_fraction(0.99, 100.0)
@@ -40,7 +40,7 @@ class TestKellyFraction:
 
     def test_breakeven_edge(self):
         # p=0.5, b=1.0 → f* = 0
-        assert kelly_fraction(0.5, 1.0) == 0.0
+        assert abs(kelly_fraction(0.5, 1.0)) < 1e-9
 
     def test_invalid_probability_zero(self):
         with pytest.raises(ValueError):
@@ -60,10 +60,10 @@ class TestKellyFraction:
 
     def test_symmetric_long_short(self):
         # Negative edge clips to 0; short side (p=0.4, b=0.5) has negative edge
-        f_long = kelly_fraction(0.6, 2.0)
-        f_short = kelly_fraction(0.4, 0.5)  # (0.4*0.5-0.6)/0.5 = -0.8 → clipped 0
+        f_long  = kelly_fraction(0.6, 2.0)
+        f_short = kelly_fraction(0.4, 0.5)   # (0.4*0.5-0.6)/0.5 = -0.8 → clipped 0
         assert f_long > 0.0
-        assert f_short == 0.0
+        assert abs(f_short) < 1e-9
 
 
 # ─── half_kelly_fraction ─────────────────────────────────────────────────────
@@ -77,24 +77,24 @@ class TestHalfKellyFraction:
         assert capped is False
 
     def test_ceiling_binding(self):
-        raw, adj, capped = half_kelly_fraction(0.95, 10.0)
-        assert adj == 0.25
+        _, adj, capped = half_kelly_fraction(0.95, 10.0)
+        assert abs(adj - 0.25) < 1e-9
         assert capped is True
 
     def test_zero_edge_returns_zero(self):
         raw, adj, _ = half_kelly_fraction(0.3, 1.0)
-        assert raw == 0.0
-        assert adj == 0.0
+        assert abs(raw) < 1e-9
+        assert abs(adj) < 1e-9
 
     def test_custom_multiplier(self):
         # multiplier=1.0 gives raw=0.4 but ceiling=0.25 caps it
         _, adj, capped = half_kelly_fraction(0.6, 2.0, multiplier=1.0)
-        assert adj == 0.25
+        assert abs(adj - 0.25) < 1e-9
         assert capped is True
 
     def test_custom_ceiling(self):
         _, adj, capped = half_kelly_fraction(0.6, 2.0, multiplier=1.0, ceiling=0.1)
-        assert adj == 0.1
+        assert abs(adj - 0.1) < 1e-9
         assert capped is True
 
 
@@ -103,7 +103,7 @@ class TestHalfKellyFraction:
 
 class TestKellyFromModelProbs:
     def test_long_direction(self):
-        raw, adj, _ = kelly_from_model_probs(0.75, 50.0, 25.0, direction=1)
+        _, adj, _ = kelly_from_model_probs(0.75, 50.0, 25.0, direction=1)
         assert adj > 0.0
 
     def test_short_direction_symmetric(self):
@@ -112,12 +112,12 @@ class TestKellyFromModelProbs:
         assert abs(adj_long - adj_short) < 1e-6
 
     def test_no_history_uses_default_ratio(self):
-        raw, adj, _ = kelly_from_model_probs(0.6, 0.0, 0.0, direction=1)
+        _, adj, _ = kelly_from_model_probs(0.6, 0.0, 0.0, direction=1)
         assert adj > 0.0  # should not fail
 
     def test_edge_probability_guard(self):
         # p=0.0 should be guarded to 0.01
-        raw, adj, _ = kelly_from_model_probs(0.0, 10.0, 10.0, direction=1)
+        _, adj, _ = kelly_from_model_probs(0.0, 10.0, 10.0, direction=1)
         assert adj >= 0.0  # no crash
 
     def test_result_bounded_by_ceiling(self):
@@ -130,17 +130,17 @@ class TestKellyFromModelProbs:
 
 class TestFloorToPrecision:
     def test_five_decimals(self):
-        assert _floor_to_precision(0.123456789, 5) == 0.12345
+        assert abs(_floor_to_precision(0.123456789, 5) - 0.12345) < 1e-9
 
     def test_zero_decimals(self):
-        assert _floor_to_precision(1.999, 0) == 1.0
+        assert abs(_floor_to_precision(1.999, 0) - 1.0) < 1e-9
 
     def test_eight_decimals(self):
-        assert _floor_to_precision(0.001, 8) == 0.001
+        assert abs(_floor_to_precision(0.001, 8) - 0.001) < 1e-9
 
     def test_floor_not_round(self):
         # 0.12999 should floor to 0.12, not round to 0.13
-        assert _floor_to_precision(0.12999, 2) == 0.12
+        assert abs(_floor_to_precision(0.12999, 2) - 0.12) < 1e-9
 
     def test_negative_precision_raises(self):
         with pytest.raises(ValueError):
@@ -203,12 +203,9 @@ class TestSizePosition:
 class TestComputePositionSize:
     def test_full_pipeline_long(self):
         result = compute_position_size(
-            p_long=0.75,
-            direction=1,
-            capital_usd=1000.0,
-            entry_price=30000.0,
-            avg_win_usd=20.0,
-            avg_loss_usd=10.0,
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
         )
         assert result is not None
         assert result.quantity > 0
@@ -216,19 +213,15 @@ class TestComputePositionSize:
 
     def test_full_pipeline_short(self):
         result = compute_position_size(
-            p_long=0.25,
-            direction=0,
-            capital_usd=1000.0,
-            entry_price=30000.0,
+            p_long=0.25, direction=0,
+            capital_usd=1000.0, entry_price=30000.0,
         )
         assert result is not None
 
     def test_low_confidence_still_sizes(self):
         result = compute_position_size(
-            p_long=0.51,
-            direction=1,
-            capital_usd=1000.0,
-            entry_price=30000.0,
+            p_long=0.51, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
         )
         assert result is not None
 
@@ -238,14 +231,14 @@ class TestComputePositionSize:
 
 class TestComputeWinLossStats:
     def test_too_few_trades_returns_defaults(self):
-        wp, aw, al = compute_win_loss_stats([10.0, -5.0])
-        assert wp == 0.5
-        assert aw == 1.0
-        assert al == 1.0
+        _wp, _aw, _al = compute_win_loss_stats([10.0, -5.0])
+        assert abs(_wp - 0.5) < 1e-9
+        assert abs(_aw - 1.0) < 1e-9
+        assert abs(_al - 1.0) < 1e-9
 
     def test_correct_win_probability(self):
         pnl = [10.0] * 6 + [-5.0] * 4
-        wp, aw, al = compute_win_loss_stats(pnl)
+        wp, _aw, _al = compute_win_loss_stats(pnl)
         assert abs(wp - 0.6) < 1e-9
 
     def test_correct_averages(self):
@@ -256,10 +249,10 @@ class TestComputeWinLossStats:
 
     def test_all_wins(self):
         pnl = [10.0] * 10
-        wp, aw, al = compute_win_loss_stats(pnl)
-        assert wp == 0.5 and aw == 1.0  # falls back (no losses)
+        _wp, aw, _al = compute_win_loss_stats(pnl)
+        assert abs(_wp - 0.5) < 1e-9 and abs(aw - 1.0) < 1e-9  # falls back (no losses)
 
     def test_all_losses(self):
         pnl = [-10.0] * 10
-        wp, aw, al = compute_win_loss_stats(pnl)
-        assert wp == 0.5 and al == 1.0  # falls back (no wins)
+        _wp, _aw, al = compute_win_loss_stats(pnl)
+        assert abs(_wp - 0.5) < 1e-9 and abs(al - 1.0) < 1e-9  # falls back (no wins)

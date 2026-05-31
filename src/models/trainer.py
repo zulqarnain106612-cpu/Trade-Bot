@@ -69,6 +69,64 @@ class CPCVFold:
     fold_id: int
 
 
+def _build_groups(n_samples: int, n_splits: int) -> list[np.ndarray]:
+    """Partition sample indices into n_splits contiguous groups."""
+    indices = np.arange(n_samples)
+    group_size = n_samples // n_splits
+    groups: list[np.ndarray] = []
+    for i in range(n_splits):
+        start = i * group_size
+        end = start + group_size if i < n_splits - 1 else n_samples
+        groups.append(indices[start:end])
+    return groups
+
+
+def _apply_purge_embargo(
+    group_arr: np.ndarray,
+    group_start: int,
+    group_end: int,
+    test_start: int,
+    test_end: int,
+    purge_gap: int,
+    embargo_size: int,
+) -> np.ndarray:
+    """Remove samples that fall within the purge or embargo zones."""
+    if group_end >= test_start - purge_gap and group_end < test_start:
+        group_arr = group_arr[group_arr < test_start - purge_gap]
+    if group_start <= test_end + embargo_size and group_start > test_end:
+        group_arr = group_arr[group_arr > test_end + embargo_size]
+    return group_arr
+
+
+def _build_train_indices(
+    groups: list[np.ndarray],
+    n_splits: int,
+    test_group_set: set[int],
+    test_start: int,
+    test_end: int,
+    purge_gap: int,
+    embargo_size: int,
+) -> np.ndarray | None:
+    """Collect train indices across all non-test groups with purge/embargo applied."""
+    train_parts: list[np.ndarray] = []
+    for g in range(n_splits):
+        if g in test_group_set:
+            continue
+        group_arr = groups[g]
+        group_arr = _apply_purge_embargo(
+            group_arr,
+            int(group_arr.min()),
+            int(group_arr.max()),
+            test_start,
+            test_end,
+            purge_gap,
+            embargo_size,
+        )
+        if len(group_arr) > 0:
+            train_parts.append(group_arr)
+    return np.concatenate(train_parts) if train_parts else None
+
+
 def build_cpcv_folds(
     n_samples: int,
     n_splits: int,
@@ -103,48 +161,21 @@ def build_cpcv_folds(
     """
     from itertools import combinations
 
-    indices = np.arange(n_samples)
-    group_size = n_samples // n_splits
-    # Build group boundaries
-    groups: list[np.ndarray] = []
-    for i in range(n_splits):
-        start = i * group_size
-        end = start + group_size if i < n_splits - 1 else n_samples
-        groups.append(indices[start:end])
-
+    groups = _build_groups(n_samples, n_splits)
     embargo_size = max(1, int(n_samples * embargo_pct))
-
     folds: list[CPCVFold] = []
+
     for fold_id, test_group_ids in enumerate(combinations(range(n_splits), n_test_splits)):
         test_group_set = set(test_group_ids)
         test_idx = np.concatenate([groups[g] for g in sorted(test_group_set)])
         test_start = int(test_idx.min())
         test_end = int(test_idx.max())
 
-        # Training: all groups not in test set, with purge + embargo
-        train_parts: list[np.ndarray] = []
-        for g in range(n_splits):
-            if g in test_group_set:
-                continue
-            group_arr = groups[g]
-            group_end = int(group_arr.max())
-            group_start = int(group_arr.min())
-
-            # Purge: remove samples within purge_gap bars before test window
-            if group_end >= test_start - purge_gap and group_end < test_start:
-                group_arr = group_arr[group_arr < test_start - purge_gap]
-            # Embargo: remove samples within embargo_size bars after test window
-            if group_start <= test_end + embargo_size and group_start > test_end:
-                group_arr = group_arr[group_arr > test_end + embargo_size]
-
-            if len(group_arr) > 0:
-                train_parts.append(group_arr)
-
-        if not train_parts:
-            continue
-        train_idx = np.concatenate(train_parts)
-
-        if len(train_idx) < 30 or len(test_idx) < 10:
+        train_idx = _build_train_indices(
+            groups, n_splits, test_group_set,
+            test_start, test_end, purge_gap, embargo_size,
+        )
+        if train_idx is None or len(train_idx) < 30 or len(test_idx) < 10:
             continue
 
         folds.append(CPCVFold(train_idx=train_idx, test_idx=test_idx, fold_id=fold_id))
@@ -268,7 +299,7 @@ def _oos_sharpe_and_drawdown(
 
     mu = float(np.mean(strat_ret))
     sigma = float(np.std(strat_ret, ddof=1))
-    if sigma == 0.0:
+    if abs(sigma) < 1e-10:
         sharpe = 0.0
     else:
         sharpe = (mu / sigma) * np.sqrt(len(strat_ret))
@@ -476,12 +507,11 @@ class ModelTrainer:
         -------
         TrainingResult for the meta-label model.
         """
-        X_dir = fm.features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
-        dir_probs = direction_model.predict_proba(X_dir)[:, 1]  # P(long)
+        x_dir = fm.features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        dir_probs = direction_model.predict_proba(x_dir)[:, 1]  # P(long)
         dir_preds = (dir_probs >= 0.5).astype(np.int8)
 
         # Meta-labels: 1 when direction model agrees with realized outcome
-        fm.labels.to_numpy(dtype=np.int8)
         meta_y = meta_labels(
             pd.Series(dir_preds, index=fm.labels.index, dtype=np.int8),
             fm.labels,
@@ -490,21 +520,21 @@ class ModelTrainer:
         # Extended feature matrix: primary features + direction signal features
         confidence = np.abs(dir_probs - 0.5).reshape(-1, 1)
         p_long = dir_probs.reshape(-1, 1)
-        X_meta = np.hstack([X_dir, p_long, confidence])
+        x_meta = np.hstack([x_dir, p_long, confidence])
 
         log_ret = fm.log_returns.to_numpy(dtype=np.float64)
         weights = compute_sample_weights(fm.log_returns)
 
         self._log.info(
             "trainer.meta.start",
-            n_samples=len(X_meta),
+            n_samples=len(x_meta),
             n_bet=int((meta_y == 1).sum()),
             n_skip=int((meta_y == 0).sum()),
         )
 
         cpcv_cfg = self._feature_cfg
         folds = build_cpcv_folds(
-            n_samples=len(X_meta),
+            n_samples=len(x_meta),
             n_splits=cpcv_cfg.cpcv_n_splits,
             n_test_splits=cpcv_cfg.cpcv_n_test_splits,
             purge_gap=cpcv_cfg.purge_gap_bars,
@@ -513,7 +543,7 @@ class ModelTrainer:
 
         t0 = time.perf_counter()
         fold_metrics, all_oos_ret, all_oos_pred = self._run_cpcv(
-            X_meta, meta_y, log_ret, weights, folds, model_name=MODEL_META_LABEL
+            x_meta, meta_y, log_ret, weights, folds, model_name=MODEL_META_LABEL
         )
         elapsed = time.perf_counter() - t0
 
@@ -523,10 +553,10 @@ class ModelTrainer:
 
         pos_weight = float((meta_y == 0).sum()) / max(float((meta_y == 1).sum()), 1.0)
         final_model = _build_xgb(self._xgb_cfg, scale_pos_weight=pos_weight)
-        split = int(len(X_meta) * 0.85)
-        eval_set = [(X_meta[split:], meta_y[split:])]
+        split = int(len(x_meta) * 0.85)
+        eval_set = [(x_meta[split:], meta_y[split:])]
         final_model.fit(
-            X_meta[:split],
+            x_meta[:split],
             meta_y[:split],
             sample_weight=weights[:split],
             eval_set=eval_set,
@@ -739,15 +769,13 @@ class ModelTrainer:
                 # Not enough for eval set — disable early stopping for this fold
                 model.set_params(early_stopping_rounds=None)
                 model.fit(
-                    X[tr],
-                    y[tr],
+                    X[tr], y[tr],
                     sample_weight=weights[tr],
                     verbose=False,
                 )
             else:
                 model.fit(
-                    X[tr_inner],
-                    y[tr_inner],
+                    X[tr_inner], y[tr_inner],
                     sample_weight=weights[tr_inner],
                     eval_set=[(X[val_inner], y[val_inner])],
                     verbose=False,

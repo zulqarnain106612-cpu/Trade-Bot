@@ -109,7 +109,6 @@ class RegimePrediction:
 
 def _assign_canonical_states(
     model: GaussianHMM,
-    n_components: int,
 ) -> dict[int, int]:
     """
     Map raw HMM state indices to canonical {ranging=0, trending=1, volatile=2}.
@@ -226,7 +225,10 @@ class RegimeDetector:
         cfg = self._cfg
         n = len(obs_df)
         if n < cfg.n_components * 20:
-            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, got {n}")
+            raise ValueError(
+                f"HMM fit: need at least {cfg.n_components * 20} rows, "
+                f"got {n}"
+            )
 
         # Scale to zero-mean unit-variance — HMM diagonal / full covariance
         # is sensitive to feature magnitude differences
@@ -248,7 +250,7 @@ class RegimeDetector:
         self._model.fit(X, lengths=lengths_arg)
         elapsed = time.perf_counter() - t0
 
-        self._state_map = _assign_canonical_states(self._model, cfg.n_components)
+        self._state_map = _assign_canonical_states(self._model)
         self._fitted = True
 
         # Stable hash of training data for change detection
@@ -435,7 +437,9 @@ class RegimeDetector:
             timeframe=timeframe,
         )
         if not path.exists():
-            raise FileNotFoundError(f"No saved HMM model at {path} — call fit() first.")
+            raise FileNotFoundError(
+                f"No saved HMM model at {path} — call fit() first."
+            )
         payload: dict = joblib.load(path)
         detector = cls(
             symbol=payload["symbol"],
@@ -525,11 +529,15 @@ class RegimeDetector:
 
     def _require_fitted(self) -> None:
         if not self._fitted or self._model is None or self._scaler is None:
-            raise RuntimeError("RegimeDetector is not fitted — call fit() or load() first.")
+            raise RuntimeError(
+                "RegimeDetector is not fitted — call fit() or load() first."
+            )
 
     def _transform(self, features: pd.DataFrame) -> np.ndarray:
         """Scale observation DataFrame using the fitted StandardScaler."""
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
-            raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
+            raise ValueError(
+                "Observation matrix contains NaN — drop NaN rows before inference."
+            )
         return self._scaler.transform(obs.to_numpy(dtype=np.float64))  # type: ignore[union-attr]
