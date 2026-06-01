@@ -28,7 +28,7 @@ import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, cast
+from typing import Any, Annotated, AsyncIterator, cast
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -240,9 +240,9 @@ async def status() -> dict[str, Any]:
 
 @app.get("/trades", dependencies=[Depends(api_key_header)])
 async def trades(
-    symbol: str | None = None,
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0, le=100000),
+    symbol: Annotated[str | None, Query(default=None)] = None,
+    limit: Annotated[int, Query(default=100, ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(default=0, ge=0, le=100000)] = 0,
 ) -> dict[str, Any]:
     """Paginated trade history."""
     cfg = get_settings()
@@ -288,7 +288,7 @@ async def trades(
 
 @app.get("/equity", dependencies=[Depends(api_key_header)])
 async def equity_curve(
-    limit: int = Query(default=1440, ge=1, le=10000),
+    limit: Annotated[int, Query(default=1440, ge=1, le=10000)],
 ) -> dict[str, Any]:
     """Equity curve data for charting."""
     cfg = get_settings()

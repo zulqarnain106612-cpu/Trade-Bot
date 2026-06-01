@@ -224,7 +224,7 @@ class LiveExecutor:
         mode = self._cfg.execution_mode
 
         if mode == ExecutionMode.AUTOMATIC:
-            trade_id = await self._place_and_record(
+            return await self._submit_signal_auto(
                 symbol,
                 timeframe,
                 direction,
@@ -234,11 +234,10 @@ class LiveExecutor:
                 raw_signal,
                 approved_by="auto",
             )
-            return trade_id, "opened" if trade_id else "rejected"
 
         if mode == ExecutionMode.RESTRICTED:
             if kelly_result.notional_usd <= self._risk_cfg.notional_limit_usd:
-                trade_id = await self._place_and_record(
+                return await self._submit_signal_auto(
                     symbol,
                     timeframe,
                     direction,
@@ -248,8 +247,7 @@ class LiveExecutor:
                     raw_signal,
                     approved_by="auto_below_limit",
                 )
-                return trade_id, "opened" if trade_id else "rejected"
-            req_id = await self._enqueue_approval(
+            return await self._submit_signal_with_approval(
                 symbol,
                 timeframe,
                 direction,
@@ -257,26 +255,12 @@ class LiveExecutor:
                 regime_state,
                 meta_label_prob,
                 raw_signal,
+                timeout_s=self._risk_cfg.approval_timeout_s,
+                denied_outcome="skipped",
             )
-            approved, operator = await self._await_approval(
-                req_id, self._risk_cfg.approval_timeout_s
-            )
-            if not approved:
-                return None, "skipped"
-            trade_id = await self._place_and_record(
-                symbol,
-                timeframe,
-                direction,
-                kelly_result,
-                regime_state,
-                meta_label_prob,
-                raw_signal,
-                approved_by=operator,
-            )
-            return trade_id, "opened" if trade_id else "rejected"
 
         if mode == ExecutionMode.MANUAL:
-            req_id = await self._enqueue_approval(
+            return await self._submit_signal_with_approval(
                 symbol,
                 timeframe,
                 direction,
@@ -284,23 +268,69 @@ class LiveExecutor:
                 regime_state,
                 meta_label_prob,
                 raw_signal,
+                timeout_s=None,
+                denied_outcome="rejected",
             )
-            approved, operator = await self._await_approval(req_id, timeout_s=None)
-            if not approved:
-                return None, "rejected"
-            trade_id = await self._place_and_record(
-                symbol,
-                timeframe,
-                direction,
-                kelly_result,
-                regime_state,
-                meta_label_prob,
-                raw_signal,
-                approved_by=operator,
-            )
-            return trade_id, "opened" if trade_id else "rejected"
 
         raise RuntimeError(f"Unknown execution mode: {mode!r}")  # pragma: no cover
+
+    async def _submit_signal_auto(
+        self,
+        symbol: str,
+        timeframe: str,
+        direction: int,
+        kelly_result: KellyResult,
+        regime_state: int,
+        meta_label_prob: float,
+        raw_signal: float,
+        approved_by: str,
+    ) -> tuple[str | None, str]:
+        trade_id = await self._place_and_record(
+            symbol,
+            timeframe,
+            direction,
+            kelly_result,
+            regime_state,
+            meta_label_prob,
+            raw_signal,
+            approved_by=approved_by,
+        )
+        return trade_id, "opened" if trade_id else "rejected"
+
+    async def _submit_signal_with_approval(
+        self,
+        symbol: str,
+        timeframe: str,
+        direction: int,
+        kelly_result: KellyResult,
+        regime_state: int,
+        meta_label_prob: float,
+        raw_signal: float,
+        timeout_s: float | None,
+        denied_outcome: str,
+    ) -> tuple[str | None, str]:
+        req_id = await self._enqueue_approval(
+            symbol,
+            timeframe,
+            direction,
+            kelly_result,
+            regime_state,
+            meta_label_prob,
+            raw_signal,
+        )
+        approved, operator = await self._await_approval(req_id, timeout_s=timeout_s)
+        if not approved:
+            return None, denied_outcome
+        return await self._submit_signal_auto(
+            symbol,
+            timeframe,
+            direction,
+            kelly_result,
+            regime_state,
+            meta_label_prob,
+            raw_signal,
+            approved_by=operator,
+        )
 
     # ------------------------------------------------------------------
     # Position management
