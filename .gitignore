@@ -12,8 +12,8 @@ __pycache__/
 # Frontend deps
 node_modules/
 
-# Data and database files
-data/
+# Data and database files — only the root data/ directory, not src/data/
+/data/
 *.wal
 *.db
 
