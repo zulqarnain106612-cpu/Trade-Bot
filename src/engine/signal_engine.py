@@ -23,8 +23,9 @@ Authority:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 import pandas as pd
 import structlog
@@ -135,11 +136,34 @@ class SignalEngine:
         self._meta_model = meta_model
         self._trainer = trainer
         self._cfg = get_settings()
+        self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         self._log = log.bind(
             component="signal_engine",
             symbol=symbol,
             timeframe=timeframe.value,
         )
+
+    # ------------------------------------------------------------------
+    # Atomic model swap — called by orchestrator after retraining (fix #14)
+    # ------------------------------------------------------------------
+
+    async def swap_models(
+        self,
+        direction_model: Any,
+        meta_model: Any,
+        detector: Any,
+    ) -> None:
+        """
+        Atomically replace all three model objects under the model lock.
+
+        Prevents a tick from reading a mismatched (v2 direction, v1 meta) pair
+        during a concurrent hot-swap.
+        """
+        async with self._model_lock:
+            self._direction_model = direction_model
+            self._meta_model = meta_model
+            self._detector = detector
+        self._log.info("signal_engine.models_swapped")
 
     # ------------------------------------------------------------------
     # Main tick — called by orchestrator on every bar close
@@ -229,17 +253,22 @@ class SignalEngine:
         except Exception:
             history_df = None
 
+        # 6. Direction prediction — read models under lock (fix #14)
+        async with self._model_lock:
+            direction_model = self._direction_model
+            meta_model = self._meta_model
+            detector = self._detector
+
         regime: RegimePrediction | None = None
-        if history_df is not None and self._detector.is_fitted():
+        if history_df is not None and detector.is_fitted():
             try:
-                regime = self._detector.predict_current(history_df, lookback=100)
+                regime = detector.predict_current(history_df, lookback=100)
             except Exception as exc:
                 self._log.warning("signal.regime_failed", error=str(exc))
 
         regime_state = regime.state if regime is not None else 0  # default ranging if unavailable
 
-        # 6. Direction prediction
-        direction, p_long = self._trainer.predict_direction(self._direction_model, vec)
+        direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
         kelly_result = compute_position_size(
@@ -283,7 +312,7 @@ class SignalEngine:
             return self._skip("kelly_size_zero")
 
         # 9. Meta-label gate
-        meta_label, p_bet = self._trainer.predict_meta(self._meta_model, vec, p_long)
+        meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)
 
         if meta_label == 0:
             return SignalResult(

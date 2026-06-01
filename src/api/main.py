@@ -1,6 +1,8 @@
 """
 FastAPI dashboard API.
 
+Security: ALL endpoints require X-API-Key header matching API_SECRET_KEY env var.
+
 Endpoints:
   GET  /health                     — system health + storage counts
   GET  /status                     — equity, positions, regime, execution mode
@@ -22,22 +24,41 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, cast
 
 import structlog
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from src.config import ExecutionMode, get_settings, invalidate_settings_cache
 from src.data.fetcher import open_fetcher
 from src.data.storage import StorageBackend
 from src.execution.live import LiveExecutor
 from src.engine.orchestrator import Orchestrator
+from src.api.auth import verify_api_key, verify_ws_key
+from src.api.middleware import validate_cors_config
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Operator field validator — reused across request models
+# ---------------------------------------------------------------------------
+
+_OPERATOR_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+
+
+def _validate_operator(v: str) -> str:
+    if not _OPERATOR_RE.match(v):
+        raise ValueError(
+            "operator must be 1–64 alphanumeric/underscore/hyphen characters"
+        )
+    return v
+
 
 # ---------------------------------------------------------------------------
 # Application state — shared across requests
@@ -63,6 +84,13 @@ _state = AppState()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize all subsystems on startup, clean up on shutdown."""
+    # Fail fast on auth misconfiguration before accepting connections
+    api_key = os.environ.get("API_SECRET_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "API_SECRET_KEY is not set. Set a strong random value in .env."
+        )
+
     cfg = get_settings()
     _state.storage = StorageBackend()
     await _state.storage.initialize()
@@ -71,13 +99,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _state.orchestrator = Orchestrator(_state.storage, fetcher)
         await _state.orchestrator.startup()
 
-        # Run orchestrator in background
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
         yield
 
-        # Shutdown
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
@@ -99,6 +125,10 @@ app = FastAPI(
 )
 
 cfg = get_settings()
+
+# Validate CORS config before adding middleware — raises on wildcard+credentials
+validate_cors_config(cfg.api.cors_origins, allow_credentials=True)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cfg.api.cors_origins,
@@ -108,25 +138,55 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
+# Auth dependency
+# ---------------------------------------------------------------------------
+
+
+def require_api_key(x_api_key: str | None = Depends(
+    lambda x_api_key: x_api_key  # populated from header by FastAPI
+)) -> None:
+    """FastAPI dependency — validates X-API-Key header on every request."""
+    pass  # delegated below via Header()
+
+
+from fastapi import Header  # noqa: E402 — placed after app init intentionally
+
+
+def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
+    verify_api_key(x_api_key)
+
+
+# ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
 
 
 class ResolveApprovalRequest(BaseModel):
     approved: bool
-    operator: str
+    operator: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
 
 
 class SetExecutionModeRequest(BaseModel):
-    mode: str  # 'automatic' | 'restricted' | 'manual'
+    mode: str
+    operator: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
 
 
 # ---------------------------------------------------------------------------
-# REST endpoints
+# REST endpoints — all require API key
 # ---------------------------------------------------------------------------
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[Depends(api_key_header)])
 async def health() -> dict[str, Any]:
     """System health check — storage row counts, uptime."""
     counts = await _state.storage.health_check()
@@ -139,7 +199,7 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.get("/status")
+@app.get("/status", dependencies=[Depends(api_key_header)])
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
     orch = _state.orchestrator
@@ -148,10 +208,9 @@ async def status() -> dict[str, Any]:
 
     equity_usd = executor.equity_usd if executor else 0.0
     cash_usd = executor.cash_usd if executor else 0.0
-    positions = executor.open_positions() if executor else []  # type: ignore
+    positions = executor.open_positions() if executor else []
     approvals = executor.pending_approvals() if executor else []
 
-    # Latest regime for primary timeframe
     regime_snap = await _state.storage.latest_regime(
         cfg.primary_symbol, cfg.primary_timeframe.value
     )
@@ -167,6 +226,7 @@ async def status() -> dict[str, Any]:
     return {
         "equity_usd": round(equity_usd, 2),
         "cash_usd": round(cash_usd, 2),
+        "starting_capital_usd": cfg.starting_capital_usd,
         "open_positions": positions,
         "pending_approvals": approvals,
         "regime": regime_dict,
@@ -178,20 +238,24 @@ async def status() -> dict[str, Any]:
     }
 
 
-@app.get("/trades")
+@app.get("/trades", dependencies=[Depends(api_key_header)])
 async def trades(
     symbol: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0, le=100000),
 ) -> dict[str, Any]:
     """Paginated trade history."""
     cfg = get_settings()
+    # Validate symbol against known pair if provided
+    req_symbol = symbol or cfg.primary_symbol
+    await _state.storage.validate_symbol(req_symbol)
+
     records = await _state.storage.fetch_trades(
-        symbol=symbol or cfg.primary_symbol,
+        symbol=req_symbol,
         trading_mode=cfg.trading_mode.value,
         limit=limit + offset,
     )
-    page = records[offset : offset + limit]
+    page = records[offset: offset + limit]
     return {
         "trades": [
             {
@@ -222,9 +286,9 @@ async def trades(
     }
 
 
-@app.get("/equity")
+@app.get("/equity", dependencies=[Depends(api_key_header)])
 async def equity_curve(
-    limit: int = 1440,
+    limit: int = Query(default=1440, ge=1, le=10000),
 ) -> dict[str, Any]:
     """Equity curve data for charting."""
     cfg = get_settings()
@@ -248,7 +312,11 @@ async def equity_curve(
     }
 
 
-@app.get("/regime/{timeframe}", responses={404: {"description": "No regime data for timeframe"}})
+@app.get(
+    "/regime/{timeframe}",
+    dependencies=[Depends(api_key_header)],
+    responses={404: {"description": "No regime data for timeframe"}},
+)
 async def regime(timeframe: str) -> dict[str, Any]:
     """Latest regime snapshot for a timeframe."""
     cfg = get_settings()
@@ -267,7 +335,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
     }
 
 
-@app.get("/approvals")
+@app.get("/approvals", dependencies=[Depends(api_key_header)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
     executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
@@ -278,6 +346,7 @@ async def approvals() -> dict[str, Any]:
 
 @app.post(
     "/approvals/{request_id}/resolve",
+    dependencies=[Depends(api_key_header)],
     responses={
         503: {"description": "Executor not initialized"},
         404: {"description": "Approval request not found or already resolved"},
@@ -307,15 +376,15 @@ async def resolve_approval(
 
 @app.post(
     "/execution-mode",
+    dependencies=[Depends(api_key_header)],
     responses={400: {"description": "Invalid execution mode"}},
 )
 async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
     """
     Switch execution mode at runtime.
 
-    Validates the requested mode and sets EXECUTION_MODE env var,
-    then invalidates the settings cache so the next get_settings() call
-    picks up the change.
+    Requires authenticated operator identity (validated operator field).
+    Change is written to audit log and settings cache is invalidated.
     """
     try:
         new_mode = ExecutionMode(body.mode.lower())
@@ -324,15 +393,28 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
             status_code=400,
             detail=f"Invalid mode {body.mode!r}. Must be one of: automatic, restricted, manual",
         )
-    import os
 
+    old_mode = get_settings().execution_mode.value
     os.environ["EXECUTION_MODE"] = new_mode.value
     invalidate_settings_cache()
-    log.info("api.execution_mode_changed", new_mode=new_mode.value)
-    return {"execution_mode": new_mode.value}
+
+    # Persist to audit log
+    await _state.storage.insert_audit_event(
+        event_type="execution_mode_change",
+        operator=body.operator,
+        details={"old_mode": old_mode, "new_mode": new_mode.value},
+    )
+
+    log.info(
+        "api.execution_mode_changed",
+        new_mode=new_mode.value,
+        old_mode=old_mode,
+        operator=body.operator,
+    )
+    return {"execution_mode": new_mode.value, "operator": body.operator}
 
 
-@app.get("/model-metrics")
+@app.get("/model-metrics", dependencies=[Depends(api_key_header)])
 async def model_metrics(timeframe: str | None = None) -> dict[str, Any]:
     """Latest OOS metrics for direction and meta-label models."""
     cfg = get_settings()
@@ -364,18 +446,18 @@ async def model_metrics(timeframe: str | None = None) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# WebSocket — live push
+# WebSocket — live push (auth required)
 # ---------------------------------------------------------------------------
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     """
-    Live WebSocket feed.
+    Live WebSocket feed — requires X-Api-Key header on upgrade.
 
     Pushes a status snapshot every ws_heartbeat_s seconds.
-    Also relays approval requests as they arrive.
     """
+    await verify_ws_key(ws)
     await ws.accept()
     _state.ws_clients.append(ws)
     cfg = get_settings()
@@ -394,7 +476,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             payload: dict[str, Any] = {
                 "type": "tick",
                 "equity_usd": round(executor.equity_usd, 2),
-                "cash_usd": round(executor.cash_usd, 2),  # type: ignore
+                "cash_usd": round(executor.cash_usd, 2),
                 "positions": executor.open_positions(),
                 "pending_approvals": executor.pending_approvals(),
                 "trading_mode": get_settings().trading_mode.value,
@@ -402,7 +484,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
 
-            # Attach latest regime
             snap = await _state.storage.latest_regime(
                 cfg.primary_symbol, cfg.primary_timeframe.value
             )

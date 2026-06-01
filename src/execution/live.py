@@ -409,6 +409,12 @@ class LiveExecutor:
         approved: bool,
         operator: str,
     ) -> bool:
+        """
+        Mark an approval request as resolved.
+
+        Only mutates the request — does NOT pop from the queue.
+        _await_approval is the sole owner responsible for removal (fix #16).
+        """
         async with self._lock:
             req = self._approval_queue.get(request_id)
             if req is None or req.resolved:
@@ -425,6 +431,14 @@ class LiveExecutor:
         return True
 
     def pending_approvals(self) -> list[dict[str, object]]:
+        """Return unresolved approvals, pruning stale resolved entries (fix #10)."""
+        cutoff = time.monotonic() - 3600.0  # prune resolved entries older than 1h
+        to_prune = [
+            rid for rid, req in self._approval_queue.items()
+            if req.resolved and req.created_at < cutoff
+        ]
+        for rid in to_prune:
+            self._approval_queue.pop(rid, None)
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
 
     # ------------------------------------------------------------------
@@ -498,10 +512,27 @@ class LiveExecutor:
         approved_by: str,
     ) -> str | None:
         """Place market order, confirm fill, record position."""
+        # Pre-check and reserve cash BEFORE placing the order (fix #9)
+        notional_estimate = kelly_result.notional_usd
+        fee_estimate = notional_estimate * _LIVE_FEE_FALLBACK
+        async with self._lock:
+            if self._cash < notional_estimate + fee_estimate:
+                self._log.warning(
+                    "live.insufficient_cash_pre_check",
+                    cash=round(self._cash, 2),
+                    needed=round(notional_estimate + fee_estimate, 2),
+                )
+                return None
+            # Reserve the estimated amount to prevent concurrent over-spend
+            self._cash -= notional_estimate + fee_estimate
+
         side = "buy" if direction == 1 else "sell"
         try:
             order = await self._place_market_order(symbol, side, kelly_result.quantity)
         except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+            # Restore reserved cash on order failure
+            async with self._lock:
+                self._cash += notional_estimate + fee_estimate
             self._log.error(
                 "live.entry_order_failed",
                 symbol=symbol,
@@ -516,6 +547,9 @@ class LiveExecutor:
         entry_fee = self._extract_fee(order, actual_price, filled_qty)
 
         if actual_price <= 0.0 or filled_qty <= 0.0:
+            # Restore reserved cash — fill data unusable
+            async with self._lock:
+                self._cash += notional_estimate + fee_estimate
             self._log.error(
                 "live.bad_fill",
                 symbol=symbol,
@@ -530,9 +564,11 @@ class LiveExecutor:
         trade_id = str(uuid.uuid4())
 
         async with self._lock:
+            # Reconcile: replace the estimated reserve with actual cost
+            self._cash += notional_estimate + fee_estimate  # undo estimate
             if self._cash < notional + entry_fee:
                 self._log.warning(
-                    "live.insufficient_cash_post_fill",
+                    "live.insufficient_cash_post_reconcile",
                     cash=round(self._cash, 2),
                     needed=round(notional + entry_fee, 2),
                 )
@@ -630,14 +666,17 @@ class LiveExecutor:
             except ccxt.ExchangeError:
                 continue
 
-        # Return last fetched state even if not fully confirmed
-        self._log.warning(
+        # Raise — never silently accept an unconfirmed fill (fix #8)
+        self._log.error(
             "live.order_fill_unconfirmed",
             order_id=order_id,
             symbol=symbol,
             side=side,
         )
-        return order
+        raise ccxt.ExchangeError(
+            f"Order {order_id} for {symbol} did not confirm as filled "
+            f"within {_ORDER_CONFIRM_POLLS} polls — aborting position open."
+        )
 
     @staticmethod
     def _extract_fee(order: dict[str, Any], price: float, qty: float) -> float:
@@ -688,12 +727,23 @@ class LiveExecutor:
         request_id: str,
         timeout_s: float | None,
     ) -> tuple[bool, str]:
+        """
+        Poll until the approval is resolved or timeout expires.
+
+        This method is the SOLE owner that pops from _approval_queue.
+        resolve_approval() only mutates — it never pops (fix #16).
+        """
         poll_interval = 0.25
         elapsed = 0.0
         while True:
             async with self._lock:
                 req = self._approval_queue.get(request_id)
                 if req is None:
+                    # Should not happen — log and treat as rejected
+                    self._log.error(
+                        "live.approval_missing_in_queue",
+                        request_id=request_id,
+                    )
                     return False, ""
                 if req.resolved:
                     self._approval_queue.pop(request_id, None)

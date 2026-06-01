@@ -1,13 +1,49 @@
+# Secrets and local config
 .env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
+
+# Virtual environment
 .venv/
+
+# Frontend deps
 node_modules/
+
+# Data and database files
 data/
 *.wal
 *.db
+
+# Build output
 target/
 dist/
+
+# OS
 .DS_Store
 
+# CI/CD run artifacts — never committed
+check_runs.json
+ci_jobs.json
+ci_jobs_show.py
+ci_logs.zip
+ci_runs.json
+jobs.json
+latest_run.json
+latest_runs.json
+run_detail.json
+check_wf.py
+check_imports.py
+diagnostics_output.txt
+extract_resolved.py
+gates_full.txt
+pattern_output.txt
+pipeline_full.txt
+show_jobs.py
+show_lines.py
+show_pattern.py
+tmp_out.txt
+temp_python_check.txt
+127]

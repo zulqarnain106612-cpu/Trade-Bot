@@ -251,14 +251,13 @@ function StatCard({ label, value, sub, color }) {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [tick, setTick]           = useState(null);
-  const [curve, setCurve]         = useState([]);
-  const [trades, setTrades]       = useState([]);
-  const [connected, setConnected] = useState(false);
-  const [tab, setTab]             = useState("positions");
+  const [tick, setTick]                     = useState(null);
+  const [curve, setCurve]                   = useState([]);
+  const [trades, setTrades]                 = useState([]);
+  const [connected, setConnected]           = useState(false);
+  const [tab, setTab]                       = useState("positions");
+  const [startingCapital, setStartingCapital] = useState(null);
   const wsRef = useRef(null);
-
-  const startingCapital = 1000;
 
   // WebSocket
   useEffect(() => {
@@ -288,13 +287,14 @@ export default function App() {
     return () => wsRef.current?.close();
   }, []);
 
-  // REST: equity curve + trades
+  // REST: equity curve + trades + starting capital from /status
   useEffect(() => {
     async function fetchData() {
       try {
-        const [eqRes, trRes] = await Promise.all([
+        const [eqRes, trRes, stRes] = await Promise.all([
           fetch(`${API}/equity?limit=288`),
           fetch(`${API}/trades?limit=50`),
+          fetch(`${API}/status`),
         ]);
         if (eqRes.ok) {
           const eq = await eqRes.json();
@@ -303,6 +303,12 @@ export default function App() {
         if (trRes.ok) {
           const tr = await trRes.json();
           setTrades(tr.trades || []);
+        }
+        if (stRes.ok) {
+          const st = await stRes.json();
+          if (st.starting_capital_usd != null) {
+            setStartingCapital(st.starting_capital_usd);
+          }
         }
       } catch (_) {}
     }
@@ -333,8 +339,9 @@ export default function App() {
 
   const equity      = tick?.equity_usd ?? 0;
   const cash        = tick?.cash_usd ?? 0;
-  const pnl         = equity - startingCapital;
-  const pnlPct      = startingCapital > 0 ? (pnl / startingCapital) * 100 : 0;
+  const capital     = startingCapital ?? tick?.equity_usd ?? 0;  // fallback until loaded
+  const pnl         = capital > 0 ? equity - capital : 0;
+  const pnlPct      = capital > 0 ? (pnl / capital) * 100 : 0;
   const positions   = tick?.positions ?? [];
   const approvals   = tick?.pending_approvals ?? [];
   const regime      = tick?.regime ?? null;
@@ -379,7 +386,7 @@ export default function App() {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
             Equity Curve
           </h2>
-          <EquityChart curve={curve} startingCapital={startingCapital} />
+          <EquityChart curve={curve} startingCapital={capital} />
         </div>
 
         {/* Tabs */}

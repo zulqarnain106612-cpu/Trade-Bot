@@ -117,7 +117,19 @@ class Orchestrator:
         bootstrap_tasks = [
             self._fetcher.bootstrap_history(self._symbol, tf) for tf in self._timeframes
         ]
-        await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
+        results = await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
+
+        # Fail loudly on bootstrap errors — never silently continue with no data (fix #15)
+        for tf, result in zip(self._timeframes, results):
+            if isinstance(result, BaseException):
+                self._log.critical(
+                    "orchestrator.bootstrap_failed",
+                    timeframe=tf.value,
+                    error=str(result),
+                )
+                raise RuntimeError(
+                    f"Bootstrap failed for timeframe {tf.value}: {result}"
+                ) from result
 
         # Train models for each timeframe
         for tf in self._timeframes:
@@ -414,7 +426,7 @@ class Orchestrator:
                 meta_result.to_metrics_record("meta_label", tf.value, version)
             )
 
-            # Hot-swap models in running engine without restart
+            # Hot-swap models atomically via the engine's own lock (fix #14)
             if tf.value in self._engines:
                 new_dir = ModelTrainer.load_direction(
                     self._cfg.storage.model_dir, self._symbol, tf.value
@@ -422,10 +434,7 @@ class Orchestrator:
                 new_meta = ModelTrainer.load_meta(
                     self._cfg.storage.model_dir, self._symbol, tf.value
                 )
-                engine = self._engines[tf.value]
-                engine._direction_model = new_dir  # noqa: SLF001
-                engine._meta_model = new_meta  # noqa: SLF001
-                engine._detector = detector  # noqa: SLF001
+                await self._engines[tf.value].swap_models(new_dir, new_meta, detector)
 
             self._log.info(
                 "orchestrator.training_complete",
