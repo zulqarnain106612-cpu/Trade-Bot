@@ -265,11 +265,12 @@ class StorageSettings(BaseSettings):
     log_dir: Path = Field(default=Path("logs"))
     bar_cache_days: int = Field(default=90, ge=1)
 
-    @model_validator(mode="after")
-    def create_directories(self) -> "StorageSettings":
-        for p in (self.db_path.parent, self.model_dir, self.log_dir):
-            p.mkdir(parents=True, exist_ok=True)
-        return self
+    # Directory creation intentionally removed from this validator (VUL-031).
+    # Having a Pydantic validator create filesystem directories is a side-effect
+    # that runs on every Settings instantiation, including during tests, which
+    # pollutes the host filesystem with unexpected directories.
+    # Directories are now created once at application startup by
+    # StorageBackend.initialize() or the explicit setup_storage_directories() helper.
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +283,14 @@ class APISettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="API_", env_file=".env", extra="ignore")
 
-    host: str = Field(default="0.0.0.0")
+    host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Bind address. Default 127.0.0.1 (loopback only). "
+            "For external access use a TLS-terminating reverse proxy — "
+            "never expose directly with 0.0.0.0 in production."
+        ),
+    )
     port: int = Field(default=8000, ge=1024, le=65535)
     reload: bool = Field(default=False)
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
@@ -427,3 +435,47 @@ def get_settings() -> Settings:
 def invalidate_settings_cache() -> None:
     """Clear cached settings — intended for test isolation only."""
     get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# RuntimeConfig — mutable runtime flags, separate from cached Settings
+#
+# Problem (VUL-028): invalidate_settings_cache() was called in the production
+# /execution-mode endpoint, which re-instantiates ALL settings (including
+# exchange keys, risk thresholds) on every concurrent request during the
+# cache-clear window, creating a torn-state race.
+#
+# Solution: mutable runtime state lives here, protected by a threading.Lock.
+# get_settings() stays cached and immutable. Code that needs the current
+# execution_mode reads runtime_config.execution_mode instead.
+# ---------------------------------------------------------------------------
+
+import threading as _threading
+
+
+class RuntimeConfig:
+    """
+    Process-wide mutable runtime flags.
+
+    All reads and writes are serialised by a lock so concurrent requests
+    (e.g. WS heartbeat + REST status) never observe a partially-updated state.
+    """
+
+    def __init__(self) -> None:
+        self._lock = _threading.Lock()
+        cfg = get_settings()
+        self._execution_mode: ExecutionMode = cfg.execution_mode
+
+    @property
+    def execution_mode(self) -> ExecutionMode:
+        with self._lock:
+            return self._execution_mode
+
+    @execution_mode.setter
+    def execution_mode(self, value: ExecutionMode) -> None:
+        with self._lock:
+            self._execution_mode = value
+
+
+# Singleton — imported by api/main.py and execution/ modules
+runtime_config: RuntimeConfig = RuntimeConfig()

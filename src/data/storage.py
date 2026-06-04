@@ -39,6 +39,7 @@ _DDL: Final[
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 PRAGMA synchronous=FULL;
+PRAGMA busy_timeout=5000;
 
 CREATE TABLE IF NOT EXISTS bars (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -421,7 +422,13 @@ class StorageBackend:
         self._log = log.bind(component="storage", db=self._db_path)
 
     async def initialize(self) -> None:
-        """Open WAL-mode connection and apply DDL."""
+        """Open WAL-mode connection, create required directories, and apply DDL."""
+        # Create storage directories here — not in the Pydantic validator —
+        # so that mkdir() only runs once at startup, not on every Settings instantiation.
+        cfg = get_settings().storage
+        for p in (cfg.db_path.parent, cfg.model_dir, cfg.log_dir):
+            p.mkdir(parents=True, exist_ok=True)
+
         async with self._lock:
             if self._conn is not None:
                 return
@@ -668,12 +675,15 @@ class StorageBackend:
         trading_mode: str | None = None,
         since_ts: int | None = None,
         limit: int = 500,
+        offset: int = 0,
     ) -> list[TradeRecord]:
         """
         Fetch trades with optional filters.
         Returns list ordered by entry_ts descending.
         """
         conn = self._require_conn()
+        # Build parameterized query from fixed literal clause fragments only —
+        # no user-supplied strings ever reach the SQL text.
         clauses: list[str] = []
         params: list[object] = []
         if symbol is not None:
@@ -685,21 +695,20 @@ class StorageBackend:
         if since_ts is not None:
             clauses.append("entry_ts>=?")
             params.append(since_ts)
-        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        # All clause strings are hardcoded literals — safe to join
+        where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
-        async with conn.execute(
-            f"""
-            SELECT id, symbol, timeframe, trading_mode, execution_mode,
-                   direction, entry_price, exit_price, quantity, notional_usd,
-                   entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
-                   kelly_fraction, regime_at_entry, meta_label_prob,
-                   exit_reason, approved_by, raw_signal
-            FROM trades {where}
-            ORDER BY entry_ts DESC
-            LIMIT ?
-            """,
-            params,
-        ) as cur:
+        params.append(offset)
+        query = (
+            "SELECT id, symbol, timeframe, trading_mode, execution_mode,"
+            " direction, entry_price, exit_price, quantity, notional_usd,"
+            " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
+            " kelly_fraction, regime_at_entry, meta_label_prob,"
+            " exit_reason, approved_by, raw_signal"
+            f" FROM trades {where_sql}"
+            " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
+        )
+        async with conn.execute(query, params) as cur:
             rows = await cur.fetchall()
         return [
             TradeRecord(
@@ -949,22 +958,21 @@ class StorageBackend:
     ) -> list[EquityRecord]:
         """Return equity snapshots in ascending time order."""
         conn = self._require_conn()
-        clause = "AND ts>=?" if since_ts is not None else ""
+        # Use fixed literal clause fragment — no user input interpolated
         params: list[object] = [trading_mode]
         if since_ts is not None:
+            ts_clause = "AND ts>=?"
             params.append(since_ts)
+        else:
+            ts_clause = ""
         params.append(limit)
-        async with conn.execute(
-            f"""
-            SELECT ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,
-                   daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct
-            FROM equity_curve
-            WHERE trading_mode=? {clause}
-            ORDER BY ts ASC
-            LIMIT ?
-            """,
-            params,
-        ) as cur:
+        query = (
+            "SELECT ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,"
+            " daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct"
+            f" FROM equity_curve WHERE trading_mode=? {ts_clause}"
+            " ORDER BY ts ASC LIMIT ?"
+        )
+        async with conn.execute(query, params) as cur:
             rows = await cur.fetchall()
         return [
             EquityRecord(
@@ -1009,9 +1017,17 @@ class StorageBackend:
             drawdown_pct=row["drawdown_pct"],
         )
 
-    # ------------------------------------------------------------------
-    # Symbol validation — allowlist guard for user-supplied symbols
-    # ------------------------------------------------------------------
+    async def earliest_equity_ts(self, trading_mode: str) -> int | None:
+        """Return the earliest equity_curve timestamp (ms) for a trading mode, or None."""
+        conn = self._require_conn()
+        async with conn.execute(
+            "SELECT MIN(ts) AS earliest FROM equity_curve WHERE trading_mode=?",
+            (trading_mode,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["earliest"] is None:
+            return None
+        return int(row["earliest"])
 
     async def validate_symbol(self, symbol: str) -> None:
         """
@@ -1071,11 +1087,12 @@ class StorageBackend:
         conn = self._require_conn()
         counts: dict[str, object] = {}
         for table in _ALLOWED_TABLES:
-            assert table in _ALLOWED_TABLES, f"Unexpected table name: {table!r}"
+            if table not in _ALLOWED_TABLES:
+                raise ValueError(f"Unexpected table name: {table!r}")
             async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:  # noqa: S608
                 row = await cur.fetchone()
             counts[table] = int(row[0]) if row else 0
-        counts["db_path"] = self._db_path
+        # db_path intentionally omitted — leaks internal filesystem layout
         return counts
 
 

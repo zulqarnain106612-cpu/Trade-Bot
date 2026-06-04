@@ -179,6 +179,7 @@ class SignalEngine:
         meta_gate_pass: bool,
         avg_win_usd: float = 0.0,
         avg_loss_usd: float = 0.0,
+        paper_trading_days: int = 0,
     ) -> SignalResult:
         """
         Run one full signal computation cycle.
@@ -264,9 +265,15 @@ class SignalEngine:
             try:
                 regime = detector.predict_current(history_df, lookback=100)
             except Exception as exc:
-                self._log.warning("signal.regime_failed", error=str(exc))
+                self._log.error(
+                    "signal.regime_failed_defaulting_volatile",
+                    error=str(exc),
+                )
+                # Fail-safe: default to VOLATILE so regime gate blocks new positions
+                # until detector recovers — never default to RANGING (least restrictive)
 
-        regime_state = regime.state if regime is not None else 0  # default ranging if unavailable
+        from src.config import REGIME_VOLATILE as _REGIME_VOLATILE
+        regime_state = regime.state if regime is not None else _REGIME_VOLATILE
 
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
@@ -293,6 +300,7 @@ class SignalEngine:
             trading_mode=self._cfg.trading_mode,
             direction_gate_pass=direction_gate_pass,
             meta_gate_pass=meta_gate_pass,
+            paper_trading_days=paper_trading_days,
         )
         gate_result = evaluate_all_gates(gate_ctx)
 

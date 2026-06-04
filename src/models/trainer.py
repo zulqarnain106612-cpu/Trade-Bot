@@ -21,6 +21,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
+import hashlib
+import json
 
 import joblib
 import numpy as np
@@ -53,6 +55,43 @@ MODEL_META_LABEL: Final[str] = "meta_label"
 
 _DIRECTION_FILENAME: Final[str] = "xgb_direction_{symbol}_{timeframe}.joblib"
 _META_FILENAME: Final[str] = "xgb_meta_{symbol}_{timeframe}.joblib"
+_MANIFEST_SUFFIX: Final[str] = ".sha256"
+
+
+def _write_manifest(path: Path) -> None:
+    """Write a SHA-256 manifest file alongside a model file."""
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = {"file": path.name, "sha256": digest}
+    path.with_suffix(_MANIFEST_SUFFIX).write_text(json.dumps(manifest))
+
+
+def _verify_manifest(path: Path) -> None:
+    """
+    Verify a model file against its SHA-256 manifest.
+
+    Raises RuntimeError if the manifest is missing or the hash mismatches,
+    preventing tampered or poisoned model files from being loaded.
+    """
+    manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"Model manifest missing for {path}. "
+            "Re-train the model to regenerate the manifest."
+        )
+    manifest = json.loads(manifest_path.read_text())
+    expected = manifest.get("sha256", "")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not hmac_compare(actual, expected):
+        raise RuntimeError(
+            f"Model file integrity check FAILED for {path}. "
+            "The file may have been tampered with. Re-train to replace it."
+        )
+
+
+def hmac_compare(a: str, b: str) -> bool:
+    """Constant-time string comparison (prevents timing oracle on hash compare)."""
+    import hmac as _hmac
+    return _hmac.compare_digest(a.encode(), b.encode())
 
 
 # ---------------------------------------------------------------------------
@@ -680,11 +719,14 @@ class ModelTrainer:
             dir_path,
             compress=3,
         )
+        _write_manifest(dir_path)
+
         joblib.dump(
             {"model": meta_model, "version": version, "symbol": self._symbol, "timeframe": tf},
             meta_path,
             compress=3,
         )
+        _write_manifest(meta_path)
 
         self._log.info(
             "trainer.saved",
@@ -700,12 +742,13 @@ class ModelTrainer:
         symbol: str,
         timeframe: str,
     ) -> XGBClassifier:
-        """Load a previously saved direction model."""
+        """Load a previously saved direction model, verifying SHA-256 integrity."""
         path = Path(model_dir) / _DIRECTION_FILENAME.format(
             symbol=symbol.replace("/", "_"), timeframe=timeframe
         )
         if not path.exists():
             raise FileNotFoundError(f"No direction model at {path}")
+        _verify_manifest(path)
         return joblib.load(path)["model"]
 
     @staticmethod
@@ -714,12 +757,13 @@ class ModelTrainer:
         symbol: str,
         timeframe: str,
     ) -> XGBClassifier:
-        """Load a previously saved meta-label model."""
+        """Load a previously saved meta-label model, verifying SHA-256 integrity."""
         path = Path(model_dir) / _META_FILENAME.format(
             symbol=symbol.replace("/", "_"), timeframe=timeframe
         )
         if not path.exists():
             raise FileNotFoundError(f"No meta-label model at {path}")
+        _verify_manifest(path)
         return joblib.load(path)["model"]
 
     # ------------------------------------------------------------------

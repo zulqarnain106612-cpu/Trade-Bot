@@ -20,16 +20,30 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _HEADER_NAME = "x-api-key"
 
 
+_MIN_KEY_LENGTH = 32  # 256-bit minimum — equivalent to openssl rand -hex 32
+
+
 def _get_configured_key() -> str:
     """
     Return the server-side API key from environment.
-    Raises RuntimeError on startup if not configured.
+
+    Raises RuntimeError on startup if:
+      - key is not set, or
+      - key is shorter than _MIN_KEY_LENGTH characters (weak key).
+
+    Generate a strong key with: openssl rand -hex 32
     """
     key = os.environ.get("API_SECRET_KEY", "").strip()
     if not key:
         raise RuntimeError(
             "API_SECRET_KEY environment variable is not set. "
-            "Set a strong random value in .env before starting the server."
+            "Generate one with: openssl rand -hex 32"
+        )
+    if len(key) < _MIN_KEY_LENGTH:
+        raise RuntimeError(
+            f"API_SECRET_KEY is too short ({len(key)} chars). "
+            f"Minimum {_MIN_KEY_LENGTH} characters required. "
+            "Generate a strong key with: openssl rand -hex 32"
         )
     return key
 

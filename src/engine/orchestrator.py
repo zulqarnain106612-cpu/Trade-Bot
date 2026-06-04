@@ -79,6 +79,8 @@ class Orchestrator:
         self._engines: dict[str, SignalEngine] = {}
         self._detectors: dict[str, RegimeDetector] = {}
         self._trainers: dict[str, ModelTrainer] = {}
+        # Track active retrain tasks per timeframe — prevents overlapping retrains
+        self._retrain_tasks: dict[str, asyncio.Task] = {}
 
         self._running: bool = False
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
@@ -113,10 +115,16 @@ class Orchestrator:
             )
         await self._executor.initialize()
 
-        # Bootstrap bars for all timeframes concurrently
-        bootstrap_tasks = [
-            self._fetcher.bootstrap_history(self._symbol, tf) for tf in self._timeframes
-        ]
+        # Bootstrap bars — serialized (semaphore=1) to avoid exchange rate-limit bans.
+        # Concurrent bootstrap across 3 timeframes generates burst fetches that exceed
+        # Binance's 1200 req/min weight limit on cold start.
+        bootstrap_sem = asyncio.Semaphore(1)
+
+        async def _bootstrap_one(tf: Timeframe) -> int:
+            async with bootstrap_sem:
+                return await self._fetcher.bootstrap_history(self._symbol, tf)
+
+        bootstrap_tasks = [_bootstrap_one(tf) for tf in self._timeframes]
         results = await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
 
         # Fail loudly on bootstrap errors — never silently continue with no data (fix #15)
@@ -285,10 +293,22 @@ class Orchestrator:
         recent_trades = await self._storage.fetch_trades(
             symbol=self._symbol,
             trading_mode=self._cfg.trading_mode.value,
-            limit=100,
+            limit=200,  # raised from 100 (VUL-020: larger window reduces overfit sizing)
         )
         pnl_history = [t.pnl_usd for t in recent_trades if t.pnl_usd is not None]
         _, avg_win, avg_loss = compute_win_loss_stats(pnl_history)
+
+        # Paper trading tenure — days since first paper equity record.
+        # Passed to the gate stack so check_paper_minimum_days is enforced
+        # when TRADING_MODE=live (VUL-034).
+        paper_trading_days = 0
+        if self._cfg.trading_mode.value == "live":
+            from src.config import TradingMode as _TradingMode
+            earliest = await self._storage.earliest_equity_ts(_TradingMode.PAPER.value)
+            if earliest is not None:
+                from datetime import datetime as _dt, timezone as _tz
+                age_s = _dt.now(tz=_tz.utc).timestamp() - (earliest / 1000.0)
+                paper_trading_days = int(age_s / 86400)
 
         # Run signal engine
         result: SignalResult = await engine.tick(
@@ -300,6 +320,7 @@ class Orchestrator:
             meta_gate_pass=meta_gate,
             avg_win_usd=avg_win,
             avg_loss_usd=avg_loss,
+            paper_trading_days=paper_trading_days,
         )
 
         # Persist regime snapshot
@@ -344,12 +365,20 @@ class Orchestrator:
                 trade_id=trade_id,
             )
 
-        # Scheduled retraining on primary timeframe
+        # Scheduled retraining on primary timeframe — guard against overlap
         if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
-            asyncio.create_task(
-                self._train_models(tf),
-                name=f"retrain_{tf.value}",
-            )
+            prior = self._retrain_tasks.get(tf.value)
+            if prior is None or prior.done():
+                task = asyncio.create_task(
+                    self._train_models(tf),
+                    name=f"retrain_{tf.value}",
+                )
+                self._retrain_tasks[tf.value] = task
+            else:
+                self._log.warning(
+                    "orchestrator.retrain_skipped_already_running",
+                    timeframe=tf.value,
+                )
 
     # ------------------------------------------------------------------
     # Model training

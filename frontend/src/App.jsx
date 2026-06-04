@@ -4,8 +4,20 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine
 } from "recharts";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const WS  = API.replace(/^http/, "ws") + "/ws";
+const API     = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_KEY = import.meta.env.VITE_API_KEY || "";
+const WS_URL  = API.replace(/^http/, "ws") + "/ws";
+
+// Attach API key to every fetch — server requires X-Api-Key on all endpoints
+function apiFetch(path, opts = {}) {
+  return fetch(`${API}${path}`, {
+    ...opts,
+    headers: {
+      ...(opts.headers || {}),
+      "x-api-key": API_KEY,
+    },
+  });
+}
 
 const REGIME_COLOR = { 0: "#22c55e", 1: "#3b82f6", 2: "#ef4444" };
 const REGIME_NAME  = { 0: "RANGING",  1: "TRENDING", 2: "VOLATILE" };
@@ -259,10 +271,11 @@ export default function App() {
   const [startingCapital, setStartingCapital] = useState(null);
   const wsRef = useRef(null);
 
-  // WebSocket
+  // WebSocket — API key passed as query param (WS headers not reliably supported in browsers)
   useEffect(() => {
     function connect() {
-      const ws = new WebSocket(WS);
+      const wsUrl = API_KEY ? `${WS_URL}?api_key=${encodeURIComponent(API_KEY)}` : WS_URL;
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -292,9 +305,9 @@ export default function App() {
     async function fetchData() {
       try {
         const [eqRes, trRes, stRes] = await Promise.all([
-          fetch(`${API}/equity?limit=288`),
-          fetch(`${API}/trades?limit=50`),
-          fetch(`${API}/status`),
+          apiFetch("/equity?limit=288"),
+          apiFetch("/trades?limit=50"),
+          apiFetch("/status"),
         ]);
         if (eqRes.ok) {
           const eq = await eqRes.json();
@@ -317,19 +330,27 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // operatorId & operatorSecret stored in state — set once, reused for all actions
+  const [operatorId, setOperatorId]         = useState("operator");
+  const [operatorSecret, setOperatorSecret] = useState("");
+
   const switchMode = useCallback(async mode => {
+    if (!operatorSecret) {
+      alert("Enter the operator secret before switching modes.");
+      return;
+    }
     try {
-      await fetch(`${API}/execution-mode`, {
+      await apiFetch("/execution-mode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, operator: operatorId, operator_secret: operatorSecret }),
       });
     } catch (_) {}
-  }, []);
+  }, [operatorId, operatorSecret]);
 
   const resolveApproval = useCallback(async (id, approved, operator) => {
     try {
-      await fetch(`${API}/approvals/${id}/resolve`, {
+      await apiFetch(`/approvals/${id}/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approved, operator }),
@@ -350,7 +371,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans text-sm">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+      <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold tracking-tight">⚡ Trade Bot</h1>
           <span className={`text-xs px-2 py-0.5 rounded font-bold ${connected ? "bg-green-900 text-green-400" : "bg-red-900 text-red-400"}`}>
@@ -360,7 +381,23 @@ export default function App() {
             {tick?.trading_mode?.toUpperCase() || "PAPER"}
           </span>
         </div>
-        <ModeSwitcher current={mode} onSwitch={switchMode} />
+        {/* Operator identity + secret — required for mode switching */}
+        <div className="flex items-center gap-2 text-xs">
+          <input
+            value={operatorId}
+            onChange={e => setOperatorId(e.target.value)}
+            placeholder="Operator ID"
+            className="bg-gray-700 text-white px-2 py-1 rounded w-28"
+          />
+          <input
+            type="password"
+            value={operatorSecret}
+            onChange={e => setOperatorSecret(e.target.value)}
+            placeholder="Operator Secret"
+            className="bg-gray-700 text-white px-2 py-1 rounded w-36"
+          />
+          <ModeSwitcher current={mode} onSwitch={switchMode} />
+        </div>
       </header>
 
       <main className="px-6 py-4 space-y-4">

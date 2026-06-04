@@ -34,6 +34,7 @@ import structlog
 from src.config import ExecutionMode, TradingMode, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import EquityRecord, StorageBackend, TradeRecord
+from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
@@ -103,6 +104,8 @@ class ApprovalRequest:
     resolved: bool = field(default=False)
     approved: bool = field(default=False)
     operator: str = field(default="")
+    # Event-based notification — eliminates busy-poll lock contention (VUL-024)
+    _event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -125,7 +128,7 @@ class ApprovalRequest:
 # ---------------------------------------------------------------------------
 
 
-class LiveExecutor:
+class LiveExecutor(AbstractExecutor):
     """
     Live trading executor — places real orders on Binance via ccxt.
 
@@ -163,6 +166,10 @@ class LiveExecutor:
         self._positions: dict[str, LivePosition] = {}
         self._approval_queue: dict[str, ApprovalRequest] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
+        # Semaphore(1): ensures only one order is placed+recorded at a time.
+        # Prevents concurrent signals from both passing the cash pre-check
+        # against the same balance and double-spending (VUL-009).
+        self._trade_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         self._drawdown_tracker = DrawdownTracker(self._starting_capital)
         self._initialized: bool = False
         self._log = log.bind(component="live_executor")
@@ -440,10 +447,8 @@ class LiveExecutor:
         operator: str,
     ) -> bool:
         """
-        Mark an approval request as resolved.
-
-        Only mutates the request — does NOT pop from the queue.
-        _await_approval is the sole owner responsible for removal (fix #16).
+        Mark an approval request as resolved and wake the waiting coroutine via Event.
+        Eliminates the 250ms busy-poll lock loop (VUL-024).
         """
         async with self._lock:
             req = self._approval_queue.get(request_id)
@@ -452,6 +457,7 @@ class LiveExecutor:
             req.resolved = True
             req.approved = approved
             req.operator = operator
+            req._event.set()  # noqa: SLF001 — wake _await_approval immediately
         self._log.info(
             "live.approval_resolved",
             request_id=request_id,
@@ -461,8 +467,12 @@ class LiveExecutor:
         return True
 
     def pending_approvals(self) -> list[dict[str, object]]:
-        """Return unresolved approvals, pruning stale resolved entries (fix #10)."""
-        cutoff = time.monotonic() - 3600.0  # prune resolved entries older than 1h
+        """Return unresolved approvals, pruning stale resolved entries."""
+        # NOTE: This method mutates _approval_queue (pruning) and iterates it.
+        # It must only be called from async context; callers should snapshot
+        # under lock if concurrent mutation is possible. For the WS heartbeat,
+        # use the async variant below.
+        cutoff = time.monotonic() - 3600.0
         to_prune = [
             rid for rid, req in self._approval_queue.items()
             if req.resolved and req.created_at < cutoff
@@ -471,11 +481,25 @@ class LiveExecutor:
             self._approval_queue.pop(rid, None)
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
 
-    # ------------------------------------------------------------------
-    # State queries
-    # ------------------------------------------------------------------
+    async def open_positions_safe(self) -> list[dict[str, object]]:
+        """Thread-safe snapshot of open positions for WS heartbeat (VUL-035)."""
+        async with self._lock:
+            return list(self._open_positions_snapshot())
 
-    def open_positions(self) -> list[dict[str, object]]:
+    async def pending_approvals_safe(self) -> list[dict[str, object]]:
+        """Thread-safe snapshot of pending approvals for WS heartbeat (VUL-035)."""
+        async with self._lock:
+            cutoff = time.monotonic() - 3600.0
+            to_prune = [
+                rid for rid, req in self._approval_queue.items()
+                if req.resolved and req.created_at < cutoff
+            ]
+            for rid in to_prune:
+                self._approval_queue.pop(rid, None)
+            return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
+
+    def _open_positions_snapshot(self) -> list[dict[str, object]]:
+        """Build positions list — must be called with self._lock held."""
         return [
             {
                 "trade_id": p.trade_id,
@@ -496,6 +520,14 @@ class LiveExecutor:
             }
             for p in self._positions.values()
         ]
+
+    # ------------------------------------------------------------------
+    # State queries
+    # ------------------------------------------------------------------
+
+    def open_positions(self) -> list[dict[str, object]]:
+        """Unsynchronized snapshot — safe only when no concurrent mutation expected."""
+        return self._open_positions_snapshot()
 
     @property
     def cash_usd(self) -> float:
@@ -541,128 +573,133 @@ class LiveExecutor:
         raw_signal: float,
         approved_by: str,
     ) -> str | None:
-        """Place market order, confirm fill, record position."""
-        # Pre-check and reserve cash BEFORE placing the order (fix #9)
-        notional_estimate = kelly_result.notional_usd
-        fee_estimate = notional_estimate * _LIVE_FEE_FALLBACK
-        async with self._lock:
-            if self._cash < notional_estimate + fee_estimate:
-                self._log.warning(
-                    "live.insufficient_cash_pre_check",
-                    cash=round(self._cash, 2),
-                    needed=round(notional_estimate + fee_estimate, 2),
+        """Place market order, confirm fill, record position.
+
+        Serialized by _trade_semaphore so concurrent signals cannot both
+        pass the cash pre-check against the same balance (VUL-009).
+        """
+        async with self._trade_semaphore:
+            # Pre-check and reserve cash BEFORE placing the order (fix #9)
+            notional_estimate = kelly_result.notional_usd
+            fee_estimate = notional_estimate * _LIVE_FEE_FALLBACK
+            async with self._lock:
+                if self._cash < notional_estimate + fee_estimate:
+                    self._log.warning(
+                        "live.insufficient_cash_pre_check",
+                        cash=round(self._cash, 2),
+                        needed=round(notional_estimate + fee_estimate, 2),
+                    )
+                    return None
+                # Reserve the estimated amount to prevent concurrent over-spend
+                self._cash -= notional_estimate + fee_estimate
+
+            side = "buy" if direction == 1 else "sell"
+            try:
+                order = await self._place_market_order(symbol, side, kelly_result.quantity)
+            except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+                # Restore reserved cash on order failure
+                async with self._lock:
+                    self._cash += notional_estimate + fee_estimate
+                self._log.error(
+                    "live.entry_order_failed",
+                    symbol=symbol,
+                    side=side,
+                    error=str(exc),
                 )
                 return None
-            # Reserve the estimated amount to prevent concurrent over-spend
-            self._cash -= notional_estimate + fee_estimate
 
-        side = "buy" if direction == 1 else "sell"
-        try:
-            order = await self._place_market_order(symbol, side, kelly_result.quantity)
-        except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
-            # Restore reserved cash on order failure
-            async with self._lock:
-                self._cash += notional_estimate + fee_estimate
-            self._log.error(
-                "live.entry_order_failed",
-                symbol=symbol,
-                side=side,
-                error=str(exc),
-            )
-            return None
+            actual_price = float(order.get("average") or order.get("price") or 0.0)
+            filled_qty = float(order.get("filled") or kelly_result.quantity)
+            exchange_order_id = str(order.get("id", ""))
+            entry_fee = self._extract_fee(order, actual_price, filled_qty)
 
-        actual_price = float(order.get("average") or order.get("price") or 0.0)
-        filled_qty = float(order.get("filled") or kelly_result.quantity)
-        exchange_order_id = str(order.get("id", ""))
-        entry_fee = self._extract_fee(order, actual_price, filled_qty)
-
-        if actual_price <= 0.0 or filled_qty <= 0.0:
-            # Restore reserved cash — fill data unusable
-            async with self._lock:
-                self._cash += notional_estimate + fee_estimate
-            self._log.error(
-                "live.bad_fill",
-                symbol=symbol,
-                actual_price=actual_price,
-                filled_qty=filled_qty,
-                order_id=exchange_order_id,
-            )
-            return None
-
-        notional = actual_price * filled_qty
-        entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
-        trade_id = str(uuid.uuid4())
-
-        async with self._lock:
-            # Reconcile: replace the estimated reserve with actual cost
-            self._cash += notional_estimate + fee_estimate  # undo estimate
-            if self._cash < notional + entry_fee:
-                self._log.warning(
-                    "live.insufficient_cash_post_reconcile",
-                    cash=round(self._cash, 2),
-                    needed=round(notional + entry_fee, 2),
+            if actual_price <= 0.0 or filled_qty <= 0.0:
+                # Restore reserved cash — fill data unusable
+                async with self._lock:
+                    self._cash += notional_estimate + fee_estimate
+                self._log.error(
+                    "live.bad_fill",
+                    symbol=symbol,
+                    actual_price=actual_price,
+                    filled_qty=filled_qty,
+                    order_id=exchange_order_id,
                 )
                 return None
-            self._cash -= notional + entry_fee
-            pos = LivePosition(
-                trade_id=trade_id,
-                exchange_order_id=exchange_order_id,
+
+            notional = actual_price * filled_qty
+            entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            trade_id = str(uuid.uuid4())
+
+            async with self._lock:
+                # Reconcile: replace the estimated reserve with actual cost
+                self._cash += notional_estimate + fee_estimate  # undo estimate
+                if self._cash < notional + entry_fee:
+                    self._log.warning(
+                        "live.insufficient_cash_post_reconcile",
+                        cash=round(self._cash, 2),
+                        needed=round(notional + entry_fee, 2),
+                    )
+                    return None
+                self._cash -= notional + entry_fee
+                pos = LivePosition(
+                    trade_id=trade_id,
+                    exchange_order_id=exchange_order_id,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    direction=direction,
+                    entry_price=actual_price,
+                    quantity=filled_qty,
+                    notional_usd=notional,
+                    entry_ts=entry_ts,
+                    kelly_fraction=kelly_result.adjusted_fraction,
+                    regime_at_entry=regime_state,
+                    meta_label_prob=meta_label_prob,
+                    raw_signal=raw_signal,
+                    approved_by=approved_by,
+                    execution_mode=self._cfg.execution_mode.value,
+                    fee_usd=entry_fee,
+                    current_price=actual_price,
+                )
+                self._positions[trade_id] = pos
+
+            trade_record = TradeRecord(
+                id=trade_id,
                 symbol=symbol,
                 timeframe=timeframe,
+                trading_mode=TradingMode.LIVE.value,
+                execution_mode=self._cfg.execution_mode.value,
                 direction=direction,
                 entry_price=actual_price,
+                exit_price=None,
                 quantity=filled_qty,
                 notional_usd=notional,
                 entry_ts=entry_ts,
+                exit_ts=None,
+                pnl_usd=None,
+                pnl_pct=None,
+                fee_usd=entry_fee,
                 kelly_fraction=kelly_result.adjusted_fraction,
                 regime_at_entry=regime_state,
                 meta_label_prob=meta_label_prob,
-                raw_signal=raw_signal,
+                exit_reason=None,
                 approved_by=approved_by,
-                execution_mode=self._cfg.execution_mode.value,
-                fee_usd=entry_fee,
-                current_price=actual_price,
+                raw_signal=raw_signal,
             )
-            self._positions[trade_id] = pos
+            await self._storage.insert_trade(trade_record)
+            await self._snapshot_equity()
 
-        trade_record = TradeRecord(
-            id=trade_id,
-            symbol=symbol,
-            timeframe=timeframe,
-            trading_mode=TradingMode.LIVE.value,
-            execution_mode=self._cfg.execution_mode.value,
-            direction=direction,
-            entry_price=actual_price,
-            exit_price=None,
-            quantity=filled_qty,
-            notional_usd=notional,
-            entry_ts=entry_ts,
-            exit_ts=None,
-            pnl_usd=None,
-            pnl_pct=None,
-            fee_usd=entry_fee,
-            kelly_fraction=kelly_result.adjusted_fraction,
-            regime_at_entry=regime_state,
-            meta_label_prob=meta_label_prob,
-            exit_reason=None,
-            approved_by=approved_by,
-            raw_signal=raw_signal,
-        )
-        await self._storage.insert_trade(trade_record)
-        await self._snapshot_equity()
-
-        self._log.info(
-            "live.position_opened",
-            trade_id=trade_id,
-            exchange_order_id=exchange_order_id,
-            symbol=symbol,
-            direction="long" if direction == 1 else "short",
-            entry_price=round(actual_price, 4),
-            quantity=filled_qty,
-            notional_usd=round(notional, 2),
-            approved_by=approved_by,
-        )
-        return trade_id
+            self._log.info(
+                "live.position_opened",
+                trade_id=trade_id,
+                exchange_order_id=exchange_order_id,
+                symbol=symbol,
+                direction="long" if direction == 1 else "short",
+                entry_price=round(actual_price, 4),
+                quantity=filled_qty,
+                notional_usd=round(notional, 2),
+                approved_by=approved_by,
+            )
+            return trade_id
 
     async def _place_market_order(
         self,
@@ -678,7 +715,7 @@ class LiveExecutor:
 
         Raises ccxt.ExchangeError if order does not fill within poll window.
         """
-        exchange = self._fetcher._require_binance()  # noqa: SLF001
+        exchange = self._fetcher.get_order_exchange()
         order: dict[str, Any] = await exchange.create_market_order(
             symbol=symbol,
             side=side,
@@ -696,16 +733,32 @@ class LiveExecutor:
             except ccxt.ExchangeError:
                 continue
 
-        # Raise — never silently accept an unconfirmed fill (fix #8)
+        # Final reconciliation attempt outside the poll loop —
+        # the exchange may have filled the order while we were getting errors.
+        try:
+            final_check = await exchange.fetch_order(order_id, symbol)
+            if final_check.get("status") in {"closed", "filled"}:
+                self._log.warning(
+                    "live.order_fill_confirmed_on_final_check",
+                    order_id=order_id,
+                    symbol=symbol,
+                )
+                return final_check
+        except ccxt.ExchangeError:
+            pass
+
+        # Order unconfirmed — log with order_id so operator can reconcile manually
         self._log.error(
             "live.order_fill_unconfirmed",
             order_id=order_id,
             symbol=symbol,
             side=side,
+            action="manual_reconciliation_required",
         )
         raise ccxt.ExchangeError(
             f"Order {order_id} for {symbol} did not confirm as filled "
-            f"within {_ORDER_CONFIRM_POLLS} polls — aborting position open."
+            f"within {_ORDER_CONFIRM_POLLS} polls — aborting position open. "
+            f"Check exchange manually for order {order_id}."
         )
 
     @staticmethod
@@ -727,6 +780,14 @@ class LiveExecutor:
         meta_label_prob: float,
         raw_signal: float,
     ) -> str:
+        # Fetch indicative price so the operator sees a meaningful value
+        # in the approval card (not $0.00). Labelled clearly as indicative
+        # since actual fill price will differ (VUL-033).
+        try:
+            indicative_price = await self._fetcher.fetch_ticker_price(symbol)
+        except Exception:
+            indicative_price = 0.0  # graceful degradation — approval still proceeds
+
         req_id = str(uuid.uuid4())
         req = ApprovalRequest(
             request_id=req_id,
@@ -734,7 +795,7 @@ class LiveExecutor:
             timeframe=timeframe,
             direction=direction,
             notional_usd=kelly_result.notional_usd,
-            entry_price=0.0,
+            entry_price=indicative_price,  # indicative at request time
             quantity=kelly_result.quantity,
             kelly_fraction=kelly_result.adjusted_fraction,
             regime_state=regime_state,
@@ -749,6 +810,7 @@ class LiveExecutor:
             request_id=req_id,
             symbol=symbol,
             notional_usd=round(kelly_result.notional_usd, 2),
+            indicative_price=round(indicative_price, 4),
         )
         return req_id
 
@@ -758,37 +820,34 @@ class LiveExecutor:
         timeout_s: float | None,
     ) -> tuple[bool, str]:
         """
-        Poll until the approval is resolved or timeout expires.
+        Wait for approval resolution using asyncio.Event — zero poll overhead.
 
-        This method is the SOLE owner that pops from _approval_queue.
-        resolve_approval() only mutates — it never pops (fix #16).
+        Replaces the 250ms busy-poll loop that acquired self._lock 4×/second,
+        starving concurrent mark_to_market and gate evaluation (VUL-024).
         """
-        poll_interval = 0.25
-        elapsed = 0.0
-        while True:
+        async with self._lock:
+            req = self._approval_queue.get(request_id)
+        if req is None:
+            self._log.error("live.approval_missing_in_queue", request_id=request_id)
+            return False, ""
+
+        try:
+            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)  # noqa: SLF001
+        except asyncio.TimeoutError:
             async with self._lock:
-                req = self._approval_queue.get(request_id)
-                if req is None:
-                    # Should not happen — log and treat as rejected
-                    self._log.error(
-                        "live.approval_missing_in_queue",
-                        request_id=request_id,
-                    )
-                    return False, ""
-                if req.resolved:
-                    self._approval_queue.pop(request_id, None)
-                    return req.approved, req.operator
-            if timeout_s is not None and elapsed >= timeout_s:
-                async with self._lock:
-                    req = self._approval_queue.pop(request_id, None)
-                    if req is not None:
-                        req.resolved = True
-                        req.approved = False
-                        req.operator = "auto_timeout"
-                self._log.warning("live.approval_timeout", request_id=request_id)
-                return False, "auto_timeout"
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
+                timed_out = self._approval_queue.pop(request_id, None)
+                if timed_out is not None:
+                    timed_out.resolved = True
+                    timed_out.approved = False
+                    timed_out.operator = "auto_timeout"
+            self._log.warning("live.approval_timeout", request_id=request_id)
+            return False, "auto_timeout"
+
+        async with self._lock:
+            resolved = self._approval_queue.pop(request_id, None)
+        if resolved is None:
+            return False, ""
+        return resolved.approved, resolved.operator
 
     def _equity_usd(self) -> float:
         return self._cash + sum(p.unrealized_pnl for p in self._positions.values())

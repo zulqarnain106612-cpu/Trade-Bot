@@ -271,6 +271,21 @@ class MarketDataFetcher:
             raise RuntimeError("MarketDataFetcher not initialized")
         return self._binance
 
+    def get_order_exchange(self) -> ccxt.binance:
+        """
+        Return the configured order-placement exchange (Binance).
+
+        Public interface for executors — avoids direct access to private
+        _require_binance() and gives MarketDataFetcher lifecycle control
+        over when the exchange is available (VUL-029).
+        """
+        if self._binance is None:
+            raise RuntimeError(
+                "MarketDataFetcher not initialized. "
+                "Call await fetcher.initialize() before placing orders."
+            )
+        return self._binance
+
     def _require_okx(self) -> ccxt.okx:
         if self._okx is None:
             raise RuntimeError("MarketDataFetcher not initialized")

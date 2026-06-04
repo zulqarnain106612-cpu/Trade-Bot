@@ -402,6 +402,9 @@ class RiskGateContext:
     trading_mode: TradingMode
     direction_gate_pass: bool
     meta_gate_pass: bool
+    # Days of paper trading completed — used by check_paper_minimum_days gate.
+    # Derived from the earliest paper equity_curve record timestamp at call site.
+    paper_trading_days: int = 0
 
 
 def evaluate_all_gates(
@@ -416,7 +419,8 @@ def evaluate_all_gates(
       2. Consecutive losses
       3. Regime
       4. Position size
-      5. Live gate
+      5. Paper minimum days (live mode only)
+      6. Live model gate
 
     Parameters
     ----------
@@ -435,6 +439,13 @@ def evaluate_all_gates(
         lambda: check_consecutive_losses(ctx.consecutive_loss_count, cfg),
         lambda: check_regime_gate(ctx.regime_state),
         lambda: check_position_size(ctx.notional_usd, ctx.capital_usd, cfg),
+        # Paper minimum days gate: only evaluated when switching to live trading.
+        # Previously existed as a function but was never called (VUL-034).
+        lambda: (
+            check_paper_minimum_days(ctx.paper_trading_days)
+            if ctx.trading_mode == TradingMode.LIVE
+            else GateResult.pass_gate()
+        ),
         lambda: check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
     ]
 

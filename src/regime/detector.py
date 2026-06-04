@@ -23,6 +23,7 @@ Authority:
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,29 @@ HMM_FEATURE_COLS: Final[list[str]] = [
 ]
 
 _MODEL_FILENAME: Final[str] = "hmm_{symbol}_{timeframe}.joblib"
+_MANIFEST_SUFFIX: Final[str] = ".sha256"
+
+
+def _write_manifest(path: Path) -> None:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    path.with_suffix(_MANIFEST_SUFFIX).write_text(json.dumps({"file": path.name, "sha256": digest}))
+
+
+def _verify_manifest(path: Path) -> None:
+    import hmac as _hmac
+    manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"HMM model manifest missing for {path}. Re-train to regenerate."
+        )
+    manifest = json.loads(manifest_path.read_text())
+    expected = manifest.get("sha256", "")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not _hmac.compare_digest(actual.encode(), expected.encode()):
+        raise RuntimeError(
+            f"HMM model integrity check FAILED for {path}. "
+            "File may be tampered. Re-train to replace."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +439,7 @@ class RegimeDetector:
             "timeframe": self._timeframe,
         }
         joblib.dump(payload, path, compress=3)
+        _write_manifest(path)
         self._log.info("hmm.saved", path=str(path), train_hash=self._train_hash)
         return path
 
@@ -440,6 +465,7 @@ class RegimeDetector:
             raise FileNotFoundError(
                 f"No saved HMM model at {path} — call fit() first."
             )
+        _verify_manifest(path)
         payload: dict = joblib.load(path)
         detector = cls(
             symbol=payload["symbol"],

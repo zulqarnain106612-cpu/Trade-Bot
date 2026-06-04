@@ -26,6 +26,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Annotated, AsyncIterator, cast
@@ -35,10 +36,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.config import ExecutionMode, get_settings, invalidate_settings_cache
+from src.config import ExecutionMode, get_settings, invalidate_settings_cache, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import StorageBackend
 from src.execution.live import LiveExecutor
+from src.execution.base import AbstractExecutor
 from src.engine.orchestrator import Orchestrator
 from src.api.auth import verify_api_key, verify_ws_key
 from src.api.middleware import validate_cors_config
@@ -69,9 +71,49 @@ class AppState:
     storage: StorageBackend
     orchestrator: Orchestrator
     ws_clients: list[WebSocket]
+    # Rate-limit state for /execution-mode: max 3 changes per hour
+    _mode_change_timestamps: list[float]
+    _MODE_CHANGE_LIMIT: int = 3
+    _MODE_CHANGE_WINDOW_S: float = 3600.0
+    # Rate-limit buckets for all POST/mutating endpoints: per-endpoint, max 60/min
+    _endpoint_hits: dict[str, list[float]]
+    _ENDPOINT_LIMIT: int = 60
+    _ENDPOINT_WINDOW_S: float = 60.0
 
     def __init__(self) -> None:
         self.ws_clients = []
+        self._mode_change_timestamps = []
+        self._endpoint_hits = {}
+
+    def check_endpoint_rate_limit(self, endpoint: str) -> None:
+        """Raise HTTP 429 if endpoint has been called too many times per minute."""
+        now = time.monotonic()
+        hits = self._endpoint_hits.get(endpoint, [])
+        hits = [t for t in hits if now - t < self._ENDPOINT_WINDOW_S]
+        if len(hits) >= self._ENDPOINT_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded for {endpoint} ({self._ENDPOINT_LIMIT}/min).",
+            )
+        hits.append(now)
+        self._endpoint_hits[endpoint] = hits
+
+    def check_mode_change_rate_limit(self) -> None:
+        """Raise HTTP 429 if mode has been changed too many times recently."""
+        now = time.monotonic()
+        self._mode_change_timestamps = [
+            t for t in self._mode_change_timestamps
+            if now - t < self._MODE_CHANGE_WINDOW_S
+        ]
+        if len(self._mode_change_timestamps) >= self._MODE_CHANGE_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Execution mode change rate limit exceeded "
+                    f"({self._MODE_CHANGE_LIMIT} per hour). Try again later."
+                ),
+            )
+        self._mode_change_timestamps.append(now)
 
 
 _state = AppState()
@@ -92,6 +134,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
     cfg = get_settings()
+    # Security: warn loudly if binding outside loopback without TLS proxy
+    if cfg.api.host not in ("127.0.0.1", "::1", "localhost"):
+        has_tls = bool(os.environ.get("HTTPS_CERT", "").strip())
+        if not has_tls:
+            log.critical(
+                "api.insecure_bind_warning",
+                host=cfg.api.host,
+                message=(
+                    "Server is bound to a non-loopback address without a TLS cert configured. "
+                    "Set HTTPS_CERT or place a TLS-terminating reverse proxy in front. "
+                    "API keys will be transmitted in cleartext."
+                ),
+            )
     _state.storage = StorageBackend()
     await _state.storage.initialize()
 
@@ -138,21 +193,14 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Auth dependency
+# Auth dependency — sole authentication mechanism for all endpoints
 # ---------------------------------------------------------------------------
-
-
-def require_api_key(x_api_key: str | None = Depends(
-    lambda x_api_key: x_api_key  # populated from header by FastAPI
-)) -> None:
-    """FastAPI dependency — validates X-API-Key header on every request."""
-    pass  # delegated below via Header()
-
 
 from fastapi import Header  # noqa: E402 — placed after app init intentionally
 
 
 def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
+    """FastAPI dependency — validates X-API-Key header on every request."""
     verify_api_key(x_api_key)
 
 
@@ -174,6 +222,11 @@ class ResolveApprovalRequest(BaseModel):
 class SetExecutionModeRequest(BaseModel):
     mode: str
     operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise mode escalation",
+    )
 
     @field_validator("operator")
     @classmethod
@@ -203,7 +256,7 @@ async def health() -> dict[str, Any]:
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
     orch = _state.orchestrator
-    executor = cast(LiveExecutor, orch._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
     cfg = get_settings()
 
     equity_usd = executor.equity_usd if executor else 0.0
@@ -242,20 +295,19 @@ async def status() -> dict[str, Any]:
 async def trades(
     symbol: Annotated[str | None, Query(default=None)] = None,
     limit: Annotated[int, Query(default=100, ge=1, le=1000)] = 100,
-    offset: Annotated[int, Query(default=0, ge=0, le=100000)] = 0,
+    offset: Annotated[int, Query(default=0, ge=0, le=10000)] = 0,
 ) -> dict[str, Any]:
-    """Paginated trade history."""
+    """Paginated trade history — offset and limit applied in SQL, not Python."""
     cfg = get_settings()
-    # Validate symbol against known pair if provided
     req_symbol = symbol or cfg.primary_symbol
     await _state.storage.validate_symbol(req_symbol)
 
     records = await _state.storage.fetch_trades(
         symbol=req_symbol,
         trading_mode=cfg.trading_mode.value,
-        limit=limit + offset,
+        limit=limit,
+        offset=offset,
     )
-    page = records[offset: offset + limit]
     return {
         "trades": [
             {
@@ -315,10 +367,20 @@ async def equity_curve(
 @app.get(
     "/regime/{timeframe}",
     dependencies=[Depends(api_key_header)],
-    responses={404: {"description": "No regime data for timeframe"}},
+    responses={
+        404: {"description": "No regime data for timeframe"},
+        400: {"description": "Invalid timeframe value"},
+    },
 )
 async def regime(timeframe: str) -> dict[str, Any]:
     """Latest regime snapshot for a timeframe."""
+    from src.config import Timeframe as _Timeframe
+    valid_timeframes = {tf.value for tf in _Timeframe}
+    if timeframe not in valid_timeframes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe {timeframe!r}. Must be one of: {sorted(valid_timeframes)}",
+        )
     cfg = get_settings()
     snap = await _state.storage.latest_regime(cfg.primary_symbol, timeframe)
     if snap is None:
@@ -338,7 +400,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
 @app.get("/approvals", dependencies=[Depends(api_key_header)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
-    executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
     if executor is None:
         return {"approvals": []}
     return {"approvals": executor.pending_approvals()}
@@ -357,7 +419,8 @@ async def resolve_approval(
     body: ResolveApprovalRequest,
 ) -> dict[str, Any]:
     """Approve or reject a pending trade."""
-    executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    _state.check_endpoint_rate_limit("resolve_approval")
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
 
@@ -377,15 +440,40 @@ async def resolve_approval(
 @app.post(
     "/execution-mode",
     dependencies=[Depends(api_key_header)],
-    responses={400: {"description": "Invalid execution mode"}},
+    responses={
+        400: {"description": "Invalid execution mode"},
+        401: {"description": "Invalid operator secret"},
+        429: {"description": "Rate limit exceeded"},
+    },
 )
 async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
     """
     Switch execution mode at runtime.
 
-    Requires authenticated operator identity (validated operator field).
-    Change is written to audit log and settings cache is invalidated.
+    Requires:
+      - Valid X-API-Key header
+      - operator_secret matching OPERATOR_SECRET env var
+      - Max 3 mode changes per hour
     """
+    import hmac as _hmac
+
+    # Verify operator secret (second factor for mode escalation)
+    expected_op_secret = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected_op_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="OPERATOR_SECRET is not configured on the server.",
+        )
+    if not _hmac.compare_digest(
+        body.operator_secret.encode("utf-8"),
+        expected_op_secret.encode("utf-8"),
+    ):
+        log.warning("api.execution_mode_bad_operator_secret", operator=body.operator)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+
+    # Rate limit: max 3 changes per hour
+    _state.check_mode_change_rate_limit()
+
     try:
         new_mode = ExecutionMode(body.mode.lower())
     except ValueError:
@@ -394,11 +482,9 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
             detail=f"Invalid mode {body.mode!r}. Must be one of: automatic, restricted, manual",
         )
 
-    old_mode = get_settings().execution_mode.value
-    os.environ["EXECUTION_MODE"] = new_mode.value
-    invalidate_settings_cache()
+    old_mode = runtime_config.execution_mode.value
+    runtime_config.execution_mode = new_mode  # atomic — no cache invalidation race
 
-    # Persist to audit log
     await _state.storage.insert_audit_event(
         event_type="execution_mode_change",
         operator=body.operator,
@@ -456,7 +542,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     Live WebSocket feed — requires X-Api-Key header on upgrade.
 
     Pushes a status snapshot every ws_heartbeat_s seconds.
+    Max concurrent clients: 10 (configurable via WS_MAX_CLIENTS env var).
     """
+    _MAX_WS_CLIENTS = int(os.environ.get("WS_MAX_CLIENTS", "10"))
+    if len(_state.ws_clients) >= _MAX_WS_CLIENTS:
+        await ws.close(code=4429)
+        log.warning("api.ws_rejected_limit", limit=_MAX_WS_CLIENTS)
+        return
+
     await verify_ws_key(ws)
     await ws.accept()
     _state.ws_clients.append(ws)
@@ -469,7 +562,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             await asyncio.sleep(heartbeat)
 
-            executor = cast(LiveExecutor, _state.orchestrator._executor)  # noqa: SLF001
+            executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
             if executor is None:
                 continue
 
@@ -477,10 +570,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 "type": "tick",
                 "equity_usd": round(executor.equity_usd, 2),
                 "cash_usd": round(executor.cash_usd, 2),
-                "positions": executor.open_positions(),
-                "pending_approvals": executor.pending_approvals(),
+                # Use lock-safe variants to prevent RuntimeError from dict mutation
+                # during concurrent position open/close (VUL-035)
+                "positions": await executor.open_positions_safe(),
+                "pending_approvals": await executor.pending_approvals_safe(),
                 "trading_mode": get_settings().trading_mode.value,
-                "execution_mode": get_settings().execution_mode.value,
+                "execution_mode": runtime_config.execution_mode.value,
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
 
