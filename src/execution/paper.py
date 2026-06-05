@@ -36,6 +36,7 @@ import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings
 from src.data.storage import EquityRecord, StorageBackend, TradeRecord
+from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
@@ -125,6 +126,8 @@ class ApprovalRequest:
     resolved: bool = field(default=False)
     approved: bool = field(default=False)
     operator: str = field(default="")
+    # Event-based notification — eliminates busy-poll lock contention (VUL-024)
+    _event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -147,7 +150,7 @@ class ApprovalRequest:
 # ---------------------------------------------------------------------------
 
 
-class PaperExecutor:
+class PaperExecutor(AbstractExecutor):
     """
     Paper trading executor.
 
@@ -465,11 +468,7 @@ class PaperExecutor:
     ) -> bool:
         """
         Resolve a pending approval request.
-
-        Called by the API websocket handler when an operator clicks
-        Approve or Reject on the dashboard.
-
-        Returns True if the request was found and resolved.
+        Sets asyncio.Event to wake _await_approval immediately (VUL-024).
         """
         async with self._lock:
             req = self._approval_queue.get(request_id)
@@ -478,6 +477,7 @@ class PaperExecutor:
             req.resolved = True
             req.approved = approved
             req.operator = operator
+            req._event.set()  # noqa: SLF001
 
         self._log.info(
             "paper.approval_resolved",
@@ -490,6 +490,20 @@ class PaperExecutor:
     def pending_approvals(self) -> list[dict[str, object]]:
         """Return all unresolved approval requests as dicts for the API."""
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
+
+    async def open_positions_safe(self) -> list[dict[str, object]]:
+        """Lock-safe snapshot for WS heartbeat (VUL-035)."""
+        async with self._lock:
+            return list(self.open_positions())
+
+    async def pending_approvals_safe(self) -> list[dict[str, object]]:
+        """Lock-safe snapshot for WS heartbeat (VUL-035)."""
+        async with self._lock:
+            return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
+
+    async def submit_signal(self, *args, **kwargs):
+        """Delegate to open_position — satisfies AbstractExecutor interface."""
+        return await self.open_position(*args, **kwargs)
 
     # ------------------------------------------------------------------
     # State queries
@@ -689,40 +703,35 @@ class PaperExecutor:
         timeout_s: float | None,
     ) -> tuple[bool, str]:
         """
-        Poll the approval queue until resolved or timeout.
-
+        Wait for approval using asyncio.Event — replaces 250ms busy-poll (VUL-024).
         Returns (approved, operator_id).
-        On timeout: marks rejected with operator='auto_timeout'.
-        On MANUAL with no timeout: polls indefinitely.
         """
-        poll_interval = 0.25
-        elapsed = 0.0
+        async with self._lock:
+            req = self._approval_queue.get(request_id)
+        if req is None:
+            return False, ""
 
-        while True:
+        try:
+            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)  # noqa: SLF001
+        except asyncio.TimeoutError:
             async with self._lock:
-                req = self._approval_queue.get(request_id)
-                if req is None:
-                    return False, ""
-                if req.resolved:
-                    self._approval_queue.pop(request_id, None)
-                    return req.approved, req.operator
+                timed_out = self._approval_queue.pop(request_id, None)
+                if timed_out is not None:
+                    timed_out.resolved = True
+                    timed_out.approved = False
+                    timed_out.operator = "auto_timeout"
+            self._log.warning(
+                "paper.approval_timeout",
+                request_id=request_id,
+                timeout_s=timeout_s,
+            )
+            return False, "auto_timeout"
 
-            if timeout_s is not None and elapsed >= timeout_s:
-                async with self._lock:
-                    req = self._approval_queue.pop(request_id, None)
-                    if req is not None:
-                        req.resolved = True
-                        req.approved = False
-                        req.operator = "auto_timeout"
-                self._log.warning(
-                    "paper.approval_timeout",
-                    request_id=request_id,
-                    timeout_s=timeout_s,
-                )
-                return False, "auto_timeout"
-
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
+        async with self._lock:
+            resolved = self._approval_queue.pop(request_id, None)
+        if resolved is None:
+            return False, ""
+        return resolved.approved, resolved.operator
 
     def _equity_usd(self) -> float:
         """Total equity = cash + sum of unrealized PnL."""

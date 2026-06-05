@@ -261,18 +261,54 @@ class RegimeDetector:
 
         lengths_arg = lengths or [len(X)]
 
-        self._model = GaussianHMM(
-            n_components=cfg.n_components,
-            covariance_type=cfg.covariance_type,
-            n_iter=cfg.n_iter,
-            tol=cfg.tol,
-            random_state=cfg.random_state,
-            verbose=False,
-        )
+        # VUL-025: Multi-init HMM — run HMM_N_INIT fits with different seeds,
+        # keep the one with the highest log-likelihood to avoid local optima.
+        # Fixed random_state=42 would consistently converge to the same poor
+        # local optimum on certain market regimes.
+        _HMM_N_INIT: int = getattr(cfg, "n_init", 5)
+        best_model = None
+        best_score: float = float("-inf")
 
         t0 = time.perf_counter()
-        self._model.fit(X, lengths=lengths_arg)
+        for seed in range(_HMM_N_INIT):
+            candidate = GaussianHMM(
+                n_components=cfg.n_components,
+                covariance_type=cfg.covariance_type,
+                n_iter=cfg.n_iter,
+                tol=cfg.tol,
+                random_state=cfg.random_state + seed,
+                verbose=False,
+            )
+            candidate.fit(X, lengths=lengths_arg)
+            try:
+                score = candidate.score(X, lengths=lengths_arg)
+            except Exception:
+                continue
+            if score > best_score:
+                best_score = score
+                best_model = candidate
+
         elapsed = time.perf_counter() - t0
+
+        if best_model is None:
+            raise RuntimeError("HMM multi-init: all candidate fits failed to score.")
+
+        self._model = best_model
+        converged = bool(best_model.monitor_.converged)
+
+        # VUL-025: If the best model still did not converge, default regime
+        # to VOLATILE so downstream gates block new positions.
+        if not converged:
+            from src.config import REGIME_VOLATILE as _REGIME_VOLATILE
+            self._log.error(
+                "hmm.fit_not_converged",
+                best_score=round(best_score, 4),
+                n_init=_HMM_N_INIT,
+                action="defaulting_regime_to_VOLATILE_until_retrain",
+            )
+            self._convergence_failed = True
+        else:
+            self._convergence_failed = False
 
         self._state_map = _assign_canonical_states(self._model)
         self._fitted = True
@@ -366,6 +402,19 @@ class RegimeDetector:
         ValueError : if fitted model is unavailable or data is insufficient.
         """
         self._require_fitted()
+
+        # VUL-025: If the last fit did not converge, return VOLATILE prediction
+        # so the regime gate blocks all new positions until a successful retrain.
+        if getattr(self, "_convergence_failed", False):
+            from src.config import REGIME_VOLATILE as _REGIME_VOLATILE
+            return RegimePrediction(
+                state=_REGIME_VOLATILE,
+                prob_ranging=0.0,
+                prob_trending=0.0,
+                prob_volatile=1.0,
+                symbol=getattr(self, "_symbol", ""),
+                timeframe=getattr(self, "_timeframe", ""),
+            )
 
         missing = set(HMM_FEATURE_COLS) - set(history.columns)
         if missing:

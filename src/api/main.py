@@ -71,17 +71,17 @@ class AppState:
     storage: StorageBackend
     orchestrator: Orchestrator
     ws_clients: list[WebSocket]
-    # Rate-limit state for /execution-mode: max 3 changes per hour
+    ready: bool  # True only after orchestrator.startup() completes
     _mode_change_timestamps: list[float]
     _MODE_CHANGE_LIMIT: int = 3
     _MODE_CHANGE_WINDOW_S: float = 3600.0
-    # Rate-limit buckets for all POST/mutating endpoints: per-endpoint, max 60/min
     _endpoint_hits: dict[str, list[float]]
     _ENDPOINT_LIMIT: int = 60
     _ENDPOINT_WINDOW_S: float = 60.0
 
     def __init__(self) -> None:
         self.ws_clients = []
+        self.ready = False
         self._mode_change_timestamps = []
         self._endpoint_hits = {}
 
@@ -153,6 +153,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with open_fetcher(_state.storage) as fetcher:
         _state.orchestrator = Orchestrator(_state.storage, fetcher)
         await _state.orchestrator.startup()
+        _state.ready = True  # NEW-001: mark ready only after full startup
 
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
@@ -204,6 +205,12 @@ def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key
     verify_api_key(x_api_key)
 
 
+def require_ready() -> None:
+    """Raises HTTP 503 if orchestrator is still starting (NEW-001)."""
+    if not _state.ready:
+        raise HTTPException(status_code=503, detail="Server starting up. Retry shortly.")
+
+
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
@@ -247,15 +254,14 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "storage": counts,
         "trading_mode": get_settings().trading_mode.value,
-        "execution_mode": get_settings().execution_mode.value,
+        "execution_mode": runtime_config.execution_mode.value,
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
     }
 
 
-@app.get("/status", dependencies=[Depends(api_key_header)])
+@app.get("/status", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
-    orch = _state.orchestrator
     executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
     cfg = get_settings()
 
@@ -284,7 +290,7 @@ async def status() -> dict[str, Any]:
         "pending_approvals": approvals,
         "regime": regime_dict,
         "trading_mode": cfg.trading_mode.value,
-        "execution_mode": cfg.execution_mode.value,
+        "execution_mode": runtime_config.execution_mode.value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
@@ -330,7 +336,7 @@ async def trades(
                 "entry_ts": t.entry_ts,
                 "exit_ts": t.exit_ts,
             }
-            for t in page
+            for t in records
         ],
         "total": len(records),
         "limit": limit,
@@ -397,7 +403,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
     }
 
 
-@app.get("/approvals", dependencies=[Depends(api_key_header)])
+@app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
     executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
@@ -408,7 +414,7 @@ async def approvals() -> dict[str, Any]:
 
 @app.post(
     "/approvals/{request_id}/resolve",
-    dependencies=[Depends(api_key_header)],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
     responses={
         503: {"description": "Executor not initialized"},
         404: {"description": "Approval request not found or already resolved"},
