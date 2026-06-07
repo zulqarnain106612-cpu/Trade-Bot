@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Union
 
+import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
 
 from src.config import (
@@ -82,6 +83,8 @@ class Orchestrator:
         self._trainers: dict[str, ModelTrainer] = {}
         # Track active retrain tasks per timeframe — prevents overlapping retrains
         self._retrain_tasks: dict[str, asyncio.Task] = {}
+        # SCAN2-003: track last retrain error per timeframe so /status can surface it
+        self._last_retrain_error: dict[str, str] = {}
 
         # Dedicated single-thread executor for CPU-bound training (NEW-002).
         # Isolated from the default pool so training never starves async I/O tasks.
@@ -286,7 +289,7 @@ class Orchestrator:
         daily_pnl = await executor.get_daily_pnl(self._symbol)
         consecutive_losses = await executor.get_consecutive_losses(self._symbol)
         capital_usd = executor.equity_usd
-        starting_equity = executor.drawdown_tracker.daily_start_equity
+        starting_equity = executor.starting_equity_usd  # NEW-009: via AbstractExecutor property
 
         # Live gate status from storage
         direction_gate = False
@@ -304,7 +307,12 @@ class Orchestrator:
             trading_mode=self._cfg.trading_mode.value,
             limit=200,  # raised from 100 (VUL-020: larger window reduces overfit sizing)
         )
-        pnl_history = [t.pnl_usd for t in recent_trades if t.pnl_usd is not None]
+        # SCAN2-012: fetch_trades returns DESC order (most-recent first). Reverse to
+        # chronological order before passing to compute_win_loss_stats so any
+        # future time-order-sensitive analysis gets correct sequencing.
+        pnl_history = [
+            t.pnl_usd for t in reversed(recent_trades) if t.pnl_usd is not None
+        ]
         _, avg_win, avg_loss = compute_win_loss_stats(pnl_history)
 
         # Paper trading tenure — days since first paper equity record.
@@ -312,11 +320,9 @@ class Orchestrator:
         # when TRADING_MODE=live (VUL-034).
         paper_trading_days = 0
         if self._cfg.trading_mode.value == "live":
-            from src.config import TradingMode as _TradingMode
-            earliest = await self._storage.earliest_equity_ts(_TradingMode.PAPER.value)
+            earliest = await self._storage.earliest_equity_ts(TradingMode.PAPER.value)
             if earliest is not None:
-                from datetime import datetime as _dt, timezone as _tz
-                age_s = _dt.now(tz=_tz.utc).timestamp() - (earliest / 1000.0)
+                age_s = datetime.now(tz=timezone.utc).timestamp() - (earliest / 1000.0)
                 paper_trading_days = int(age_s / 86400)
 
         # Run signal engine
@@ -382,6 +388,18 @@ class Orchestrator:
                     self._train_models(tf),
                     name=f"retrain_{tf.value}",
                 )
+                # SCAN2-003: log exceptions from the fire-and-forget retrain task;
+                # without this, unhandled exceptions vanish silently until GC.
+                def _retrain_done(t: asyncio.Task, _tf: str = tf.value) -> None:
+                    if not t.cancelled() and t.exception() is not None:
+                        err = str(t.exception())
+                        self._last_retrain_error[_tf] = err
+                        self._log.error(
+                            "orchestrator.retrain_task_failed",
+                            timeframe=_tf,
+                            error=err,
+                        )
+                task.add_done_callback(_retrain_done)
                 self._retrain_tasks[tf.value] = task
             else:
                 self._log.warning(
@@ -404,8 +422,17 @@ class Orchestrator:
         loop = asyncio.get_event_loop()
 
         # Load bars
+        # SCAN2-010: compute exact cutoff timestamp instead of since_ts=0 (full table scan).
+        # Using the real cutoff makes the query use the (symbol, timeframe, ts) index optimally.
+        tf_seconds = {
+            "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400,
+        }.get(tf.value, 60)
+        cutoff_ts = int(
+            (datetime.now(tz=timezone.utc).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
+            * 1000
+        )
         records = await self._storage.fetch_bars(
-            self._symbol, tf.value, since_ts=0, limit=_HISTORY_BARS_FOR_TRAIN
+            self._symbol, tf.value, since_ts=cutoff_ts, limit=_HISTORY_BARS_FOR_TRAIN
         )
         if len(records) < 300:
             self._log.warning(
@@ -415,8 +442,7 @@ class Orchestrator:
             )
             return
 
-        import pandas as pd
-
+        # SCAN3-006: pandas now at module level
         bars = pd.DataFrame(
             {
                 "open": [r.open for r in records],
@@ -503,10 +529,12 @@ class Orchestrator:
                 sleep_s = max(1.0, next_midnight - now.timestamp())
                 await asyncio.sleep(sleep_s)
                 if self._executor is not None:
-                    self._executor.drawdown_tracker.reset_daily(self._executor.equity_usd)
+                    # NEW-005: atomic reset via executor method — avoids torn read
+                    # during concurrent mark_to_market.
+                    equity = await self._executor.reset_daily_equity()
                     self._log.info(
                         "orchestrator.daily_reset",
-                        equity_usd=self._executor.equity_usd,
+                        equity_usd=equity,
                     )
             except asyncio.CancelledError:
                 break

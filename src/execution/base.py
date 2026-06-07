@@ -26,6 +26,18 @@ class AbstractExecutor(ABC):
     @abstractmethod
     def starting_capital(self) -> float: ...
 
+    @property
+    @abstractmethod
+    def starting_equity_usd(self) -> float:
+        """
+        Daily-start equity for drawdown gate calculation.
+
+        NEW-009: Exposes drawdown_tracker.daily_start_equity through the
+        AbstractExecutor interface, preventing orchestrator from reaching
+        through the abstraction boundary to a concrete attribute.
+        """
+        ...
+
     @abstractmethod
     def open_positions(self) -> list[dict[str, object]]: ...
 
@@ -57,3 +69,15 @@ class AbstractExecutor(ABC):
 
     @abstractmethod
     async def get_daily_pnl(self, symbol: str) -> float: ...
+
+    @abstractmethod
+    async def reset_daily_equity(self) -> float:
+        """
+        Atomically read current equity, reset the drawdown tracker's daily_start,
+        and return the equity value used for the reset.
+
+        NEW-005: Callers (orchestrator midnight reset) must use this instead of
+        accessing drawdown_tracker directly to avoid torn reads during concurrent
+        mark_to_market calls.
+        """
+        ...

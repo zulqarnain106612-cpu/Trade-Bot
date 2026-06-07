@@ -517,9 +517,34 @@ class DrawdownTracker:
 
     @property
     def drawdown_from_peak_pct(self) -> float:
+        """
+        Drawdown from all-time high-water mark as a percentage.
+
+        SCAN3-007: This is the all-time peak drawdown used for equity curve
+        reporting. The daily drawdown gate uses daily_pnl_usd / daily_start
+        (a different denominator). Do not confuse these two metrics.
+        Also available as drawdown_from_alltime_peak_pct (preferred alias).
+        """
         if self._peak <= 0.0:
             return 0.0
         return ((self._current - self._peak) / self._peak) * 100.0
+
+    @property
+    def drawdown_from_alltime_peak_pct(self) -> float:
+        """Alias for drawdown_from_peak_pct — preferred name for clarity (SCAN3-007)."""
+        return self.drawdown_from_peak_pct
+
+    @property
+    def drawdown_from_daily_start_pct(self) -> float:
+        """
+        Drawdown from the daily start equity as a percentage.
+
+        SCAN3-007: This is the metric used by check_daily_drawdown() gate.
+        Equivalent to daily_pnl_pct when daily_pnl is negative.
+        """
+        if self._daily_start <= 0.0:
+            return 0.0
+        return ((self._current - self._daily_start) / self._daily_start) * 100.0
 
     @property
     def starting_equity(self) -> float:

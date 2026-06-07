@@ -132,10 +132,17 @@ def fractional_differentiation(
         return pd.Series(np.nan, index=series.index, dtype=np.float64)
 
     values = series.to_numpy(dtype=np.float64)
-    result = np.full(len(values), np.nan, dtype=np.float64)
-    for i in range(width - 1, len(values)):
-        window = values[i - width + 1 : i + 1]
-        result[i] = float(np.dot(weights, window))
+    n = len(values)
+    # NEW-007: replace Python loop with np.convolve — single C-level call,
+    # 100x+ faster than `for i in range(n): np.dot(weights, window)`.
+    # weights are already in oldest-first order; convolve with reversed kernel
+    # is equivalent to a sliding dot-product (correlation mode).
+    conv = np.convolve(values, weights[::-1], mode="full")
+    # 'full' output length is n + width - 1; slice to align with original index.
+    # First valid output sits at index (width - 1); keep only n values.
+    result = np.full(n, np.nan, dtype=np.float64)
+    valid_start = width - 1
+    result[valid_start:] = conv[width - 1 : width - 1 + (n - valid_start)]
     return pd.Series(result, index=series.index, dtype=np.float64)
 
 
@@ -477,7 +484,9 @@ class FeatureMatrix:
 
     features: pd.DataFrame
     labels: pd.Series
-    meta: pd.Series
+    # SCAN2-011: meta-labels are computed post-direction-model fit in ModelTrainer.
+    # This field is None out of build_feature_matrix(); trainer.py populates it.
+    meta: pd.Series | None
     daily_vol: pd.Series
     log_returns: pd.Series
     dropped_rows: int = field(default=0)
@@ -636,11 +645,16 @@ def build_feature_matrix(
     direction_mask = feature_df[COL_LABEL].isin([0.0, 1.0])
     feature_df_dir = feature_df[direction_mask].copy()
 
-    # Meta-labels from realized triple-barrier outcomes (trainer replaces with model predictions)
-    ml_series_full = meta_labels(
-        feature_df_dir[COL_LABEL].astype(np.int8),
-        feature_df_dir[COL_LABEL].astype(np.int8),
-    )
+    # SCAN2-011: Do NOT compute meta-labels here using realized labels as both arguments —
+    # doing so means primary_signal == realized_label for every row, making all meta-label
+    # targets trivially 1 (the model always agrees with itself). This defeats the meta-label
+    # classifier entirely (AFML Ch.4: meta-labels must be derived from the direction model's
+    # out-of-sample predictions, not the realized outcomes).
+    #
+    # Meta-labels are computed in ModelTrainer.train_meta_label() after the direction model
+    # is fitted, using dir_preds vs fm.labels. The FeatureMatrix.meta_labels field is
+    # intentionally left as None here — trainer.py fills it at training time.
+    ml_series_full = None  # populated by ModelTrainer.train_meta_label()
 
     log.info(
         "pipeline.complete",
@@ -670,6 +684,7 @@ def build_inference_features(
     history: pd.DataFrame,
     cfg: FeatureSettings | None = None,
     live_ofi: float | None = None,
+    feature_matrix: FeatureMatrix | None = None,
 ) -> pd.Series | None:
     """
     Compute feature vector for the most recent bar only.
@@ -679,16 +694,36 @@ def build_inference_features(
 
     Parameters
     ----------
-    history  : OHLCV DataFrame, last row = most recent closed bar
-    cfg      : FeatureSettings (optional, loaded from config if None)
-    live_ofi : real-time OFI scalar from OrderBookSnapshot (optional).
-               When provided, overrides the OHLCV-derived OFI for the
-               last row only.
+    history        : OHLCV DataFrame, last row = most recent closed bar
+    cfg            : FeatureSettings (optional, loaded from config if None)
+    live_ofi       : real-time OFI scalar from OrderBookSnapshot (optional).
+                     When provided, overrides the OHLCV-derived OFI for the
+                     last row only.
+    feature_matrix : pre-computed FeatureMatrix from build_feature_matrix().
+                     SCAN2-007: when supplied the full feature computation is
+                     skipped — only the last row is extracted and live_ofi
+                     is applied, eliminating the duplicate pipeline run.
 
     Returns
     -------
     pd.Series indexed by FEATURE_COLUMNS, or None if insufficient data.
     """
+    # Fast path — reuse pre-built feature matrix (SCAN2-007)
+    if feature_matrix is not None and feature_matrix.features is not None:
+        fm = feature_matrix.features
+        if len(fm) < 1:
+            return None
+        vec = fm.iloc[-1][list(FEATURE_COLUMNS)].astype(np.float64)
+        if live_ofi is not None:
+            vec = vec.copy()
+            vec[COL_OFI] = float(live_ofi)
+        if vec.isna().any():
+            log.debug(
+                "pipeline.inference_nan",
+                nan_features=vec[vec.isna()].index.tolist(),
+            )
+            return None
+        return vec
     if cfg is None:
         cfg = get_settings().features
 

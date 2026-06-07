@@ -421,10 +421,10 @@ def compute_win_loss_stats(
     -------
     (win_probability, avg_win_usd, avg_loss_usd)
 
-    If fewer than 10 trades available, returns conservative defaults:
+    If fewer than 50 trades available, returns conservative defaults:
     (0.5, 1.0, 1.0) — equal-probability, equal-payoff assumption.
     """
-    if len(pnl_series) < 10:
+    if len(pnl_series) < 50:  # NEW-010: raised from 10 — 10-trade window is luck-dominated
         return 0.5, 1.0, 1.0
 
     wins = [p for p in pnl_series if p > 0.0]

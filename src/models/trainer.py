@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 import hashlib
+import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
 import json
 
 import joblib
@@ -89,9 +90,10 @@ def _verify_manifest(path: Path) -> None:
 
 
 def hmac_compare(a: str, b: str) -> bool:
-    """Constant-time string comparison (prevents timing oracle on hash compare)."""
-    import hmac as _hmac
-    return _hmac.compare_digest(a.encode(), b.encode())
+    """Constant-time string comparison (prevents timing oracle on hash compare).
+    SCAN2-008: import moved to module level.
+    """
+    return hmac.compare_digest(a.encode(), b.encode())
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +687,14 @@ class ModelTrainer:
         base = feature_vec[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
         confidence = abs(p_long - 0.5)
         X = np.append(base, [p_long, confidence]).reshape(1, -1)
+        # SCAN2-005: validate expected input shape against stored model dimensionality
+        expected_n = getattr(meta_model, "n_features_in_", None)
+        if expected_n is not None and X.shape[1] != expected_n:
+            raise ValueError(
+                f"predict_meta: feature vector has {X.shape[1]} columns but "
+                f"meta_model expects {expected_n}. "
+                "Model was trained with a different feature schema — retrain required."
+            )
         p_bet = float(meta_model.predict_proba(X)[0, 1])
         meta = 1 if p_bet >= 0.5 else 0
         return meta, p_bet

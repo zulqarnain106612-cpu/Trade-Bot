@@ -123,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_model_metrics_name_tf
 
 CREATE TABLE IF NOT EXISTS equity_curve (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts              INTEGER NOT NULL UNIQUE,
+    ts              INTEGER NOT NULL,
     trading_mode    TEXT    NOT NULL,
     equity_usd      REAL    NOT NULL,
     cash_usd        REAL    NOT NULL,
@@ -131,10 +131,16 @@ CREATE TABLE IF NOT EXISTS equity_curve (
     daily_pnl_usd   REAL    NOT NULL DEFAULT 0.0,
     daily_pnl_pct   REAL    NOT NULL DEFAULT 0.0,
     peak_equity_usd REAL    NOT NULL,
-    drawdown_pct    REAL    NOT NULL DEFAULT 0.0
+    drawdown_pct    REAL    NOT NULL DEFAULT 0.0,
+    -- SCAN3-005: changed from UNIQUE(ts) to UNIQUE(ts, trading_mode) so paper and
+    -- live equity snapshots on the same millisecond don't silently drop each other.
+    UNIQUE(ts, trading_mode)
 );
 CREATE INDEX IF NOT EXISTS idx_equity_ts
     ON equity_curve(ts DESC);
+-- SCAN3-008 (bars ASC range scan): separate ascending index for training queries
+CREATE INDEX IF NOT EXISTS idx_bars_sym_tf_ts_asc
+    ON bars(symbol, timeframe, ts ASC);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -450,8 +456,33 @@ class StorageBackend:
 
     def _require_conn(self) -> aiosqlite.Connection:
         if self._conn is None:
+            # SCAN3-011: structured log before raising so the error is queryable
+            # in aggregators even when the exception is caught broadly upstream.
+            log.critical(
+                "storage.not_initialized",
+                action="call await storage.initialize() before any storage operation",
+            )
             raise RuntimeError("StorageBackend not initialized — call await backend.initialize()")
         return self._conn
+
+    @asynccontextmanager
+    async def _bulk_write_ctx(self) -> AsyncIterator[None]:
+        """
+        Temporarily lowers synchronous=NORMAL for bulk non-financial writes
+        (bar upserts, equity snapshots) and restores FULL afterwards.
+
+        SCAN3-010: PRAGMA synchronous=FULL forces an fsync on every commit.
+        WAL mode already guarantees crash-recovery for uncommitted transactions,
+        so NORMAL durability is sufficient for time-series data that can be
+        re-fetched if lost. Financial records (insert_trade, update_trade_exit,
+        insert_audit_event) do NOT use this context — they keep FULL durability.
+        """
+        conn = self._require_conn()
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        try:
+            yield
+        finally:
+            await conn.execute("PRAGMA synchronous=FULL")
 
     # ------------------------------------------------------------------
     # Bars
@@ -505,6 +536,9 @@ class StorageBackend:
         """
         Return bars for symbol/timeframe at or after since_ts (Unix ms),
         ordered ascending, capped at limit rows.
+
+        SCAN2-004: read-only — no lock needed under SQLite WAL mode.
+        Concurrent readers with one writer are safe at the filesystem level.
         """
         conn = self._require_conn()
         async with conn.execute(
@@ -655,13 +689,20 @@ class StorageBackend:
                 UPDATE trades
                 SET exit_price=?, exit_ts=?, pnl_usd=?, pnl_pct=?,
                     exit_reason=?, fee_usd=fee_usd+?
-                WHERE id=?
+                WHERE id=? AND exit_ts IS NULL
                 """,
+                # SCAN2-002: fee_usd+? intentionally accumulates entry_fee (stored at
+                # insert_trade) + exit_fee_usd (passed here). The parameter is named
+                # exit_fee_usd at the call site to prevent misreading as total fee.
+                # AND exit_ts IS NULL prevents double-exit writes on the same trade.
                 (exit_price, exit_ts, pnl_usd, pnl_pct, exit_reason, fee_usd, trade_id),
             )
             await conn.commit()
         if cursor.rowcount == 0:
-            raise ValueError(f"No trade found with id={trade_id!r}")
+            raise ValueError(
+                f"No open trade found with id={trade_id!r} "
+                "(already closed or id not found)"
+            )
         self._log.info(
             "trade.exit_updated",
             trade_id=trade_id,

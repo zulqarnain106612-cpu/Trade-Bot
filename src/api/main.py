@@ -23,6 +23,7 @@ WebSocket push format (JSON):
 from __future__ import annotations
 
 import asyncio
+import hmac  # SCAN3-003: moved from inline import inside set_execution_mode()
 import json
 import os
 import re
@@ -36,7 +37,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.config import ExecutionMode, get_settings, invalidate_settings_cache, runtime_config
+from src.config import ExecutionMode, Timeframe, get_settings, invalidate_settings_cache, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import StorageBackend
 from src.execution.live import LiveExecutor
@@ -302,6 +303,8 @@ async def status() -> dict[str, Any]:
         "execution_mode": runtime_config.execution_mode.value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
+        # SCAN2-003: surface last retrain errors so operators know when models are stale
+        "last_retrain_errors": dict(_state.orchestrator._last_retrain_error),  # noqa: SLF001
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
     }
 
@@ -389,8 +392,8 @@ async def equity_curve(
 )
 async def regime(timeframe: str) -> dict[str, Any]:
     """Latest regime snapshot for a timeframe."""
-    from src.config import Timeframe as _Timeframe
-    valid_timeframes = {tf.value for tf in _Timeframe}
+    # SCAN3-004: Timeframe imported at module level — inline import removed
+    valid_timeframes = {tf.value for tf in Timeframe}
     if timeframe not in valid_timeframes:
         raise HTTPException(
             status_code=400,
@@ -470,8 +473,6 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
       - operator_secret matching OPERATOR_SECRET env var
       - Max 3 mode changes per hour
     """
-    import hmac as _hmac
-
     # Verify operator secret (second factor for mode escalation)
     expected_op_secret = os.environ.get("OPERATOR_SECRET", "").strip()
     if not expected_op_secret:
@@ -479,7 +480,8 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
             status_code=503,
             detail="OPERATOR_SECRET is not configured on the server.",
         )
-    if not _hmac.compare_digest(
+    # SCAN3-003: hmac now at module level
+    if not hmac.compare_digest(
         body.operator_secret.encode("utf-8"),
         expected_op_secret.encode("utf-8"),
     ):

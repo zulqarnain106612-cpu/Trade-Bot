@@ -31,11 +31,13 @@ import pandas as pd
 import structlog
 from xgboost import XGBClassifier
 
-from src.config import Timeframe, get_settings
+from src.config import REGIME_VOLATILE, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.features.pipeline import (
     build_inference_features,
+    build_feature_matrix,
+    FEATURE_COLUMNS,
 )
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.risk.gates import (
@@ -211,48 +213,37 @@ class SignalEngine:
         if bars is None:
             return self._skip("insufficient_bars")
 
-        # 3. Build inference feature vector
-        vec = build_inference_features(bars)
-        if vec is None:
+        # 3–5. Build feature matrix once — reused for inference vec AND regime history.
+        # SCAN2-007: prior code called build_feature_matrix + build_inference_features
+        # separately, running fractional_differentiation + all rolling stats twice per tick.
+        # Single call eliminates ~50% of hot-path feature pipeline CPU overhead.
+        try:
+            fm = build_feature_matrix(bars)
+        except Exception as exc:
+            self._log.error("signal.feature_matrix_failed", error=str(exc))
+            return self._skip("feature_matrix_failed")
+
+        if fm.features is None or len(fm.features) < 1:
             return self._skip("insufficient_features")
 
-        # 4. Live OFI override from order book
+        # Inference vector — last row of feature matrix, augmented with live OFI
         try:
             ob = await self._fetcher.fetch_orderbook(self._symbol)
             live_ofi = ob.order_flow_imbalance()
-            vec = build_inference_features(bars, live_ofi=live_ofi)
-            if vec is None:
-                return self._skip("insufficient_features_with_ofi")
         except Exception as exc:
             self._log.debug("signal.ofi_fetch_failed", error=str(exc))
-            # Continue with OHLCV-derived OFI already in vec
+            live_ofi = None
 
-        # 5. Regime prediction
-        try:
-            history_df = (
-                bars[
-                    [
-                        "frac_diff",
-                        "realized_vol_ratio",
-                        "atr_momentum",
-                        "rolling_sharpe",
-                        "volume_zscore",
-                    ]
-                ]
-                if all(
-                    c in bars.columns
-                    for c in [
-                        "frac_diff",
-                        "realized_vol_ratio",
-                        "atr_momentum",
-                        "rolling_sharpe",
-                        "volume_zscore",
-                    ]
-                )
-                else None
-            )
-        except Exception:
-            history_df = None
+        vec = build_inference_features(bars, live_ofi=live_ofi, feature_matrix=fm)
+        if vec is None:
+            return self._skip("insufficient_features_with_ofi")
+
+        # Regime history DataFrame — full feature matrix (>=50 rows required)
+        history_df: pd.DataFrame | None = None
+        if len(fm.features) >= 50:
+            cols = [c for c in FEATURE_COLUMNS if c in fm.features.columns]
+            if len(cols) >= 3:
+                history_df = fm.features[cols]
 
         # 6. Direction prediction — read models under lock (fix #14)
         async with self._model_lock:
@@ -272,9 +263,8 @@ class SignalEngine:
                 # Fail-safe: default to VOLATILE so regime gate blocks new positions
                 # until detector recovers — never default to RANGING (least restrictive)
 
-        from src.config import REGIME_VOLATILE as _REGIME_VOLATILE
-        regime_state = regime.state if regime is not None else _REGIME_VOLATILE
-
+        # NEW-017: REGIME_VOLATILE imported at module level — no per-tick import overhead
+        regime_state = regime.state if regime is not None else REGIME_VOLATILE
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)

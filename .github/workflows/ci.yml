@@ -42,9 +42,9 @@ jobs:
             pip install --require-hashes -r requirements.lock
           else
             pip install -e ".[dev]"
+            pip install -r requirements-dev.txt
             echo "WARNING: requirements.lock not found — install is unhashed. Run pip-compile --generate-hashes to create it."
           fi
-          pip install detect-secrets
 
       - name: Secret scanning — fail on unaudited baseline entries
         # VUL-019: All entries in .secrets.baseline must be audited (is_verified != null).

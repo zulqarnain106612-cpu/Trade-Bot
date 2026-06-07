@@ -399,6 +399,15 @@ class LiveExecutor(AbstractExecutor):
             equity = self._equity_usd()
             self._peak_equity = max(self._peak_equity, equity)
             self._drawdown_tracker.update(equity)
+            # SCAN3-001/SCAN3-002: capture snapshot values inside lock — prevents
+            # race with concurrent mark_to_market() after lock release.
+            snap_unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+            snap_cash = self._cash
+            snap_equity = equity
+            snap_daily_pnl = self._drawdown_tracker.daily_pnl_usd
+            snap_daily_pct = self._drawdown_tracker.daily_pnl_pct
+            snap_dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+            snap_peak = self._peak_equity
 
         await self._storage.update_trade_exit(
             trade_id=trade_id,
@@ -409,7 +418,15 @@ class LiveExecutor(AbstractExecutor):
             exit_reason=exit_reason,
             fee_usd=exchange_fee,
         )
-        await self._snapshot_equity()
+        await self._snapshot_equity_with_values(
+            equity=snap_equity,
+            cash=snap_cash,
+            unrealized=snap_unrealized,
+            daily_pnl=snap_daily_pnl,
+            daily_pct=snap_daily_pct,
+            dd_pct=snap_dd_pct,
+            peak_equity=snap_peak,
+        )
 
         self._log.info(
             "live.position_closed",
@@ -548,6 +565,24 @@ class LiveExecutor(AbstractExecutor):
     @property
     def drawdown_tracker(self) -> DrawdownTracker:
         return self._drawdown_tracker
+
+    @property
+    def starting_equity_usd(self) -> float:
+        """NEW-009: daily_start_equity via AbstractExecutor interface."""
+        return self._drawdown_tracker.daily_start_equity
+
+    async def reset_daily_equity(self) -> float:
+        """
+        NEW-005: Atomically snapshot current equity and reset daily tracker.
+
+        Acquires the executor lock so this never races with mark_to_market.
+        Returns the equity value used for the reset.
+        """
+        async with self._lock:
+            equity = self._equity_usd()
+            self._drawdown_tracker.reset_daily(equity)
+        self._log.info("live.daily_equity_reset", equity_usd=round(equity, 2))
+        return equity
 
     def position_count(self) -> int:
         return len(self._positions)
@@ -724,13 +759,29 @@ class LiveExecutor(AbstractExecutor):
         order_id = order["id"]
 
         # Poll for confirmed fill
-        for _ in range(_ORDER_CONFIRM_POLLS):
+        for attempt in range(_ORDER_CONFIRM_POLLS):
             await asyncio.sleep(_ORDER_CONFIRM_INTERVAL)
             try:
                 confirmed = await exchange.fetch_order(order_id, symbol)
                 if confirmed.get("status") in {"closed", "filled"}:
                     return confirmed
+            except (ccxt.NetworkError, ccxt.RequestTimeout):
+                # Transient — retry
+                continue
+            except (ccxt.BadSymbol, ccxt.InsufficientFunds, ccxt.InvalidOrder,
+                    ccxt.AuthenticationError) as exc:
+                # SCAN3-009: permanent errors will not resolve on retry — raise immediately
+                self._log.error(
+                    "live.order_confirm_permanent_error",
+                    order_id=order_id, symbol=symbol, error=str(exc),
+                )
+                raise
             except ccxt.ExchangeError:
+                # Unclassified — log and retry
+                self._log.warning(
+                    "live.order_confirm_exchange_error",
+                    order_id=order_id, symbol=symbol, attempt=attempt,
+                )
                 continue
 
         # Final reconciliation attempt outside the poll loop —
@@ -853,18 +904,45 @@ class LiveExecutor(AbstractExecutor):
         return self._cash + sum(p.unrealized_pnl for p in self._positions.values())
 
     async def _snapshot_equity(self) -> None:
+        """Write current equity state (re-reads live state — caller must hold lock or accept racy reads)."""
         equity = self._equity_usd()
         unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+        await self._snapshot_equity_with_values(
+            equity=equity,
+            cash=self._cash,
+            unrealized=unrealized,
+            daily_pnl=self._drawdown_tracker.daily_pnl_usd,
+            daily_pct=self._drawdown_tracker.daily_pnl_pct,
+            dd_pct=self._drawdown_tracker.drawdown_from_peak_pct,
+            peak_equity=self._peak_equity,
+        )
+
+    async def _snapshot_equity_with_values(
+        self,
+        equity: float,
+        cash: float,
+        unrealized: float,
+        daily_pnl: float,
+        daily_pct: float,
+        dd_pct: float,
+        peak_equity: float,
+    ) -> None:
+        """
+        Write a pre-computed equity snapshot to storage.
+
+        SCAN3-001/SCAN3-002: Called with values captured inside the lock so the
+        record is internally consistent and cannot race with mark_to_market().
+        """
         record = EquityRecord(
             ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
             trading_mode=TradingMode.LIVE.value,
             equity_usd=round(equity, 8),
-            cash_usd=round(self._cash, 8),
+            cash_usd=round(cash, 8),
             unrealized_pnl=round(unrealized, 8),
-            daily_pnl_usd=round(self._drawdown_tracker.daily_pnl_usd, 8),
-            daily_pnl_pct=round(self._drawdown_tracker.daily_pnl_pct, 8),
-            peak_equity_usd=round(self._peak_equity, 8),
-            drawdown_pct=round(self._drawdown_tracker.drawdown_from_peak_pct, 8),
+            daily_pnl_usd=round(daily_pnl, 8),
+            daily_pnl_pct=round(daily_pct, 8),
+            peak_equity_usd=round(peak_equity, 8),
+            drawdown_pct=round(dd_pct, 8),
         )
         await self._storage.insert_equity(record)
 

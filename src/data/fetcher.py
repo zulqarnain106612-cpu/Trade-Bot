@@ -239,6 +239,9 @@ class MarketDataFetcher:
         self._binance: ccxt.binance | None = None
         self._okx: ccxt.okx | None = None
         self._log = log.bind(component="fetcher")
+        # SCAN2-001: serialise all gap-fill calls so concurrent timeframe fetches
+        # never burst Binance's 1200 weight/min limit simultaneously.
+        self._gap_fill_sem: asyncio.Semaphore = asyncio.Semaphore(1)
 
     async def initialize(self) -> None:
         """Build ccxt exchange instances and load markets."""
@@ -468,23 +471,25 @@ class MarketDataFetcher:
         timeframes: list[Timeframe],
     ) -> dict[str, int]:
         """
-        Run gap_fill concurrently for all requested timeframes.
+        Run gap_fill sequentially for all requested timeframes.
 
+        SCAN2-001: Serialised via self._gap_fill_sem (Semaphore(1)) so concurrent
+        timeframe fetches never burst Binance's 1200 weight/min limit simultaneously.
         Returns mapping of timeframe value → bars written.
         """
-        tasks = {tf: asyncio.create_task(self.gap_fill(symbol, tf)) for tf in timeframes}
         results: dict[str, int] = {}
-        for tf, task in tasks.items():
-            try:
-                results[tf.value] = await task
-            except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
-                self._log.error(
-                    "fetcher.gap_fill_failed",
-                    symbol=symbol,
-                    timeframe=tf.value,
-                    error=str(exc),
-                )
-                results[tf.value] = 0
+        for tf in timeframes:
+            async with self._gap_fill_sem:
+                try:
+                    results[tf.value] = await self.gap_fill(symbol, tf)
+                except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+                    self._log.error(
+                        "fetcher.gap_fill_failed",
+                        symbol=symbol,
+                        timeframe=tf.value,
+                        error=str(exc),
+                    )
+                    results[tf.value] = 0
         return results
 
     # ------------------------------------------------------------------
@@ -640,8 +645,18 @@ class _FetcherContextManager:
         await self._fetcher.initialize()
         return self._fetcher
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        await self._fetcher.close()
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool | None:
+        # SCAN2-013: catch secondary close errors so they don't replace the original
+        # exception in the traceback. Log at WARNING level and let original propagate.
+        try:
+            await self._fetcher.close()
+        except Exception as close_exc:  # noqa: BLE001
+            log.warning(
+                "fetcher.context_manager_close_error",
+                error=str(close_exc),
+                original_exc_type=exc_type.__name__ if exc_type else None,
+            )
+        return False  # do not suppress the original exception
 
 
 def open_fetcher(storage: StorageBackend) -> _FetcherContextManager:

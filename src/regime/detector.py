@@ -299,7 +299,7 @@ class RegimeDetector:
         # VUL-025: If the best model still did not converge, default regime
         # to VOLATILE so downstream gates block new positions.
         if not converged:
-            from src.config import REGIME_VOLATILE as _REGIME_VOLATILE
+            # SCAN2-009: REGIME_VOLATILE already at module level — inline import removed
             self._log.error(
                 "hmm.fit_not_converged",
                 best_score=round(best_score, 4),
@@ -406,9 +406,9 @@ class RegimeDetector:
         # VUL-025: If the last fit did not converge, return VOLATILE prediction
         # so the regime gate blocks all new positions until a successful retrain.
         if getattr(self, "_convergence_failed", False):
-            from src.config import REGIME_VOLATILE as _REGIME_VOLATILE
+            # SCAN2-009: REGIME_VOLATILE imported at module level — no per-call inline import
             return RegimePrediction(
-                state=_REGIME_VOLATILE,
+                state=REGIME_VOLATILE,
                 prob_ranging=0.0,
                 prob_trending=0.0,
                 prob_volatile=1.0,

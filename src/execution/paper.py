@@ -382,7 +382,6 @@ class PaperExecutor(AbstractExecutor):
             pos = self._positions.pop(trade_id)
             exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
-            # Gross PnL
             if pos.direction == 1:  # long
                 gross_pnl = (exit_price - pos.entry_price) * pos.quantity
             else:  # short
@@ -393,11 +392,20 @@ class PaperExecutor(AbstractExecutor):
             net_pnl = gross_pnl - exit_fee
             pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
 
-            # Return cash: original notional + net PnL (fees already deducted at entry)
             self._cash += pos.notional_usd + net_pnl
             equity = self._equity_usd()
             self._peak_equity = max(self._peak_equity, equity)
             self._drawdown_tracker.update(equity)
+
+            # SCAN2-006: capture snapshot values inside the lock so the equity record
+            # reflects a single atomic point in time and cannot race with mark_to_market.
+            snap_unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+            snap_cash = self._cash
+            snap_equity = equity
+            snap_daily_pnl = self._drawdown_tracker.daily_pnl_usd
+            snap_daily_pct = self._drawdown_tracker.daily_pnl_pct
+            snap_dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+            snap_peak = self._peak_equity
 
         # Persist exit to storage (outside lock to avoid blocking)
         await self._storage.update_trade_exit(
@@ -409,7 +417,16 @@ class PaperExecutor(AbstractExecutor):
             exit_reason=exit_reason,
             fee_usd=exit_fee,
         )
-        await self._snapshot_equity()
+        # Write the pre-captured atomic snapshot (not a live re-read)
+        await self._snapshot_equity_with_values(
+            equity=snap_equity,
+            cash=snap_cash,
+            unrealized=snap_unrealized,
+            daily_pnl=snap_daily_pnl,
+            daily_pct=snap_daily_pct,
+            dd_pct=snap_dd_pct,
+            peak_equity=snap_peak,
+        )
 
         self._log.info(
             "paper.position_closed",
@@ -492,9 +509,16 @@ class PaperExecutor(AbstractExecutor):
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
 
     async def open_positions_safe(self) -> list[dict[str, object]]:
-        """Lock-safe snapshot for WS heartbeat (VUL-035)."""
+        """
+        Lock-safe snapshot for WS heartbeat (VUL-035).
+
+        SCAN2-014: builds the snapshot directly under the lock rather than
+        delegating to open_positions() (which holds no lock internally) —
+        eliminates the latent deadlock risk if open_positions() ever acquires
+        the lock itself, and makes the locking semantics unambiguous.
+        """
         async with self._lock:
-            return list(self.open_positions())
+            return list(self._positions.values())
 
     async def pending_approvals_safe(self) -> list[dict[str, object]]:
         """Lock-safe snapshot for WS heartbeat (VUL-035)."""
@@ -550,6 +574,24 @@ class PaperExecutor(AbstractExecutor):
     @property
     def drawdown_tracker(self) -> DrawdownTracker:
         return self._drawdown_tracker
+
+    @property
+    def starting_equity_usd(self) -> float:
+        """NEW-009: daily_start_equity via AbstractExecutor interface."""
+        return self._drawdown_tracker.daily_start_equity
+
+    async def reset_daily_equity(self) -> float:
+        """
+        NEW-005: Atomically snapshot current equity and reset daily tracker.
+
+        Acquires the executor lock so this never races with mark_to_market.
+        Returns the equity value used for the reset.
+        """
+        async with self._lock:
+            equity = self._equity_usd()
+            self._drawdown_tracker.reset_daily(equity)
+        self._log.info("paper.daily_equity_reset", equity_usd=round(equity, 2))
+        return equity
 
     def position_count(self) -> int:
         return len(self._positions)
@@ -738,22 +780,47 @@ class PaperExecutor(AbstractExecutor):
         return self._cash + sum(p.unrealized_pnl for p in self._positions.values())
 
     async def _snapshot_equity(self) -> None:
-        """Write current equity state to storage."""
+        """Write current equity state to storage (re-reads live state — not lock-safe)."""
         equity = self._equity_usd()
         unrealized = sum(p.unrealized_pnl for p in self._positions.values())
         daily_pnl = self._drawdown_tracker.daily_pnl_usd
         daily_pct = self._drawdown_tracker.daily_pnl_pct
         dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+        await self._snapshot_equity_with_values(
+            equity=equity,
+            cash=self._cash,
+            unrealized=unrealized,
+            daily_pnl=daily_pnl,
+            daily_pct=daily_pct,
+            dd_pct=dd_pct,
+            peak_equity=self._peak_equity,
+        )
 
+    async def _snapshot_equity_with_values(
+        self,
+        equity: float,
+        cash: float,
+        unrealized: float,
+        daily_pnl: float,
+        daily_pct: float,
+        dd_pct: float,
+        peak_equity: float,
+    ) -> None:
+        """
+        Write a pre-computed equity snapshot to storage.
+
+        SCAN2-006: Called with values captured inside the lock so the record
+        is internally consistent and cannot race with concurrent mark_to_market.
+        """
         record = EquityRecord(
             ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
             trading_mode=TradingMode.PAPER.value,
             equity_usd=round(equity, 8),
-            cash_usd=round(self._cash, 8),
+            cash_usd=round(cash, 8),
             unrealized_pnl=round(unrealized, 8),
             daily_pnl_usd=round(daily_pnl, 8),
             daily_pnl_pct=round(daily_pct, 8),
-            peak_equity_usd=round(self._peak_equity, 8),
+            peak_equity_usd=round(peak_equity, 8),
             drawdown_pct=round(dd_pct, 8),
         )
         await self._storage.insert_equity(record)
