@@ -434,23 +434,24 @@ def evaluate_all_gates(
     if cfg is None:
         cfg = get_settings().risk
 
-    gates = [
-        lambda: check_daily_drawdown(ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg),
-        lambda: check_consecutive_losses(ctx.consecutive_loss_count, cfg),
-        lambda: check_regime_gate(ctx.regime_state),
-        lambda: check_position_size(ctx.notional_usd, ctx.capital_usd, cfg),
-        # Paper minimum days gate: only evaluated when switching to live trading.
-        # Previously existed as a function but was never called (VUL-034).
-        lambda: (
+    # NEW-004: explicit sequential calls instead of lambda list.
+    # Lambdas over a shared ctx variable create closure-capture risk if the
+    # evaluation ever moves to a concurrent context. Explicit calls are also
+    # fully visible to static analysis and mypy.
+    ordered_results: list[GateResult] = [
+        check_daily_drawdown(ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg),
+        check_consecutive_losses(ctx.consecutive_loss_count, cfg),
+        check_regime_gate(ctx.regime_state),
+        check_position_size(ctx.notional_usd, ctx.capital_usd, cfg),
+        (
             check_paper_minimum_days(ctx.paper_trading_days)
             if ctx.trading_mode == TradingMode.LIVE
             else GateResult.pass_gate()
         ),
-        lambda: check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
+        check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
     ]
 
-    for gate_fn in gates:
-        result = gate_fn()
+    for result in ordered_results:
         if not result.passed:
             log.warning(
                 "risk.gate.blocked",

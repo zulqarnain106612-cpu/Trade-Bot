@@ -152,7 +152,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async with open_fetcher(_state.storage) as fetcher:
         _state.orchestrator = Orchestrator(_state.storage, fetcher)
-        await _state.orchestrator.startup()
+        try:
+            await _state.orchestrator.startup()
+        except Exception as exc:
+            # NEW-003: ensure fetcher connections are closed even when startup fails
+            log.critical("api.startup_failed", error=str(exc))
+            try:
+                await fetcher.close()
+            except Exception as close_exc:
+                log.warning("api.fetcher_close_failed_on_startup_error", error=str(close_exc))
+            raise
         _state.ready = True  # NEW-001: mark ready only after full startup
 
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")

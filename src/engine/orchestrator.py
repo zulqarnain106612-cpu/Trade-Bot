@@ -18,6 +18,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Union
 
@@ -81,6 +82,12 @@ class Orchestrator:
         self._trainers: dict[str, ModelTrainer] = {}
         # Track active retrain tasks per timeframe — prevents overlapping retrains
         self._retrain_tasks: dict[str, asyncio.Task] = {}
+
+        # Dedicated single-thread executor for CPU-bound training (NEW-002).
+        # Isolated from the default pool so training never starves async I/O tasks.
+        self._train_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="training"
+        )
 
         self._running: bool = False
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
@@ -214,9 +221,11 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     async def shutdown(self) -> None:
-        """Flush state and close all subsystems."""
+        """Flush state, close all subsystems, and shut down training executor."""
         if self._executor is not None:
             await self._executor.shutdown()
+        # Shut down training thread pool cleanly — wait for any in-flight training job
+        self._train_executor.shutdown(wait=True)
         self._log.info("orchestrator.shutdown_complete")
 
     # ------------------------------------------------------------------
@@ -419,31 +428,33 @@ class Orchestrator:
             index=[r.ts for r in records],
         ).sort_index()
 
-        # Feature matrix — CPU bound, run in executor
+        # Feature matrix — CPU bound, run in dedicated training executor (NEW-002)
         try:
-            fm = await loop.run_in_executor(None, build_feature_matrix, bars)
+            fm = await loop.run_in_executor(self._train_executor, build_feature_matrix, bars)
         except ValueError as exc:
             self._log.error("orchestrator.feature_build_failed", error=str(exc))
             return
 
-        # HMM training
+        # HMM training — CPU bound
         detector = RegimeDetector(self._symbol, tf.value)
         try:
-            await loop.run_in_executor(None, detector.fit, fm.features)
+            await loop.run_in_executor(self._train_executor, detector.fit, fm.features)
             detector.save(self._cfg.storage.model_dir)
             self._detectors[tf.value] = detector
         except Exception as exc:
             self._log.error("orchestrator.hmm_train_failed", error=str(exc))
 
-        # XGBoost training
+        # XGBoost training — CPU bound
         trainer = ModelTrainer(self._symbol, tf.value)
         self._trainers[tf.value] = trainer
         version = datetime.now(tz=timezone.utc).isoformat()
 
         try:
-            dir_result = await loop.run_in_executor(None, trainer.train_direction, fm)
+            dir_result = await loop.run_in_executor(
+                self._train_executor, trainer.train_direction, fm
+            )
             meta_result = await loop.run_in_executor(
-                None, trainer.train_meta_label, fm, dir_result.model
+                self._train_executor, trainer.train_meta_label, fm, dir_result.model
             )
             trainer.save(dir_result.model, meta_result.model, self._cfg.storage.model_dir, version)
 
