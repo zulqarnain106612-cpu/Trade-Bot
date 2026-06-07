@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Final
 
 import pandas as pd
 import structlog
 from xgboost import XGBClassifier
 
-from src.config import REGIME_VOLATILE, Timeframe, get_settings
+from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.features.pipeline import (
@@ -351,11 +352,21 @@ class SignalEngine:
 
     async def _load_bars(self) -> pd.DataFrame | None:
         """Load recent bars from storage as a DataFrame."""
+        # VUL-SIGNAL-001: since_ts=0 caused a full table scan on every tick.
+        # Compute a real cutoff aligned to the bars we actually need so the
+        # (symbol, timeframe, ts ASC) index is used efficiently.
+        from datetime import datetime, timezone
+
+        n_bars_needed = _MIN_BARS_FOR_SIGNAL + 200
+        tf_seconds = TIMEFRAME_SECONDS.get(self._timeframe, 60)
+        cutoff_ts = int(
+            (datetime.now(tz=timezone.utc).timestamp() - n_bars_needed * tf_seconds) * 1000
+        )
         records = await self._storage.fetch_bars(
             symbol=self._symbol,
             timeframe=self._timeframe.value,
-            since_ts=0,
-            limit=_MIN_BARS_FOR_SIGNAL + 200,
+            since_ts=cutoff_ts,
+            limit=n_bars_needed,
         )
         if len(records) < _MIN_BARS_FOR_SIGNAL:
             self._log.warning(

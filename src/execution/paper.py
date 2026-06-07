@@ -518,16 +518,30 @@ class PaperExecutor(AbstractExecutor):
         the lock itself, and makes the locking semantics unambiguous.
         """
         async with self._lock:
-            return list(self._positions.values())
+            return [
+                {
+                    "trade_id": p.trade_id,
+                    "symbol": p.symbol,
+                    "timeframe": p.timeframe,
+                    "direction": "long" if p.direction == 1 else "short",
+                    "entry_price": round(p.entry_price, 4),
+                    "current_price": round(p.current_price, 4),
+                    "quantity": p.quantity,
+                    "notional_usd": round(p.notional_usd, 2),
+                    "unrealized_pnl": round(p.unrealized_pnl, 4),
+                    "unrealized_pnl_pct": round(p.unrealized_pnl / p.notional_usd * 100.0, 3)
+                    if p.notional_usd > 0
+                    else 0.0,
+                    "regime_at_entry": p.regime_at_entry,
+                    "entry_ts": p.entry_ts,
+                }
+                for p in self._positions.values()
+            ]
 
     async def pending_approvals_safe(self) -> list[dict[str, object]]:
         """Lock-safe snapshot for WS heartbeat (VUL-035)."""
         async with self._lock:
             return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
-
-    async def submit_signal(self, *args, **kwargs):
-        """Delegate to open_position — satisfies AbstractExecutor interface."""
-        return await self.open_position(*args, **kwargs)
 
     # ------------------------------------------------------------------
     # State queries

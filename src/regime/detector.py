@@ -407,13 +407,13 @@ class RegimeDetector:
         # so the regime gate blocks all new positions until a successful retrain.
         if getattr(self, "_convergence_failed", False):
             # SCAN2-009: REGIME_VOLATILE imported at module level — no per-call inline import
+            # VUL-REGIME-001: RegimePrediction is a frozen dataclass with exactly 4 fields;
+            # do not pass symbol/timeframe kwargs — they don't exist on the dataclass.
             return RegimePrediction(
                 state=REGIME_VOLATILE,
                 prob_ranging=0.0,
                 prob_trending=0.0,
                 prob_volatile=1.0,
-                symbol=getattr(self, "_symbol", ""),
-                timeframe=getattr(self, "_timeframe", ""),
             )
 
         missing = set(HMM_FEATURE_COLS) - set(history.columns)

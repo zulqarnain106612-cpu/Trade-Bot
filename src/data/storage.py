@@ -498,31 +498,25 @@ class StorageBackend:
         conn = self._require_conn()
         rows = [
             (
-                b.symbol,
-                b.timeframe,
-                b.ts,
-                b.open,
-                b.high,
-                b.low,
-                b.close,
-                b.volume,
-                b.quote_volume,
-                b.taker_buy_vol,
+                b.symbol, b.timeframe, b.ts, b.open, b.high, b.low,
+                b.close, b.volume, b.quote_volume, b.taker_buy_vol,
             )
             for b in bars
         ]
-        async with self._lock:
-            cursor = await conn.executemany(
-                """
-                INSERT OR IGNORE INTO bars
-                  (symbol, timeframe, ts, open, high, low, close,
-                   volume, quote_volume, taker_buy_vol)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                rows,
-            )
-            await conn.commit()
-            inserted = cursor.rowcount if cursor.rowcount >= 0 else len(rows)
+        # SCAN3-010: bar upserts use NORMAL durability — re-fetchable from exchange
+        async with self._bulk_write_ctx():
+            async with self._lock:
+                cursor = await conn.executemany(
+                    """
+                    INSERT OR IGNORE INTO bars
+                      (symbol, timeframe, ts, open, high, low, close,
+                       volume, quote_volume, taker_buy_vol)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    rows,
+                )
+                await conn.commit()
+                inserted = cursor.rowcount if cursor.rowcount >= 0 else len(rows)
         self._log.debug("bars.upserted", count=inserted, symbol=bars[0].symbol)
         return inserted
 
@@ -969,27 +963,29 @@ class StorageBackend:
     async def insert_equity(self, record: EquityRecord) -> None:
         """Insert a point-in-time equity snapshot."""
         conn = self._require_conn()
-        async with self._lock:
-            await conn.execute(
-                """
-                INSERT OR REPLACE INTO equity_curve
-                  (ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,
-                   daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct)
-                VALUES (?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    record.ts,
-                    record.trading_mode,
-                    record.equity_usd,
-                    record.cash_usd,
-                    record.unrealized_pnl,
-                    record.daily_pnl_usd,
-                    record.daily_pnl_pct,
-                    record.peak_equity_usd,
-                    record.drawdown_pct,
-                ),
-            )
-            await conn.commit()
+        # SCAN3-010: equity snapshots use NORMAL durability — re-computable from trades
+        async with self._bulk_write_ctx():
+            async with self._lock:
+                await conn.execute(
+                    """
+                    INSERT OR REPLACE INTO equity_curve
+                      (ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,
+                       daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        record.ts,
+                        record.trading_mode,
+                        record.equity_usd,
+                        record.cash_usd,
+                        record.unrealized_pnl,
+                        record.daily_pnl_usd,
+                        record.daily_pnl_pct,
+                        record.peak_equity_usd,
+                        record.drawdown_pct,
+                    ),
+                )
+                await conn.commit()
 
     async def fetch_equity_curve(
         self,

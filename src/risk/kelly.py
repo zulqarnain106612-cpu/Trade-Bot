@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_DOWN
 from typing import Final
 
 import structlog
@@ -447,13 +448,22 @@ def compute_win_loss_stats(
 
 def _floor_to_precision(value: float, decimal_places: int) -> float:
     """
-    Floor a float to a given number of decimal places.
+    Floor value to decimal_places using Decimal arithmetic.
 
-    Uses floor (not round) to avoid over-ordering on exchanges.
+    SCAN3-014: the previous implementation used math.floor(value * 10**n) / 10**n
+    which has IEEE 754 representation artifacts for large decimal_places (e.g. n=8
+    on BTC quantities). Decimal(str(value)) round-trips through the string
+    representation, matching human-readable precision and avoiding binary artifacts.
+    This is the same approach used internally by ccxt for quantity quantization.
+
+    Examples
+    --------
+    >>> _floor_to_precision(0.123456789, 6)
+    0.123456
+    >>> _floor_to_precision(0.1, 8)
+    0.1
     """
     if decimal_places < 0:
         raise ValueError(f"decimal_places must be >= 0, got {decimal_places}")
-    if decimal_places == 0:
-        return float(math.floor(value))
-    factor = 10 ** decimal_places
-    return math.floor(value * factor) / factor
+    q = Decimal(10) ** -decimal_places
+    return float(Decimal(str(value)).quantize(q, rounding=ROUND_DOWN))

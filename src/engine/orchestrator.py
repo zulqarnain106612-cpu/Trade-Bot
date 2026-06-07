@@ -360,7 +360,15 @@ class Orchestrator:
                 try:
                     current_price = await self._fetcher.fetch_ticker_price(self._symbol)
                 except Exception:
-                    current_price = result.kelly_result.capital_usd  # fallback
+                    # VUL-ORCHESTRATOR-001: previous fallback used capital_usd which is
+                    # equity in USD, not an asset price — would produce nonsensical position
+                    # sizes. Skip the signal instead; a bad price is worse than no trade.
+                    self._log.error(
+                        "orchestrator.signal_skip_no_price",
+                        timeframe=tf.value,
+                        reason="ticker_fetch_failed_and_no_known_price",
+                    )
+                    return
 
             trade_id, outcome = await executor.submit_signal(
                 symbol=self._symbol,

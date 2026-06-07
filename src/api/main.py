@@ -23,6 +23,7 @@ WebSocket push format (JSON):
 from __future__ import annotations
 
 import asyncio
+import collections
 import hmac  # SCAN3-003: moved from inline import inside set_execution_mode()
 import json
 import os
@@ -71,42 +72,83 @@ def _validate_operator(v: str) -> str:
 class AppState:
     storage: StorageBackend
     orchestrator: Orchestrator
-    ws_clients: list[WebSocket]
     ready: bool  # True only after orchestrator.startup() completes
-    _mode_change_timestamps: list[float]
+    _MAX_WS_CLIENTS: int = 50
     _MODE_CHANGE_LIMIT: int = 3
     _MODE_CHANGE_WINDOW_S: float = 3600.0
-    _endpoint_hits: dict[str, list[float]]
     _ENDPOINT_LIMIT: int = 60
     _ENDPOINT_WINDOW_S: float = 60.0
 
     def __init__(self) -> None:
-        self.ws_clients = []
         self.ready = False
-        self._mode_change_timestamps = []
-        self._endpoint_hits = {}
+        # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
+        # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
+        self._ws_clients: set[WebSocket] = set()
+        self._ws_lock: asyncio.Lock = asyncio.Lock()
+        # SCAN3-015: deque with maxlen prevents unbounded growth under request flood.
+        # Each deque entry is a monotonic timestamp (float). maxlen=_ENDPOINT_LIMIT
+        # means we never store more than the limit allows, and popleft() is O(1).
+        self._mode_change_ts: collections.deque[float] = collections.deque(
+            maxlen=self._MODE_CHANGE_LIMIT
+        )
+        self._endpoint_hits: dict[str, collections.deque[float]] = {}
+
+    @property
+    def ws_clients(self) -> set[WebSocket]:
+        """Read-only view of current WS clients (no locking — for iteration only)."""
+        return self._ws_clients
+
+    async def add_ws_client(self, ws: WebSocket) -> bool:
+        """
+        Atomically check-and-add a WS client.
+
+        SCAN3-013: check-then-append is inside the lock so two concurrent
+        connects can't both pass the capacity check before either appends.
+        Returns True if added, False if at capacity.
+        """
+        async with self._ws_lock:
+            if len(self._ws_clients) >= self._MAX_WS_CLIENTS:
+                return False
+            self._ws_clients.add(ws)
+            return True
+
+    async def remove_ws_client(self, ws: WebSocket) -> None:
+        """Remove a WS client from the tracked set."""
+        async with self._ws_lock:
+            self._ws_clients.discard(ws)
 
     def check_endpoint_rate_limit(self, endpoint: str) -> None:
-        """Raise HTTP 429 if endpoint has been called too many times per minute."""
+        """
+        Raise HTTP 429 if endpoint has been called too many times per minute.
+
+        SCAN3-015: uses deque(maxlen=limit) per endpoint. Old timestamps are
+        popped from the left in O(1). The maxlen bound caps memory regardless
+        of request rate.
+        """
         now = time.monotonic()
-        hits = self._endpoint_hits.get(endpoint, [])
-        hits = [t for t in hits if now - t < self._ENDPOINT_WINDOW_S]
-        if len(hits) >= self._ENDPOINT_LIMIT:
+        dq = self._endpoint_hits.setdefault(
+            endpoint, collections.deque(maxlen=self._ENDPOINT_LIMIT)
+        )
+        # Evict timestamps outside the window (O(1) per pop from left)
+        while dq and now - dq[0] >= self._ENDPOINT_WINDOW_S:
+            dq.popleft()
+        if len(dq) >= self._ENDPOINT_LIMIT:
             raise HTTPException(
                 status_code=429,
                 detail=f"Rate limit exceeded for {endpoint} ({self._ENDPOINT_LIMIT}/min).",
             )
-        hits.append(now)
-        self._endpoint_hits[endpoint] = hits
+        dq.append(now)
 
     def check_mode_change_rate_limit(self) -> None:
-        """Raise HTTP 429 if mode has been changed too many times recently."""
+        """
+        Raise HTTP 429 if mode has been changed too many times recently.
+
+        SCAN3-015: uses the same deque pattern as endpoint rate limiting.
+        """
         now = time.monotonic()
-        self._mode_change_timestamps = [
-            t for t in self._mode_change_timestamps
-            if now - t < self._MODE_CHANGE_WINDOW_S
-        ]
-        if len(self._mode_change_timestamps) >= self._MODE_CHANGE_LIMIT:
+        while self._mode_change_ts and now - self._mode_change_ts[0] >= self._MODE_CHANGE_WINDOW_S:
+            self._mode_change_ts.popleft()
+        if len(self._mode_change_ts) >= self._MODE_CHANGE_LIMIT:
             raise HTTPException(
                 status_code=429,
                 detail=(
@@ -114,7 +156,7 @@ class AppState:
                     f"({self._MODE_CHANGE_LIMIT} per hour). Try again later."
                 ),
             )
-        self._mode_change_timestamps.append(now)
+        self._mode_change_ts.append(now)
 
 
 _state = AppState()
@@ -135,6 +177,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
     cfg = get_settings()
+
+    # SCAN3-012: validate_cors_config moved inside lifespan so misconfiguration
+    # raises at startup time, not at import time (which caused confusing traces
+    # in test suites and deployment tooling that imports the module for route inspection).
+    validate_cors_config(cfg.api.cors_origins, allow_credentials=True)
     # Security: warn loudly if binding outside loopback without TLS proxy
     if cfg.api.host not in ("127.0.0.1", "::1", "localhost"):
         has_tls = bool(os.environ.get("HTTPS_CERT", "").strip())
@@ -192,9 +239,7 @@ app = FastAPI(
 
 cfg = get_settings()
 
-# Validate CORS config before adding middleware — raises on wildcard+credentials
-validate_cors_config(cfg.api.cors_origins, allow_credentials=True)
-
+# SCAN3-012: CORS validation moved inside lifespan() — no longer runs at import time.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cfg.api.cors_origins,
@@ -264,7 +309,7 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "storage": counts,
         "trading_mode": get_settings().trading_mode.value,
-        "execution_mode": runtime_config.execution_mode.value,
+        "execution_mode": (await runtime_config.get_execution_mode()).value,
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
     }
 
@@ -300,7 +345,7 @@ async def status() -> dict[str, Any]:
         "pending_approvals": approvals,
         "regime": regime_dict,
         "trading_mode": cfg.trading_mode.value,
-        "execution_mode": runtime_config.execution_mode.value,
+        "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
         # SCAN2-003: surface last retrain errors so operators know when models are stale
@@ -499,8 +544,8 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
             detail=f"Invalid mode {body.mode!r}. Must be one of: automatic, restricted, manual",
         )
 
-    old_mode = runtime_config.execution_mode.value
-    runtime_config.execution_mode = new_mode  # atomic — no cache invalidation race
+    old_mode = (await runtime_config.get_execution_mode()).value
+    await runtime_config.set_execution_mode(new_mode)  # SCAN2-015: async — no event loop block
 
     await _state.storage.insert_audit_event(
         event_type="execution_mode_change",
@@ -559,20 +604,18 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     Live WebSocket feed — requires X-Api-Key header on upgrade.
 
     Pushes a status snapshot every ws_heartbeat_s seconds.
-    Max concurrent clients: 10 (configurable via WS_MAX_CLIENTS env var).
+    Max concurrent clients: _MAX_WS_CLIENTS (default 50, set on AppState).
     """
-    _MAX_WS_CLIENTS = int(os.environ.get("WS_MAX_CLIENTS", "10"))
-    if len(_state.ws_clients) >= _MAX_WS_CLIENTS:
+    # SCAN3-013: atomic check-and-add via locked method — no TOCTOU race
+    await verify_ws_key(ws)
+    if not await _state.add_ws_client(ws):
         await ws.close(code=4429)
-        log.warning("api.ws_rejected_limit", limit=_MAX_WS_CLIENTS)
+        log.warning("api.ws_rejected_limit", limit=_state._MAX_WS_CLIENTS)
         return
 
-    await verify_ws_key(ws)
     await ws.accept()
-    _state.ws_clients.append(ws)
     cfg = get_settings()
     heartbeat = cfg.api.ws_heartbeat_s
-
     log.info("api.ws_connected", client=str(ws.client))
 
     try:
@@ -592,7 +635,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 "positions": await executor.open_positions_safe(),
                 "pending_approvals": await executor.pending_approvals_safe(),
                 "trading_mode": get_settings().trading_mode.value,
-                "execution_mode": runtime_config.execution_mode.value,
+                "execution_mode": (await runtime_config.get_execution_mode()).value,
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
 
@@ -615,5 +658,5 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     except Exception as exc:
         log.error("api.ws_error", error=str(exc))
     finally:
-        if ws in _state.ws_clients:
-            _state.ws_clients.remove(ws)
+        # SCAN3-013: thread-safe removal via locked method
+        await _state.remove_ws_client(ws)

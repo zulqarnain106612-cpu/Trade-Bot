@@ -450,31 +450,55 @@ def invalidate_settings_cache() -> None:
 # execution_mode reads runtime_config.execution_mode instead.
 # ---------------------------------------------------------------------------
 
-import threading as _threading
+# SCAN2-015: replaced threading.Lock with asyncio.Lock.
+# All callers are async FastAPI handlers in the same event loop thread;
+# threading.Lock.acquire() blocks the thread (and the entire event loop)
+# on contention. asyncio.Lock suspends only the current coroutine.
+#
+# Because Python properties cannot be async, the interface is explicit
+# async getter/setter methods. Call sites updated accordingly.
+import asyncio as _asyncio
 
 
 class RuntimeConfig:
     """
     Process-wide mutable runtime flags.
 
-    All reads and writes are serialised by a lock so concurrent requests
-    (e.g. WS heartbeat + REST status) never observe a partially-updated state.
+    All reads and writes are serialised by an asyncio.Lock so concurrent
+    coroutines (WS heartbeat + REST status + mode-change endpoint) never
+    observe partially-updated state, and the event loop is never blocked.
     """
 
     def __init__(self) -> None:
-        self._lock = _threading.Lock()
+        self._lock: _asyncio.Lock | None = None  # created lazily inside the event loop
         cfg = get_settings()
         self._execution_mode: ExecutionMode = cfg.execution_mode
 
-    @property
-    def execution_mode(self) -> ExecutionMode:
-        with self._lock:
+    def _get_lock(self) -> _asyncio.Lock:
+        # asyncio.Lock must be created inside a running event loop.
+        # Lazy initialisation covers both production (event loop running at first use)
+        # and import-time module loading (no loop yet — lock not needed).
+        if self._lock is None:
+            self._lock = _asyncio.Lock()
+        return self._lock
+
+    async def get_execution_mode(self) -> ExecutionMode:
+        async with self._get_lock():
             return self._execution_mode
 
-    @execution_mode.setter
-    def execution_mode(self, value: ExecutionMode) -> None:
-        with self._lock:
+    async def set_execution_mode(self, value: ExecutionMode) -> None:
+        async with self._get_lock():
             self._execution_mode = value
+
+    # ------------------------------------------------------------------
+    # Synchronous read — safe only when called from a single-writer context
+    # (e.g. reading in a sync property before the event loop starts).
+    # Do NOT call from async handlers — use get_execution_mode() instead.
+    # ------------------------------------------------------------------
+    @property
+    def execution_mode(self) -> ExecutionMode:
+        """Sync read — use only from sync (non-async) call sites."""
+        return self._execution_mode
 
 
 # Singleton — imported by api/main.py and execution/ modules
