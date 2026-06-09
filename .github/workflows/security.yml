@@ -1,0 +1,88 @@
+name: Dependency Security Audit
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  push:
+    paths:
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+  workflow_dispatch:
+
+jobs:
+  audit-python:
+    name: Python - pip-audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install pip-audit only
+        run: python -m pip install --upgrade pip pip-audit
+
+      - name: Resolve dependency versions without downloading wheels
+        shell: bash
+        run: |
+          python -m pip install \
+            --dry-run \
+            --ignore-installed \
+            --report resolved.json \
+            -e ".[dev]" \
+            --quiet 2>/dev/null || true
+
+          python3 extract_resolved.py
+
+      - name: Audit resolved packages
+        shell: bash
+        run: |
+          pip-audit \
+            --strict \
+            --requirement requirements-resolved.txt \
+            --output json \
+            --format json \
+            > pip-audit.json 2>&1 || AUDIT_EXIT=$?
+          pip-audit \
+            --strict \
+            --requirement requirements-resolved.txt \
+            || exit ${AUDIT_EXIT:-0}
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: |
+            pip-audit.json
+            requirements-resolved.txt
+          retention-days: 30
+
+  audit-frontend:
+    name: Frontend - npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
