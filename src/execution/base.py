@@ -81,3 +81,11 @@ class AbstractExecutor(ABC):
         mark_to_market calls.
         """
         ...
+
+    @abstractmethod
+    async def get_risk_snapshot(self) -> tuple[float, float, float]:
+        """
+        C-08: Atomically return (equity_usd, starting_equity_usd, daily_pnl_usd)
+        under the executor lock, preventing torn reads in orchestrator._tick().
+        """
+        ...

@@ -199,6 +199,8 @@ class RegimeDetector:
         self._state_map: dict[int, int] = {}  # raw HMM index → canonical
         self._fitted: bool = False
         self._train_hash: str = ""
+        # M-08: initialise explicitly so mypy and predict_current() don't need getattr fallback
+        self._convergence_failed: bool = False
         self._log = log.bind(
             component="regime_detector",
             symbol=symbol,
@@ -237,6 +239,24 @@ class RegimeDetector:
         if missing:
             raise ValueError(f"HMM fit: missing observation columns {missing}")
 
+        # H-11: enforce exactly 3 states
+        cfg = self._cfg
+        if cfg.n_components != 3:
+            raise ValueError(
+                f"RegimeDetector requires exactly n_components=3 "
+                f"(ranging/trending/volatile). Got n_components={cfg.n_components}. "
+                "Set HMM_N_COMPONENTS=3 or update the canonical state mapping."
+            )
+
+        # M-14: prevent fit() on an already-fitted instance — concurrency hazard.
+        # Always create a new RegimeDetector() for retraining.
+        if self._fitted:
+            raise RuntimeError(
+                "RegimeDetector.fit() called on an already-fitted instance. "
+                "Create a new RegimeDetector() for retraining to prevent "
+                "concurrency issues with predict_current()."
+            )
+
         obs_df = features[HMM_FEATURE_COLS].copy()
 
         if obs_df.isna().any().any():
@@ -246,7 +266,6 @@ class RegimeDetector:
                 f"NaN count per col: {obs_df.isna().sum().to_dict()}"
             )
 
-        cfg = self._cfg
         n = len(obs_df)
         if n < cfg.n_components * 20:
             raise ValueError(
@@ -313,10 +332,10 @@ class RegimeDetector:
         self._state_map = _assign_canonical_states(self._model)
         self._fitted = True
 
-        # Stable hash of training data for change detection
-        self._train_hash = hashlib.md5(
-            obs_df.to_numpy(dtype=np.float64).tobytes(), usedforsecurity=False
-        ).hexdigest()[:12]
+        # H-07: SHA-256 replaces MD5 — more collision-resistant; 16 hex chars = 64 bits
+        self._train_hash = hashlib.sha256(
+            obs_df.to_numpy(dtype=np.float64).tobytes()
+        ).hexdigest()[:16]
 
         self._log.info(
             "hmm.fitted",

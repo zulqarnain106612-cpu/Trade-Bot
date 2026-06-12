@@ -31,7 +31,7 @@ from typing import Any, Final
 import ccxt.async_support as ccxt
 import structlog
 
-from src.config import ExecutionMode, TradingMode, get_settings
+from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
@@ -228,7 +228,9 @@ class LiveExecutor(AbstractExecutor):
         outcome: 'opened' | 'queued' | 'skipped' | 'rejected'
         """
         self._require_initialized()
-        mode = self._cfg.execution_mode
+        # H-15: read runtime_config (live async-settable) not self._cfg.execution_mode
+        # (frozen Settings). Without this, POST /execution-mode has no effect.
+        mode = await runtime_config.get_execution_mode()
 
         if mode == ExecutionMode.AUTOMATIC:
             return await self._submit_signal_auto(
@@ -352,91 +354,91 @@ class LiveExecutor(AbstractExecutor):
         """
         Close a live position by placing a market close order.
 
-        Places opposite-side market order on exchange, waits for
-        fill confirmation, persists exit to storage.
-
-        Returns net PnL in USD.
+        C-07: Acquire _trade_semaphore to serialise concurrent close+open
+        operations. Without this, a close that restores cash can race with
+        a concurrent entry that already passed the cash pre-check, causing
+        effective double-spending of the restored balance.
         """
-        async with self._lock:
-            if trade_id not in self._positions:
-                raise KeyError(f"No open live position trade_id={trade_id!r}")
-            pos = self._positions[trade_id]
+        async with self._trade_semaphore:
+            async with self._lock:
+                if trade_id not in self._positions:
+                    raise KeyError(f"No open live position trade_id={trade_id!r}")
+                pos = self._positions[trade_id]
 
-        # Place closing order (opposite side)
-        close_side = "sell" if pos.direction == 1 else "buy"
-        try:
-            order = await self._place_market_order(
-                symbol=pos.symbol,
-                side=close_side,
-                quantity=pos.quantity,
+            # Place closing order (opposite side)
+            close_side = "sell" if pos.direction == 1 else "buy"
+            try:
+                order = await self._place_market_order(
+                    symbol=pos.symbol,
+                    side=close_side,
+                    quantity=pos.quantity,
+                )
+            except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+                self._log.error(
+                    "live.close_order_failed",
+                    trade_id=trade_id,
+                    symbol=pos.symbol,
+                    error=str(exc),
+                )
+                raise
+
+            actual_exit_price = float(order.get("average") or order.get("price") or exit_price)
+            filled_qty = float(order.get("filled") or pos.quantity)
+            exchange_fee = self._extract_fee(order, actual_exit_price, filled_qty)
+
+            exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+            if pos.direction == 1:
+                gross_pnl = (actual_exit_price - pos.entry_price) * filled_qty
+            else:
+                gross_pnl = (pos.entry_price - actual_exit_price) * filled_qty
+
+            net_pnl = gross_pnl - exchange_fee
+            pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
+
+            async with self._lock:
+                self._positions.pop(trade_id, None)
+                self._cash += pos.notional_usd + net_pnl
+                equity = self._equity_usd()
+                self._peak_equity = max(self._peak_equity, equity)
+                self._drawdown_tracker.update(equity)
+                # SCAN3-001/SCAN3-002: capture snapshot values inside lock
+                snap_unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+                snap_cash = self._cash
+                snap_equity = equity
+                snap_daily_pnl = self._drawdown_tracker.daily_pnl_usd
+                snap_daily_pct = self._drawdown_tracker.daily_pnl_pct
+                snap_dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+                snap_peak = self._peak_equity
+
+            await self._storage.update_trade_exit(
+                trade_id=trade_id,
+                exit_price=actual_exit_price,
+                exit_ts=exit_ts,
+                pnl_usd=round(net_pnl, 8),
+                pnl_pct=round(pnl_pct, 8),
+                exit_reason=exit_reason,
+                fee_usd=exchange_fee,
             )
-        except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
-            self._log.error(
-                "live.close_order_failed",
+            await self._snapshot_equity_with_values(
+                equity=snap_equity,
+                cash=snap_cash,
+                unrealized=snap_unrealized,
+                daily_pnl=snap_daily_pnl,
+                daily_pct=snap_daily_pct,
+                dd_pct=snap_dd_pct,
+                peak_equity=snap_peak,
+            )
+
+            self._log.info(
+                "live.position_closed",
                 trade_id=trade_id,
                 symbol=pos.symbol,
-                error=str(exc),
+                exit_price=round(actual_exit_price, 4),
+                net_pnl=round(net_pnl, 4),
+                exit_reason=exit_reason,
             )
-            raise
-
-        actual_exit_price = float(order.get("average") or order.get("price") or exit_price)
-        filled_qty = float(order.get("filled") or pos.quantity)
-        exchange_fee = self._extract_fee(order, actual_exit_price, filled_qty)
-
-        exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
-
-        if pos.direction == 1:
-            gross_pnl = (actual_exit_price - pos.entry_price) * filled_qty
-        else:
-            gross_pnl = (pos.entry_price - actual_exit_price) * filled_qty
-
-        net_pnl = gross_pnl - exchange_fee
-        pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
-
-        async with self._lock:
-            self._positions.pop(trade_id, None)
-            self._cash += pos.notional_usd + net_pnl
-            equity = self._equity_usd()
-            self._peak_equity = max(self._peak_equity, equity)
-            self._drawdown_tracker.update(equity)
-            # SCAN3-001/SCAN3-002: capture snapshot values inside lock — prevents
-            # race with concurrent mark_to_market() after lock release.
-            snap_unrealized = sum(p.unrealized_pnl for p in self._positions.values())
-            snap_cash = self._cash
-            snap_equity = equity
-            snap_daily_pnl = self._drawdown_tracker.daily_pnl_usd
-            snap_daily_pct = self._drawdown_tracker.daily_pnl_pct
-            snap_dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
-            snap_peak = self._peak_equity
-
-        await self._storage.update_trade_exit(
-            trade_id=trade_id,
-            exit_price=actual_exit_price,
-            exit_ts=exit_ts,
-            pnl_usd=round(net_pnl, 8),
-            pnl_pct=round(pnl_pct, 8),
-            exit_reason=exit_reason,
-            fee_usd=exchange_fee,
-        )
-        await self._snapshot_equity_with_values(
-            equity=snap_equity,
-            cash=snap_cash,
-            unrealized=snap_unrealized,
-            daily_pnl=snap_daily_pnl,
-            daily_pct=snap_daily_pct,
-            dd_pct=snap_dd_pct,
-            peak_equity=snap_peak,
-        )
-
-        self._log.info(
-            "live.position_closed",
-            trade_id=trade_id,
-            symbol=pos.symbol,
-            exit_price=round(actual_exit_price, 4),
-            net_pnl=round(net_pnl, 4),
-            exit_reason=exit_reason,
-        )
-        return net_pnl
+            return net_pnl
 
     async def mark_to_market(self, prices: dict[str, float]) -> float:
         """Update unrealized PnL for all open positions."""
@@ -450,7 +452,20 @@ class LiveExecutor(AbstractExecutor):
             equity = self._cash + total_unrealized
             self._peak_equity = max(self._peak_equity, equity)
             self._drawdown_tracker.update(equity)
-        await self._snapshot_equity()
+            # C-04: capture snapshot values INSIDE the lock before releasing
+            snap_equity     = equity
+            snap_cash       = self._cash
+            snap_unrealized = total_unrealized
+            snap_daily_pnl  = self._drawdown_tracker.daily_pnl_usd
+            snap_daily_pct  = self._drawdown_tracker.daily_pnl_pct
+            snap_dd_pct     = self._drawdown_tracker.drawdown_from_peak_pct
+            snap_peak       = self._peak_equity
+
+        await self._snapshot_equity_with_values(
+            equity=snap_equity, cash=snap_cash, unrealized=snap_unrealized,
+            daily_pnl=snap_daily_pnl, daily_pct=snap_daily_pct,
+            dd_pct=snap_dd_pct, peak_equity=snap_peak,
+        )
         return total_unrealized
 
     # ------------------------------------------------------------------
@@ -483,12 +498,14 @@ class LiveExecutor(AbstractExecutor):
         )
         return True
 
-    def pending_approvals(self) -> list[dict[str, object]]:
-        """Return unresolved approvals, pruning stale resolved entries."""
-        # NOTE: This method mutates _approval_queue (pruning) and iterates it.
-        # It must only be called from async context; callers should snapshot
-        # under lock if concurrent mutation is possible. For the WS heartbeat,
-        # use the async variant below.
+    def _pending_approvals_unsafe(self) -> list[dict[str, object]]:
+        """
+        Return unresolved approvals, pruning stale resolved entries.
+
+        L-03: renamed to _pending_approvals_unsafe to signal no locking.
+        External callers should use pending_approvals() which delegates to
+        the safe async variant. Only call this from within a held lock context.
+        """
         cutoff = time.monotonic() - 3600.0
         to_prune = [
             rid for rid, req in self._approval_queue.items()
@@ -497,6 +514,10 @@ class LiveExecutor(AbstractExecutor):
         for rid in to_prune:
             self._approval_queue.pop(rid, None)
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
+
+    def pending_approvals(self) -> list[dict[str, object]]:
+        """Public interface — delegates to unsafe variant (sync callers only)."""
+        return self._pending_approvals_unsafe()
 
     async def open_positions_safe(self) -> list[dict[str, object]]:
         """Thread-safe snapshot of open positions for WS heartbeat (VUL-035)."""
@@ -669,10 +690,14 @@ class LiveExecutor(AbstractExecutor):
                 # Reconcile: replace the estimated reserve with actual cost
                 self._cash += notional_estimate + fee_estimate  # undo estimate
                 if self._cash < notional + entry_fee:
-                    self._log.warning(
-                        "live.insufficient_cash_post_reconcile",
-                        cash=round(self._cash, 2),
-                        needed=round(notional + entry_fee, 2),
+                    self._log.critical(
+                        "live.post_reconcile_cash_insufficient_UNTRACKED_POSITION",
+                        exchange_order_id=exchange_order_id,
+                        symbol=symbol,
+                        side=side,
+                        actual_price=actual_price,
+                        filled_qty=filled_qty,
+                        action="MANUAL_CLOSE_REQUIRED — order filled but position NOT recorded",
                     )
                     return None
                 self._cash -= notional + entry_fee

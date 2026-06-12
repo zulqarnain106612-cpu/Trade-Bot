@@ -29,16 +29,21 @@ import json
 import os
 import re
 import time
+
+# H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
+)
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Annotated, AsyncIterator, cast
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.config import ExecutionMode, Timeframe, get_settings, invalidate_settings_cache, runtime_config
+from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import StorageBackend
 from src.execution.live import LiveExecutor
@@ -117,17 +122,26 @@ class AppState:
         async with self._ws_lock:
             self._ws_clients.discard(ws)
 
-    def check_endpoint_rate_limit(self, endpoint: str) -> None:
+    def check_endpoint_rate_limit(self, endpoint: str, client_ip: str = "") -> None:
         """
         Raise HTTP 429 if endpoint has been called too many times per minute.
 
-        SCAN3-015: uses deque(maxlen=limit) per endpoint. Old timestamps are
-        popped from the left in O(1). The maxlen bound caps memory regardless
-        of request rate.
+        H-02: keyed by (endpoint, client_ip) so one IP cannot exhaust the
+        rate budget for all other clients.
+        M-12: prune stale IP entries to prevent unbounded dict growth under
+        rotating-IP attacks.
         """
+        key = f"{endpoint}:{client_ip}"
         now = time.monotonic()
+        # M-12: prune expired entries before adding a new one
+        stale = [
+            k for k, dq in self._endpoint_hits.items()
+            if not dq or (now - dq[-1]) > self._ENDPOINT_WINDOW_S * 2
+        ]
+        for k in stale:
+            del self._endpoint_hits[k]
         dq = self._endpoint_hits.setdefault(
-            endpoint, collections.deque(maxlen=self._ENDPOINT_LIMIT)
+            key, collections.deque(maxlen=self._ENDPOINT_LIMIT)
         )
         # Evict timestamps outside the window (O(1) per pop from left)
         while dq and now - dq[0] >= self._ENDPOINT_WINDOW_S:
@@ -174,6 +188,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not api_key:
         raise RuntimeError(
             "API_SECRET_KEY is not set. Set a strong random value in .env."
+        )
+
+    # H-01: Validate OPERATOR_SECRET at startup — prevents silent unavailability
+    # of the /execution-mode endpoint in production.
+    op_secret = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not op_secret:
+        raise RuntimeError(
+            "OPERATOR_SECRET is not set. Set a strong random value in .env. "
+            "Generate with: openssl rand -hex 32"
         )
 
     cfg = get_settings()
@@ -244,8 +267,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cfg.api.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # M-06: restrict to actual HTTP methods used — GET and POST only
+    allow_methods=["GET", "POST"],
+    allow_headers=["x-api-key", "content-type"],
 )
 
 # ---------------------------------------------------------------------------
@@ -322,8 +346,10 @@ async def status() -> dict[str, Any]:
 
     equity_usd = executor.equity_usd if executor else 0.0
     cash_usd = executor.cash_usd if executor else 0.0
-    positions = executor.open_positions() if executor else []
-    approvals = executor.pending_approvals() if executor else []
+    # H-10: use lock-safe variants to prevent RuntimeError from dict mutation
+    # during concurrent close_position() in the event loop.
+    positions = await executor.open_positions_safe() if executor else []
+    approvals = await executor.pending_approvals_safe() if executor else []
 
     regime_snap = await _state.storage.latest_regime(
         cfg.primary_symbol, cfg.primary_timeframe.value
@@ -348,8 +374,11 @@ async def status() -> dict[str, Any]:
         "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
-        # SCAN2-003: surface last retrain errors so operators know when models are stale
-        "last_retrain_errors": dict(_state.orchestrator._last_retrain_error),  # noqa: SLF001
+        # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
+        "last_retrain_errors": {
+            tf: str(err)[:200]
+            for tf, err in _state.orchestrator._last_retrain_error.items()  # noqa: SLF001
+        },
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
     }
 
@@ -363,7 +392,12 @@ async def trades(
     """Paginated trade history — offset and limit applied in SQL, not Python."""
     cfg = get_settings()
     req_symbol = symbol or cfg.primary_symbol
-    await _state.storage.validate_symbol(req_symbol)
+    # H-03: validate_symbol raises ValueError — convert to HTTP 400 so the
+    # client sees a clear error instead of a 500 internal server error.
+    try:
+        await _state.storage.validate_symbol(req_symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     records = await _state.storage.fetch_trades(
         symbol=req_symbol,
@@ -480,9 +514,14 @@ async def approvals() -> dict[str, Any]:
 async def resolve_approval(
     request_id: str,
     body: ResolveApprovalRequest,
+    request: Request,
 ) -> dict[str, Any]:
     """Approve or reject a pending trade."""
-    _state.check_endpoint_rate_limit("resolve_approval")
+    # H-02: pass client IP so rate limit is per-IP, not global
+    _state.check_endpoint_rate_limit("resolve_approval", request.client.host if request.client else "")
+    # H-13: validate UUID format before dict lookup — prevents timing oracle and DoS
+    if not _UUID_RE.match(request_id):
+        raise HTTPException(status_code=400, detail="Invalid request_id format.")
     executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
@@ -606,9 +645,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     Pushes a status snapshot every ws_heartbeat_s seconds.
     Max concurrent clients: _MAX_WS_CLIENTS (default 50, set on AppState).
     """
-    # SCAN3-013: atomic check-and-add via locked method — no TOCTOU race
+    # C-02: Auth before any state mutation — prevents slot leak if auth raises
+    # after add_ws_client succeeds but before accept().
     await verify_ws_key(ws)
-    if not await _state.add_ws_client(ws):
+
+    # Capacity check — only after auth passes
+    added = await _state.add_ws_client(ws)
+    if not added:
         await ws.close(code=4429)
         log.warning("api.ws_rejected_limit", limit=_state._MAX_WS_CLIENTS)
         return
@@ -660,3 +703,61 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     finally:
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
+
+
+# ---------------------------------------------------------------------------
+# Debug / diagnostics endpoints  (Patch C)
+# ---------------------------------------------------------------------------
+
+@app.get("/debug/health", dependencies=[Depends(api_key_header)])
+async def debug_health() -> dict[str, Any]:
+    """Runtime monitor snapshot — probes, alerts, memory, tick-stall status."""
+    from src.diagnostics.runtime_monitor import get_monitor
+    snap = get_monitor().get_snapshot()
+    return snap.to_dict() if snap else {"overall": "monitor_not_started", "probes": [], "alerts": []}
+
+
+@app.get("/debug/audit", dependencies=[Depends(api_key_header)])
+async def debug_audit(
+    limit: Annotated[int, Query(default=50, ge=1, le=500)] = 50,
+) -> dict[str, Any]:
+    """Trade decision audit — last N tick decisions with features, probabilities, gate chain, outcome."""
+    from src.diagnostics.trade_auditor import get_auditor
+    aud = get_auditor()
+    return {
+        "summary": aud.summary(),
+        "anomalies": aud.anomaly_scan(),
+        "recent": [r.to_dict() for r in aud.recent(limit)],
+    }
+
+
+@app.get("/debug/drift", dependencies=[Depends(api_key_header)])
+async def debug_drift() -> dict[str, Any]:
+    """Feature drift (KS test vs training baseline) + model degradation report."""
+    from src.diagnostics.signal_debugger import get_drift_monitor, get_degradation_tracker
+    drift_records = get_drift_monitor().check_all()
+    return {
+        "feature_drift": [
+            {
+                "feature": r.feature,
+                "ks_statistic": r.ks_statistic,
+                "drifted": r.drifted,
+                "train_mean": r.train_mean,
+                "live_mean": r.live_mean,
+                "train_std": r.train_std,
+                "live_std": r.live_std,
+            }
+            for r in drift_records
+        ],
+        "drifted_features": [r.feature for r in drift_records if r.drifted],
+        "model_degradation": get_degradation_tracker().check_degradation(),
+    }
+
+
+@app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
+async def debug_selftest() -> dict[str, Any]:
+    """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
+    from src.diagnostics.signal_debugger import run_pipeline_selftest
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, run_pipeline_selftest)
+    return result

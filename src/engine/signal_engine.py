@@ -24,6 +24,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Final
@@ -48,6 +49,9 @@ from src.risk.gates import (
 )
 from src.risk.kelly import KellyResult, compute_position_size
 from src.models.trainer import ModelTrainer
+from src.diagnostics.trade_auditor import AuditRecord, get_auditor
+from src.diagnostics.signal_debugger import get_drift_monitor, get_degradation_tracker
+from src.strategies.filters import apply_all_strategy_filters
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -202,7 +206,7 @@ class SignalEngine:
         -------
         SignalResult — always returned; tradeable=False when any gate blocks.
         """
-        # 1. Gap fill
+        _tick_start = time.monotonic()
         try:
             await self._fetcher.gap_fill(self._symbol, self._timeframe)
         except Exception as exc:
@@ -213,6 +217,14 @@ class SignalEngine:
         bars = await self._load_bars()
         if bars is None:
             return self._skip("insufficient_bars")
+
+        # H-16: verify the last bar is a fully closed bar, not the currently forming one.
+        # Kelly sizing uses bars["close"].iloc[-1] — a partial bar gives wrong notional.
+        tf_ms = TIMEFRAME_SECONDS.get(self._timeframe, 60) * 1000
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        last_bar_ts_ms = int(bars.index[-1])
+        if now_ms - last_bar_ts_ms < tf_ms:
+            return self._skip("last_bar_not_yet_closed")
 
         # 3–5. Build feature matrix once — reused for inference vec AND regime history.
         # SCAN2-007: prior code called build_feature_matrix + build_inference_features
@@ -238,6 +250,11 @@ class SignalEngine:
         vec = build_inference_features(bars, live_ofi=live_ofi, feature_matrix=fm)
         if vec is None:
             return self._skip("insufficient_features_with_ofi")
+
+        # ── Push live feature values to drift monitor (Aronson 2006) ──
+        _drift_mon = get_drift_monitor()
+        for feat_name, feat_val in vec.items():
+            _drift_mon.push(str(feat_name), float(feat_val))
 
         # Regime history DataFrame — full feature matrix (>=50 rows required)
         history_df: pd.DataFrame | None = None
@@ -295,7 +312,46 @@ class SignalEngine:
         )
         gate_result = evaluate_all_gates(gate_ctx)
 
+        # ── Regime values for filters and audit ──
+        _prob_ranging  = regime.prob_ranging  if regime else 0.33
+        _prob_trending = regime.prob_trending if regime else 0.33
+        _prob_volatile = regime.prob_volatile if regime else 0.34
+        _feat_dict = {str(k): float(v) for k, v in vec.items()}
+        # p_bet is assigned later (after meta-label); default to 0.0 for early exits
+        _p_bet_ref: list[float] = [0.0]
+
+        def _emit_audit(outcome: str, skip: str, kr: KellyResult | None, gr: GateResult | None) -> None:
+            latency_ms = (time.monotonic() - _tick_start) * 1000
+            rec = AuditRecord(
+                ts_utc=time.time(),
+                symbol=self._symbol,
+                timeframe=self._timeframe.value if hasattr(self._timeframe, "value") else str(self._timeframe),
+                features=_feat_dict,
+                p_long=p_long,
+                p_bet=_p_bet_ref[0],
+                direction=direction,
+                regime_state=regime_state,
+                prob_ranging=_prob_ranging,
+                prob_trending=_prob_trending,
+                prob_volatile=_prob_volatile,
+                gate_status=gr.status.value if gr else "unknown",
+                gate_reason=gr.reason if gr else "",
+                gate_details=gr.details if gr else {},
+                kelly_fraction=kr.adjusted_fraction if kr else None,
+                kelly_notional_usd=kr.notional_usd if kr else None,
+                kelly_quantity=kr.quantity if kr else None,
+                kelly_is_capped=kr.is_capped if kr else None,
+                outcome=outcome,
+                trade_id=None,
+                skip_reason=skip,
+                tick_latency_ms=round(latency_ms, 2),
+                equity_usd_at_decision=capital_usd,
+            )
+            get_auditor().record(rec)
+            get_degradation_tracker().record_prediction(p_long, _p_bet_ref[0])
+
         if not gate_result.passed:
+            _emit_audit("skipped", gate_result.status.value, None, gate_result)
             return SignalResult(
                 tradeable=False,
                 direction=direction,
@@ -308,12 +364,15 @@ class SignalEngine:
             )
 
         if kelly_result is None:
+            _emit_audit("skipped", "kelly_size_zero", None, gate_result)
             return self._skip("kelly_size_zero")
 
         # 9. Meta-label gate
         meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)
+        _p_bet_ref[0] = p_bet   # make p_bet available to _emit_audit closure
 
         if meta_label == 0:
+            _emit_audit("skipped", "meta_label_gate_skip", kelly_result, gate_result)
             return SignalResult(
                 tradeable=False,
                 direction=direction,
@@ -325,15 +384,60 @@ class SignalEngine:
                 skip_reason="meta_label_gate_skip",
             )
 
+        # 10. Professional strategy filters (Carver, Chan, Peters, Elder, Schwager)
+        _atr_series = None
+        if "high" in bars.columns and "low" in bars.columns:
+            _atr_series = (bars["high"] - bars["low"]).rolling(14).mean()
+        _filter_result = apply_all_strategy_filters(
+            close=bars["close"],
+            volume=bars["volume"],
+            atr_series=_atr_series if _atr_series is not None else bars["high"] - bars["low"],
+            direction=direction,
+            regime_state=regime_state,
+            prob_trending=_prob_trending,
+            prob_ranging=_prob_ranging,
+            prob_volatile=_prob_volatile,
+            open_price=float(bars["open"].iloc[-1]) if "open" in bars.columns else None,
+            prev_close=float(bars["close"].iloc[-2]) if len(bars) >= 2 else None,
+        )
+
+        if not _filter_result["passes"]:
+            _reason = "strategy_filter:" + ",".join(_filter_result["filters_failed"])
+            _emit_audit("skipped", _reason, kelly_result, gate_result)
+            return SignalResult(
+                tradeable=False,
+                direction=direction,
+                p_long=p_long,
+                p_bet=p_bet,
+                kelly_result=kelly_result,
+                regime=regime,
+                gate_result=gate_result,
+                skip_reason=_reason,
+            )
+
+        # Apply regime position scalar to Kelly notional (AFML Ch.17)
+        _regime_scalar = float(_filter_result.get("scalar", 1.0))
+        if _regime_scalar < 1.0 and _regime_scalar > 0.0 and kelly_result is not None:
+            from dataclasses import replace as _dc_replace
+            kelly_result = _dc_replace(
+                kelly_result,
+                notional_usd=round(kelly_result.notional_usd * _regime_scalar, 4),
+                quantity=round(kelly_result.quantity * _regime_scalar, 8),
+            )
+
         self._log.info(
             "signal.tradeable",
             direction="long" if direction == 1 else "short",
             p_long=round(p_long, 4),
             p_bet=round(p_bet, 4),
             regime_state=regime_state,
-            notional_usd=round(notional, 2),
+            notional_usd=round(kelly_result.notional_usd, 2),
             kelly_fraction=round(kelly_result.adjusted_fraction, 4),
+            regime_scalar=round(_regime_scalar, 3),
+            hurst=round(_filter_result["details"].get("hurst", 0.5), 3),
         )
+
+        _emit_audit("opened", "", kelly_result, gate_result)
 
         return SignalResult(
             tradeable=True,
@@ -355,8 +459,7 @@ class SignalEngine:
         # VUL-SIGNAL-001: since_ts=0 caused a full table scan on every tick.
         # Compute a real cutoff aligned to the bars we actually need so the
         # (symbol, timeframe, ts ASC) index is used efficiently.
-        from datetime import datetime, timezone
-
+        # M-04: datetime already imported at module level — inline import removed.
         n_bars_needed = _MIN_BARS_FOR_SIGNAL + 200
         tf_seconds = TIMEFRAME_SECONDS.get(self._timeframe, 60)
         cutoff_ts = int(

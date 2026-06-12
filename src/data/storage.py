@@ -471,18 +471,18 @@ class StorageBackend:
         Temporarily lowers synchronous=NORMAL for bulk non-financial writes
         (bar upserts, equity snapshots) and restores FULL afterwards.
 
-        SCAN3-010: PRAGMA synchronous=FULL forces an fsync on every commit.
-        WAL mode already guarantees crash-recovery for uncommitted transactions,
-        so NORMAL durability is sufficient for time-series data that can be
-        re-fetched if lost. Financial records (insert_trade, update_trade_exit,
-        insert_audit_event) do NOT use this context — they keep FULL durability.
+        C-09: PRAGMA must be set INSIDE self._lock to prevent financial writes
+        (insert_trade, update_trade_exit) from accidentally executing under
+        NORMAL durability when a concurrent bulk write is in progress.
+        The lock is held for the full duration of the bulk write.
         """
         conn = self._require_conn()
-        await conn.execute("PRAGMA synchronous=NORMAL")
-        try:
-            yield
-        finally:
-            await conn.execute("PRAGMA synchronous=FULL")
+        async with self._lock:
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            try:
+                yield
+            finally:
+                await conn.execute("PRAGMA synchronous=FULL")
 
     # ------------------------------------------------------------------
     # Bars
@@ -503,20 +503,19 @@ class StorageBackend:
             )
             for b in bars
         ]
-        # SCAN3-010: bar upserts use NORMAL durability — re-fetchable from exchange
+        # C-09: _bulk_write_ctx now holds self._lock internally — no inner lock needed
         async with self._bulk_write_ctx():
-            async with self._lock:
-                cursor = await conn.executemany(
-                    """
-                    INSERT OR IGNORE INTO bars
-                      (symbol, timeframe, ts, open, high, low, close,
-                       volume, quote_volume, taker_buy_vol)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    rows,
-                )
-                await conn.commit()
-                inserted = cursor.rowcount if cursor.rowcount >= 0 else len(rows)
+            cursor = await conn.executemany(
+                """
+                INSERT OR IGNORE INTO bars
+                  (symbol, timeframe, ts, open, high, low, close,
+                   volume, quote_volume, taker_buy_vol)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                rows,
+            )
+            await conn.commit()
+            inserted = cursor.rowcount if cursor.rowcount >= 0 else len(rows)
         self._log.debug("bars.upserted", count=inserted, symbol=bars[0].symbol)
         return inserted
 
@@ -963,29 +962,28 @@ class StorageBackend:
     async def insert_equity(self, record: EquityRecord) -> None:
         """Insert a point-in-time equity snapshot."""
         conn = self._require_conn()
-        # SCAN3-010: equity snapshots use NORMAL durability — re-computable from trades
+        # C-09: _bulk_write_ctx now holds self._lock internally — no inner lock needed
         async with self._bulk_write_ctx():
-            async with self._lock:
-                await conn.execute(
-                    """
-                    INSERT OR REPLACE INTO equity_curve
-                      (ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,
-                       daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        record.ts,
-                        record.trading_mode,
-                        record.equity_usd,
-                        record.cash_usd,
-                        record.unrealized_pnl,
-                        record.daily_pnl_usd,
-                        record.daily_pnl_pct,
-                        record.peak_equity_usd,
-                        record.drawdown_pct,
-                    ),
-                )
-                await conn.commit()
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO equity_curve
+                  (ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,
+                   daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct)
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    record.ts,
+                    record.trading_mode,
+                    record.equity_usd,
+                    record.cash_usd,
+                    record.unrealized_pnl,
+                    record.daily_pnl_usd,
+                    record.daily_pnl_pct,
+                    record.peak_equity_usd,
+                    record.drawdown_pct,
+                ),
+            )
+            await conn.commit()
 
     async def fetch_equity_curve(
         self,
@@ -995,19 +993,20 @@ class StorageBackend:
     ) -> list[EquityRecord]:
         """Return equity snapshots in ascending time order."""
         conn = self._require_conn()
-        # Use fixed literal clause fragment — no user input interpolated
+        # C-06: use safe clause-list pattern — no f-string interpolation of any
+        # variable into the SQL text, even though ts_clause was previously
+        # a hardcoded literal (safe pattern prevents future injection).
+        clauses = ["trading_mode=?"]
         params: list[object] = [trading_mode]
         if since_ts is not None:
-            ts_clause = "AND ts>=?"
+            clauses.append("ts>=?")
             params.append(since_ts)
-        else:
-            ts_clause = ""
+        where_sql = "WHERE " + " AND ".join(clauses)
         params.append(limit)
         query = (
             "SELECT ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,"
             " daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct"
-            f" FROM equity_curve WHERE trading_mode=? {ts_clause}"
-            " ORDER BY ts ASC LIMIT ?"
+            f" FROM equity_curve {where_sql} ORDER BY ts ASC LIMIT ?"
         )
         async with conn.execute(query, params) as cur:
             rows = await cur.fetchall()
@@ -1123,13 +1122,13 @@ class StorageBackend:
         """Return row counts per table — used by API health endpoint."""
         conn = self._require_conn()
         counts: dict[str, object] = {}
+        # M-03: removed dead `if table not in _ALLOWED_TABLES` guard — the loop
+        # variable is drawn FROM _ALLOWED_TABLES so the condition was always False.
+        # The frozenset iteration already guarantees only whitelisted names reach SQL.
         for table in _ALLOWED_TABLES:
-            if table not in _ALLOWED_TABLES:
-                raise ValueError(f"Unexpected table name: {table!r}")
             async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:  # noqa: S608
                 row = await cur.fetchone()
             counts[table] = int(row[0]) if row else 0
-        # db_path intentionally omitted — leaks internal filesystem layout
         return counts
 
 

@@ -18,6 +18,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Union
@@ -40,6 +41,8 @@ from src.features.pipeline import build_feature_matrix
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.kelly import compute_win_loss_stats
+from src.diagnostics.runtime_monitor import get_monitor
+from src.diagnostics.signal_debugger import get_drift_monitor, get_degradation_tracker, run_pipeline_selftest
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -94,6 +97,7 @@ class Orchestrator:
 
         self._running: bool = False
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
+        self._last_tick_ts: dict[str, float] = {tf.value: 0.0 for tf in self._timeframes}
         self._stop_event: asyncio.Event = asyncio.Event()
         self._log = log.bind(component="orchestrator", symbol=self._symbol)
 
@@ -124,6 +128,24 @@ class Orchestrator:
                 starting_capital=self._cfg.starting_capital_usd,
             )
         await self._executor.initialize()
+
+        # ── Patch A: Runtime monitor + pipeline self-test ─────────────────
+        _mon = get_monitor()
+        _mon.register_probe("storage", self._storage.health_check)
+        for _tf in self._timeframes:
+            _tf_val = _tf.value
+            _mon.register_tick_source(
+                _tf_val,
+                lambda _k=_tf_val: self._last_tick_ts.get(_k, 0.0),
+            )
+        await _mon.start()
+        _selftest = run_pipeline_selftest()
+        if not _selftest["passed"]:
+            raise RuntimeError(
+                f"Pipeline self-test FAILED on startup: {_selftest['error']}"
+            )
+        self._log.info("orchestrator.selftest_passed", rows=_selftest.get("n_rows"))
+        # ──────────────────────────────────────────────────────────────────
 
         # Bootstrap bars — serialized (semaphore=1) to avoid exchange rate-limit bans.
         # Concurrent bootstrap across 3 timeframes generates burst fetches that exceed
@@ -227,6 +249,7 @@ class Orchestrator:
         """Flush state, close all subsystems, and shut down training executor."""
         if self._executor is not None:
             await self._executor.shutdown()
+        await get_monitor().stop()  # Patch B: clean monitor shutdown
         # Shut down training thread pool cleanly — wait for any in-flight training job
         self._train_executor.shutdown(wait=True)
         self._log.info("orchestrator.shutdown_complete")
@@ -284,6 +307,7 @@ class Orchestrator:
             return
 
         self._tick_counts[tf.value] += 1
+        self._last_tick_ts[tf.value] = time.monotonic()
 
         # Gather risk context from executor + storage
         daily_pnl = await executor.get_daily_pnl(self._symbol)
@@ -407,6 +431,10 @@ class Orchestrator:
                             timeframe=_tf,
                             error=err,
                         )
+                    # L-09: explicitly remove completed task to release references
+                    # to training data arrays held in the task's result/exception.
+                    if self._retrain_tasks.get(_tf) is t:
+                        del self._retrain_tasks[_tf]
                 task.add_done_callback(_retrain_done)
                 self._retrain_tasks[tf.value] = task
             else:

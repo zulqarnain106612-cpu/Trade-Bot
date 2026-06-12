@@ -464,6 +464,28 @@ class ModelTrainer:
         )
         elapsed = time.perf_counter() - t0
 
+        # M-07: guard against empty fold_metrics — np.mean([]) = nan → TypeError on round()
+        if not fold_metrics:
+            self._log.warning(
+                "trainer.cpcv.no_valid_folds",
+                n_samples=len(X),
+                action="returning failed TrainingResult — dataset too small for CPCV",
+            )
+            final_model = _build_xgb(self._xgb_cfg, scale_pos_weight=1.0)
+            final_model.fit(X, y, sample_weight=weights, verbose=False)
+            return TrainingResult(
+                model=final_model,
+                oos_sharpe=0.0,
+                max_drawdown=100.0,
+                n_trades=0,
+                accuracy=0.0,
+                precision=0.0,
+                recall=0.0,
+                f1=0.0,
+                live_gate_pass=False,
+                elapsed_s=round(elapsed, 2),
+            )
+
         oos_sharpe, max_dd = _oos_sharpe_and_drawdown(
             np.concatenate(all_oos_pred), np.concatenate(all_oos_ret)
         )
@@ -515,6 +537,31 @@ class ModelTrainer:
             live_gate_pass=live_gate,
             elapsed_s=result.elapsed_s,
         )
+
+        # Patch D: push training feature distribution to drift monitor so
+        # FeatureDriftMonitor has a baseline to compare live values against.
+        # Also update the degradation tracker with this run's OOS accuracy.
+        # Aronson (2006) Ch.6 — training baseline is ground truth for stationarity.
+        try:
+            from src.diagnostics.signal_debugger import (
+                get_drift_monitor,
+                get_degradation_tracker,
+            )
+            _X_df = fm.features[FEATURE_COLUMNS]
+            _dm = get_drift_monitor()
+            for col in FEATURE_COLUMNS:
+                if col in _X_df.columns:
+                    _dm.set_baseline(col, _X_df[col].dropna().tolist())
+            get_degradation_tracker().set_training_metrics(
+                accuracy=float(mean_acc),
+                f1=float(mean_f1),
+            )
+        except Exception as _diag_exc:
+            self._log.warning(
+                "trainer.drift_baseline_push_failed",
+                error=str(_diag_exc)[:200],
+            )
+
         return result
 
     # ------------------------------------------------------------------
@@ -587,6 +634,29 @@ class ModelTrainer:
             x_meta, meta_y, log_ret, weights, folds, model_name=MODEL_META_LABEL
         )
         elapsed = time.perf_counter() - t0
+
+        # M-07 (meta model): guard against empty fold_metrics
+        if not fold_metrics:
+            self._log.warning(
+                "trainer.cpcv.no_valid_folds",
+                model=MODEL_META_LABEL,
+                n_samples=len(x_meta),
+                action="returning failed TrainingResult — dataset too small for CPCV",
+            )
+            final_model = _build_xgb(self._xgb_cfg, scale_pos_weight=1.0)
+            final_model.fit(x_meta, meta_y, sample_weight=weights, verbose=False)
+            return TrainingResult(
+                model=final_model,
+                oos_sharpe=0.0,
+                max_drawdown=100.0,
+                n_trades=0,
+                accuracy=0.0,
+                precision=0.0,
+                recall=0.0,
+                f1=0.0,
+                live_gate_pass=False,
+                elapsed_s=round(elapsed, 2),
+            )
 
         oos_sharpe, max_dd = _oos_sharpe_and_drawdown(
             np.concatenate(all_oos_pred), np.concatenate(all_oos_ret)
@@ -797,6 +867,7 @@ class ModelTrainer:
         fold_metrics: list[FoldMetrics] = []
         all_oos_ret: list[np.ndarray] = []
         all_oos_pred: list[np.ndarray] = []
+        skipped_folds = 0
 
         for fold in folds:
             tr = fold.train_idx
@@ -804,8 +875,11 @@ class ModelTrainer:
 
             # Guard: both classes present in train
             if len(np.unique(y[tr])) < 2:
-                self._log.debug(
-                    "trainer.cpcv.skip_fold",
+                skipped_folds += 1
+                # M-10: promoted to WARNING — silent skipping at DEBUG degrades OOS
+                # estimate quality without alerting operators.
+                self._log.warning(
+                    "trainer.cpcv.skip_fold_imbalanced",
                     fold_id=fold.fold_id,
                     reason="single_class_in_train",
                 )
@@ -867,6 +941,18 @@ class ModelTrainer:
                 f1=round(f1, 3),
                 sharpe=round(fold_sharpe, 3),
             )
+
+        # M-10: fail-safe for excessive fold skipping — more than 30% skipped
+        # means the dataset has severe label imbalance; OOS metrics are unreliable.
+        if folds and skipped_folds / len(folds) > 0.30:
+            self._log.error(
+                "trainer.cpcv.excessive_fold_skipping",
+                skipped=skipped_folds,
+                total=len(folds),
+                action="live_gate_forced_fail — label imbalance too severe for reliable CPCV",
+            )
+            # Return empty metrics so caller's empty-fold guard fires live_gate=False
+            return [], [], []
 
         return fold_metrics, all_oos_ret, all_oos_pred
 

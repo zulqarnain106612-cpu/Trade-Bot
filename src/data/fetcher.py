@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, Awaitable, TypeVar
 
 import ccxt.async_support as ccxt
 import structlog
@@ -157,12 +157,15 @@ def _build_okx(cfg: OKXSettings) -> ccxt.okx:
 # ---------------------------------------------------------------------------
 
 
+_T = TypeVar("_T")
+
+
 async def _with_retry(
-    coro_factory: Any,
+    coro_factory: Callable[[], Awaitable[_T]],
     label: str,
     attempts: int = _RETRY_ATTEMPTS,
     base_delay: float = _RETRY_BASE_DELAY_S,
-) -> Any:
+) -> _T:
     """
     Execute an async callable with exponential-backoff retry.
 

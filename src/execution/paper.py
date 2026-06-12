@@ -34,7 +34,7 @@ from typing import Final
 
 import structlog
 
-from src.config import ExecutionMode, TradingMode, get_settings
+from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
@@ -256,7 +256,10 @@ class PaperExecutor(AbstractExecutor):
         current_price   : latest mark price for simulated fill
         """
         self._require_initialized()
-        mode = self._cfg.execution_mode
+        # H-15: read runtime_config (the live async-settable value) instead of
+        # self._cfg.execution_mode (frozen Settings snapshot from __init__).
+        # Without this, POST /execution-mode has no effect on actual trade routing.
+        mode = await runtime_config.get_execution_mode()
 
         if mode == ExecutionMode.AUTOMATIC:
             trade_id = await self._open_position_internal(
@@ -470,7 +473,24 @@ class PaperExecutor(AbstractExecutor):
             self._peak_equity = max(self._peak_equity, equity)
             self._drawdown_tracker.update(equity)
 
-        await self._snapshot_equity()
+            # C-03: capture snapshot values INSIDE the lock before releasing
+            snap_equity = equity
+            snap_cash = self._cash
+            snap_unrealized = total_unrealized
+            snap_daily_pnl = self._drawdown_tracker.daily_pnl_usd
+            snap_daily_pct = self._drawdown_tracker.daily_pnl_pct
+            snap_dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+            snap_peak = self._peak_equity
+
+        await self._snapshot_equity_with_values(
+            equity=snap_equity,
+            cash=snap_cash,
+            unrealized=snap_unrealized,
+            daily_pnl=snap_daily_pnl,
+            daily_pct=snap_daily_pct,
+            dd_pct=snap_dd_pct,
+            peak_equity=snap_peak,
+        )
         return total_unrealized
 
     # ------------------------------------------------------------------
@@ -505,7 +525,16 @@ class PaperExecutor(AbstractExecutor):
         return True
 
     def pending_approvals(self) -> list[dict[str, object]]:
-        """Return all unresolved approval requests as dicts for the API."""
+        """Return all unresolved approval requests as dicts for the API.
+        H-05: prune resolved entries older than 1 hour to prevent unbounded growth.
+        """
+        cutoff = time.monotonic() - 3600.0
+        to_prune = [
+            rid for rid, req in self._approval_queue.items()
+            if req.resolved and req.created_at < cutoff
+        ]
+        for rid in to_prune:
+            self._approval_queue.pop(rid, None)
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
 
     async def open_positions_safe(self) -> list[dict[str, object]]:
@@ -606,6 +635,14 @@ class PaperExecutor(AbstractExecutor):
             self._drawdown_tracker.reset_daily(equity)
         self._log.info("paper.daily_equity_reset", equity_usd=round(equity, 2))
         return equity
+
+    async def get_risk_snapshot(self) -> tuple[float, float, float]:
+        """C-08: Atomically return (equity_usd, starting_equity_usd, daily_pnl_usd)."""
+        async with self._lock:
+            equity = self._equity_usd()
+            start_eq = self._drawdown_tracker.daily_start_equity
+            daily_pnl = self._drawdown_tracker.daily_pnl_usd
+        return equity, start_eq, daily_pnl
 
     def position_count(self) -> int:
         return len(self._positions)

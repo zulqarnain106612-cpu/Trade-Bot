@@ -549,6 +549,19 @@ def build_feature_matrix(
     low = bars["low"].astype(np.float64)
     volume = bars["volume"].astype(np.float64)
 
+    # M-13: detect flat-price runs — >5% of bars with zero price delta indicates
+    # exchange halt, stale feed, or data gap. Features (frac-diff, vol-ratio,
+    # ATR) will be distorted; warn so the operator can investigate.
+    _flat_count = int((close.diff().abs() < 1e-10).sum())
+    if _flat_count > len(close) * 0.05:
+        log.warning(
+            "pipeline.flat_price_detected",
+            flat_bar_count=_flat_count,
+            pct=round(_flat_count / len(close) * 100, 1),
+            possible_cause="exchange_halt_or_stale_data_feed",
+            action="features_computed_but_signal_quality_degraded",
+        )
+
     log_ret = np.log(close / close.shift(1))
 
     # ------------------------------------------------------------------ #
@@ -718,9 +731,12 @@ def build_inference_features(
             vec = vec.copy()
             vec[COL_OFI] = float(live_ofi)
         if vec.isna().any():
-            log.debug(
-                "pipeline.inference_nan",
+            # H-12: promoted to WARNING — DEBUG is invisible in production and
+            # causes silent signal blackout that operators won't notice.
+            log.warning(
+                "pipeline.inference_nan_skip",
                 nan_features=vec[vec.isna()].index.tolist(),
+                action="signal_skipped — check history length vs feature window config",
             )
             return None
         return vec
@@ -785,9 +801,12 @@ def build_inference_features(
     )
 
     if vec.isna().any():
-        log.debug(
-            "pipeline.inference_nan",
+        # H-12: promoted to WARNING — DEBUG is invisible in production and
+        # causes silent signal blackout that operators won't notice.
+        log.warning(
+            "pipeline.inference_nan_skip",
             nan_features=vec[vec.isna()].index.tolist(),
+            action="signal_skipped — check history length vs feature window config",
         )
         return None
 

@@ -1,0 +1,56 @@
+rules:
+
+  - id: no-fstring-sql
+    patterns:
+      - pattern: $CONN.execute(f"...", ...)
+      - pattern: $CONN.execute(f'...', ...)
+    message: "f-string SQL — injection risk. Use parameterised queries with tuple params."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021"
+
+  - id: no-blocking-sleep-in-async
+    patterns:
+      - pattern: |
+          async def $FUNC(...):
+            ...
+            time.sleep(...)
+            ...
+    message: "time.sleep() in async function. Use: await asyncio.sleep()"
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-400"
+
+  - id: no-print-in-src
+    patterns:
+      - pattern: print(...)
+    paths:
+      include: [src/]
+    message: "print() in production code. Use structlog."
+    languages: [python]
+    severity: WARNING
+
+  - id: no-md5-sha1
+    patterns:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: "MD5/SHA1 weak for security. Use hashlib.sha256()."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-327"
+
+  - id: hardcoded-credential
+    patterns:
+      - pattern-regex: '(?i)(api_key|api_secret|password|token)\s*=\s*"[a-zA-Z0-9+/]{20,}"'
+    paths:
+      include:
+        - src/
+    message: "Possible hardcoded credential. Use get_settings()."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798"

@@ -1,0 +1,63 @@
+version: 0.1
+
+# Trunk — meta-linter + auto-fix orchestrator
+# https://docs.trunk.io/
+# Install : curl https://get.trunk.io -fsSL | bash
+# All checks: trunk check
+# Auto-fix:   trunk fmt
+# CI mode:    trunk check --ci
+
+cli:
+  version: 1.22.2
+
+plugins:
+  sources:
+    - id: trunk
+      ref: v1.6.2
+      uri: https://github.com/trunk-io/plugins
+
+lint:
+  enabled:
+    # Python
+    - ruff@0.4.4
+    - mypy@1.10.0
+    - bandit@1.7.8
+    - pyright@1.1.360
+    - pip-audit@2.7.3
+    # Secrets
+    - detect-secrets@1.5.0
+    - trufflehog@3.78.0
+    # General
+    - actionlint@1.7.1
+    - yamllint@1.35.1
+    - prettier@3.2.5
+    - eslint@8.57.0
+
+  ignore:
+    - linters: [ALL]
+      paths:
+        - frontend/node_modules/**
+        - .venv/**
+        - "**/__pycache__/**"
+        - "**/*.pyc"
+        - dist/**
+
+  threshold: HIGH
+
+  auto_fix:
+    enabled: true
+    linters: [ruff, prettier]
+
+actions:
+  enabled:
+    - trunk-announce
+    - trunk-check-pre-push
+    - trunk-fmt-pre-commit
+
+  definitions:
+    - id: trunk-check-pre-push
+      triggers:
+        - git_hooks: [pre-push]
+    - id: trunk-fmt-pre-commit
+      triggers:
+        - git_hooks: [pre-commit]

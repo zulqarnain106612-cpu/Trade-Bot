@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "context": {
+    "files": [
+      ".github/copilot-instructions.md",
+      ".claude/CLAUDE.md",
+      "src/config.py",
+      "src/features/pipeline.py",
+      "src/engine/signal_engine.py",
+      "src/risk/gates.py",
+      "src/risk/kelly.py",
+      "src/strategies/filters.py",
+      "src/diagnostics/trade_auditor.py"
+    ],
+    "description": "Async Python algorithmic trading bot. FastAPI + XGBoost + HMM. Security-critical — manages real money."
+  },
+  "skills": [
+    "python",
+    "asyncio",
+    "fastapi",
+    "security",
+    "finance"
+  ]
+}
