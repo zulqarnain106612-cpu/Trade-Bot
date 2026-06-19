@@ -237,12 +237,18 @@ class TestComputeWinLossStats:
         assert abs(_al - 1.0) < 1e-9
 
     def test_correct_win_probability(self):
-        pnl = [10.0] * 6 + [-5.0] * 4
+        # VF-031: compute_win_loss_stats requires >=50 trades before
+        # trusting the sample (NEW-010 raised the threshold from 10);
+        # this test previously supplied only 10 trades, so it silently
+        # exercised the conservative-default fallback (0.5, 1.0, 1.0)
+        # instead of the real computation it claims to test. Scale to
+        # 50 trades at the same 6:4 win:loss ratio.
+        pnl = [10.0] * 30 + [-5.0] * 20
         wp, _aw, _al = compute_win_loss_stats(pnl)
         assert abs(wp - 0.6) < 1e-9
 
     def test_correct_averages(self):
-        pnl = [10.0] * 6 + [-5.0] * 4
+        pnl = [10.0] * 30 + [-5.0] * 20
         wp, aw, al = compute_win_loss_stats(pnl)
         assert abs(aw - 10.0) < 1e-9
         assert abs(al - 5.0) < 1e-9

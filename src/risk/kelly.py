@@ -105,9 +105,9 @@ def kelly_fraction(
         raise ValueError(
             f"win_probability must be in (0, 1), got {win_probability}"
         )
-    if win_loss_ratio <= 0.0:
+    if win_loss_ratio <= 0.0 or not math.isfinite(win_loss_ratio):
         raise ValueError(
-            f"win_loss_ratio must be > 0, got {win_loss_ratio}"
+            f"win_loss_ratio must be a finite number > 0, got {win_loss_ratio}"
         )
 
     p = win_probability
@@ -150,6 +150,15 @@ def half_kelly_fraction(
 
     mult = multiplier if multiplier is not None else cfg.kelly_multiplier
     cap = ceiling if ceiling is not None else cfg.kelly_ceiling
+
+    # VF-025: explicit multiplier/ceiling overrides had no bounds check.
+    # No current caller passes these, but the public signature otherwise
+    # lets any future caller silently exceed the spec'd half-Kelly
+    # multiplier / 0.25 ceiling — CLAUDE.md: "Risk Gates — never weaken."
+    if not (0.0 <= mult <= 1.0):
+        raise ValueError(f"multiplier must be in [0, 1], got {mult}")
+    if not (0.0 <= cap <= 1.0):
+        raise ValueError(f"ceiling must be in [0, 1], got {cap}")
 
     raw = kelly_fraction(win_probability, win_loss_ratio)
     adjusted = raw * mult
@@ -208,6 +217,28 @@ def kelly_from_model_probs(
     if cfg is None:
         cfg = get_settings().risk
 
+    # VF-026: direction silently fell through to the "short" branch for
+    # any value other than 1 (e.g. a bug passing -1 or 2) — same defect
+    # class already fixed in fetcher.py (VF-014, unknown exchange_id).
+    if direction not in (0, 1):
+        raise ValueError(f"direction must be 0 (short) or 1 (long), got {direction}")
+
+    # VF-027: a non-finite p_long (corrupted/NaN model output) previously
+    # survived `max(0.01, min(0.99, win_prob))` unchanged in *effect* —
+    # Python's min(0.99, nan) returns 0.99 because comparisons against NaN
+    # are always False, so NaN was silently coerced to *maximum*
+    # confidence (0.99) rather than triggering a fail-safe skip — the
+    # opposite of this project's fail-safe posture. Reject explicitly and
+    # skip the trade instead of sizing a position on garbage input.
+    if not math.isfinite(p_long):
+        log.error(
+            "kelly.invalid_p_long",
+            p_long=p_long,
+            direction=direction,
+            action="returning zero fraction — skip trade, model output non-finite",
+        )
+        return 0.0, 0.0, False
+
     win_prob = p_long if direction == 1 else (1.0 - p_long)
 
     # Guard edge cases from model output noise
@@ -217,8 +248,18 @@ def kelly_from_model_probs(
     if avg_win_usd > 0.0 and avg_loss_usd > 0.0:
         win_loss_ratio = avg_win_usd / avg_loss_usd
 
-    # Floor win_loss_ratio at 0.1 to prevent division instability
-    win_loss_ratio = max(0.1, win_loss_ratio)
+    # VF-028: an extreme avg_win_usd / near-zero avg_loss_usd combination
+    # (a data bug, not a real trade) can overflow float64 to `inf`, which
+    # then produces `inf/inf = nan` inside kelly_fraction()'s formula and
+    # — via the same NaN-vs-literal artifact as VF-027 — would now raise
+    # instead of silently returning max aggression, since kelly_fraction
+    # was hardened above. Clamp here so a stats-derived ratio can never
+    # propagate a non-finite value into the formula in the first place.
+    if not math.isfinite(win_loss_ratio):
+        win_loss_ratio = 1.0
+    # Floor win_loss_ratio at 0.1 to prevent division instability; ceiling
+    # at 1000 to prevent float overflow from a corrupted stats input.
+    win_loss_ratio = max(0.1, min(win_loss_ratio, 1000.0))
 
     return half_kelly_fraction(
         win_probability=win_prob,
@@ -270,15 +311,34 @@ def size_position(
     ------
     ValueError : if capital_usd or entry_price are non-positive.
     """
-    if capital_usd <= 0.0:
-        raise ValueError(f"capital_usd must be > 0, got {capital_usd}")
-    if entry_price <= 0.0:
-        raise ValueError(f"entry_price must be > 0, got {entry_price}")
+    # VF-029: `<= 0.0` does not catch NaN (NaN comparisons are always
+    # False in IEEE-754), so a NaN capital_usd/entry_price previously
+    # passed this guard silently instead of raising — same defect class
+    # as VF-024/VF-027/VF-028. Explicit finiteness check closes the gap.
+    if not math.isfinite(capital_usd) or capital_usd <= 0.0:
+        raise ValueError(f"capital_usd must be a finite number > 0, got {capital_usd}")
+    if not math.isfinite(entry_price) or entry_price <= 0.0:
+        raise ValueError(f"entry_price must be a finite number > 0, got {entry_price}")
 
     if cfg is None:
         cfg = get_settings().risk
 
-    max_pct = (max_position_pct or cfg.max_position_size_pct) / 100.0
+    # VF-030: `max_position_pct or cfg.max_position_size_pct` treated an
+    # explicit `max_position_pct=0.0` (a legitimate "no new positions"
+    # call) as falsy and silently fell back to the config default —
+    # the opposite of the caller's intent. Use the same explicit
+    # `is not None` pattern already used for multiplier/ceiling in
+    # half_kelly_fraction() above. Also bound the result so a future
+    # caller-supplied override can never weaken or invert the
+    # position-size risk gate (CLAUDE.md: "Risk Gates — never weaken").
+    max_position_pct_resolved = (
+        max_position_pct if max_position_pct is not None else cfg.max_position_size_pct
+    )
+    if not (0.0 <= max_position_pct_resolved <= 100.0):
+        raise ValueError(
+            f"max_position_pct must be in [0, 100], got {max_position_pct_resolved}"
+        )
+    max_pct = max_position_pct_resolved / 100.0
 
     # Enforce max position size cap on top of Kelly ceiling
     raw_kelly = adjusted_fraction

@@ -1,0 +1,43 @@
+# Model artifacts
+models/
+*.pkl
+*.joblib
+*.json.gz
+
+# Data / DB
+*.db
+*.sqlite
+*.sqlite3
+data/raw/
+data/cache/
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+*.egg-info/
+
+# Logs / output
+logs/
+*.log
+
+# Env / secrets
+.env
+.env.*
+
+# Tests — load only when task is explicitly about tests
+tests/
+
+# CI / tooling
+.github/
+.pre-commit-config.yaml

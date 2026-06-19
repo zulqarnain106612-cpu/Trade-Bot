@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Final
 import hashlib
 import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
+import io
 import json
+import os
 
 import joblib
 import numpy as np
@@ -59,16 +61,48 @@ _META_FILENAME: Final[str] = "xgb_meta_{symbol}_{timeframe}.joblib"
 _MANIFEST_SUFFIX: Final[str] = ".sha256"
 
 
-def _write_manifest(path: Path) -> None:
-    """Write a SHA-256 manifest file alongside a model file."""
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest = {"file": path.name, "sha256": digest}
-    path.with_suffix(_MANIFEST_SUFFIX).write_text(json.dumps(manifest))
-
-
-def _verify_manifest(path: Path) -> None:
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
     """
-    Verify a model file against its SHA-256 manifest.
+    Write bytes to `path` atomically via temp-file + os.replace.
+
+    VF-019: joblib.dump() / write_text() previously wrote directly to the
+    target path. A concurrent reader (e.g. signal_engine.swap_models()
+    hot-loading a new model while a retrain job is mid-save) could observe
+    a partially-written file — truncated pickle, or a manifest whose JSON
+    is half-flushed. os.replace() is atomic on the same filesystem on both
+    POSIX and Windows, so readers only ever see the old complete file or
+    the new complete file, never an intermediate state.
+    """
+    tmp_path = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    tmp_path.write_bytes(data)
+    os.replace(tmp_path, path)
+
+
+def _write_manifest(path: Path, data: bytes | None = None) -> None:
+    """
+    Write a SHA-256 manifest file alongside a model file.
+
+    `data` should be the exact bytes already written to `path` so the file
+    is not re-read from disk; falls back to reading `path` if omitted.
+    """
+    digest = hashlib.sha256(data if data is not None else path.read_bytes()).hexdigest()
+    manifest = {"file": path.name, "sha256": digest}
+    manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
+    _atomic_write_bytes(manifest_path, json.dumps(manifest).encode("utf-8"))
+
+
+def _verify_manifest(path: Path) -> bytes:
+    """
+    Verify a model file against its SHA-256 manifest and return its bytes.
+
+    VF-020: the file is read exactly once and the same byte buffer is used
+    for both hash verification and (by the caller) deserialization. The
+    previous implementation verified the hash via `path.read_bytes()` and
+    then had the caller separately re-read the file via `joblib.load(path)`
+    — a TOCTOU window in which anything with write access to the model
+    directory could swap the file between the two reads and bypass the
+    integrity check entirely. Returning the verified bytes here closes
+    that window: whatever was hashed is exactly what gets deserialized.
 
     Raises RuntimeError if the manifest is missing or the hash mismatches,
     preventing tampered or poisoned model files from being loaded.
@@ -81,12 +115,14 @@ def _verify_manifest(path: Path) -> None:
         )
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")
-    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    data = path.read_bytes()
+    actual = hashlib.sha256(data).hexdigest()
     if not hmac_compare(actual, expected):
         raise RuntimeError(
             f"Model file integrity check FAILED for {path}. "
             "The file may have been tampered with. Re-train to replace it."
         )
+    return data
 
 
 def hmac_compare(a: str, b: str) -> bool:
@@ -201,6 +237,23 @@ def build_cpcv_folds(
     List of CPCVFold objects.
     """
     from itertools import combinations
+
+    # VF-023: with n_splits > n_samples (or n_splits <= 0), `_build_groups`
+    # produces empty groups (group_size = n_samples // n_splits == 0), and
+    # `_build_train_indices` calls `.min()`/`.max()` on those empty arrays
+    # before its length check — raising an unhandled
+    # "zero-size array to reduction operation minimum" ValueError deep in
+    # the call stack. A small/new-listing symbol with too few bootstrapped
+    # bars would crash the retrain job with a cryptic error instead of a
+    # clear one. Fail fast here with an actionable message.
+    if n_splits < 2:
+        raise ValueError(f"build_cpcv_folds: n_splits must be >= 2, got {n_splits}")
+    if n_samples < n_splits:
+        raise ValueError(
+            f"build_cpcv_folds: n_samples={n_samples} < n_splits={n_splits} — "
+            "every CPCV group must contain at least one sample. Provide more "
+            "historical bars or reduce cpcv_n_splits in FeatureSettings."
+        )
 
     groups = _build_groups(n_samples, n_splits)
     embargo_size = max(1, int(n_samples * embargo_pct))
@@ -339,17 +392,32 @@ def _oos_sharpe_and_drawdown(
     strat_ret = direction * log_returns
 
     mu = float(np.mean(strat_ret))
-    sigma = float(np.std(strat_ret, ddof=1))
-    if abs(sigma) < 1e-10:
+    sigma = float(np.std(strat_ret, ddof=1)) if len(strat_ret) > 1 else 0.0
+    # VF-022: np.std on a degenerate fold (e.g. ddof=1 with len<=1, or a
+    # NaN strat_ret from upstream) can return NaN. `abs(nan) < 1e-10` is
+    # False (NaN comparisons never short-circuit true), so the original
+    # guard let NaN fall through to the else-branch and silently propagate
+    # into oos_sharpe — a metric that gets persisted via ModelMetricsRecord
+    # and exposed over the API. NaN is not valid JSON and would break
+    # strict downstream parsers; explicitly check finiteness first.
+    if not np.isfinite(sigma) or abs(sigma) < 1e-10:
         sharpe = 0.0
     else:
         sharpe = (mu / sigma) * np.sqrt(len(strat_ret))
+    if not np.isfinite(sharpe):
+        sharpe = 0.0
 
     # Max drawdown of cumulative equity curve
     cum = np.cumprod(1.0 + strat_ret)
     running_max = np.maximum.accumulate(cum)
-    dd = (cum - running_max) / running_max
-    max_dd = float(abs(dd.min()) * 100.0)
+    # Guard against running_max <= 0 (e.g. a single-bar strat_ret <= -100%,
+    # which is possible if upstream log_returns are corrupted/extreme):
+    # dividing by zero/negative would otherwise yield inf/nan that silently
+    # poisons the persisted live-gate drawdown metric.
+    safe_running_max = np.where(running_max > 1e-12, running_max, 1e-12)
+    dd = (cum - running_max) / safe_running_max
+    dd = dd[np.isfinite(dd)]
+    max_dd = float(abs(dd.min()) * 100.0) if dd.size else 100.0
 
     return sharpe, max_dd
 
@@ -796,17 +864,21 @@ class ModelTrainer:
 
         joblib.dump(
             {"model": direction_model, "version": version, "symbol": self._symbol, "timeframe": tf},
-            dir_path,
+            dir_buf := io.BytesIO(),
             compress=3,
         )
-        _write_manifest(dir_path)
+        dir_data = dir_buf.getvalue()
+        _atomic_write_bytes(dir_path, dir_data)
+        _write_manifest(dir_path, dir_data)
 
         joblib.dump(
             {"model": meta_model, "version": version, "symbol": self._symbol, "timeframe": tf},
-            meta_path,
+            meta_buf := io.BytesIO(),
             compress=3,
         )
-        _write_manifest(meta_path)
+        meta_data = meta_buf.getvalue()
+        _atomic_write_bytes(meta_path, meta_data)
+        _write_manifest(meta_path, meta_data)
 
         self._log.info(
             "trainer.saved",
@@ -828,8 +900,8 @@ class ModelTrainer:
         )
         if not path.exists():
             raise FileNotFoundError(f"No direction model at {path}")
-        _verify_manifest(path)
-        return joblib.load(path)["model"]
+        data = _verify_manifest(path)
+        return joblib.load(io.BytesIO(data))["model"]
 
     @staticmethod
     def load_meta(
@@ -843,8 +915,8 @@ class ModelTrainer:
         )
         if not path.exists():
             raise FileNotFoundError(f"No meta-label model at {path}")
-        _verify_manifest(path)
-        return joblib.load(path)["model"]
+        data = _verify_manifest(path)
+        return joblib.load(io.BytesIO(data))["model"]
 
     # ------------------------------------------------------------------
     # Internal
@@ -894,13 +966,18 @@ class ModelTrainer:
             val_inner = tr[inner_split:]
 
             if len(val_inner) < 5 or len(np.unique(y[val_inner])) < 2:
-                # Not enough for eval set — disable early stopping for this fold
-                model.set_params(early_stopping_rounds=None)
-                model.fit(
+                # Not enough for eval set — fit on full train fold without early stopping.
+                # VF-021: set early_stopping_rounds=None via set_params is not reliably
+                # honoured across all XGBoost versions; explicitly rebuild without it.
+                from copy import deepcopy as _deepcopy
+                model_no_es = _deepcopy(model)
+                model_no_es.set_params(early_stopping_rounds=None)
+                model_no_es.fit(
                     X[tr], y[tr],
                     sample_weight=weights[tr],
                     verbose=False,
                 )
+                model = model_no_es
             else:
                 model.fit(
                     X[tr_inner], y[tr_inner],

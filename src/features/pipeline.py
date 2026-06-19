@@ -403,25 +403,42 @@ def triple_barrier_labels(
     vols = daily_vol.to_numpy(dtype=np.float64)
     labels = np.full(n, np.nan, dtype=np.float64)
 
-    for t in range(n):
-        vol_t = vols[t]
-        if np.isnan(vol_t) or abs(vol_t) < 1e-10:
-            continue
-        entry = prices[t]
-        upper = entry * (1.0 + pt_multiplier * vol_t)
-        lower = entry * (1.0 - sl_multiplier * vol_t)
-        horizon = min(t + max_holding, n - 1)
+    # VF-015: Replace O(n × max_holding) Python double-loop with a vectorized
+    # approach.  For each look-ahead offset k in [1, max_holding]:
+    #   - build shifted price arrays (np.roll / slicing)
+    #   - compare against per-row upper/lower barriers
+    #   - record the FIRST offset at which a barrier is hit
+    # Total work: max_holding array passes over n elements — all in NumPy C.
+    # At n=10 000 and max_holding=60 this is ~100× faster than the Python loop.
 
-        label = -1  # default: time exit
-        for k in range(t + 1, horizon + 1):
-            p = prices[k]
-            if p >= upper:
-                label = 1
-                break
-            if p <= lower:
-                label = 0
-                break
-        labels[t] = label
+    valid_mask = ~np.isnan(vols) & (np.abs(vols) >= 1e-10)
+    entry_prices = prices.copy()
+    upper = np.where(valid_mask, entry_prices * (1.0 + pt_multiplier * vols), np.nan)
+    lower = np.where(valid_mask, entry_prices * (1.0 - sl_multiplier * vols), np.nan)
+
+    # Initialize all valid rows as time-exit (-1)
+    labels[valid_mask] = -1.0
+
+    # first_hit[t] tracks the earliest offset k at which a barrier was hit.
+    # We iterate k from 1 to max_holding and update only rows not yet resolved.
+    resolved = ~valid_mask  # rows already finalized (invalid or already hit)
+
+    for k in range(1, max_holding + 1):
+        if resolved.all():
+            break
+        # future_prices[t] = prices[t + k], with NaN where t + k >= n
+        future_idx = np.arange(n) + k
+        in_bounds = future_idx < n
+        future_prices = np.where(
+            in_bounds,
+            prices[np.minimum(future_idx, n - 1)],
+            np.nan,
+        )
+        hit_upper = in_bounds & ~resolved & (future_prices >= upper)
+        hit_lower = in_bounds & ~resolved & (future_prices <= lower)
+        labels[hit_upper] = 1.0
+        labels[hit_lower] = 0.0
+        resolved |= hit_upper | hit_lower
 
     return pd.Series(labels, index=close.index, dtype=np.float64).rename(COL_LABEL)
 
@@ -537,6 +554,9 @@ def build_feature_matrix(
         cfg.atr_window,
         cfg.sharpe_window,
         cfg.volume_zscore_window,
+        # VF-016: include the frac-diff weight window so the min-rows guard
+        # accounts for the 200-bar NaN burn-in, preventing silent row loss.
+        _FRAC_DIFF_MAX_WINDOW,
         cfg.triple_barrier_max_holding_bars + 63,  # 63 = EWMA vol warmup
     )
     if n_input < min_required:

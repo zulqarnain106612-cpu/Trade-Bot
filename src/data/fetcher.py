@@ -18,6 +18,7 @@ Authority sources:
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Awaitable, TypeVar
 
@@ -120,9 +121,10 @@ class OrderBookSnapshot:
 
 def _build_binance(cfg: BinanceSettings) -> ccxt.binance:
     """Construct async ccxt Binance instance from settings."""
+    # VF-013: Do NOT put api_key/secret in the options dict passed to the
+    # constructor — if ccxt logs or repr()s options on an init error, credentials
+    # appear in logs.  Set them on the instance after construction instead.
     options: dict[str, Any] = {
-        "apiKey": cfg.api_key,
-        "secret": cfg.api_secret,
         "enableRateLimit": True,
         "options": {
             "defaultType": "spot",
@@ -132,15 +134,15 @@ def _build_binance(cfg: BinanceSettings) -> ccxt.binance:
     if cfg.testnet:
         options["options"]["sandboxMode"] = True
     exchange: ccxt.binance = ccxt.binance(options)
+    exchange.apiKey = cfg.api_key
+    exchange.secret = cfg.api_secret
     return exchange
 
 
 def _build_okx(cfg: OKXSettings) -> ccxt.okx:
     """Construct async ccxt OKX instance from settings."""
+    # VF-013: Same credential-exposure fix as _build_binance above.
     options: dict[str, Any] = {
-        "apiKey": cfg.api_key,
-        "secret": cfg.api_secret,
-        "password": cfg.passphrase,
         "enableRateLimit": True,
         "options": {
             "defaultType": "spot",
@@ -149,6 +151,9 @@ def _build_okx(cfg: OKXSettings) -> ccxt.okx:
     if cfg.testnet:
         options["options"]["sandboxMode"] = True
     exchange: ccxt.okx = ccxt.okx(options)
+    exchange.apiKey = cfg.api_key
+    exchange.secret = cfg.api_secret
+    exchange.password = cfg.passphrase
     return exchange
 
 
@@ -180,6 +185,17 @@ async def _with_retry(
             log.error("fetch.auth_or_invalid", label=label, error=str(exc))
             raise
         except ccxt.RateLimitExceeded as exc:
+            # VF-011: On the final attempt raise the original exception so callers
+            # receive ccxt.RateLimitExceeded (not a generic RuntimeError from the
+            # terminal fallback), consistent with the NetworkError branch below.
+            if attempt == attempts:
+                log.error(
+                    "fetch.max_retries_rate_limit",
+                    label=label,
+                    attempts=attempts,
+                    error=str(exc),
+                )
+                raise
             wait = delay * 2
             log.warning(
                 "fetch.rate_limited",
@@ -242,9 +258,20 @@ class MarketDataFetcher:
         self._binance: ccxt.binance | None = None
         self._okx: ccxt.okx | None = None
         self._log = log.bind(component="fetcher")
-        # SCAN2-001: serialise all gap-fill calls so concurrent timeframe fetches
-        # never burst Binance's 1200 weight/min limit simultaneously.
-        self._gap_fill_sem: asyncio.Semaphore = asyncio.Semaphore(1)
+        # VF-012: asyncio.Semaphore() at __init__ time raises DeprecationWarning
+        # on Python 3.10+ when no event loop is running (same pattern as VF-004/VF-011).
+        # Use double-checked locking with a threading.Lock sentinel for one-time creation.
+        self._sem_init_guard: threading.Lock = threading.Lock()
+        self._gap_fill_sem: asyncio.Semaphore | None = None
+
+    def _get_sem(self) -> asyncio.Semaphore:
+        """Return (lazily-created) asyncio.Semaphore — thread-safe one-time init."""
+        if self._gap_fill_sem is not None:
+            return self._gap_fill_sem
+        with self._sem_init_guard:
+            if self._gap_fill_sem is None:
+                self._gap_fill_sem = asyncio.Semaphore(1)
+        return self._gap_fill_sem  # type: ignore[return-value]
 
     async def initialize(self) -> None:
         """Build ccxt exchange instances and load markets."""
@@ -444,9 +471,16 @@ class MarketDataFetcher:
         if exchange_id == EXCHANGE_OKX:
             exchange = self._require_okx()
             label = f"okx.orderbook.{symbol}"
-        else:
+        elif exchange_id == EXCHANGE_BINANCE:
             exchange = self._require_binance()
             label = f"binance.orderbook.{symbol}"
+        else:
+            # VF-014: Reject unknown exchange IDs explicitly — previously any
+            # unrecognised string silently fell through to Binance.
+            raise ValueError(
+                f"Unknown exchange_id {exchange_id!r}. "
+                f"Must be {EXCHANGE_BINANCE!r} or {EXCHANGE_OKX!r}."
+            )
 
         raw: dict[str, Any] = await _with_retry(
             lambda: exchange.fetch_order_book(symbol, limit=depth),
@@ -482,7 +516,7 @@ class MarketDataFetcher:
         """
         results: dict[str, int] = {}
         for tf in timeframes:
-            async with self._gap_fill_sem:
+            async with self._get_sem():
                 try:
                     results[tf.value] = await self.gap_fill(symbol, tf)
                 except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
@@ -539,9 +573,14 @@ class MarketDataFetcher:
         if exchange_id == EXCHANGE_OKX:
             exchange = self._require_okx()
             label = f"okx.ticker.{symbol}"
-        else:
+        elif exchange_id == EXCHANGE_BINANCE:
             exchange = self._require_binance()
             label = f"binance.ticker.{symbol}"
+        else:
+            raise ValueError(
+                f"Unknown exchange_id {exchange_id!r}. "
+                f"Must be {EXCHANGE_BINANCE!r} or {EXCHANGE_OKX!r}."
+            )
 
         ticker: dict[str, Any] = await _with_retry(
             lambda: exchange.fetch_ticker(symbol),

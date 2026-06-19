@@ -1,120 +1,112 @@
-# Trade-Bot — Claude Project Configuration
+# CLAUDE.md — Trade-Bot
 
-## Project Identity
-Async Python algorithmic trading bot. FastAPI backend, XGBoost direction model,
-HMM regime detector, paper + live (ccxt) execution, SQLite/aiosqlite storage.
+## Identity
+Production algorithmic trading bot — real money. Python 3.11+. Binance primary, OKX secondary.
+
+## Absolute Code Rules
+- Every function: fully implemented, typed, structlog, specific exceptions only
+- No stubs / pass / NotImplementedError / TODO / FIXME / placeholder / demo / minimal / partial
+- No print() — structlog only
+- No bare except — name the exception type
+- No mutable default arguments
+- No global state outside src/config.py
+- No .ipynb anywhere
+- Only README.md allowed as .md
+
+## File Reading Protocol (TOKEN GATE)
+**Before reading any file, check this table. Read ONLY what the task requires.**
+
+| Task | Read these files | Skip everything else |
+|---|---|---|
+| Fix bug in X | only the file containing X | all others |
+| Add feature to module Y | Y + its direct imports | transitive deps |
+| Write new file | CLAUDE.md only | all src/ |
+| Debug signal | signal_engine.py + pipeline.py | execution/, api/, frontend/ |
+| Debug execution | paper.py or live.py + gates.py | features/, models/, regime/ |
+| Debug risk | kelly.py + gates.py | all others |
+| Retrain / model | trainer.py + pipeline.py | execution/, api/, frontend/ |
+| API endpoint | api/main.py + orchestrator.py | features/, models/, regime/ |
+| Frontend | frontend/src/ only | all src/ |
+| Tests | test file + the module it tests | all others |
+
+**Never load the full project. One file = one task scope.**
+
+## Architecture (reference — do not re-read src/ to verify)
+
+### Signal Flow
+```
+fetcher → storage → pipeline → detector → trainer → signal_engine → orchestrator → executor
+```
+
+### Module Contracts (signatures only)
+| Module | Key exports |
+|---|---|
+| src/config.py | Settings, Timeframe, TradingMode, TIMEFRAME_SECONDS |
+| src/data/storage.py | StorageBackend, RegimeSnapshotRecord, BarRecord, TradeRecord |
+| src/data/fetcher.py | MarketDataFetcher.bootstrap_history(), fetch_ticker_price() |
+| src/features/pipeline.py | build_feature_matrix(bars) → FeatureMatrix |
+| src/regime/detector.py | RegimeDetector.fit(features), .predict(features) → RegimeResult |
+| src/models/trainer.py | ModelTrainer.train_direction(fm), .train_meta_label(fm, model) |
+| src/risk/kelly.py | compute_kelly_size(), compute_win_loss_stats() |
+| src/risk/gates.py | RiskGates.check_all() → GateResult |
+| src/execution/paper.py | PaperExecutor.submit_signal(), .get_daily_pnl(), .get_consecutive_losses() |
+| src/execution/live.py | LiveExecutor (same interface as PaperExecutor) |
+| src/engine/signal_engine.py | SignalEngine.tick() → SignalResult, .swap_models() |
+| src/engine/orchestrator.py | Orchestrator.startup(), .run(), .stop(), .shutdown() |
+| src/api/main.py | FastAPI app, WebSocket /ws, lifespan handler |
+
+## Signal Architecture
+| Component | Choice |
+|---|---|
+| Regime | GaussianHMM 3-state: ranging / trending / volatile |
+| Features | frac-diff d=0.4, VWAP deviation, OFI, realized-vol ratio, ATR momentum, rolling Sharpe, volume z-score |
+| Primary model | XGBoost classifier — direction (long/short) |
+| Meta-label gate | XGBoost — gates whether to bet at all |
+| Labels | Triple-barrier: profit-taking · stop-loss · time-exit (López de Prado Ch.3) |
+| Validation | CPCV only — never standard k-fold (López de Prado Ch.7) |
+| Sizing | Half-Kelly: multiplier=0.5, ceiling=0.25 (Kelly 1956) |
+
+## Risk Gates (never weaken)
+| Gate | Limit |
+|---|---|
+| Daily drawdown halt | 2% |
+| Consecutive loss halt | 3 trades |
+| Regime gate | no new positions when state = volatile |
+| Max position size | 5% of capital |
+| Default mode | paper — live requires TRADING_MODE=live in .env |
+| Live gate (per TF) | OOS Sharpe > 1.5, max DD < 15%, 500+ trades |
+
+## Timeframes
+| TF | Bars | Mode |
+|---|---|---|
+| scalping | 1m | paper |
+| intraday | 15m | primary real-money |
+| swing | 4h | paper |
+
+## Execution Modes
+- AUTOMATIC — no approvals
+- RESTRICTED — autonomous below notional limit, approval above, auto-skip on timeout
+- MANUAL — every trade waits for approval
 
 ## Stack
-- Python 3.11, FastAPI, uvicorn, aiosqlite, ccxt, xgboost, hmmlearn
-- structlog for all logging — NEVER use print() or logging.getLogger()
-- pydantic-settings for config — NEVER os.getenv() directly in business logic
-- asyncio throughout — NEVER blocking I/O on the event loop
-- pandas/numpy for data — NEVER raw loops over DataFrames
+ccxt (Binance+OKX) · xgboost · hmmlearn · scikit-learn · pandas · numpy · scipy · statsmodels · aiosqlite · fastapi · uvicorn · websockets · pydantic-settings · structlog · rich · joblib
 
-## Vulner-Fix.md protocol (MANDATORY)
-When you find ANY issue, vulnerability, warning, or error during any task:
+## References
+- López de Prado (2018) AFML: Ch.3 triple-barrier, Ch.4 meta-labeling, Ch.5 frac-diff, Ch.7 CPCV
+- Chan (2013) Algorithmic Trading: Winning Strategies
+- Kelly (1956) A New Interpretation of Information Rate
+- Hamilton (1989) HMM regime switching, Econometrica 57(2)
 
-1. **Do NOT list findings in chat** — write to `Vulner-Fix.md` instead
-2. Run: `python scripts/vulner_fix_append.py --severity X --tool claude --file "path:line" --summary "..." --fix "..." --status Open`
-3. After successfully applying a fix: `python scripts/vulner_fix_append.py --mark-applied VF-NNN`
-4. NEVER overwrite or reformat existing `Vulner-Fix.md` content — append only
-5. Each new finding goes to the last line of the file
-6. Status flow: `Open` → `In Progress` → `Applied`
+## Per-Prompt Contract
+- Context loaded from this file — never re-paste system prompt
+- State the single file being worked on before writing any code
+- Read ONLY files permitted by TOKEN GATE table above
+- Each response: one file, complete, production-ready, state next file
 
-## Architecture
-```
-src/
-  api/          main.py — FastAPI app, WebSocket, debug endpoints
-  config.py     — Settings (pydantic), runtime_config (async mutable)
-  data/         fetcher.py, storage.py (aiosqlite)
-  diagnostics/  runtime_monitor.py, trade_auditor.py, signal_debugger.py
-  engine/       orchestrator.py (event loop), signal_engine.py (per-tick)
-  execution/    base.py, paper.py, live.py (ccxt)
-  features/     pipeline.py (build_feature_matrix, build_inference_features)
-  models/       trainer.py (XGBoost CPCV)
-  regime/       detector.py (HMM)
-  risk/         gates.py, kelly.py
-  strategies/   filters.py (8 professional filters), position_sizing.py
-```
-
-## Non-negotiable coding rules
-
-### Security
-- NEVER f-string SQL. Always parameterised queries with tuple params.
-- NEVER log secrets, API keys, credentials, or raw exception tracebacks externally.
-- NEVER trust user input without validation — use pydantic models or explicit guards.
-- ALL financial write paths (insert_trade, update_trade_exit) use PRAGMA synchronous=FULL.
-- WebSocket: authenticate BEFORE mutating any server state.
-
-### Concurrency
-- ALL shared state mutations under asyncio.Lock.
-- Snapshot values INSIDE the lock before releasing — never read state after unlock.
-- Use _trade_semaphore in live/paper executors to serialise open+close.
-- NEVER asyncio.run() inside an async context.
-
-### Error handling
-- NEVER bare except: — always catch specific exceptions.
-- NEVER swallow exceptions silently — log at appropriate level first.
-- Financial failures (insert_trade, close_position) → log.critical with full context.
-- Use structlog bound loggers: self._log = log.bind(component="...", symbol="...")
-
-### Testing
-- pytest-asyncio for all async tests. asyncio_mode = "auto".
-- No mocks for pure functions — test with real data fixtures.
-- Coverage floor: 60% (pytest --cov-fail-under=60).
-
-### Style
-- Line length 100 (ruff enforced).
-- All new public functions need docstrings with Authority citation if from literature.
-- Type annotations required on all public function signatures.
-- dataclasses for value objects, not dicts.
-
-## Key patterns
-
-### Adding a new feature to the pipeline
-1. Add column constant to `FEATURE_COLUMNS` in `pipeline.py`
-2. Compute in `build_feature_matrix()` — vectorised pandas, no loops
-3. Add to `build_inference_features()` extraction
-4. Update `FeatureDriftMonitor.set_baseline()` call in `trainer.py`
-
-### Adding a new risk gate
-1. Add `GateStatus` enum value in `gates.py`
-2. Add evaluation function `_check_*()` returning bool
-3. Wire into `evaluate_all_gates()` chain — fail-fast ordered cheapest-first
-4. Add test in `tests/test_risk_gates.py`
-
-### Adding a new strategy filter
-1. Pure function in `strategies/filters.py` — no I/O, pd.Series inputs
-2. Add to `apply_all_strategy_filters()` stack
-3. Add authority docstring citation
-4. Add test
-
-### Adding a new API endpoint
-1. Add to `src/api/main.py` with `@app.get/post`
-2. Require `api_key_header` dependency
-3. Rate-limit via `_state.check_endpoint_rate_limit(endpoint, request.client.host)`
-4. Input validation via pydantic model or Query with constraints
-
-## Diagnostics
-- `GET /debug/health`    — RuntimeMonitor: probes, tick-stall, memory
-- `GET /debug/audit`     — TradeAuditor: last N decisions, anomaly_scan()
-- `GET /debug/drift`     — FeatureDriftMonitor + ModelDegradationTracker
-- `POST /debug/selftest` — pipeline synthetic round-trip
-
-## Authority references (cite in docstrings)
-- López de Prado (2018) Advances in Financial Machine Learning (AFML)
-- Carver (2019) Systematic Trading
-- Chan (2013) Algorithmic Trading
-- Aronson (2006) Evidence-Based Technical Analysis
-- Peters (1994) Fractal Market Hypothesis
-- Elder (1993) Trading for a Living
-- Schwager (1984/1993) Market Wizards
-- Kelly (1956) Bell System Technical Journal
-- Hamilton (1989) Journal of Political Economy — regime-switching
-
-## Common mistakes to avoid
-- Do NOT use `self._cfg.execution_mode` in executors — use `await runtime_config.get_execution_mode()`
-- Do NOT call `_bulk_write_ctx` with a nested `async with self._lock` — lock is held internally
-- Do NOT fit RegimeDetector twice — create a new instance for retraining
-- Do NOT read equity/position state outside a lock in mark_to_market
-- Do NOT add new bare `p_bet` locals before `_p_bet_ref[0]` is set in signal_engine.tick()
+## Context Loading Directive (appended)
+- On session start, read `PROJECT_SUMMARY.md` at project root for full-project structural context — bullet-only, AST-derived, real file contracts.
+- On any debugging / fix-my-code / review request, read `DIAGNOSTICS.md` at project root first — it mirrors the VS Code Problems panel exactly (ruff + pyright + eslint).
+- Do NOT open individual source files to "check for issues" — DIAGNOSTICS.md already contains every current issue with exact file:line:col.
+- Only open a source file once DIAGNOSTICS.md or PROJECT_SUMMARY.md points you to a specific line that needs editing.
+- If DIAGNOSTICS.md is missing or stale (older than the last edit), say so and ask the user to run: `python3 scripts/export_diagnostics.py`
+- If PROJECT_SUMMARY.md is missing, say so and ask the user to run: `python3 scripts/gen_project_summary.py . --force`

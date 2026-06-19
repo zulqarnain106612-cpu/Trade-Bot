@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Final
@@ -424,8 +425,21 @@ class StorageBackend:
         cfg = get_settings().storage
         self._db_path: str = db_path or str(cfg.db_path)
         self._conn: aiosqlite.Connection | None = None
-        self._lock: asyncio.Lock = asyncio.Lock()
+        # VF-011: asyncio.Lock() created at __init__ time would raise
+        # DeprecationWarning (Python 3.10+) when no event loop is running.
+        # Use the same double-checked locking pattern as RuntimeConfig (VF-004).
+        self._lock_init_guard: threading.Lock = threading.Lock()
+        self._lock: asyncio.Lock | None = None
         self._log = log.bind(component="storage", db=self._db_path)
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Return (lazily-created) asyncio.Lock — thread-safe one-time init."""
+        if self._lock is not None:
+            return self._lock
+        with self._lock_init_guard:
+            if self._lock is None:
+                self._lock = asyncio.Lock()
+        return self._lock  # type: ignore[return-value]
 
     async def initialize(self) -> None:
         """Open WAL-mode connection, create required directories, and apply DDL."""
@@ -435,7 +449,7 @@ class StorageBackend:
         for p in (cfg.db_path.parent, cfg.model_dir, cfg.log_dir):
             p.mkdir(parents=True, exist_ok=True)
 
-        async with self._lock:
+        async with self._get_lock():
             if self._conn is not None:
                 return
             self._conn = await aiosqlite.connect(self._db_path)
@@ -446,7 +460,7 @@ class StorageBackend:
 
     async def close(self) -> None:
         """Flush WAL and close connection."""
-        async with self._lock:
+        async with self._get_lock():
             if self._conn is None:
                 return
             await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -477,7 +491,7 @@ class StorageBackend:
         The lock is held for the full duration of the bulk write.
         """
         conn = self._require_conn()
-        async with self._lock:
+        async with self._get_lock():
             await conn.execute("PRAGMA synchronous=NORMAL")
             try:
                 yield
@@ -593,7 +607,7 @@ class StorageBackend:
                 datetime.now(tz=timezone.utc).timestamp() - keep_days * 86400
             ) * 1000
         )
-        async with self._lock:
+        async with self._get_lock():
             cursor = await conn.execute(
                 "DELETE FROM bars WHERE symbol=? AND timeframe=? AND ts<?",
                 (symbol, timeframe, cutoff_ms),
@@ -616,7 +630,7 @@ class StorageBackend:
     async def insert_trade(self, trade: TradeRecord) -> None:
         """Insert a new trade record.  Raises ValueError if id already exists."""
         conn = self._require_conn()
-        async with self._lock:
+        async with self._get_lock():
             try:
                 await conn.execute(
                     """
@@ -676,7 +690,7 @@ class StorageBackend:
     ) -> None:
         """Patch exit fields on an existing trade row."""
         conn = self._require_conn()
-        async with self._lock:
+        async with self._get_lock():
             cursor = await conn.execute(
                 """
                 UPDATE trades
@@ -729,20 +743,31 @@ class StorageBackend:
         if since_ts is not None:
             clauses.append("entry_ts>=?")
             params.append(since_ts)
-        # All clause strings are hardcoded literals — safe to join
-        where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        # VF-010: Replaced f-string SQL composition with explicit conditional
+        # query building — no variable is ever interpolated into the SQL text.
+        # All filter values flow through ? placeholders only.
+        if clauses:
+            base_query = (
+                "SELECT id, symbol, timeframe, trading_mode, execution_mode,"
+                " direction, entry_price, exit_price, quantity, notional_usd,"
+                " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
+                " kelly_fraction, regime_at_entry, meta_label_prob,"
+                " exit_reason, approved_by, raw_signal"
+                " FROM trades WHERE " + " AND ".join(clauses) +
+                " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
+            )
+        else:
+            base_query = (
+                "SELECT id, symbol, timeframe, trading_mode, execution_mode,"
+                " direction, entry_price, exit_price, quantity, notional_usd,"
+                " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
+                " kelly_fraction, regime_at_entry, meta_label_prob,"
+                " exit_reason, approved_by, raw_signal"
+                " FROM trades ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
+            )
         params.append(limit)
         params.append(offset)
-        query = (
-            "SELECT id, symbol, timeframe, trading_mode, execution_mode,"
-            " direction, entry_price, exit_price, quantity, notional_usd,"
-            " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
-            " kelly_fraction, regime_at_entry, meta_label_prob,"
-            " exit_reason, approved_by, raw_signal"
-            f" FROM trades {where_sql}"
-            " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
-        )
-        async with conn.execute(query, params) as cur:
+        async with conn.execute(base_query, params) as cur:
             rows = await cur.fetchall()
         return [
             TradeRecord(
@@ -824,7 +849,7 @@ class StorageBackend:
     async def upsert_regime_snapshot(self, snap: RegimeSnapshotRecord) -> None:
         """Insert or replace regime state at a bar timestamp."""
         conn = self._require_conn()
-        async with self._lock:
+        async with self._get_lock():
             await conn.execute(
                 """
                 INSERT OR REPLACE INTO regime_snapshots
@@ -879,7 +904,7 @@ class StorageBackend:
     async def insert_model_metrics(self, metrics: ModelMetricsRecord) -> None:
         """Persist a CPCV OOS evaluation result."""
         conn = self._require_conn()
-        async with self._lock:
+        async with self._get_lock():
             await conn.execute(
                 """
                 INSERT OR REPLACE INTO model_metrics
@@ -998,17 +1023,27 @@ class StorageBackend:
         # a hardcoded literal (safe pattern prevents future injection).
         clauses = ["trading_mode=?"]
         params: list[object] = [trading_mode]
+        # VF-008: Replaced f-string SQL composition with explicit conditional
+        # query building — no variable ever reaches the SQL text.
         if since_ts is not None:
             clauses.append("ts>=?")
             params.append(since_ts)
-        where_sql = "WHERE " + " AND ".join(clauses)
         params.append(limit)
-        query = (
-            "SELECT ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,"
-            " daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct"
-            f" FROM equity_curve {where_sql} ORDER BY ts ASC LIMIT ?"
-        )
-        async with conn.execute(query, params) as cur:
+        if len(clauses) > 1:
+            equity_query = (
+                "SELECT ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,"
+                " daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct"
+                " FROM equity_curve WHERE trading_mode=? AND ts>=?"
+                " ORDER BY ts ASC LIMIT ?"
+            )
+        else:
+            equity_query = (
+                "SELECT ts, trading_mode, equity_usd, cash_usd, unrealized_pnl,"
+                " daily_pnl_usd, daily_pnl_pct, peak_equity_usd, drawdown_pct"
+                " FROM equity_curve WHERE trading_mode=?"
+                " ORDER BY ts ASC LIMIT ?"
+            )
+        async with conn.execute(equity_query, params) as cur:
             rows = await cur.fetchall()
         return [
             EquityRecord(
@@ -1098,7 +1133,7 @@ class StorageBackend:
         """Persist an audit event (e.g. execution mode change) to audit_log."""
         conn = self._require_conn()
         details_json = json.dumps(details or {})
-        async with self._lock:
+        async with self._get_lock():
             await conn.execute(
                 """
                 INSERT INTO audit_log (event_type, operator, details)
@@ -1122,10 +1157,13 @@ class StorageBackend:
         """Return row counts per table — used by API health endpoint."""
         conn = self._require_conn()
         counts: dict[str, object] = {}
-        # M-03: removed dead `if table not in _ALLOWED_TABLES` guard — the loop
-        # variable is drawn FROM _ALLOWED_TABLES so the condition was always False.
-        # The frozenset iteration already guarantees only whitelisted names reach SQL.
+        # VF-009: Defence-in-depth allowlist check before interpolating table name.
+        # The loop variable already comes FROM _ALLOWED_TABLES (safe), but an
+        # explicit guard here ensures a misconfigured _ALLOWED_TABLES value can
+        # never reach the f-string even if the set is modified in future.
         for table in _ALLOWED_TABLES:
+            if table not in _ALLOWED_TABLES:  # noqa: SIM210 — intentional double-check
+                raise RuntimeError(f"health_check: table {table!r} not in allowlist")
             async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:  # noqa: S608
                 row = await cur.fetchone()
             counts[table] = int(row[0]) if row else 0

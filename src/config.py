@@ -79,9 +79,15 @@ class BinanceSettings(BaseSettings):
 
     @model_validator(mode="after")
     def resolve_urls(self) -> "BinanceSettings":
+        # VF-003: Only inject production URLs when the operator has NOT explicitly
+        # set BINANCE_BASE_URL / BINANCE_WS_URL in the environment.  Previously the
+        # validator silently overwrote any env-supplied URL when testnet=False, making
+        # operator overrides (e.g. custom proxy URLs) impossible.
         if not self.testnet:
-            self.base_url = "https://api.binance.com"
-            self.ws_url = "wss://stream.binance.com:9443/ws"
+            if "BINANCE_BASE_URL" not in os.environ:
+                self.base_url = "https://api.binance.com"
+            if "BINANCE_WS_URL" not in os.environ:
+                self.ws_url = "wss://stream.binance.com:9443/ws"
         return self
 
 
@@ -296,6 +302,17 @@ class APISettings(BaseSettings):
     cors_origins: list[str] = Field(default=["http://localhost:5173"])
     ws_heartbeat_s: float = Field(default=5.0, ge=1.0)
 
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, v: list[str]) -> list[str]:
+        # VF-005: Reject wildcard "*" — allows any origin, defeating CORS protection.
+        for origin in v:
+            if origin.strip() == "*":
+                raise ValueError(
+                    "CORS wildcard '*' is forbidden — specify explicit allowed origins."
+                )
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Root settings — composes all sub-settings
@@ -371,8 +388,11 @@ class Settings(BaseSettings):
         """
         Prevent live trading from being enabled purely via code path.
         Requires the environment variable TRADING_MODE=live to be explicitly set.
+
+        VF-006: Previously compared os.environ value without .strip().lower(), so
+        "LIVE", " live", or "Live" would bypass the gate.  Now normalised.
         """
-        env_mode = os.environ.get("TRADING_MODE", "paper").lower()
+        env_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
         if self.trading_mode == TradingMode.LIVE and env_mode != "live":
             raise ValueError(
                 "Live trading requires TRADING_MODE=live in environment — "
@@ -458,6 +478,7 @@ def invalidate_settings_cache() -> None:
 # Because Python properties cannot be async, the interface is explicit
 # async getter/setter methods. Call sites updated accordingly.
 import asyncio as _asyncio
+import threading as _threading
 
 
 class RuntimeConfig:
@@ -470,17 +491,26 @@ class RuntimeConfig:
     """
 
     def __init__(self) -> None:
-        self._lock: _asyncio.Lock | None = None  # created lazily inside the event loop
+        # VF-004: Lazy asyncio.Lock creation was NOT thread-safe — two coroutines
+        # could both see self._lock is None simultaneously and create two separate
+        # locks, silently breaking mutual exclusion.
+        # Fix: guard the one-time creation with a threading.Lock (cheap; acquired
+        # only once per process lifetime).  After creation, only the asyncio.Lock
+        # is used, so the event loop is never blocked in steady state.
+        self._init_guard: _threading.Lock = _threading.Lock()
+        self._lock: _asyncio.Lock | None = None
         cfg = get_settings()
         self._execution_mode: ExecutionMode = cfg.execution_mode
 
     def _get_lock(self) -> _asyncio.Lock:
-        # asyncio.Lock must be created inside a running event loop.
-        # Lazy initialisation covers both production (event loop running at first use)
-        # and import-time module loading (no loop yet — lock not needed).
-        if self._lock is None:
-            self._lock = _asyncio.Lock()
-        return self._lock
+        # Fast path — already initialised (no locking needed; reads are atomic in CPython).
+        if self._lock is not None:
+            return self._lock
+        # Slow path — first call; guard with threading.Lock to prevent double-init race.
+        with self._init_guard:
+            if self._lock is None:
+                self._lock = _asyncio.Lock()
+        return self._lock  # type: ignore[return-value]
 
     async def get_execution_mode(self) -> ExecutionMode:
         async with self._get_lock():

@@ -285,6 +285,13 @@ class RegimeDetector:
         # Fixed random_state=42 would consistently converge to the same poor
         # local optimum on certain market regimes.
         _HMM_N_INIT: int = getattr(cfg, "n_init", 5)
+        # VF-020: guard against n_init=0 which would leave best_model=None
+        # and raise a misleading RuntimeError at the score check below.
+        if _HMM_N_INIT < 1:
+            raise ValueError(
+                f"HMM_N_INIT must be >= 1, got {_HMM_N_INIT}. "
+                "Set HMM_N_INIT=5 (or higher) in environment."
+            )
         best_model = None
         best_score: float = float("-inf")
 
@@ -505,6 +512,9 @@ class RegimeDetector:
             "train_hash": self._train_hash,
             "symbol": self._symbol,
             "timeframe": self._timeframe,
+            # VF-018: persist convergence flag so a non-convergent model loaded
+            # from disk still defaults regime to VOLATILE in predict_current().
+            "convergence_failed": self._convergence_failed,
         }
         joblib.dump(payload, path, compress=3)
         _write_manifest(path)
@@ -545,6 +555,9 @@ class RegimeDetector:
         detector._state_map = payload["state_map"]
         detector._train_hash = payload["train_hash"]
         detector._fitted = True
+        # VF-018: restore convergence flag — defaults False for old payloads without
+        # the key (backward compatible), correct for new payloads.
+        detector._convergence_failed = bool(payload.get("convergence_failed", False))
         log.info(
             "hmm.loaded",
             path=str(path),
