@@ -1,0 +1,763 @@
+{
+  ".project-intel/scripts/extract_intelligence.py": {
+    "purpose": "Project Intelligence Extractor\n================================\nTransforms a codebase into a compact",
+    "lines": 643,
+    "classes": [],
+    "key_functions": [
+      "extract_python_structure",
+      "extract_js_structure",
+      "count_lines",
+      "walk_project",
+      "build_module_map",
+      "infer_purpose",
+      "build_architecture_md",
+      "build_context_primer"
+    ],
+    "constants": [
+      "SKIP_DIRS",
+      "SKIP_EXTENSIONS",
+      "MAX_FILE_SIZE_KB"
+    ],
+    "imports_from": []
+  },
+  ".project-intel/scripts/update_session.py": {
+    "purpose": "Session State Updater\n======================\nAgents run this at the END of every session to persist ",
+    "lines": 106,
+    "classes": [],
+    "key_functions": [
+      "main"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "check_imports.py": {
+    "purpose": "check_imports module",
+    "lines": 4,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "check_wf.py": {
+    "purpose": "check_wf module",
+    "lines": 8,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "ci_jobs_show.py": {
+    "purpose": "ci_jobs_show module",
+    "lines": 10,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "extract_resolved.py": {
+    "purpose": "extract_resolved module",
+    "lines": 19,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "scripts/claude_debug_analysis.py": {
+    "purpose": "scripts/claude_debug_analysis.py \u2014 Called by auto-debug.yml GitHub Action.\n\nReads ci_failures.json, ",
+    "lines": 117,
+    "classes": [],
+    "key_functions": [
+      "main"
+    ],
+    "constants": [
+      "ROOT"
+    ],
+    "imports_from": []
+  },
+  "scripts/export_diagnostics.py": {
+    "purpose": "Run ruff + pyright (+ eslint if frontend/ exists) and write DIAGNOSTICS.md\nat project root in bullet",
+    "lines": 154,
+    "classes": [],
+    "key_functions": [
+      "main"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "scripts/vulner_fix_append.py": {
+    "purpose": "scripts/vulner_fix_append.py \u2014 Append a new finding to Vulner-Fix.md.\n\nUsed by CI workflows, Claude,",
+    "lines": 120,
+    "classes": [],
+    "key_functions": [
+      "next_id",
+      "append_finding",
+      "mark_applied",
+      "main"
+    ],
+    "constants": [
+      "VULNER_FILE",
+      "MARKER"
+    ],
+    "imports_from": []
+  },
+  "show_jobs.py": {
+    "purpose": "show_jobs module",
+    "lines": 9,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "show_lines.py": {
+    "purpose": "show_lines module",
+    "lines": 29,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "show_pattern.py": {
+    "purpose": "show_pattern module",
+    "lines": 41,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/api/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/api/auth.py": {
+    "purpose": "API authentication \u2014 API key validation for REST and WebSocket.\n\nAll routes and the WebSocket endpoi",
+    "lines": 97,
+    "classes": [],
+    "key_functions": [
+      "verify_api_key"
+    ],
+    "constants": [
+      "_HEADER_NAME",
+      "_MIN_KEY_LENGTH"
+    ],
+    "imports_from": []
+  },
+  "src/api/main.py": {
+    "purpose": "FastAPI dashboard API.\n\nSecurity: ALL endpoints require X-API-Key header matching API_SECRET_KEY env",
+    "lines": 763,
+    "classes": [
+      "AppState",
+      "ResolveApprovalRequest",
+      "SetExecutionModeRequest"
+    ],
+    "key_functions": [
+      "api_key_header",
+      "require_ready"
+    ],
+    "constants": [
+      "_UUID_RE",
+      "_OPERATOR_RE"
+    ],
+    "imports_from": [
+      "src.config",
+      "src.data.fetcher",
+      "src.data.storage",
+      "src.execution.live",
+      "src.execution.base"
+    ]
+  },
+  "src/api/middleware.py": {
+    "purpose": "CORS validation middleware \u2014 prevents wildcard + credentials misconfiguration\nand rejects unsafe ori",
+    "lines": 51,
+    "classes": [],
+    "key_functions": [
+      "validate_cors_config"
+    ],
+    "constants": [
+      "_ORIGIN_RE"
+    ],
+    "imports_from": []
+  },
+  "src/config.py": {
+    "purpose": "Production configuration for the algorithmic trading bot.\n\nAuthority sources:\n  - Pydantic-Settings ",
+    "lines": 535,
+    "classes": [
+      "TradingMode",
+      "ExecutionMode",
+      "Timeframe",
+      "BinanceSettings",
+      "OKXSettings",
+      "RiskSettings",
+      "HMMSettings",
+      "XGBoostSettings",
+      "FeatureSettings",
+      "StorageSettings",
+      "APISettings",
+      "Settings",
+      "RuntimeConfig"
+    ],
+    "key_functions": [
+      "get_settings",
+      "invalidate_settings_cache"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/data/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/data/fetcher.py": {
+    "purpose": "Async market data fetcher \u2014 Binance (primary) + OKX (secondary).\n\nResponsibilities:\n  - Bootstrap hi",
+    "lines": 712,
+    "classes": [
+      "OrderBookSnapshot",
+      "MarketDataFetcher",
+      "_FetcherContextManager"
+    ],
+    "key_functions": [
+      "open_fetcher"
+    ],
+    "constants": [
+      "_T"
+    ],
+    "imports_from": [
+      "src.config",
+      "src.data.storage"
+    ]
+  },
+  "src/data/storage.py": {
+    "purpose": "Async SQLite storage layer \u2014 aiosqlite, WAL mode, typed queries.\n\nSchema owns five tables:\n  bars   ",
+    "lines": 1193,
+    "classes": [
+      "BarRecord",
+      "TradeRecord",
+      "RegimeSnapshotRecord",
+      "ModelMetricsRecord",
+      "EquityRecord",
+      "StorageBackend"
+    ],
+    "key_functions": [],
+    "constants": [
+      "_SYMBOL_RE"
+    ],
+    "imports_from": [
+      "src.config"
+    ]
+  },
+  "src/diagnostics/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 0,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/diagnostics/runtime_monitor.py": {
+    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics with auto-healing.\n\nResponsibilities:\n  - Poll",
+    "lines": 307,
+    "classes": [
+      "ProbeResult",
+      "HealthSnapshot",
+      "RuntimeMonitor"
+    ],
+    "key_functions": [
+      "get_monitor"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/diagnostics/signal_debugger.py": {
+    "purpose": "Signal Debugger \u2014 feature drift detection, model degradation scanner,\n                  and signal p",
+    "lines": 300,
+    "classes": [
+      "FeatureDriftRecord",
+      "FeatureDriftMonitor",
+      "PredictionRecord",
+      "ModelDegradationTracker"
+    ],
+    "key_functions": [
+      "run_pipeline_selftest",
+      "get_drift_monitor",
+      "get_degradation_tracker"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.features.pipeline"
+    ]
+  },
+  "src/diagnostics/trade_auditor.py": {
+    "purpose": "Trade Auditor \u2014 captures every signal decision with full diagnostic context.\n\nEvery tick that reache",
+    "lines": 270,
+    "classes": [
+      "AuditRecord",
+      "TradeAuditor"
+    ],
+    "key_functions": [
+      "get_auditor"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/engine/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/engine/orchestrator.py": {
+    "purpose": "Orchestrator \u2014 top-level async event loop coordinating all subsystems.\n\nResponsibilities:\n  - Bootst",
+    "lines": 579,
+    "classes": [
+      "Orchestrator"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.data.fetcher",
+      "src.data.storage",
+      "src.execution.paper",
+      "src.execution.live",
+      "src.engine.signal_engine"
+    ]
+  },
+  "src/engine/signal_engine.py": {
+    "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.\n\nOn every tick for a given (symbol, timef",
+    "lines": 507,
+    "classes": [
+      "SignalResult",
+      "SignalEngine"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.data.fetcher",
+      "src.data.storage",
+      "src.features.pipeline",
+      "src.regime.detector",
+      "src.risk.gates"
+    ]
+  },
+  "src/execution/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/execution/base.py": {
+    "purpose": "Abstract base class for trade executors (VUL-038).\n\nBoth LiveExecutor and PaperExecutor must impleme",
+    "lines": 91,
+    "classes": [
+      "AbstractExecutor"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/execution/live.py": {
+    "purpose": "Live trading executor \u2014 real money order placement via ccxt.\n\nMirrors PaperExecutor's interface exac",
+    "lines": 986,
+    "classes": [
+      "LivePosition",
+      "ApprovalRequest",
+      "LiveExecutor"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.data.fetcher",
+      "src.data.storage",
+      "src.execution.base",
+      "src.risk.gates",
+      "src.risk.kelly"
+    ]
+  },
+  "src/execution/paper.py": {
+    "purpose": "Paper trading executor.\n\nSimulates trade execution against live market prices without placing\nreal o",
+    "lines": 883,
+    "classes": [
+      "PaperPosition",
+      "ApprovalRequest",
+      "PaperExecutor"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.data.storage",
+      "src.execution.base",
+      "src.risk.gates",
+      "src.risk.kelly"
+    ]
+  },
+  "src/features/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/features/pipeline.py": {
+    "purpose": "Feature engineering pipeline.\n\nImplements every feature from the signal architecture spec:\n  1. Frac",
+    "lines": 831,
+    "classes": [
+      "TripleBarrierResult",
+      "FeatureMatrix"
+    ],
+    "key_functions": [
+      "fractional_differentiation",
+      "vwap_deviation_zscore",
+      "order_flow_imbalance",
+      "realized_vol_ratio",
+      "atr_momentum",
+      "rolling_sharpe",
+      "volume_zscore",
+      "triple_barrier_labels"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config"
+    ]
+  },
+  "src/regime/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/regime/detector.py": {
+    "purpose": "GaussianHMM regime detector \u2014 Hamilton (1989) 3-state switching model.\n\nStates:\n  0 = ranging   (low",
+    "lines": 650,
+    "classes": [
+      "RegimePrediction",
+      "RegimeDetector"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config"
+    ]
+  },
+  "src/risk/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 1,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/risk/gates.py": {
+    "purpose": "Risk gate engine \u2014 hard limits that block new positions.\n\nGates (all must pass for a trade to procee",
+    "lines": 563,
+    "classes": [
+      "GateStatus",
+      "GateResult",
+      "RiskGateContext",
+      "DrawdownTracker"
+    ],
+    "key_functions": [
+      "check_daily_drawdown",
+      "check_consecutive_losses",
+      "check_regime_gate",
+      "check_position_size",
+      "check_live_gate",
+      "check_paper_minimum_days",
+      "evaluate_all_gates"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config"
+    ]
+  },
+  "src/risk/kelly.py": {
+    "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.\n\nKelly (1956) \"A New Interpretation of Informa",
+    "lines": 529,
+    "classes": [
+      "KellyResult"
+    ],
+    "key_functions": [
+      "kelly_fraction",
+      "half_kelly_fraction",
+      "kelly_from_model_probs",
+      "size_position",
+      "compute_position_size",
+      "compute_win_loss_stats"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config"
+    ]
+  },
+  "src/strategies/__init__.py": {
+    "purpose": "__init__ module",
+    "lines": 0,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
+  "src/strategies/filters.py": {
+    "purpose": "Professional strategy filters and signal enrichment.\n\nImplements research-backed filters from establ",
+    "lines": 467,
+    "classes": [],
+    "key_functions": [
+      "ewm_trend_signal",
+      "trend_filter_passes",
+      "vol_adjusted_momentum",
+      "overnight_gap_is_excessive",
+      "regime_position_scalar",
+      "hurst_exponent",
+      "hurst_filter_passes",
+      "obv_trend_confirms"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config"
+    ]
+  },
+  "src/strategies/position_sizing.py": {
+    "purpose": "Advanced position sizing \u2014 Carver (2019) and L\u00f3pez de Prado (2018).\n\nImplements sizing approaches be",
+    "lines": 287,
+    "classes": [],
+    "key_functions": [
+      "carver_forecast_position",
+      "vol_target_quantity",
+      "estimate_daily_vol",
+      "correlation_adjusted_notional",
+      "afml_bet_size",
+      "thorp_kelly_with_variance",
+      "recommend_position_notional"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "tests/test_features.py": {
+    "purpose": "Tests for src/features/pipeline.py \u2014 all feature functions and the full pipeline.",
+    "lines": 419,
+    "classes": [
+      "TestFracDiffWeights",
+      "TestFractionalDifferentiation",
+      "TestVWAPDevZscore",
+      "TestOrderFlowImbalance",
+      "TestRealizedVolRatio",
+      "TestATRMomentum",
+      "TestRollingSharpe",
+      "TestVolumeZscore",
+      "TestComputeDailyVol",
+      "TestTripleBarrierLabels",
+      "TestMetaLabels",
+      "TestBuildFeatureMatrix",
+      "TestBuildInferenceFeatures"
+    ],
+    "key_functions": [
+      "reset_settings",
+      "synthetic_bars"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.features.pipeline"
+    ]
+  },
+  "tests/test_kelly.py": {
+    "purpose": "Tests for src/risk/kelly.py \u2014 Kelly formula, sizing, win/loss stats.",
+    "lines": 264,
+    "classes": [
+      "TestKellyFraction",
+      "TestHalfKellyFraction",
+      "TestKellyFromModelProbs",
+      "TestFloorToPrecision",
+      "TestSizePosition",
+      "TestComputePositionSize",
+      "TestComputeWinLossStats"
+    ],
+    "key_functions": [
+      "reset_settings"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.risk.kelly"
+    ]
+  },
+  "tests/test_risk_gates.py": {
+    "purpose": "Tests for src/risk/gates.py \u2014 all risk gate functions and the full stack.",
+    "lines": 274,
+    "classes": [
+      "TestDailyDrawdown",
+      "TestConsecutiveLosses",
+      "TestRegimeGate",
+      "TestPositionSize",
+      "TestLiveGate",
+      "TestPaperMinimumDays",
+      "TestEvaluateAllGates",
+      "TestDrawdownTracker"
+    ],
+    "key_functions": [
+      "reset_settings"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.risk.gates"
+    ]
+  },
+  "trade-bot-intel-system/final-delivery/daemon/auto_prompt.py": {
+    "purpose": "Auto Prompt Builder\n====================\nWraps your raw message with project context automatically.\n",
+    "lines": 257,
+    "classes": [],
+    "key_functions": [
+      "find_project_root",
+      "load_primer",
+      "load_session_state",
+      "load_recent_decisions",
+      "build_context_block",
+      "update_state_on_send",
+      "mode_cli",
+      "mode_clipboard"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/daemon/intel_daemon.py": {
+    "purpose": "Project Intelligence Daemon\n=============================\nRuns as a background service. Does three t",
+    "lines": 280,
+    "classes": [
+      "SourceChangeHandler",
+      "SessionTracker",
+      "IntelExtractor",
+      "IntelDaemon"
+    ],
+    "key_functions": [
+      "main"
+    ],
+    "constants": [
+      "SKIP_DIRS",
+      "WATCH_EXTENSIONS",
+      "DEBOUNCE_SECONDS",
+      "MIN_REEXTRACT_INTERVAL"
+    ],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/daemon/output_monitor.py": {
+    "purpose": "Output Monitor\n===============\nWatches for agent output and automatically updates SESSION_STATE.json",
+    "lines": 205,
+    "classes": [],
+    "key_functions": [
+      "parse_agent_output",
+      "update_state",
+      "watch_output_file",
+      "process_piped_output",
+      "main"
+    ],
+    "constants": [
+      "FILE_PATTERNS",
+      "COMPLETION_PATTERNS",
+      "DECISION_PATTERNS",
+      "NEXT_PATTERNS"
+    ],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/daemon/output_router.py": {
+    "purpose": "Output Router\n==============\nIntercepts agent output and routes it to the right destination.\n\nDESTIN",
+    "lines": 328,
+    "classes": [
+      "RoutedChunk",
+      "ProjectFileWriter"
+    ],
+    "key_functions": [
+      "parse_output",
+      "update_session_state",
+      "route",
+      "main"
+    ],
+    "constants": [
+      "ROUTING_TABLE",
+      "CHAT_TAGS"
+    ],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/daemon/primer_template.py": {
+    "purpose": "CONTEXT_PRIMER builder with Output Routing Protocol embedded.\nAgents read this once \u2192 they know the ",
+    "lines": 162,
+    "classes": [],
+    "key_functions": [
+      "render_primer"
+    ],
+    "constants": [
+      "CONTEXT_PRIMER_TEMPLATE",
+      "TRADE_BOT_PRIMER"
+    ],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/scripts/extract_intelligence.py": {
+    "purpose": "Project Intelligence Extractor\n================================\nTransforms a codebase into a compact",
+    "lines": 643,
+    "classes": [],
+    "key_functions": [
+      "extract_python_structure",
+      "extract_js_structure",
+      "count_lines",
+      "walk_project",
+      "build_module_map",
+      "infer_purpose",
+      "build_architecture_md",
+      "build_context_primer"
+    ],
+    "constants": [
+      "SKIP_DIRS",
+      "SKIP_EXTENSIONS",
+      "MAX_FILE_SIZE_KB"
+    ],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/scripts/update_session.py": {
+    "purpose": "Session State Updater\n======================\nAgents run this at the END of every session to persist ",
+    "lines": 106,
+    "classes": [],
+    "key_functions": [
+      "main"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
+  "trade-bot-intel-system/final-delivery/templates/AGENT_PROMPTS.py": {
+    "purpose": "agent_prompts module",
+    "lines": 139,
+    "classes": [],
+    "key_functions": [],
+    "constants": [
+      "SESSION_START",
+      "TARGETED_IMPLEMENTATION",
+      "CONTINUE_SESSION",
+      "ARCHITECTURE_REVIEW",
+      "COPILOT_FILE_HEADER"
+    ],
+    "imports_from": []
+  }
+}

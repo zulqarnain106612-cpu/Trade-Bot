@@ -191,6 +191,7 @@ def _make_ctx(**overrides) -> RiskGateContext:
         trading_mode=TradingMode.PAPER,
         direction_gate_pass=True,
         meta_gate_pass=True,
+        paper_trading_days=30,
     )
     defaults.update(overrides)
     return RiskGateContext(**defaults)

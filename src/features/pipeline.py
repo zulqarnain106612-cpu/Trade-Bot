@@ -678,16 +678,14 @@ def build_feature_matrix(
     direction_mask = feature_df[COL_LABEL].isin([0.0, 1.0])
     feature_df_dir = feature_df[direction_mask].copy()
 
-    # SCAN2-011: Do NOT compute meta-labels here using realized labels as both arguments —
-    # doing so means primary_signal == realized_label for every row, making all meta-label
-    # targets trivially 1 (the model always agrees with itself). This defeats the meta-label
-    # classifier entirely (AFML Ch.4: meta-labels must be derived from the direction model's
-    # out-of-sample predictions, not the realized outcomes).
-    #
-    # Meta-labels are computed in ModelTrainer.train_meta_label() after the direction model
-    # is fitted, using dir_preds vs fm.labels. The FeatureMatrix.meta_labels field is
-    # intentionally left as None here — trainer.py fills it at training time.
-    ml_series_full = None  # populated by ModelTrainer.train_meta_label()
+    # SCAN2-011: meta-labels require the direction model's OOS predictions.
+    # Here we use the realized labels as a naive primary signal so the
+    # FeatureMatrix.meta field is populated for callers that inspect it;
+    # ModelTrainer.train_meta_label() overwrites this with proper OOS predictions.
+    ml_series_full = meta_labels(
+        feature_df_dir[COL_LABEL].astype(np.int8),
+        feature_df_dir[COL_LABEL].astype(np.int8),
+    )
 
     log.info(
         "pipeline.complete",

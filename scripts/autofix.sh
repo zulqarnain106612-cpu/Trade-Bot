@@ -25,7 +25,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 CHECK_ONLY=false
-[[ "${1:-}" == "--check" ]] && CHECK_ONLY=true
+if [[ "${1:-}" == "--check" ]]; then
+  CHECK_ONLY=true
+fi
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 PASS=0; FAIL=0; WARN=0
@@ -40,66 +42,107 @@ if [[ ! -d ".venv" ]]; then
   step "Creating virtualenv"
   python3 -m venv .venv
 fi
-source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate 2>/dev/null || true
+# shellcheck source=.venv/bin/activate
+if ! source .venv/bin/activate 2>/dev/null; then
+  if ! source .venv/Scripts/activate 2>/dev/null; then
+    true
+  fi
+fi
 
 # ── Install tools ────────────────────────────────────────────────────────────
 step "Installing/upgrading tools"
-pip install -q ruff==0.4.4 bandit[sarif]==1.7.8 pip-audit==2.7.3 \
-               detect-secrets==1.5.0 mypy==1.10.0 semgrep || warn "Some tools failed to install"
+if ! pip install -q ruff==0.4.4 bandit[sarif]==1.7.8 pip-audit==2.7.3 \
+               detect-secrets==1.5.0 mypy==1.10.0 semgrep; then
+  warn "Some tools failed to install"
+fi
 
 # ── 1. ruff fix ──────────────────────────────────────────────────────────────
 step "ruff lint fix"
-if $CHECK_ONLY; then
-  ruff check src/ tests/ --output-format=concise && ok "ruff check clean" || fail "ruff check found issues"
+if [[ "$CHECK_ONLY" == "true" ]]; then
+  if ruff check src/ tests/ --output-format=concise; then
+    ok "ruff check clean"
+  else
+    fail "ruff check found issues"
+  fi
 else
-  ruff check src/ tests/ --fix --unsafe-fixes && ok "ruff fix applied" || warn "ruff: some issues not auto-fixable"
-  ruff format src/ tests/ && ok "ruff format applied"
+  if ruff check src/ tests/ --fix --unsafe-fixes; then
+    ok "ruff fix applied"
+  else
+    warn "ruff: some issues not auto-fixable"
+  fi
+  if ruff format src/ tests/; then
+    ok "ruff format applied"
+  fi
 fi
 
 # ── 2. mypy ──────────────────────────────────────────────────────────────────
 step "mypy type check"
-mypy src/ --ignore-missing-imports --no-error-summary 2>&1 | tail -5 && ok "mypy clean" || warn "mypy found type issues (non-blocking)"
+if mypy src/ --ignore-missing-imports --no-error-summary 2>&1 | tail -5; then
+  ok "mypy clean"
+else
+  warn "mypy found type issues (non-blocking)"
+fi
 
 # ── 3. bandit security ───────────────────────────────────────────────────────
 step "bandit security scan"
-bandit -r src/ --severity-level medium --confidence-level medium -q \
-  && ok "bandit: no medium+ issues" \
-  || warn "bandit found security issues — review above"
+if bandit -r src/ --severity-level medium --confidence-level medium -q; then
+  ok "bandit: no medium+ issues"
+else
+  warn "bandit found security issues — review above"
+fi
 
 # ── 4. semgrep custom rules ──────────────────────────────────────────────────
 step "semgrep custom rules"
 if command -v semgrep &>/dev/null; then
-  semgrep --config .semgrep/rules.yml src/ --quiet \
-    && ok "semgrep: no custom rule violations" \
-    || warn "semgrep found violations — review above"
+  if semgrep --config .semgrep/rules.yml src/ --quiet; then
+    ok "semgrep: no custom rule violations"
+  else
+    warn "semgrep found violations — review above"
+  fi
 else
   warn "semgrep not installed — skipping (pip install semgrep)"
 fi
 
 # ── 5. pip-audit CVE scan ────────────────────────────────────────────────────
 step "pip-audit CVE scan"
-pip-audit --strict -q && ok "pip-audit: no known CVEs" || warn "pip-audit found CVEs — run: pip-audit --fix"
+if pip-audit --strict -q; then
+  ok "pip-audit: no known CVEs"
+else
+  warn "pip-audit found CVEs — run: pip-audit --fix"
+fi
 
 # ── 6. detect-secrets ────────────────────────────────────────────────────────
 step "detect-secrets scan"
-detect-secrets scan --baseline .secrets.baseline \
-  && ok "detect-secrets: baseline clean" \
-  || warn "detect-secrets: new secrets found — run: detect-secrets audit .secrets.baseline"
+if detect-secrets scan --baseline .secrets.baseline; then
+  ok "detect-secrets: baseline clean"
+else
+  warn "detect-secrets: new secrets found — run: detect-secrets audit .secrets.baseline"
+fi
 
 # ── 7. pytest ────────────────────────────────────────────────────────────────
 step "pytest"
-python -m pytest tests/ -q --tb=short \
-  && ok "all tests passed" \
-  || fail "tests failed"
+if python -m pytest tests/ -q --tb=short; then
+  ok "all tests passed"
+else
+  fail "tests failed"
+fi
 
 # ── 8. frontend (if node available) ──────────────────────────────────────────
 if command -v node &>/dev/null && [[ -d "frontend/node_modules" ]]; then
   step "prettier frontend"
-  if $CHECK_ONLY; then
-    cd frontend && npx prettier --check "src/**/*.{js,jsx}" && ok "prettier clean" || warn "prettier: formatting issues"
+if [[ "$CHECK_ONLY" == "true" ]]; then
+    cd frontend
+    if npx prettier --check "src/**/*.{js,jsx}"; then
+      ok "prettier clean"
+    else
+      warn "prettier: formatting issues"
+    fi
     cd "$ROOT"
   else
-    cd frontend && npx prettier --write "src/**/*.{js,jsx}" && ok "prettier applied"
+    cd frontend
+    if npx prettier --write "src/**/*.{js,jsx}"; then
+      ok "prettier applied"
+    fi
     cd "$ROOT"
   fi
 fi
@@ -107,5 +150,13 @@ fi
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo -e "\n────────────────────────────────────────"
 echo -e "${GREEN}PASS: $PASS${NC}  ${YELLOW}WARN: $WARN${NC}  ${RED}FAIL: $FAIL${NC}"
-[[ $FAIL -eq 0 ]] && echo -e "${GREEN}All required checks passed.${NC}" || echo -e "${RED}Fix failures before committing.${NC}"
-[[ $FAIL -gt 0 ]] && exit 1 || exit 0
+if [[ $FAIL -eq 0 ]]; then
+  echo -e "${GREEN}All required checks passed.${NC}"
+else
+  echo -e "${RED}Fix failures before committing.${NC}"
+fi
+if [[ $FAIL -gt 0 ]]; then
+  exit 1
+else
+  exit 0
+fi

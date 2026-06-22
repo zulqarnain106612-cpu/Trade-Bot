@@ -59,7 +59,7 @@
     {
       "label": "Run Tests",
       "type": "shell",
-      "command": "python -m pytest tests/ -v --tb=short",
+      "command": "python3 -m pytest tests/ -v --tb=short",
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "shared", "clear": true },
       "problemMatcher": [],

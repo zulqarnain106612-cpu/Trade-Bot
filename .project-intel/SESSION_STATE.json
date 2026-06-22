@@ -1,0 +1,25 @@
+{
+  "last_updated": "2026-06-23T02:52:44.645070",
+  "implementation_status": {
+    "core_pipeline": "complete",
+    "risk_gates": "complete",
+    "paper_executor": "complete",
+    "live_executor": "complete \u2014 missing order FSM",
+    "api": "complete",
+    "frontend": "complete",
+    "diagnostics": "complete",
+    "slippage_model": "NOT STARTED \u2014 GAP-001",
+    "entropy_gate": "NOT STARTED \u2014 GAP-002",
+    "performance_drift_trigger": "NOT STARTED \u2014 GAP-003",
+    "order_fsm": "NOT STARTED \u2014 GAP-004",
+    "portfolio_correlation_layer": "NOT STARTED \u2014 GAP-005"
+  },
+  "current_focus": "none \u2014 set this when starting a session",
+  "last_file_modified": "none",
+  "open_decisions": [
+    "Choose TimescaleDB vs QuestDB for storage migration",
+    "Decide online retraining trigger: time-based vs performance-based",
+    "Define order FSM states for partial fills"
+  ],
+  "next_recommended_task": "GAP-002: Add HMM posterior entropy gate in src/regime/detector.py"
+}

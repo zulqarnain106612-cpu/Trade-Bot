@@ -4,12 +4,22 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine
 } from "recharts";
 
-const API     = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const API_KEY = import.meta.env.VITE_API_KEY || "";
-const WS_URL  = API.replace(/^http/, "ws") + "/ws";
+const _RAW_API  = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_KEY   = import.meta.env.VITE_API_KEY || "";
+
+// SSRF guard: only allow http/https to explicit hostnames — reject file://, internal IPs, etc.
+const _ALLOWED_API_RE = /^https?:\/\/[a-zA-Z0-9._-]+(:\d+)?$/;
+if (!_ALLOWED_API_RE.test(_RAW_API)) {
+  throw new Error(`VITE_API_URL "${_RAW_API}" is not an allowed origin.`);
+}
+const API    = _RAW_API.replace(/\/$/, ""); // strip trailing slash
+const WS_URL = API.replace(/^http/, "ws") + "/ws";
 
 // Attach API key to every fetch — server requires X-Api-Key on all endpoints
 function apiFetch(path, opts = {}) {
+  if (typeof path !== "string" || !path.startsWith("/")) {
+    throw new Error(`apiFetch: path must be a string starting with "/", got: ${path}`);
+  }
   return fetch(`${API}${path}`, {
     ...opts,
     headers: {

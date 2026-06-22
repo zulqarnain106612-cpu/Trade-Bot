@@ -605,6 +605,14 @@ class LiveExecutor(AbstractExecutor):
         self._log.info("live.daily_equity_reset", equity_usd=round(equity, 2))
         return equity
 
+    async def get_risk_snapshot(self) -> tuple[float, float, float]:
+        """C-08: Atomically return (equity_usd, starting_equity_usd, daily_pnl_usd)."""
+        async with self._lock:
+            equity = self._equity_usd()
+            start_eq = self._drawdown_tracker.daily_start_equity
+            daily_pnl = self._drawdown_tracker.daily_pnl_usd
+        return equity, start_eq, daily_pnl
+
     def position_count(self) -> int:
         return len(self._positions)
 

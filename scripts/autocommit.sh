@@ -31,14 +31,15 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --check)       CHECK_ONLY=true ;;
     --skip-tests)  SKIP_TESTS=true ;;
-    --msg)         shift; CUSTOM_MSG="$1" ;;
+    --msg)         shift; CUSTOM_MSG="${1:-}" ;;
+    *)             ;;
   esac
   shift
 done
 
 # ── Git identity ──────────────────────────────────────────────────────────────
-git config user.email "anas.munir03@gmail.com"
-git config user.name  "Anas Munir"
+git config user.email "zulqarnain106612@gmail.com"
+git config user.name  "zulqarnain106612-cpu"
 
 # ── Safety: never auto-commit to main ────────────────────────────────────────
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")

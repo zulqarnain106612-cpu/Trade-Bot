@@ -83,6 +83,7 @@ exclude               = ["frontend/", ".venv/", "dist/"]
 [tool.pytest.ini_options]
 asyncio_mode  = "auto"
 testpaths     = ["tests"]
+pythonpath    = ["."]
 python_files  = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

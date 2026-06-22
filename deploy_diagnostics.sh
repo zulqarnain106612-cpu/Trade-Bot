@@ -179,7 +179,7 @@ if __name__ == "__main__":
 PYEOF
 
 # ───────────────────────── .claude/CLAUDE.md directive append ────────────
-DIRECTIVE_BLOCK='
+DIRECTIVE_BLOCK="
 ## Context Loading Directive (appended)
 - On session start, read `PROJECT_SUMMARY.md` at project root for full-project structural context — bullet-only, AST-derived, real file contracts.
 - On any debugging / fix-my-code / review request, read `DIAGNOSTICS.md` at project root first — it mirrors the VS Code Problems panel exactly (ruff + pyright + eslint).
@@ -187,7 +187,7 @@ DIRECTIVE_BLOCK='
 - Only open a source file once DIAGNOSTICS.md or PROJECT_SUMMARY.md points you to a specific line that needs editing.
 - If DIAGNOSTICS.md is missing or stale (older than the last edit), say so and ask the user to run: `python3 scripts/export_diagnostics.py`
 - If PROJECT_SUMMARY.md is missing, say so and ask the user to run: `python3 scripts/gen_project_summary.py . --force`
-'
+"
 
 CLAUDE_MD="$ROOT/.claude/CLAUDE.md"
 if [[ -f "$CLAUDE_MD" ]]; then
