@@ -29,6 +29,47 @@ CORRECTION: SESSION_STATE.json from the previous session still listed this
 as "NOT STARTED" and as the next recommended task — that was stale. Verified
 directly against source (src/regime/detector.py lines ~104-541) before
 relying on it. SESSION_STATE.json corrected in this session.
+Test backfill (session 3): tests/test_detector.py added (32 tests, 31
+passed/1 skipped) — detector.py coverage 0% → 92%. Covers entropy math,
+position_scalar() continuity/monotonicity, fit/predict/save/load, and the
+non-convergence fail-safe path.
+
+## Gap-007 [2026-06-23] — RESOLVED (session 3, same session it was introduced)
+CognitiveEngine (src/risk/cognitive_engine.py, added session 2 alongside
+the RAG/intel layer, commit 88a5e73 area) computed position size via an
+INDEPENDENT continuous-Kelly formula (_base_size(): mu/sigma^2) completely
+decoupled from kelly_result.adjusted_fraction — the real, already
+entropy-gated half-Kelly fraction from src/risk/kelly.py. signal_engine.py
+then rescaled kelly_result by adjusted_size_fraction / kelly_result.adjusted_fraction,
+a ratio between two unrelated formulas with no risk-coherent meaning.
+Verified numerically: a realistic scenario (p_long=0.62, edge=24bps,
+vol=45%, entropy-gated kelly_fraction=0.0784) produced a rescale ratio of
+2.23x — the "mandatory risk governor" layer could INFLATE position size
+beyond what the entropy gate intended, not just shrink it. This is the
+opposite of "never bypass / never weaken a risk gate."
+Severity: Critical (money-sizing correctness on every trade in the live
+signal path). File: src/risk/cognitive_engine.py, src/engine/signal_engine.py
+Status: RESOLVED — CognitiveEngine.evaluate() now starts size_fraction
+from a new SignalContext.kelly_adjusted_fraction field (populated from
+kelly_result.adjusted_fraction in signal_engine.py) instead of recomputing.
+The old continuous-Kelly formula is kept as _continuous_kelly_estimate(),
+used ONLY by a new _log_size_divergence() diagnostic (logs WARN if the two
+formulas disagree by >50% — useful as a model-calibration signal, never
+mutates size). adjusted_size_fraction is now provably bounded to
+[0, kelly_adjusted_fraction] — pure multiplicative shrink via WARN (0.70x
+each) or zero via VETO, matching the explicit intent that the five
+cognitive domains be a mandatory governor on the real trade, not a second
+competing estimate.
+Also fixed in the same pass: a stale `regime_conf` variable reference
+(NameError on the ProbabilityValidator VETO branch) left over from an
+interrupted prior edit that renamed the Bayesian-score variables to
+dominant_prob/direction_conf.
+Tests: tests/test_cognitive_engine.py added (42 tests, all passing,
+cognitive_engine.py coverage 0% → 97%), including two targeted regression
+tests (test_size_fraction_starts_from_kelly_adjusted_fraction_not_recomputed,
+test_size_fraction_never_exceeds_kelly_adjusted_fraction) that will fail
+loudly if this regresses.
+────────────────────────────────────────────────────────────
 ────────────────────────────────────────────────────────────
 
 ## Gap-003 [2026-06-23]

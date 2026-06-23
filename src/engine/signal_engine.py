@@ -42,6 +42,11 @@ from src.features.pipeline import (
     FEATURE_COLUMNS,
 )
 from src.regime.detector import RegimeDetector, RegimePrediction
+from src.risk.cognitive_engine import (
+    CognitiveEngine,
+    SignalContext,
+    get_cognitive_engine,
+)
 from src.risk.gates import (
     GateResult,
     RiskGateContext,
@@ -446,6 +451,65 @@ class SignalEngine:
             regime_scalar=round(_regime_scalar, 3),
             hurst=round(_filter_result["details"].get("hurst", 0.5), 3),
         )
+
+        # ── Cognitive Engine — mandatory evaluation (no bypass) ─────────────
+        # All five validators run: Quant, Probability, Risk, Blockchain, Regime.
+        # A single VETO kills the trade regardless of all prior gates passing.
+        _hurst = float(_filter_result["details"].get("hurst", 0.5))
+        _adv_20d = float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
+        _cog_ctx = SignalContext(
+            signal_id             = f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
+            symbol                = self._symbol,
+            timeframe             = self._timeframe.value if hasattr(self._timeframe, "value") else str(self._timeframe),
+            p_long                = p_long,
+            p_bet                 = p_bet,
+            expected_edge_bps     = float((p_long - 0.5) * 200),
+            regime_state          = regime_state,
+            regime_probs          = [_prob_ranging, _prob_trending, _prob_volatile],
+            hurst_exponent        = _hurst,
+            current_price         = float(bars["close"].iloc[-1]),
+            atr                   = float(_atr_series.iloc[-1]) if _atr_series is not None else 0.0,
+            atr_median_20         = float(_atr_series.rolling(20).median().iloc[-1]) if _atr_series is not None else 1.0,
+            realized_vol          = float(bars["close"].pct_change().rolling(20).std().iloc[-1] * (252 ** 0.5)) if "close" in bars.columns else 0.01,
+            adv_20d               = _adv_20d,
+            spread_bps            = 2.0,   # default; replace with live order book spread
+            capital_usd           = capital_usd,
+            daily_pnl_usd         = daily_pnl_usd,
+            open_positions        = 0,
+            consecutive_losses    = consecutive_loss_count,
+            funding_rate_8h       = 0.0,   # spot only; wire perpetual funding rate here
+            basis_pct             = 0.0,   # spot only; wire basis here for perp trading
+            exchange_name         = "binance",
+            proposed_qty          = kelly_result.quantity,
+            proposed_notional_usd = kelly_result.notional_usd,
+            kelly_adjusted_fraction = kelly_result.adjusted_fraction,
+        )
+        _cog_decision = get_cognitive_engine().evaluate(_cog_ctx)
+        if not _cog_decision.passed:
+            _emit_audit("skipped", f"cognitive_veto:{_cog_decision.veto_reason}", kelly_result, gate_result)
+            return SignalResult(
+                tradeable   = False,
+                direction   = direction,
+                p_long      = p_long,
+                p_bet       = p_bet,
+                kelly_result= kelly_result,
+                regime      = regime,
+                gate_result = gate_result,
+                skip_reason = f"cognitive_veto:{_cog_decision.veto_reason}",
+            )
+        # Apply cognitive engine's adjusted size (may be reduced by WARN results)
+        if _cog_decision.adjusted_size_fraction < kelly_result.adjusted_fraction:
+            from dataclasses import replace as _dc_replace2
+            kelly_result = _dc_replace2(
+                kelly_result,
+                notional_usd = round(kelly_result.notional_usd * (
+                    _cog_decision.adjusted_size_fraction / max(kelly_result.adjusted_fraction, 1e-9)
+                ), 4),
+                quantity = round(kelly_result.quantity * (
+                    _cog_decision.adjusted_size_fraction / max(kelly_result.adjusted_fraction, 1e-9)
+                ), 8),
+            )
+        # ─────────────────────────────────────────────────────────────────────
 
         _emit_audit("opened", "", kelly_result, gate_result)
 

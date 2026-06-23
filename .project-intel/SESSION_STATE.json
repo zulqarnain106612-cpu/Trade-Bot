@@ -1,32 +1,36 @@
 {
-  "last_updated": "2026-06-23T11:14:07.967302",
+  "last_updated": "2026-06-23T12:56:16.196069+00:00",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
     "paper_executor": "complete",
-    "live_executor": "complete \u2014 missing order FSM (GAP-004)",
+    "live_executor": "complete — missing order FSM (GAP-004)",
     "api": "complete",
     "frontend": "complete",
     "diagnostics": "complete",
-    "slippage_model": "GATE IMPLEMENTED (gate 0, src/risk/slippage.py + gates.py) \u2014 live-path wiring open, see TASK-009 (GAP-001 not fully closed until then)",
-    "entropy_gate": "complete (verified 2026-06-23 against source \u2014 prior entry here was stale/incorrect)",
-    "performance_drift_trigger": "NOT STARTED \u2014 GAP-003 (P1)",
-    "order_fsm": "NOT STARTED \u2014 GAP-004 (P1)",
-    "portfolio_correlation_layer": "NOT STARTED \u2014 GAP-005 (P2)",
-    "intel_layer": "COMPLETE \u2014 .project-intel/ active, all agents configured",
-    "output_router": "NOT a running daemon \u2014 no process found. Claude performs the tag->file routing manually via direct file writes each session. Corrected from prior false 'COMPLETE \u2014 daemon installed' claim."
+    "slippage_model": "GATE IMPLEMENTED (gate 0, src/risk/slippage.py + gates.py) — live-path wiring open, see TASK-009 (GAP-001 not fully closed until then)",
+    "entropy_gate": "complete — verified, AND test-backfilled this session (tests/test_detector.py, 32 tests, detector.py coverage 0% -> 92%)",
+    "performance_drift_trigger": "NOT STARTED — GAP-003 (P1)",
+    "order_fsm": "NOT STARTED — GAP-004 (P1)",
+    "portfolio_correlation_layer": "NOT STARTED — GAP-005 (P2)",
+    "intel_layer": "COMPLETE — .project-intel/ active. RAG engine (332 chunks), cognitive_layer.py (13 domain knowledge entries), context_builder.py (91% token reduction per the intel-ask CLI) all present from session 2; not independently re-audited this session beyond what was needed to resolve GAP-007.",
+    "output_router": "NOT a running daemon — no process found. Claude performs the tag->file routing manually via direct file writes each session. Corrected from prior false 'COMPLETE — daemon installed' claim.",
+    "cognitive_layer": "complete (5 validators: Quant/Probability/Risk/Blockchain/Regime), CRITICAL sizing bug fixed this session [GAP-007, now resolved] — was independently recomputing Kelly via mu/sigma^2 and could inflate position size 2x+ beyond the entropy-gated Kelly fraction; now reads kelly_result.adjusted_fraction as the single source of truth and only ever multiplies it down. tests/test_cognitive_engine.py added (42 tests, coverage 0% -> 97%). Also fixed a NameError-causing stale variable reference (regime_conf) left from an interrupted prior edit. spread_bps/funding_rate_8h still hardcoded placeholders in signal_engine.py — see TASK-010."
   },
-  "current_focus": "GAP-001 gate implemented + tested. Next: GAP-004 order FSM, or TASK-009 (wire SlippageModel into live signal path) before any live-gate unlock.",
-  "last_file_modified": "src/risk/slippage.py, src/risk/gates.py, src/config.py, tests/test_slippage.py, tests/test_risk_gates.py",
+  "current_focus": "GAP-007 (cognitive engine sizing bug) resolved + tested this session. Next: TASK-010 (wire live spread/funding into SignalContext — P0, same class as TASK-009), TASK-011 (audit strategies/filters.py scalar for the same double-counting risk pattern as GAP-007), or TASK-009/GAP-004 from the prior session's backlog.",
+  "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
     "Decide online retraining trigger: time-based vs performance-based",
-    "Define order FSM states for partial fills (GAP-004) \u2014 next task",
-    "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config default, not fitted)"
+    "Define order FSM states for partial fills (GAP-004) — next task",
+    "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config default, not fitted)",
+    "TASK-010: live spread_bps/funding_rate_8h wiring into SignalContext (P0, new)",
+    "TASK-011: audit strategies/filters.py 'scalar' for the same independent-recompute risk pattern that caused GAP-007 (P1, new, not yet investigated)",
+    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 — never validated against the declared minimum (Low severity, new)"
   ],
-  "next_recommended_task": "GAP-004: Order state machine in src/execution/live.py (TASK-004), or TASK-009 (slippage live-path wiring) before live-gate unlock",
-  "project_health": "CLEAN \u2014 179/179 tests pass after GAP-001 gate added, no regressions. Test coverage remains thin outside src/risk/* and src/features/* (0% on execution/, api/, models/, regime/, diagnostics/, strategies/, data/ \u2014 global 60% coverage gate fails on full-suite run; pre-existing, not caused by this session).",
-  "total_sessions": 2,
+  "next_recommended_task": "TASK-010 (live spread/funding wiring) or TASK-011 (filters.py scalar audit) before declaring the cognitive layer fully live-safe; otherwise GAP-004 (order FSM) remains the largest unaddressed P1.",
+  "project_health": "CLEAN — 258 passed, 1 skipped (0 failures) after this session's changes; no regressions. Global coverage 16.18% -> 27.96% this session (detector.py 0%->92%, cognitive_engine.py 0%->97%, kelly.py 86%->88%). Still well below the 60% gate; largest remaining 0%-coverage files: execution/live.py, execution/paper.py, models/trainer.py, strategies/filters.py, strategies/position_sizing.py, engine/orchestrator.py, engine/signal_engine.py, diagnostics/*. One critical correctness bug found AND fixed in the same session it was introduced (GAP-007) — verify cognitive_engine.py changes against tests/test_cognitive_engine.py before any future refactor of CognitiveEngine.evaluate() or SignalContext.",
+  "total_sessions": 3,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -57,9 +61,15 @@
       "message": "chore(intel): record commit hashes in SESSION_STATE.json [claude]",
       "time": "2026-06-23T11:15:11.968913",
       "author": "Claude"
+    },
+    {
+      "hash": "88a5e73",
+      "message": "feat(intel): add RAG engine, cognitive layer, smart context builder — 91% token reduction [claude]",
+      "time": "2026-06-23T15:11:41.568507",
+      "author": "Claude"
     }
   ],
-  "last_commit": "e8f15c3",
-  "last_commit_message": "chore(intel): record commit hashes in SESSION_STATE.json [claude]",
-  "last_commit_time": "2026-06-23T11:15:11.968974"
+  "last_commit": "88a5e73",
+  "last_commit_message": "feat(intel): add RAG engine, cognitive layer, smart context builder — 91% token reduction [claude]",
+  "last_commit_time": "2026-06-23T15:11:41.568554"
 }

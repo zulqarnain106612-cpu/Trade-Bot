@@ -225,6 +225,96 @@ class TestComputePositionSize:
         )
         assert result is not None
 
+    # ─── GAP-002: regime_scalar parameter ──────────────────────────────────────
+
+    def test_regime_scalar_default_is_noop(self):
+        baseline = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+        )
+        with_explicit_one = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            regime_scalar=1.0,
+        )
+        assert baseline is not None and with_explicit_one is not None
+        assert baseline.quantity == with_explicit_one.quantity
+
+    def test_regime_scalar_half_shrinks_position(self):
+        # p_long=0.52, win_loss_ratio=1.0 -> raw kelly_fraction=0.04, well
+        # below BOTH the Kelly ceiling (0.25) and the 5% max-position cap,
+        # so regime_scalar's effect on adjusted_fraction is observable and
+        # not masked by either clamp. Verified directly against the known
+        # half-Kelly formula rather than relying on the is_capped flag,
+        # since is_capped only reflects the Kelly-ceiling clamp, not the
+        # separate max_position_size_pct clamp applied in size_position().
+        full = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            regime_scalar=1.0,
+        )
+        halved = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            regime_scalar=0.5,
+        )
+        assert full is not None and halved is not None
+        # raw kelly_fraction = (0.52*1 - 0.48)/1 = 0.04; half-Kelly = 0.02;
+        # well under both the 0.25 ceiling and the 5% position cap.
+        assert abs(full.adjusted_fraction - 0.02) < 1e-6
+        assert halved.adjusted_fraction < full.adjusted_fraction
+        assert abs(halved.adjusted_fraction - full.adjusted_fraction * 0.5) < 1e-6
+
+    def test_regime_scalar_zero_yields_none(self):
+        result = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            regime_scalar=0.0,
+        )
+        assert result is None
+
+    def test_regime_scalar_above_one_is_clamped_not_amplified(self):
+        # A future caller bug passing regime_scalar > 1.0 must never widen
+        # the position beyond what regime_scalar=1.0 would give — risk
+        # gates only ever narrow, never amplify (CLAUDE.md: never weaken).
+        normal = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            regime_scalar=1.0,
+        )
+        amplified_attempt = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            regime_scalar=5.0,
+        )
+        assert normal is not None and amplified_attempt is not None
+        assert amplified_attempt.quantity == normal.quantity
+
+    def test_regime_scalar_nan_fails_safe_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            regime_scalar=float("nan"),
+        )
+        assert result is None
+
+    def test_regime_scalar_negative_clamped_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            regime_scalar=-0.3,
+        )
+        assert result is None
+
 
 # ─── compute_win_loss_stats ───────────────────────────────────────────────────
 
