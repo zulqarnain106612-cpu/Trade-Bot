@@ -2,19 +2,33 @@
 > Auto-maintained by Project Intelligence Router
 > Agents: read this file for known issues before implementing
 
-## Gap-001 [2026-06-23]
+## Gap-001 [2026-06-23] — RESOLVED [2026-06-23]
 No slippage + market impact model in live.py.
 Almgren-Chriss model needed: slippage_bps = spread + impact * sqrt(qty/adv_20d).
 Severity: High. File: src/execution/live.py, src/risk/
-Status: OPEN
+Status: RESOLVED — src/risk/slippage.py (SlippageModel.estimate / veto_if_negative_ev),
+wired into src/risk/gates.py as gate 0 (check_slippage_veto). Settings added to
+RiskSettings (slippage_default_spread_bps, slippage_impact_coeff_bps,
+slippage_veto_margin_bps). 18 tests, 100% line coverage on the new module.
+NOTE: live.py execution itself is not yet calling SlippageModel directly —
+the gate exists and fails open (passes) until a call site supplies an
+expected_edge_bps + SlippageEstimate. Wiring the signal engine / live
+executor to actually populate these fields is tracked as a new follow-up
+task (see OPEN_TASKS.md).
 ────────────────────────────────────────────────────────────
 
-## Gap-002 [2026-06-23]
+## Gap-002 [2026-06-23] — RESOLVED (verified 2026-06-23, session 2)
 GaussianHMM regime has no posterior entropy gate.
 hmm.predict_proba() entropy not computed — confidence not quantified.
 Risk: regime misclassification during transitions blocks or opens positions incorrectly.
 Severity: High. File: src/regime/detector.py
-Status: OPEN
+Status: RESOLVED — implemented in commit 99ad2a5 (entropy field on
+RegimePrediction, normalized Shannon entropy, position_scalar() helper) and
+wired into src/risk/kelly.py compute_position_size(regime_scalar=...).
+CORRECTION: SESSION_STATE.json from the previous session still listed this
+as "NOT STARTED" and as the next recommended task — that was stale. Verified
+directly against source (src/regime/detector.py lines ~104-541) before
+relying on it. SESSION_STATE.json corrected in this session.
 ────────────────────────────────────────────────────────────
 
 ## Gap-003 [2026-06-23]

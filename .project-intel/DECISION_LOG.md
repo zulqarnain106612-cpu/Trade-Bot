@@ -37,5 +37,26 @@
 **Rationale**: Safety-first — accidental live trading is worse than missed opportunity
 **Status**: Implemented in src/execution/ and src/risk/gates.py
 
+## ADR-007: Almgren-Chriss square-root impact model for slippage [GAP-001]
+**Date**: 2026-06-23
+**Decision**: Model execution cost as spread_bps + impact_coeff_bps * sqrt(qty / adv_20d).
+Gate placed first in the gate stack (gate 0) as a pre-trade negative-EV veto,
+not folded directly into kelly.py — keeps cost modelling and position sizing
+as separately testable concerns.
+**Rationale**: Square-root law is the standard TCA model (Almgren & Chriss
+2001) and is liquidity-normalised via adv_20d, so the impact coefficient is
+comparable across symbols with different absolute volume. Gating on net EV
+before sizing means a cost-negative signal never reaches Kelly/risk-gate
+logic at all, rather than being sized down after the fact.
+**Trade-off accepted**: the gate fails open (passes) when no SlippageEstimate
+is supplied, so it has zero protective effect until a call site is wired to
+populate it (TASK-009 in OPEN_TASKS.md). This was deliberate — failing closed
+would have silently blocked all existing paper-trading callers the moment
+this gate was added, which is worse than a known, tracked gap.
+**Status**: src/risk/slippage.py implemented and gated in src/risk/gates.py.
+Live-path wiring (signal_engine.py / live.py) is open — see TASK-009.
+Live trading must remain blocked until that follow-up lands; do not treat
+"gate 0 exists" as equivalent to "gate 0 is protecting live trades."
+
 ---
 ## Add new decisions below this line when implementing changes

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-23T00:00:00",
+  "last_updated": "2026-06-23T11:14:07.967302",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -8,33 +8,46 @@
     "api": "complete",
     "frontend": "complete",
     "diagnostics": "complete",
-    "slippage_model": "NOT STARTED \u2014 GAP-001 (P0 before live)",
-    "entropy_gate": "NOT STARTED \u2014 GAP-002 (P0 before live)",
+    "slippage_model": "GATE IMPLEMENTED (gate 0, src/risk/slippage.py + gates.py) \u2014 live-path wiring open, see TASK-009 (GAP-001 not fully closed until then)",
+    "entropy_gate": "complete (verified 2026-06-23 against source \u2014 prior entry here was stale/incorrect)",
     "performance_drift_trigger": "NOT STARTED \u2014 GAP-003 (P1)",
     "order_fsm": "NOT STARTED \u2014 GAP-004 (P1)",
     "portfolio_correlation_layer": "NOT STARTED \u2014 GAP-005 (P2)",
     "intel_layer": "COMPLETE \u2014 .project-intel/ active, all agents configured",
-    "output_router": "COMPLETE \u2014 daemon + shell hooks installed"
+    "output_router": "NOT a running daemon \u2014 no process found. Claude performs the tag->file routing manually via direct file writes each session. Corrected from prior false 'COMPLETE \u2014 daemon installed' claim."
   },
-  "current_focus": "project audit complete \u2014 ready for GAP-001 or GAP-002 implementation",
-  "last_file_modified": "multiple \u2014 project audit and cleanup",
+  "current_focus": "GAP-001 gate implemented + tested. Next: GAP-004 order FSM, or TASK-009 (wire SlippageModel into live signal path) before any live-gate unlock.",
+  "last_file_modified": "src/risk/slippage.py, src/risk/gates.py, src/config.py, tests/test_slippage.py, tests/test_risk_gates.py",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
     "Decide online retraining trigger: time-based vs performance-based",
-    "Define order FSM states for partial fills (GAP-004)"
+    "Define order FSM states for partial fills (GAP-004) \u2014 next task",
+    "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config default, not fitted)"
   ],
-  "next_recommended_task": "GAP-002: Add HMM posterior entropy gate in src/regime/detector.py",
-  "project_health": "CLEAN \u2014 audit passed, no conflicts, no broken imports",
-  "total_sessions": 1,
+  "next_recommended_task": "GAP-004: Order state machine in src/execution/live.py (TASK-004), or TASK-009 (slippage live-path wiring) before live-gate unlock",
+  "project_health": "CLEAN \u2014 179/179 tests pass after GAP-001 gate added, no regressions. Test coverage remains thin outside src/risk/* and src/features/* (0% on execution/, api/, models/, regime/, diagnostics/, strategies/, data/ \u2014 global 60% coverage gate fails on full-suite run; pre-existing, not caused by this session).",
+  "total_sessions": 2,
   "commit_log": [
     {
       "hash": "910cbf0",
       "message": "chore: disable auto-push, add claude-commit.sh, strip pre-push hook [claude]",
       "time": "2026-06-23T09:15:07.188644",
       "author": "Claude"
+    },
+    {
+      "hash": "99ad2a5",
+      "message": "feat: entropy gate + kelly fix + signal engine updates [claude]",
+      "time": "2026-06-23T09:15:07.381133",
+      "author": "Claude"
+    },
+    {
+      "hash": "6b7f301",
+      "message": "feat(risk): Almgren-Chriss slippage model + gate-0 negative-EV veto [GAP-001] [claude]",
+      "time": "2026-06-23T11:14:17.273537",
+      "author": "Claude"
     }
   ],
-  "last_commit": "910cbf0",
-  "last_commit_message": "chore: disable auto-push, add claude-commit.sh, strip pre-push hook [claude]",
-  "last_commit_time": "2026-06-23T09:15:07.188701"
+  "last_commit": "6b7f301",
+  "last_commit_message": "feat(risk): Almgren-Chriss slippage model + gate-0 negative-EV veto [GAP-001] [claude]",
+  "last_commit_time": "2026-06-23T11:14:17.273601"
 }
