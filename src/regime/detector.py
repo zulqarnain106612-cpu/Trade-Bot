@@ -101,12 +101,18 @@ class RegimePrediction:
     prob_trending  : posterior probability of trending state
     prob_volatile  : posterior probability of volatile state
     is_volatile    : True when state == REGIME_VOLATILE — used by risk gate
+    entropy        : GAP-002 — normalized Shannon entropy of the posterior
+                     distribution, in [0, 1]. 0 = certain (one state has
+                     prob≈1), 1 = maximal uncertainty (uniform over states).
+                     Normalized by log(n_states) so the range is fixed
+                     regardless of n_components.
     """
 
     state: int
     prob_ranging: float
     prob_trending: float
     prob_volatile: float
+    entropy: float = 0.0
 
     @property
     def is_volatile(self) -> bool:
@@ -116,6 +122,35 @@ class RegimePrediction:
     def dominant_prob(self) -> float:
         return max(self.prob_ranging, self.prob_trending, self.prob_volatile)
 
+    @property
+    def confidence(self) -> float:
+        """GAP-002: confidence = 1 - entropy. 1.0 = fully confident."""
+        return 1.0 - self.entropy
+
+    def position_scalar(self, cfg: "HMMSettings | None" = None) -> float:
+        """
+        GAP-002: continuous entropy-based position-size scalar in
+        [entropy_scalar_floor, 1.0].
+
+        Below `entropy_threshold`, full confidence -> scalar = 1.0.
+        Above it, scalar decays linearly from 1.0 to `entropy_scalar_floor`
+        as entropy rises from threshold to 1.0 (max uncertainty). A linear
+        ramp (rather than a hard step at the threshold) avoids a
+        discontinuous 2x position-size jump from an infinitesimal entropy
+        change at the boundary.
+        """
+        if cfg is None:
+            cfg = get_settings().hmm
+        threshold = cfg.entropy_threshold
+        floor = cfg.entropy_scalar_floor
+        if self.entropy <= threshold:
+            return 1.0
+        span = 1.0 - threshold
+        if span <= 0.0:
+            return floor
+        t = min(1.0, (self.entropy - threshold) / span)
+        return 1.0 - t * (1.0 - floor)
+
     def as_dict(self) -> dict[str, object]:
         return {
             "regime_state": self.state,
@@ -123,6 +158,8 @@ class RegimePrediction:
             "prob_trending": round(self.prob_trending, 6),
             "prob_volatile": round(self.prob_volatile, 6),
             "is_volatile": self.is_volatile,
+            "entropy": round(self.entropy, 6),
+            "confidence": round(self.confidence, 6),
         }
 
 
@@ -440,6 +477,12 @@ class RegimeDetector:
                 prob_ranging=0.0,
                 prob_trending=0.0,
                 prob_volatile=1.0,
+                # GAP-002: a non-convergent HMM has no meaningful posterior;
+                # report entropy=0.0 since prob_volatile=1.0 is a degenerate
+                # (zero-entropy) distribution. The VOLATILE state assignment
+                # itself is what blocks new positions in this fail-safe path,
+                # not the entropy gate.
+                entropy=0.0,
             )
 
         missing = set(HMM_FEATURE_COLS) - set(history.columns)
@@ -467,11 +510,25 @@ class RegimeDetector:
         dominant_raw: int = int(np.argmax(last_posterior))
         state: int = self._state_map[dominant_raw]
 
+        # GAP-002: normalized Shannon entropy of the posterior over the
+        # n_components states. Using natural log normalized by log(n_states)
+        # fixes the range to [0, 1] regardless of n_components, so the
+        # entropy_threshold config value is comparable across configurations.
+        # Clip probabilities away from exactly 0 to avoid log(0) = -inf;
+        # this has no observable effect since p*log(p) -> 0 as p -> 0.
+        _eps = 1e-12
+        _p = np.clip(last_posterior, _eps, 1.0)
+        _raw_entropy = float(-np.sum(_p * np.log(_p)))
+        _max_entropy = float(np.log(self._cfg.n_components))
+        entropy = _raw_entropy / _max_entropy if _max_entropy > 0.0 else 0.0
+        entropy = max(0.0, min(1.0, entropy))
+
         pred = RegimePrediction(
             state=state,
             prob_ranging=float(prob_canonical[REGIME_RANGING]),
             prob_trending=float(prob_canonical[REGIME_TRENDING]),
             prob_volatile=float(prob_canonical[REGIME_VOLATILE]),
+            entropy=entropy,
         )
 
         self._log.debug(
@@ -481,6 +538,7 @@ class RegimeDetector:
             prob_trending=round(pred.prob_trending, 4),
             prob_volatile=round(pred.prob_volatile, 4),
             is_volatile=pred.is_volatile,
+            entropy=round(pred.entropy, 4),
         )
         return pred
 

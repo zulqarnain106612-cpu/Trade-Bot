@@ -1,23 +1,24 @@
 {
   "version": "2.0.0",
   "tasks": [
-    // ── Frontend ─────────────────────────────────────────────────────────────
     {
       "label": "Frontend: Run Vite",
       "type": "shell",
       "command": "npm run dev",
-      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
       "isBackground": true,
       "problemMatcher": [],
       "group": "build"
     },
-
-    // ── Auto-commit & Push (Ctrl+Shift+S) ────────────────────────────────────
     {
-      "label": "Auto-commit & Push",
+      "label": "Commit (no push)",
       "type": "shell",
       "command": "bash scripts/autocommit.sh",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -26,25 +27,30 @@
       },
       "problemMatcher": [],
       "group": "none",
-      "runOptions": { "instanceLimit": 1 }
+      "runOptions": {
+        "instanceLimit": 1
+      }
     },
-
-    // ── Auto-commit dry-run ───────────────────────────────────────────────────
     {
       "label": "Auto-commit: Dry Run",
       "type": "shell",
       "command": "bash scripts/autocommit.sh --check",
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "reveal": "always", "panel": "shared" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
       "problemMatcher": []
     },
-
-    // ── Auto-fix all ─────────────────────────────────────────────────────────
     {
       "label": "Auto-fix All",
       "type": "shell",
       "command": "bash scripts/autofix.sh",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -54,25 +60,35 @@
       "problemMatcher": [],
       "group": "test"
     },
-
-    // ── Run tests ─────────────────────────────────────────────────────────────
     {
       "label": "Run Tests",
       "type": "shell",
       "command": "python3 -m pytest tests/ -v --tb=short",
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
       "problemMatcher": [],
-      "group": { "kind": "test", "isDefault": true }
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
     },
-
-    // ── Security scan ─────────────────────────────────────────────────────────
     {
       "label": "Security Scan",
       "type": "shell",
       "command": "bash -c 'bandit -r src/ --severity-level medium -q && echo CLEAN || echo ISSUES FOUND'",
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "reveal": "always", "panel": "shared" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
       "problemMatcher": []
     }
   ]

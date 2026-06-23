@@ -416,6 +416,7 @@ def compute_position_size(
     amount_precision: float = 8.0,
     min_amount: float = 0.0,
     min_cost: float = 0.0,
+    regime_scalar: float = 1.0,
     cfg: RiskSettings | None = None,
 ) -> KellyResult | None:
     """
@@ -435,6 +436,13 @@ def compute_position_size(
     amount_precision: exchange amount decimal places
     min_amount     : exchange minimum order quantity
     min_cost       : exchange minimum order notional USD
+    regime_scalar  : GAP-002 — HMM entropy-based confidence scalar in
+                     [0, 1], typically RegimePrediction.position_scalar().
+                     Multiplies the half-Kelly fraction down when regime
+                     classification is uncertain. Defaults to 1.0 (no-op)
+                     for backward compatibility with callers that do not
+                     pass a regime prediction (e.g. unit tests, back-test
+                     harnesses without a fitted detector).
     cfg            : RiskSettings
 
     Returns
@@ -444,6 +452,16 @@ def compute_position_size(
     if cfg is None:
         cfg = get_settings().risk
 
+    # GAP-002: regime_scalar narrows the position size, never widens it.
+    # An out-of-range value (e.g. a future caller bug passing >1.0) must
+    # not be able to amplify Kelly beyond the half-Kelly/ceiling spec —
+    # same "never weaken a risk gate" posture as the rest of this module.
+    if not math.isfinite(regime_scalar):
+        log.error("kelly.invalid_regime_scalar", regime_scalar=regime_scalar)
+        regime_scalar_clamped = 0.0
+    else:
+        regime_scalar_clamped = max(0.0, min(1.0, regime_scalar))
+
     _raw_frac, adj_frac, _ = kelly_from_model_probs(
         p_long=p_long,
         avg_win_usd=avg_win_usd,
@@ -451,6 +469,8 @@ def compute_position_size(
         direction=direction,
         cfg=cfg,
     )
+
+    adj_frac = adj_frac * regime_scalar_clamped
 
     return size_position(
         adjusted_fraction=adj_frac,

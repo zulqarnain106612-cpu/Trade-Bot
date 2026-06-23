@@ -285,6 +285,15 @@ class SignalEngine:
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
+        # GAP-002: HMM posterior entropy gate — scale position size down when
+        # the regime classification is uncertain (near-uniform posterior).
+        # No fitted regime (regime is None) is already routed to
+        # REGIME_VOLATILE above and will be blocked by the regime risk gate
+        # before sizing matters, but default to 1.0 (no scaling) here rather
+        # than re-deriving that fail-safe — single source of truth for the
+        # fail-safe lives in the regime gate, not in sizing.
+        regime_scalar = regime.position_scalar() if regime is not None else 1.0
+
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
         kelly_result = compute_position_size(
             p_long=p_long,
@@ -293,6 +302,7 @@ class SignalEngine:
             entry_price=float(bars["close"].iloc[-1]),
             avg_win_usd=avg_win_usd,
             avg_loss_usd=avg_loss_usd,
+            regime_scalar=regime_scalar,
         )
 
         notional = kelly_result.notional_usd if kelly_result is not None else 0.0

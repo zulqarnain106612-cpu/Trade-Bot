@@ -176,6 +176,15 @@ class HMMSettings(BaseSettings):
     # State index mapping — volatile state triggers regime gate
     volatile_state_index: int = Field(default=2, ge=0)
 
+    # GAP-002: posterior entropy gate — quantifies regime confidence.
+    # entropy_threshold     : normalized entropy (0-1) above which position
+    #                         size starts scaling down. Below this, full size.
+    # entropy_scalar_floor  : minimum position scalar at entropy=1.0 (max
+    #                         uncertainty / near-uniform posterior). Matches
+    #                         OPEN_TASKS.md TASK-002 spec floor of 0.5.
+    entropy_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    entropy_scalar_floor: float = Field(default=0.5, ge=0.0, le=1.0)
+
     @field_validator("covariance_type")
     @classmethod
     def validate_cov_type(cls, v: str) -> str:
