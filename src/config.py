@@ -154,6 +154,20 @@ class RiskSettings(BaseSettings):
         description="Seconds to wait for manual approval before auto-skip in RESTRICTED mode",
     )
 
+    # GAP-001 — Almgren-Chriss slippage / market-impact model
+    # (Almgren & Chriss 2001, "Optimal Execution of Portfolio Transactions").
+    # slippage_default_spread_bps : fallback half-spread assumption when the
+    #                                live order book is unavailable.
+    # slippage_impact_coeff_bps   : impact coefficient applied to
+    #                                sqrt(qty / adv_20d); calibrate per-symbol
+    #                                from realized fills once live data exists.
+    # slippage_veto_margin_bps    : extra safety margin required on top of
+    #                                spread+impact before a signal is allowed
+    #                                through gate 0 (never let est. cost == edge).
+    slippage_default_spread_bps: float = Field(default=2.0, ge=0.0, le=500.0)
+    slippage_impact_coeff_bps: float = Field(default=10.0, ge=0.0, le=2000.0)
+    slippage_veto_margin_bps: float = Field(default=1.0, ge=0.0, le=500.0)
+
 
 # ---------------------------------------------------------------------------
 # Model hyper-parameters

@@ -19,8 +19,10 @@ from src.risk.gates import (
     check_paper_minimum_days,
     check_position_size,
     check_regime_gate,
+    check_slippage_veto,
     evaluate_all_gates,
 )
+from src.risk.slippage import SlippageModel
 
 
 @pytest.fixture(autouse=True)
@@ -272,3 +274,58 @@ class TestDrawdownTracker:
             DrawdownTracker(0.0)
         with pytest.raises(ValueError):
             DrawdownTracker(-100.0)
+
+
+# ─── check_slippage_veto (Gate 0, GAP-001) ───────────────────────────────────
+
+
+class TestSlippageVetoGate:
+    def test_none_estimate_passes_open(self):
+        result = check_slippage_veto(expected_edge_bps=0.0, slippage=None)
+        assert result.passed
+        assert result.details["slippage_gate"] == "skipped_no_estimate"
+
+    def test_sufficient_edge_passes(self):
+        est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
+        result = check_slippage_veto(expected_edge_bps=50.0, slippage=est)
+        assert result.passed
+
+    def test_insufficient_edge_blocks(self):
+        est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
+        result = check_slippage_veto(expected_edge_bps=0.5, slippage=est)
+        assert not result.passed
+        assert result.status == GateStatus.HALT_NEGATIVE_EV
+
+    def test_details_populated_on_block(self):
+        est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
+        result = check_slippage_veto(expected_edge_bps=0.5, slippage=est)
+        assert "net_edge_bps" in result.details
+        assert result.details["symbol"] == "BTC/USDT"
+
+
+# ─── evaluate_all_gates — gate 0 wiring ──────────────────────────────────────
+
+
+class TestEvaluateAllGatesSlippageWiring:
+    def test_backward_compat_no_estimate_still_passes(self):
+        # Existing callers that have not wired a SlippageModel yet must not
+        # be blocked by the new gate 0.
+        ctx = _make_ctx()
+        assert evaluate_all_gates(ctx).passed
+
+    def test_negative_ev_blocks_before_drawdown_check(self):
+        est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
+        # daily_pnl_usd well within limits so only gate 0 could possibly fail
+        ctx = _make_ctx(
+            daily_pnl_usd=-5.0,
+            expected_edge_bps=0.5,
+            slippage_estimate=est,
+        )
+        result = evaluate_all_gates(ctx)
+        assert not result.passed
+        assert result.status == GateStatus.HALT_NEGATIVE_EV
+
+    def test_positive_ev_with_estimate_passes_full_stack(self):
+        est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
+        ctx = _make_ctx(expected_edge_bps=50.0, slippage_estimate=est)
+        assert evaluate_all_gates(ctx).passed

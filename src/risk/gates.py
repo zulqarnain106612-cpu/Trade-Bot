@@ -2,6 +2,8 @@
 Risk gate engine — hard limits that block new positions.
 
 Gates (all must pass for a trade to proceed):
+  0. Slippage / negative-EV veto : expected edge must cover estimated
+                               spread + market-impact cost (GAP-001)
   1. Daily drawdown halt     : daily PnL < -2% of starting equity → halt
   2. Consecutive loss halt   : 3+ consecutive losses → halt
   3. Regime gate             : no new positions when regime = volatile
@@ -15,6 +17,8 @@ All thresholds read from RiskSettings — never hard-coded here.
 Authority:
   - López de Prado (2018) AFML Ch.3 (stop-loss barriers as risk gates)
   - Chan (2013) Algorithmic Trading Ch.7 (drawdown controls)
+  - Almgren & Chriss (2001) "Optimal Execution of Portfolio Transactions"
+    (gate 0 — slippage/market-impact veto, see src/risk/slippage.py)
 """
 
 from __future__ import annotations
@@ -30,6 +34,8 @@ from src.config import (
     TradingMode,
     get_settings,
 )
+from src.risk.slippage import SlippageEstimate
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -43,6 +49,7 @@ class GateStatus(str, Enum):
     """Outcome of a risk gate evaluation."""
 
     PASS = "pass"
+    HALT_NEGATIVE_EV = "halt_negative_ev"
     HALT_DRAWDOWN = "halt_drawdown"
     HALT_CONSECUTIVE_LOSSES = "halt_consecutive_losses"
     HALT_REGIME = "halt_regime"
@@ -94,6 +101,77 @@ class GateResult:
 # ---------------------------------------------------------------------------
 # Individual gate functions — pure, testable
 # ---------------------------------------------------------------------------
+
+
+def check_slippage_veto(
+    expected_edge_bps: float,
+    slippage: SlippageEstimate | None,
+    cfg: RiskSettings | None = None,
+) -> GateResult:
+    """
+    Gate 0: pre-trade transaction-cost veto (GAP-001, Almgren-Chriss).
+
+    Rejects a trade whose expected gross edge would be consumed (or
+    exceeded) by estimated spread + market-impact cost plus a configured
+    safety margin. Evaluated first since a cost-negative trade should
+    never reach the other gates — sizing/regime/drawdown checks are
+    irrelevant if the trade has no real edge once execution cost is
+    included.
+
+    Parameters
+    ----------
+    expected_edge_bps : signal's expected gross edge in bps, computed
+                         upstream by the signal engine from p_long /
+                         meta-label probability and modelled win/loss ratio.
+    slippage           : SlippageEstimate from SlippageModel.estimate(), or
+                         None when no estimate is available yet. This gate
+                         fails OPEN (passes) when slippage is None rather
+                         than blocking — it is an additive safety check;
+                         callers that have not wired a SlippageModel must
+                         not be silently blocked. Once every call site
+                         supplies an estimate this parameter should stop
+                         being optional.
+    cfg                : RiskSettings; loaded from global config if None.
+
+    Returns
+    -------
+    GateResult — PASS or HALT_NEGATIVE_EV.
+    """
+    if cfg is None:
+        cfg = get_settings().risk
+
+    if slippage is None:
+        return GateResult.pass_gate(details={"slippage_gate": "skipped_no_estimate"})
+
+    margin = cfg.slippage_veto_margin_bps
+    net_edge_bps = expected_edge_bps - slippage.total_slippage_bps - margin
+
+    if net_edge_bps <= 0.0:
+        return GateResult.fail(
+            GateStatus.HALT_NEGATIVE_EV,
+            reason=(
+                f"Expected edge {expected_edge_bps:.2f} bps does not cover "
+                f"slippage {slippage.total_slippage_bps:.2f} bps + margin "
+                f"{margin:.2f} bps — net EV {net_edge_bps:.2f} bps <= 0"
+            ),
+            details={
+                "expected_edge_bps": round(expected_edge_bps, 4),
+                "total_slippage_bps": round(slippage.total_slippage_bps, 4),
+                "margin_bps": margin,
+                "net_edge_bps": round(net_edge_bps, 4),
+                "symbol": slippage.symbol,
+                "participation_rate": round(slippage.participation_rate, 6),
+            },
+        )
+
+    return GateResult.pass_gate(
+        details={
+            "expected_edge_bps": round(expected_edge_bps, 4),
+            "total_slippage_bps": round(slippage.total_slippage_bps, 4),
+            "net_edge_bps": round(net_edge_bps, 4),
+            "symbol": slippage.symbol,
+        }
+    )
 
 
 def check_daily_drawdown(
@@ -406,6 +484,14 @@ class RiskGateContext:
     # Derived from the earliest paper equity_curve record timestamp at call site.
     paper_trading_days: int = 0
 
+    # GAP-001 — gate 0 inputs. expected_edge_bps is the signal engine's
+    # modelled gross edge; slippage_estimate is the SlippageModel output
+    # for this proposed order. slippage_estimate defaults to None so
+    # existing call sites that have not yet wired a SlippageModel are not
+    # blocked (check_slippage_veto fails open on None — see its docstring).
+    expected_edge_bps: float = 0.0
+    slippage_estimate: SlippageEstimate | None = None
+
 
 def evaluate_all_gates(
     ctx: RiskGateContext,
@@ -415,6 +501,7 @@ def evaluate_all_gates(
     Evaluate all risk gates in sequence.  Returns on first failure.
 
     Gate order:
+      0. Slippage / negative-EV veto (GAP-001)
       1. Daily drawdown
       2. Consecutive losses
       3. Regime
@@ -439,6 +526,7 @@ def evaluate_all_gates(
     # evaluation ever moves to a concurrent context. Explicit calls are also
     # fully visible to static analysis and mypy.
     ordered_results: list[GateResult] = [
+        check_slippage_veto(ctx.expected_edge_bps, ctx.slippage_estimate, cfg),
         check_daily_drawdown(ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg),
         check_consecutive_losses(ctx.consecutive_loss_count, cfg),
         check_regime_gate(ctx.regime_state),
