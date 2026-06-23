@@ -13,3 +13,5 @@
 
 ## Frontend — eslint
 - eslint: 0 issues
+
+> Moved from project root. Refresh: python3 scripts/export_diagnostics.py
