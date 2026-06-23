@@ -1,0 +1,236 @@
+[
+  {
+    "id": "kelly-criterion",
+    "domain": "quant_finance",
+    "topic": "Kelly Criterion & Sizing",
+    "tags": [
+      "kelly",
+      "sizing",
+      "bet",
+      "fraction",
+      "position",
+      "capital",
+      "edge",
+      "odds"
+    ],
+    "file": "kelly-criterion.md",
+    "tokens": 276
+  },
+  {
+    "id": "triple-barrier-cpcv",
+    "domain": "quant_finance",
+    "topic": "Triple Barrier Labeling + CPCV",
+    "tags": [
+      "triple",
+      "barrier",
+      "label",
+      "cpcv",
+      "cross",
+      "validation",
+      "purged",
+      "combinatorial",
+      "afml"
+    ],
+    "file": "triple-barrier-cpcv.md",
+    "tokens": 305
+  },
+  {
+    "id": "hmm-regime",
+    "domain": "quant_finance",
+    "topic": "HMM Regime Detection",
+    "tags": [
+      "hmm",
+      "regime",
+      "hidden",
+      "markov",
+      "gaussian",
+      "state",
+      "ranging",
+      "trending",
+      "volatile"
+    ],
+    "file": "hmm-regime.md",
+    "tokens": 331
+  },
+  {
+    "id": "fractional-differentiation",
+    "domain": "quant_finance",
+    "topic": "Fractional Differentiation",
+    "tags": [
+      "fractional",
+      "diff",
+      "differentiation",
+      "stationarity",
+      "memory",
+      "afml",
+      "d",
+      "integration"
+    ],
+    "file": "fractional-differentiation.md",
+    "tokens": 248
+  },
+  {
+    "id": "bayesian-risk",
+    "domain": "probability",
+    "topic": "Bayesian Risk Scoring",
+    "tags": [
+      "bayesian",
+      "prior",
+      "posterior",
+      "likelihood",
+      "risk",
+      "probability",
+      "inference",
+      "update"
+    ],
+    "file": "bayesian-risk.md",
+    "tokens": 328
+  },
+  {
+    "id": "var-cvar",
+    "domain": "probability",
+    "topic": "VaR and CVaR Risk Metrics",
+    "tags": [
+      "var",
+      "cvar",
+      "value",
+      "risk",
+      "tail",
+      "expected",
+      "shortfall",
+      "drawdown",
+      "loss"
+    ],
+    "file": "var-cvar.md",
+    "tokens": 236
+  },
+  {
+    "id": "hurst-exponent",
+    "domain": "probability",
+    "topic": "Hurst Exponent & Fractal Markets",
+    "tags": [
+      "hurst",
+      "fractal",
+      "market",
+      "hypothesis",
+      "persistence",
+      "memory",
+      "trending",
+      "mean",
+      "revert"
+    ],
+    "file": "hurst-exponent.md",
+    "tokens": 253
+  },
+  {
+    "id": "stride-threat-model",
+    "domain": "risk",
+    "topic": "STRIDE Threat Modeling",
+    "tags": [
+      "stride",
+      "threat",
+      "security",
+      "model",
+      "spoofing",
+      "tampering",
+      "repudiation",
+      "disclosure",
+      "denial",
+      "elevation"
+    ],
+    "file": "stride-threat-model.md",
+    "tokens": 346
+  },
+  {
+    "id": "slippage-market-impact",
+    "domain": "risk",
+    "topic": "Slippage & Market Impact Model",
+    "tags": [
+      "slippage",
+      "impact",
+      "market",
+      "spread",
+      "almgren",
+      "chriss",
+      "execution",
+      "cost",
+      "fill"
+    ],
+    "file": "slippage-market-impact.md",
+    "tokens": 336
+  },
+  {
+    "id": "crypto-algorithms",
+    "domain": "blockchain",
+    "topic": "Cryptographic Algorithms for Trading Systems",
+    "tags": [
+      "crypto",
+      "ecc",
+      "ecdsa",
+      "ed25519",
+      "hmac",
+      "sha256",
+      "signature",
+      "key",
+      "hash",
+      "secp256k1"
+    ],
+    "file": "crypto-algorithms.md",
+    "tokens": 318
+  },
+  {
+    "id": "defi-risk",
+    "domain": "blockchain",
+    "topic": "DeFi & Cryptocurrency Risk Models",
+    "tags": [
+      "defi",
+      "liquidity",
+      "amm",
+      "impermanent",
+      "loss",
+      "funding",
+      "rate",
+      "perpetual",
+      "basis",
+      "crypto"
+    ],
+    "file": "defi-risk.md",
+    "tokens": 373
+  },
+  {
+    "id": "cap-theorem",
+    "domain": "devops",
+    "topic": "CAP Theorem & Distributed Systems",
+    "tags": [
+      "cap",
+      "consistency",
+      "availability",
+      "partition",
+      "distributed",
+      "database",
+      "eventual",
+      "strong"
+    ],
+    "file": "cap-theorem.md",
+    "tokens": 291
+  },
+  {
+    "id": "sre-observability",
+    "domain": "devops",
+    "topic": "SRE & Observability Patterns",
+    "tags": [
+      "sre",
+      "observability",
+      "metrics",
+      "prometheus",
+      "grafana",
+      "alert",
+      "monitor",
+      "health",
+      "golden",
+      "signal"
+    ],
+    "file": "sre-observability.md",
+    "tokens": 322
+  }
+]

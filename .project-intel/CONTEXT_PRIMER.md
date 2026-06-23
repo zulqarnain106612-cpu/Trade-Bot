@@ -81,3 +81,19 @@ GAP-006: SQLite contention risk at scale
 4. Read one specific source file ONLY when about to modify it
 5. Use MODULE_MAP.json for structural questions
 6. Use OUTPUT ROUTING PROTOCOL above for every response
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## CONTEXT OPTIMIZATION — token-efficient queries
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Instead of reading source files, use these tools:
+
+Query relevant source chunks (BM25 RAG):
+  python3 .project-intel/scripts/rag_engine.py --query "your topic" --project .
+
+Query domain knowledge (quant/crypto/risk/devops):
+  python3 .project-intel/scripts/cognitive_layer.py --query "kelly sizing" --dir .project-intel/knowledge/
+
+Build minimum context for a task (auto-assembles primer + RAG + knowledge):
+  python3 .project-intel/scripts/context_builder.py "your task" --tokens-only
+
+Token usage: ~1,800 tokens per query vs 20,000+ for file reading (91% reduction)

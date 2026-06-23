@@ -66,3 +66,9 @@ temp_*.txt
 # Test coverage
 .coverage
 htmlcov/
+
+# RAG index — rebuilt automatically, don't track binary
+.project-intel/rag.db
+
+# Knowledge base — DO track (source of truth for domain knowledge)
+!.project-intel/knowledge/
