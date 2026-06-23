@@ -67,9 +67,15 @@
       "message": "feat(intel): add RAG engine, cognitive layer, smart context builder — 91% token reduction [claude]",
       "time": "2026-06-23T15:11:41.568507",
       "author": "Claude"
+    },
+    {
+      "hash": "981de06",
+      "message": "fix(risk): CognitiveEngine sizing bug [GAP-007] + test backfill for detector/cognitive_engine [claude]",
+      "time": "2026-06-23T12:57:39.967216+00:00",
+      "author": "Claude"
     }
   ],
-  "last_commit": "88a5e73",
-  "last_commit_message": "feat(intel): add RAG engine, cognitive layer, smart context builder — 91% token reduction [claude]",
-  "last_commit_time": "2026-06-23T15:11:41.568554"
+  "last_commit": "981de06",
+  "last_commit_message": "fix(risk): CognitiveEngine sizing bug [GAP-007] + test backfill for detector/cognitive_engine [claude]",
+  "last_commit_time": "2026-06-23T12:57:39.967216+00:00"
 }
