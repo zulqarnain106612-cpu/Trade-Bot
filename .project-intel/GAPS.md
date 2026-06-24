@@ -80,12 +80,12 @@ Severity: Medium. File: src/diagnostics/signal_debugger.py
 Status: OPEN
 ────────────────────────────────────────────────────────────
 
-## Gap-004 [2026-06-23]
+## Gap-004 [2026-06-23] — RESOLVED [2026-06-24]
 No order state machine in live executor.
 No FSM tracking PENDING→SUBMITTED→PARTIAL_FILL→FILLED→CLOSED|REJECTED|TIMEOUT.
 Partial fills corrupt Kelly denominator (position size vs intended size diverge).
 Severity: High. File: src/execution/live.py
-Status: OPEN
+Status: RESOLVED [2026-06-24] — OrderManager instantiated in LiveExecutor.__init__; FSM fully wired.
 ────────────────────────────────────────────────────────────
 
 ## Gap-005 [2026-06-23]
@@ -150,7 +150,7 @@ contributor, including the actual development environment this project
 is running in, has had no local pre-commit enforcement and no
 guaranteed pyright/mypy install path).
 File: setup_dev.ps1 (Windows-only), missing: setup_dev.sh
-Status: OPEN — Action: port setup_dev.ps1 to a setup_dev.sh
+Status: RESOLVED [2026-06-24] — setup_dev.sh created (bash, Python 3.11+ check, venv, --require-hashes install).
 (pip install ruff pyright mypy bandit semgrep pre-commit; pre-commit
 install; etc.), or convert to a cross-platform `make setup` /
 `python scripts/setup_dev.py` so the install path isn't OS-forked.
@@ -227,10 +227,152 @@ Severity: Medium (not an active bug — schema hasn't changed yet — but a
 predictable, sharp-edged failure mode the moment GAP-004/005/006 land,
 each of which implies schema changes).
 File: src/data/storage.py
-Status: OPEN — Action: either adopt a lightweight migration approach
-(e.g. a simple `PRAGMA user_version` check + an ordered list of
-ALTER TABLE statements run at startup if user_version is behind, which
-fits this project's existing aiosqlite/asyncio style without adding
-Alembic's sync ORM assumptions) or explicitly document a manual
-backup-and-recreate procedure as the supported upgrade path before
-GAP-004/005/006 are implemented.
+Status: RESOLVED [2026-06-24] — PRAGMA user_version migration system implemented. _MIGRATIONS list in storage.py; _run_migrations() auto-applies at startup. v1 (initial schema) + v2 (spread_bps column) registered. 4 migration tests added.
+
+## Gap-008 — RESOLVED (verified 2026-06-24, same session as discovery)
+Re-read src/engine/signal_engine.py lines 469-478 directly: fix is committed
+and present in working tree (git status clean on this file). filters.py's
+regime_position_scalar() is now explicitly logged only
+(regime_scalar_filter_logged_only) and the code comment documents the
+resolution as "ADR option (a)" — exactly the fix this report recommended.
+compute_position_size(regime_scalar=...) (detector.py's entropy scalar)
+remains the sole sizing authority. No further action needed.
+
+## Gap-001 / TASK-009 / TASK-010 (spread half) — RESOLVED (verified 2026-06-24)
+Re-read src/engine/signal_engine.py lines 248-352 directly:
+  - Live order-book spread IS now fetched (_live_ob_spread_bps, line 256)
+    and fed into a real SlippageModel().estimate() call (line 341).
+  - gate_ctx.slippage_estimate now receives this real estimate (line 363) —
+    the slippage veto gate (check_slippage_veto in gates.py) is genuinely
+    active, not perpetually fail-open as originally found.
+  - expected_edge_bps is computed from real model outputs (p_long,
+    avg_win_usd, avg_loss_usd), not hardcoded.
+TASK-010 funding_rate_8h=0.0 / basis_pct=0.0 (signal_engine.py line
+517-518) — VERIFIED NOT A BUG. Checked src/data/fetcher.py lines
+124-155: both Binance and OKX ccxt connectors are hardcoded to
+"defaultType": "spot". This bot does not trade perpetual futures, so
+funding rate and basis genuinely do not apply — 0.0 is the correct value
+for a spot-only system, not a stub. The inline comment ("spot only; wire
+basis here for perp trading") accurately documents this. No fix needed
+unless/until this project adds perpetual futures support, at which point
+these two fields would need real wiring alongside whatever code adds
+perp order types.
+Status: CLOSED.
+
+## Gap-013 [2026-06-24] — NEW — CRITICAL
+No automated position-exit logic exists anywhere in the running system.
+Discovered while investigating GAP-011's exit-side slippage gap and
+finding there is no production call site for close_position() at all.
+
+Verified exhaustively:
+  - grep for "close_position" across src/ + tests/: the ONLY call sites
+    are inside docstring usage examples (paper.py:171, live.py:145) and
+    test files (tests/test_paper_executor.py). No orchestrator code, no
+    background task, no scheduled check ever calls it in production.
+  - grep for "stop_loss" / "take_profit" across the entire src/ tree:
+    ZERO matches. No such config field exists in config.py or anywhere
+    in risk/. There is no stop-loss or take-profit concept implemented
+    at all, despite trade_record fields like exit_reason supporting the
+    values 'profit_target' | 'stop_loss' | 'time_exit' | 'manual' (per
+    paper.py's own close_position docstring) — the STRINGS exist as
+    documented possible reasons, but nothing in the codebase ever
+    produces them.
+  - mark_to_market() (which updates unrealized_pnl per tick) is called
+    from live.py/paper.py/base.py's own internals, but orchestrator.py
+    — the top-level event loop — only references "mark_to_market" in a
+    single code COMMENT (line 647), never actually calls it. The
+    orchestrator's own docstring lists its responsibilities explicitly
+    (bootstrap, schedule ticks, route signals, snapshot regime, retrain,
+    reset daily equity, stop) and conspicuously does not include
+    "monitor/close open positions" anywhere.
+  - submit_signal() in both executors only ever OPENS positions; there
+    is no check for an existing open position on the same symbol, no
+    opposite-direction auto-close, no time-based exit check.
+
+Practical effect: a position opened by this system today (paper or
+live) will remain open indefinitely, accruing unrealized PnL that is
+never reconciled into realized PnL, UNLESS a human manually calls the
+close_position API/method directly. The bot can enter trades but cannot
+exit them on its own. This makes every other risk gate downstream of
+entry (daily drawdown halt, consecutive-loss halt, position-size cap)
+far less protective than they appear, since a single losing position
+left open with no stop-loss can drift arbitrarily far against the
+account with nothing in the automated system stepping in.
+
+This is almost certainly the single most important unresolved gap found
+across all 4 audit rounds — more fundamental than GAP-001/008/011, since
+those all assume positions get closed in a reasonably bounded time and
+optimize the cost/sizing of that lifecycle, but the lifecycle's closing
+half doesn't exist yet.
+
+Severity: CRITICAL.
+File: src/engine/orchestrator.py (missing exit-check step entirely),
+src/execution/paper.py / live.py (close_position exists and works
+correctly when called, it is just never called)
+Status: OPEN — Action: implement an exit-check step in the orchestrator's
+tick loop (or a dedicated lightweight loop running on a faster cadence
+than signal generation, e.g. every few seconds against live mark price)
+that, for each open position, evaluates:
+  1. Stop-loss: unrealized_pnl_pct <= -stop_loss_pct → close_position(reason="stop_loss")
+  2. Take-profit: unrealized_pnl_pct >= take_profit_pct → close_position(reason="profit_target")
+  3. Time-based exit: now - entry_ts >= max_holding_period → close_position(reason="time_exit")
+  4. (Optional) Opposite-direction signal → close_position(reason="signal_reversal") before opening the new position
+This requires adding stop_loss_pct/take_profit_pct/max_holding_period_s
+to RiskSettings (none currently exist) and wiring mark_to_market() into
+the orchestrator's tick loop so unrealized PnL is actually kept current
+for the exit checks to evaluate against.
+
+## Gap-014 [2026-06-24] — CRITICAL — FOUND AND FIXED
+src/api/main.py could not be imported at all under the currently-installed
+fastapi==0.136.3 + pydantic==2.13.4. Discovered while building a TestClient
+harness for the new /risk-controls endpoint. Two independent, unrelated
+fatal errors, both confirmed pre-existing via `git stash`:
+
+1. Four query-parameter declarations used the old-style
+   `Annotated[T, Query(default=X, ...)] = X` pattern (default specified
+   BOTH inside Query() and via the trailing `=`). This FastAPI version
+   raises a hard AssertionError on app construction for any such
+   parameter -- not a deprecation warning, a crash. Affected: /trades
+   (symbol, limit, offset params), /equity (limit param), /debug/audit
+   (limit param). FIXED: moved each default to be specified in exactly
+   one place (the trailing `=`), constraints (ge/le) remain inside Query().
+
+2. Two endpoints (/orders/{order_id}/status, /performance-drift) were
+   decorated with `@router.get(...)` where `router` was never defined or
+   imported anywhere in the file -- a bare NameError at module load time.
+   These appear to be incompletely-integrated additions from whatever
+   process added the (still-uncommitted) order_fsm.py/order_manager.py
+   files. FIXED: changed to `@app.get(...)`, matching every other endpoint
+   in the file.
+
+ADDITIONAL FINDING surfaced while fixing #2: both of these endpoints had
+NO api_key_header auth dependency at all -- they would have been the only
+two unauthenticated endpoints in the entire API once the NameError was
+fixed by someone else without checking. Added
+`dependencies=[Depends(api_key_header)]` to both, matching the rest of
+the API's auth convention.
+
+NOT fixed (out of scope, flagged only): both endpoints internally
+reference `runtime_config.executor` and `runtime_config.drift_adapter`,
+neither of which exist on the RuntimeConfig class (verified by reading
+it in full). Both references are defensively wrapped in `hasattr()`
+checks so they fail soft (return a "not found"/error dict) rather than
+crashing -- but the endpoints are effectively non-functional stubs until
+whoever is building the order-FSM/drift-adapter integration wires those
+attributes onto RuntimeConfig. Left as-is since redesigning someone else's
+in-progress integration wasn't requested and the safe fallback behavior
+means nothing breaks by leaving it.
+
+Severity: CRITICAL (was) -- this meant `uvicorn src.api.main:app` would
+never have started, on the current dependency versions, in any
+environment running `pip install -r requirements.in`-equivalent ranges.
+Combined with Debt-005 (0% test coverage on src/api/main.py) and SEC-004
+(no requirements.lock, so the exact previously-working fastapi/pydantic
+version pair was never pinned), this explains how the bug went
+undetected: nothing in CI or the test suite has ever actually imported
+this module as a whole.
+Status: RESOLVED (the 2 import-blocking bug classes). Recommend adding
+requirements.lock (SEC-004) now more urgently than before, specifically
+to pin fastapi/pydantic to versions confirmed compatible with this
+codebase, since the next `pip install` without a lockfile could
+reintroduce a similar breaking change from either library.

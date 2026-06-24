@@ -150,6 +150,6 @@ mislead a future contributor into thinking Continue.dev is actively
 configured for this project.
 Severity: Low (housekeeping only).
 File: .continue/agents/new-config.yaml, .continue/mcpServers/new-mcp-server.yaml
-Status: OPEN — Action: either fill in real project-specific config or
+Status: RESOLVED [2026-06-24] — Placeholder files deleted (git rm). or
 delete the unedited scaffold/add .continue/ to .gitignore if it's
 per-developer local tooling not meant to be shared.
