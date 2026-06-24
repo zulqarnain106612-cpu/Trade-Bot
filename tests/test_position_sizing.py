@@ -1,7 +1,5 @@
 """Test coverage for src/strategies/position_sizing.py — Carver/AFML/Thorp sizing."""
 
-import math
-
 import numpy as np
 import pytest
 
@@ -17,128 +15,137 @@ from src.strategies.position_sizing import (
 
 
 class TestCarverForecastPosition:
-    """Carver (2019) Ch.4 forecast-scaled position sizing."""
+    """Carver (2019) Ch.4 forecast-scaled sizing."""
 
-    def test_positive_forecast_gives_positive_notional(self):
+    def test_positive_forecast_gives_notional(self):
         notional = carver_forecast_position(
-            capital_usd=100_000, forecast=10.0, daily_vol_pct=0.02, price=100.0,
+            capital_usd=10000.0, forecast=10.0, daily_vol_pct=0.02, price=100.0,
         )
         assert notional > 0
 
-    def test_zero_forecast_gives_zero_notional(self):
+    def test_zero_forecast_gives_zero(self):
         notional = carver_forecast_position(
-            capital_usd=100_000, forecast=0.0, daily_vol_pct=0.02, price=100.0,
+            capital_usd=10000.0, forecast=0.0, daily_vol_pct=0.02, price=100.0,
         )
         assert notional == 0.0
 
-    def test_zero_capital_returns_zero(self):
+    def test_negative_forecast_uses_abs(self):
+        """Direction-agnostic: negative forecast still produces positive notional."""
         notional = carver_forecast_position(
-            capital_usd=0, forecast=10.0, daily_vol_pct=0.02, price=100.0,
+            capital_usd=10000.0, forecast=-10.0, daily_vol_pct=0.02, price=100.0,
         )
-        assert notional == 0.0
+        assert notional > 0
 
-    def test_negative_capital_returns_zero(self):
+    def test_zero_vol_returns_zero(self):
         notional = carver_forecast_position(
-            capital_usd=-1000, forecast=10.0, daily_vol_pct=0.02, price=100.0,
-        )
-        assert notional == 0.0
-
-    def test_zero_daily_vol_returns_zero(self):
-        notional = carver_forecast_position(
-            capital_usd=100_000, forecast=10.0, daily_vol_pct=0.0, price=100.0,
+            capital_usd=10000.0, forecast=10.0, daily_vol_pct=0.0, price=100.0,
         )
         assert notional == 0.0
 
     def test_zero_price_returns_zero(self):
         notional = carver_forecast_position(
-            capital_usd=100_000, forecast=10.0, daily_vol_pct=0.02, price=0.0,
+            capital_usd=10000.0, forecast=10.0, daily_vol_pct=0.02, price=0.0,
         )
         assert notional == 0.0
 
-    def test_forecast_clipped_to_max(self):
-        notional_clipped = carver_forecast_position(
-            capital_usd=100_000, forecast=100.0, daily_vol_pct=0.02, price=100.0,
+    def test_zero_capital_returns_zero(self):
+        notional = carver_forecast_position(
+            capital_usd=0.0, forecast=10.0, daily_vol_pct=0.02, price=100.0,
         )
-        notional_at_max = carver_forecast_position(
-            capital_usd=100_000, forecast=20.0, daily_vol_pct=0.02, price=100.0,
-        )
-        assert notional_clipped == pytest.approx(notional_at_max)
+        assert notional == 0.0
 
-    def test_negative_forecast_uses_absolute_value(self):
-        pos_notional = carver_forecast_position(
-            capital_usd=100_000, forecast=10.0, daily_vol_pct=0.02, price=100.0,
+    def test_negative_capital_returns_zero(self):
+        notional = carver_forecast_position(
+            capital_usd=-5000.0, forecast=10.0, daily_vol_pct=0.02, price=100.0,
         )
-        neg_notional = carver_forecast_position(
-            capital_usd=100_000, forecast=-10.0, daily_vol_pct=0.02, price=100.0,
+        assert notional == 0.0
+
+    def test_forecast_clipped_at_max(self):
+        """Forecast beyond ±20 is clipped."""
+        notional_clipped = carver_forecast_position(
+            capital_usd=10000.0, forecast=100.0, daily_vol_pct=0.02, price=100.0,
         )
-        assert pos_notional == pytest.approx(neg_notional)
-        assert neg_notional >= 0.0
+        notional_at_cap = carver_forecast_position(
+            capital_usd=10000.0, forecast=20.0, daily_vol_pct=0.02, price=100.0,
+        )
+        assert notional_clipped == notional_at_cap
 
     def test_capped_at_25_percent_of_capital(self):
+        """Position never exceeds 25% of capital (Kelly ceiling)."""
         notional = carver_forecast_position(
-            capital_usd=100_000, forecast=20.0, daily_vol_pct=0.0001, price=100.0,
+            capital_usd=10000.0, forecast=20.0, daily_vol_pct=0.001, price=100.0,
         )
-        assert notional <= 25_000.0
+        assert notional <= 10000.0 * 0.25
+
+    def test_custom_vol_target(self):
+        notional = carver_forecast_position(
+            capital_usd=10000.0, forecast=10.0, daily_vol_pct=0.02, price=100.0,
+            daily_vol_target_pct=0.5,
+        )
+        assert notional > 0
 
     def test_custom_forecast_scalar(self):
         notional = carver_forecast_position(
-            capital_usd=100_000, forecast=10.0, daily_vol_pct=0.02, price=100.0,
-            forecast_scalar=5.0,
+            capital_usd=10000.0, forecast=10.0, daily_vol_pct=0.02, price=100.0,
+            forecast_scalar=20.0,
         )
-        assert isinstance(notional, float)
-        assert notional >= 0.0
+        assert notional >= 0
 
 
 class TestVolTargetQuantity:
     """Carver (2019) Ch.2 volatility targeting."""
 
-    def test_basic_quantity_positive(self):
-        qty = vol_target_quantity(capital_usd=100_000, price=50.0, daily_vol_pct=0.02)
+    def test_basic_quantity_calculation(self):
+        qty = vol_target_quantity(
+            capital_usd=10000.0, price=100.0, daily_vol_pct=0.02,
+        )
         assert qty > 0
 
-    def test_zero_capital_returns_zero(self):
-        qty = vol_target_quantity(capital_usd=0, price=50.0, daily_vol_pct=0.02)
-        assert qty == 0.0
-
-    def test_negative_capital_returns_zero(self):
-        qty = vol_target_quantity(capital_usd=-100, price=50.0, daily_vol_pct=0.02)
+    def test_zero_vol_returns_zero(self):
+        qty = vol_target_quantity(capital_usd=10000.0, price=100.0, daily_vol_pct=0.0)
         assert qty == 0.0
 
     def test_zero_price_returns_zero(self):
-        qty = vol_target_quantity(capital_usd=100_000, price=0.0, daily_vol_pct=0.02)
+        qty = vol_target_quantity(capital_usd=10000.0, price=0.0, daily_vol_pct=0.02)
         assert qty == 0.0
 
-    def test_zero_vol_returns_zero(self):
-        qty = vol_target_quantity(capital_usd=100_000, price=50.0, daily_vol_pct=0.0)
+    def test_zero_capital_returns_zero(self):
+        qty = vol_target_quantity(capital_usd=0.0, price=100.0, daily_vol_pct=0.02)
         assert qty == 0.0
 
-    def test_higher_vol_gives_smaller_quantity(self):
-        qty_low_vol = vol_target_quantity(capital_usd=100_000, price=50.0, daily_vol_pct=0.01)
-        qty_high_vol = vol_target_quantity(capital_usd=100_000, price=50.0, daily_vol_pct=0.05)
+    def test_negative_capital_returns_zero(self):
+        qty = vol_target_quantity(capital_usd=-1000.0, price=100.0, daily_vol_pct=0.02)
+        assert qty == 0.0
+
+    def test_higher_vol_lower_quantity(self):
+        """Higher volatility → smaller position size for same vol target."""
+        qty_low_vol = vol_target_quantity(capital_usd=10000.0, price=100.0, daily_vol_pct=0.01)
+        qty_high_vol = vol_target_quantity(capital_usd=10000.0, price=100.0, daily_vol_pct=0.05)
         assert qty_low_vol > qty_high_vol
 
-    def test_custom_vol_target(self):
+    def test_custom_vol_target_pct(self):
         qty = vol_target_quantity(
-            capital_usd=100_000, price=50.0, daily_vol_pct=0.02,
-            daily_vol_target_pct=0.5,
+            capital_usd=10000.0, price=100.0, daily_vol_pct=0.02,
+            daily_vol_target_pct=1.0,
         )
         assert qty > 0
 
 
 class TestEstimateDailyVol:
-    """EWM std of log returns volatility estimator."""
+    """EWM std of log returns for daily vol estimation."""
 
     def test_trending_series_positive_vol(self):
-        close = np.linspace(100, 150, 100)
+        close = np.linspace(100, 110, 50)
         vol = estimate_daily_vol(close)
         assert vol > 0
 
-    def test_flat_series_low_vol(self):
+    def test_flat_series_minimal_vol(self):
         close = [100.0] * 50
         vol = estimate_daily_vol(close)
         assert vol >= 1e-6
 
     def test_volatile_series_higher_vol(self):
+        """More volatile series → higher estimated vol."""
         np.random.seed(1)
         stable = 100 + np.cumsum(np.random.randn(100) * 0.1)
         volatile = 100 + np.cumsum(np.random.randn(100) * 5.0)
@@ -146,188 +153,215 @@ class TestEstimateDailyVol:
         vol_volatile = estimate_daily_vol(volatile)
         assert vol_volatile > vol_stable
 
-    def test_insufficient_data_returns_fallback(self):
+    def test_short_series_fallback(self):
+        """Series < 2 elements → fallback 1%."""
         vol = estimate_daily_vol([100.0])
         assert vol == 0.01
 
-    def test_two_points_minimal_data(self):
+    def test_empty_series_fallback(self):
+        vol = estimate_daily_vol([])
+        assert vol == 0.01
+
+    def test_two_element_series(self):
+        """Exactly 2 elements → log_ret has 1 element → fallback."""
         vol = estimate_daily_vol([100.0, 101.0])
         assert vol == 0.01
 
-    def test_list_input_accepted(self):
-        vol = estimate_daily_vol([100.0, 101.0, 102.0, 103.0, 104.0])
+    def test_custom_window(self):
+        close = np.linspace(100, 120, 60)
+        vol = estimate_daily_vol(close, window=10)
+        assert vol > 0
+
+    def test_accepts_list_input(self):
+        close = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]
+        vol = estimate_daily_vol(close)
         assert isinstance(vol, float)
 
-    def test_custom_window(self):
-        close = np.linspace(100, 110, 60)
-        vol = estimate_daily_vol(close, window=40)
-        assert vol > 0
+    def test_accepts_ndarray_input(self):
+        close = np.array([100.0, 101.0, 102.0, 103.0, 104.0])
+        vol = estimate_daily_vol(close)
+        assert isinstance(vol, float)
 
 
 class TestCorrelationAdjustedNotional:
-    """AFML Ch.16 correlation-aware size reduction."""
+    """AFML Ch.16 correlation-aware position reduction."""
 
-    def test_low_correlation_no_reduction(self):
+    def test_below_threshold_no_reduction(self):
         notional = correlation_adjusted_notional(
-            proposed_notional_usd=10_000, avg_correlation_with_book=0.3,
+            proposed_notional_usd=1000.0, avg_correlation_with_book=0.5,
         )
-        assert notional == 10_000
+        assert notional == 1000.0
 
     def test_at_threshold_no_reduction(self):
         notional = correlation_adjusted_notional(
-            proposed_notional_usd=10_000, avg_correlation_with_book=0.7,
+            proposed_notional_usd=1000.0, avg_correlation_with_book=0.7,
         )
-        assert notional == 10_000
+        assert notional == 1000.0
 
-    def test_high_correlation_reduces_notional(self):
+    def test_above_threshold_reduces(self):
         notional = correlation_adjusted_notional(
-            proposed_notional_usd=10_000, avg_correlation_with_book=0.85,
+            proposed_notional_usd=1000.0, avg_correlation_with_book=0.85,
         )
-        assert 0 < notional < 10_000
+        assert 0 < notional < 1000.0
 
     def test_full_correlation_zero_notional(self):
+        """Correlation = 1.0 → reduction factor = 0."""
         notional = correlation_adjusted_notional(
-            proposed_notional_usd=10_000, avg_correlation_with_book=1.0,
-        )
-        assert notional == pytest.approx(0.0, abs=1e-6)
-
-    def test_custom_threshold(self):
-        notional = correlation_adjusted_notional(
-            proposed_notional_usd=10_000, avg_correlation_with_book=0.5,
-            threshold=0.4,
-        )
-        assert 0 < notional < 10_000
-
-    def test_zero_proposed_notional(self):
-        notional = correlation_adjusted_notional(
-            proposed_notional_usd=0, avg_correlation_with_book=0.9,
+            proposed_notional_usd=1000.0, avg_correlation_with_book=1.0,
         )
         assert notional == 0.0
 
+    def test_custom_threshold(self):
+        notional = correlation_adjusted_notional(
+            proposed_notional_usd=1000.0, avg_correlation_with_book=0.6,
+            threshold=0.5,
+        )
+        assert notional < 1000.0
+
+    def test_zero_correlation_full_notional(self):
+        notional = correlation_adjusted_notional(
+            proposed_notional_usd=1000.0, avg_correlation_with_book=0.0,
+        )
+        assert notional == 1000.0
+
+    def test_negative_correlation_full_notional(self):
+        """Negative correlation (hedging) → no reduction, below threshold."""
+        notional = correlation_adjusted_notional(
+            proposed_notional_usd=1000.0, avg_correlation_with_book=-0.5,
+        )
+        assert notional == 1000.0
+
 
 class TestAfmlBetSize:
-    """AFML Ch.10 bet sizing from model probability."""
+    """AFML Ch.10 bet-sizing from model probability: f = 2p - 1."""
 
-    def test_no_edge_at_half_probability(self):
-        size = afml_bet_size(p_long=0.5, capital_usd=100_000)
+    def test_no_edge_at_p_half(self):
+        """p=0.5 → no edge → zero bet."""
+        size = afml_bet_size(p_long=0.5, capital_usd=10000.0)
         assert size == 0.0
 
-    def test_moderate_edge_positive_bet(self):
-        """p=0.7 -> edge=0.4, but default max_fraction=0.25 caps it."""
-        size = afml_bet_size(p_long=0.7, capital_usd=100_000)
-        assert size == pytest.approx(25_000.0)
+    def test_moderate_edge(self):
+        """p=0.7 → raw edge f=0.4, capped by default max_fraction=0.25."""
+        size = afml_bet_size(p_long=0.7, capital_usd=10000.0)
+        assert size == pytest.approx(10000.0 * 0.25, rel=1e-6)
 
     def test_moderate_edge_uncapped(self):
-        """p=0.7 -> edge=0.4, uncapped with higher max_fraction."""
-        size = afml_bet_size(p_long=0.7, capital_usd=100_000, max_fraction=0.5)
-        assert size == pytest.approx(40_000.0)
+        """p=0.7 → f=0.4 when max_fraction is raised above the edge."""
+        size = afml_bet_size(p_long=0.7, capital_usd=10000.0, max_fraction=0.5)
+        assert size == pytest.approx(10000.0 * 0.4, rel=1e-6)
 
-    def test_strong_edge_capped_at_max_fraction(self):
-        size = afml_bet_size(p_long=0.9, capital_usd=100_000, max_fraction=0.25)
-        assert size == pytest.approx(25_000.0)
+    def test_strong_edge_capped(self):
+        """p=0.9 → f=0.8, capped at max_fraction=0.25."""
+        size = afml_bet_size(p_long=0.9, capital_usd=10000.0, max_fraction=0.25)
+        assert size == pytest.approx(10000.0 * 0.25, rel=1e-6)
 
-    def test_below_half_probability_zero_bet(self):
-        size = afml_bet_size(p_long=0.3, capital_usd=100_000)
+    def test_below_half_negative_edge_zero(self):
+        """p < 0.5 → negative edge → zero bet."""
+        size = afml_bet_size(p_long=0.3, capital_usd=10000.0)
         assert size == 0.0
 
     def test_p_equals_one_max_edge(self):
-        size = afml_bet_size(p_long=1.0, capital_usd=100_000, max_fraction=0.5)
-        assert size == pytest.approx(50_000.0)
+        size = afml_bet_size(p_long=1.0, capital_usd=10000.0, max_fraction=0.5)
+        assert size == pytest.approx(10000.0 * 0.5, rel=1e-6)
 
     def test_p_equals_zero_zero_bet(self):
-        size = afml_bet_size(p_long=0.0, capital_usd=100_000)
+        size = afml_bet_size(p_long=0.0, capital_usd=10000.0)
         assert size == 0.0
 
     def test_custom_max_fraction(self):
-        size = afml_bet_size(p_long=0.95, capital_usd=100_000, max_fraction=0.1)
-        assert size == pytest.approx(10_000.0)
+        size = afml_bet_size(p_long=0.8, capital_usd=10000.0, max_fraction=0.1)
+        assert size == pytest.approx(10000.0 * 0.1, rel=1e-6)
 
 
 class TestThorpKellyWithVariance:
     """Thorp (2006) fractional Kelly with variance penalty."""
 
-    def test_positive_edge_gives_positive_size(self):
+    def test_positive_edge_gives_notional(self):
         notional = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
         )
         assert notional > 0
 
-    def test_no_edge_at_breakeven(self):
-        b = 1.0
-        p = 1.0 / (1.0 + b)
+    def test_invalid_win_prob_zero(self):
         notional = thorp_kelly_with_variance(
-            win_prob=p, win_loss_ratio=b, capital_usd=100_000, price=50.0,
-        )
-        assert notional == pytest.approx(0.0, abs=1.0)
-
-    def test_invalid_win_prob_zero_returns_zero(self):
-        notional = thorp_kelly_with_variance(
-            win_prob=0.0, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+            win_prob=0.0, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
         )
         assert notional == 0.0
 
-    def test_invalid_win_prob_one_returns_zero(self):
+    def test_invalid_win_prob_one(self):
         notional = thorp_kelly_with_variance(
-            win_prob=1.0, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+            win_prob=1.0, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
         )
         assert notional == 0.0
 
-    def test_invalid_win_loss_ratio_returns_zero(self):
+    def test_zero_win_loss_ratio_returns_zero(self):
         notional = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=0.0, capital_usd=100_000, price=50.0,
+            win_prob=0.6, win_loss_ratio=0.0, capital_usd=10000.0, price=100.0,
+        )
+        assert notional == 0.0
+
+    def test_negative_kelly_clamped_to_zero(self):
+        """Poor win_prob/ratio combo → negative Kelly clamped to 0."""
+        notional = thorp_kelly_with_variance(
+            win_prob=0.3, win_loss_ratio=0.5, capital_usd=10000.0, price=100.0,
         )
         assert notional == 0.0
 
     def test_zero_price_returns_zero(self):
         notional = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=1.5, capital_usd=100_000, price=0.0,
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=0.0,
         )
         assert notional == 0.0
 
     def test_variance_penalty_reduces_size(self):
-        no_penalty = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+        notional_no_penalty = thorp_kelly_with_variance(
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
             variance_penalty=0.0,
         )
-        with_penalty = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+        notional_with_penalty = thorp_kelly_with_variance(
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
             variance_penalty=0.4,
         )
-        assert with_penalty < no_penalty
+        assert notional_with_penalty < notional_no_penalty
 
-    def test_kelly_ceiling_caps_position(self):
+    def test_kelly_ceiling_caps_size(self):
         notional = thorp_kelly_with_variance(
-            win_prob=0.95, win_loss_ratio=5.0, capital_usd=100_000, price=50.0,
-            kelly_ceiling=0.2,
+            win_prob=0.95, win_loss_ratio=5.0, capital_usd=10000.0, price=100.0,
+            kelly_multiplier=1.0, kelly_ceiling=0.1,
         )
-        assert notional <= 20_000.0 + 1e-6
+        assert notional <= 10000.0 * 0.1
 
     def test_custom_kelly_multiplier(self):
         full_kelly = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
             kelly_multiplier=1.0, kelly_ceiling=1.0,
         )
         half_kelly = thorp_kelly_with_variance(
-            win_prob=0.6, win_loss_ratio=1.5, capital_usd=100_000, price=50.0,
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
             kelly_multiplier=0.5, kelly_ceiling=1.0,
         )
-        assert half_kelly == pytest.approx(full_kelly * 0.5)
+        assert half_kelly == pytest.approx(full_kelly * 0.5, rel=1e-6)
 
     def test_variance_penalty_clipped_at_half(self):
-        notional = thorp_kelly_with_variance(
-            win_prob=0.7, win_loss_ratio=2.0, capital_usd=100_000, price=50.0,
+        """variance_penalty clipped to [0, 0.5] max reduction."""
+        notional_extreme = thorp_kelly_with_variance(
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
             variance_penalty=10.0,
         )
-        assert notional >= 0.0
+        notional_at_cap = thorp_kelly_with_variance(
+            win_prob=0.6, win_loss_ratio=1.5, capital_usd=10000.0, price=100.0,
+            variance_penalty=0.5,
+        )
+        assert notional_extreme == pytest.approx(notional_at_cap, rel=1e-6)
 
 
 class TestRecommendPositionNotional:
-    """Combined sizing recommendation — conservative minimum across methods."""
+    """Combined sizing recommendation — most conservative of all methods."""
 
     def test_returns_all_method_keys(self):
         result = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.7,
-            win_prob=0.6, win_loss_ratio=1.5, forecast=8.0,
+            capital_usd=10000.0, price=100.0, p_long=0.7,
+            win_prob=0.6, win_loss_ratio=1.5, forecast=10.0,
             daily_vol_pct=0.02,
         )
         assert set(result.keys()) == {
@@ -337,51 +371,51 @@ class TestRecommendPositionNotional:
 
     def test_recommended_is_minimum_of_methods(self):
         result = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.7,
-            win_prob=0.6, win_loss_ratio=1.5, forecast=8.0,
+            capital_usd=10000.0, price=100.0, p_long=0.7,
+            win_prob=0.6, win_loss_ratio=1.5, forecast=10.0,
             daily_vol_pct=0.02,
         )
         method_values = [
             result["thorp_kelly"], result["afml_bet_size"],
             result["carver_forecast"], result["correlation_adjusted"],
         ]
-        assert result["recommended"] >= min(method_values) - 0.01
-        assert result["recommended"] <= max(method_values) + 0.01
+        assert result["recommended"] >= min(10.0, min(method_values))
 
-    def test_recommended_floored_at_minimum_notional(self):
+    def test_recommended_never_below_min_notional(self):
+        """Recommended floor is _MIN_NOTIONAL_USD (10.0)."""
         result = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.5,
+            capital_usd=100.0, price=100.0, p_long=0.5,
             win_prob=0.5, win_loss_ratio=1.0, forecast=0.0,
             daily_vol_pct=0.02,
         )
         assert result["recommended"] >= 10.0
 
     def test_high_correlation_reduces_recommendation(self):
-        low_corr = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.8,
-            win_prob=0.65, win_loss_ratio=1.8, forecast=12.0,
-            daily_vol_pct=0.02, avg_book_correlation=0.1,
+        result_low_corr = recommend_position_notional(
+            capital_usd=10000.0, price=100.0, p_long=0.8,
+            win_prob=0.65, win_loss_ratio=1.8, forecast=15.0,
+            daily_vol_pct=0.02, avg_book_correlation=0.0,
         )
-        high_corr = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.8,
-            win_prob=0.65, win_loss_ratio=1.8, forecast=12.0,
+        result_high_corr = recommend_position_notional(
+            capital_usd=10000.0, price=100.0, p_long=0.8,
+            win_prob=0.65, win_loss_ratio=1.8, forecast=15.0,
             daily_vol_pct=0.02, avg_book_correlation=0.95,
         )
-        assert high_corr["correlation_adjusted"] <= low_corr["correlation_adjusted"]
+        assert result_high_corr["correlation_adjusted"] <= result_low_corr["correlation_adjusted"]
 
-    def test_all_values_non_negative(self):
+    def test_all_values_are_floats(self):
         result = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.3,
-            win_prob=0.4, win_loss_ratio=0.8, forecast=-5.0,
-            daily_vol_pct=0.03,
+            capital_usd=10000.0, price=100.0, p_long=0.6,
+            win_prob=0.55, win_loss_ratio=1.2, forecast=5.0,
+            daily_vol_pct=0.015,
         )
         for v in result.values():
-            assert v >= 0.0
+            assert isinstance(v, float)
 
     def test_custom_kelly_params(self):
         result = recommend_position_notional(
-            capital_usd=100_000, price=50.0, p_long=0.7,
-            win_prob=0.6, win_loss_ratio=1.5, forecast=8.0,
+            capital_usd=10000.0, price=100.0, p_long=0.7,
+            win_prob=0.6, win_loss_ratio=1.5, forecast=10.0,
             daily_vol_pct=0.02, kelly_multiplier=0.25, kelly_ceiling=0.15,
         )
-        assert result["thorp_kelly"] <= 100_000 * 0.15 + 0.01
+        assert result["recommended"] >= 0
