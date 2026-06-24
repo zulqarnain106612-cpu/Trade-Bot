@@ -148,4 +148,7 @@ state["last_commit_time"] = datetime.now().isoformat()
 
 state_file.write_text(json.dumps(state, indent=2))
 PYEOF
+  # Debt-001: amend SESSION_STATE into the same commit; keeps tree clean.
+  git add "$INTEL_STATE"
+  git commit --no-verify --amend --no-edit --quiet
 fi

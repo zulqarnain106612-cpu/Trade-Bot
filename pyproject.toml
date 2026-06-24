@@ -2,7 +2,8 @@
 name = "trade-bot"
 version = "0.1.0"
 description = "Async algorithmic trading bot — XGBoost + HMM + FastAPI"
-requires-python = ">=3.11"
+requires-python = ">=3.11"  # CI validates 3.11; local dev confirmed on 3.14
+# Debt-003 resolved: .python-version pins pyenv/tools to 3.11 (matches CI)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RUFF — single source of truth for lint + format (replaces black/flake8/isort)
