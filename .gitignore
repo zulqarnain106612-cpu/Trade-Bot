@@ -72,3 +72,10 @@ htmlcov/
 
 # Knowledge base — DO track (source of truth for domain knowledge)
 !.project-intel/knowledge/
+
+# GAP-010: model binaries and logs — never commit (matches .claudeignore)
+/models/
+/logs/
+*.pkl
+*.joblib
+*.log
