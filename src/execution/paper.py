@@ -29,7 +29,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 import structlog
@@ -39,6 +39,8 @@ from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+from src.risk.slippage import SlippageModel
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -383,7 +385,7 @@ class PaperExecutor(AbstractExecutor):
                 raise KeyError(f"No open paper position with trade_id={trade_id!r}")
 
             pos = self._positions.pop(trade_id)
-            exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
 
             if pos.direction == 1:  # long
                 gross_pnl = (exit_price - pos.entry_price) * pos.quantity
@@ -514,7 +516,7 @@ class PaperExecutor(AbstractExecutor):
             req.resolved = True
             req.approved = approved
             req.operator = operator
-            req._event.set()  # noqa: SLF001
+            req._event.set()
 
         self._log.info(
             "paper.approval_resolved",
@@ -670,13 +672,40 @@ class PaperExecutor(AbstractExecutor):
         raw_signal: float,
         current_price: float,
         approved_by: str,
+        adv_20d: float = 0.0,
+        spread_bps: float = 2.0,
     ) -> str | None:
         """
         Open a paper position and persist trade record.
 
+        GAP-011 FIX: apply Almgren-Chriss slippage to current_price so paper
+        fill price reflects realistic execution cost. Paper PnL will now match
+        the same cost model used by gate 0 (src/risk/slippage.py), making the
+        30-day paper track record a credible basis for the live-gate decision.
+
         Returns trade_id on success, None if cash is insufficient.
         """
-        entry_fee = current_price * kelly_result.quantity * _PAPER_FEE_PCT
+        # GAP-011: simulate realistic fill price via SlippageModel (same model as gate 0)
+        simulated_fill_price = current_price
+        if adv_20d > 0.0 and kelly_result.quantity > 0.0:
+            try:
+                _slip = SlippageModel().estimate(
+                    symbol=symbol,
+                    qty=kelly_result.quantity,
+                    adv_20d=adv_20d,
+                    spread_bps=spread_bps,
+                )
+                # Apply slippage as adverse price movement:
+                # long fills HIGHER than mid; short fills LOWER than mid
+                _slip_price_adj = current_price * (_slip.total_slippage_bps / 10_000.0)
+                if direction == 1:
+                    simulated_fill_price = current_price + _slip_price_adj
+                else:
+                    simulated_fill_price = current_price - _slip_price_adj
+            except Exception as _slip_exc:
+                self._log.warning("paper.slippage_estimate_failed", error=str(_slip_exc))
+
+        entry_fee = simulated_fill_price * kelly_result.quantity * _PAPER_FEE_PCT
         notional = kelly_result.notional_usd
 
         async with self._lock:
@@ -689,7 +718,7 @@ class PaperExecutor(AbstractExecutor):
                 return None
 
             trade_id = str(uuid.uuid4())
-            entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            entry_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
             self._cash -= notional + entry_fee
 
             pos = PaperPosition(
@@ -697,7 +726,7 @@ class PaperExecutor(AbstractExecutor):
                 symbol=symbol,
                 timeframe=timeframe,
                 direction=direction,
-                entry_price=current_price,
+                entry_price=simulated_fill_price,  # GAP-011: slippage-adjusted fill
                 quantity=kelly_result.quantity,
                 notional_usd=notional,
                 entry_ts=entry_ts,
@@ -720,7 +749,7 @@ class PaperExecutor(AbstractExecutor):
             trading_mode=TradingMode.PAPER.value,
             execution_mode=self._cfg.execution_mode.value,
             direction=direction,
-            entry_price=current_price,
+            entry_price=simulated_fill_price,  # GAP-011: slippage-adjusted fill
             exit_price=None,
             quantity=kelly_result.quantity,
             notional_usd=notional,
@@ -805,8 +834,8 @@ class PaperExecutor(AbstractExecutor):
             return False, ""
 
         try:
-            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)  # noqa: SLF001
-        except asyncio.TimeoutError:
+            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)
+        except TimeoutError:
             async with self._lock:
                 timed_out = self._approval_queue.pop(request_id, None)
                 if timed_out is not None:
@@ -864,7 +893,7 @@ class PaperExecutor(AbstractExecutor):
         is internally consistent and cannot race with concurrent mark_to_market.
         """
         record = EquityRecord(
-            ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+            ts=int(datetime.now(tz=UTC).timestamp() * 1000),
             trading_mode=TradingMode.PAPER.value,
             equity_usd=round(equity, 8),
             cash_usd=round(cash, 8),

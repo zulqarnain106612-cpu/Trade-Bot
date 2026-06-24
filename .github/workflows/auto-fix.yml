@@ -40,7 +40,7 @@ jobs:
         run: pip install ruff==0.4.4
 
       - name: ruff fix
-        run: ruff check src/ tests/ --fix --unsafe-fixes || true
+        run: ruff check src/ tests/ --fix || true
 
       - name: ruff format
         run: ruff format src/ tests/

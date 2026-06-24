@@ -79,3 +79,8 @@ htmlcov/
 *.pkl
 *.joblib
 *.log
+
+# Debt-002: pytest-cov artifact
+.coverage
+coverage.xml
+htmlcov/

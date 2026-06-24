@@ -7,11 +7,11 @@ import pytest
 
 from src.data.storage import (
     BarRecord,
-    TradeRecord,
-    RegimeSnapshotRecord,
-    ModelMetricsRecord,
     EquityRecord,
+    ModelMetricsRecord,
+    RegimeSnapshotRecord,
     StorageBackend,
+    TradeRecord,
     open_storage,
 )
 

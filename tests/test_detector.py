@@ -13,7 +13,6 @@ Coverage priorities:
 
 import math
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -291,7 +290,7 @@ class TestRegimeDetectorPredict:
         detector.fit(synthetic_features)
         # Force the non-convergence fail-safe path directly rather than
         # trying to engineer real non-convergence (flaky / slow).
-        detector._convergence_failed = True  # noqa: SLF001 — testing internal fail-safe
+        detector._convergence_failed = True
         pred = detector.predict_current(synthetic_features)
         assert pred.state == REGIME_VOLATILE
         assert pred.prob_volatile == 1.0

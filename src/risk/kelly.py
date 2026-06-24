@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 from typing import Final
 
 import structlog
 
 from src.config import RiskSettings, get_settings
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 

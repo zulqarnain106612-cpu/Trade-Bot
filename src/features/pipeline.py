@@ -30,6 +30,7 @@ import structlog
 
 from src.config import FeatureSettings, get_settings
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------

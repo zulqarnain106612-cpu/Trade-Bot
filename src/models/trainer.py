@@ -17,15 +17,15 @@ Authority:
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Final
 import hashlib
 import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
 import io
 import json
 import os
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Final
 
 import joblib
 import numpy as np
@@ -39,13 +39,14 @@ from sklearn.metrics import (
 )
 from xgboost import XGBClassifier
 
-from src.config import XGBoostSettings, FeatureSettings, get_settings
+from src.config import FeatureSettings, XGBoostSettings, get_settings
 from src.data.storage import ModelMetricsRecord
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     FeatureMatrix,
     meta_labels,
 )
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -612,8 +613,8 @@ class ModelTrainer:
         # Aronson (2006) Ch.6 — training baseline is ground truth for stationarity.
         try:
             from src.diagnostics.signal_debugger import (
-                get_drift_monitor,
                 get_degradation_tracker,
+                get_drift_monitor,
             )
             _X_df = fm.features[FEATURE_COLUMNS]
             _dm = get_drift_monitor()

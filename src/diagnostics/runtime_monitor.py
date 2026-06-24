@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import gc
-import math
 import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, Final
+from typing import Any, Final
 
 import structlog
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -175,7 +176,7 @@ class RuntimeMonitor:
                     consecutive_failures=0,
                     last_ok_ts=time.monotonic(),
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 failures = prior.consecutive_failures + 1
                 pr = ProbeResult(
                     name=name,

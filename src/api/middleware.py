@@ -9,6 +9,7 @@ import re
 
 import structlog
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Accepted origin pattern: http(s)://hostname(:port)

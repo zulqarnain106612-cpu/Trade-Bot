@@ -25,7 +25,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import ccxt.async_support as ccxt
@@ -37,6 +37,7 @@ from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -386,7 +387,7 @@ class LiveExecutor(AbstractExecutor):
             filled_qty = float(order.get("filled") or pos.quantity)
             exchange_fee = self._extract_fee(order, actual_exit_price, filled_qty)
 
-            exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
 
             if pos.direction == 1:
                 gross_pnl = (actual_exit_price - pos.entry_price) * filled_qty
@@ -489,7 +490,7 @@ class LiveExecutor(AbstractExecutor):
             req.resolved = True
             req.approved = approved
             req.operator = operator
-            req._event.set()  # noqa: SLF001 — wake _await_approval immediately
+            req._event.set()
         self._log.info(
             "live.approval_resolved",
             request_id=request_id,
@@ -691,7 +692,7 @@ class LiveExecutor(AbstractExecutor):
                 return None
 
             notional = actual_price * filled_qty
-            entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            entry_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
             trade_id = str(uuid.uuid4())
 
             async with self._lock:
@@ -778,101 +779,53 @@ class LiveExecutor(AbstractExecutor):
         """
         Place a market order and wait for fill confirmation.
 
-        Polls fetch_order up to _ORDER_CONFIRM_POLLS times.
+        Now uses OrderFSM via OrderManager for:
+          - State machine driven confirmation
+          - Partial fill aggregation
+          - Timeout escalation
+          - Network error recovery
+          - State persistence for manual reconciliation
+
         Returns the confirmed order dict.
 
-        Raises ccxt.ExchangeError if order does not fill within poll window.
+        Raises ccxt.ExchangeError if order does not fill within timeout.
         """
-        exchange = self._fetcher.get_order_exchange()
-        order: dict[str, Any] = await exchange.create_market_order(
-            symbol=symbol,
-            side=side,
-            amount=quantity,
-        )
-        order_id = order["id"]
-
-        # Poll for confirmed fill
-        for attempt in range(_ORDER_CONFIRM_POLLS):
-            await asyncio.sleep(_ORDER_CONFIRM_INTERVAL)
-            try:
-                confirmed = await exchange.fetch_order(order_id, symbol)
-                if confirmed.get("status") in {"closed", "filled"}:
-                    return confirmed
-            except (ccxt.NetworkError, ccxt.RequestTimeout):
-                # Transient — retry
-                continue
-            except (ccxt.BadSymbol, ccxt.InsufficientFunds, ccxt.InvalidOrder,
-                    ccxt.AuthenticationError) as exc:
-                # SCAN3-009: permanent errors will not resolve on retry — raise immediately
-                self._log.error(
-                    "live.order_confirm_permanent_error",
-                    order_id=order_id, symbol=symbol, error=str(exc),
-                )
-                raise
-            except ccxt.ExchangeError:
-                # Unclassified — log and retry
-                self._log.warning(
-                    "live.order_confirm_exchange_error",
-                    order_id=order_id, symbol=symbol, attempt=attempt,
-                )
-                continue
-
-        # Final reconciliation attempt outside the poll loop —
-        # the exchange may have filled the order while we were getting errors.
         try:
-            final_check = await exchange.fetch_order(order_id, symbol)
-            if final_check.get("status") in {"closed", "filled"}:
-                self._log.warning(
-                    "live.order_fill_confirmed_on_final_check",
-                    order_id=order_id,
-                    symbol=symbol,
-                )
-                return final_check
+            fsm, confirmed_order = await self._order_manager.place_order_with_fsm(
+                exchange=self._fetcher.get_order_exchange(),
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+            )
+            
+            self._log.info(
+                "live.order_placed_fsm",
+                order_id=fsm.state.order_id,
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                filled_qty=fsm.state.filled_qty,
+                avg_price=round(fsm.state.average_fill_price or 0, 4),
+                attempts=fsm.state.retry_count,
+            )
+            
+            return confirmed_order
+            
+        except TimeoutError as exc:
+            self._log.error(
+                "live.order_confirmation_timeout",
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                action="manual_reconciliation_required",
+            )
+            raise ccxt.ExchangeError(
+                f"Order for {symbol} did not confirm as filled within timeout — "
+                f"check exchange manually. See logs for order_id."
+            ) from exc
         except ccxt.ExchangeError:
-            pass
-
-        # Order unconfirmed — log with order_id so operator can reconcile manually
-        self._log.error(
-            "live.order_fill_unconfirmed",
-            order_id=order_id,
-            symbol=symbol,
-            side=side,
-            action="manual_reconciliation_required",
-        )
-        raise ccxt.ExchangeError(
-            f"Order {order_id} for {symbol} did not confirm as filled "
-            f"within {_ORDER_CONFIRM_POLLS} polls — aborting position open. "
-            f"Check exchange manually for order {order_id}."
-        )
-
-    @staticmethod
-    def _extract_fee(order: dict[str, Any], price: float, qty: float) -> float:
-        """Extract fee from order response or fall back to estimated fee."""
-        fee_info = order.get("fee") or {}
-        fee_cost = fee_info.get("cost")
-        if fee_cost is not None:
-            return float(fee_cost)
-        return price * qty * _LIVE_FEE_FALLBACK
-
-    async def _enqueue_approval(
-        self,
-        symbol: str,
-        timeframe: str,
-        direction: int,
-        kelly_result: KellyResult,
-        regime_state: int,
-        meta_label_prob: float,
-        raw_signal: float,
-    ) -> str:
-        # Fetch indicative price so the operator sees a meaningful value
-        # in the approval card (not $0.00). Labelled clearly as indicative
-        # since actual fill price will differ (VUL-033).
-        try:
-            indicative_price = await self._fetcher.fetch_ticker_price(symbol)
-        except Exception:
-            indicative_price = 0.0  # graceful degradation — approval still proceeds
-
-        req_id = str(uuid.uuid4())
+            # Already logged by OrderManager
+            raise
         req = ApprovalRequest(
             request_id=req_id,
             symbol=symbol,
@@ -916,8 +869,8 @@ class LiveExecutor(AbstractExecutor):
             return False, ""
 
         try:
-            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)  # noqa: SLF001
-        except asyncio.TimeoutError:
+            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)
+        except TimeoutError:
             async with self._lock:
                 timed_out = self._approval_queue.pop(request_id, None)
                 if timed_out is not None:
@@ -967,7 +920,7 @@ class LiveExecutor(AbstractExecutor):
         record is internally consistent and cannot race with mark_to_market().
         """
         record = EquityRecord(
-            ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+            ts=int(datetime.now(tz=UTC).timestamp() * 1000),
             trading_mode=TradingMode.LIVE.value,
             equity_usd=round(equity, 8),
             cash_usd=round(cash, 8),

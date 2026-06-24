@@ -15,6 +15,7 @@ import os
 import structlog
 from fastapi import HTTPException, WebSocket, status
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _HEADER_NAME = "x-api-key"

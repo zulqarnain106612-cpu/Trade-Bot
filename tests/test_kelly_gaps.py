@@ -14,11 +14,11 @@ import pytest
 from src.config import RiskSettings
 from src.risk.kelly import (
     KellyResult,
+    compute_position_size,
+    compute_win_loss_stats,
     half_kelly_fraction,
     kelly_from_model_probs,
     size_position,
-    compute_position_size,
-    compute_win_loss_stats,
 )
 
 

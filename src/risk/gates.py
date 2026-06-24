@@ -56,6 +56,7 @@ class GateStatus(str, Enum):
     HALT_POSITION_SIZE = "halt_position_size"
     HALT_LIVE_GATE = "halt_live_gate"
     HALT_PAPER_ONLY = "halt_paper_only"
+    HALT_DRIFT = "halt_drift"  # Performance drift detection (GAP-003)
 
 
 @dataclass(frozen=True)
@@ -649,3 +650,61 @@ class DrawdownTracker:
     @property
     def daily_start_equity(self) -> float:
         return self._daily_start
+
+
+# ---------------------------------------------------------------------------
+# Gate 6: Performance drift detector (live only)
+# ---------------------------------------------------------------------------
+
+
+def check_performance_drift(drift_detector: Any) -> GateResult:
+    """
+    Gate 6: Performance drift detection (live trading mode only).
+
+    Halts new positions if model performance has degraded significantly
+    in live trading vs training baseline.
+
+    Checks:
+      - Sharpe drop >0.5pp
+      - Model accuracy drop >10pp
+      - Win rate drop >15pp
+      - Max drawdown expansion >10pp
+
+    Parameters
+    ----------
+    drift_detector : PerformanceDriftDetector
+        Live performance monitor with baseline and current metrics
+
+    Returns
+    -------
+    GateResult — PASS if metrics within thresholds, HALT_DRIFT if degraded.
+
+    Authority: López de Prado AFML Ch.11, Aronson (2006) Ch.9
+    """
+    if drift_detector is None:
+        return GateResult.pass_gate(details={"reason": "drift_detector_not_enabled"})
+
+    drift = drift_detector.check_drift()
+    if drift.drifted:
+        return GateResult.fail(
+            GateStatus.HALT_DRIFT,
+            reason=drift.reason,
+            details={
+                "metric": drift.metric,
+                "live_value": round(drift.live_value, 4),
+                "baseline_value": round(drift.baseline_value, 4),
+                "drift_pp": round(drift.drift_pp, 3),
+            },
+        )
+
+    # Gate passed — metrics healthy
+    metrics = drift_detector.get_live_metrics()
+    return GateResult.pass_gate(
+        details={
+            "total_trades": metrics.get("total_live_trades"),
+            "rolling_sharpe": metrics.get("rolling_sharpe"),
+            "rolling_winrate": metrics.get("rolling_winrate"),
+            "rolling_accuracy": metrics.get("rolling_accuracy"),
+            "max_drawdown_pct": metrics.get("max_live_drawdown_pct"),
+        }
+    )

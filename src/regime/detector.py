@@ -44,6 +44,7 @@ from src.config import (
     get_settings,
 )
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------

@@ -12,12 +12,13 @@ commit (write commit_log entry with a deterministic next-hash prediction,
 or use `git commit --amend` for SESSION_STATE.json only), or stop tracking
 the bookkeeping list inside the same file Claude edits for content.
 Severity: Low. File: scripts/claude-commit.sh
-Status: OPEN
+Status: RESOLVED [2026-06-24] — claude-commit.sh amended to git add + amend SESSION_STATE into same commit.
 
 ## Debt-002 [2026-06-23]
 .coverage (pytest-cov binary artifact) is tracked in git and gets modified
 on every test run, adding noise to git status. Should be in .gitignore.
 Severity: Low. File: .gitignore, .coverage
+Status: RESOLVED [2026-06-24] — .coverage, coverage.xml, htmlcov/ added to .gitignore; .coverage removed from git index.
 Status: RESOLVED (session 3) — ran `git rm --cached .coverage`. The
 .gitignore entry already existed; the file just needed untracking since
 it predated the ignore rule being added.

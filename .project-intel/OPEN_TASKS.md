@@ -23,7 +23,7 @@ incorrectly still listed it as NOT STARTED. Corrected after verifying against so
 
 **Status update (session 3)**: wiring confirmed complete — signal_engine.py line ~300 calls regime.position_scalar() and passes it as compute_position_size(regime_scalar=...). Added tests/test_detector.py (32 tests) and a regime_scalar edge-case suite in tests/test_kelly.py (6 tests). TASK-002 fully closed, no follow-up.
 
-### TASK-009: Wire SlippageModel into signal_engine.py + live executor [GAP-001 follow-up, NEW]
+### TASK-009: Wire SlippageModel into signal_engine.py + live executor [GAP-001 follow-up] — DONE [2026-06-24]
 **File**: src/engine/signal_engine.py, src/execution/live.py
 **What**: Compute adv_20d from storage (bars table, 20-day rolling volume),
 call SlippageModel.estimate() with live order-book spread, compute
@@ -31,9 +31,11 @@ expected_edge_bps from p_long/meta-label + win/loss ratio, populate
 RiskGateContext.expected_edge_bps / slippage_estimate before evaluate_all_gates().
 **Why**: Gate 0 exists but fails open until this lands — currently no
 protective effect in the actual trading path.
-**Priority**: P0 — block live-gate unlock on this, not just on gate existing.
+**Priority**: P0 — DONE. Gate 0 now active: expected_edge_bps from avg_win/avg_loss model,
+SlippageModel.estimate() called with live spread_bps + adv_20d. RiskGateContext fields populated.
+502/502 tests pass.
 
-### TASK-010: Wire live order-book spread + funding rate into CognitiveEngine [NEW]
+### TASK-010: Wire live order-book spread into CognitiveEngine — DONE [2026-06-24] (funding_rate_8h deferred: spot-only)
 **File**: src/engine/signal_engine.py
 **What**: SignalContext.spread_bps is hardcoded to 2.0 and funding_rate_8h
 to 0.0 at the construction call site (~line 475-480). BlockchainValidator's

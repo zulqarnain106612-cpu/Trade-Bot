@@ -2,19 +2,18 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.strategies.filters import (
     ewm_trend_signal,
-    trend_filter_passes,
-    vol_adjusted_momentum,
-    overnight_gap_is_excessive,
-    regime_position_scalar,
     hurst_exponent,
     hurst_filter_passes,
-    obv_trend_confirms,
-    vol_explosion_blocks,
     mtf_trend_aligned,
+    obv_trend_confirms,
+    overnight_gap_is_excessive,
+    regime_position_scalar,
+    trend_filter_passes,
+    vol_adjusted_momentum,
+    vol_explosion_blocks,
 )
 
 

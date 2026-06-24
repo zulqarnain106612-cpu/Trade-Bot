@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 
 from src.strategies.position_sizing import (
-    carver_forecast_position,
-    vol_target_quantity,
-    estimate_daily_vol,
-    correlation_adjusted_notional,
     afml_bet_size,
-    thorp_kelly_with_variance,
+    carver_forecast_position,
+    correlation_adjusted_notional,
+    estimate_daily_vol,
     recommend_position_notional,
+    thorp_kelly_with_variance,
+    vol_target_quantity,
 )
 
 

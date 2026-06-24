@@ -8,7 +8,7 @@ import pytest
 
 from src.config import ExecutionMode, runtime_config
 from src.data.storage import StorageBackend
-from src.execution.paper import PaperExecutor, PaperPosition, ApprovalRequest
+from src.execution.paper import ApprovalRequest, PaperExecutor, PaperPosition
 from src.risk.kelly import KellyResult
 
 

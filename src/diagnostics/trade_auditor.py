@@ -19,13 +19,13 @@ Authority:
 
 from __future__ import annotations
 
-import asyncio
-import time
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
+from datetime import UTC
 from typing import Any, Final
 
 import structlog
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -88,8 +88,8 @@ class AuditRecord:
 
 
 def _ts_to_iso(ts: float) -> str:
-    from datetime import datetime, timezone
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    from datetime import datetime
+    return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
 # ---------------------------------------------------------------------------

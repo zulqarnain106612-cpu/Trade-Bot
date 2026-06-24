@@ -24,11 +24,12 @@ import math
 import statistics
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Final
 
 import numpy as np
 import structlog
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -255,7 +256,7 @@ def run_pipeline_selftest() -> dict[str, Any]:
     """
     result: dict[str, Any] = {"passed": False, "error": None, "n_features": 0, "n_rows": 0}
     try:
-        from src.features.pipeline import build_feature_matrix, FEATURE_COLUMNS
+        from src.features.pipeline import FEATURE_COLUMNS, build_feature_matrix
         rng = np.random.default_rng(42)
         n = 800
         close = 30000.0 + np.cumsum(rng.standard_normal(n) * 50)

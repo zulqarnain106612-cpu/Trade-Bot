@@ -30,27 +30,29 @@ import os
 import re
 import time
 
+
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
 )
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, Annotated, AsyncIterator, cast
+from datetime import UTC, datetime
+from typing import Annotated, Any, cast
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.auth import verify_api_key, verify_ws_key
+from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import StorageBackend
-from src.execution.live import LiveExecutor
-from src.execution.base import AbstractExecutor
 from src.engine.orchestrator import Orchestrator
-from src.api.auth import verify_api_key, verify_ws_key
-from src.api.middleware import validate_cors_config
+from src.execution.base import AbstractExecutor
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -243,7 +245,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             orch_task.cancel()
         await _state.orchestrator.shutdown()
         await _state.storage.close()
@@ -276,7 +278,7 @@ app.add_middleware(
 # Auth dependency — sole authentication mechanism for all endpoints
 # ---------------------------------------------------------------------------
 
-from fastapi import Header  # noqa: E402 — placed after app init intentionally
+from fastapi import Header
 
 
 def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
@@ -298,6 +300,14 @@ def require_ready() -> None:
 class ResolveApprovalRequest(BaseModel):
     approved: bool
     operator: str = Field(..., min_length=1, max_length=64)
+    # SEC-007: operator_secret required — same second-factor pattern as /execution-mode
+    # so the approval audit trail can be trusted (operator field is server-verified, not
+    # free text from any API-key holder).
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise approval resolution",
+    )
 
     @field_validator("operator")
     @classmethod
@@ -334,14 +344,14 @@ async def health() -> dict[str, Any]:
         "storage": counts,
         "trading_mode": get_settings().trading_mode.value,
         "execution_mode": (await runtime_config.get_execution_mode()).value,
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
     }
 
 
 @app.get("/status", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
     cfg = get_settings()
 
     equity_usd = executor.equity_usd if executor else 0.0
@@ -377,9 +387,9 @@ async def status() -> dict[str, Any]:
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
             tf: str(err)[:200]
-            for tf, err in _state.orchestrator._last_retrain_error.items()  # noqa: SLF001
+            for tf, err in _state.orchestrator._last_retrain_error.items()
         },
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -497,7 +507,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
 @app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         return {"approvals": []}
     return {"approvals": executor.pending_approvals()}
@@ -519,10 +529,26 @@ async def resolve_approval(
     """Approve or reject a pending trade."""
     # H-02: pass client IP so rate limit is per-IP, not global
     _state.check_endpoint_rate_limit("resolve_approval", request.client.host if request.client else "")
+    # SEC-007: verify operator_secret (same second-factor pattern as /execution-mode)
+    # The approval endpoint is the human-in-the-loop gate before a live trade executes;
+    # without this check any holder of the API key can approve with any operator name,
+    # undermining both the audit trail and the intent of the approval workflow.
+    _expected_op_secret = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not _expected_op_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="OPERATOR_SECRET is not configured on the server.",
+        )
+    if not hmac.compare_digest(
+        body.operator_secret.encode("utf-8"),
+        _expected_op_secret.encode("utf-8"),
+    ):
+        log.warning("api.resolve_approval_bad_operator_secret", operator=body.operator)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
     # H-13: validate UUID format before dict lookup — prevents timing oracle and DoS
     if not _UUID_RE.match(request_id):
         raise HTTPException(status_code=400, detail="Invalid request_id format.")
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
 
@@ -665,7 +691,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             await asyncio.sleep(heartbeat)
 
-            executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+            executor = cast(AbstractExecutor, _state.orchestrator._executor)
             if executor is None:
                 continue
 
@@ -679,7 +705,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 "pending_approvals": await executor.pending_approvals_safe(),
                 "trading_mode": get_settings().trading_mode.value,
                 "execution_mode": (await runtime_config.get_execution_mode()).value,
-                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "timestamp": datetime.now(tz=UTC).isoformat(),
             }
 
             snap = await _state.storage.latest_regime(
@@ -734,7 +760,7 @@ async def debug_audit(
 @app.get("/debug/drift", dependencies=[Depends(api_key_header)])
 async def debug_drift() -> dict[str, Any]:
     """Feature drift (KS test vs training baseline) + model degradation report."""
-    from src.diagnostics.signal_debugger import get_drift_monitor, get_degradation_tracker
+    from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
     drift_records = get_drift_monitor().check_all()
     return {
         "feature_drift": [
@@ -761,3 +787,81 @@ async def debug_selftest() -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_pipeline_selftest)
     return result
+
+
+@router.get("/orders/{order_id}/status", tags=["execution"])
+async def get_order_status(
+    order_id: str,
+) -> dict[str, Any]:
+    """
+    Get order FSM state for reconciliation.
+    
+    Useful for debugging unconfirmed orders or recovering from network
+    failures. Returns the order's state machine snapshot including:
+      - Current status (PENDING, FILLING, FILLED, etc.)
+      - Filled quantity and average fill price
+      - Retry count and last error
+      - Exchange response snapshot
+    
+    Parameters
+    ----------
+    order_id : Exchange order ID
+    
+    Returns
+    -------
+    Order FSM state snapshot (serialized)
+    """
+    try:
+        executor = runtime_config.executor
+        if hasattr(executor, "get_order_fsm_state"):
+            state = await executor.get_order_fsm_state(order_id)
+            if state:
+                return {
+                    "order_id": state.order_id,
+                    "status": state.status.value,
+                    "filled_qty": state.filled_qty,
+                    "average_fill_price": state.average_fill_price,
+                    "created_at_ms": state.created_at_ms,
+                    "first_confirmed_at_ms": state.first_confirmed_at_ms,
+                    "last_updated_ms": state.last_updated_ms,
+                    "retry_count": state.retry_count,
+                    "last_error": state.last_error,
+                    "filled_at_prices": state.filled_at_prices,
+                }
+        return {"error": "Order not found or reconciliation not available"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@router.get("/performance-drift", tags=["monitoring"])
+async def get_performance_drift() -> dict[str, Any]:
+    """
+    Get current performance drift status.
+    
+    Monitors model degradation in live trading. Compares live performance
+    metrics (Sharpe, accuracy, win rate, max DD) against training baseline.
+    
+    Returns
+    -------
+    {
+        "drifted": bool,           # True if drift threshold exceeded
+        "metric": str,             # Which metric drifted (if any)
+        "reason": str,             # Explanation
+        "drift_pp": float,         # Percentage points of drift
+        "live_value": float,       # Current live metric value
+        "baseline_value": float,   # Training baseline
+        "metrics": {
+            "total_live_trades": int,
+            "rolling_sharpe": float,
+            "rolling_winrate": float,
+            "rolling_accuracy": float,
+            "max_live_drawdown_pct": float,
+        }
+    }
+    """
+    try:
+        if hasattr(runtime_config, "drift_adapter") and runtime_config.drift_adapter:
+            return runtime_config.drift_adapter.check_drift()
+        return {"drifted": False, "reason": "Drift detector not initialized"}
+    except Exception as exc:
+        return {"error": str(exc)}

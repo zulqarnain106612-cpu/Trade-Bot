@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import pandas as pd
@@ -36,14 +36,16 @@ from xgboost import XGBClassifier
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
+from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
+from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
-    build_inference_features,
-    build_feature_matrix,
     FEATURE_COLUMNS,
+    build_feature_matrix,
+    build_inference_features,
 )
+from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.risk.cognitive_engine import (
-    CognitiveEngine,
     SignalContext,
     get_cognitive_engine,
 )
@@ -53,10 +55,9 @@ from src.risk.gates import (
     evaluate_all_gates,
 )
 from src.risk.kelly import KellyResult, compute_position_size
-from src.models.trainer import ModelTrainer
-from src.diagnostics.trade_auditor import AuditRecord, get_auditor
-from src.diagnostics.signal_debugger import get_drift_monitor, get_degradation_tracker
+from src.risk.slippage import SlippageModel
 from src.strategies.filters import apply_all_strategy_filters
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -226,7 +227,7 @@ class SignalEngine:
         # H-16: verify the last bar is a fully closed bar, not the currently forming one.
         # Kelly sizing uses bars["close"].iloc[-1] — a partial bar gives wrong notional.
         tf_ms = TIMEFRAME_SECONDS.get(self._timeframe, 60) * 1000
-        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
         last_bar_ts_ms = int(bars.index[-1])
         if now_ms - last_bar_ts_ms < tf_ms:
             return self._skip("last_bar_not_yet_closed")
@@ -245,9 +246,14 @@ class SignalEngine:
             return self._skip("insufficient_features")
 
         # Inference vector — last row of feature matrix, augmented with live OFI
+        # TASK-010: also capture live spread_bps from order book for SlippageModel + CognitiveEngine
+        _live_ob_spread_bps: float | None = None
         try:
             ob = await self._fetcher.fetch_orderbook(self._symbol)
             live_ofi = ob.order_flow_imbalance()
+            mid = ob.mid_price
+            if mid > 0.0:
+                _live_ob_spread_bps = (ob.spread / mid) * 10_000.0
         except Exception as exc:
             self._log.debug("signal.ofi_fetch_failed", error=str(exc))
             live_ofi = None
@@ -311,6 +317,35 @@ class SignalEngine:
         )
 
         notional = kelly_result.notional_usd if kelly_result is not None else 0.0
+        quantity = kelly_result.quantity if kelly_result is not None else 0.0
+
+        # TASK-009: Compute slippage estimate and expected_edge_bps so gate 0 is active.
+        # expected_edge_bps: p_long-derived edge using modelled win/loss payoff ratio.
+        #   win_loss_ratio = avg_win_usd / avg_loss_usd (Kelly inputs reused here).
+        #   Edge = p_win * avg_win - p_loss * avg_loss, expressed in bps relative to entry.
+        _entry_price = float(bars["close"].iloc[-1])
+        _wl_ratio = (avg_win_usd / avg_loss_usd) if avg_loss_usd > 0.0 else 1.0
+        _p_win = p_long if direction == 1 else (1.0 - p_long)
+        _p_loss = 1.0 - _p_win
+        _raw_edge_usd = _p_win * avg_win_usd - _p_loss * avg_loss_usd
+        _expected_edge_bps = (_raw_edge_usd / (_entry_price * quantity) * 10_000.0
+                              if quantity > 0.0 and _entry_price > 0.0
+                              else float((p_long - 0.5) * 200))  # fallback: p_long proxy
+
+        # TASK-009: Build SlippageEstimate using live spread (TASK-010) + ADV-20 from bars.
+        _spread_for_slippage = _live_ob_spread_bps if _live_ob_spread_bps is not None else None
+        _adv_20d_for_slip = float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else None
+        _slippage_estimate = None
+        if _spread_for_slippage is not None and _adv_20d_for_slip is not None and _adv_20d_for_slip > 0.0:
+            try:
+                _slippage_estimate = SlippageModel().estimate(
+                    symbol=self._symbol,
+                    qty=quantity,
+                    adv_20d=_adv_20d_for_slip,
+                    spread_bps=_spread_for_slippage,
+                )
+            except Exception as _slip_exc:
+                self._log.warning("signal.slippage_estimate_failed", error=str(_slip_exc))
 
         # 8. Risk gate stack
         gate_ctx = RiskGateContext(
@@ -324,6 +359,8 @@ class SignalEngine:
             direction_gate_pass=direction_gate_pass,
             meta_gate_pass=meta_gate_pass,
             paper_trading_days=paper_trading_days,
+            expected_edge_bps=_expected_edge_bps,
+            slippage_estimate=_slippage_estimate,
         )
         gate_result = evaluate_all_gates(gate_ctx)
 
@@ -430,15 +467,15 @@ class SignalEngine:
                 skip_reason=_reason,
             )
 
-        # Apply regime position scalar to Kelly notional (AFML Ch.17)
-        _regime_scalar = float(_filter_result.get("scalar", 1.0))
-        if _regime_scalar < 1.0 and _regime_scalar > 0.0 and kelly_result is not None:
-            from dataclasses import replace as _dc_replace
-            kelly_result = _dc_replace(
-                kelly_result,
-                notional_usd=round(kelly_result.notional_usd * _regime_scalar, 4),
-                quantity=round(kelly_result.quantity * _regime_scalar, 8),
-            )
+        # GAP-008 FIX: filters.py returns a "scalar" (AFML Ch.17 probability-based regime
+        # confidence). Previously this was applied multiplicatively on top of the entropy-
+        # scalar already baked into Kelly via compute_position_size(regime_scalar=...) —
+        # double-discounting regime uncertainty through two uncalibrated formulas.
+        # Resolution (ADR, option a): the filter scalar is logged for observability but
+        # NO LONGER multiplied onto kelly_result. Regime sizing is the sole domain of
+        # detector.py's entropy gate → compute_position_size(). filters.py's regime signal
+        # contributes to the pass/fail vote (line above) but not to notional re-scaling.
+        _regime_scalar = float(_filter_result.get("scalar", 1.0))  # logged only
 
         self._log.info(
             "signal.tradeable",
@@ -448,7 +485,7 @@ class SignalEngine:
             regime_state=regime_state,
             notional_usd=round(kelly_result.notional_usd, 2),
             kelly_fraction=round(kelly_result.adjusted_fraction, 4),
-            regime_scalar=round(_regime_scalar, 3),
+            regime_scalar_filter_logged_only=round(_regime_scalar, 3),  # GAP-008: not applied
             hurst=round(_filter_result["details"].get("hurst", 0.5), 3),
         )
 
@@ -463,7 +500,7 @@ class SignalEngine:
             timeframe             = self._timeframe.value if hasattr(self._timeframe, "value") else str(self._timeframe),
             p_long                = p_long,
             p_bet                 = p_bet,
-            expected_edge_bps     = float((p_long - 0.5) * 200),
+            expected_edge_bps     = _expected_edge_bps,  # TASK-009/GAP-011: real edge from avg_win/avg_loss
             regime_state          = regime_state,
             regime_probs          = [_prob_ranging, _prob_trending, _prob_volatile],
             hurst_exponent        = _hurst,
@@ -472,7 +509,7 @@ class SignalEngine:
             atr_median_20         = float(_atr_series.rolling(20).median().iloc[-1]) if _atr_series is not None else 1.0,
             realized_vol          = float(bars["close"].pct_change().rolling(20).std().iloc[-1] * (252 ** 0.5)) if "close" in bars.columns else 0.01,
             adv_20d               = _adv_20d,
-            spread_bps            = 2.0,   # default; replace with live order book spread
+            spread_bps            = _live_ob_spread_bps if _live_ob_spread_bps is not None else 2.0,  # TASK-010
             capital_usd           = capital_usd,
             daily_pnl_usd         = daily_pnl_usd,
             open_positions        = 0,
@@ -537,7 +574,7 @@ class SignalEngine:
         n_bars_needed = _MIN_BARS_FOR_SIGNAL + 200
         tf_seconds = TIMEFRAME_SECONDS.get(self._timeframe, 60)
         cutoff_ts = int(
-            (datetime.now(tz=timezone.utc).timestamp() - n_bars_needed * tf_seconds) * 1000
+            (datetime.now(tz=UTC).timestamp() - n_bars_needed * tf_seconds) * 1000
         )
         records = await self._storage.fetch_bars(
             symbol=self._symbol,

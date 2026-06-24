@@ -6,15 +6,15 @@ import pytest
 
 from src.config import invalidate_settings_cache
 from src.features.pipeline import (
-    FEATURE_COLUMNS,
+    COL_ATR_MOMENTUM,
     COL_LABEL,
     COL_META_LABEL,
     COL_OFI,
-    COL_ROLLING_SHARPE,
-    COL_VWAP_DEV,
-    COL_VOLUME_ZSCORE,
     COL_REALIZED_VOL_RATIO,
-    COL_ATR_MOMENTUM,
+    COL_ROLLING_SHARPE,
+    COL_VOLUME_ZSCORE,
+    COL_VWAP_DEV,
+    FEATURE_COLUMNS,
     FeatureMatrix,
     _compute_daily_vol,
     _frac_diff_weights,
