@@ -35,6 +35,7 @@ from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
+from src.execution.order_manager import OrderManager
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
@@ -172,6 +173,7 @@ class LiveExecutor(AbstractExecutor):
         # against the same balance and double-spending (VUL-009).
         self._trade_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         self._drawdown_tracker = DrawdownTracker(self._starting_capital)
+        self._order_manager: OrderManager = OrderManager()  # GAP-004
         self._initialized: bool = False
         self._log = log.bind(component="live_executor")
 
