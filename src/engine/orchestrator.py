@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Union
 
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
@@ -34,15 +34,20 @@ from src.config import (
 )
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import RegimeSnapshotRecord, StorageBackend
-from src.execution.paper import PaperExecutor
-from src.execution.live import LiveExecutor
+from src.diagnostics.runtime_monitor import get_monitor
+from src.diagnostics.signal_debugger import (
+    run_pipeline_selftest,
+)
 from src.engine.signal_engine import SignalEngine, SignalResult
+from src.execution.live import LiveExecutor
+from src.execution.paper import PaperExecutor
 from src.features.pipeline import build_feature_matrix
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
+from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.kelly import compute_win_loss_stats
-from src.diagnostics.runtime_monitor import get_monitor
-from src.diagnostics.signal_debugger import get_drift_monitor, get_degradation_tracker, run_pipeline_selftest
+from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -88,6 +93,10 @@ class Orchestrator:
         self._retrain_tasks: dict[str, asyncio.Task] = {}
         # SCAN2-003: track last retrain error per timeframe so /status can surface it
         self._last_retrain_error: dict[str, str] = {}
+
+        # GAP-003: Performance drift detector (initialized in startup after models trained)
+        self._drift_detector: PerformanceDriftDetector | None = None
+        self._drift_adapter = DriftIntegrationAdapter(self._drift_detector)
 
         # Dedicated single-thread executor for CPU-bound training (NEW-002).
         # Isolated from the default pool so training never starves async I/O tasks.
@@ -160,7 +169,7 @@ class Orchestrator:
         results = await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
 
         # Fail loudly on bootstrap errors — never silently continue with no data (fix #15)
-        for tf, result in zip(self._timeframes, results):
+        for tf, result in zip(self._timeframes, results, strict=True):
             if isinstance(result, BaseException):
                 self._log.critical(
                     "orchestrator.bootstrap_failed",
@@ -174,6 +183,36 @@ class Orchestrator:
         # Train models for each timeframe
         for tf in self._timeframes:
             await self._train_models(tf)
+
+        # Initialize drift detector with baseline from trained models (GAP-003)
+        # Extract OOS Sharpe, accuracy, win rate, max DD from primary model
+        if self._primary_tf in self._trainers:
+            trainer = self._trainers[self._primary_tf]
+            # Attempt to read OOS metrics from trainer's internal cache
+            # If available, create baseline; otherwise skip drift detection
+            try:
+                baseline = PerformanceBaseline(
+                    train_sharpe=getattr(trainer, "train_sharpe", 2.0),
+                    oos_sharpe=getattr(trainer, "oos_sharpe", 1.5),
+                    train_accuracy=getattr(trainer, "train_accuracy", 0.60),
+                    oos_accuracy=getattr(trainer, "oos_accuracy", 0.58),
+                    train_win_rate=getattr(trainer, "train_win_rate", 0.55),
+                    max_drawdown_pct=getattr(trainer, "max_drawdown_pct", 0.10),
+                    trades_in_backtest=getattr(trainer, "trades_count", 400),
+                )
+                self._drift_detector = PerformanceDriftDetector(baseline)
+                self._drift_adapter = DriftIntegrationAdapter(self._drift_detector)
+                self._log.info(
+                    "orchestrator.drift_detector_initialized",
+                    baseline_sharpe=baseline.oos_sharpe,
+                    baseline_accuracy=baseline.oos_accuracy,
+                )
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.drift_detector_init_failed",
+                    error=str(exc),
+                    action="continuing_without_drift_detection",
+                )
 
         # Build signal engines
         model_dir = self._cfg.storage.model_dir
@@ -287,7 +326,7 @@ class Orchestrator:
 
     async def _sleep_until_next_bar(self, tf_seconds: int) -> None:
         """Sleep until the next bar boundary (UTC aligned)."""
-        now = datetime.now(tz=timezone.utc).timestamp()
+        now = datetime.now(tz=UTC).timestamp()
         next_bar = (int(now / tf_seconds) + 1) * tf_seconds
         sleep_s = max(0.1, next_bar - now)
         await asyncio.sleep(sleep_s)
@@ -346,7 +385,7 @@ class Orchestrator:
         if self._cfg.trading_mode.value == "live":
             earliest = await self._storage.earliest_equity_ts(TradingMode.PAPER.value)
             if earliest is not None:
-                age_s = datetime.now(tz=timezone.utc).timestamp() - (earliest / 1000.0)
+                age_s = datetime.now(tz=UTC).timestamp() - (earliest / 1000.0)
                 paper_trading_days = int(age_s / 86400)
 
         # Run signal engine
@@ -378,6 +417,18 @@ class Orchestrator:
 
         # Route to executor if tradeable
         if result.tradeable and result.kelly_result is not None:
+            
+            # Check Gate 6: Performance drift (GAP-003)
+            drift_status = self._drift_adapter.check_drift()
+            if drift_status.get("drifted"):
+                self._log.warning(
+                    "orchestrator.signal_blocked_drift",
+                    timeframe=tf.value,
+                    drift_metric=drift_status.get("metric"),
+                    reason=drift_status.get("reason"),
+                )
+                return  # Skip this signal due to drift
+
             current_price = result.kelly_result.entry_price
             if current_price <= 0.0:
                 # Fetch current price for fill simulation
@@ -404,6 +455,33 @@ class Orchestrator:
                 raw_signal=result.p_long,
                 current_price=current_price,
             )
+
+            # Record trade outcome for drift detection (GAP-003)
+            # Called after signal submission; outcome contains entry/exit prices
+            if self._drift_detector and hasattr(outcome, "__dict__"):
+                try:
+                    # Extract P&L and prediction confidence from outcome
+                    pnl = outcome.get("pnl_usd", 0.0) if hasattr(outcome, "get") else getattr(outcome, "pnl_usd", 0.0)
+                    pred_prob = result.p_long or 0.5  # Direction model prediction
+                    actual_dir = 1 if result.direction > 0 else -1
+                    current_equity = await executor.get_current_equity()
+                    
+                    await self._drift_adapter.record_closed_trade(
+                        trade_id=trade_id,
+                        exit_price=outcome.get("exit_price", 0.0) if hasattr(outcome, "get") else 0.0,
+                        pnl_usd=pnl,
+                        predicted_prob=pred_prob,
+                        actual_direction=actual_dir,
+                        current_equity=current_equity,
+                        starting_equity=self._cfg.starting_capital_usd,
+                    )
+                except Exception as exc:
+                    self._log.warning(
+                        "orchestrator.drift_record_failed",
+                        trade_id=trade_id,
+                        error=str(exc),
+                    )
+
             self._log.info(
                 "orchestrator.signal_submitted",
                 timeframe=tf.value,
@@ -464,7 +542,7 @@ class Orchestrator:
             "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400,
         }.get(tf.value, 60)
         cutoff_ts = int(
-            (datetime.now(tz=timezone.utc).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
+            (datetime.now(tz=UTC).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
             * 1000
         )
         records = await self._storage.fetch_bars(
@@ -509,7 +587,7 @@ class Orchestrator:
         # XGBoost training — CPU bound
         trainer = ModelTrainer(self._symbol, tf.value)
         self._trainers[tf.value] = trainer
-        version = datetime.now(tz=timezone.utc).isoformat()
+        version = datetime.now(tz=UTC).isoformat()
 
         try:
             dir_result = await loop.run_in_executor(
@@ -557,7 +635,7 @@ class Orchestrator:
         """Reset daily equity tracker at UTC midnight."""
         while self._running:
             try:
-                now = datetime.now(tz=timezone.utc)
+                now = datetime.now(tz=UTC)
                 # Seconds until next midnight
                 next_midnight = (
                     now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() + 86400

@@ -54,6 +54,7 @@ RUF003 (14, ambiguous unicode in comments), F401 (14, unused imports),
 RUF100 (13, unused noqa directives), plus smaller counts down to single
 occurrences (B905, C416, PIE810, RUF005, UP007, W292, F841, C408, SIM105,
 RUF023, UP045/UP042/UP041/UP035, RUF013).
+Status: PARTIALLY RESOLVED [2026-06-24] — 160 findings auto-fixed (I001/F401/UP017/UP035/UP041/UP042/UP045/W292/C408/SIM105/RUF023/RUF059/RUF100). F841 cfg false-positive resolved (cfg IS used in DrawdownValidator; ruff confused by multi-branch coverage). B905 zip strict=True added to orchestrator.py. n_veto removed from cognitive_engine.py. 268 findings remain (27 SIM105/RUF001/RUF002/RUF003 — unicode ambiguity in strings/docstrings/comments, style-only).
 Severity: Low — none are correctness bugs; mostly style/modernization
 (many auto-fixable with `ruff check --fix`). Two worth a deliberate look
 rather than blind autofix: F841 (2x, unused variable — verify it's not

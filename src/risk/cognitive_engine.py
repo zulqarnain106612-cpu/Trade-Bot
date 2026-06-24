@@ -32,12 +32,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 import numpy as np
 import structlog
 
 from src.config import get_settings
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -70,7 +70,7 @@ class CognitiveDecision:
     """
     signal_id:    str
     passed:       bool
-    veto_reason:  Optional[str]
+    veto_reason:  str | None
     results:      list[ValidatorResult]
     adjusted_size_fraction: float   # final position size after all adjustments
     risk_score:   float             # 0.0 (no risk) → 1.0 (maximum risk)
@@ -235,7 +235,6 @@ class ProbabilityValidator:
     CVAR_LEVEL = 0.05   # 5th percentile CVaR
 
     def validate(self, ctx: SignalContext) -> ValidatorResult:
-        cfg     = get_settings().risk
         metrics: dict = {}
 
         # 2a. Bayesian posterior composite score
@@ -607,7 +606,7 @@ class CognitiveEngine:
         adjusted_size_fraction is progressively reduced by WARN results.
         """
         results:      list[ValidatorResult] = []
-        veto_reason:  Optional[str]         = None
+        veto_reason:  str | None         = None
         # FIX (structural): size_fraction starts from kelly_result's actual
         # adjusted_fraction — the same value src/risk/kelly.py computed and
         # already discounted by the HMM entropy gate (regime_scalar). This
@@ -731,7 +730,6 @@ class CognitiveEngine:
         """
         n_pass = sum(1 for r in results if r.status == ValidatorStatus.PASS)
         n_warn = sum(1 for r in results if r.status == ValidatorStatus.WARN)
-        n_veto = sum(1 for r in results if r.status == ValidatorStatus.VETO)
         total  = len(results) or 1
 
         base = (n_pass + 0.5 * n_warn) / total
@@ -741,7 +739,7 @@ class CognitiveEngine:
 
 
 # ── Module-level singleton (safe for async use — evaluate() is stateless) ────
-_engine: Optional[CognitiveEngine] = None
+_engine: CognitiveEngine | None = None
 
 def get_cognitive_engine() -> CognitiveEngine:
     global _engine
