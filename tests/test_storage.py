@@ -570,3 +570,83 @@ class TestHealthCheck:
         health = await backend.health_check()
         assert health["bars"] == 1
         assert health["trades"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Gap-012: Schema migration tests
+# ---------------------------------------------------------------------------
+
+class TestSchemaMigrations:
+    """Verify the PRAGMA user_version migration system (Gap-012)."""
+
+    @pytest.mark.asyncio
+    async def test_fresh_db_sets_schema_version(self, backend: StorageBackend) -> None:
+        """A freshly initialised DB must have user_version == _SCHEMA_VERSION."""
+        from src.data.storage import _SCHEMA_VERSION
+
+        row = await backend._conn.execute("PRAGMA user_version")
+        version = (await row.fetchone())[0]
+        assert version == _SCHEMA_VERSION, (
+            f"Expected user_version={_SCHEMA_VERSION}, got {version}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_migration_is_idempotent(self, backend: StorageBackend) -> None:
+        """Calling initialize() again on an up-to-date DB must not raise."""
+        await backend.initialize()  # second call — should short-circuit cleanly
+        from src.data.storage import _SCHEMA_VERSION
+
+        row = await backend._conn.execute("PRAGMA user_version")
+        version = (await row.fetchone())[0]
+        assert version == _SCHEMA_VERSION
+
+    @pytest.mark.asyncio
+    async def test_migration_applies_missing_column(self, tmp_path: pathlib.Path) -> None:
+        """Simulate a v1 DB (user_version=1, no spread_bps column) being migrated to v2."""
+        import aiosqlite
+        from src.data.storage import StorageBackend, _DDL, _SCHEMA_VERSION
+
+        db_path = tmp_path / "migrate_test.db"
+
+        # Seed a version-1 DB: apply DDL but set user_version = 1
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.executescript(_DDL)
+            await conn.execute("PRAGMA user_version = 1")
+            await conn.commit()
+
+            # Confirm spread_bps column absent at v1
+            row = await conn.execute("PRAGMA table_info(trades)")
+            cols = [r[1] for r in await row.fetchall()]
+            assert "spread_bps" not in cols, "spread_bps should not exist in v1 schema"
+
+        # Now open via StorageBackend — migrations should auto-apply
+        backend = StorageBackend(db_path)
+        try:
+            await backend.initialize()
+
+            # Confirm spread_bps column now present
+            row = await backend._conn.execute("PRAGMA table_info(trades)")
+            cols = [r[1] for r in await row.fetchall()]
+            assert "spread_bps" in cols, "spread_bps column should exist after migration"
+
+            # Confirm user_version bumped to current
+            row = await backend._conn.execute("PRAGMA user_version")
+            assert (await row.fetchone())[0] == _SCHEMA_VERSION
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_future_schema_version_raises(self, tmp_path: pathlib.Path) -> None:
+        """A DB with user_version AHEAD of code must raise RuntimeError (no silent data loss)."""
+        import aiosqlite
+        from src.data.storage import StorageBackend, _DDL, _SCHEMA_VERSION
+
+        db_path = tmp_path / "future_version.db"
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.executescript(_DDL)
+            await conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION + 99}")
+            await conn.commit()
+
+        backend = StorageBackend(db_path)
+        with pytest.raises(RuntimeError, match="AHEAD of code"):
+            await backend.initialize()

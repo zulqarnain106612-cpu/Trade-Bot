@@ -30,6 +30,49 @@ import structlog
 from src.config import get_settings
 
 
+# ---------------------------------------------------------------------------
+# Schema migrations — Gap-012
+# ---------------------------------------------------------------------------
+# Every schema change MUST be expressed as an entry in _MIGRATIONS.
+# Each entry is (version: int, description: str, sql: str).
+# Migrations are applied in order at startup if PRAGMA user_version is behind.
+# Current schema version: _SCHEMA_VERSION (the length of _MIGRATIONS list).
+#
+# Rules:
+#   - Only forward migrations (no rollback support — backup before running).
+#   - Pure DDL: ALTER TABLE, CREATE TABLE, CREATE INDEX, CREATE VIEW only.
+#   - Never mutate existing rows here; do that in a separate data-migration script.
+#   - After adding a migration, bump the version by appending to this list.
+#     The version is implicit: version N is _MIGRATIONS[N-1].
+#
+# Example of a future migration:
+#   (
+#       3,
+#       "gap-004: add order_fsm_state column to trades for FSM tracking",
+#       "ALTER TABLE trades ADD COLUMN order_fsm_state TEXT NOT NULL DEFAULT 'CLOSED';"
+#   ),
+_MIGRATIONS: Final[list[tuple[int, str, str]]] = [
+    # Version 1 — initial schema (tables created by _DDL above; no ALTER needed,
+    # but we register version 1 so any DB initialised after Gap-012 has a
+    # user_version of 1 set, and older DBs (user_version=0) are detected and
+    # brought up by the migration runner).
+    (
+        1,
+        "initial schema: bars, trades, regime_snapshots, model_metrics, "
+        "equity_curve, audit_log",
+        "",  # Empty SQL: tables already exist from _DDL; we just set the version.
+    ),
+    # Version 2 — add spread_bps column to trades (GAP-008/TASK-009 follow-on)
+    (
+        2,
+        "add spread_bps to trades for slippage audit trail",
+        "ALTER TABLE trades ADD COLUMN spread_bps REAL;",
+    ),
+]
+
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 2
+
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -460,7 +503,51 @@ class StorageBackend:
             self._conn.row_factory = aiosqlite.Row
             await self._conn.executescript(_DDL)
             await self._conn.commit()
-            self._log.info("storage.initialized")
+            await self._run_migrations()
+            self._log.info("storage.initialized", schema_version=_SCHEMA_VERSION)
+
+    async def _run_migrations(self) -> None:
+        """Apply any pending schema migrations via PRAGMA user_version."""
+        conn = self._conn
+        assert conn is not None
+
+        row = await conn.execute("PRAGMA user_version")
+        current: int = (await row.fetchone())[0]
+
+        if current == _SCHEMA_VERSION:
+            return  # Already up to date.
+
+        if current > _SCHEMA_VERSION:
+            raise RuntimeError(
+                f"DB schema version {current} is AHEAD of code version "
+                f"{_SCHEMA_VERSION}. Downgrade not supported — restore from backup."
+            )
+
+        self._log.info(
+            "storage.migration.start",
+            from_version=current,
+            to_version=_SCHEMA_VERSION,
+        )
+        for version, description, sql in _MIGRATIONS:
+            if version <= current:
+                continue  # Already applied.
+            self._log.info(
+                "storage.migration.apply",
+                version=version,
+                description=description,
+            )
+            if sql.strip():
+                await conn.executescript(sql)
+            # Bump user_version inside the same transaction context.
+            # user_version PRAGMA cannot be set inside executescript (it's DDL-level),
+            # so we use a raw execute. aiosqlite auto-commits between executescript calls.
+            await conn.execute(f"PRAGMA user_version = {version}")
+            await conn.commit()
+
+        self._log.info(
+            "storage.migration.complete",
+            schema_version=_SCHEMA_VERSION,
+        )
 
     async def close(self) -> None:
         """Flush WAL and close connection."""
