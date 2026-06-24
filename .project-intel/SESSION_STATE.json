@@ -1,35 +1,42 @@
 {
-  "last_updated": "2026-06-23T12:56:16.196069+00:00",
+  "last_updated": "2026-06-24T06:42:27+00:00",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
-    "paper_executor": "complete",
-    "live_executor": "complete — missing order FSM (GAP-004)",
+    "paper_executor": "COMPLETE \u2014 GAP-011 resolved: SlippageModel wired into _open_position_internal. Paper fills now use slippage-adjusted price so 30d track record reflects live cost structure.",
+    "live_executor": "complete \u2014 missing order FSM (GAP-004)",
     "api": "complete",
     "frontend": "complete",
     "diagnostics": "complete",
-    "slippage_model": "GATE IMPLEMENTED (gate 0, src/risk/slippage.py + gates.py) — live-path wiring open, see TASK-009 (GAP-001 not fully closed until then)",
-    "entropy_gate": "complete — verified, AND test-backfilled this session (tests/test_detector.py, 32 tests, detector.py coverage 0% -> 92%)",
-    "performance_drift_trigger": "NOT STARTED — GAP-003 (P1)",
-    "order_fsm": "NOT STARTED — GAP-004 (P1)",
-    "portfolio_correlation_layer": "NOT STARTED — GAP-005 (P2)",
-    "intel_layer": "COMPLETE — .project-intel/ active. RAG engine (332 chunks), cognitive_layer.py (13 domain knowledge entries), context_builder.py (91% token reduction per the intel-ask CLI) all present from session 2; not independently re-audited this session beyond what was needed to resolve GAP-007.",
-    "output_router": "NOT a running daemon — no process found. Claude performs the tag->file routing manually via direct file writes each session. Corrected from prior false 'COMPLETE — daemon installed' claim.",
-    "cognitive_layer": "complete (5 validators: Quant/Probability/Risk/Blockchain/Regime), CRITICAL sizing bug fixed this session [GAP-007, now resolved] — was independently recomputing Kelly via mu/sigma^2 and could inflate position size 2x+ beyond the entropy-gated Kelly fraction; now reads kelly_result.adjusted_fraction as the single source of truth and only ever multiplies it down. tests/test_cognitive_engine.py added (42 tests, coverage 0% -> 97%). Also fixed a NameError-causing stale variable reference (regime_conf) left from an interrupted prior edit. spread_bps/funding_rate_8h still hardcoded placeholders in signal_engine.py — see TASK-010."
+    "slippage_model": "COMPLETE \u2014 gate 0 fully wired: SlippageModel.estimate() called in signal_engine.py with live spread_bps (from order book) + adv_20d. RiskGateContext.expected_edge_bps populated from avg_win/avg_loss model. GAP-001/TASK-009 closed.",
+    "entropy_gate": "complete \u2014 verified, AND test-backfilled this session (tests/test_detector.py, 32 tests, detector.py coverage 0% -> 92%)",
+    "performance_drift_trigger": "NOT STARTED \u2014 GAP-003 (P1)",
+    "order_fsm": "NOT STARTED \u2014 GAP-004 (P1)",
+    "portfolio_correlation_layer": "NOT STARTED \u2014 GAP-005 (P2)",
+    "intel_layer": "COMPLETE \u2014 .project-intel/ active. RAG engine (332 chunks), cognitive_layer.py (13 domain knowledge entries), context_builder.py (91% token reduction per the intel-ask CLI) all present from session 2; not independently re-audited this session beyond what was needed to resolve GAP-007.",
+    "output_router": "NOT a running daemon \u2014 no process found. Claude performs the tag->file routing manually via direct file writes each session. Corrected from prior false 'COMPLETE \u2014 daemon installed' claim.",
+    "cognitive_layer": "complete (5 validators: Quant/Probability/Risk/Blockchain/Regime), CRITICAL sizing bug fixed this session [GAP-007, now resolved] \u2014 was independently recomputing Kelly via mu/sigma^2 and could inflate position size 2x+ beyond the entropy-gated Kelly fraction; now reads kelly_result.adjusted_fraction as the single source of truth and only ever multiplies it down. tests/test_cognitive_engine.py added (42 tests, coverage 0% -> 97%). Also fixed a NameError-causing stale variable reference (regime_conf) left from an interrupted prior edit. spread_bps/funding_rate_8h still hardcoded placeholders in signal_engine.py \u2014 see TASK-010.",
+    "sec_006_dependency_hash_pinning": "RESOLVED [2026-06-24] \u2014 requirements.lock generated (1777 unique METADATA sha256 hashes); dependabot-auto-merge.yml excludes trading-critical packages (fastapi/ccxt/xgboost/pandas/pydantic/etc) from auto-merge.",
+    "sec_005_unsafe_autofix": "RESOLVED (prior session) \u2014 confirmed in source: auto-fix.yml runs ruff check --fix only, no --unsafe-fixes.",
+    "sec_007_approval_second_factor": "RESOLVED (prior session) \u2014 confirmed in source: /approvals/{id}/resolve requires operator_secret verified via hmac.compare_digest.",
+    "gap_008_double_regime_scalar": "RESOLVED (prior session) \u2014 confirmed in source: signal_engine.py logs regime_scalar_filter_logged_only, does NOT apply second scalar multiplicatively.",
+    "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageModel."
   },
-  "current_focus": "GAP-007 (cognitive engine sizing bug) resolved + tested this session. Next: TASK-010 (wire live spread/funding into SignalContext — P0, same class as TASK-009), TASK-011 (audit strategies/filters.py scalar for the same double-counting risk pattern as GAP-007), or TASK-009/GAP-004 from the prior session's backlog.",
+  "current_focus": "Round 4 audit complete: full risk-gate stack (gates.py \u2014 all 7 gates) read and verified line-by-line, confirmed correct except the already-known TASK-009 fail-open slippage gate (re-confirmed independently). New finding: SEC-007 \u2014 /approvals/.../resolve (authorizes live trades) has no second factor, unlike /execution-mode which requires OPERATOR_SECRET; the 'operator' field is unverified client-supplied text. Verified clean and ruled out: gate evaluation order/short-circuit logic, paper_trading_days tenure calculation (calendar-time since earliest paper equity record, stable \u2014 confirmed no DELETE/reset path corrupts it), WebSocket reconnect logic, rate limiter per-IP bucketing, resolve_approval double-resolution guard (correctly checked under lock), mark_to_market direction math.",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
     "Decide online retraining trigger: time-based vs performance-based",
-    "Define order FSM states for partial fills (GAP-004) — next task",
+    "Define order FSM states for partial fills (GAP-004) \u2014 next task",
     "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config default, not fitted)",
     "TASK-010: live spread_bps/funding_rate_8h wiring into SignalContext (P0, new)",
     "TASK-011: audit strategies/filters.py 'scalar' for the same independent-recompute risk pattern that caused GAP-007 (P1, new, not yet investigated)",
-    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 — never validated against the declared minimum (Low severity, new)"
+    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 \u2014 never validated against the declared minimum (Low severity, new)",
+    "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping with detector.py's entropy scalar, or the compounding should be explicitly bounded/documented as intentional",
+    "Debt-006: pick one canonical lint-tool-version source (pre-commit vs CI vs Trunk) \u2014 currently 3 independently-pinned configs, already found diverging"
   ],
-  "next_recommended_task": "TASK-010 (live spread/funding wiring) or TASK-011 (filters.py scalar audit) before declaring the cognitive layer fully live-safe; otherwise GAP-004 (order FSM) remains the largest unaddressed P1.",
-  "project_health": "CLEAN — 258 passed, 1 skipped (0 failures) after this session's changes; no regressions. Global coverage 16.18% -> 27.96% this session (detector.py 0%->92%, cognitive_engine.py 0%->97%, kelly.py 86%->88%). Still well below the 60% gate; largest remaining 0%-coverage files: execution/live.py, execution/paper.py, models/trainer.py, strategies/filters.py, strategies/position_sizing.py, engine/orchestrator.py, engine/signal_engine.py, diagnostics/*. One critical correctness bug found AND fixed in the same session it was introduced (GAP-007) — verify cognitive_engine.py changes against tests/test_cognitive_engine.py before any future refactor of CognitiveEngine.evaluate() or SignalContext.",
+  "next_recommended_task": "SEC-004: generate canonical wheel-hash requirements.lock via pip-compile --generate-hashes (current lock uses METADATA hashes). Then: GAP-009 setup_dev.sh, GAP-010 .gitignore, Debt-004 ruff findings.",
+  "project_health": "CLEAN \u2014 258 passed, 1 skipped (0 failures) after this session's changes; no regressions. Global coverage 16.18% -> 27.96% this session (detector.py 0%->92%, cognitive_engine.py 0%->97%, kelly.py 86%->88%). Still well below the 60% gate; largest remaining 0%-coverage files: execution/live.py, execution/paper.py, models/trainer.py, strategies/filters.py, strategies/position_sizing.py, engine/orchestrator.py, engine/signal_engine.py, diagnostics/*. One critical correctness bug found AND fixed in the same session it was introduced (GAP-007) \u2014 verify cognitive_engine.py changes against tests/test_cognitive_engine.py before any future refactor of CognitiveEngine.evaluate() or SignalContext.",
   "total_sessions": 3,
   "commit_log": [
     {
@@ -64,7 +71,7 @@
     },
     {
       "hash": "88a5e73",
-      "message": "feat(intel): add RAG engine, cognitive layer, smart context builder — 91% token reduction [claude]",
+      "message": "feat(intel): add RAG engine, cognitive layer, smart context builder \u2014 91% token reduction [claude]",
       "time": "2026-06-23T15:11:41.568507",
       "author": "Claude"
     },
