@@ -670,6 +670,11 @@ class StorageBackend:
                 )
                 await conn.commit()
             except aiosqlite.IntegrityError as exc:
+                # BUGFIX-001: must roll back the failed INSERT before releasing
+                # the lock — otherwise the connection is left holding an open
+                # transaction on the trades table, deadlocking every subsequent
+                # write (including the WAL checkpoint on close()).
+                await conn.rollback()
                 raise ValueError(f"Trade id={trade.id!r} already exists") from exc
         self._log.info(
             "trade.inserted",
