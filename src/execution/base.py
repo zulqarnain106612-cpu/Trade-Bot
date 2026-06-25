@@ -89,3 +89,30 @@ class AbstractExecutor(ABC):
         under the executor lock, preventing torn reads in orchestrator._tick().
         """
         ...
+
+    @abstractmethod
+    async def mark_to_market(self, prices: dict[str, float]) -> float:
+        """
+        Update unrealized PnL for all open positions given latest prices.
+
+        GAP-013: added to the abstract interface so the orchestrator's
+        position-monitor loop can call this through AbstractExecutor without
+        an unsafe cast to a concrete executor type.
+        """
+        ...
+
+    @abstractmethod
+    async def close_position(
+        self,
+        trade_id: str,
+        exit_price: float,
+        exit_reason: str,
+    ) -> float:
+        """
+        Close an open position at the given price, returning realized net PnL.
+
+        GAP-013: added to the abstract interface for the same reason as
+        mark_to_market above -- the position-monitor loop needs to close
+        positions that trip a stop-loss / take-profit / time-exit condition.
+        """
+        ...

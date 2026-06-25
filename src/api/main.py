@@ -330,6 +330,33 @@ class SetExecutionModeRequest(BaseModel):
         return _validate_operator(v)
 
 
+class SetRiskControlsRequest(BaseModel):
+    """
+    GAP-013 -- runtime toggle/update for automated position-exit controls.
+
+    All fields except operator/operator_secret are optional; only the
+    fields actually supplied are changed (None = leave unchanged), letting
+    the frontend toggle just stop_loss_enabled without resending every
+    other value.
+    """
+    stop_loss_enabled: bool | None = None
+    stop_loss_pct: float | None = Field(default=None, ge=0.1, le=50.0)
+    take_profit_enabled: bool | None = None
+    take_profit_pct: float | None = Field(default=None, ge=0.1, le=200.0)
+    max_holding_period_s: float | None = Field(default=None, ge=60.0)
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise a risk-control change",
+    )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
 # ---------------------------------------------------------------------------
 # REST endpoints — all require API key
 # ---------------------------------------------------------------------------
@@ -395,9 +422,9 @@ async def status() -> dict[str, Any]:
 
 @app.get("/trades", dependencies=[Depends(api_key_header)])
 async def trades(
-    symbol: Annotated[str | None, Query(default=None)] = None,
-    limit: Annotated[int, Query(default=100, ge=1, le=1000)] = 100,
-    offset: Annotated[int, Query(default=0, ge=0, le=10000)] = 0,
+    symbol: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0, le=10000)] = 0,
 ) -> dict[str, Any]:
     """Paginated trade history — offset and limit applied in SQL, not Python."""
     cfg = get_settings()
@@ -447,7 +474,7 @@ async def trades(
 
 @app.get("/equity", dependencies=[Depends(api_key_header)])
 async def equity_curve(
-    limit: Annotated[int, Query(default=1440, ge=1, le=10000)],
+    limit: Annotated[int, Query(ge=1, le=10000)] = 1440,
 ) -> dict[str, Any]:
     """Equity curve data for charting."""
     cfg = get_settings()
@@ -627,6 +654,85 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
     return {"execution_mode": new_mode.value, "operator": body.operator}
 
 
+@app.get("/risk-controls", dependencies=[Depends(api_key_header), Depends(require_ready)])
+async def get_risk_controls() -> dict[str, Any]:
+    """
+    GAP-013 -- read current automated position-exit control state
+    (stop-loss / take-profit toggles + thresholds, max holding period).
+
+    Read-only, no operator_secret required -- matches the rest of the
+    read-only GET endpoints (api_key_header is sufficient).
+    """
+    controls = await runtime_config.get_risk_controls()
+    return {"risk_controls": controls}
+
+
+@app.post(
+    "/risk-controls",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    responses={
+        400: {"description": "Invalid risk-control value"},
+        401: {"description": "Invalid operator secret"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def set_risk_controls(body: SetRiskControlsRequest, request: Request) -> dict[str, Any]:
+    """
+    Toggle/update automated position-exit controls at runtime.
+
+    Requires:
+      - Valid X-API-Key header
+      - operator_secret matching OPERATOR_SECRET env var (same second
+        factor as POST /execution-mode -- enabling/disabling a position's
+        only automated exit path is just as consequential as switching
+        execution mode, so it gets the same protection, closing the
+        asymmetry flagged in SEC-007 for this specific control surface).
+      - Standard per-endpoint rate limit (60/min, keyed by client IP)
+
+    At least one of the optional fields must be supplied, or this is a
+    no-op that still returns the current (unchanged) state.
+    """
+    _state.check_endpoint_rate_limit(
+        "set_risk_controls", request.client.host if request.client else ""
+    )
+
+    expected_op_secret = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected_op_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="OPERATOR_SECRET is not configured on the server.",
+        )
+    if not hmac.compare_digest(
+        body.operator_secret.encode("utf-8"),
+        expected_op_secret.encode("utf-8"),
+    ):
+        log.warning("api.risk_controls_bad_operator_secret", operator=body.operator)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+
+    old_controls = await runtime_config.get_risk_controls()
+    new_controls = await runtime_config.set_risk_controls(
+        stop_loss_enabled=body.stop_loss_enabled,
+        stop_loss_pct=body.stop_loss_pct,
+        take_profit_enabled=body.take_profit_enabled,
+        take_profit_pct=body.take_profit_pct,
+        max_holding_period_s=body.max_holding_period_s,
+    )
+
+    await _state.storage.insert_audit_event(
+        event_type="risk_controls_change",
+        operator=body.operator,
+        details={"old": old_controls, "new": new_controls},
+    )
+
+    log.info(
+        "api.risk_controls_changed",
+        old=old_controls,
+        new=new_controls,
+        operator=body.operator,
+    )
+    return {"risk_controls": new_controls, "operator": body.operator}
+
+
 @app.get("/model-metrics", dependencies=[Depends(api_key_header)])
 async def model_metrics(timeframe: str | None = None) -> dict[str, Any]:
     """Latest OOS metrics for direction and meta-label models."""
@@ -745,7 +851,7 @@ async def debug_health() -> dict[str, Any]:
 
 @app.get("/debug/audit", dependencies=[Depends(api_key_header)])
 async def debug_audit(
-    limit: Annotated[int, Query(default=50, ge=1, le=500)] = 50,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> dict[str, Any]:
     """Trade decision audit — last N tick decisions with features, probabilities, gate chain, outcome."""
     from src.diagnostics.trade_auditor import get_auditor
@@ -789,7 +895,7 @@ async def debug_selftest() -> dict[str, Any]:
     return result
 
 
-@router.get("/orders/{order_id}/status", tags=["execution"])
+@app.get("/orders/{order_id}/status", tags=["execution"], dependencies=[Depends(api_key_header)])
 async def get_order_status(
     order_id: str,
 ) -> dict[str, Any]:
@@ -833,7 +939,7 @@ async def get_order_status(
         return {"error": str(exc)}
 
 
-@router.get("/performance-drift", tags=["monitoring"])
+@app.get("/performance-drift", tags=["monitoring"], dependencies=[Depends(api_key_header)])
 async def get_performance_drift() -> dict[str, Any]:
     """
     Get current performance drift status.

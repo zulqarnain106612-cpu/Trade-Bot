@@ -100,3 +100,8 @@ the same trade can compound or invert in non-obvious ways.
 **File**: src/models/ (new file: online_trainer.py)
 **What**: river or vowpal wabbit for incremental model updates without full retrain
 **Why**: XGBoost batch retrain is expensive; online learning catches drift faster
+
+## TASK-009, TASK-010 (spread half) — CLOSED 2026-06-24
+See GAPS.md "Gap-001 / TASK-009 / TASK-010" resolution entry above.
+Verified fix is live in signal_engine.py. funding_rate_8h/basis_pct
+hardcoded-zero confirmed correct for this spot-only system, not reopened.

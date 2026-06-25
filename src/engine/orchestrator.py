@@ -31,6 +31,7 @@ from src.config import (
     Timeframe,
     TradingMode,
     get_settings,
+    runtime_config,
 )
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import RegimeSnapshotRecord, StorageBackend
@@ -45,6 +46,7 @@ from src.features.pipeline import build_feature_matrix
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
+from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 
@@ -266,6 +268,7 @@ class Orchestrator:
             if tf.value in self._engines
         ]
         tasks.append(asyncio.create_task(self._midnight_reset_loop(), name="midnight_reset"))
+        tasks.append(asyncio.create_task(self._position_monitor_loop(), name="position_monitor"))
 
         # Wait until stop event
         await self._stop_event.wait()
@@ -655,3 +658,104 @@ class Orchestrator:
             except Exception as exc:
                 self._log.error("orchestrator.midnight_reset_error", error=str(exc))
                 await asyncio.sleep(60)
+
+    # ------------------------------------------------------------------
+    # GAP-013 -- automated position-exit monitor
+    # ------------------------------------------------------------------
+
+    async def _position_monitor_loop(self) -> None:
+        """
+        Periodically mark open positions to market and close any that trip
+        a stop-loss, take-profit, or max-holding-period condition.
+
+        Runs on its own fast cadence (RiskSettings.position_monitor_interval_s,
+        default 5s) independent of the per-timeframe signal-generation ticks
+        (which may be 1h/4h/1d apart) -- a position opened by this system
+        previously had no automated exit path at all (GAP-013); without this
+        loop, mark_to_market() was only ever called from inside the executors
+        themselves and close_position() was never called by anything in
+        production, so a losing position could drift unbounded between
+        signal ticks with no automatic exit.
+
+        Stop-loss / take-profit are runtime-toggleable via
+        RuntimeConfig.set_risk_controls() / POST /risk-controls so an
+        operator can adjust or disable them without a redeploy. The
+        max-holding-period time exit is always enforced (see
+        check_position_exit's docstring for the rationale).
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(self._cfg.risk.position_monitor_interval_s)
+                if self._executor is None:
+                    continue
+
+                positions = await self._executor.open_positions_safe()
+                if not positions:
+                    continue
+
+                try:
+                    price = await self._fetcher.fetch_ticker_price(self._symbol)
+                except Exception as exc:
+                    self._log.warning("orchestrator.position_monitor_price_fetch_failed", error=str(exc))
+                    continue
+                if price <= 0.0:
+                    continue
+
+                await self._executor.mark_to_market({self._symbol: price})
+
+                controls = await runtime_config.get_risk_controls()
+                now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+
+                # Re-snapshot after marking so unrealized_pnl_pct reflects the
+                # price just fetched above, not a stale value from the last tick.
+                positions = await self._executor.open_positions_safe()
+                for pos in positions:
+                    if pos.get("symbol") != self._symbol:
+                        continue
+                    exit_reason = check_position_exit(
+                        unrealized_pnl_pct=float(pos["unrealized_pnl_pct"]),
+                        entry_ts_ms=int(pos["entry_ts"]),
+                        now_ts_ms=now_ms,
+                        stop_loss_enabled=bool(controls["stop_loss_enabled"]),
+                        stop_loss_pct=float(controls["stop_loss_pct"]),
+                        take_profit_enabled=bool(controls["take_profit_enabled"]),
+                        take_profit_pct=float(controls["take_profit_pct"]),
+                        max_holding_period_s=float(controls["max_holding_period_s"]),
+                    )
+                    if exit_reason is None:
+                        continue
+                    try:
+                        net_pnl = await self._executor.close_position(
+                            trade_id=str(pos["trade_id"]),
+                            exit_price=price,
+                            exit_reason=exit_reason,
+                        )
+                        self._log.info(
+                            "orchestrator.position_auto_closed",
+                            trade_id=pos["trade_id"],
+                            symbol=pos["symbol"],
+                            exit_reason=exit_reason,
+                            exit_price=price,
+                            net_pnl_usd=round(net_pnl, 4),
+                            unrealized_pnl_pct_at_close=pos["unrealized_pnl_pct"],
+                        )
+                    except KeyError:
+                        # Position was already closed by another path (e.g. a manual
+                        # close via the API) between the snapshot above and this call --
+                        # not an error, just a race that resolved itself.
+                        self._log.debug(
+                            "orchestrator.position_monitor_already_closed",
+                            trade_id=pos["trade_id"],
+                        )
+                    except Exception as exc:
+                        self._log.error(
+                            "orchestrator.position_auto_close_failed",
+                            trade_id=pos["trade_id"],
+                            exit_reason=exit_reason,
+                            error=str(exc),
+                        )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self._log.error("orchestrator.position_monitor_loop_error", error=str(exc))
+                await asyncio.sleep(5)

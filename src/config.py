@@ -168,6 +168,34 @@ class RiskSettings(BaseSettings):
     slippage_impact_coeff_bps: float = Field(default=10.0, ge=0.0, le=2000.0)
     slippage_veto_margin_bps: float = Field(default=1.0, ge=0.0, le=500.0)
 
+    # GAP-013 -- automated position-exit controls (stop-loss / take-profit /
+    # time-based exit). These are STARTUP DEFAULTS ONLY, loaded once into
+    # RuntimeConfig at process start. Unlike the hard limits above, the
+    # enabled/disabled toggle and the threshold VALUES are intentionally
+    # runtime-mutable via RuntimeConfig + POST /risk-controls -- turning an
+    # exit control on/off changes risk exposure in the safer direction when
+    # enabling, and a human operator may legitimately need to adjust
+    # thresholds without a redeploy. The fields here only seed the initial
+    # state; see RuntimeConfig below for the live, toggleable values.
+    stop_loss_enabled_default: bool = Field(default=True)
+    stop_loss_pct_default: float = Field(
+        default=2.0, ge=0.1, le=50.0,
+        description="Close position when unrealized loss reaches this pct of notional",
+    )
+    take_profit_enabled_default: bool = Field(default=True)
+    take_profit_pct_default: float = Field(
+        default=4.0, ge=0.1, le=200.0,
+        description="Close position when unrealized gain reaches this pct of notional",
+    )
+    max_holding_period_s_default: float = Field(
+        default=86400.0, ge=60.0,
+        description="Force time-based exit after this many seconds in position",
+    )
+    position_monitor_interval_s: float = Field(
+        default=5.0, ge=1.0, le=300.0,
+        description="How often the orchestrator exit-check loop re-evaluates open positions",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Model hyper-parameters
@@ -525,6 +553,16 @@ class RuntimeConfig:
         cfg = get_settings()
         self._execution_mode: ExecutionMode = cfg.execution_mode
 
+        # GAP-013 -- runtime-toggleable position-exit controls. Seeded from
+        # RiskSettings defaults at startup; mutable thereafter via
+        # set_risk_controls() / POST /risk-controls (operator-secret gated,
+        # same pattern as set_execution_mode).
+        self._stop_loss_enabled: bool = cfg.risk.stop_loss_enabled_default
+        self._stop_loss_pct: float = cfg.risk.stop_loss_pct_default
+        self._take_profit_enabled: bool = cfg.risk.take_profit_enabled_default
+        self._take_profit_pct: float = cfg.risk.take_profit_pct_default
+        self._max_holding_period_s: float = cfg.risk.max_holding_period_s_default
+
     def _get_lock(self) -> _asyncio.Lock:
         # Fast path — already initialised (no locking needed; reads are atomic in CPython).
         if self._lock is not None:
@@ -542,6 +580,54 @@ class RuntimeConfig:
     async def set_execution_mode(self, value: ExecutionMode) -> None:
         async with self._get_lock():
             self._execution_mode = value
+
+    # ------------------------------------------------------------------
+    # GAP-013 -- position-exit controls (stop-loss / take-profit / time exit)
+    # ------------------------------------------------------------------
+
+    async def get_risk_controls(self) -> dict[str, object]:
+        """Snapshot of all exit-control toggles/values, for API reads and the orchestrator's exit-check loop."""
+        async with self._get_lock():
+            return {
+                "stop_loss_enabled": self._stop_loss_enabled,
+                "stop_loss_pct": self._stop_loss_pct,
+                "take_profit_enabled": self._take_profit_enabled,
+                "take_profit_pct": self._take_profit_pct,
+                "max_holding_period_s": self._max_holding_period_s,
+            }
+
+    async def set_risk_controls(
+        self,
+        stop_loss_enabled: bool | None = None,
+        stop_loss_pct: float | None = None,
+        take_profit_enabled: bool | None = None,
+        take_profit_pct: float | None = None,
+        max_holding_period_s: float | None = None,
+    ) -> dict[str, object]:
+        """
+        Update one or more exit-control fields atomically. Pass None for any
+        field to leave it unchanged. Validation (range checks) is the
+        caller's responsibility (API layer validates via Pydantic before
+        calling this) -- this method only guards concurrent read/write.
+        """
+        async with self._get_lock():
+            if stop_loss_enabled is not None:
+                self._stop_loss_enabled = stop_loss_enabled
+            if stop_loss_pct is not None:
+                self._stop_loss_pct = stop_loss_pct
+            if take_profit_enabled is not None:
+                self._take_profit_enabled = take_profit_enabled
+            if take_profit_pct is not None:
+                self._take_profit_pct = take_profit_pct
+            if max_holding_period_s is not None:
+                self._max_holding_period_s = max_holding_period_s
+            return {
+                "stop_loss_enabled": self._stop_loss_enabled,
+                "stop_loss_pct": self._stop_loss_pct,
+                "take_profit_enabled": self._take_profit_enabled,
+                "take_profit_pct": self._take_profit_pct,
+                "max_holding_period_s": self._max_holding_period_s,
+            }
 
     # ------------------------------------------------------------------
     # Synchronous read — safe only when called from a single-writer context

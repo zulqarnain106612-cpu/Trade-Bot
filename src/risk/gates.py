@@ -708,3 +708,72 @@ def check_performance_drift(drift_detector: Any) -> GateResult:
             "max_drawdown_pct": metrics.get("max_live_drawdown_pct"),
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# GAP-013 -- automated position-exit evaluation (stop-loss / take-profit /
+# time-based exit). Pure function: takes a position snapshot + the current
+# runtime-toggleable exit-control settings, returns an exit decision or None
+# if the position should remain open. No I/O, no side effects -- the caller
+# (Orchestrator's position-monitor loop) is responsible for actually calling
+# close_position() when this returns a reason.
+# ---------------------------------------------------------------------------
+
+def check_position_exit(
+    unrealized_pnl_pct: float,
+    entry_ts_ms: int,
+    now_ts_ms: int,
+    stop_loss_enabled: bool,
+    stop_loss_pct: float,
+    take_profit_enabled: bool,
+    take_profit_pct: float,
+    max_holding_period_s: float,
+) -> str | None:
+    """
+    Evaluate whether an open position should be closed automatically.
+
+    Checked in order (first match wins): stop-loss, take-profit, time exit.
+    Stop-loss is checked first on purpose -- if a position has somehow
+    crossed both thresholds between monitor ticks (e.g. a large gap move),
+    capping the loss takes priority over capturing the gain.
+
+    Parameters
+    ----------
+    unrealized_pnl_pct    : current unrealized PnL as a percentage of
+                            notional (e.g. -2.5 means -2.5% / a loss),
+                            matching the sign convention already used by
+                            open_positions_safe()'s "unrealized_pnl_pct" field
+                            in both PaperExecutor and LiveExecutor.
+    entry_ts_ms           : position entry timestamp, epoch milliseconds
+                            (matches PaperPosition.entry_ts / LivePosition.entry_ts).
+    now_ts_ms             : current timestamp, epoch milliseconds.
+    stop_loss_enabled     : runtime toggle (RuntimeConfig.get_risk_controls()).
+    stop_loss_pct         : close when unrealized_pnl_pct <= -stop_loss_pct.
+    take_profit_enabled   : runtime toggle.
+    take_profit_pct       : close when unrealized_pnl_pct >= take_profit_pct.
+    max_holding_period_s  : close when (now - entry) >= this many seconds.
+                            Always enforced -- there is no runtime toggle for
+                            the time exit, since an unbounded holding period
+                            for a position the model no longer has live edge
+                            estimates for is a correctness issue, not merely a
+                            risk-preference choice the operator should be able
+                            to switch off.
+
+    Returns
+    -------
+    str | None -- one of "stop_loss", "profit_target", "time_exit", or None
+    if the position should remain open. These string values match the
+    exit_reason values already documented in PaperExecutor.close_position's
+    docstring ('profit_target' | 'stop_loss' | 'time_exit' | 'manual').
+    """
+    if stop_loss_enabled and unrealized_pnl_pct <= -abs(stop_loss_pct):
+        return "stop_loss"
+
+    if take_profit_enabled and unrealized_pnl_pct >= abs(take_profit_pct):
+        return "profit_target"
+
+    holding_period_s = (now_ts_ms - entry_ts_ms) / 1000.0
+    if holding_period_s >= max_holding_period_s:
+        return "time_exit"
+
+    return None
