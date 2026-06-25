@@ -172,8 +172,18 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Apply ruff auto-fixes
+        # SEC-005 (re-found during audit, 2026-06-25): this job is a second,
+        # independent auto-fix-and-push mechanism from the dedicated
+        # auto-fix.yml workflow (which already had --unsafe-fixes removed) --
+        # this one is riskier: it fires on CI FAILURE for any branch
+        # including main, uses a separate GH_TOKEN (often broader perms than
+        # the default GITHUB_TOKEN), and self-retriggers CI after pushing.
+        # --unsafe-fixes applies fixes ruff itself classifies as able to
+        # change runtime behavior -- unattended on a live-trading repo's
+        # failure path, that's the wrong default. Use plain --fix, matching
+        # auto-fix.yml's already-corrected behavior.
         run: |
-          ruff check src/ tests/ --fix --unsafe-fixes || true
+          ruff check src/ tests/ --fix || true
           ruff format src/ tests/ || true
 
       - name: Detect changes
