@@ -87,6 +87,123 @@ function ModeSwitcher({ current, onSwitch }) {
   );
 }
 
+// ─── Risk Controls (GAP-013) ─────────────────────────────────────────────────
+// Toggle stop-loss / take-profit on or off and edit their thresholds at
+// runtime, without a redeploy. Mirrors ModeSwitcher's pattern: the operator
+// secret already entered in the header is reused for every control action.
+function ToggleSwitch({ checked, onChange, label }) {
+  return (
+    <label className="flex items-center justify-between gap-3 cursor-pointer">
+      <span className="text-gray-300">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors
+          ${checked ? "bg-green-600" : "bg-gray-600"}`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform
+            ${checked ? "translate-x-5" : "translate-x-1"}`}
+        />
+      </button>
+    </label>
+  );
+}
+
+function RiskControlsPanel({ riskControls, onUpdate }) {
+  // Local draft state for the numeric inputs so typing doesn't fire a
+  // request on every keystroke — only on blur / explicit "Save" click.
+  // Toggles, by contrast, apply immediately on click (matches ModeSwitcher's
+  // immediate-apply behavior for mode changes).
+  const [slDraft, setSlDraft] = useState("");
+  const [tpDraft, setTpDraft] = useState("");
+  const [holdDraft, setHoldDraft] = useState("");
+
+  useEffect(() => {
+    if (riskControls) {
+      setSlDraft(String(riskControls.stop_loss_pct ?? ""));
+      setTpDraft(String(riskControls.take_profit_pct ?? ""));
+      setHoldDraft(String(riskControls.max_holding_period_s ?? ""));
+    }
+  }, [riskControls]);
+
+  if (!riskControls) {
+    return <div className="text-gray-500 text-sm">Loading risk controls…</div>;
+  }
+
+  const saveThreshold = (field, draftValue) => {
+    const n = parseFloat(draftValue);
+    if (Number.isNaN(n)) return;
+    onUpdate({ [field]: n });
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
+      <div className="space-y-3">
+        <ToggleSwitch
+          checked={riskControls.stop_loss_enabled}
+          onChange={v => onUpdate({ stop_loss_enabled: v })}
+          label="Stop-loss enabled"
+        />
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400 w-32">Stop-loss %</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0.1"
+            max="50"
+            value={slDraft}
+            onChange={e => setSlDraft(e.target.value)}
+            onBlur={() => saveThreshold("stop_loss_pct", slDraft)}
+            className="bg-gray-700 text-white px-2 py-1 rounded w-24 text-right"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <ToggleSwitch
+          checked={riskControls.take_profit_enabled}
+          onChange={v => onUpdate({ take_profit_enabled: v })}
+          label="Take-profit enabled"
+        />
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400 w-32">Take-profit %</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0.1"
+            max="200"
+            value={tpDraft}
+            onChange={e => setTpDraft(e.target.value)}
+            onBlur={() => saveThreshold("take_profit_pct", tpDraft)}
+            className="bg-gray-700 text-white px-2 py-1 rounded w-24 text-right"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3 md:col-span-2">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400 w-32">Max hold (sec)</span>
+          <input
+            type="number"
+            step="60"
+            min="60"
+            value={holdDraft}
+            onChange={e => setHoldDraft(e.target.value)}
+            onBlur={() => saveThreshold("max_holding_period_s", holdDraft)}
+            className="bg-gray-700 text-white px-2 py-1 rounded w-32 text-right"
+          />
+          <span className="text-gray-500 text-xs">
+            (always enforced — no toggle; closes a position after this long regardless of PnL)
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Equity Chart ────────────────────────────────────────────────────────────
 function EquityChart({ curve, startingCapital }) {
   if (!curve || curve.length === 0)
@@ -279,6 +396,7 @@ export default function App() {
   const [connected, setConnected]           = useState(false);
   const [tab, setTab]                       = useState("positions");
   const [startingCapital, setStartingCapital] = useState(null);
+  const [riskControls, setRiskControls]     = useState(null);
   const wsRef = useRef(null);
 
   // WebSocket — API key passed as query param (WS headers not reliably supported in browsers)
@@ -340,6 +458,25 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // REST: GAP-013 risk controls (stop-loss / take-profit toggles + thresholds)
+  // Polled on its own short interval since it's small and an operator
+  // expects a toggle they just flipped (e.g. from a second device) to show
+  // up quickly, not wait for the slower 30s equity/trades poll above.
+  useEffect(() => {
+    async function fetchRiskControls() {
+      try {
+        const res = await apiFetch("/risk-controls");
+        if (res.ok) {
+          const body = await res.json();
+          setRiskControls(body.risk_controls || null);
+        }
+      } catch (_) {}
+    }
+    fetchRiskControls();
+    const id = setInterval(fetchRiskControls, 10000);
+    return () => clearInterval(id);
+  }, []);
+
   // operatorId & operatorSecret stored in state — set once, reused for all actions
   const [operatorId, setOperatorId]         = useState("operator");
   const [operatorSecret, setOperatorSecret] = useState("");
@@ -367,6 +504,35 @@ export default function App() {
       });
     } catch (_) {}
   }, []);
+
+  // GAP-013 — update one or more risk-control fields. Pass only the
+  // field(s) being changed; undefined fields are omitted from the request
+  // body entirely (not sent as null) so the backend's partial-update
+  // semantics apply correctly — see SetRiskControlsRequest in main.py.
+  const updateRiskControls = useCallback(async (changes) => {
+    if (!operatorSecret) {
+      alert("Enter the operator secret before changing risk controls.");
+      return;
+    }
+    try {
+      const res = await apiFetch("/risk-controls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...changes,
+          operator: operatorId,
+          operator_secret: operatorSecret,
+        }),
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setRiskControls(body.risk_controls || null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Risk control update failed: ${err.detail || res.status}`);
+      }
+    } catch (_) {}
+  }, [operatorId, operatorSecret]);
 
   const equity      = tick?.equity_usd ?? 0;
   const cash        = tick?.cash_usd ?? 0;
@@ -440,9 +606,10 @@ export default function App() {
         <div className="bg-gray-800 rounded-lg border border-gray-700">
           <div className="flex border-b border-gray-700">
             {[
-              { id: "positions", label: "Positions", badge: positions.length },
-              { id: "approvals", label: "Approvals", badge: approvals.length },
-              { id: "trades",    label: "Trades",    badge: null },
+              { id: "positions", label: "Positions",     badge: positions.length },
+              { id: "approvals", label: "Approvals",     badge: approvals.length },
+              { id: "trades",    label: "Trades",        badge: null },
+              { id: "risk",      label: "Risk Controls", badge: null },
             ].map(({ id, label, badge }) => (
               <button
                 key={id}
@@ -467,6 +634,9 @@ export default function App() {
               <ApprovalQueue approvals={approvals} onResolve={resolveApproval} />
             )}
             {tab === "trades" && <TradeHistory trades={trades} />}
+            {tab === "risk" && (
+              <RiskControlsPanel riskControls={riskControls} onUpdate={updateRiskControls} />
+            )}
           </div>
         </div>
       </main>
