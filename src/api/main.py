@@ -917,26 +917,39 @@ async def get_order_status(
     -------
     Order FSM state snapshot (serialized)
     """
+    # BUGFIX (found during audit, 2026-06-25): this previously read
+    # runtime_config.executor, which does not exist on RuntimeConfig --
+    # every other endpoint in this file accesses the live executor via
+    # _state.orchestrator._executor (see /status, /model-metrics,
+    # /debug/health for the same pattern). Also: LiveExecutor previously
+    # discarded its OrderFSM state as a local variable once
+    # _place_market_order() returned, so get_order_fsm_state() didn't exist
+    # either -- added a bounded in-memory registry (see
+    # _ORDER_FSM_REGISTRY_MAX_SIZE in live.py) so this endpoint can actually
+    # serve real reconciliation data instead of always falling through to
+    # the "not available" branch below.
+    if _state.orchestrator is None:
+        return {"error": "Orchestrator not initialised."}
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    if not hasattr(executor, "get_order_fsm_state"):
+        # PaperExecutor never places real exchange orders, so it has no
+        # order FSM to report -- this is the expected, correct response
+        # in paper trading mode, not an error.
+        return {"error": "Order FSM reconciliation is only available in live trading mode."}
     try:
-        executor = runtime_config.executor
-        if hasattr(executor, "get_order_fsm_state"):
-            state = await executor.get_order_fsm_state(order_id)
-            if state:
-                return {
-                    "order_id": state.order_id,
-                    "status": state.status.value,
-                    "filled_qty": state.filled_qty,
-                    "average_fill_price": state.average_fill_price,
-                    "created_at_ms": state.created_at_ms,
-                    "first_confirmed_at_ms": state.first_confirmed_at_ms,
-                    "last_updated_ms": state.last_updated_ms,
-                    "retry_count": state.retry_count,
-                    "last_error": state.last_error,
-                    "filled_at_prices": state.filled_at_prices,
-                }
-        return {"error": "Order not found or reconciliation not available"}
+        state = await executor.get_order_fsm_state(order_id)
     except Exception as exc:
         return {"error": str(exc)}
+    if state is None:
+        return {
+            "error": (
+                "Order not found in the recent-order registry -- it may "
+                "predate this process's startup, have aged out of the "
+                "bounded recent-order registry, or never have been "
+                "placed by this server."
+            )
+        }
+    return state.to_dict()
 
 
 @app.get("/performance-drift", tags=["monitoring"], dependencies=[Depends(api_key_header)])
@@ -965,9 +978,15 @@ async def get_performance_drift() -> dict[str, Any]:
         }
     }
     """
+    # BUGFIX (found during audit, 2026-06-25): this previously read
+    # runtime_config.drift_adapter, which does not exist on RuntimeConfig.
+    # The orchestrator owns _drift_adapter as its own instance attribute
+    # (initialised in Orchestrator.startup() once a trained model baseline
+    # is available) -- access it the same way every other endpoint reaches
+    # orchestrator-owned state (_state.orchestrator._executor etc.).
+    if _state.orchestrator is None:
+        return {"drifted": False, "reason": "Orchestrator not initialised."}
     try:
-        if hasattr(runtime_config, "drift_adapter") and runtime_config.drift_adapter:
-            return runtime_config.drift_adapter.check_drift()
-        return {"drifted": False, "reason": "Drift detector not initialized"}
+        return _state.orchestrator._drift_adapter.check_drift()
     except Exception as exc:
         return {"error": str(exc)}

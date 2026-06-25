@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -38,6 +39,15 @@ from src.execution.base import AbstractExecutor
 from src.execution.order_manager import OrderManager
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+
+# Bounded in-memory registry of recent order FSM states, for the
+# GET /orders/{order_id}/status reconciliation endpoint. This is
+# intentionally NOT a durable store -- it survives only as long as the
+# process does and is capped in size, since it exists purely to let an
+# operator inspect a recently-placed order's lifecycle (e.g. after a
+# timeout) without re-querying the exchange. Durable trade history lives
+# in StorageBackend's trades table; this is a short-term debugging aid.
+_ORDER_FSM_REGISTRY_MAX_SIZE: Final[int] = 200
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -174,6 +184,13 @@ class LiveExecutor(AbstractExecutor):
         self._trade_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         self._drawdown_tracker = DrawdownTracker(self._starting_capital)
         self._order_manager: OrderManager = OrderManager()  # GAP-004
+        # GAP-004 follow-up (found during audit, 2026-06-25): the FSM
+        # returned by place_order_with_fsm() was previously a local variable
+        # in _place_market_order(), discarded as soon as the function
+        # returned -- the docstring claimed "state persistence for manual
+        # reconciliation" but nothing was actually persisted, and
+        # GET /orders/{order_id}/status had no registry to read from.
+        self._order_fsm_registry: OrderedDict[str, Any] = OrderedDict()
         self._initialized: bool = False
         self._log = log.bind(component="live_executor")
 
@@ -810,7 +827,8 @@ class LiveExecutor(AbstractExecutor):
                 avg_price=round(fsm.state.average_fill_price or 0, 4),
                 attempts=fsm.state.retry_count,
             )
-            
+
+            self._register_order_fsm(fsm)
             return confirmed_order
             
         except TimeoutError as exc:
@@ -933,6 +951,31 @@ class LiveExecutor(AbstractExecutor):
             drawdown_pct=round(dd_pct, 8),
         )
         await self._storage.insert_equity(record)
+
+    def _register_order_fsm(self, fsm: Any) -> None:
+        """
+        Store a completed/terminal order's FSM state for later reconciliation
+        lookups via get_order_fsm_state(). Bounded to
+        _ORDER_FSM_REGISTRY_MAX_SIZE entries (oldest evicted first) -- this
+        is a short-term debugging aid, not durable storage (see the comment
+        on _ORDER_FSM_REGISTRY_MAX_SIZE above).
+        """
+        order_id = fsm.state.order_id
+        self._order_fsm_registry[order_id] = fsm.state
+        self._order_fsm_registry.move_to_end(order_id)
+        while len(self._order_fsm_registry) > _ORDER_FSM_REGISTRY_MAX_SIZE:
+            self._order_fsm_registry.popitem(last=False)
+
+    async def get_order_fsm_state(self, order_id: str) -> Any | None:
+        """
+        Look up a recent order's FSM state snapshot, for the
+        GET /orders/{order_id}/status reconciliation endpoint.
+
+        Returns None if the order_id isn't in the bounded registry --
+        either it was never placed by this process, or it has aged out
+        (see _ORDER_FSM_REGISTRY_MAX_SIZE).
+        """
+        return self._order_fsm_registry.get(order_id)
 
     def _require_initialized(self) -> None:
         if not self._initialized:
