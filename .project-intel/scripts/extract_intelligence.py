@@ -16,13 +16,12 @@ Output: .project-intel/ directory with:
 
 import ast
 import json
-import os
 import re
 import sys
+
 # re already imported above — used in build_context_primer for gap extraction
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 # ── Config ────────────────────────────────────────────────────────────────────

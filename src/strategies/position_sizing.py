@@ -121,7 +121,7 @@ def vol_target_quantity(
     return max(0.0, qty)
 
 
-def estimate_daily_vol(close: "np.ndarray | list[float]", window: int = 20) -> float:
+def estimate_daily_vol(close: np.ndarray | list[float], window: int = 20) -> float:
     """
     Estimate daily volatility as ewm std of log returns.
 

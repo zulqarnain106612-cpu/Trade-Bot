@@ -28,6 +28,7 @@ from src.risk.kelly import KellyResult
 
 def _make_bars(n: int = 320, closed: bool = True) -> pd.DataFrame:
     from datetime import UTC, datetime
+
     from src.config import TIMEFRAME_SECONDS, Timeframe
     now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
     tf_ms = TIMEFRAME_SECONDS.get(Timeframe.INTRADAY, 900) * 1000

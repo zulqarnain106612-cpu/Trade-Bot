@@ -26,6 +26,7 @@ import pytest
 from src.config import RuntimeConfig, get_settings
 from src.risk.gates import check_position_exit
 
+
 # ---------------------------------------------------------------------------
 # Pure logic: check_position_exit
 # ---------------------------------------------------------------------------
@@ -251,8 +252,9 @@ def api_client():
     os.environ["API_SECRET_KEY"] = "test-key-" + "a" * 32
     os.environ["OPERATOR_SECRET"] = "test-operator-secret"
 
-    from src.api import main as api_main
     from fastapi.testclient import TestClient
+
+    from src.api import main as api_main
 
     class _FakeStorage:
         def __init__(self) -> None:

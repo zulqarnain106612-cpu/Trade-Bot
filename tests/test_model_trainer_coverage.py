@@ -16,6 +16,7 @@ from xgboost import XGBClassifier
 from src.models.trainer import ModelTrainer, TrainingResult
 from src.risk.kelly import compute_win_loss_stats
 
+
 # Exact column names from src/features/pipeline.py
 FEATURES = [
     "frac_diff",

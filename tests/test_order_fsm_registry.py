@@ -116,8 +116,9 @@ def api_client():
     os.environ["API_SECRET_KEY"] = "test-key-" + "a" * 32
     os.environ["OPERATOR_SECRET"] = "test-operator-secret"
 
-    from src.api import main as api_main
     from fastapi.testclient import TestClient
+
+    from src.api import main as api_main
 
     class _FakeExecutor:
         def __init__(self) -> None:

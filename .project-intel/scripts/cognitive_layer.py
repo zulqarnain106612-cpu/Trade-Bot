@@ -20,6 +20,7 @@ import json
 import re
 from pathlib import Path
 
+
 KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
 
 # ── Domain knowledge definitions ─────────────────────────────────────────────

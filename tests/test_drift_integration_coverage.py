@@ -3,7 +3,7 @@ Coverage for src/risk/drift_integration.py — Debt-005.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

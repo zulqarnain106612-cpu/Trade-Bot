@@ -20,7 +20,7 @@ class TestOrderManagerMock:
     async def test_place_order_success_immediate_fill(self):
         """Order placed and immediately filled."""
         manager = OrderManager()
-        
+
         # Mock exchange that returns filled order immediately
         mock_exchange = AsyncMock()
         mock_exchange.create_market_order = AsyncMock(
@@ -41,14 +41,14 @@ class TestOrderManagerMock:
                 "average": 65000.0,
             }
         )
-        
+
         fsm, order = await manager.place_order_with_fsm(
             exchange=mock_exchange,
             symbol="BTC/USDT",
             side="buy",
             quantity=1.5,
         )
-        
+
         assert fsm.state.status == OrderStatus.FILLED
         assert fsm.state.filled_qty == 1.5
         assert fsm.state.average_fill_price == 65000.0
@@ -59,7 +59,7 @@ class TestOrderManagerMock:
     async def test_place_order_pending_then_filled(self):
         """Order pending initially, then filled on subsequent poll."""
         manager = OrderManager()
-        
+
         # Mock exchange: first fetch returns pending, second returns filled
         mock_exchange = AsyncMock()
         mock_exchange.create_market_order = AsyncMock(
@@ -69,7 +69,7 @@ class TestOrderManagerMock:
                 "filled": 0.0,
             }
         )
-        
+
         pending_order = {"id": "12346", "status": "open", "filled": 0.0}
         filled_order = {
             "id": "12346",
@@ -77,19 +77,19 @@ class TestOrderManagerMock:
             "filled": 1.5,
             "average": 65100.0,
         }
-        
+
         # Simulate: first poll returns pending, second returns filled
         mock_exchange.fetch_order = AsyncMock(
             side_effect=[pending_order, filled_order]
         )
-        
+
         fsm, order = await manager.place_order_with_fsm(
             exchange=mock_exchange,
             symbol="BTC/USDT",
             side="buy",
             quantity=1.5,
         )
-        
+
         assert fsm.state.status == OrderStatus.FILLED
         assert fsm.state.filled_qty == 1.5
         assert fsm.state.retry_count == 2  # Two polls
@@ -99,18 +99,18 @@ class TestOrderManagerMock:
     async def test_place_order_timeout_on_confirmation(self):
         """Order placed but confirmation times out."""
         manager = OrderManager()
-        
+
         # Mock exchange that always returns pending
         mock_exchange = AsyncMock()
         mock_exchange.create_market_order = AsyncMock(
             return_value={"id": "12347", "status": "open", "filled": 0.0}
         )
-        
+
         # Always return pending (never fills)
         mock_exchange.fetch_order = AsyncMock(
             return_value={"id": "12347", "status": "open", "filled": 0.0}
         )
-        
+
         with pytest.raises(asyncio.TimeoutError):
             await manager.place_order_with_fsm(
                 exchange=mock_exchange,
@@ -123,14 +123,14 @@ class TestOrderManagerMock:
     async def test_place_order_network_error_recovery(self):
         """Network error during confirmation, recovers on retry."""
         manager = OrderManager()
-        
+
         import ccxt
-        
+
         mock_exchange = AsyncMock()
         mock_exchange.create_market_order = AsyncMock(
             return_value={"id": "12348", "status": "open", "filled": 0.0}
         )
-        
+
         # Simulate: first poll fails with network error, second succeeds
         filled_order = {
             "id": "12348",
@@ -138,21 +138,21 @@ class TestOrderManagerMock:
             "filled": 1.5,
             "average": 65050.0,
         }
-        
+
         mock_exchange.fetch_order = AsyncMock(
             side_effect=[
                 ccxt.NetworkError("Connection timeout"),
                 filled_order,
             ]
         )
-        
+
         fsm, order = await manager.place_order_with_fsm(
             exchange=mock_exchange,
             symbol="BTC/USDT",
             side="buy",
             quantity=1.5,
         )
-        
+
         # Should recover from network error
         assert fsm.state.status == OrderStatus.FILLED
         assert fsm.state.filled_qty == 1.5
@@ -173,26 +173,26 @@ class TestFSMStateTransitions:
             status=OrderStatus.PENDING,
         )
         fsm = OrderFSM(state)
-        
+
         # Transition: PENDING → FILLING (order confirmed by exchange)
         fsm.transition(OrderStatus.FILLING, {
             "exchange_response": {"id": "99001", "status": "open"}
         })
         assert fsm.state.status == OrderStatus.FILLING
         assert fsm.state.first_confirmed_at_ms is not None
-        
+
         # Add partial fill
         fsm.add_partial_fill(0.8, 65000.0)
         assert fsm.state.filled_qty == 0.8
         assert fsm.state.average_fill_price == 65000.0
-        
+
         # Add more partial fill
         fsm.add_partial_fill(1.2, 65100.0)
         assert fsm.state.filled_qty == 2.0
         # VWAP should be (0.8*65000 + 1.2*65100) / 2.0
         expected_vwap = (52000 + 78120) / 2.0
         assert abs(fsm.state.average_fill_price - expected_vwap) < 0.01
-        
+
         # Transition: FILLING → FILLED (fully filled)
         fsm.transition(OrderStatus.FILLED, {
             "filled_qty": 2.0,
@@ -213,14 +213,14 @@ class TestFSMStateTransitions:
             filled_qty=2.5,
         )
         fsm = OrderFSM(state)
-        
+
         # Add partial fill
         fsm.add_partial_fill(2.5, 3500.0)
         assert fsm.state.filled_qty == 5.0
-        
+
         # Timeout while attempting to confirm
         fsm.transition(OrderStatus.TIMEOUT)
-        
+
         # Partial fill should still be recorded
         assert fsm.state.status == OrderStatus.TIMEOUT
         assert fsm.state.filled_qty == 5.0  # Full fill preserved
@@ -260,13 +260,13 @@ class TestOrderReconciliation:
 
         # Serialize to dict
         snapshot = fsm.state.to_dict()
-        
+
         assert snapshot["order_id"] == "rec001"
         assert snapshot["status"] == "filled"
         assert snapshot["filled_qty"] == 1.0
         assert len(snapshot["filled_at_prices"]) == 2
         assert snapshot["retry_count"] == 0
-        
+
         # Verify snapshot is JSON-serializable
         import json
         json_str = json.dumps(snapshot)

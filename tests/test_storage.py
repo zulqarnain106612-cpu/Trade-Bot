@@ -1,6 +1,7 @@
 """Test coverage for src/data/storage.py — async SQLite storage backend."""
 
 import os
+import pathlib
 import tempfile
 
 import pytest
@@ -604,7 +605,8 @@ class TestSchemaMigrations:
     async def test_migration_applies_missing_column(self, tmp_path: pathlib.Path) -> None:
         """Simulate a v1 DB (user_version=1, no spread_bps column) being migrated to v2."""
         import aiosqlite
-        from src.data.storage import StorageBackend, _DDL, _SCHEMA_VERSION
+
+        from src.data.storage import _DDL, _SCHEMA_VERSION, StorageBackend
 
         db_path = tmp_path / "migrate_test.db"
 
@@ -639,7 +641,8 @@ class TestSchemaMigrations:
     async def test_future_schema_version_raises(self, tmp_path: pathlib.Path) -> None:
         """A DB with user_version AHEAD of code must raise RuntimeError (no silent data loss)."""
         import aiosqlite
-        from src.data.storage import StorageBackend, _DDL, _SCHEMA_VERSION
+
+        from src.data.storage import _DDL, _SCHEMA_VERSION, StorageBackend
 
         db_path = tmp_path / "future_version.db"
         async with aiosqlite.connect(db_path) as conn:

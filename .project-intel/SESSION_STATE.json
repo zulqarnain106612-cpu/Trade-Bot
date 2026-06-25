@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-24T06:42:27+00:00",
+  "last_updated": "2026-06-25T16:00:00+00:00",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -22,7 +22,7 @@
     "gap_008_double_regime_scalar": "RESOLVED (prior session) \u2014 confirmed in source: signal_engine.py logs regime_scalar_filter_logged_only, does NOT apply second scalar multiplicatively.",
     "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageModel."
   },
-  "current_focus": "Round 4 audit complete: full risk-gate stack (gates.py \u2014 all 7 gates) read and verified line-by-line, confirmed correct except the already-known TASK-009 fail-open slippage gate (re-confirmed independently). New finding: SEC-007 \u2014 /approvals/.../resolve (authorizes live trades) has no second factor, unlike /execution-mode which requires OPERATOR_SECRET; the 'operator' field is unverified client-supplied text. Verified clean and ruled out: gate evaluation order/short-circuit logic, paper_trading_days tenure calculation (calendar-time since earliest paper equity record, stable \u2014 confirmed no DELETE/reset path corrupts it), WebSocket reconnect logic, rate limiter per-IP bucketing, resolve_approval double-resolution guard (correctly checked under lock), mark_to_market direction math.",
+  "current_focus": "Single active session, full ownership taken of all prior work. GAP-013 (position exit controls) implemented end-to-end: backend, frontend toggle UI, tests, committed. Gap-014 (API totally unimportable) fixed. Adopted the previously-interrupted/uncommitted P1 FSM + drift-detection work (order_fsm.py, order_manager.py, live_fsm_integration.py, drift_integration.py, performance_drift.py) -- re-verified every claim in that session's own FINAL_STATUS_P1.md rather than trusting it, found and fixed: (1) a real crash bug where ANY order not filling on the very first poll attempt threw an unhandled OrderFSMError, (2) a broken test masking that bug, (3)/(4) both new API endpoints (/orders/{id}/status, /performance-drift) were silently dead due to reading a nonexistent runtime_config attribute, and a claimed 'state persistence for reconciliation' feature that was never actually implemented (added a real bounded registry on LiveExecutor to make it true). All work committed across 6 commits. Full suite: 679 passed / 1 skipped / 0 failed -- first fully green run this entire engagement.",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
@@ -35,7 +35,7 @@
     "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping with detector.py's entropy scalar, or the compounding should be explicitly bounded/documented as intentional",
     "Debt-006: pick one canonical lint-tool-version source (pre-commit vs CI vs Trunk) \u2014 currently 3 independently-pinned configs, already found diverging"
   ],
-  "next_recommended_task": "SEC-004: generate canonical wheel-hash requirements.lock via pip-compile --generate-hashes (current lock uses METADATA hashes). Then: GAP-009 setup_dev.sh, GAP-010 .gitignore, Debt-004 ruff findings.",
+  "next_recommended_task": "GAP-004 and GAP-003 can be marked CLOSED in GAPS.md (currently still shown as open from earlier audit rounds -- worth reconciling). Remaining real open items: SEC-005/006/007 (CI auto-commit/auto-merge gates, approval-endpoint second factor -- all process fixes, no code risk), Gap-010 (models/+logs/ not gitignored), Gap-012 (no DB schema migration system), Debt-006 (3 overlapping lint configs with version drift). User said next direction (deeper vs fresh area) is up to Claude's judgment.",
   "project_health": "CLEAN \u2014 258 passed, 1 skipped (0 failures) after this session's changes; no regressions. Global coverage 16.18% -> 27.96% this session (detector.py 0%->92%, cognitive_engine.py 0%->97%, kelly.py 86%->88%). Still well below the 60% gate; largest remaining 0%-coverage files: execution/live.py, execution/paper.py, models/trainer.py, strategies/filters.py, strategies/position_sizing.py, engine/orchestrator.py, engine/signal_engine.py, diagnostics/*. One critical correctness bug found AND fixed in the same session it was introduced (GAP-007) \u2014 verify cognitive_engine.py changes against tests/test_cognitive_engine.py before any future refactor of CognitiveEngine.evaluate() or SignalContext.",
   "total_sessions": 3,
   "commit_log": [

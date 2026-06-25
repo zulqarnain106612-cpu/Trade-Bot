@@ -63,7 +63,7 @@ class LiveExecutorOrderFSM:
             ccxt.ExchangeError: Permanent exchange error
         """
         exchange = self._fetcher.get_order_exchange()
-        
+
         try:
             fsm, order = await self._order_manager.place_order_with_fsm(
                 exchange=exchange,
@@ -71,7 +71,7 @@ class LiveExecutorOrderFSM:
                 side=side,
                 quantity=quantity,
             )
-            
+
             self._log.info(
                 "live.order_placed_with_fsm",
                 order_id=fsm.state.order_id,
@@ -82,9 +82,9 @@ class LiveExecutorOrderFSM:
                 filled=fsm.state.filled_qty,
                 avg_price=round(fsm.state.average_fill_price or 0, 4),
             )
-            
+
             return fsm, order
-            
+
         except TimeoutError as exc:
             self._log.error(
                 "live.order_timeout_fsm",

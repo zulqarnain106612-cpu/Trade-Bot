@@ -420,7 +420,7 @@ class Orchestrator:
 
         # Route to executor if tradeable
         if result.tradeable and result.kelly_result is not None:
-            
+
             # Check Gate 6: Performance drift (GAP-003)
             drift_status = self._drift_adapter.check_drift()
             if drift_status.get("drifted"):
@@ -468,7 +468,7 @@ class Orchestrator:
                     pred_prob = result.p_long or 0.5  # Direction model prediction
                     actual_dir = 1 if result.direction > 0 else -1
                     current_equity = await executor.get_current_equity()
-                    
+
                     await self._drift_adapter.record_closed_trade(
                         trade_id=trade_id,
                         exit_price=outcome.get("exit_price", 0.0) if hasattr(outcome, "get") else 0.0,

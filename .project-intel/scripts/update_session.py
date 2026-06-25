@@ -68,7 +68,7 @@ def main():
         state["session_note"] = args.note
 
     state_file.write_text(json.dumps(state, indent=2))
-    print(f"✓ SESSION_STATE.json updated")
+    print("✓ SESSION_STATE.json updated")
 
     # ── Append to DECISION_LOG.md ──────────────────────────────────────────
     if args.decision:
@@ -91,9 +91,9 @@ def main():
     print("\n── Next Session Bootstrap ──────────────────────────────────────")
     print("Tell your agent exactly this:\n")
     print('"""')
-    print(f"Read .project-intel/CONTEXT_PRIMER.md first — this gives you full project understanding.")
-    print(f"Then read .project-intel/SESSION_STATE.json to see current progress.")
-    print(f"Then read .project-intel/DECISION_LOG.md for decisions already made.")
+    print("Read .project-intel/CONTEXT_PRIMER.md first — this gives you full project understanding.")
+    print("Then read .project-intel/SESSION_STATE.json to see current progress.")
+    print("Then read .project-intel/DECISION_LOG.md for decisions already made.")
     print(f"Current focus: {args.focus or state.get('current_focus', 'not set')}")
     print(f"Next task: {args.next or state.get('next_recommended_task', 'check OPEN_TASKS.md')}")
     if args.modified:

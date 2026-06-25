@@ -40,6 +40,7 @@ from src.execution.order_manager import OrderManager
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
+
 # Bounded in-memory registry of recent order FSM states, for the
 # GET /orders/{order_id}/status reconciliation endpoint. This is
 # intentionally NOT a durable store -- it survives only as long as the
@@ -816,7 +817,7 @@ class LiveExecutor(AbstractExecutor):
                 side=side,
                 quantity=quantity,
             )
-            
+
             self._log.info(
                 "live.order_placed_fsm",
                 order_id=fsm.state.order_id,
@@ -830,7 +831,7 @@ class LiveExecutor(AbstractExecutor):
 
             self._register_order_fsm(fsm)
             return confirmed_order
-            
+
         except TimeoutError as exc:
             self._log.error(
                 "live.order_confirmation_timeout",

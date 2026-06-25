@@ -25,6 +25,7 @@ import json
 import sys
 from pathlib import Path
 
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 def find_project_root(start: Path = None) -> Path | None:
     check = (start or Path.cwd()).resolve()

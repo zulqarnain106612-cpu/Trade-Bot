@@ -5,19 +5,17 @@ Tests individual gate functions directly (pure functions, no async).
 """
 from __future__ import annotations
 
-import pytest
-
 from src.config import TradingMode
 from src.risk.gates import (
     GateResult,
     GateStatus,
+    RiskGateContext,
     check_consecutive_losses,
     check_daily_drawdown,
     check_position_size,
     check_regime_gate,
     check_slippage_veto,
     evaluate_all_gates,
-    RiskGateContext,
 )
 from src.risk.slippage import SlippageEstimate
 

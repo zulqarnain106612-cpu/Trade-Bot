@@ -78,7 +78,7 @@ class BinanceSettings(BaseSettings):
     rate_limit_per_minute: int = Field(default=1200, ge=1)
 
     @model_validator(mode="after")
-    def resolve_urls(self) -> "BinanceSettings":
+    def resolve_urls(self) -> BinanceSettings:
         # VF-003: Only inject production URLs when the operator has NOT explicitly
         # set BINANCE_BASE_URL / BINANCE_WS_URL in the environment.  Previously the
         # validator silently overwrote any env-supplied URL when testnet=False, making
@@ -435,7 +435,7 @@ class Settings(BaseSettings):
         return upper
 
     @model_validator(mode="after")
-    def enforce_live_gate(self) -> "Settings":
+    def enforce_live_gate(self) -> Settings:
         """
         Prevent live trading from being enabled purely via code path.
         Requires the environment variable TRADING_MODE=live to be explicitly set.
@@ -452,7 +452,7 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_primary_timeframe_in_active(self) -> "Settings":
+    def validate_primary_timeframe_in_active(self) -> Settings:
         if self.primary_timeframe not in self.active_timeframes:
             raise ValueError(
                 f"primary_timeframe {self.primary_timeframe!r} must be in active_timeframes"

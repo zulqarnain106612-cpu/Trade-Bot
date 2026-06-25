@@ -22,7 +22,7 @@ import sqlite3
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Optional
+
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CHUNK_SIZE      = 60    # lines per chunk
@@ -238,7 +238,7 @@ class BM25Index:
         self.db.commit()
 
     def query(self, query_text: str, top_k: int = TOP_K_DEFAULT,
-              file_filter: Optional[str] = None) -> list[dict]:
+              file_filter: str | None = None) -> list[dict]:
         """BM25 retrieval."""
         terms = tokenize(query_text)
         if not terms:

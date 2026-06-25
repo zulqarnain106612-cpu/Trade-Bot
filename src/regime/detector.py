@@ -128,7 +128,7 @@ class RegimePrediction:
         """GAP-002: confidence = 1 - entropy. 1.0 = fully confident."""
         return 1.0 - self.entropy
 
-    def position_scalar(self, cfg: "HMMSettings | None" = None) -> float:
+    def position_scalar(self, cfg: HMMSettings | None = None) -> float:
         """
         GAP-002: continuous entropy-based position-size scalar in
         [entropy_scalar_floor, 1.0].
@@ -253,7 +253,7 @@ class RegimeDetector:
         self,
         features: pd.DataFrame,
         lengths: list[int] | None = None,
-    ) -> "RegimeDetector":
+    ) -> RegimeDetector:
         """
         Fit GaussianHMM on a feature DataFrame.
 
@@ -586,7 +586,7 @@ class RegimeDetector:
         model_dir: str | Path,
         symbol: str,
         timeframe: str,
-    ) -> "RegimeDetector":
+    ) -> RegimeDetector:
         """
         Restore a previously saved RegimeDetector from disk.
 

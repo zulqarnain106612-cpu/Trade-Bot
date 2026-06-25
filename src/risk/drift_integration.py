@@ -62,7 +62,7 @@ class DriftIntegrationAdapter:
         """
         if self._detector is None:
             return
-        
+
         try:
             self._detector.record_trade_outcome(
                 pnl_usd=pnl_usd,
@@ -71,7 +71,7 @@ class DriftIntegrationAdapter:
                 current_equity=current_equity,
                 starting_equity=starting_equity,
             )
-            
+
             # Log the trade outcome
             self._log.info(
                 "drift.trade_recorded",
@@ -105,10 +105,10 @@ class DriftIntegrationAdapter:
                 "reason": "Drift detector not enabled",
                 "metrics": {},
             }
-        
+
         drift = self._detector.check_drift()
         metrics = self._detector.get_live_metrics()
-        
+
         return {
             "drifted": drift.drifted,
             "metric": drift.metric,

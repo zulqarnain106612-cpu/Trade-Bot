@@ -76,7 +76,7 @@ class GateResult:
     details: dict[str, object]
 
     @classmethod
-    def pass_gate(cls, details: dict[str, object] | None = None) -> "GateResult":
+    def pass_gate(cls, details: dict[str, object] | None = None) -> GateResult:
         return cls(
             status=GateStatus.PASS,
             passed=True,
@@ -90,7 +90,7 @@ class GateResult:
         status: GateStatus,
         reason: str,
         details: dict[str, object] | None = None,
-    ) -> "GateResult":
+    ) -> GateResult:
         return cls(
             status=status,
             passed=False,

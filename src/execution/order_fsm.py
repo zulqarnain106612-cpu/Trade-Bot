@@ -48,7 +48,6 @@ class OrderStatus(Enum):
 
 class OrderFSMError(Exception):
     """Order FSM validation error."""
-    pass
 
 
 @dataclass
@@ -176,14 +175,14 @@ class OrderFSM:
             OrderFSMError: If transition is invalid or state is already terminal
         """
         context = context or {}
-        
+
         # Terminal states are immutable
         if self._state.is_terminal():
             raise OrderFSMError(
                 f"Cannot transition from terminal state {self._state.status.value} "
                 f"to {next_status.value}"
             )
-        
+
         # Validate transition
         valid_next = self._VALID_TRANSITIONS.get(self._state.status, set())
         if next_status not in valid_next:
@@ -191,7 +190,7 @@ class OrderFSM:
                 f"Invalid transition: {self._state.status.value} → {next_status.value}. "
                 f"Valid next states: {[s.value for s in valid_next]}"
             )
-        
+
         # Perform transition-specific logic
         if next_status == OrderStatus.FILLING:
             self._transition_to_filling(context)
@@ -203,7 +202,7 @@ class OrderFSM:
             self._transition_to_timeout(context)
         elif next_status == OrderStatus.FAILED:
             self._transition_to_failed(context)
-        
+
         # Update status and timestamps
         self._state.status = next_status
         self._state.last_updated_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
@@ -225,24 +224,24 @@ class OrderFSM:
                 f"Cannot add partial fill: order is in {self._state.status.value} state, "
                 f"expected {OrderStatus.FILLING.value}"
             )
-        
+
         if qty <= 0:
             raise OrderFSMError(f"Partial fill qty must be > 0, got {qty}")
-        
+
         if price <= 0:
             raise OrderFSMError(f"Fill price must be > 0, got {price}")
-        
+
         # Aggregate filled quantity
         old_filled = self._state.filled_qty
         self._state.filled_qty += qty
-        
+
         # Guard against overfill
         if self._state.filled_qty > self._state.quantity:
             self._state.filled_qty = old_filled
             raise OrderFSMError(
                 f"Partial fill would exceed order quantity: {old_filled} + {qty} > {self._state.quantity}"
             )
-        
+
         # Update filled prices list and recalculate average
         self._state.filled_at_prices.append((price, qty))
         self._state.average_fill_price = self._calculate_vwap()
@@ -252,17 +251,17 @@ class OrderFSM:
         """Calculate volume-weighted average price from fills."""
         if not self._state.filled_at_prices:
             return 0.0
-        
+
         total_value = sum(price * qty for price, qty in self._state.filled_at_prices)
         total_qty = sum(qty for _, qty in self._state.filled_at_prices)
-        
+
         return total_value / total_qty if total_qty > 0 else 0.0
 
     def _transition_to_filling(self, context: dict[str, Any]) -> None:
         """PENDING → FILLING: Order confirmed by exchange."""
         if self._state.first_confirmed_at_ms is None:
             self._state.first_confirmed_at_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
-        
+
         if "exchange_response" in context:
             self._state.exchange_response = context["exchange_response"]
 
@@ -273,10 +272,10 @@ class OrderFSM:
             if qty < 0 or qty > self._state.quantity:
                 raise OrderFSMError(f"Invalid filled qty: {qty}")
             self._state.filled_qty = qty
-        
+
         if "average_price" in context:
             self._state.average_fill_price = context["average_price"]
-        
+
         if "exchange_response" in context:
             self._state.exchange_response = context["exchange_response"]
 
