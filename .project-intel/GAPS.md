@@ -72,12 +72,12 @@ loudly if this regresses.
 ────────────────────────────────────────────────────────────
 ────────────────────────────────────────────────────────────
 
-## Gap-003 [2026-06-23]
+## Gap-003 [2026-06-23] — RESOLVED [2026-06-26]
 KS-test drift detection misses label shift.
 SignalDebugger detects covariate shift but not feature→return relationship change.
 Rolling performance-based trigger needed alongside KS test.
 Severity: Medium. File: src/diagnostics/signal_debugger.py
-Status: OPEN
+Status: RESOLVED [2026-06-26] — LabelShiftDetector added to signal_debugger.py. Tracks rolling win-rate vs training-time baseline (window=100 trades, threshold=0.15 drop). Module-level singleton via get_label_shift_detector(). Fires log warning on drift. Plugged in alongside FeatureDriftMonitor (KS covariate shift). Covers the label-shift gap independently of covariate detection.
 ────────────────────────────────────────────────────────────
 
 ## Gap-004 [2026-06-23] — RESOLVED [2026-06-24]

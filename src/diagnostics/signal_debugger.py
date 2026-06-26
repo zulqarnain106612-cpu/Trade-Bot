@@ -287,6 +287,97 @@ _drift_monitor: FeatureDriftMonitor | None = None
 _degradation_tracker: ModelDegradationTracker | None = None
 
 
+# ---------------------------------------------------------------------------
+# Gap-003 fix: Label-shift detector (feature→return relationship change)
+# ---------------------------------------------------------------------------
+
+LABEL_SHIFT_WINDOW: Final[int] = 100   # rolling trade count for win-rate
+LABEL_SHIFT_MIN_TRADES: Final[int] = 30  # minimum trades before triggering
+LABEL_SHIFT_THRESHOLD: Final[float] = 0.15   # win-rate drop vs baseline
+
+
+@dataclass
+class LabelShiftRecord:
+    """Rolling win-rate vs training-time baseline."""
+    baseline_win_rate: float
+    live_win_rate: float
+    n_trades: int
+    win_rate_drop: float       # baseline - live (positive = degradation)
+    drifted: bool
+
+
+class LabelShiftDetector:
+    """
+    Monitors the feature→return relationship by tracking rolling win-rate.
+
+    KS tests catch *covariate* shift (feature distribution change) but are
+    blind to *label* shift — where features look the same but the model's
+    predictions stop being correct.  This detector tracks rolling win-rate
+    and flags when it falls more than LABEL_SHIFT_THRESHOLD below the
+    training-time baseline win-rate.
+
+    Reference: López de Prado (2018) AFML Ch.11 — distinguishing covariate
+    from concept/label drift.
+    """
+
+    def __init__(self, window: int = LABEL_SHIFT_WINDOW) -> None:
+        self._window = window
+        self._outcomes: deque[int] = deque(maxlen=window)  # 1=win, 0=loss
+        self._baseline_win_rate: float | None = None
+
+    def set_baseline(self, win_rate: float) -> None:
+        """Record training-time win-rate (call after each model fit)."""
+        if not 0.0 <= win_rate <= 1.0:
+            raise ValueError(f"win_rate must be in [0, 1], got {win_rate}")
+        self._baseline_win_rate = win_rate
+
+    def record_trade(self, pnl_usd: float) -> None:
+        """Record outcome of a closed trade (positive PnL = win)."""
+        self._outcomes.append(1 if pnl_usd > 0 else 0)
+
+    def check(self) -> LabelShiftRecord | None:
+        """
+        Return a LabelShiftRecord if enough trades are recorded, else None.
+
+        Drifted=True when the rolling win-rate has fallen more than
+        LABEL_SHIFT_THRESHOLD below the baseline (i.e. the model is losing
+        its edge, not just that the feature distribution has shifted).
+        """
+        if self._baseline_win_rate is None:
+            return None
+        n = len(self._outcomes)
+        if n < LABEL_SHIFT_MIN_TRADES:
+            return None
+        live_win_rate = sum(self._outcomes) / n
+        drop = self._baseline_win_rate - live_win_rate
+        drifted = drop > LABEL_SHIFT_THRESHOLD
+        rec = LabelShiftRecord(
+            baseline_win_rate=round(self._baseline_win_rate, 4),
+            live_win_rate=round(live_win_rate, 4),
+            n_trades=n,
+            win_rate_drop=round(drop, 4),
+            drifted=drifted,
+        )
+        if drifted:
+            log.warning(
+                "signal_debugger.label_shift_detected",
+                baseline_win_rate=rec.baseline_win_rate,
+                live_win_rate=rec.live_win_rate,
+                drop=rec.win_rate_drop,
+                n_trades=n,
+            )
+        return rec
+
+
+_label_shift_detector: LabelShiftDetector = LabelShiftDetector()
+
+
+def get_label_shift_detector() -> LabelShiftDetector:
+    """Module-level singleton for the label-shift detector."""
+    return _label_shift_detector
+
+
+
 def get_drift_monitor() -> FeatureDriftMonitor:
     global _drift_monitor
     if _drift_monitor is None:
