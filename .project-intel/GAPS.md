@@ -309,7 +309,8 @@ Severity: CRITICAL.
 File: src/engine/orchestrator.py (missing exit-check step entirely),
 src/execution/paper.py / live.py (close_position exists and works
 correctly when called, it is just never called)
-Status: OPEN — Action: implement an exit-check step in the orchestrator's
+Status: RESOLVED [2026-06-26] — _position_monitor_loop() fully implemented and started in orchestrator.run() (line 271). Runs every position_monitor_interval_s (default 5s). Calls check_position_exit() (gates.py:722) for stop_loss/take_profit/time_exit. Calls executor.close_position() on trigger. RuntimeConfig.get_risk_controls() provides toggleable thresholds. mark_to_market() called before exit check. Race-safe: KeyError on already-closed position is caught. Gap-013 was already resolved before this session; GAPS.md status was stale.
+# Previous: Status: OPEN — Action: implement an exit-check step in the orchestrator's
 tick loop (or a dedicated lightweight loop running on a faster cadence
 than signal generation, e.g. every few seconds against live mark price)
 that, for each open position, evaluates:

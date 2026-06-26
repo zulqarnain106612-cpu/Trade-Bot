@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-25T16:00:00+00:00",
+  "last_updated": "2026-06-26T08:06:48+00:00",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -20,7 +20,8 @@
     "sec_005_unsafe_autofix": "RESOLVED (prior session) \u2014 confirmed in source: auto-fix.yml runs ruff check --fix only, no --unsafe-fixes.",
     "sec_007_approval_second_factor": "RESOLVED (prior session) \u2014 confirmed in source: /approvals/{id}/resolve requires operator_secret verified via hmac.compare_digest.",
     "gap_008_double_regime_scalar": "RESOLVED (prior session) \u2014 confirmed in source: signal_engine.py logs regime_scalar_filter_logged_only, does NOT apply second scalar multiplicatively.",
-    "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageModel."
+    "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageModel.",
+    "debt_005_test_coverage": "RESOLVED [2026-06-26] \u2014 62% total coverage (gate=60%). 725 tests. Key files: signal_engine.py 87%, gates.py 87%, trainer predict_* covered, trade_auditor covered, intelligence_gates + probabilistic_gates covered."
   },
   "current_focus": "Single active session, full ownership taken of all prior work. GAP-013 (position exit controls) implemented end-to-end: backend, frontend toggle UI, tests, committed. Gap-014 (API totally unimportable) fixed. Adopted the previously-interrupted/uncommitted P1 FSM + drift-detection work (order_fsm.py, order_manager.py, live_fsm_integration.py, drift_integration.py, performance_drift.py) -- re-verified every claim in that session's own FINAL_STATUS_P1.md rather than trusting it, found and fixed: (1) a real crash bug where ANY order not filling on the very first poll attempt threw an unhandled OrderFSMError, (2) a broken test masking that bug, (3)/(4) both new API endpoints (/orders/{id}/status, /performance-drift) were silently dead due to reading a nonexistent runtime_config attribute, and a claimed 'state persistence for reconciliation' feature that was never actually implemented (added a real bounded registry on LiveExecutor to make it true). All work committed across 6 commits. Full suite: 679 passed / 1 skipped / 0 failed -- first fully green run this entire engagement.",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
@@ -84,5 +85,6 @@
   ],
   "last_commit": "981de06",
   "last_commit_message": "fix(risk): CognitiveEngine sizing bug [GAP-007] + test backfill for detector/cognitive_engine [claude]",
-  "last_commit_time": "2026-06-23T12:57:39.967216+00:00"
+  "last_commit_time": "2026-06-23T12:57:39.967216+00:00",
+  "coverage_pct": 62
 }

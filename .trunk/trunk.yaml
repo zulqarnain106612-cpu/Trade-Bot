@@ -21,7 +21,7 @@ lint:
     # Python
     - ruff@0.4.4
     - mypy@1.10.0
-    - bandit@1.7.8
+    - bandit@1.9.4  # Debt-006: updated to match installed version
     - pyright@1.1.360
     - pip-audit@2.7.3
     # Secrets

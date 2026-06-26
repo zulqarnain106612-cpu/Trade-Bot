@@ -130,7 +130,11 @@ ruff 0.4.4 pinned in 2 of 3 systems vs 0.15.17 actually installed/used
 this session).
 File: .pre-commit-config.yaml, .github/workflows/ci.yml,
 .github/workflows/security.yml, .trunk/trunk.yaml
-Status: OPEN — Action: pick ONE canonical tool-version source (recommend
+Status: RESOLVED [2026-06-26] — TOOL_VERSIONS.md created as single source of truth.
+bandit updated to 1.9.4 in trunk.yaml + pre-commit (was stale 1.7.8). ruff/mypy/pyright
+already consistent at 0.4.4/1.10.0/1.1.360 across all 3 systems. CI installs from
+requirements.lock (which pins ruff 0.4.4). Update procedure documented in TOOL_VERSIONS.md.
+# Previous: Status: OPEN — Action: pick ONE canonical tool-version source (recommend
 .trunk/trunk.yaml since it already pins everything consistently), have
 pre-commit and CI both read/match those exact versions, or consolidate
 to just Trunk + CI and drop pre-commit entirely to remove a redundant
