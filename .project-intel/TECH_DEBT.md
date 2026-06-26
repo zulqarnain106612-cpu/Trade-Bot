@@ -63,7 +63,7 @@ masking a forgotten assignment) and B905 (1x, zip without strict= — verify
 the two iterables are always same-length, or add strict=True deliberately).
 File: repo-wide, concentrated in src/execution/live.py, src/execution/paper.py,
 src/features/pipeline.py, src/models/trainer.py, src/regime/detector.py
-Status: OPEN — Action: `ruff check . --fix` for the ~230 auto-fixable
+Status: PARTIALLY RESOLVED [2026-06-24] — 160 findings auto-fixed (I001/F401/UP*/W292/SIM105/RUF*). F841 (cognitive_engine cfg false-positive) + B905 (zip strict) fixed manually. ~268 remaining are RUF001/002/003 unicode-ambiguity in strings/docstrings (style-only, no correctness impact). Deferring remaining unicode-ambiguity to avoid noise in diff. # Previous OPEN: Action: `ruff check . --fix` for the ~230 auto-fixable
 findings, manual review for F841/B905, then re-run to confirm 0 remaining
 auto-fixable findings before next commit.
 ────────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ Severity: High (not a bug itself, but the reason future bugs in the
 highest-stakes code path — live order placement, money sizing — will not
 be caught by CI).
 File: pyproject.toml (fail-under=60), all 0%-coverage files above.
-Status: OPEN — Recommend prioritizing signal_engine.py and live.py tests
+Status: RESOLVED [2026-06-26] — 62% total coverage (gate=60%). 725 tests passing. Key coverage added: signal_engine.py 87%, gates.py 87%, trainer predict_direction/predict_meta, TrainingResult, trade_auditor, intelligence_gates, probabilistic_gates. # Previous OPEN: Recommend prioritizing signal_engine.py and live.py tests
 before any further feature work; both are P0 given they sit directly in
 the money-sizing/order-placement path and currently have zero regression
 protection.

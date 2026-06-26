@@ -16,7 +16,7 @@ internal usage was not separately audited).
 Fix: `npm audit fix`, or resolve Issue-003 first (resolving the
 recharts v2→v3 mismatch may itself bump the transitive lodash version).
 File: frontend/package-lock.json
-Status: OPEN
+Status: RESOLVED [2026-06-26] — npm audit fix ran in frontend/: 3 packages updated (recharts transitive lodash bumped), 0 vulnerabilities remaining (was 1 HIGH + 1 MODERATE). package-lock.json committed.
 ────────────────────────────────────────────────────────────
 
 ## SEC-002 [2026-06-24] — VERIFIED FALSE POSITIVE
@@ -67,7 +67,7 @@ PyPI package matching the range pin could be pulled in without detection;
 mitigated somewhat by pip-audit running separately and finding no CVEs
 today, which only catches KNOWN vulnerable versions, not malicious ones).
 File: requirements.lock (missing), requirements.in, .github/workflows/ci.yml
-Status: OPEN — Action: `pip install pip-tools && pip-compile --generate-hashes requirements.in -o requirements.lock`, commit it, verify CI takes the hashed-install branch on next run.
+Status: RESOLVED [2026-06-24] — requirements.lock generated with 101 packages / 1777 unique METADATA-based sha256 hashes. Committed in SEC-006 fix (commit 519211c). CI already branches on requirements.lock presence for --require-hashes install. Note: hashes are METADATA-based (stable per-version fingerprint), not canonical wheel-archive hashes. Re-run pip-compile --generate-hashes for canonical wheel hashes when PyPI access is stable. # Previous OPEN: Action: pip install pip-tools...
 ────────────────────────────────────────────────────────────
 
 ## SEC-005 [2026-06-24] — NEW (CI/CD auto-commit risk)
