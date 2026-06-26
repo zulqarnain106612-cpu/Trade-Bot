@@ -1,0 +1,243 @@
+"""
+Multi-provider intelligence client aggregator.
+
+Responsibilities:
+  - Manage credentials for all providers
+  - Coordinate API calls with caching
+  - Handle provider-specific rate limits
+  - Fallback strategy if one provider fails
+  - Data validation and standardization
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional
+import asyncio
+
+import structlog
+
+log = structlog.get_logger(__name__)
+
+
+@dataclass
+class CacheEntry:
+    """Single cached metric with TTL."""
+    value: Any
+    fetched_at: datetime
+    ttl_seconds: int
+
+    @property
+    def is_stale(self) -> bool:
+        """Check if entry has expired."""
+        age = (datetime.now(UTC) - self.fetched_at).total_seconds()
+        return age > self.ttl_seconds
+
+
+class IntelligenceAggregator:
+    """
+    Central hub for crypto intelligence data.
+
+    Manages:
+      - Glassnode on-chain metrics
+      - CryptoQuant exchange flows + leverage
+      - Local cache (with configurable TTL per metric)
+      - Rate limiting per provider
+      - Fallback logic (use stale data vs fail)
+    """
+
+    def __init__(
+        self,
+        glassnode_api_key: Optional[str] = None,
+        cryptoquant_api_key: Optional[str] = None,
+        cache_ttl_onchain_seconds: int = 3600,  # 1h for on-chain (slow updates)
+        cache_ttl_exchange_seconds: int = 300,  # 5min for exchange flows (faster)
+    ) -> None:
+        """Initialize intelligence client.
+
+        Args:
+            glassnode_api_key: API key for Glassnode
+            cryptoquant_api_key: API key for CryptoQuant
+            cache_ttl_onchain_seconds: Cache TTL for on-chain metrics (default 1h)
+            cache_ttl_exchange_seconds: Cache TTL for exchange metrics (default 5min)
+        """
+        self.glassnode_key = glassnode_api_key
+        self.cryptoquant_key = cryptoquant_api_key
+        self.cache_ttl_onchain = cache_ttl_onchain_seconds
+        self.cache_ttl_exchange = cache_ttl_exchange_seconds
+        self._cache: dict[str, CacheEntry] = {}
+        self._last_glassnode_call: datetime = datetime.fromtimestamp(0, UTC)
+        self._last_cryptoquant_call: datetime = datetime.fromtimestamp(0, UTC)
+
+        log.info(
+            "intelligence_aggregator_init",
+            glassnode_enabled=bool(glassnode_api_key),
+            cryptoquant_enabled=bool(cryptoquant_api_key),
+        )
+
+    async def get_exchange_netflow(
+        self,
+        symbol: str = "BTC",
+        exchange: Optional[str] = None,  # None = aggregate all
+        days_back: int = 7,
+    ) -> dict[str, float]:
+        """
+        Fetch exchange netflow (inflow - outflow).
+
+        Returns:
+            {
+                "netflow": float,           # BTC (negative = sellers leaving)
+                "inflow": float,            # BTC incoming
+                "outflow": float,           # BTC outgoing
+                "tscore": float,            # z-score vs 30d MA
+                "timestamp": int,           # Unix seconds
+            }
+        """
+        cache_key = f"exchange_netflow_{symbol}_{exchange or 'all'}_{days_back}d"
+
+        # Check cache
+        if cache_key in self._cache and not self._cache[cache_key].is_stale:
+            return self._cache[cache_key].value
+
+        # Fetch from Glassnode
+        try:
+            result = await self._fetch_glassnode_netflow(
+                symbol=symbol, exchange=exchange, days_back=days_back
+            )
+            self._cache[cache_key] = CacheEntry(
+                value=result,
+                fetched_at=datetime.now(UTC),
+                ttl_seconds=self.cache_ttl_exchange,
+            )
+            return result
+        except Exception as e:
+            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol)
+            # Return stale cache if available, else default
+            if cache_key in self._cache:
+                return self._cache[cache_key].value
+            return {"netflow": 0.0, "inflow": 0.0, "outflow": 0.0, "tscore": 0.0}
+
+    async def get_whale_activity(
+        self,
+        symbol: str = "BTC",
+        min_transaction_usd: float = 1_000_000,
+    ) -> dict[str, float]:
+        """
+        Fetch whale transaction activity.
+
+        Returns:
+            {
+                "buy_volume": float,        # BTC from large buy txns
+                "sell_volume": float,       # BTC from large sell txns
+                "ratio": float,             # buy_volume / sell_volume
+                "sentiment": str,           # "bullish" | "bearish" | "neutral"
+                "timestamp": int,
+            }
+        """
+        cache_key = f"whale_activity_{symbol}_{min_transaction_usd}"
+
+        if cache_key in self._cache and not self._cache[cache_key].is_stale:
+            return self._cache[cache_key].value
+
+        try:
+            result = await self._fetch_glassnode_whale_activity(
+                symbol=symbol, min_transaction_usd=min_transaction_usd
+            )
+            self._cache[cache_key] = CacheEntry(
+                value=result,
+                fetched_at=datetime.now(UTC),
+                ttl_seconds=self.cache_ttl_onchain,
+            )
+            return result
+        except Exception as e:
+            log.error("glassnode_whale_activity_failed", error=str(e))
+            if cache_key in self._cache:
+                return self._cache[cache_key].value
+            return {"buy_volume": 0.0, "sell_volume": 0.0, "ratio": 1.0, "sentiment": "neutral"}
+
+    async def get_funding_rate(
+        self,
+        symbol: str = "BTCUSDT",
+    ) -> dict[str, float]:
+        """
+        Fetch current funding rate (leverage indicator).
+
+        Returns:
+            {
+                "rate_pct": float,          # Funding rate as %
+                "rate_8h_avg": float,       # 8h moving average
+                "excessive": bool,          # rate_pct > 0.1% = excessive leverage
+                "timestamp": int,
+            }
+        """
+        cache_key = f"funding_rate_{symbol}"
+
+        if cache_key in self._cache and not self._cache[cache_key].is_stale:
+            return self._cache[cache_key].value
+
+        try:
+            result = await self._fetch_cryptoquant_funding_rate(symbol=symbol)
+            self._cache[cache_key] = CacheEntry(
+                value=result,
+                fetched_at=datetime.now(UTC),
+                ttl_seconds=self.cache_ttl_exchange,  # Fast updates
+            )
+            return result
+        except Exception as e:
+            log.error("cryptoquant_funding_rate_failed", error=str(e))
+            if cache_key in self._cache:
+                return self._cache[cache_key].value
+            return {"rate_pct": 0.0, "rate_8h_avg": 0.0, "excessive": False}
+
+    # -----------------------------------------------------------------------
+    # Private provider implementations (stubs for now, replaced with real calls)
+    # -----------------------------------------------------------------------
+
+    async def _fetch_glassnode_netflow(
+        self,
+        symbol: str,
+        exchange: Optional[str],
+        days_back: int,
+    ) -> dict[str, float]:
+        """Call Glassnode exchange_netflow endpoint."""
+        # TODO: Implement actual HTTP call to Glassnode API
+        # https://docs.glassnode.com/basic-api/addresses
+        await self._rate_limit_glassnode()
+        raise NotImplementedError("Glassnode provider not yet implemented")
+
+    async def _fetch_glassnode_whale_activity(
+        self,
+        symbol: str,
+        min_transaction_usd: float,
+    ) -> dict[str, float]:
+        """Call Glassnode whale transaction endpoint."""
+        # TODO: Implement actual HTTP call
+        await self._rate_limit_glassnode()
+        raise NotImplementedError("Glassnode whale activity not yet implemented")
+
+    async def _fetch_cryptoquant_funding_rate(
+        self,
+        symbol: str,
+    ) -> dict[str, float]:
+        """Call CryptoQuant funding rate endpoint."""
+        # TODO: Implement actual HTTP call
+        # https://docs.cryptoquant.com/
+        await self._rate_limit_cryptoquant()
+        raise NotImplementedError("CryptoQuant provider not yet implemented")
+
+    async def _rate_limit_glassnode(self) -> None:
+        """Enforce Glassnode rate limit (~20 req/min)."""
+        min_interval = 60 / 20  # seconds
+        elapsed = (datetime.now(UTC) - self._last_glassnode_call).total_seconds()
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+        self._last_glassnode_call = datetime.now(UTC)
+
+    async def _rate_limit_cryptoquant(self) -> None:
+        """Enforce CryptoQuant rate limit (~10 req/sec or plan-based)."""
+        min_interval = 0.1  # 10 req/sec
+        elapsed = (datetime.now(UTC) - self._last_cryptoquant_call).total_seconds()
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+        self._last_cryptoquant_call = datetime.now(UTC)
