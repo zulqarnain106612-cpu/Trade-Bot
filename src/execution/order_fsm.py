@@ -142,7 +142,7 @@ class OrderFSM:
     # Valid transitions: current_status -> list of valid next statuses
     _VALID_TRANSITIONS: Final[dict[OrderStatus, set[OrderStatus]]] = {
         OrderStatus.PENDING: {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED},
-        OrderStatus.FILLING: {OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.TIMEOUT, OrderStatus.FAILED},
+        OrderStatus.FILLING: {OrderStatus.FILLING, OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.TIMEOUT, OrderStatus.FAILED},  # FILLING self-transition = partial fill aggregation
         OrderStatus.FILLED: set(),      # Terminal
         OrderStatus.CANCELLED: set(),   # Terminal
         OrderStatus.TIMEOUT: set(),     # Terminal

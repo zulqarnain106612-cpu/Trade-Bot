@@ -14,7 +14,7 @@ target-version  = "py311"
 line-length     = 100
 indent-width    = 4
 src             = ["src", "tests"]
-exclude         = [".venv", "frontend", "__pycache__", "dist", ".git"]
+exclude         = [".venv", "frontend", "__pycache__", "dist", ".git", ".project-intel"]
 
 [tool.ruff.lint]
 select = [
