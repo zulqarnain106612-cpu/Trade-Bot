@@ -96,12 +96,12 @@ Severity: Medium. File: src/risk/ (new file needed)
 Status: OPEN
 ────────────────────────────────────────────────────────────
 
-## Gap-006 [2026-06-23]
+## Gap-006 [2026-06-23] — PARTIALLY RESOLVED [2026-06-26]
 SQLite WAL write contention risk at scale.
 Under 3 timeframes + audit log + equity updates, SQLite serializes writes.
 Migration path to TimescaleDB/QuestDB needed before multi-symbol live.
 Severity: Low (paper/single-symbol fine). File: src/data/storage.py
-Status: OPEN
+Status: PARTIALLY RESOLVED [2026-06-26] — WAL already enabled. synchronous=FULL→NORMAL (2-4x write throughput, still crash-safe with WAL). cache_size=64MB + mmap_size=256MB + temp_store=MEMORY added. TimescaleDB migration still required before multi-symbol live — deferred until that milestone.
 ────────────────────────────────────────────────────────────
 
 ## Gap-008 [2026-06-24] — RESOLVED [2026-06-24]
