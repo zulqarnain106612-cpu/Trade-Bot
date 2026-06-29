@@ -193,6 +193,7 @@ class SignalEngine:
         avg_win_usd: float = 0.0,
         avg_loss_usd: float = 0.0,
         paper_trading_days: int = 0,
+        correlation_scalar: float = 1.0,
     ) -> SignalResult:
         """
         Run one full signal computation cycle.
@@ -207,6 +208,13 @@ class SignalEngine:
         meta_gate_pass        : meta model passed OOS live gate
         avg_win_usd           : historical avg win for Kelly ratio
         avg_loss_usd          : historical avg loss for Kelly ratio
+        correlation_scalar    : GAP-005/GAP-015 — portfolio correlation
+                                 scalar in [0, 1] from
+                                 PortfolioCorrelationTracker.correlation_scalar(),
+                                 computed by the orchestrator across all
+                                 tracked symbols' open positions. Defaults
+                                 to 1.0 (no-op) — same backward-compatible
+                                 contract as regime_scalar.
 
         Returns
         -------
@@ -314,6 +322,7 @@ class SignalEngine:
             avg_win_usd=avg_win_usd,
             avg_loss_usd=avg_loss_usd,
             regime_scalar=regime_scalar,
+            correlation_scalar=correlation_scalar,
         )
 
         notional = kelly_result.notional_usd if kelly_result is not None else 0.0
