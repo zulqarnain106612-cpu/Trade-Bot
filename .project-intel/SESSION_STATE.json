@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T04:32:27.302419",
+  "last_updated": "2026-06-30T04:33:42.859876",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 17,
   "commit_log": [
-    {
-      "hash": "88a5e73",
-      "message": "feat(intel): add RAG engine, cognitive layer, smart context builder \u2014 91% token reduction [claude]",
-      "time": "2026-06-23T15:11:41.568507",
-      "author": "Claude"
-    },
     {
       "hash": "981de06",
       "message": "fix(risk): CognitiveEngine sizing bug [GAP-007] + test backfill for detector/cognitive_engine [claude]",
@@ -159,11 +153,17 @@
       "message": "docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
       "time": "2026-06-30T04:32:27.420324",
       "author": "Claude"
+    },
+    {
+      "hash": "82af9c8",
+      "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "time": "2026-06-30T04:33:42.977177",
+      "author": "Claude"
     }
   ],
-  "last_commit": "2214281",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
-  "last_commit_time": "2026-06-30T04:32:27.420379",
+  "last_commit": "82af9c8",
+  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+  "last_commit_time": "2026-06-30T04:33:42.977244",
   "coverage_pct": 62,
   "last_session_start": "2026-06-30T04:26:22.656350",
   "session_status": "active",
@@ -191,10 +191,13 @@
       "[2026-06-30 04:05:59] [95c8841] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
       "[2026-06-30 04:12:39] [6757129] docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
       "[2026-06-30 04:12:41] [2d428dd] docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
-      "[2026-06-30 04:32:27] [2214281] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]"
+      "[2026-06-30 04:32:27] [2214281] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
+      "[2026-06-30 04:32:27] [35c1bde] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
+      "[2026-06-30 04:33:42] Added tests/test_portfolio_correlation.py: 42 tests covering _EWMSeries, _EWMCov, PortfolioCorrelationTracker (push_bar_returns, push_return, correlation, avg_correlation_with_open_positions, correlation_scalar, correlation_matrix) and singleton. Coverage gate passed: 61.84% (was 59.73%, gate=60%). 778 passed.",
+      "[2026-06-30 04:33:42] [82af9c8] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 04:32:27",
+    "last_checkpoint": "2026-06-30 04:33:42",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
