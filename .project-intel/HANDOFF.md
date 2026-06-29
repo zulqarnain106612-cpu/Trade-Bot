@@ -1,23 +1,29 @@
 # Agent Handoff State
-> Updated: 2026-06-29 14:43:07 | Read this before starting any work.
+> Updated: 2026-06-29 17:18:59 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
-**Status**:  ✅ COMPLETED
+**Status**:  🟢 ACTIVE
 **Task**:    not set
 **Started**: unknown
-**Last checkpoint**: 2026-06-29 14:43:07
+**Last checkpoint**: 2026-06-29 17:18:59
 
-## ✅ Last session completed cleanly
-
-### Completed:
-  - [2026-06-29 14:43:07] Handoff system built — 3-agent protocol (claude/copilot/amazonq) with stale session detection, HANDOFF.md, checkpointing, and daemon auto-interrupt
+## ⚠ ANOTHER AGENT IS ACTIVE
+If claude is no longer running, status is stale.
+Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
+Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
   TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
 
 ## Files to Check
-  (no specific files — start from OPEN_TASKS.md)
+  - .project-intel/ARCHITECTURE.md
+  - .project-intel/MODULE_MAP.json
+  - .project-intel/RAW_SCAN.json
+  - .project-intel/SESSION_STATE.json
+  - .project-intel/scripts/agent_detect.py
+  - requirements.in
+  - src/intelligence/ensemble_predictor.py
 
 ## Session History (last 5)
   [2026-06-29 14:43:07] claude — completed: Handoff system built — 3-agent protocol (claude/copilot/amazonq) with stale sess
