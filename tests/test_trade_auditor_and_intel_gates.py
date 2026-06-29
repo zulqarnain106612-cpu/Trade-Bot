@@ -262,7 +262,7 @@ class TestDetectAnomalies:
         a = TradeAuditor()
         for _ in range(49):
             a.record(_rec())
-        assert a.detect_anomalies() == []
+        assert a.anomaly_scan() == []
 
     def test_returns_list_with_no_anomalies_on_healthy_data(self):
         """Varied p_long, p_bet, mixed gate statuses → no alert."""
@@ -276,20 +276,19 @@ class TestDetectAnomalies:
                 gate_status="PASS" if i % 2 == 0 else "REGIME",
                 kelly_is_capped=i % 5 == 0,
             ))
-        result = a.detect_anomalies()
+        result = a.anomaly_scan()
         assert isinstance(result, list)
 
     def test_detects_p_long_variance_collapse(self):
         """All p_long near 0.7 (stdev < 0.02) → p_long_variance_collapsed alert."""
         a = self._auditor_with_records(60, p_long=0.700)
-        alerts = a.detect_anomalies()
+        alerts = a.anomaly_scan()
         assert any("p_long_variance_collapsed" in a for a in alerts), alerts
 
     def test_detects_meta_label_not_discriminating(self):
         """All p_bet=0.5 (mean≈0.5, stdev≈0) → meta_label_not_discriminating alert."""
         a = self._auditor_with_records(60, p_long=0.5 + 0.001, p_bet=0.500)
-        # also need p_long variance to be collapsed to avoid that alert masking
-        alerts = a.detect_anomalies()
+        alerts = a.anomaly_scan()
         assert any("meta_label_not_discriminating" in a for a in alerts), alerts
 
     def test_detects_gate_always_firing(self):
@@ -298,7 +297,7 @@ class TestDetectAnomalies:
         for i in range(60):
             gate = "DRAWDOWN" if i < 56 else "PASS"
             a.record(_rec(gate_status=gate, p_long=0.5 + i * 0.001, p_bet=0.6 + (i % 10) * 0.01))
-        alerts = a.detect_anomalies()
+        alerts = a.anomaly_scan()
         assert any("gate_always_firing" in a for a in alerts), alerts
 
     def test_detects_kelly_ceiling_always_binding(self):
@@ -313,5 +312,5 @@ class TestDetectAnomalies:
                 p_bet=0.5 + random.uniform(-0.25, 0.25),
                 gate_status="PASS" if i % 3 == 0 else "REGIME",
             ))
-        alerts = a.detect_anomalies()
+        alerts = a.anomaly_scan()
         assert any("kelly_ceiling_always_binding" in a for a in alerts), alerts

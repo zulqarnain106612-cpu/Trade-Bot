@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-30 04:04 | 811 Python modules | 234,149 total lines
+> Auto-generated 2026-06-30 04:11 | 811 Python modules | 234,148 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3885,7 +3885,7 @@ Strategy: mock all ex
 **Purpose**: Test coverage for src/strategies/filters.py — research-backed signal filters.
 **Classes**: TestEwmTrendSignal, TestTrendFilterPasses, TestVolAdjustedMomentum, TestOvernightGapIsExcessive, TestRegimePositionScaler, TestHurstExponent, TestHurstFilterPasses, TestObvTrendConfirms, TestVolExplosionBlocks, TestMtfTrendAligned
 
-### `tests/test_trade_auditor_and_intel_gates.py` (317 lines)
+### `tests/test_trade_auditor_and_intel_gates.py` (316 lines)
 **Purpose**: Coverage for:
   - src/diagnostics/trade_auditor.py
   - src/risk/intelligence_gat

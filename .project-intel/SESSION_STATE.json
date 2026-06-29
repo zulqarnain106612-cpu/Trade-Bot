@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T04:05:59.360911",
+  "last_updated": "2026-06-30T04:12:39.266281",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 16,
   "commit_log": [
-    {
-      "hash": "b04a240",
-      "message": "docs(intel): correct stale GAP-002/output_router claims, log GAP-001 status + TASK-009 follow-up [claude]",
-      "time": "2026-06-23T11:14:17.487613",
-      "author": "Claude"
-    },
     {
       "hash": "e8f15c3",
       "message": "chore(intel): record commit hashes in SESSION_STATE.json [claude]",
@@ -159,18 +153,24 @@
       "message": "docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
       "time": "2026-06-30T04:05:59.527615",
       "author": "Claude"
+    },
+    {
+      "hash": "6757129",
+      "message": "docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
+      "time": "2026-06-30T04:12:40.337525",
+      "author": "Claude"
     }
   ],
-  "last_commit": "1e3e44e",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
-  "last_commit_time": "2026-06-30T04:05:59.527680",
+  "last_commit": "6757129",
+  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
+  "last_commit_time": "2026-06-30T04:12:40.337608",
   "coverage_pct": 62,
   "last_session_start": "2026-06-30T03:54:49.882821",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-30T04:05:58.819912",
-  "last_extraction_trigger": "test_api_and_fsm_coverage.py",
+  "last_extraction": "2026-06-30T04:12:37.915285",
+  "last_extraction_trigger": "test_trade_auditor_and_intel_gates.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
@@ -187,10 +187,12 @@
       "[2026-06-30 03:49:12] [69e607d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-06-30 03:49:13] [763e3fd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-06-30 03:51:22] [739639d] feat(signal): TASK-010 \u2014 wire live spread_bps + funding_rate_8h into SignalContext",
-      "[2026-06-30 04:05:59] [1e3e44e] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]"
+      "[2026-06-30 04:05:59] [1e3e44e] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
+      "[2026-06-30 04:05:59] [95c8841] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
+      "[2026-06-30 04:12:39] [6757129] docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 04:05:59",
+    "last_checkpoint": "2026-06-30 04:12:39",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",

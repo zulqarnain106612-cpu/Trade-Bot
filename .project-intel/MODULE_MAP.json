@@ -11435,7 +11435,7 @@
   },
   "tests/test_trade_auditor_and_intel_gates.py": {
     "purpose": "Coverage for:\n  - src/diagnostics/trade_auditor.py\n  - src/risk/intelligence_gates.py\nDebt-005.",
-    "lines": 317,
+    "lines": 316,
     "classes": [
       "TestAuditRecord",
       "TestTradeAuditor",
