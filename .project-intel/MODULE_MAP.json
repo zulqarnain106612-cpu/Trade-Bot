@@ -10623,7 +10623,7 @@
   },
   "src/intelligence/ensemble_predictor.py": {
     "purpose": "Ensemble prediction framework.\n\nReduce model risk by combining diverse prediction techniques.\nOutput",
-    "lines": 350,
+    "lines": 412,
     "classes": [
       "EnsemblePrediction",
       "PredictionModel",

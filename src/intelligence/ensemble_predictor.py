@@ -224,15 +224,77 @@ class EnsemblePredictor:
         self._update_weights()
     
     def fit(self, X: pd.DataFrame, y: pd.Series):
-        """Fit all ensemble members."""
+        """
+        Fit all ensemble members.
+        
+        BUG FIX: previously called `model.fit(X, y)` identically for every
+        model, but ARIMA and XGBoost/LSTM are not interchangeable here:
+        
+        - ARIMAPredictor.fit() takes a single univariate `timeseries`
+          argument (it models the target's own autocorrelation structure,
+          not a feature matrix). Calling it with (X, y) raised a TypeError
+          on every single fit, silently swallowed by the broad except --
+          meaning ARIMA was never actually trained through this path.
+        - LSTMPredictor.fit() expects pre-windowed 3D sequences
+          (n_samples, lookback, 1), not a raw tabular DataFrame. Calling it
+          with the raw (X, y) either raised inside Keras or silently
+          produced a meaningless fit.
+        
+        Each model is now dispatched with the input shape it actually
+        requires, and weights are refreshed immediately after fitting
+        (previously weights stayed at their stale pre-fit values until the
+        next predict() call, which could mislead a caller checking
+        .weights right after .fit()).
+        """
         log.info("ensemble_fitting", num_models=len(self.models))
         
         for name, model in self.models.items():
             try:
-                model.fit(X, y)
+                if name == "arima":
+                    # Univariate: ARIMA models the target series' own
+                    # autocorrelation, not the feature matrix.
+                    model.fit(y)
+                elif name == "lstm":
+                    X_seq, y_seq = self._build_lstm_sequences(y, model.lookback)
+                    if X_seq is None:
+                        log.warning(
+                            f"{name}_insufficient_data",
+                            need_at_least=model.lookback + 1,
+                            have=len(y),
+                        )
+                        continue
+                    model.fit(X_seq, y_seq)
+                else:
+                    # XGBoost and any other tabular (X, y) model.
+                    model.fit(X, y)
                 log.info(f"{name}_fitted", metrics=model.get_performance_metrics())
             except Exception as e:
                 log.error(f"{name}_fit_failed", error=str(e))
+        
+        # Refresh weights immediately so .weights reflects the just-fitted
+        # models rather than staying at stale pre-fit values until the next
+        # predict() call.
+        self._update_weights()
+    
+    @staticmethod
+    def _build_lstm_sequences(
+        y: pd.Series, lookback: int
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Convert a univariate target series into sliding-window sequences
+        suitable for LSTM training: each input is `lookback` consecutive
+        past values, each target is the value immediately following that
+        window. Returns (None, None) if there isn't enough data for even
+        one full window.
+        """
+        values = np.asarray(y, dtype=float)
+        n = len(values)
+        if n <= lookback:
+            return None, None
+        
+        X_seq = np.array([values[i : i + lookback] for i in range(n - lookback)])
+        y_seq = values[lookback:]
+        return X_seq.reshape(-1, lookback, 1), y_seq
     
     def predict(self, features: pd.DataFrame) -> EnsemblePrediction:
         """
