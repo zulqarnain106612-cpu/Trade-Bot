@@ -38,7 +38,7 @@
   ],
   "next_recommended_task": "GAP-004 and GAP-003 can be marked CLOSED in GAPS.md (currently still shown as open from earlier audit rounds -- worth reconciling). Remaining real open items: SEC-005/006/007 (CI auto-commit/auto-merge gates, approval-endpoint second factor -- all process fixes, no code risk), Gap-010 (models/+logs/ not gitignored), Gap-012 (no DB schema migration system), Debt-006 (3 overlapping lint configs with version drift). User said next direction (deeper vs fresh area) is up to Claude's judgment.",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 7,
+  "total_sessions": 8,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -141,7 +141,7 @@
   "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
   "last_commit_time": "2026-06-29T11:15:41.485908",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-29T09:34:14.189364",
+  "last_session_start": "2026-06-29T14:32:35.324607",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",

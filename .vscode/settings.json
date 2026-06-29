@@ -180,7 +180,17 @@
   ],
   "github.copilot.chat.commitMessageGeneration.instructions": [
     {
-      "text": "Use conventional commits: feat|fix|refactor|test|chore|security|perf. Include affected module. Max 72 chars subject. Reference authority if algorithmic change."
+      "text": "Use conventional commits: type(scope): description [copilot]. Types: feat fix refactor chore docs test security perf audit. Never suggest pushing. Append [copilot] to every message to distinguish from [claude] commits. Max 72 chars."
+    }
+  ],
+  "github.copilot.chat.reviewSelection.instructions": [
+    {
+      "text": "Read .project-intel/CONTEXT_PRIMER.md before reviewing. Tag all findings with XML routing tags: <gap> <issue> <security> <debt>. Never write findings as plain chat text. Check GAPS.md before flagging known issues."
+    }
+  ],
+  "github.copilot.chat.testGeneration.instructions": [
+    {
+      "text": "Follow tests/test_risk_gates.py patterns. Use pytest + pytest-asyncio. async def for all async tests. Parameterised SQL only. structlog not print(). Cover happy path + veto path for CognitiveEngine validators."
     }
   ],
 
