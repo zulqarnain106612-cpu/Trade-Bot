@@ -74,7 +74,10 @@ def load_session_state() -> str:
 def load_rag(query: str, top_k: int = 3) -> str:
     if not DB_PATH.exists():
         return ""
-    sys.path.insert(0, str(INTEL_DIR / "scripts"))
+    # Always import from project's own scripts dir — no daemon dependency
+    _scripts = str(INTEL_DIR / "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
     from rag_engine import BM25Index, format_results
     idx     = BM25Index(DB_PATH)
     results = idx.query(query, top_k=top_k)
@@ -91,7 +94,9 @@ def load_rag(query: str, top_k: int = 3) -> str:
 def load_knowledge(query: str) -> str:
     if not KNOWLEDGE_DIR.exists():
         return ""
-    sys.path.insert(0, str(INTEL_DIR / "scripts"))
+    _scripts = str(INTEL_DIR / "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
     from cognitive_layer import load_relevant
     return load_relevant(query, KNOWLEDGE_DIR, max_tokens=BUDGET_KNOWLEDGE)
 
