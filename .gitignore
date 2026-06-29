@@ -87,3 +87,4 @@ htmlcov/
 
 # Intel daemon runtime files (never track)
 .project-intel/daemon.pid
+.project-intel/rag.db-journal
