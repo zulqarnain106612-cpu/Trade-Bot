@@ -117,16 +117,22 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
       "time": "2026-06-29T10:59:43.177059",
       "author": "Claude"
+    },
+    {
+      "hash": "2da80d7",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/causal_inference.py [claude]",
+      "time": "2026-06-29T11:11:27.630238",
+      "author": "Claude"
     }
   ],
-  "last_commit": "29649fd",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
-  "last_commit_time": "2026-06-29T10:59:43.177173",
+  "last_commit": "2da80d7",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/causal_inference.py [claude]",
+  "last_commit_time": "2026-06-29T11:11:27.630307",
   "coverage_pct": 62,
   "last_session_start": "2026-06-29T09:34:14.189364",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-29T10:59:42.965331",
-  "last_extraction_trigger": "risk_quantification.py"
+  "last_extraction": "2026-06-29T11:11:26.961652",
+  "last_extraction_trigger": "causal_inference.py"
 }

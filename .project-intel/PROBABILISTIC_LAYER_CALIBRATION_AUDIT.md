@@ -217,6 +217,39 @@ crash; weights are correct immediately after `.fit()`, no longer stale.
 
 ---
 
+## BUG 9: "Contagion" stress scenario was a silent no-op (dead parameter)
+
+**Symptom**: caught while adversarially testing the previously-unexamined
+`stress_test()` / `uncertainty_decomposition()` methods. The "contagion"
+scenario (one of four named default stress tests, representing all exchanges
+deleveraging simultaneously) always returned `loss=0.000` regardless of the
+`correlation_shock` value supplied.
+
+**Root cause**: `stress_test(current_price, current_volatility, scenarios)`
+accepts `current_volatility` as a parameter but never references it anywhere
+in the method body -- a dead parameter. `_simulate_scenario()` only knew how
+to interpret `price_change`, `slippage`, and `liquidity_loss` keys; the
+`correlation_shock` key used by the contagion scenario fell through
+unhandled, silently leaving `loss` at its initial value of `0.0`.
+
+**Fix**: `current_volatility` is now threaded through to `_simulate_scenario`,
+and a `correlation_shock` handler was added: a shock is modeled as amplifying
+a 2-sigma volatility-driven move, scaled by how far the shocked correlation
+sits above a baseline "normal" cross-factor correlation for crypto markets
+(0.30), capped at 5x to avoid an unbounded estimate from a near-zero
+baseline. This reflects the real mechanism of contagion: normally-independent
+risk factors (cross-exchange basis, counterparty risk, liquidity) stop
+partially offsetting and start moving together.
+
+**Verified**: contagion now produces a real negative loss (-0.19 in the
+default scenario, vs. -0.30/-0.10/-0.20 for the other three scenarios --
+a comparable order of magnitude, as expected for a named "high severity"
+scenario). Confirmed monotonic: loss worsens with higher volatility (1%→8%
+vol: -0.063 → -0.507) AND with more severe correlation shock (0.40→0.95
+correlation: -0.080 → -0.190), holding the other input fixed.
+
+---
+
 ## CROSS-CUTTING PRINCIPLE APPLIED THROUGHOUT
 
 Every fix above followed the same discipline, directly per your instruction
@@ -246,12 +279,12 @@ to reduce assumptions to zero wherever doing so doesn't cost capability:
 | `src/intelligence/probabilistic.py` | 1, 2, 3, 4, 5 | ✅ Verified |
 | `src/intelligence/causal_inference.py` | 6 | ✅ Verified |
 | `src/intelligence/ensemble_predictor.py` | 7, 8 | ✅ Verified |
-| `src/intelligence/risk_quantification.py` | (audited, no bugs found) | ✅ Verified |
+| `src/intelligence/risk_quantification.py` | 9 | ✅ Verified |
 | `src/risk/probabilistic_gates.py` | (consumer of above; re-verified end-to-end) | ✅ Verified, 21/21 existing tests pass |
 
 ## TEST EVIDENCE
 
-- 8/8 adversarial regression checks pass (constructed in this session)
+- 9/9 adversarial bugs found and fixed; 8/8 + follow-on regression checks pass (constructed in this session)
 - 21/21 pre-existing `tests/test_probabilistic_gates_coverage.py` tests pass
   unmodified against the fixed implementation
 - `src/risk/probabilistic_gates.py`: 85% line coverage from that test file alone

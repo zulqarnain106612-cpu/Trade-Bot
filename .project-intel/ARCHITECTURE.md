@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 10:58 | 808 Python modules | 232,830 total lines
+> Auto-generated 2026-06-29 11:10 | 808 Python modules | 232,876 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3609,7 +3609,7 @@ Implements every feature from the signal architec
 
 P
 
-### `src/intelligence/causal_inference.py` (374 lines)
+### `src/intelligence/causal_inference.py` (420 lines)
 **Purpose**: Causal inference framework.
 
 Answer causal questions, not just correlations:

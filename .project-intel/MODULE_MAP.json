@@ -10600,7 +10600,7 @@
   },
   "src/intelligence/causal_inference.py": {
     "purpose": "Causal inference framework.\n\nAnswer causal questions, not just correlations:\n- Does whale selling CA",
-    "lines": 374,
+    "lines": 420,
     "classes": [
       "CausalEffect",
       "CausalDAG",

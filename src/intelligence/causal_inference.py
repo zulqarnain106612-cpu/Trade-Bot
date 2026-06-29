@@ -213,56 +213,151 @@ class CausalInferenceEngine:
             ),
         )
     
+    # Minimum samples required within a stratum before we trust a
+    # correlation computed on it. Below this, corrcoef on a near-constant
+    # or single-point slice silently returns NaN (caught by testing a
+    # deliberately degenerate stratum with n=1).
+    _MIN_STRATUM_SIZE = 5
+    
     def estimate_heterogeneous_treatment_effect(
         self,
         treatment: np.ndarray,
         outcome: np.ndarray,
-        conditioning_vars: np.ndarray,  # Market regime, price level, etc.
+        conditioning_vars: np.ndarray,  # Market regime, price level, etc. (1D or 2D)
     ) -> dict:
         """
         Treatment effect varies by context (CATE: Conditional Average Treatment Effect).
         
         Example: Whale buying effect is different in bull vs bear market.
-        """
         
-        # Stratify by conditioning variables (e.g., market regime)
-        regimes = np.unique(conditioning_vars[:, 0])  # First conditioning variable
+        BUG FIX 1: previously hard-coded `conditioning_vars[:, 0]`, which
+        crashes with IndexError on a 1D array -- the single-conditioning-
+        variable case, which is also the most common one (this method only
+        ever stratifies by one variable). 1D input is now accepted directly
+        rather than forcing every caller to remember to reshape.
+        
+        BUG FIX 2: a stratum with too few samples (e.g. n=1, caught by an
+        adversarial test) makes corrcoef silently return NaN (division by
+        zero variance), which then propagated silently into
+        `average_effect` via np.mean -- a NaN that downstream code
+        comparing against a threshold (`if average_effect > x`) would
+        silently treat as "not triggered" rather than "unknown", which is a
+        dangerous failure mode for a risk-relevant calculation. Degenerate
+        strata are now excluded from the average and explicitly reported,
+        rather than silently corrupting it.
+        """
+        conditioning_vars = np.asarray(conditioning_vars)
+        conditioning_col = (
+            conditioning_vars[:, 0] if conditioning_vars.ndim > 1 else conditioning_vars
+        )
+        
+        regimes = np.unique(conditioning_col)
         
         effects_by_regime = {}
+        excluded_strata = {}
         for regime in regimes:
-            mask = conditioning_vars[:, 0] == regime
+            mask = conditioning_col == regime
+            n_in_stratum = int(mask.sum())
+            if n_in_stratum < self._MIN_STRATUM_SIZE:
+                excluded_strata[str(regime)] = n_in_stratum
+                continue
             effect = np.corrcoef(treatment[mask], outcome[mask])[0, 1]
-            effects_by_regime[str(regime)] = effect
+            if np.isnan(effect):
+                # Can still occur with near-zero variance even above the
+                # size floor (e.g. a constant treatment/outcome slice);
+                # exclude rather than let it silently poison the average.
+                excluded_strata[str(regime)] = n_in_stratum
+                continue
+            effects_by_regime[str(regime)] = float(effect)
+        
+        average_effect = (
+            float(np.mean(list(effects_by_regime.values())))
+            if effects_by_regime
+            else None  # No stratum had enough valid data -- be explicit about "unknown", not 0 or NaN
+        )
         
         return {
             "effects_by_context": effects_by_regime,
-            "average_effect": np.mean(list(effects_by_regime.values())),
-            "interpretation": "Effect varies by market condition",
+            "average_effect": average_effect,
+            "excluded_strata": excluded_strata,  # {regime: n_samples} for any stratum too small/degenerate to use
+            "interpretation": (
+                "Effect varies by market condition"
+                if not excluded_strata
+                else f"Effect varies by market condition "
+                     f"({len(excluded_strata)} stratum/strata excluded for insufficient/degenerate data: "
+                     f"{excluded_strata})"
+            ),
         }
+    
+    # Intervention keys this method knows how to apply. Kept as a class-level
+    # constant so the "supported keys" list shown in the error message below
+    # can never drift out of sync with what the code actually implements.
+    _SUPPORTED_INTERVENTION_KEYS = frozenset({"reduce_position_50pct", "reduce_position"})
     
     def counterfactual_prediction(
         self,
         current_state: dict,  # {"whale_ratio": 2.0, "regime": "bull", ...}
-        intervention: dict,   # {"reduce_position": 0.5}
+        intervention: dict,   # {"reduce_position": 0.5} -- multiplier on position_size, in [0, 1]
     ) -> dict:
         """
         Predict outcome under counterfactual intervention.
         
         Example:
             current_state = {"whale_ratio": 2.0, "funding": 0.12}
-            intervention = {"reduce_position_50pct": True}
-            → "If we reduce, expected Sharpe = 4.8, miss +2% upside"
+            intervention = {"reduce_position": 0.5}
+            → "If we reduce to 50% size, expected Sharpe = 4.35, opportunity cost 0.25"
+        
+        BUG FIX: the parameter's own doc comment advertised `{"reduce_position":
+        0.5}` as the interface, but the implementation only ever checked for a
+        completely different key, `"reduce_position_50pct"` (boolean). Calling
+        with the documented key silently did nothing -- returned
+        opportunity_cost=0.0 and recommendation="REDUCE" (since a cost of
+        exactly zero is below the REDUCE threshold), even though no
+        intervention was actually evaluated. The REAL evaluated intervention
+        (using the undocumented key) gave opportunity_cost=0.25 and
+        recommendation="HOLD" instead -- i.e. the documented interface
+        produced the OPPOSITE recommendation of the one a correct evaluation
+        gives. Verified by direct comparison before this fix.
+        
+        FIX: "reduce_position" (a float multiplier, matching the original
+        doc) is now the primary supported key. "reduce_position_50pct"
+        (boolean) remains supported for backward compatibility as shorthand
+        for `reduce_position=0.5`. Any OTHER, unrecognized key now raises
+        ValueError immediately rather than being silently ignored --
+        a counterfactual engine that quietly no-ops on a typo'd or
+        unsupported intervention name is worse than one that fails loudly,
+        since a silent no-op is indistinguishable from "the intervention
+        doesn't help" in the returned numbers.
         """
+        unrecognized = set(intervention.keys()) - self._SUPPORTED_INTERVENTION_KEYS
+        if unrecognized:
+            raise ValueError(
+                f"Unrecognized intervention key(s): {sorted(unrecognized)}. "
+                f"Supported keys: {sorted(self._SUPPORTED_INTERVENTION_KEYS)} "
+                f"-- a silent no-op here would produce a misleading "
+                f"opportunity_cost of 0.0 rather than reflecting the "
+                f"intervention you actually intended."
+            )
         
         # Simplified causal model
         # (Full version uses structural causal model with all relationships)
         
         base_sharpe = self._predict_sharpe(current_state)
         
-        # Apply intervention and predict new state
+        # Apply intervention and predict new state. Both supported keys
+        # converge to the same underlying effect (multiply position_size),
+        # so there is exactly one code path for "how a position reduction
+        # affects predicted Sharpe" -- no risk of the two keys silently
+        # disagreeing with each other in the future.
         intervened_state = current_state.copy()
-        if "reduce_position_50pct" in intervention and intervention["reduce_position_50pct"]:
-            intervened_state["position_size"] = intervened_state.get("position_size", 1.0) * 0.5
+        if intervention.get("reduce_position_50pct"):
+            multiplier = 0.5
+        elif "reduce_position" in intervention:
+            multiplier = float(intervention["reduce_position"])
+        else:
+            multiplier = 1.0  # No position-altering intervention requested
+        
+        intervened_state["position_size"] = intervened_state.get("position_size", 1.0) * multiplier
         
         new_sharpe = self._predict_sharpe(intervened_state)
         opportunity_cost = base_sharpe - new_sharpe
