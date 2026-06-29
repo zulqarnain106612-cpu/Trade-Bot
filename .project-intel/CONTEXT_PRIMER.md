@@ -67,12 +67,14 @@ KELLY_MULTIPLIER=0.5  KELLY_CEILING=0.25  PAPER_MIN_DAYS=30
 LIVE_SHARPE_MIN=1.5  LIVE_MAX_DD=15%  LIVE_MIN_TRADES=500  PRIMARY_TF=15m
 
 ### Known gaps (check GAPS.md for full details)
-GAP-001: No slippage model in live.py
-GAP-002: HMM has no entropy/confidence gate
-GAP-003: Drift detection misses label shift
-GAP-004: No order FSM in live executor
-GAP-005: No portfolio correlation layer
-GAP-006: SQLite contention risk at scale
+## Gap-001 [2026-06-23] — RESOLVED [2026-06-23]
+## Gap-002 [2026-06-23] — RESOLVED (verified 2026-06-23, session 2)
+## Gap-007 [2026-06-23] — RESOLVED (session 3, same session it was introduced)
+## Gap-003 [2026-06-23] — RESOLVED [2026-06-26]
+## Gap-004 [2026-06-23] — RESOLVED [2026-06-24]
+## Gap-005 [2026-06-23]
+## Gap-006 [2026-06-23] — PARTIALLY RESOLVED [2026-06-26]
+## Gap-008 [2026-06-24] — RESOLVED [2026-06-24]
 
 ### Session rules
 1. This file = complete project understanding. No source reading needed.
@@ -81,19 +83,3 @@ GAP-006: SQLite contention risk at scale
 4. Read one specific source file ONLY when about to modify it
 5. Use MODULE_MAP.json for structural questions
 6. Use OUTPUT ROUTING PROTOCOL above for every response
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## CONTEXT OPTIMIZATION — token-efficient queries
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Instead of reading source files, use these tools:
-
-Query relevant source chunks (BM25 RAG):
-  python3 .project-intel/scripts/rag_engine.py --query "your topic" --project .
-
-Query domain knowledge (quant/crypto/risk/devops):
-  python3 .project-intel/scripts/cognitive_layer.py --query "kelly sizing" --dir .project-intel/knowledge/
-
-Build minimum context for a task (auto-assembles primer + RAG + knowledge):
-  python3 .project-intel/scripts/context_builder.py "your task" --tokens-only
-
-Token usage: ~1,800 tokens per query vs 20,000+ for file reading (91% reduction)

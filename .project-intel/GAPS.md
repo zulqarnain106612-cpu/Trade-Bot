@@ -259,7 +259,7 @@ these two fields would need real wiring alongside whatever code adds
 perp order types.
 Status: CLOSED.
 
-## Gap-013 [2026-06-24] — NEW — CRITICAL
+## Gap-013 [2026-06-24] — RESOLVED [2026-06-26]
 No automated position-exit logic exists anywhere in the running system.
 Discovered while investigating GAP-011's exit-side slippage gap and
 finding there is no production call site for close_position() at all.
@@ -323,7 +323,7 @@ to RiskSettings (none currently exist) and wiring mark_to_market() into
 the orchestrator's tick loop so unrealized PnL is actually kept current
 for the exit checks to evaluate against.
 
-## Gap-014 [2026-06-24] — CRITICAL — FOUND AND FIXED
+## Gap-014 [2026-06-24] — RESOLVED [2026-06-24]
 src/api/main.py could not be imported at all under the currently-installed
 fastapi==0.136.3 + pydantic==2.13.4. Discovered while building a TestClient
 harness for the new /risk-controls endpoint. Two independent, unrelated

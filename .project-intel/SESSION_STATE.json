@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-26T08:06:48+00:00",
+  "last_updated": "2026-06-29T09:22:38.251804",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -10,9 +10,9 @@
     "diagnostics": "complete",
     "slippage_model": "COMPLETE \u2014 gate 0 fully wired: SlippageModel.estimate() called in signal_engine.py with live spread_bps (from order book) + adv_20d. RiskGateContext.expected_edge_bps populated from avg_win/avg_loss model. GAP-001/TASK-009 closed.",
     "entropy_gate": "complete \u2014 verified, AND test-backfilled this session (tests/test_detector.py, 32 tests, detector.py coverage 0% -> 92%)",
-    "performance_drift_trigger": "NOT STARTED \u2014 GAP-003 (P1)",
-    "order_fsm": "NOT STARTED \u2014 GAP-004 (P1)",
-    "portfolio_correlation_layer": "NOT STARTED \u2014 GAP-005 (P2)",
+    "performance_drift_trigger": "COMPLETE \u2014 LabelShiftDetector + rolling win-rate drift (GAP-003 resolved 2026-06-26)",
+    "order_fsm": "COMPLETE \u2014 order_fsm.py + order_manager.py + live_fsm_integration.py (GAP-004 resolved 2026-06-24)",
+    "portfolio_correlation_layer": "COMPLETE \u2014 PortfolioCorrelationTracker with rolling correlations (GAP-005 resolved 2026-06-26)",
     "intel_layer": "COMPLETE \u2014 .project-intel/ active. RAG engine (332 chunks), cognitive_layer.py (13 domain knowledge entries), context_builder.py (91% token reduction per the intel-ask CLI) all present from session 2; not independently re-audited this session beyond what was needed to resolve GAP-007.",
     "output_router": "NOT a running daemon \u2014 no process found. Claude performs the tag->file routing manually via direct file writes each session. Corrected from prior false 'COMPLETE \u2014 daemon installed' claim.",
     "cognitive_layer": "complete (5 validators: Quant/Probability/Risk/Blockchain/Regime), CRITICAL sizing bug fixed this session [GAP-007, now resolved] \u2014 was independently recomputing Kelly via mu/sigma^2 and could inflate position size 2x+ beyond the entropy-gated Kelly fraction; now reads kelly_result.adjusted_fraction as the single source of truth and only ever multiplies it down. tests/test_cognitive_engine.py added (42 tests, coverage 0% -> 97%). Also fixed a NameError-causing stale variable reference (regime_conf) left from an interrupted prior edit. spread_bps/funding_rate_8h still hardcoded placeholders in signal_engine.py \u2014 see TASK-010.",
@@ -37,8 +37,8 @@
     "Debt-006: pick one canonical lint-tool-version source (pre-commit vs CI vs Trunk) \u2014 currently 3 independently-pinned configs, already found diverging"
   ],
   "next_recommended_task": "GAP-004 and GAP-003 can be marked CLOSED in GAPS.md (currently still shown as open from earlier audit rounds -- worth reconciling). Remaining real open items: SEC-005/006/007 (CI auto-commit/auto-merge gates, approval-endpoint second factor -- all process fixes, no code risk), Gap-010 (models/+logs/ not gitignored), Gap-012 (no DB schema migration system), Debt-006 (3 overlapping lint configs with version drift). User said next direction (deeper vs fresh area) is up to Claude's judgment.",
-  "project_health": "CLEAN \u2014 258 passed, 1 skipped (0 failures) after this session's changes; no regressions. Global coverage 16.18% -> 27.96% this session (detector.py 0%->92%, cognitive_engine.py 0%->97%, kelly.py 86%->88%). Still well below the 60% gate; largest remaining 0%-coverage files: execution/live.py, execution/paper.py, models/trainer.py, strategies/filters.py, strategies/position_sizing.py, engine/orchestrator.py, engine/signal_engine.py, diagnostics/*. One critical correctness bug found AND fixed in the same session it was introduced (GAP-007) \u2014 verify cognitive_engine.py changes against tests/test_cognitive_engine.py before any future refactor of CognitiveEngine.evaluate() or SignalContext.",
-  "total_sessions": 3,
+  "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
+  "total_sessions": 6,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -86,5 +86,11 @@
   "last_commit": "981de06",
   "last_commit_message": "fix(risk): CognitiveEngine sizing bug [GAP-007] + test backfill for detector/cognitive_engine [claude]",
   "last_commit_time": "2026-06-23T12:57:39.967216+00:00",
-  "coverage_pct": 62
+  "coverage_pct": 62,
+  "last_session_start": "2026-06-29T09:25:02.922993",
+  "session_status": "active",
+  "context_primer_ready": true,
+  "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
+  "last_extraction": "2026-06-29T09:25:02.525848",
+  "last_extraction_trigger": "startup"
 }

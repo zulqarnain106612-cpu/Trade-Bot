@@ -84,3 +84,6 @@ htmlcov/
 .coverage
 coverage.xml
 htmlcov/
+
+# Intel daemon runtime files (never track)
+.project-intel/daemon.pid
