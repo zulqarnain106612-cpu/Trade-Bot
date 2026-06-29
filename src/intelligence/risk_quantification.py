@@ -115,7 +115,15 @@ class RiskQuantifier:
         
         results = {}
         for scenario_name, params in scenarios.items():
-            loss = self._simulate_scenario(current_price, params)
+            # BUG FIX: current_volatility was accepted as a parameter of
+            # stress_test() but never actually used anywhere in this method
+            # -- a dead parameter. This silently broke the "contagion"
+            # scenario specifically, since correlation_shock has no meaning
+            # in terms of price_change/slippage/liquidity_loss alone and
+            # needs volatility to translate into a loss estimate. Verified:
+            # before this fix, contagion always returned exactly loss=0.000
+            # regardless of the correlation_shock value supplied.
+            loss = self._simulate_scenario(current_price, params, current_volatility)
             results[scenario_name] = {"loss": loss, "severity": "high" if loss < -0.20 else "medium"}
         
         return results
@@ -223,8 +231,24 @@ class RiskQuantifier:
         self,
         current_price: float,
         scenario_params: dict,
+        current_volatility: float = 0.0,
     ) -> float:
-        """Simulate loss under scenario."""
+        """
+        Simulate loss under scenario.
+        
+        BUG FIX: added handling for "correlation_shock" -- previously this
+        key was silently ignored (not one of price_change/slippage/
+        liquidity_loss), so any scenario using it (the "contagion" default
+        scenario) always produced loss=0.000 regardless of the shock
+        magnitude supplied. A correlation shock has no direct dollar
+        amount of its own; what it represents is normally-independent risk
+        factors (cross-exchange basis, counterparty risk, liquidity
+        evaporation) collapsing to move together, so a given amount of
+        volatility is realized as a one-directional tail loss instead of
+        partially netting out. We model this as a volatility-scaled tail
+        move, amplified by how far the shocked correlation sits above a
+        baseline "normal" cross-factor correlation for crypto markets.
+        """
         
         loss = 0.0
         if "price_change" in scenario_params:
@@ -233,5 +257,14 @@ class RiskQuantifier:
             loss += current_price * scenario_params["slippage"]
         if "liquidity_loss" in scenario_params:
             loss += current_price * scenario_params["liquidity_loss"]
+        if "correlation_shock" in scenario_params:
+            shock = scenario_params["correlation_shock"]  # e.g. 0.95 = near-perfect
+            baseline_correlation = 0.30  # typical baseline cross-factor correlation in crypto
+            # Amplification grows with how far shock sits above baseline; capped at 5x
+            # to avoid an unbounded estimate from a degenerate near-zero baseline.
+            amplification = min(shock / baseline_correlation, 5.0) if baseline_correlation > 0 else 1.0
+            # A 2-sigma adverse move realized in full (not partially diversified away),
+            # scaled by the amplification factor.
+            loss += -current_price * current_volatility * 2.0 * amplification
         
         return loss / current_price if current_price != 0 else loss

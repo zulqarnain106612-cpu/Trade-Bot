@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 10:50 | 808 Python modules | 232,797 total lines
+> Auto-generated 2026-06-29 10:58 | 808 Python modules | 232,830 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3647,7 +3647,7 @@ Replaces deterministic
 Each provider wraps a specific API:
   - glassnod
 
-### `src/intelligence/risk_quantification.py` (237 lines)
+### `src/intelligence/risk_quantification.py` (270 lines)
 **Purpose**: Risk quantification and uncertainty analysis.
 
 Measures: VaR, CVaR, stress testi
