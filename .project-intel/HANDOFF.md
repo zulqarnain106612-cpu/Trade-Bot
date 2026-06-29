@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-06-30 03:47:26 | Read this before starting any work.
+> Updated: 2026-06-30 03:49:13 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
 **Started**: 2026-06-29 17:31:43
-**Last checkpoint**: 2026-06-30 03:47:26
+**Last checkpoint**: 2026-06-30 03:49:13
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,7 +14,7 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  TASK-011 or coverage gap — check OPEN_TASKS.md
+  TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
 
 ## Files to Check
   - .claude/CLAUDE.md

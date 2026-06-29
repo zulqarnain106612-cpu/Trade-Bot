@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T03:49:12.683531",
+  "last_updated": "2026-06-30T03:49:13.097553",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -184,10 +184,11 @@
       "[2026-06-30 03:45:24] [6abe639] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-06-30 03:45:25] [ac6a39b] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-06-30 03:47:26] TASK-010: wired live spread_bps and funding_rate_8h into SignalContext \u2014 added fetch_funding_rate() to fetcher.py (ccxt fetch_funding_rate, graceful 0.0 for spot/errors), concurrent gather with fetch_orderbook in tick(), _live_funding_rate_8h passed to SignalContext.funding_rate_8h (was hardcoded 0.0); 2 new tests in test_signal_engine.py (wiring + error fallback); 727 tests pass",
-      "[2026-06-30 03:49:12] [69e607d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
+      "[2026-06-30 03:49:12] [69e607d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-06-30 03:49:13] [763e3fd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 03:49:12",
+    "last_checkpoint": "2026-06-30 03:49:13",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
