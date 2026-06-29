@@ -10410,7 +10410,7 @@
   },
   "src/engine/orchestrator.py": {
     "purpose": "Orchestrator \u2014 top-level async event loop coordinating all subsystems.\n\nResponsibilities:\n  - Bootst",
-    "lines": 762,
+    "lines": 807,
     "classes": [
       "Orchestrator"
     ],

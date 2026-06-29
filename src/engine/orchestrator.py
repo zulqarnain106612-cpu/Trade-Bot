@@ -399,6 +399,43 @@ class Orchestrator:
                 age_s = datetime.now(tz=UTC).timestamp() - (earliest / 1000.0)
                 paper_trading_days = int(age_s / 86400)
 
+        # GAP-005/GAP-015: push this symbol's bar return into the shared
+        # portfolio-correlation tracker, then compute a sizing scalar from
+        # this symbol's correlation with all OTHER currently-open positions
+        # (excludes self._symbol's own position, if any — correlating a
+        # symbol with itself is meaningless and would always read as 1.0).
+        # Fails safe to 1.0 (no-op, matches compute_position_size's default)
+        # on any error so a tracker bug degrades to "no correlation
+        # adjustment" rather than blocking sizing entirely.
+        correlation_scalar = 1.0
+        try:
+            tracker = get_portfolio_correlation()
+            latest = await self._storage.latest_close(self._symbol, tf.value)
+            if latest is not None:
+                ts, close = latest
+                prev = self._last_close_for_corr.get(tf.value)
+                if prev is not None and prev[0] != ts and prev[1] > 0.0:
+                    bar_return = (close - prev[1]) / prev[1]
+                    tracker.push_bar_returns({self._symbol: bar_return})
+                self._last_close_for_corr[tf.value] = (ts, close)
+
+            open_positions = await executor.open_positions_safe()
+            other_open_symbols = [
+                p["symbol"] for p in open_positions
+                if p.get("symbol") != self._symbol
+            ]
+            correlation_scalar = tracker.correlation_scalar(
+                new_symbol=self._symbol,
+                open_symbols=other_open_symbols,
+            )
+        except Exception as exc:
+            self._log.error(
+                "orchestrator.correlation_scalar_failed",
+                error=str(exc),
+                fallback_scalar=1.0,
+            )
+            correlation_scalar = 1.0
+
         # Run signal engine
         result: SignalResult = await engine.tick(
             capital_usd=capital_usd,
@@ -410,6 +447,7 @@ class Orchestrator:
             avg_win_usd=avg_win,
             avg_loss_usd=avg_loss,
             paper_trading_days=paper_trading_days,
+            correlation_scalar=correlation_scalar,
         )
 
         # Persist regime snapshot
