@@ -11241,6 +11241,26 @@
       "src.risk.performance_drift"
     ]
   },
+  "tests/test_portfolio_correlation.py": {
+    "purpose": "Tests for src/risk/portfolio_correlation.py\n\nCovers: _EWMSeries, _EWMCov, PortfolioCorrelationTracke",
+    "lines": 364,
+    "classes": [
+      "TestEWMSeries",
+      "TestEWMCov",
+      "TestPushBarReturns",
+      "TestPushReturn",
+      "TestCorrelation",
+      "TestAvgCorrelation",
+      "TestCorrelationScalar",
+      "TestCorrelationMatrix",
+      "TestSingleton"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.risk.portfolio_correlation"
+    ]
+  },
   "tests/test_position_sizing.py": {
     "purpose": "Test coverage for src/strategies/position_sizing.py \u2014 Carver/AFML/Thorp sizing.",
     "lines": 421,

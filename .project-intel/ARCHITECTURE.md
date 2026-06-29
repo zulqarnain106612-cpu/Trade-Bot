@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-30 04:11 | 811 Python modules | 234,148 total lines
+> Auto-generated 2026-06-30 04:31 | 812 Python modules | 234,512 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3835,6 +3835,12 @@ endpoints (GE
 ### `tests/test_performance_drift.py` (161 lines)
 **Purpose**: Test suite for Performance Drift Detector.
 **Classes**: TestPerformanceBaseline, TestDriftDetector, TestSharpeDrift, TestAccuracyDrift, TestLiveMetrics
+
+### `tests/test_portfolio_correlation.py` (364 lines)
+**Purpose**: Tests for src/risk/portfolio_correlation.py
+
+Covers: _EWMSeries, _EWMCov, Portfo
+**Classes**: TestEWMSeries, TestEWMCov, TestPushBarReturns, TestPushReturn, TestCorrelation, TestAvgCorrelation, TestCorrelationScalar, TestCorrelationMatrix, TestSingleton
 
 ### `tests/test_position_sizing.py` (421 lines)
 **Purpose**: Test coverage for src/strategies/position_sizing.py — Carver/AFML/Thorp sizing.
