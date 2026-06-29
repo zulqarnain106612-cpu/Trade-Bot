@@ -52,6 +52,7 @@ RULES: Never write gaps/issues/tasks as plain text. Never duplicate project cont
 
 ## NEVER do these
 - Do NOT read CONTEXT_PRIMER.md, SESSION_STATE.json, DECISION_LOG.md, or HANDOFF.md at session start — resume.py covers all of them
+- Do NOT read MODULE_MAP.json — it is 291KB and will burn your session. The resume brief contains the full slim module map already
 - Do NOT read source files to understand the project — the brief has module map + signal flow
 - Do NOT ask the user to explain the project
 - Do NOT open source files until immediately before editing them
@@ -59,7 +60,7 @@ RULES: Never write gaps/issues/tasks as plain text. Never duplicate project cont
 ## ALWAYS do these
 - Run resume.py as the very first action (see top of this file)
 - Checkpoint via handoff.py after every meaningful change
-- Use MODULE_MAP.json for structure questions
+- Use the module map embedded in the resume.py output for structure questions — never open MODULE_MAP.json
 - Use XML routing tags on every response
 - Read one specific source file only when about to modify it
 

@@ -1,34 +1,33 @@
 # Agent Handoff State
-> Updated: 2026-06-29 18:16:34 | Read this before starting any work.
+> Updated: 2026-06-29 19:46:32 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
-**Status**:  🔴 INTERRUPTED — resume required
+**Status**:  🟢 ACTIVE
 **Task**:    shell session started — TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
 **Started**: 2026-06-29 17:31:43
-**Last checkpoint**: 2026-06-29 18:16:34
+**Last checkpoint**: 2026-06-29 19:46:32
 
-## ⚠ INTERRUPTION — Resume from here
-**Reason**: shell exited with 8 uncommitted file(s)
-
-### What was completed before interruption:
-
-### Exact resume point:
-  TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
-
-### Files modified (may have uncommitted changes):
-
-### Action required:
-  1. Run `git status` — check for uncommitted changes
-  2. Run `git diff` — review what was partially done
-  3. Read the files listed above — continue from next_step above
-  4. Do NOT restart from scratch — work is partially done
+## ⚠ ANOTHER AGENT IS ACTIVE
+If claude is no longer running, status is stale.
+Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
+Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
   TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
 
 ## Files to Check
-  (no specific files — start from OPEN_TASKS.md)
+  - .claude/CLAUDE.md
+  - .github/workflows/auto-fix.yml
+  - .project-intel/GAPS.md
+  - .project-intel/HANDOFF.md
+  - .project-intel/ISSUES.md
+  - .project-intel/RISK_LOG.md
+  - .project-intel/SECURITY_ISSUES.md
+  - .project-intel/SESSION_STATE.json
+  - .project-intel/TECH_DEBT.md
+  - .project-intel/scripts/resume.py
+  - CLAUDE.md
 
 ## Session History (last 5)
   [2026-06-29 18:16:34] claude — interrupted: shell exited with 8 uncommitted file(s)

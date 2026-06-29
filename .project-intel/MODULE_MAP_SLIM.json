@@ -1,0 +1,198 @@
+{
+  "src/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/api/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/api/auth.py": {
+    "purpose": "API authentication \u2014 API key validation for REST and WebSocket.",
+    "functions": []
+  },
+  "src/api/main.py": {
+    "purpose": "FastAPI dashboard API.",
+    "functions": []
+  },
+  "src/api/middleware.py": {
+    "purpose": "CORS validation middleware \u2014 prevents wildcard + credentials misconfiguration",
+    "functions": []
+  },
+  "src/config.py": {
+    "purpose": "Production configuration for the algorithmic trading bot.",
+    "functions": []
+  },
+  "src/data/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/data/fetcher.py": {
+    "purpose": "Async market data fetcher \u2014 Binance (primary) + OKX (secondary).",
+    "functions": []
+  },
+  "src/data/storage.py": {
+    "purpose": "Async SQLite storage layer \u2014 aiosqlite, WAL mode, typed queries.",
+    "functions": []
+  },
+  "src/diagnostics/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/diagnostics/runtime_monitor.py": {
+    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics with auto-healing.",
+    "functions": []
+  },
+  "src/diagnostics/signal_debugger.py": {
+    "purpose": "Signal Debugger \u2014 feature drift detection, model degradation scanner,",
+    "functions": []
+  },
+  "src/diagnostics/trade_auditor.py": {
+    "purpose": "Trade Auditor \u2014 captures every signal decision with full diagnostic context.",
+    "functions": []
+  },
+  "src/engine/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/engine/orchestrator.py": {
+    "purpose": "Orchestrator \u2014 top-level async event loop coordinating all subsystems.",
+    "functions": []
+  },
+  "src/engine/signal_engine.py": {
+    "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.",
+    "functions": []
+  },
+  "src/execution/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/execution/base.py": {
+    "purpose": "Abstract base class for trade executors (VUL-038).",
+    "functions": []
+  },
+  "src/execution/live.py": {
+    "purpose": "Live trading executor \u2014 real money order placement via ccxt.",
+    "functions": []
+  },
+  "src/execution/live_fsm_integration.py": {
+    "purpose": "Live Executor FSM Integration \u2014 refactored order placement with OrderFSM.",
+    "functions": []
+  },
+  "src/execution/order_fsm.py": {
+    "purpose": "Order Finite State Machine \u2014 formalized order lifecycle with state transitions.",
+    "functions": []
+  },
+  "src/execution/order_manager.py": {
+    "purpose": "Order Manager \u2014 FSM-based order lifecycle management for live executor.",
+    "functions": []
+  },
+  "src/execution/paper.py": {
+    "purpose": "Paper trading executor.",
+    "functions": []
+  },
+  "src/features/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/features/intelligence_features.py": {
+    "purpose": "Intelligence-augmented features.",
+    "functions": []
+  },
+  "src/features/pipeline.py": {
+    "purpose": "Feature engineering pipeline.",
+    "functions": []
+  },
+  "src/intelligence/__init__.py": {
+    "purpose": "Crypto intelligence layer \u2014 on-chain metrics, exchange flows, whale tracking.",
+    "functions": []
+  },
+  "src/intelligence/causal_inference.py": {
+    "purpose": "Causal inference framework.",
+    "functions": []
+  },
+  "src/intelligence/client.py": {
+    "purpose": "Multi-provider intelligence client aggregator.",
+    "functions": []
+  },
+  "src/intelligence/ensemble_predictor.py": {
+    "purpose": "Ensemble prediction framework.",
+    "functions": []
+  },
+  "src/intelligence/metrics.py": {
+    "purpose": "Intelligence metrics computation layer.",
+    "functions": []
+  },
+  "src/intelligence/probabilistic.py": {
+    "purpose": "Probabilistic inference engine for crypto intelligence.",
+    "functions": []
+  },
+  "src/intelligence/providers/__init__.py": {
+    "purpose": "Crypto intelligence providers.",
+    "functions": []
+  },
+  "src/intelligence/risk_quantification.py": {
+    "purpose": "Risk quantification and uncertainty analysis.",
+    "functions": []
+  },
+  "src/regime/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/regime/detector.py": {
+    "purpose": "GaussianHMM regime detector \u2014 Hamilton (1989) 3-state switching model.",
+    "functions": []
+  },
+  "src/risk/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/risk/cognitive_engine.py": {
+    "purpose": "Cognitive Engine \u2014 Mandatory Runtime Decision Layer",
+    "functions": []
+  },
+  "src/risk/drift_integration.py": {
+    "purpose": "Drift Detector Integration \u2014 hooks for orchestrator to record trade outcomes.",
+    "functions": []
+  },
+  "src/risk/gates.py": {
+    "purpose": "Risk gate engine \u2014 hard limits that block new positions.",
+    "functions": []
+  },
+  "src/risk/intelligence_gates.py": {
+    "purpose": "Intelligence-aware risk gates.",
+    "functions": []
+  },
+  "src/risk/kelly.py": {
+    "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.",
+    "functions": []
+  },
+  "src/risk/performance_drift.py": {
+    "purpose": "Performance Drift Trigger \u2014 detects model decay in live trading.",
+    "functions": []
+  },
+  "src/risk/portfolio_correlation.py": {
+    "purpose": "Portfolio Correlation Layer \u2014 Gap-005.",
+    "functions": []
+  },
+  "src/risk/probabilistic_gates.py": {
+    "purpose": "Probabilistic risk gates (P2+ enhancement).",
+    "functions": []
+  },
+  "src/risk/slippage.py": {
+    "purpose": "Slippage and market-impact model \u2014 Almgren-Chriss square-root impact.",
+    "functions": []
+  },
+  "src/strategies/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/strategies/filters.py": {
+    "purpose": "Professional strategy filters and signal enrichment.",
+    "functions": []
+  },
+  "src/strategies/position_sizing.py": {
+    "purpose": "Advanced position sizing \u2014 Carver (2019) and L\u00f3pez de Prado (2018).",
+    "functions": []
+  }
+}

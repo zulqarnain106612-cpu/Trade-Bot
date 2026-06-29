@@ -586,6 +586,23 @@ def main():
     module_map = build_module_map(root, data)
     (output_dir / "MODULE_MAP.json").write_text(module_map)
 
+    # MODULE_MAP_SLIM.json — src/ only, 1-line purpose + top-5 functions
+    # This is what Claude reads. Full map (291KB) is for tools only.
+    try:
+        full_map = json.loads(module_map)
+        slim = {}
+        for fp, info in full_map.items():
+            if not fp.startswith("src/"):
+                continue
+            if isinstance(info, dict):
+                purpose = info.get("purpose", "").strip().split("\n")[0][:90]
+                slim[fp] = {"purpose": purpose, "functions": info.get("functions", [])[:5]}
+            else:
+                slim[fp] = {"purpose": str(info)[:90], "functions": []}
+        (output_dir / "MODULE_MAP_SLIM.json").write_text(json.dumps(slim, indent=2))
+    except Exception as e:
+        print(f"  [warn] Could not build MODULE_MAP_SLIM: {e}")
+
     # Raw scan data
     (output_dir / "RAW_SCAN.json").write_text(
         json.dumps({"file_tree": data["file_tree"]}, indent=2)

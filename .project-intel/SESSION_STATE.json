@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-29T18:16:34.381882",
+  "last_updated": "2026-06-29T19:46:32.223619",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,7 +38,7 @@
   ],
   "next_recommended_task": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 11,
+  "total_sessions": 14,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -159,7 +159,7 @@
   "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
   "last_commit_time": "2026-06-29T17:21:48.290005",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-29T19:45:57.311032",
+  "last_session_start": "2026-06-30T03:18:19.098737",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -167,10 +167,12 @@
   "last_extraction_trigger": "ensemble_predictor.py",
   "handoff": {
     "active_agent": "claude",
-    "status": "interrupted",
-    "completed_this_session": [],
+    "status": "active",
+    "completed_this_session": [
+      "[2026-06-29 19:46:32] [3cedb25] feat(intel): add resume.py \u2014 single-command session bootstrap to eliminate re-orientation token burn [claude]"
+    ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-29 18:16:34",
+    "last_checkpoint": "2026-06-29 19:46:32",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -191,7 +193,19 @@
         "summary": "shell exited with 8 uncommitted file(s)"
       }
     ],
-    "files_touched": [],
+    "files_touched": [
+      ".claude/CLAUDE.md",
+      ".github/workflows/auto-fix.yml",
+      ".project-intel/GAPS.md",
+      ".project-intel/HANDOFF.md",
+      ".project-intel/ISSUES.md",
+      ".project-intel/RISK_LOG.md",
+      ".project-intel/SECURITY_ISSUES.md",
+      ".project-intel/SESSION_STATE.json",
+      ".project-intel/TECH_DEBT.md",
+      ".project-intel/scripts/resume.py",
+      "CLAUDE.md"
+    ],
     "current_task": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
     "session_started": "2026-06-29 17:31:43",
     "interruption_reason": "shell exited with 8 uncommitted file(s)"
