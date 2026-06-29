@@ -479,3 +479,31 @@ of a near-duplicate, so drift becomes impossible. Optionally rename
 SESSION_STATE.json's two daemon-related fields to disambiguate
 (e.g. `intel_extraction_daemon_running` vs `output_router_daemon_exists`).
 ────────────────────────────────────────────────────────────
+
+## Gap-017 [2026-06-29] — NEW (audit session, Amazon Q)
+Multiple risk/intelligence modules exist and pass unit tests in isolation but are
+completely unreachable from the live signal path. This was partially documented in
+Gap-015, but the scope is broader than that entry captures. Verified by cross-referencing
+directory listing against import graph:
+
+- src/intelligence/ directory (6 files: client.py, causal_inference.py, ensemble_predictor.py,
+  metrics.py, probabilistic.py, risk_quantification.py + providers/ subdir) — exists as a
+  full intelligence layer but src/intelligence/client.py and providers/ have no confirmed
+  import consumers in the live path.
+- src/risk/drift_integration.py and src/risk/performance_drift.py — present in src/risk/
+  but not confirmed wired into gates.py sequential gate stack or signal_engine.py.
+
+Root cause: the same pattern identified in Gap-015 (build → unit test → claim COMPLETE
+without an integration step). The intelligence layer in particular appears to have been
+designed as a major architectural addition but the wiring from signal_engine.py into these
+modules is incomplete or absent.
+
+Severity: Medium — not dangerous, but operators reading MODULE_MAP.json or the README
+signal architecture diagram may assume these are active runtime components when they are not.
+File: src/intelligence/, src/risk/drift_integration.py, src/risk/performance_drift.py
+Status: OPEN — Action: run `grep -rn "from src.intelligence" src/` and `grep -rn
+"from src.risk.drift_integration" src/` to confirm actual import graph. For any module
+not imported from signal_engine.py/orchestrator.py, either wire it in with an integration
+test or clearly mark it as EXPERIMENTAL/UNUSED in MODULE_MAP.json.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

@@ -62,7 +62,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git diff --quiet && git diff --staged --quiet || (
-            git add -A
+            git add src/ frontend/src/  # SEC-009: explicit path scope, not -A
             git commit -m "chore: auto-fix ruff + prettier [skip ci]"
             git push
           )

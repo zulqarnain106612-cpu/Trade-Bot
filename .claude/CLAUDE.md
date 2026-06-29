@@ -1,45 +1,40 @@
 # Trade Bot — Claude Instructions
 
-## PRIMARY INSTRUCTIONS FILE
-The authoritative CLAUDE.md is at the project root.
-This file mirrors it for tools that look in `.claude/`.
+## ══ MANDATORY SESSION START — ONE COMMAND, NO EXCEPTIONS ══
 
----
-
-# Trade Bot — Claude Instructions
-
-## MANDATORY: Read these files before anything else
-1. `.project-intel/HANDOFF.md` — FIRST: shows exact state left by previous agent (Claude/Copilot/AmazonQ)
-2. `.project-intel/CONTEXT_PRIMER.md` — complete project understanding + output routing protocol
-2. `.project-intel/SESSION_STATE.json` — current progress and what's next
-3. `.project-intel/DECISION_LOG.md` — decisions already made
-
-
-## HANDOFF PROTOCOL — register on start, checkpoint during work, finish on end
-
-**Session start:**
 ```bash
-python3 .project-intel/scripts/handoff.py start --agent claude --task "your task"
+python3 .project-intel/scripts/resume.py /home/fujitsu/Projects/Trade-Bot-main
 ```
 
-**During work (after every meaningful step):**
+**Run this FIRST. Read its output. That output IS your full context.**
+Do NOT read CONTEXT_PRIMER, SESSION_STATE, DECISION_LOG, or HANDOFF separately.
+The resume script merges all of them into a single compressed brief.
+After reading the brief output → begin work on NEXT TASK immediately.
+
+## HANDOFF PROTOCOL
+
+**After every meaningful step (mandatory):**
 ```bash
 python3 .project-intel/scripts/handoff.py checkpoint --agent claude \
-  --completed "what you just did" --next "exact next step" --files "src/file.py"
+  --completed "what you just did" --next "exact next action" --files "src/file.py"
 ```
 
-**Clean finish:**
+**Clean session finish:**
 ```bash
 python3 .project-intel/scripts/handoff.py finish --agent claude \
   --completed "what you completed" --next "TASK-XXX: next task"
 ```
 
-**If interrupted** (run before closing): the daemon auto-marks stale sessions as interrupted.
+**Commit uncommitted intel files:**
+```bash
+bash scripts/claude-commit.sh
+```
 
-## OUTPUT ROUTING PROTOCOL — mandatory for every response
-Use XML tags. System auto-routes tagged content to correct destination.
+## OUTPUT ROUTING — mandatory on every response
 
-→ PROJECT FILES (do not repeat in chat):
+Use XML tags. Routes content to correct destination files automatically.
+
+→ PROJECT FILES (never repeat in chat):
   <gap>architecture gap</gap>               → GAPS.md
   <issue>bug or broken behavior</issue>     → ISSUES.md
   <broken>non-functional component</broken> → BROKEN.md
@@ -54,19 +49,19 @@ Use XML tags. System auto-routes tagged content to correct destination.
 → CHAT: <chat>reply, code, explanation</chat>  or untagged content
 
 RULES: Never write gaps/issues/tasks as plain text. Never duplicate project content in chat.
-Always follow project-bound blocks with a brief <chat> summary.
 
 ## NEVER do these
-- Do NOT read entire source files to understand the project
-- Do NOT ask the user to explain what the project does
-- Do NOT re-read files from a previous session — use SESSION_STATE.json
-- Do NOT open more than one specific source file at a time
+- Do NOT read CONTEXT_PRIMER.md, SESSION_STATE.json, DECISION_LOG.md, or HANDOFF.md at session start — resume.py covers all of them
+- Do NOT read source files to understand the project — the brief has module map + signal flow
+- Do NOT ask the user to explain the project
+- Do NOT open source files until immediately before editing them
 
 ## ALWAYS do these
-- Read the 3 mandatory files above at session start
-- Use MODULE_MAP.json for structural questions
-- Check GAPS.md and ISSUES.md before implementing anything
+- Run resume.py as the very first action (see top of this file)
+- Checkpoint via handoff.py after every meaningful change
+- Use MODULE_MAP.json for structure questions
 - Use XML routing tags on every response
+- Read one specific source file only when about to modify it
 
 ## Project identity
 Production algorithmic trading bot. Python 3.11 + FastAPI + XGBoost + GaussianHMM + React.

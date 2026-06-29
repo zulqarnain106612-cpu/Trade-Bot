@@ -210,3 +210,31 @@ Status: OPEN — Action: consider a per-file or per-package minimum
 coverage floor for src/execution/ and src/engine/ specifically (e.g. 70%+)
 rather than relying on a single repo-wide average that high-coverage
 files like storage.py/kelly.py can subsidize.
+
+## Debt-010 [2026-06-29] — NEW (audit session, Amazon Q)
+SESSION_STATE.json records multiple "COMPLETE" claims for modules that are either
+disconnected from the live path (Gap-015, Gap-017) or whose status was verified as
+stale in subsequent sessions. This is a systemic documentation-drift problem, not
+just individual errors.
+
+Pattern observed across at least 4 entries in implementation_status:
+- "portfolio_correlation_layer": "COMPLETE" — file exists, 0% coverage, never imported
+- "output_router": had to be corrected from false COMPLETE to "NOT a running daemon"
+- "intel_layer": claimed COMPLETE; individual modules within it have 0% live-path coverage
+- Gap-015 was only caught because an independent audit session ran `pytest --cov` rather
+  than trusting SESSION_STATE.json
+
+Root cause: the protocol for marking a task COMPLETE (write to SESSION_STATE.json /
+commit message) does not require a coverage-nonzero check against the relevant file.
+A task is marked done when the code is written and unit tests pass, not when it is
+provably reachable from the live signal path.
+
+Severity: Medium (process/documentation debt — directly enables Risk-003 above)
+File: .project-intel/SESSION_STATE.json, .project-intel/HANDOFF.md
+Status: OPEN — Action: add a mandatory completion criterion to the agent handoff protocol:
+"A module is only COMPLETE when: (1) unit tests pass, AND (2) `pytest --cov` shows nonzero
+coverage for the file, AND (3) a grep of signal_engine.py/gates.py/orchestrator.py confirms
+it is imported." Document this rule in HANDOFF.md's Quick Start section so all future
+agents (claude, copilot, amazonq) apply it consistently.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

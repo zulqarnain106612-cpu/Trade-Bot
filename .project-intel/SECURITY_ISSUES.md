@@ -174,3 +174,27 @@ from the trigger (PR-only) or change the commit step to open a PR instead
 of pushing directly. (2) Update the misleading header comment to match
 actual trigger scope either way.
 ────────────────────────────────────────────────────────────
+
+## SEC-009 [2026-06-29] — NEW (audit session, Amazon Q)
+.github/workflows/auto-fix.yml push trigger covers main branch directly (SEC-008, still open).
+This entry adds a new compounding factor not captured in SEC-008:
+
+The auto-fix workflow runs `git add -A` before committing. While Gap-010's /models/ and /logs/
+entries in .gitignore prevent binary model artifacts from being staged, the workflow has no
+explicit exclusion list beyond what .gitignore covers. If any future session creates a
+scratch file outside gitignored paths (e.g. a temporary .py file at repo root, or a debug
+output file in src/), the auto-fix workflow will stage and commit it to main automatically
+with no human in the loop.
+
+This is a defense-in-depth gap, not a confirmed current exploit — .gitignore is correctly
+configured today. But `git add -A` on a repository with contents:write permission and a
+direct-push-to-main trigger is a pattern that needs explicit acknowledgment.
+
+Severity: Low-Medium (no current exploit; depends on future file creation outside gitignored
+paths happening to coincide with a push to main triggering the workflow)
+File: .github/workflows/auto-fix.yml
+Status: OPEN — Action: change `git add -A` to `git add src/ frontend/` (explicit path scope)
+in auto-fix.yml so the workflow can only ever stage known source directories, not arbitrary
+repo-root files. This is a one-line change that eliminates the risk entirely.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

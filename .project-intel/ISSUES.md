@@ -120,3 +120,29 @@ File: .git/hooks/ (missing pre-commit hook), .pre-commit-config.yaml
 Status: OPEN — Action: run `pre-commit install` once in this clone (and
 document it in README/setup script as a required setup step — checked
 setup_dev.ps1 does not currently call it either, see follow-up).
+
+## Issue-006 [2026-06-29] — NEW (audit session, Amazon Q)
+src/diagnostics/runtime_monitor.py documents "auto-recovery" behavior that does not exist
+(originally flagged as Issue-004). This has been re-verified as still open as of 2026-06-29.
+A secondary, related issue is now also logged here:
+
+The RuntimeMonitor's _on_task_done() callback logs action="monitor_offline — restart required"
+when a monitored asyncio.Task crashes, but there is no supervisor loop, no coroutine factory
+registry, and no asyncio.create_task() call anywhere in the monitor that would recreate a
+dead task. If the orchestrator's main tick loop crashes (e.g. due to an unhandled exception
+in the ccxt fetch path or signal engine), the bot silently stops trading with no self-healing
+and no alert beyond a structlog entry that operators may not be watching.
+
+The risk is compounded by orchestrator.py's 10% test coverage (Debt-009) — the crash paths
+that would trigger this non-recovery have essentially no regression protection.
+
+Severity: Medium-High (operational safety — a crashed tick loop means no new signals, no
+position monitoring, no stop-loss execution. Positions stay open indefinitely with no oversight.)
+File: src/diagnostics/runtime_monitor.py, src/engine/orchestrator.py
+Status: OPEN — Action: either (a) implement a task-factory registry so _on_task_done() can
+restart crashed tasks via asyncio.create_task(factory()), or (b) update all docstrings and
+log messages to say "alert only — manual restart required" and document the operator runbook
+step for responding to this alert. Option (b) is the minimum viable fix; option (a) is the
+correct long-term solution.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

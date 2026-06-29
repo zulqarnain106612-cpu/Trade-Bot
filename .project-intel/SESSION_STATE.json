@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-29T17:21:48.187717",
+  "last_updated": "2026-06-29T18:16:34.381882",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,7 +38,7 @@
   ],
   "next_recommended_task": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 9,
+  "total_sessions": 11,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -159,7 +159,7 @@
   "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
   "last_commit_time": "2026-06-29T17:21:48.290005",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-29T14:35:19.499837",
+  "last_session_start": "2026-06-29T19:45:57.311032",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -167,35 +167,33 @@
   "last_extraction_trigger": "ensemble_predictor.py",
   "handoff": {
     "active_agent": "claude",
-    "status": "active",
-    "completed_this_session": [
-      "[2026-06-29 14:43:07] Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale session detection, HANDOFF.md, checkpointing, and daemon auto-interrupt",
-      "[2026-06-29 17:18:57] [56d2f9b] docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
-      "[2026-06-29 17:18:59] [e337e7c] docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
-      "[2026-06-29 17:19:02] [1c8a6bc] docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
-      "[2026-06-29 17:19:03] [9ef82aa] docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
-      "[2026-06-29 17:21:48] [f9cbe06] docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]"
-    ],
+    "status": "interrupted",
+    "completed_this_session": [],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-29 17:21:48",
+    "last_checkpoint": "2026-06-29 18:16:34",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
         "agent": "claude",
         "status": "completed",
         "summary": "Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess"
+      },
+      {
+        "time": "2026-06-29 17:31:43",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": ""
+      },
+      {
+        "time": "2026-06-29 18:16:34",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell exited with 8 uncommitted file(s)"
       }
     ],
-    "files_touched": [
-      ".project-intel/ARCHITECTURE.md",
-      ".project-intel/MODULE_MAP.json",
-      ".project-intel/RAW_SCAN.json",
-      ".project-intel/SESSION_STATE.json",
-      ".project-intel/scripts/agent_detect.py",
-      "requirements.in",
-      "src/intelligence/ensemble_predictor.py",
-      ".project-intel/HANDOFF.md",
-      "requirements.lock"
-    ]
+    "files_touched": [],
+    "current_task": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
+    "session_started": "2026-06-29 17:31:43",
+    "interruption_reason": "shell exited with 8 uncommitted file(s)"
   }
 }
