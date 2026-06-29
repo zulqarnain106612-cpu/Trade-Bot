@@ -48,6 +48,7 @@ from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
+from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 
 
@@ -111,6 +112,13 @@ class Orchestrator:
         self._last_tick_ts: dict[str, float] = {tf.value: 0.0 for tf in self._timeframes}
         self._stop_event: asyncio.Event = asyncio.Event()
         self._log = log.bind(component="orchestrator", symbol=self._symbol)
+
+        # GAP-005/GAP-015: last-seen (ts, close) per timeframe — used to compute
+        # a simple bar return each tick to feed the shared PortfolioCorrelationTracker
+        # singleton (src.risk.portfolio_correlation). Keyed by timeframe since this
+        # Orchestrator instance is single-symbol (self._symbol); the tracker itself
+        # is process-wide and aggregates returns pushed by every symbol's Orchestrator.
+        self._last_close_for_corr: dict[str, tuple[int, float]] = {}
 
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems

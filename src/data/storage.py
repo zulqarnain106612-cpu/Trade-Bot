@@ -688,6 +688,30 @@ class StorageBackend:
             row = await cur.fetchone()
         return int(row[0]) if row and row[0] is not None else None
 
+    async def latest_close(self, symbol: str, timeframe: str) -> tuple[int, float] | None:
+        """
+        GAP-005/GAP-015: return (ts, close) for the single most recent bar.
+
+        Cheap, single-row read used by the orchestrator each tick to feed
+        PortfolioCorrelationTracker.push_bar_returns() — avoids loading a
+        full bars DataFrame (fetch_bars) just to compute one bar's return.
+        Returns None if no bars are stored yet for this symbol/timeframe.
+        """
+        conn = self._require_conn()
+        async with conn.execute(
+            """
+            SELECT ts, close FROM bars
+            WHERE symbol=? AND timeframe=?
+            ORDER BY ts DESC
+            LIMIT 1
+            """,
+            (symbol, timeframe),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["ts"] is None or row["close"] is None:
+            return None
+        return (int(row["ts"]), float(row["close"]))
+
     async def bar_count(self, symbol: str, timeframe: str) -> int:
         """Return total stored bar count for a symbol/timeframe."""
         conn = self._require_conn()

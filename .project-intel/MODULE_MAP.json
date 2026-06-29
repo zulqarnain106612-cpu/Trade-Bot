@@ -10326,7 +10326,7 @@
   },
   "src/data/storage.py": {
     "purpose": "Async SQLite storage layer \u2014 aiosqlite, WAL mode, typed queries.\n\nSchema owns five tables:\n  bars   ",
-    "lines": 1300,
+    "lines": 1324,
     "classes": [
       "BarRecord",
       "TradeRecord",
@@ -10410,7 +10410,7 @@
   },
   "src/engine/orchestrator.py": {
     "purpose": "Orchestrator \u2014 top-level async event loop coordinating all subsystems.\n\nResponsibilities:\n  - Bootst",
-    "lines": 761,
+    "lines": 762,
     "classes": [
       "Orchestrator"
     ],
@@ -10427,7 +10427,7 @@
   },
   "src/engine/signal_engine.py": {
     "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.\n\nOn every tick for a given (symbol, timef",
-    "lines": 627,
+    "lines": 628,
     "classes": [
       "SignalResult",
       "SignalEngine"

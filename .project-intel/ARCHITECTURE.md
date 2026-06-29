@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 10:33 | 808 Python modules | 232,664 total lines
+> Auto-generated 2026-06-29 10:40 | 808 Python modules | 232,690 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3505,7 +3505,7 @@ Responsibiliti
 **Classes**: OrderBookSnapshot, MarketDataFetcher, _FetcherContextManager
 **Key functions**: open_
 
-### `src/data/storage.py` (1300 lines)
+### `src/data/storage.py` (1324 lines)
 **Purpose**: Async SQLite storage layer — aiosqlite, WAL mode, typed queries.
 
 Schema owns fi
@@ -3537,13 +3537,13 @@ Ev
 ### `src/engine/__init__.py` (1 lines)
 **Purpose**: __init__ module
 
-### `src/engine/orchestrator.py` (761 lines)
+### `src/engine/orchestrator.py` (762 lines)
 **Purpose**: Orchestrator — top-level async event loop coordinating all subsystems.
 
 Responsi
 **Classes**: Orchestrator
 
-### `src/engine/signal_engine.py` (627 lines)
+### `src/engine/signal_engine.py` (628 lines)
 **Purpose**: Signal engine — per-timeframe signal computation pipeline.
 
 On every tick for a 

@@ -495,6 +495,7 @@ class SignalEngine:
             notional_usd=round(kelly_result.notional_usd, 2),
             kelly_fraction=round(kelly_result.adjusted_fraction, 4),
             regime_scalar_filter_logged_only=round(_regime_scalar, 3),  # GAP-008: not applied
+            correlation_scalar_applied=round(correlation_scalar, 3),  # GAP-005/015: IS applied (see kelly.py)
             hurst=round(_filter_result["details"].get("hurst", 0.5), 3),
         )
 
