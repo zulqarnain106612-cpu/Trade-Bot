@@ -6,14 +6,30 @@
 python3 .project-intel/scripts/resume.py /home/fujitsu/Projects/Trade-Bot-main
 ```
 
-**Run this FIRST. Read its output. That output IS your full context.**
-Do NOT read CONTEXT_PRIMER, SESSION_STATE, DECISION_LOG, or HANDOFF separately.
-The resume script merges all of them into a single compressed brief.
-After reading the brief output → begin work on NEXT TASK immediately.
+**Run this FIRST. Read its output. That IS your complete context.**
+After reading the brief → begin work on NEXT TASK immediately. No other reads needed.
+
+## ══ FILE SIZE DANGER TABLE — NEVER OPEN THESE ══
+
+| File | Size | Why forbidden |
+|------|------|---------------|
+| `.project-intel/MODULE_MAP.json` | 291KB | resume.py slim map replaces it |
+| `.project-intel/ARCHITECTURE.md` | 160KB | stale, resume.py covers structure |
+| `.project-intel/RAW_SCAN.json` | 87KB | internal tool output only |
+| `.project-intel/rag.db` | 8.9MB | binary database |
+| `.project-intel/scripts/extract_intelligence.py` | 29KB | internal only |
+| `.project-intel/scripts/cognitive_layer.py` | 23KB | internal only |
+| `.project-intel/GAPS.md` | 34KB | key gaps embedded in resume brief |
+| `.project-intel/TECH_DEBT.md` | 16KB | summary in resume brief |
+| `.project-intel/SECURITY_ISSUES.md` | 14KB | summary in resume brief |
+| `.project-intel/SESSION_STATE.json` | 11KB | resume.py reads and embeds this |
+| `.project-intel/CONTEXT_PRIMER.md` | 4.6KB | superseded by resume.py |
+
+These are all listed in `.claudeignore`. Reading any one burns the session.
 
 ## HANDOFF PROTOCOL
 
-**After every meaningful step (mandatory):**
+**After every meaningful step:**
 ```bash
 python3 .project-intel/scripts/handoff.py checkpoint --agent claude \
   --completed "what you just did" --next "exact next action" --files "src/file.py"
@@ -25,44 +41,31 @@ python3 .project-intel/scripts/handoff.py finish --agent claude \
   --completed "what you completed" --next "TASK-XXX: next task"
 ```
 
-**Commit uncommitted intel files:**
+**Commit intel files:**
 ```bash
 bash scripts/claude-commit.sh
 ```
 
 ## OUTPUT ROUTING — mandatory on every response
 
-Use XML tags. Routes content to correct destination files automatically.
-
 → PROJECT FILES (never repeat in chat):
-  <gap>architecture gap</gap>               → GAPS.md
-  <issue>bug or broken behavior</issue>     → ISSUES.md
-  <broken>non-functional component</broken> → BROKEN.md
-  <missing>feature not yet built</missing>  → MISSING.md
-  <decision>architecture decision</decision>→ DECISION_LOG.md
-  <task>implementation task</task>          → OPEN_TASKS.md
-  <risk>risk or threat</risk>               → RISK_LOG.md
-  <diagnostic>diagnostic finding</diagnostic> → DIAGNOSTICS.md
-  <security>security issue</security>       → SECURITY_ISSUES.md
-  <debt>technical debt</debt>               → TECH_DEBT.md
+  `<gap>` → GAPS.md | `<issue>` → ISSUES.md | `<broken>` → BROKEN.md
+  `<missing>` → MISSING.md | `<decision>` → DECISION_LOG.md | `<task>` → OPEN_TASKS.md
+  `<risk>` → RISK_LOG.md | `<security>` → SECURITY_ISSUES.md | `<debt>` → TECH_DEBT.md
 
-→ CHAT: <chat>reply, code, explanation</chat>  or untagged content
-
-RULES: Never write gaps/issues/tasks as plain text. Never duplicate project content in chat.
+→ CHAT: `<chat>` or untagged content
 
 ## NEVER do these
-- Do NOT read CONTEXT_PRIMER.md, SESSION_STATE.json, DECISION_LOG.md, or HANDOFF.md at session start — resume.py covers all of them
-- Do NOT read MODULE_MAP.json — it is 291KB and will burn your session. The resume brief contains the full slim module map already
-- Do NOT read source files to understand the project — the brief has module map + signal flow
-- Do NOT ask the user to explain the project
-- Do NOT open source files until immediately before editing them
+- Do NOT read any file listed in the danger table above or in `.claudeignore`
+- Do NOT read source files to understand the project — resume brief has module map
+- Do NOT read MODULE_MAP.json — 291KB, session-killer, slim map is in the brief
+- Do NOT read files to orient — the resume.py output IS orientation
 
 ## ALWAYS do these
-- Run resume.py as the very first action (see top of this file)
-- Checkpoint via handoff.py after every meaningful change
-- Use the module map embedded in the resume.py output for structure questions — never open MODULE_MAP.json
+- Run resume.py as the very first action
+- Checkpoint after every meaningful change
+- Read a source file ONLY immediately before editing it
 - Use XML routing tags on every response
-- Read one specific source file only when about to modify it
 
 ## Project identity
 Production algorithmic trading bot. Python 3.11 + FastAPI + XGBoost + GaussianHMM + React.
