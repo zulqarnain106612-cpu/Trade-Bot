@@ -81,6 +81,7 @@ def _make_engine(bars=None, raise_gap_fill=False, direction_model=None,
     ob.mid_price = 105.0
     ob.spread = 0.1
     fetcher.fetch_orderbook.return_value = ob
+    fetcher.fetch_funding_rate.return_value = 0.0001  # TASK-010: live funding rate
 
     trainer = MagicMock()
     trainer.symbol = "BTC/USDT"
@@ -258,9 +259,10 @@ class TestSkipPaths:
 
     @pytest.mark.asyncio
     async def test_ofi_fetch_failure_nonfatal(self):
-        """order book exception → live_ofi=None, tick continues (to gate or skip)."""
+        """order book exception → gather fails, live values default (0.0), tick continues."""
         e = _make_engine()
         e._fetcher.fetch_orderbook.side_effect = RuntimeError("ws down")
+        e._fetcher.fetch_funding_rate.return_value = 0.0  # ensure float even when ob fails
         good_bars = _make_bars(n=320)
         async def _lb(): return good_bars
         e._load_bars = _lb
@@ -367,3 +369,81 @@ class TestModelSwap:
                 await asyncio.sleep(0)
 
         await asyncio.gather(swap_loop(), tick_loop())
+
+
+# ---------------------------------------------------------------------------
+# TASK-010 — live spread_bps + funding_rate_8h wiring
+# ---------------------------------------------------------------------------
+
+class TestTask010FundingRateWiring:
+    """Verify live spread_bps and funding_rate_8h reach SignalContext."""
+
+    @pytest.mark.asyncio
+    async def test_funding_rate_passed_to_cognitive_engine(self):
+        """funding_rate_8h from fetcher must appear in SignalContext passed to CogEng."""
+        captured: list = []
+
+        def _capturing_cog():
+            cog = MagicMock()
+            res = MagicMock()
+            res.passed = True
+            res.veto_reason = ""
+            res.adjusted_size_fraction = 0.05
+
+            def _capture_eval(ctx):
+                captured.append(ctx)
+                return res
+
+            cog.evaluate = _capture_eval
+            return cog
+
+        e = _make_engine()
+        e._fetcher.fetch_funding_rate.return_value = 0.0003  # 0.03% / 8h
+
+        good_bars = _make_bars(n=320)
+        async def _lb(): return good_bars
+        e._load_bars = _lb
+
+        with patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()), \
+             patch("src.engine.signal_engine.build_inference_features",
+                   return_value=pd.Series({"f0": 1.0})), \
+             patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()), \
+             patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)), \
+             patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)), \
+             patch("src.engine.signal_engine.evaluate_all_gates",
+                   return_value=MagicMock(passed=True, status=MagicMock(value="ok"), reason="", details={})), \
+             patch("src.engine.signal_engine.apply_all_strategy_filters",
+                   return_value={"passes": True, "filters_failed": [], "scalar": 1.0, "details": {"hurst": 0.55}}), \
+             patch("src.engine.signal_engine.get_cognitive_engine", return_value=_capturing_cog()):
+            r = await e.tick(**_TICK)
+
+        assert len(captured) == 1, "CognitiveEngine.evaluate must be called exactly once"
+        ctx = captured[0]
+        assert abs(ctx.funding_rate_8h - 0.0003) < 1e-9, (
+            f"Expected funding_rate_8h=0.0003, got {ctx.funding_rate_8h}"
+        )
+        # spread_bps: ob.spread/ob.mid_price*10_000 = 0.1/105.0*10_000 ≈ 9.52 bps
+        assert ctx.spread_bps > 0.0, "spread_bps must be positive when orderbook is live"
+
+    @pytest.mark.asyncio
+    async def test_funding_rate_defaults_zero_on_fetch_error(self):
+        """fetch_funding_rate raising must not crash tick; funding_rate_8h falls back to 0.0."""
+        e = _make_engine()
+        e._fetcher.fetch_orderbook.side_effect = RuntimeError("exchange down")
+        e._fetcher.fetch_funding_rate.side_effect = RuntimeError("exchange down")
+
+        good_bars = _make_bars(n=320)
+        async def _lb(): return good_bars
+        e._load_bars = _lb
+
+        with patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()), \
+             patch("src.engine.signal_engine.build_inference_features",
+                   return_value=pd.Series({"f0": 1.0})), \
+             patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()), \
+             patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)), \
+             patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)), \
+             patch("src.engine.signal_engine.evaluate_all_gates",
+                   return_value=MagicMock(passed=False, status=MagicMock(value="blocked"), reason="x", details={})):
+            r = await e.tick(**_TICK)
+
+        assert isinstance(r, SignalResult)  # no crash

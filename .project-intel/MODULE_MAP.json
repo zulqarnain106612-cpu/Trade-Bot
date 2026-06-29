@@ -11342,12 +11342,13 @@
   },
   "tests/test_signal_engine.py": {
     "purpose": "Test coverage for src/engine/signal_engine.py \u2014 Debt-005.\n\nStrategy: mock all external dependencies ",
-    "lines": 369,
+    "lines": 449,
     "classes": [
       "TestSkipShape",
       "TestSkipPaths",
       "TestTradeablePath",
-      "TestModelSwap"
+      "TestModelSwap",
+      "TestTask010FundingRateWiring"
     ],
     "key_functions": [],
     "constants": [

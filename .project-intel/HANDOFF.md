@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-06-30 03:26:16 | Read this before starting any work.
+> Updated: 2026-06-30 03:35:21 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py
 **Started**: 2026-06-29 17:31:43
-**Last checkpoint**: 2026-06-30 03:26:16
+**Last checkpoint**: 2026-06-30 03:35:21
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -31,6 +31,11 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - .project-intel/MODULE_MAP_SLIM.json
   - .project-intel/scripts/extract_intelligence.py
   - .claudeignore
+  - .project-intel/ARCHITECTURE.md
+  - .project-intel/MODULE_MAP.json
+  - .project-intel/RAW_SCAN.json
+  - src/data/fetcher.py
+  - src/engine/signal_engine.py
 
 ## Session History (last 5)
   [2026-06-29 18:16:34] claude — interrupted: shell exited with 8 uncommitted file(s)
