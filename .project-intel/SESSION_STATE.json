@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-29T19:46:32.223619",
+  "last_updated": "2026-06-30T03:35:20.814912",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,7 +38,7 @@
   ],
   "next_recommended_task": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 14,
+  "total_sessions": 15,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -153,26 +153,36 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
       "time": "2026-06-29T17:21:48.289957",
       "author": "Claude"
+    },
+    {
+      "hash": "e96a0f4",
+      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "time": "2026-06-30T03:35:21.063776",
+      "author": "Claude"
     }
   ],
-  "last_commit": "f9cbe06",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/ensemble_predictor.py [claude]",
-  "last_commit_time": "2026-06-29T17:21:48.290005",
+  "last_commit": "e96a0f4",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+  "last_commit_time": "2026-06-30T03:35:21.063861",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-30T03:18:19.098737",
+  "last_session_start": "2026-06-30T03:31:41.652524",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-29T17:21:47.837426",
-  "last_extraction_trigger": "ensemble_predictor.py",
+  "last_extraction": "2026-06-30T03:35:19.569389",
+  "last_extraction_trigger": "signal_engine.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-06-29 19:46:32] [3cedb25] feat(intel): add resume.py \u2014 single-command session bootstrap to eliminate re-orientation token burn [claude]"
+      "[2026-06-29 19:46:32] [3cedb25] feat(intel): add resume.py \u2014 single-command session bootstrap to eliminate re-orientation token burn [claude]",
+      "[2026-06-30 03:18:38] [30de024] fix(intel): replace 291KB MODULE_MAP read with 6KB slim map embedded in resume.py \u2014 eliminates session token burn [claude]",
+      "[2026-06-30 03:21:11] [81e67b3] fix(intel): add .claudeignore + danger table \u2014 block all large file reads that burn session budget [claude]",
+      "[2026-06-30 03:26:16] [aee0faf] fix(intel): extend .claudeignore + danger table with package-lock, requirements.lock, Vulner-Fix.md [claude]",
+      "[2026-06-30 03:35:20] [e96a0f4] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-29 19:46:32",
+    "last_checkpoint": "2026-06-30 03:35:20",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -204,7 +214,15 @@
       ".project-intel/SESSION_STATE.json",
       ".project-intel/TECH_DEBT.md",
       ".project-intel/scripts/resume.py",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".project-intel/MODULE_MAP_SLIM.json",
+      ".project-intel/scripts/extract_intelligence.py",
+      ".claudeignore",
+      ".project-intel/ARCHITECTURE.md",
+      ".project-intel/MODULE_MAP.json",
+      ".project-intel/RAW_SCAN.json",
+      "src/data/fetcher.py",
+      "src/engine/signal_engine.py"
     ],
     "current_task": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
     "session_started": "2026-06-29 17:31:43",

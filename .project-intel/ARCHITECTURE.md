@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 17:20 | 810 Python modules | 233,680 total lines
+> Auto-generated 2026-06-30 03:33 | 811 Python modules | 233,937 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -43,7 +43,7 @@ Persistent domain kn
 Assembles the MINIMUM context for a
 **Key functions**: find_
 
-### `.project-intel/scripts/extract_intelligence.py` (642 lines)
+### `.project-intel/scripts/extract_intelligence.py` (659 lines)
 **Purpose**: Project Intelligence Extractor
 ================================
 Transforms a cod
@@ -60,6 +60,12 @@ Tracks which agent is working, what
 ========================
 **Classes**: BM25Index
 **Key functions**: token
+
+### `.project-intel/scripts/resume.py` (189 lines)
+**Purpose**: SESSION RESUME — single command, zero follow-up file reads.
+
+Outputs ONE compres
+**Key functions**: git_s
 
 ### `.project-intel/scripts/update_session.py` (106 lines)
 **Purpose**: Session State Updater
@@ -3510,7 +3516,7 @@ Authority sources:
 ### `src/data/__init__.py` (1 lines)
 **Purpose**: __init__ module
 
-### `src/data/fetcher.py` (715 lines)
+### `src/data/fetcher.py` (761 lines)
 **Purpose**: Async market data fetcher — Binance (primary) + OKX (secondary).
 
 Responsibiliti
@@ -3555,7 +3561,7 @@ Ev
 Responsi
 **Classes**: Orchestrator
 
-### `src/engine/signal_engine.py` (628 lines)
+### `src/engine/signal_engine.py` (633 lines)
 **Purpose**: Signal engine — per-timeframe signal computation pipeline.
 
 On every tick for a 

@@ -54,7 +54,7 @@
   },
   ".project-intel/scripts/extract_intelligence.py": {
     "purpose": "Project Intelligence Extractor\n================================\nTransforms a codebase into a compact",
-    "lines": 642,
+    "lines": 659,
     "classes": [],
     "key_functions": [
       "extract_python_structure",
@@ -115,6 +115,19 @@
       "MAX_CHUNK_TOKENS",
       "BM25_K1"
     ],
+    "imports_from": []
+  },
+  ".project-intel/scripts/resume.py": {
+    "purpose": "SESSION RESUME \u2014 single command, zero follow-up file reads.\n\nOutputs ONE compressed brief (~150-200 ",
+    "lines": 189,
+    "classes": [],
+    "key_functions": [
+      "git_status",
+      "git_log",
+      "load_slim_map",
+      "main"
+    ],
+    "constants": [],
     "imports_from": []
   },
   ".project-intel/scripts/update_session.py": {
@@ -10342,7 +10355,7 @@
   },
   "src/data/fetcher.py": {
     "purpose": "Async market data fetcher \u2014 Binance (primary) + OKX (secondary).\n\nResponsibilities:\n  - Bootstrap hi",
-    "lines": 715,
+    "lines": 761,
     "classes": [
       "OrderBookSnapshot",
       "MarketDataFetcher",
@@ -10462,7 +10475,7 @@
   },
   "src/engine/signal_engine.py": {
     "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.\n\nOn every tick for a given (symbol, timef",
-    "lines": 628,
+    "lines": 633,
     "classes": [
       "SignalResult",
       "SignalEngine"

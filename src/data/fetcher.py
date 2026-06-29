@@ -637,6 +637,52 @@ class MarketDataFetcher:
             "min_cost": float(cost_limits.get("min", 0.0) or 0.0),
         }
 
+    # ------------------------------------------------------------------
+    # Perpetual funding rate — TASK-010
+    # ------------------------------------------------------------------
+
+    async def fetch_funding_rate(
+        self,
+        symbol: str,
+        exchange_id: str = EXCHANGE_BINANCE,
+    ) -> float:
+        """
+        Return the current 8-hour perpetual funding rate for *symbol*.
+
+        For spot symbols (no funding rate) or any fetch error, returns 0.0
+        so the caller can always treat this as a safe float.
+
+        Returns
+        -------
+        float
+            Funding rate as a fraction (e.g. 0.0001 = 0.01% per 8h).
+            Positive → longs pay shorts; negative → shorts pay longs.
+        """
+        if exchange_id == EXCHANGE_OKX:
+            exchange = self._require_okx()
+            label = f"okx.funding_rate.{symbol}"
+        elif exchange_id == EXCHANGE_BINANCE:
+            exchange = self._require_binance()
+            label = f"binance.funding_rate.{symbol}"
+        else:
+            raise ValueError(
+                f"Unknown exchange_id {exchange_id!r}. "
+                f"Must be {EXCHANGE_BINANCE!r} or {EXCHANGE_OKX!r}."
+            )
+
+        try:
+            raw: dict[str, Any] = await _with_retry(
+                lambda: exchange.fetch_funding_rate(symbol),
+                label=label,
+            )
+            rate = raw.get("fundingRate")
+            if rate is None:
+                return 0.0
+            return float(rate)
+        except (ccxt.NotSupported, ccxt.BadSymbol, ccxt.BadRequest):
+            # Spot symbol or exchange doesn't support funding rates — not an error.
+            return 0.0
+
 
 # ---------------------------------------------------------------------------
 # Raw OHLCV → BarRecord conversion

@@ -253,11 +253,15 @@ class SignalEngine:
         if fm.features is None or len(fm.features) < 1:
             return self._skip("insufficient_features")
 
-        # Inference vector — last row of feature matrix, augmented with live OFI
-        # TASK-010: also capture live spread_bps from order book for SlippageModel + CognitiveEngine
+        # Inference vector — last row of feature matrix, augmented with live OFI.
+        # TASK-010: co-fetch orderbook (spread_bps) + funding rate concurrently —
+        # both are network I/O; running them in parallel avoids serial latency.
         _live_ob_spread_bps: float | None = None
+        _live_funding_rate_8h: float = 0.0
         try:
-            ob = await self._fetcher.fetch_orderbook(self._symbol)
+            ob_task = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
+            fr_task = asyncio.create_task(self._fetcher.fetch_funding_rate(self._symbol))
+            ob, _live_funding_rate_8h = await asyncio.gather(ob_task, fr_task)
             live_ofi = ob.order_flow_imbalance()
             mid = ob.mid_price
             if mid > 0.0:
@@ -265,6 +269,7 @@ class SignalEngine:
         except Exception as exc:
             self._log.debug("signal.ofi_fetch_failed", error=str(exc))
             live_ofi = None
+            _live_funding_rate_8h = 0.0
 
         vec = build_inference_features(bars, live_ofi=live_ofi, feature_matrix=fm)
         if vec is None:
@@ -524,7 +529,7 @@ class SignalEngine:
             daily_pnl_usd         = daily_pnl_usd,
             open_positions        = 0,
             consecutive_losses    = consecutive_loss_count,
-            funding_rate_8h       = 0.0,   # spot only; wire perpetual funding rate here
+            funding_rate_8h       = _live_funding_rate_8h,   # TASK-010: live from fetcher (0.0 for spot)
             basis_pct             = 0.0,   # spot only; wire basis here for perp trading
             exchange_name         = "binance",
             proposed_qty          = kelly_result.quantity,
