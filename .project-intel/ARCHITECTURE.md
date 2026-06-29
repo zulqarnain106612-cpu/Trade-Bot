@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 11:14 | 808 Python modules | 232,997 total lines
+> Auto-generated 2026-06-29 17:17 | 810 Python modules | 233,632 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -25,6 +25,12 @@ Exchange OHLCV/OrderBook
 
 ## Module Inventory
 
+### `.project-intel/scripts/agent_detect.py` (77 lines)
+**Purpose**: Agent Detector
+==============
+Detects which agent is currently active from envir
+**Key functions**: detec
+
 ### `.project-intel/scripts/cognitive_layer.py` (565 lines)
 **Purpose**: Cognitive Architecture Layer
 ==============================
@@ -42,6 +48,12 @@ Assembles the MINIMUM context for a
 ================================
 Transforms a cod
 **Key functions**: extra
+
+### `.project-intel/scripts/handoff.py` (364 lines)
+**Purpose**: Agent Handoff Manager
+======================
+Tracks which agent is working, what
+**Key functions**: cmd_s
 
 ### `.project-intel/scripts/rag_engine.py` (386 lines)
 **Purpose**: RAG Engine — BM25 on SQLite, zero external dependencies
@@ -3623,11 +3635,11 @@ Responsibilities:
   - Manage cre
 **Classes**: CacheEntry, IntelligenceAggregator
 
-### `src/intelligence/ensemble_predictor.py` (412 lines)
+### `src/intelligence/ensemble_predictor.py` (606 lines)
 **Purpose**: Ensemble prediction framework.
 
 Reduce model risk by combining diverse predictio
-**Classes**: EnsemblePrediction, PredictionModel, ARIMAPredictor, XGBoostPredictor, LSTMPredictor, EnsemblePredictor
+**Classes**: EnsemblePrediction, PredictionModel, ARIMAPredictor, XGBoostPredictor, LSTMPredictor, GaussianProcessPredictor, TreeEnsemblePredictor, EnsemblePredictor
 
 ### `src/intelligence/metrics.py` (255 lines)
 **Purpose**: Intelligence metrics computation layer.

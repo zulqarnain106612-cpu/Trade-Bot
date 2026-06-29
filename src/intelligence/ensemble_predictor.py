@@ -6,12 +6,18 @@ Output: Point forecast + credible interval + uncertainty decomposition.
 
 Models:
   1. ARIMA: Time-series momentum
-  2. XGBoost: Non-linear patterns  
-  3. LSTM: Sequence learning
-  4. Gaussian Process: Uncertainty quantification
-  5. BART: Causal forest, heterogeneous treatment effects
+  2. XGBoost: Non-linear patterns
+  3. LSTM: Sequence learning (requires `torch`; falls back to weight-0 if
+     not installed — see LSTMPredictor)
+  4. Gaussian Process: principled, model-native uncertainty quantification
+  5. TreeEnsemble: shrunk gradient-boosted trees + bootstrap uncertainty
+     (sum-of-trees structure in the spirit of BART, without an unmaintained
+     or oversized dependency — see TreeEnsemblePredictor docstring for the
+     full rationale; this is NOT a literal BART/MCMC implementation and is
+     never described as one elsewhere in this codebase)
 
-Authority: Wolpert (1992) Stacked Generalization, Breiman (1996) Bagging
+Authority: Wolpert (1992) Stacked Generalization, Breiman (1996) Bagging,
+Rasmussen & Williams (2006) Gaussian Processes for Machine Learning.
 """
 
 from __future__ import annotations
@@ -204,6 +210,189 @@ class LSTMPredictor(PredictionModel):
         return {"rmse": self.rmse, "model_type": "LSTM"}
 
 
+class GaussianProcessPredictor(PredictionModel):
+    """
+    Gaussian Process regression.
+    Good for: principled, model-native uncertainty quantification — the
+    posterior predictive std is a real Bayesian credible interval, not an
+    RMSE proxy like the other four members use.
+
+    Uses sklearn.gaussian_process (already an installed dependency via
+    scikit-learn — no new package added). A Matern kernel (nu=1.5) is used
+    rather than the smoother RBF default: financial return series are not
+    infinitely differentiable, and Matern is the standard choice for
+    series with occasional sharp moves (Rasmussen & Williams 2006, ch.4).
+    A WhiteKernel term is included so the GP can attribute some variance
+    to observation noise rather than forcing all of it into the length
+    scale — without it, GPs tend to overfit illiquid/noisy bars.
+    """
+
+    def __init__(self, n_restarts_optimizer: int = 3):
+        self.n_restarts_optimizer = n_restarts_optimizer
+        self.model = None
+        self.rmse = np.inf
+        self._feature_cols: list[str] | None = None
+
+    def fit(self, X: pd.DataFrame, y: pd.Series):
+        """Fit a GP regressor on tabular features."""
+        try:
+            from sklearn.gaussian_process import GaussianProcessRegressor
+            from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel
+
+            if len(X) < 5:
+                # GP covariance matrix inversion is ill-conditioned with
+                # too few points; rather than let sklearn silently produce
+                # a degenerate fit, refuse and stay at rmse=inf so
+                # _update_weights() correctly zero-weights this model.
+                log.warning("gp_insufficient_data", have=len(X), need_at_least=5)
+                return
+
+            self._feature_cols = list(X.columns)
+            kernel = ConstantKernel(1.0) * Matern(length_scale=1.0, nu=1.5) + WhiteKernel(
+                noise_level=1e-3
+            )
+            self.model = GaussianProcessRegressor(
+                kernel=kernel,
+                n_restarts_optimizer=self.n_restarts_optimizer,
+                normalize_y=True,
+                random_state=42,
+            )
+            self.model.fit(X, y)
+            preds = self.model.predict(X)
+            self.rmse = float(np.sqrt(np.mean((preds - y.to_numpy()) ** 2)))
+        except ImportError:
+            log.warning("scikit-learn gaussian_process module not available, GP disabled")
+        except Exception as e:
+            log.error("gp_fit_failed", error=str(e))
+
+    def predict(self, features: pd.DataFrame) -> float:
+        point, _ = self.predict_with_uncertainty(features)
+        return point
+
+    def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
+        if self.model is None:
+            return 0.0, 0.2
+        try:
+            X = features[self._feature_cols] if self._feature_cols else features
+            mean, std = self.model.predict(X, return_std=True)
+            return float(mean[0]), float(std[0])
+        except Exception as e:
+            log.error("gp_prediction_failed", error=str(e))
+            return 0.0, 0.2
+
+    def get_performance_metrics(self) -> dict:
+        return {"rmse": self.rmse, "model_type": "GaussianProcess"}
+
+
+class TreeEnsemblePredictor(PredictionModel):
+    """
+    Shrunk-tree ensemble with bootstrap uncertainty.
+
+    NOTE ON NAMING — this is deliberately NOT called "BART" anywhere in
+    this codebase, logs, or docstrings, even though it fills BART's slot
+    in the original 5-model design (see module docstring history). A real
+    BART (Chipman, George & McCulloch 2010 — Bayesian sum-of-trees with
+    MCMC posterior sampling) has no good dependency option here:
+      - `bartpy` (the only pure-Python implementation) is unmaintained
+        since 2019, last tested against Python 3.6 — installing an
+        abandoned package into a live trading risk path would just
+        relocate this same "silent useless / unverified" problem into
+        third-party code we cannot fix or audit.
+      - `pymc-bart` is actively maintained but requires the full PyMC +
+        PyTensor probabilistic-programming stack for one of five ensemble
+        voters — a disproportionate dependency/maintenance footprint, and
+        MCMC sampling itself becomes a new failure surface.
+    Per explicit instruction: if a faithful BART can't be added at near-
+    zero risk, replace the slot with something authentic that actually
+    serves prediction accuracy, named honestly rather than mislabeled.
+
+    What this IS: a sum of many shallow, shrinkage-regularized regression
+    trees (sklearn.ensemble.GradientBoostingRegressor — same "weak learner
+    + shrinkage" mechanism that gives BART its sum-of-trees character),
+    with uncertainty estimated via bootstrap resampling (Breiman 1996)
+    rather than MCMC posterior sampling. It captures BART's core practical
+    contribution to this ensemble — non-parametric, tree-based structure
+    with a genuine spread-based uncertainty estimate distinct from the
+    other four members' parametric assumptions — without an MCMC sampler
+    and without an unmaintained or oversized dependency.
+    """
+
+    def __init__(self, n_estimators: int = 100, max_depth: int = 3, n_bootstrap: int = 30):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.n_bootstrap = n_bootstrap
+        self.model = None
+        self._bootstrap_models: list = []
+        self.rmse = np.inf
+
+    def fit(self, X: pd.DataFrame, y: pd.Series):
+        """Fit the primary model plus a bootstrap ensemble for uncertainty."""
+        try:
+            from sklearn.ensemble import GradientBoostingRegressor
+
+            if len(X) < 10:
+                log.warning("tree_ensemble_insufficient_data", have=len(X), need_at_least=10)
+                return
+
+            self.model = GradientBoostingRegressor(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth,
+                learning_rate=0.05,
+                subsample=0.8,
+                random_state=42,
+            )
+            self.model.fit(X, y)
+            preds = self.model.predict(X)
+            self.rmse = float(np.sqrt(np.mean((preds - y.to_numpy()) ** 2)))
+
+            # Bootstrap resamples give a genuine spread-based uncertainty
+            # estimate (Breiman 1996), playing the role BART's posterior
+            # draws would play, without an MCMC sampler.
+            rng = np.random.RandomState(42)
+            n = len(X)
+            self._bootstrap_models = []
+            for _ in range(self.n_bootstrap):
+                idx = rng.randint(0, n, size=n)
+                X_boot = X.iloc[idx]
+                y_boot = y.iloc[idx]
+                m = GradientBoostingRegressor(
+                    n_estimators=max(20, self.n_estimators // 4),
+                    max_depth=self.max_depth,
+                    learning_rate=0.05,
+                    subsample=0.8,
+                    random_state=int(rng.randint(0, 2**31 - 1)),
+                )
+                m.fit(X_boot, y_boot)
+                self._bootstrap_models.append(m)
+        except Exception as e:
+            log.error("tree_ensemble_fit_failed", error=str(e))
+
+    def predict(self, features: pd.DataFrame) -> float:
+        if self.model is None:
+            return 0.0
+        try:
+            return float(self.model.predict(features)[0])
+        except Exception as e:
+            log.error("tree_ensemble_prediction_failed", error=str(e))
+            return 0.0
+
+    def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
+        point = self.predict(features)
+        if not self._bootstrap_models:
+            uncertainty = self.rmse if self.rmse != np.inf else 0.15
+            return point, uncertainty
+        try:
+            boot_preds = np.array([float(m.predict(features)[0]) for m in self._bootstrap_models])
+            uncertainty = float(np.std(boot_preds))
+            return point, uncertainty
+        except Exception as e:
+            log.error("tree_ensemble_uncertainty_failed", error=str(e))
+            return point, self.rmse if self.rmse != np.inf else 0.15
+
+    def get_performance_metrics(self) -> dict:
+        return {"rmse": self.rmse, "model_type": "TreeEnsemble(GBM+bootstrap)"}
+
+
 class EnsemblePredictor:
     """
     Combines 5 diverse models, weights by past performance.
@@ -216,11 +405,16 @@ class EnsemblePredictor:
             "arima": ARIMAPredictor(),
             "xgboost": XGBoostPredictor(),
             "lstm": LSTMPredictor(),
-            # "gp": GaussianProcessPredictor(),  # TODO: sklearn GP
-            # "bart": BARTPredictor(),            # TODO: bcf library
+            "gp": GaussianProcessPredictor(),
+            "tree_ensemble": TreeEnsemblePredictor(),
         }
-        # Weights updated based on performance
-        self.weights = {"arima": 0.2, "xgboost": 0.35, "lstm": 0.25}  # Sum to 1
+        # NOTE: self.weights is fully recomputed by _update_weights() below
+        # immediately on every call (and after every fit()) from whatever
+        # keys are present in self.models — there is no hardcoded initial
+        # weighting to keep in sync here. See _update_weights() cold-start
+        # fallback for the equal-weighting behavior before any model has
+        # a finite RMSE.
+        self.weights: dict[str, float] = {}
         self._update_weights()
     
     def fit(self, X: pd.DataFrame, y: pd.Series):

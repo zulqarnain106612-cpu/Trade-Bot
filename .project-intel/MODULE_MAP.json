@@ -1,4 +1,19 @@
 {
+  ".project-intel/scripts/agent_detect.py": {
+    "purpose": "Agent Detector\n==============\nDetects which agent is currently active from environment + git config.",
+    "lines": 77,
+    "classes": [],
+    "key_functions": [
+      "detect",
+      "set_active",
+      "clear"
+    ],
+    "constants": [
+      "INTEL_DIR",
+      "AGENT_FILE"
+    ],
+    "imports_from": []
+  },
   ".project-intel/scripts/cognitive_layer.py": {
     "purpose": "Cognitive Architecture Layer\n==============================\nPersistent domain knowledge across ALL s",
     "lines": 565,
@@ -55,6 +70,26 @@
       "SKIP_DIRS",
       "SKIP_EXTENSIONS",
       "MAX_FILE_SIZE_KB"
+    ],
+    "imports_from": []
+  },
+  ".project-intel/scripts/handoff.py": {
+    "purpose": "Agent Handoff Manager\n======================\nTracks which agent is working, what it completed, and w",
+    "lines": 364,
+    "classes": [],
+    "key_functions": [
+      "cmd_start",
+      "cmd_checkpoint",
+      "cmd_finish",
+      "cmd_interrupt",
+      "cmd_status",
+      "main"
+    ],
+    "constants": [
+      "INTEL_DIR",
+      "HANDOFF_FILE",
+      "STATE_FILE",
+      "AGENTS"
     ],
     "imports_from": []
   },
@@ -10623,13 +10658,15 @@
   },
   "src/intelligence/ensemble_predictor.py": {
     "purpose": "Ensemble prediction framework.\n\nReduce model risk by combining diverse prediction techniques.\nOutput",
-    "lines": 412,
+    "lines": 606,
     "classes": [
       "EnsemblePrediction",
       "PredictionModel",
       "ARIMAPredictor",
       "XGBoostPredictor",
       "LSTMPredictor",
+      "GaussianProcessPredictor",
+      "TreeEnsemblePredictor",
       "EnsemblePredictor"
     ],
     "key_functions": [],
