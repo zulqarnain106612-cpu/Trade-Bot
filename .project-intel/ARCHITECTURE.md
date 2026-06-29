@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 17:17 | 810 Python modules | 233,632 total lines
+> Auto-generated 2026-06-29 17:20 | 810 Python modules | 233,680 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3635,11 +3635,11 @@ Responsibilities:
   - Manage cre
 **Classes**: CacheEntry, IntelligenceAggregator
 
-### `src/intelligence/ensemble_predictor.py` (606 lines)
+### `src/intelligence/ensemble_predictor.py` (654 lines)
 **Purpose**: Ensemble prediction framework.
 
 Reduce model risk by combining diverse predictio
-**Classes**: EnsemblePrediction, PredictionModel, ARIMAPredictor, XGBoostPredictor, LSTMPredictor, GaussianProcessPredictor, TreeEnsemblePredictor, EnsemblePredictor
+**Classes**: EnsemblePrediction, PredictionModel, ARIMAPredictor, XGBoostPredictor, LSTMPredictor, GaussianProcessPredictor, TreeEnsemblePredictor, EnsemblePredictor, _LSTMNet
 
 ### `src/intelligence/metrics.py` (255 lines)
 **Purpose**: Intelligence metrics computation layer.

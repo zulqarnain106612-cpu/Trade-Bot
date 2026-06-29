@@ -165,49 +165,97 @@ class LSTMPredictor(PredictionModel):
     """
     LSTM: Long Short-Term Memory neural network.
     Good for: Sequence patterns, long-term dependencies.
+
+    GAP-015: re-implemented on `torch` instead of TensorFlow/Keras.
+    TensorFlow was never an installed/pinned dependency in this repo
+    (requirements.in/.lock had no tensorflow entry), meaning the original
+    `import tensorflow` always hit the ImportError branch and this model
+    contributed 0.0 with weight 0 in every run — a silently-dead ensemble
+    member. torch>=2.4 is now a pinned dependency (requirements.in) and is
+    CPU-only here (no CUDA needed for a single-feature, 20-step LSTM at
+    this data scale).
     """
-    
-    def __init__(self, hidden_dim: int = 64, lookback: int = 20):
+
+    def __init__(self, hidden_dim: int = 64, lookback: int = 20, epochs: int = 30):
         self.hidden_dim = hidden_dim
         self.lookback = lookback
+        self.epochs = epochs
         self.model = None
         self.rmse = np.inf
-    
+
     def fit(self, X: np.ndarray, y: np.ndarray):
-        """Fit LSTM (requires TensorFlow)."""
+        """Fit LSTM (requires torch). X shape: (n_samples, lookback, 1)."""
         try:
-            import tensorflow as tf
-            from tensorflow.keras.models import Sequential
-            from tensorflow.keras.layers import LSTM, Dense
-            
-            self.model = Sequential([
-                LSTM(self.hidden_dim, input_shape=(self.lookback, 1)),
-                Dense(1)
-            ])
-            self.model.compile(loss='mse', optimizer='adam')
-            self.model.fit(X, y, epochs=10, batch_size=32, verbose=0)
-            self.rmse = np.sqrt(np.mean((self.model.predict(X, verbose=0) - y)**2))
+            import torch
+            import torch.nn as nn
+
+            torch.manual_seed(42)
+
+            class _LSTMNet(nn.Module):
+                def __init__(self, hidden_dim: int):
+                    super().__init__()
+                    self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_dim, batch_first=True)
+                    self.head = nn.Linear(hidden_dim, 1)
+
+                def forward(self, x):
+                    out, _ = self.lstm(x)
+                    return self.head(out[:, -1, :])
+
+            net = _LSTMNet(self.hidden_dim)
+            X_t = torch.tensor(np.asarray(X), dtype=torch.float32)
+            y_t = torch.tensor(np.asarray(y), dtype=torch.float32).reshape(-1, 1)
+
+            optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
+            loss_fn = nn.MSELoss()
+
+            net.train()
+            batch_size = min(32, len(X_t))
+            n = len(X_t)
+            for _epoch in range(self.epochs):
+                perm = torch.randperm(n)
+                for start in range(0, n, batch_size):
+                    idx = perm[start : start + batch_size]
+                    optimizer.zero_grad()
+                    pred = net(X_t[idx])
+                    loss = loss_fn(pred, y_t[idx])
+                    loss.backward()
+                    optimizer.step()
+
+            net.eval()
+            with torch.no_grad():
+                fitted = net(X_t).numpy().flatten()
+            self.rmse = float(np.sqrt(np.mean((fitted - np.asarray(y)) ** 2)))
+            self.model = net
         except ImportError:
-            log.warning("tensorflow not installed, LSTM disabled")
-    
+            log.warning("torch not installed, LSTM disabled")
+        except Exception as e:
+            log.error("lstm_fit_failed", error=str(e))
+
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None:
             return 0.0
         try:
-            # Reshape for LSTM (assumes timeseries input)
-            X_reshaped = np.array(features).reshape(-1, self.lookback, 1)
-            return float(self.model.predict(X_reshaped, verbose=0)[0, 0])
+            import torch
+
+            # Reshape for LSTM (assumes timeseries input — same contract
+            # as the original implementation: caller supplies `lookback`
+            # raw sequential values).
+            X_reshaped = np.array(features, dtype=np.float32).reshape(-1, self.lookback, 1)
+            self.model.eval()
+            with torch.no_grad():
+                out = self.model(torch.tensor(X_reshaped, dtype=torch.float32))
+            return float(out.numpy().flatten()[0])
         except Exception as e:
             log.error("lstm_prediction_failed", error=str(e))
             return 0.0
-    
+
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
         point = self.predict(features)
         uncertainty = self.rmse if self.rmse != np.inf else 0.2
         return point, uncertainty
-    
+
     def get_performance_metrics(self) -> dict:
-        return {"rmse": self.rmse, "model_type": "LSTM"}
+        return {"rmse": self.rmse, "model_type": "LSTM(torch)"}
 
 
 class GaussianProcessPredictor(PredictionModel):

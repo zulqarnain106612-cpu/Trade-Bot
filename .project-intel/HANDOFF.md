@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-06-29 17:18:59 | Read this before starting any work.
+> Updated: 2026-06-29 17:19:03 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    not set
 **Started**: unknown
-**Last checkpoint**: 2026-06-29 17:18:59
+**Last checkpoint**: 2026-06-29 17:19:03
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -24,6 +24,7 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - .project-intel/scripts/agent_detect.py
   - requirements.in
   - src/intelligence/ensemble_predictor.py
+  - .project-intel/HANDOFF.md
 
 ## Session History (last 5)
   [2026-06-29 14:43:07] claude — completed: Handoff system built — 3-agent protocol (claude/copilot/amazonq) with stale sess

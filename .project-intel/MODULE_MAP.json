@@ -10658,7 +10658,7 @@
   },
   "src/intelligence/ensemble_predictor.py": {
     "purpose": "Ensemble prediction framework.\n\nReduce model risk by combining diverse prediction techniques.\nOutput",
-    "lines": 606,
+    "lines": 654,
     "classes": [
       "EnsemblePrediction",
       "PredictionModel",
@@ -10667,7 +10667,8 @@
       "LSTMPredictor",
       "GaussianProcessPredictor",
       "TreeEnsemblePredictor",
-      "EnsemblePredictor"
+      "EnsemblePredictor",
+      "_LSTMNet"
     ],
     "key_functions": [],
     "constants": [],
