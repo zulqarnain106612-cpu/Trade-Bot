@@ -42,6 +42,12 @@
 .project-intel/ISSUES.md
 .project-intel/RISK_LOG.md
 
+# ── LARGE NON-SOURCE FILES (never need to read) ──
+frontend/package-lock.json
+requirements.lock
+assets/tradebot_architecture_map.svg
+Vulner-Fix.md
+
 # ── PYTHON CACHE / BUILD ARTIFACTS ──
 .project-intel/scripts/__pycache__/
 **/__pycache__/

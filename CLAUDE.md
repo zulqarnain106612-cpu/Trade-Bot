@@ -17,13 +17,16 @@ After reading the brief → begin work on NEXT TASK immediately. No other reads 
 | `.project-intel/ARCHITECTURE.md` | 160KB | stale, resume.py covers structure |
 | `.project-intel/RAW_SCAN.json` | 87KB | internal tool output only |
 | `.project-intel/rag.db` | 8.9MB | binary database |
+| `frontend/package-lock.json` | 230KB | lockfile, never read |
+| `requirements.lock` | 173KB | lockfile, never read |
 | `.project-intel/scripts/extract_intelligence.py` | 29KB | internal only |
 | `.project-intel/scripts/cognitive_layer.py` | 23KB | internal only |
-| `.project-intel/GAPS.md` | 34KB | key gaps embedded in resume brief |
+| `.project-intel/GAPS.md` | 34KB | summary in resume brief |
 | `.project-intel/TECH_DEBT.md` | 16KB | summary in resume brief |
 | `.project-intel/SECURITY_ISSUES.md` | 14KB | summary in resume brief |
 | `.project-intel/SESSION_STATE.json` | 11KB | resume.py reads and embeds this |
 | `.project-intel/CONTEXT_PRIMER.md` | 4.6KB | superseded by resume.py |
+| `Vulner-Fix.md` | 23KB | historical doc, not actionable |
 
 These are all listed in `.claudeignore`. Reading any one burns the session.
 
