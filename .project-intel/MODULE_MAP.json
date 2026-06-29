@@ -10957,13 +10957,14 @@
   },
   "tests/test_api_and_fsm_coverage.py": {
     "purpose": "Coverage for small zero-coverage modules \u2014 Debt-005.\n\nCovers:\n  - src/api/middleware.py (validate_co",
-    "lines": 215,
+    "lines": 275,
     "classes": [
       "TestValidateCorsConfig",
       "TestGetConfiguredKey",
       "TestVerifyApiKey",
       "TestVerifyWsKey",
-      "TestLiveExecutorOrderFSMInit"
+      "TestLiveExecutorOrderFSMInit",
+      "TestLiveExecutorOrderFSMPlaceOrder"
     ],
     "key_functions": [],
     "constants": [],
@@ -11434,12 +11435,13 @@
   },
   "tests/test_trade_auditor_and_intel_gates.py": {
     "purpose": "Coverage for:\n  - src/diagnostics/trade_auditor.py\n  - src/risk/intelligence_gates.py\nDebt-005.",
-    "lines": 245,
+    "lines": 317,
     "classes": [
       "TestAuditRecord",
       "TestTradeAuditor",
       "TestExchangeStressGate",
-      "TestWhaleActivityGate"
+      "TestWhaleActivityGate",
+      "TestDetectAnomalies"
     ],
     "key_functions": [],
     "constants": [],

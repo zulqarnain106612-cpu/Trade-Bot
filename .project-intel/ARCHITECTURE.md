@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-30 03:44 | 811 Python modules | 234,017 total lines
+> Auto-generated 2026-06-30 04:04 | 811 Python modules | 234,149 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3758,12 +3758,12 @@ Implements research-backed
 Implements 
 **Key functions**: carve
 
-### `tests/test_api_and_fsm_coverage.py` (215 lines)
+### `tests/test_api_and_fsm_coverage.py` (275 lines)
 **Purpose**: Coverage for small zero-coverage modules — Debt-005.
 
 Covers:
   - src/api/middle
-**Classes**: TestValidateCorsConfig, TestGetConfiguredKey, TestVerifyApiKey, TestVerifyWsKey, TestLiveExecutorOrderFSMInit
+**Classes**: TestValidateCorsConfig, TestGetConfiguredKey, TestVerifyApiKey, TestVerifyWsKey, TestLiveExecutorOrderFSMInit, TestLiveExecutorOrderFSMPlaceOrder
 
 ### `tests/test_cognitive_engine.py` (431 lines)
 **Purpose**: Tests for src/risk/cognitive_engine.py — mandatory five-validator decision
@@ -3885,11 +3885,11 @@ Strategy: mock all ex
 **Purpose**: Test coverage for src/strategies/filters.py — research-backed signal filters.
 **Classes**: TestEwmTrendSignal, TestTrendFilterPasses, TestVolAdjustedMomentum, TestOvernightGapIsExcessive, TestRegimePositionScaler, TestHurstExponent, TestHurstFilterPasses, TestObvTrendConfirms, TestVolExplosionBlocks, TestMtfTrendAligned
 
-### `tests/test_trade_auditor_and_intel_gates.py` (245 lines)
+### `tests/test_trade_auditor_and_intel_gates.py` (317 lines)
 **Purpose**: Coverage for:
   - src/diagnostics/trade_auditor.py
   - src/risk/intelligence_gat
-**Classes**: TestAuditRecord, TestTradeAuditor, TestExchangeStressGate, TestWhaleActivityGate
+**Classes**: TestAuditRecord, TestTradeAuditor, TestExchangeStressGate, TestWhaleActivityGate, TestDetectAnomalies
 
 ## Risk Architecture
 Gates execute sequentially — first fail short-circuits remaining gates:

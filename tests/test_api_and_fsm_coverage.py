@@ -213,3 +213,63 @@ class TestLiveExecutorOrderFSMInit:
         # No order placed yet — accessing current_state not applicable
         # Just verify the object initialises cleanly
         assert wrapper is not None
+
+
+class TestLiveExecutorOrderFSMPlaceOrder:
+    """Coverage for LiveExecutorOrderFSM.place_market_order_with_fsm (lines 65-105)."""
+
+    def _make_wrapper(self, order_manager_mock):
+        from src.execution.live_fsm_integration import LiveExecutorOrderFSM
+        fetcher = MagicMock()
+        fetcher.get_order_exchange.return_value = AsyncMock()
+        wrapper = LiveExecutorOrderFSM(fetcher=fetcher)
+        wrapper._order_manager = order_manager_mock
+        return wrapper
+
+    @pytest.mark.asyncio
+    async def test_successful_order_returns_fsm_and_dict(self):
+        """Happy path: place_order_with_fsm succeeds → returns (OrderFSM, dict)."""
+        from src.execution.order_fsm import OrderFSM, OrderFSMState, OrderStatus
+        fsm_state = OrderFSMState(
+            order_id="ord-1", symbol="BTC/USDT", side="buy",
+            quantity=0.01, status=OrderStatus.FILLED,
+        )
+        fsm_state.filled_qty = 0.01
+        fsm_state.average_fill_price = 50000.0
+        mock_fsm = OrderFSM(fsm_state)
+        mock_order = {"id": "ord-1", "status": "closed", "filled": 0.01}
+
+        om = AsyncMock()
+        om.place_order_with_fsm.return_value = (mock_fsm, mock_order)
+        wrapper = self._make_wrapper(om)
+
+        result_fsm, result_order = await wrapper.place_market_order_with_fsm(
+            symbol="BTC/USDT", side="buy", quantity=0.01
+        )
+        assert result_fsm is mock_fsm
+        assert result_order is mock_order
+
+    @pytest.mark.asyncio
+    async def test_timeout_propagates(self):
+        """TimeoutError from order_manager is logged and re-raised."""
+        om = AsyncMock()
+        om.place_order_with_fsm.side_effect = TimeoutError("fill timeout")
+        wrapper = self._make_wrapper(om)
+
+        with pytest.raises(TimeoutError):
+            await wrapper.place_market_order_with_fsm(
+                symbol="BTC/USDT", side="buy", quantity=0.01
+            )
+
+    @pytest.mark.asyncio
+    async def test_exchange_error_propagates(self):
+        """ccxt.ExchangeError from order_manager is logged and re-raised."""
+        import ccxt
+        om = AsyncMock()
+        om.place_order_with_fsm.side_effect = ccxt.ExchangeError("insufficient funds")
+        wrapper = self._make_wrapper(om)
+
+        with pytest.raises(ccxt.ExchangeError):
+            await wrapper.place_market_order_with_fsm(
+                symbol="BTC/USDT", side="sell", quantity=0.1
+            )

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T03:49:13.097553",
+  "last_updated": "2026-06-30T04:05:59.360911",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,14 +38,8 @@
   ],
   "next_recommended_task": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 15,
+  "total_sessions": 16,
   "commit_log": [
-    {
-      "hash": "6b7f301",
-      "message": "feat(risk): Almgren-Chriss slippage model + gate-0 negative-EV veto [GAP-001] [claude]",
-      "time": "2026-06-23T11:14:17.273537",
-      "author": "Claude"
-    },
     {
       "hash": "b04a240",
       "message": "docs(intel): correct stale GAP-002/output_router claims, log GAP-001 status + TASK-009 follow-up [claude]",
@@ -159,18 +153,24 @@
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "time": "2026-06-30T03:49:12.782149",
       "author": "Claude"
+    },
+    {
+      "hash": "1e3e44e",
+      "message": "docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
+      "time": "2026-06-30T04:05:59.527615",
+      "author": "Claude"
     }
   ],
-  "last_commit": "69e607d",
-  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-  "last_commit_time": "2026-06-30T03:49:12.782214",
+  "last_commit": "1e3e44e",
+  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
+  "last_commit_time": "2026-06-30T04:05:59.527680",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-30T03:31:41.652524",
+  "last_session_start": "2026-06-30T03:54:49.882821",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-30T03:45:23.989067",
-  "last_extraction_trigger": "test_signal_engine.py",
+  "last_extraction": "2026-06-30T04:05:58.819912",
+  "last_extraction_trigger": "test_api_and_fsm_coverage.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
@@ -185,10 +185,12 @@
       "[2026-06-30 03:45:25] [ac6a39b] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-06-30 03:47:26] TASK-010: wired live spread_bps and funding_rate_8h into SignalContext \u2014 added fetch_funding_rate() to fetcher.py (ccxt fetch_funding_rate, graceful 0.0 for spot/errors), concurrent gather with fetch_orderbook in tick(), _live_funding_rate_8h passed to SignalContext.funding_rate_8h (was hardcoded 0.0); 2 new tests in test_signal_engine.py (wiring + error fallback); 727 tests pass",
       "[2026-06-30 03:49:12] [69e607d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-06-30 03:49:13] [763e3fd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
+      "[2026-06-30 03:49:13] [763e3fd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-06-30 03:51:22] [739639d] feat(signal): TASK-010 \u2014 wire live spread_bps + funding_rate_8h into SignalContext",
+      "[2026-06-30 04:05:59] [1e3e44e] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 03:49:13",
+    "last_checkpoint": "2026-06-30 04:05:59",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -230,7 +232,9 @@
       "src/data/fetcher.py",
       "src/engine/signal_engine.py",
       "tests/test_signal_engine.py",
-      "src/data/fetcher.py src/engine/signal_engine.py tests/test_signal_engine.py"
+      "src/data/fetcher.py src/engine/signal_engine.py tests/test_signal_engine.py",
+      "tests/test_api_and_fsm_coverage.py",
+      "tests/test_trade_auditor_and_intel_gates.py"
     ],
     "current_task": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
     "session_started": "2026-06-29 17:31:43",

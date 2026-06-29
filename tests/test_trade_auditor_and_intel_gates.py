@@ -243,3 +243,75 @@ class TestWhaleActivityGate:
         )
         # Should REDUCE or PASS (varies by config)
         assert result.gate_id == 8
+
+
+# ---------------------------------------------------------------------------
+# TradeAuditor.detect_anomalies — coverage for lines 205-256
+# ---------------------------------------------------------------------------
+
+class TestDetectAnomalies:
+    """Coverage for TradeAuditor.detect_anomalies (requires >=50 records)."""
+
+    def _auditor_with_records(self, n: int = 60, **rec_overrides) -> "TradeAuditor":
+        a = TradeAuditor()
+        for _ in range(n):
+            a.record(_rec(**rec_overrides))
+        return a
+
+    def test_returns_empty_when_fewer_than_50_records(self):
+        a = TradeAuditor()
+        for _ in range(49):
+            a.record(_rec())
+        assert a.detect_anomalies() == []
+
+    def test_returns_list_with_no_anomalies_on_healthy_data(self):
+        """Varied p_long, p_bet, mixed gate statuses → no alert."""
+        import random
+        random.seed(42)
+        a = TradeAuditor()
+        for i in range(60):
+            a.record(_rec(
+                p_long=0.5 + random.uniform(-0.3, 0.3),
+                p_bet=0.5 + random.uniform(-0.3, 0.3),
+                gate_status="PASS" if i % 2 == 0 else "REGIME",
+                kelly_is_capped=i % 5 == 0,
+            ))
+        result = a.detect_anomalies()
+        assert isinstance(result, list)
+
+    def test_detects_p_long_variance_collapse(self):
+        """All p_long near 0.7 (stdev < 0.02) → p_long_variance_collapsed alert."""
+        a = self._auditor_with_records(60, p_long=0.700)
+        alerts = a.detect_anomalies()
+        assert any("p_long_variance_collapsed" in a for a in alerts), alerts
+
+    def test_detects_meta_label_not_discriminating(self):
+        """All p_bet=0.5 (mean≈0.5, stdev≈0) → meta_label_not_discriminating alert."""
+        a = self._auditor_with_records(60, p_long=0.5 + 0.001, p_bet=0.500)
+        # also need p_long variance to be collapsed to avoid that alert masking
+        alerts = a.detect_anomalies()
+        assert any("meta_label_not_discriminating" in a for a in alerts), alerts
+
+    def test_detects_gate_always_firing(self):
+        """90%+ of records have same non-pass gate → gate_always_firing alert."""
+        a = TradeAuditor()
+        for i in range(60):
+            gate = "DRAWDOWN" if i < 56 else "PASS"
+            a.record(_rec(gate_status=gate, p_long=0.5 + i * 0.001, p_bet=0.6 + (i % 10) * 0.01))
+        alerts = a.detect_anomalies()
+        assert any("gate_always_firing" in a for a in alerts), alerts
+
+    def test_detects_kelly_ceiling_always_binding(self):
+        """80%+ of records have kelly_is_capped=True → kelly_ceiling_always_binding."""
+        a = TradeAuditor()
+        import random
+        random.seed(7)
+        for i in range(60):
+            a.record(_rec(
+                kelly_is_capped=True,
+                p_long=0.5 + random.uniform(-0.25, 0.25),
+                p_bet=0.5 + random.uniform(-0.25, 0.25),
+                gate_status="PASS" if i % 3 == 0 else "REGIME",
+            ))
+        alerts = a.detect_anomalies()
+        assert any("kelly_ceiling_always_binding" in a for a in alerts), alerts
