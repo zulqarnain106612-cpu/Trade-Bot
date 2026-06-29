@@ -93,7 +93,7 @@ No portfolio correlation layer for multi-symbol operation.
 Kelly sizing per-symbol ignores cross-asset correlation — correlated drawdowns
 breach 2% daily halt faster than per-symbol calculations predict.
 Severity: Medium. File: src/risk/ (new file needed)
-Status: OPEN
+Status: OPEN — REOPENED 2026-06-29 (independent audit session). A prior session's commit (5c38b05, "feat(correlation): add PortfolioCorrelationTracker") and SESSION_STATE.json both claimed this resolved 2026-06-26, but src/risk/portfolio_correlation.py is never imported by gates.py, signal_engine.py, or orchestrator.py, and has 0% test coverage (verified via fresh pytest --cov run + repo-wide grep). The file exists but is fully disconnected — see Gap-015 for full detail. Treat this gap as still genuinely open: per-symbol Kelly sizing still ignores cross-asset correlation in the live signal path today.
 ────────────────────────────────────────────────────────────
 
 ## Gap-006 [2026-06-23] — PARTIALLY RESOLVED [2026-06-26]
@@ -155,7 +155,7 @@ Status: RESOLVED [2026-06-24] — setup_dev.sh created (bash, Python 3.11+ check
 install; etc.), or convert to a cross-platform `make setup` /
 `python scripts/setup_dev.py` so the install path isn't OS-forked.
 
-## Gap-010 [2026-06-24] — NEW
+## Gap-010 [2026-06-24] — RESOLVED (verified 2026-06-29, independent audit session)
 .gitignore does not cover models/ or logs/ directories at all — only
 /data/ is ignored (verified: `git check-ignore` on a test file placed in
 each directory exits 1/no-match for both; `git status --short` shows
@@ -178,6 +178,7 @@ Status: OPEN — Action: add `/models/` and `/logs/` (or `*.pkl`,
 `*.joblib`, `*.log` patterns, matching .claudeignore's existing list) to
 .gitignore. Also run `git status` before any future `git add -A` to
 confirm nothing in these directories is accidentally staged.
+VERIFIED 2026-06-29: .gitignore lines 76-78 now contain `/models/` and `/logs/` with an explicit GAP-010 comment; `git check-ignore -v` confirms both paths are ignored. Closing.
 
 ## Gap-011 [2026-06-24] — RESOLVED [2026-06-24]
 Paper executor (src/execution/paper.py) simulates fees (_PAPER_FEE_PCT =
@@ -377,3 +378,104 @@ requirements.lock (SEC-004) now more urgently than before, specifically
 to pin fastapi/pydantic to versions confirmed compatible with this
 codebase, since the next `pip install` without a lockfile could
 reintroduce a similar breaking change from either library.
+
+## Gap-015 [2026-06-29] — NEW (independent audit session, Claude)
+Multiple substantial, unit-tested modules across the risk and intelligence
+layers are NOT reachable from any live or paper trade. Verified by grepping
+every import site in src/ and tests/, and cross-checking against the fresh
+pytest --cov run from this session (not the cached SESSION_STATE.json claims):
+
+1. **src/risk/portfolio_correlation.py** (PortfolioCorrelationTracker, 313
+   lines) — 0% coverage, 138/138 statements missed. Zero imports anywhere
+   in src/ or tests/. The ONLY references in the whole repo are inside
+   .project-intel/scripts/ (the automation that generated the false
+   "GAP-005 resolved 2026-06-26" claim in SESSION_STATE.json — that claim
+   is incorrect; the class is never instantiated, never called from
+   gates.py or signal_engine.py, and has no test file). GAP-005 should be
+   reopened, not treated as closed.
+2. **src/intelligence/ensemble_predictor.py** (163 lines) — 0% coverage,
+   163/163 missed, zero imports anywhere outside itself.
+3. **src/features/intelligence_features.py** (59 lines) — 0% coverage,
+   59/59 missed as a pipeline input (it IS imported by intelligence_gates.py,
+   but see #4 — that consumer is itself unreachable).
+4. **src/risk/probabilistic_gates.py** and **src/risk/intelligence_gates.py**
+   — these are the only consumers of src/intelligence/{causal_inference,
+   probabilistic,risk_quantification,metrics}.py. Both gate modules have
+   real unit tests (tests/test_probabilistic_gates_coverage.py,
+   tests/test_trade_auditor_and_intel_gates.py — 46 tests, commit fb57d03)
+   and respectable coverage in isolation. But NEITHER is imported by
+   src/risk/gates.py (the actual sequential gate stack — confirmed via
+   `grep -n "^def check_" src/risk/gates.py`: only slippage_veto,
+   daily_drawdown, consecutive_losses, regime, position_size, live_gate,
+   paper_minimum_days, performance_drift, position_exit — no
+   probabilistic/intelligence gate among them) or by signal_engine.py or
+   orchestrator.py. A signal can pass through the entire live pipeline
+   today without these gates ever executing.
+
+Root cause pattern (not just these 5 files): work gets built and given
+real unit-test coverage in isolation, then SESSION_STATE.json / commit
+messages describe it as "COMPLETE" without the integration step that
+would make it reachable from src/engine/signal_engine.py — the one
+import path that actually matters for a live trade. This is the same
+shape of error SESSION_STATE.json itself already caught once (the
+"output_router" daemon that was claimed COMPLETE but never existed as a
+process) — it has recurred at the module-wiring level, undetected until
+this session's independent coverage-report cross-check.
+
+Severity: High. Not because the disconnected code is dangerous (it's
+inert), but because:
+  (a) GAP-005 (portfolio correlation risk) is still genuinely unmitigated
+      despite being logged as resolved — correlated-drawdown risk across
+      symbols is real and undocumented as open;
+  (b) the probabilistic/intelligence gate layer represents real risk
+      logic (causal inference, risk quantification) that operators may
+      believe is protecting live trades because it exists in the repo
+      with passing tests, when it provides zero runtime protection;
+  (c) ~1000 lines of untested-in-integration code is dead weight on
+      every future refactor and a maintenance/audit burden.
+
+File: src/risk/portfolio_correlation.py, src/intelligence/ensemble_predictor.py,
+src/features/intelligence_features.py, src/risk/probabilistic_gates.py,
+src/risk/intelligence_gates.py
+Status: OPEN — Action: for each module, either (1) wire it into
+signal_engine.py / gates.py with an integration test proving it affects a
+real signal decision, or (2) if not yet ready for production, explicitly
+mark it experimental/unused in CONTEXT_PRIMER.md and MODULE_MAP.json so
+future sessions and operators don't assume it's active. Reopen GAP-005 in
+this file (see correction note added to the original Gap-005 entry).
+Recommend: re-run `pytest --cov` after any future "RESOLVED" claim and
+confirm the relevant file's coverage is nonzero before accepting the
+claim — this is what surfaced the discrepancy this session.
+────────────────────────────────────────────────────────────
+
+## Gap-016 [2026-06-29] — NEW (independent audit session, Claude)
+.claude/CLAUDE.md claims to be a pointer stub ("PRIMARY INSTRUCTIONS FILE
+HAS MOVED ... kept here only for tools that look in .claude/ ... root
+file is the source of truth") but `diff` against the root CLAUDE.md shows
+it is NOT a clean pointer — it still duplicates the full operational
+content (output routing protocol, NEVER/ALWAYS rules, project identity)
+with two small textual differences (a missing-vs-present trailing space
+after the CHAT routing line; .claude/ version is missing the line "Always
+follow project-bound blocks with a brief <chat> summary."). Any tool that
+reads .claude/CLAUDE.md instead of root CLAUDE.md gets instructions that
+are 95% identical but not byte-identical to the stated source of truth —
+the kind of near-duplicate that's easy to miss when one file is edited
+and the other isn't.
+Also noted in passing: SESSION_STATE.json's `project_health` field
+("daemon running (venv python fixed)") and its own `implementation_status.
+output_router` field ("NOT a running daemon — no process found... Corrected
+from prior false COMPLETE claim") refer to two DIFFERENT daemons (the
+project-intel extraction daemon at .project-intel/daemon.pid, confirmed
+alive this session as PID 100832, vs. the never-built "tag auto-router"
+daemon) but use similar enough language that a future session could
+conflate them. Not a functional bug — both statements are individually
+accurate about their respective daemons — just a documentation-clarity
+risk worth a one-line disambiguation.
+Severity: Low (documentation integrity, not a code defect).
+File: .claude/CLAUDE.md, CLAUDE.md, .project-intel/SESSION_STATE.json
+Status: OPEN — Action: make .claude/CLAUDE.md a literal one-line redirect
+(e.g. "See ../CLAUDE.md — this file intentionally left minimal") instead
+of a near-duplicate, so drift becomes impossible. Optionally rename
+SESSION_STATE.json's two daemon-related fields to disambiguate
+(e.g. `intel_extraction_daemon_running` vs `output_router_daemon_exists`).
+────────────────────────────────────────────────────────────

@@ -157,3 +157,56 @@ File: .continue/agents/new-config.yaml, .continue/mcpServers/new-mcp-server.yaml
 Status: RESOLVED [2026-06-24] — Placeholder files deleted (git rm). or
 delete the unedited scaffold/add .continue/ to .gitignore if it's
 per-developer local tooling not meant to be shared.
+
+## Debt-008 [2026-06-29] — NEW (independent audit session, Claude)
+.venv/bin/python3 is a symlink straight to /usr/bin/python3, which
+resolves to Python 3.14.4. .python-version pins 3.11; pyproject.toml
+declares `requires-python = ">=3.11"` with an inline comment "CI validates
+3.11; local dev confirmed on 3.14" — i.e. the 3-minor-version drift is
+acknowledged but not resolved, not a true isolated venv. This is not a
+cosmetic issue for a project with this much numerical/ML surface
+(xgboost 2.1.4, hmmlearn 0.3.3, pandas 2.3.3, numpy via pandas) — C
+extension ABI behavior, asyncio internals, and stdlib deprecations can
+differ across 3.11→3.14. The full test suite does currently pass 100%
+under 3.14 (725 passed/1 skipped, verified this session), so there is no
+known active breakage — but CI and local dev are testing two different
+interpreters, which means a 3.14-only behavior change could pass locally
+and still be invisible to CI's 3.11 matrix, or vice versa.
+Severity: Medium (reproducibility/compatibility risk per long-term
+stability priorities — works today, but the safety margin between "CI
+green" and "actually safe on the interpreter operators run" is thinner
+than it should be).
+File: .venv (symlink target), .python-version, pyproject.toml
+Status: OPEN — Action: rebuild .venv with `python3.11 -m venv .venv`
+using an actual 3.11 interpreter (install via pyenv/deadsnakes if not
+present on this host), or explicitly accept 3.14 as the supported local
+version and update CI's matrix + .python-version + the pyproject comment
+to say so consistently — currently the three sources of truth
+(.python-version, pyproject.toml comment, CI) don't agree with each
+other or with the real venv.
+
+## Debt-009 [2026-06-29] — NEW (independent audit session, Claude)
+Repo-wide coverage gate is 60.55% (just above the 60% gate), but this
+average hides a very uneven distribution that matters because of WHERE
+the gaps are. Verified via fresh `pytest --cov` run this session:
+  - src/execution/live.py (the live-money order executor): 29% (236/346
+    statements missed)
+  - src/engine/orchestrator.py (the async event loop driving every
+    signal tick): 10% (264/304 missed)
+  - src/models/trainer.py: 27% (223/321 missed)
+  - src/data/fetcher.py: 18% (198/253 missed)
+  - src/diagnostics/runtime_monitor.py: 26% (93/136 missed)
+while src/api/auth.py, src/api/middleware.py, src/risk/slippage.py sit at
+100%, and src/data/storage.py, src/risk/kelly.py, src/risk/cognitive_engine.py
+are all >=96%. The 60% gate is satisfiable while the single
+highest-blast-radius file in the repo (live.py, the only path that places
+real orders against a real exchange) stays under one-third covered.
+Severity: Medium-High (correctness/safety-critical-path testing gap —
+not a bug by itself, but the kind of gap that lets a real bug in live.py
+or orchestrator.py ship without a failing test catching it).
+File: src/execution/live.py, src/engine/orchestrator.py,
+src/models/trainer.py, src/data/fetcher.py
+Status: OPEN — Action: consider a per-file or per-package minimum
+coverage floor for src/execution/ and src/engine/ specifically (e.g. 70%+)
+rather than relying on a single repo-wide average that high-coverage
+files like storage.py/kelly.py can subsidize.

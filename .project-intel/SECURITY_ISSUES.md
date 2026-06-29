@@ -142,3 +142,35 @@ Status: RESOLVED [2026-06-24] — Option (a) implemented. ResolveApprovalRequest
 requires operator_secret field; /approvals/{id}/resolve verifies it against
 ORPERATOR_SECRET via hmac.compare_digest (same pattern as /execution-mode).
 401 returned on mismatch, 503 if OPERATOR_SECRET unconfigured. 502/502 tests pass.
+
+## SEC-008 [2026-06-29] — NEW (independent audit session, Claude)
+.github/workflows/auto-fix.yml triggers on `push: branches: [main, dev]`
+in addition to pull_request, and has `permissions: contents: write`. On a
+direct push to main (not just a PR), this workflow checks out main,
+applies `ruff check --fix` + `ruff format` + `prettier --write`, then runs
+`git add -A && git commit && git push` directly back to main with no PR,
+no review, and no required-status-check gate in this repo (branch
+protection rules live in GitHub repo settings, not in any file in this
+clone, so the only thing stopping an unreviewed auto-fix commit from
+landing on main is whatever branch protection is configured server-side —
+unverifiable from this audit; flagging for operator confirmation).
+The workflow's own header comment ("Commits fixes back to the PR branch")
+describes PR-only behavior, but the trigger config also covers direct
+main pushes — comment and trigger config disagree.
+Verified: `git add -A` itself is safe today (respects .gitignore, and
+Gap-010's /models//logs/ entries are now in place — confirmed this
+session), so no binary/secret exfiltration risk via this path currently.
+The residual risk is process, not data: an unreviewed bot commit can land
+on main between a human's push and CI completion.
+Severity: Low-Medium (no known exploit path found; relies entirely on
+GitHub branch-protection settings outside this repo's files to mitigate —
+unverifiable locally).
+File: .github/workflows/auto-fix.yml
+Status: OPEN — Action: (1) confirm in GitHub repo settings whether main
+has branch protection requiring PR review / status checks — if it does,
+this workflow's push-to-main commits should still be blocked there and
+this downgrades to informational; if it does NOT, either remove `push:`
+from the trigger (PR-only) or change the commit step to open a PR instead
+of pushing directly. (2) Update the misleading header comment to match
+actual trigger scope either way.
+────────────────────────────────────────────────────────────

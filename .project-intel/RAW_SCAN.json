@@ -1058,6 +1058,7 @@
     "scripts/claude-commit.sh",
     "scripts/claude_debug_analysis.py",
     "scripts/export_diagnostics.py",
+    "scripts/intel-health.sh",
     "setup_dev.ps1",
     "setup_dev.sh",
     "src/__init__.py",

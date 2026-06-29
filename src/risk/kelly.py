@@ -418,6 +418,7 @@ def compute_position_size(
     min_amount: float = 0.0,
     min_cost: float = 0.0,
     regime_scalar: float = 1.0,
+    correlation_scalar: float = 1.0,
     cfg: RiskSettings | None = None,
 ) -> KellyResult | None:
     """
@@ -444,6 +445,16 @@ def compute_position_size(
                      for backward compatibility with callers that do not
                      pass a regime prediction (e.g. unit tests, back-test
                      harnesses without a fitted detector).
+    correlation_scalar : GAP-005/GAP-015 — portfolio correlation scalar in
+                     [0, 1] from
+                     src.risk.portfolio_correlation.PortfolioCorrelationTracker.correlation_scalar().
+                     Multiplies the half-Kelly fraction down when the new
+                     symbol is highly correlated with currently open
+                     positions (per-symbol Kelly otherwise ignores
+                     cross-asset correlation — see Gap-005). Defaults to
+                     1.0 (no-op) for backward compatibility with callers
+                     that do not pass a correlation tracker (e.g. unit
+                     tests, single-symbol back-test harnesses).
     cfg            : RiskSettings
 
     Returns
@@ -463,6 +474,16 @@ def compute_position_size(
     else:
         regime_scalar_clamped = max(0.0, min(1.0, regime_scalar))
 
+    # GAP-005/GAP-015: same fail-safe posture as regime_scalar above —
+    # an invalid correlation_scalar clamps to 0.0 (block sizing), never
+    # to a value that could widen the position beyond what regime/Kelly
+    # already determined.
+    if not math.isfinite(correlation_scalar):
+        log.error("kelly.invalid_correlation_scalar", correlation_scalar=correlation_scalar)
+        correlation_scalar_clamped = 0.0
+    else:
+        correlation_scalar_clamped = max(0.0, min(1.0, correlation_scalar))
+
     _raw_frac, adj_frac, _ = kelly_from_model_probs(
         p_long=p_long,
         avg_win_usd=avg_win_usd,
@@ -471,7 +492,7 @@ def compute_position_size(
         cfg=cfg,
     )
 
-    adj_frac = adj_frac * regime_scalar_clamped
+    adj_frac = adj_frac * regime_scalar_clamped * correlation_scalar_clamped
 
     return size_position(
         adjusted_fraction=adj_frac,

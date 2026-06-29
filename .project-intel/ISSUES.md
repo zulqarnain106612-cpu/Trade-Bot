@@ -34,7 +34,7 @@ Status: OPEN — Action: `pip install -r requirements-dev.txt` (verify it
 includes mypy/pyright/semgrep) or document the gap.
 ────────────────────────────────────────────────────────────
 
-## Issue-003 [2026-06-24] — NEW
+## Issue-003 [2026-06-24] — RESOLVED (verified 2026-06-29, independent audit session)
 Frontend dependency drift: package.json declares "recharts": "^3.8.1" and
 package-lock.json agrees (^3.8.1), but the resolved/installed package in
 node_modules is recharts@2.15.4. `npm ls recharts` reports it explicitly
@@ -51,6 +51,7 @@ Status: OPEN — Action: `cd frontend && rm -rf node_modules && npm install`,
 then visually verify the equity-curve/chart components render correctly
 against the resolved v3 API (axis/tooltip prop names changed between
 recharts v2 and v3).
+VERIFIED 2026-06-29: frontend/package.json declares "recharts": "^3.8.1"; frontend/node_modules/recharts/package.json resolves to "version": "3.8.1" — declared and installed versions now match. `npm audit --omit=dev` reports 0 vulnerabilities (also closes SEC-001's residual lodash transitive concern). Closing.
 ────────────────────────────────────────────────────────────
 
 ## Issue-004 [2026-06-24] — NEW
@@ -72,6 +73,7 @@ Status: OPEN — Action: either implement actual task restart (e.g. via a
 supervisor that recreates the asyncio.Task from its original coroutine
 factory) or correct the docstring/log message to say "alert only — no
 auto-restart" so operators don't have a false sense of self-healing.
+RE-VERIFIED 2026-06-29 (independent audit session): still accurate. Docstring line 8 still says "Attempt safe auto-recovery (restart stalled tasks, flush caches)"; line 161 still logs "monitor_offline — restart required"; only concrete remediation in the whole file is gc.collect() at line 246 on the memory probe. Coverage for this file is also only 26% this session, so the gap between documented and actual behavior has not been test-covered either. Still open.
 ────────────────────────────────────────────────────────────
 
 ## Issue-005 [2026-06-24] — NEW

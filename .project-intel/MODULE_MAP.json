@@ -16,7 +16,7 @@
   },
   ".project-intel/scripts/context_builder.py": {
     "purpose": "Smart Context Builder\n======================\nAssembles the MINIMUM context for any agent query.\nPull",
-    "lines": 215,
+    "lines": 220,
     "classes": [],
     "key_functions": [
       "find_project_root",
@@ -10787,7 +10787,7 @@
   },
   "src/risk/kelly.py": {
     "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.\n\nKelly (1956) \"A New Interpretation of Informa",
-    "lines": 550,
+    "lines": 571,
     "classes": [
       "KellyResult"
     ],

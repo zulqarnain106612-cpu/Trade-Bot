@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-29 09:33 | 808 Python modules | 232,629 total lines
+> Auto-generated 2026-06-29 10:30 | 808 Python modules | 232,655 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -31,7 +31,7 @@ Exchange OHLCV/OrderBook
 Persistent domain kn
 **Key functions**: build
 
-### `.project-intel/scripts/context_builder.py` (215 lines)
+### `.project-intel/scripts/context_builder.py` (220 lines)
 **Purpose**: Smart Context Builder
 ======================
 Assembles the MINIMUM context for a
@@ -3692,7 +3692,7 @@ New gates triggered by on-chain metrics:
   - Gat
 **Classes**: GateStatus, GateEvaluation, ExchangeStressGate, WhaleActivityGate, DriftDetectorEnhanced
 
-### `src/risk/kelly.py` (550 lines)
+### `src/risk/kelly.py` (571 lines)
 **Purpose**: Kelly position sizing — half-Kelly with hard ceiling.
 
 Kelly (1956) "A New Inter
