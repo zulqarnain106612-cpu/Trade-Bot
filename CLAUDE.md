@@ -1,9 +1,32 @@
 # Trade Bot — Claude Instructions
 
 ## MANDATORY: Read these files before anything else
-1. `.project-intel/CONTEXT_PRIMER.md` — complete project understanding + output routing protocol
+1. `.project-intel/HANDOFF.md` — FIRST: shows exact state left by previous agent (Claude/Copilot/AmazonQ)
+2. `.project-intel/CONTEXT_PRIMER.md` — complete project understanding + output routing protocol
 2. `.project-intel/SESSION_STATE.json` — current progress and what's next
 3. `.project-intel/DECISION_LOG.md` — decisions already made
+
+
+## HANDOFF PROTOCOL — register on start, checkpoint during work, finish on end
+
+**Session start:**
+```bash
+python3 .project-intel/scripts/handoff.py start --agent claude --task "your task"
+```
+
+**During work (after every meaningful step):**
+```bash
+python3 .project-intel/scripts/handoff.py checkpoint --agent claude \
+  --completed "what you just did" --next "exact next step" --files "src/file.py"
+```
+
+**Clean finish:**
+```bash
+python3 .project-intel/scripts/handoff.py finish --agent claude \
+  --completed "what you completed" --next "TASK-XXX: next task"
+```
+
+**If interrupted** (run before closing): the daemon auto-marks stale sessions as interrupted.
 
 ## OUTPUT ROUTING PROTOCOL — mandatory for every response
 Use XML tags. System auto-routes tagged content to correct destination.

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-29T09:22:38.251804",
+  "last_updated": "2026-06-29T14:43:07.394318",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -23,7 +23,7 @@
     "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageModel.",
     "debt_005_test_coverage": "RESOLVED [2026-06-26] \u2014 62% total coverage (gate=60%). 725 tests. Key files: signal_engine.py 87%, gates.py 87%, trainer predict_* covered, trade_auditor covered, intelligence_gates + probabilistic_gates covered."
   },
-  "current_focus": "Single active session, full ownership taken of all prior work. GAP-013 (position exit controls) implemented end-to-end: backend, frontend toggle UI, tests, committed. Gap-014 (API totally unimportable) fixed. Adopted the previously-interrupted/uncommitted P1 FSM + drift-detection work (order_fsm.py, order_manager.py, live_fsm_integration.py, drift_integration.py, performance_drift.py) -- re-verified every claim in that session's own FINAL_STATUS_P1.md rather than trusting it, found and fixed: (1) a real crash bug where ANY order not filling on the very first poll attempt threw an unhandled OrderFSMError, (2) a broken test masking that bug, (3)/(4) both new API endpoints (/orders/{id}/status, /performance-drift) were silently dead due to reading a nonexistent runtime_config attribute, and a claimed 'state persistence for reconciliation' feature that was never actually implemented (added a real bounded registry on LiveExecutor to make it true). All work committed across 6 commits. Full suite: 679 passed / 1 skipped / 0 failed -- first fully green run this entire engagement.",
+  "current_focus": "completed by claude \u2014 Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
@@ -36,9 +36,9 @@
     "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping with detector.py's entropy scalar, or the compounding should be explicitly bounded/documented as intentional",
     "Debt-006: pick one canonical lint-tool-version source (pre-commit vs CI vs Trunk) \u2014 currently 3 independently-pinned configs, already found diverging"
   ],
-  "next_recommended_task": "GAP-004 and GAP-003 can be marked CLOSED in GAPS.md (currently still shown as open from earlier audit rounds -- worth reconciling). Remaining real open items: SEC-005/006/007 (CI auto-commit/auto-merge gates, approval-endpoint second factor -- all process fixes, no code risk), Gap-010 (models/+logs/ not gitignored), Gap-012 (no DB schema migration system), Debt-006 (3 overlapping lint configs with version drift). User said next direction (deeper vs fresh area) is up to Claude's judgment.",
+  "next_recommended_task": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 8,
+  "total_sessions": 9,
   "commit_log": [
     {
       "hash": "910cbf0",
@@ -141,10 +141,27 @@
   "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
   "last_commit_time": "2026-06-29T11:15:41.485908",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-29T14:32:35.324607",
+  "last_session_start": "2026-06-29T14:35:19.499837",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
   "last_extraction": "2026-06-29T11:15:41.376901",
-  "last_extraction_trigger": "risk_quantification.py"
+  "last_extraction_trigger": "risk_quantification.py",
+  "handoff": {
+    "active_agent": "claude",
+    "status": "completed",
+    "completed_this_session": [
+      "[2026-06-29 14:43:07] Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale session detection, HANDOFF.md, checkpointing, and daemon auto-interrupt"
+    ],
+    "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
+    "last_checkpoint": "2026-06-29 14:43:07",
+    "session_history": [
+      {
+        "time": "2026-06-29 14:43:07",
+        "agent": "claude",
+        "status": "completed",
+        "summary": "Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess"
+      }
+    ]
+  }
 }

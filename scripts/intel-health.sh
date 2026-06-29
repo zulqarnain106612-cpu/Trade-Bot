@@ -209,6 +209,25 @@ done
 
 echo ""
 
+# ── 6. Handoff state ─────────────────────────────────────────────────────────
+echo "[6] Handoff state"
+HANDOFF_SCRIPT="$INTEL_DIR/scripts/handoff.py"
+HANDOFF_FILE="$INTEL_DIR/HANDOFF.md"
+if [ -f "$HANDOFF_SCRIPT" ]; then
+  ok "handoff.py exists"
+else
+  err "handoff.py MISSING at $HANDOFF_SCRIPT"
+fi
+if [ -f "$HANDOFF_FILE" ]; then
+  STATUS=$(grep "^\*\*Status" "$HANDOFF_FILE" 2>/dev/null | head -1 | sed 's/.*\*\*Status\*\*:  *//')
+  ok "HANDOFF.md exists — status: ${STATUS:-unknown}"
+else
+  fix "initialising HANDOFF.md"
+  python3 "$HANDOFF_SCRIPT" interrupt --reason "health check init" --next "check OPEN_TASKS.md" 2>/dev/null || true
+fi
+
+echo ""
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo "════════════════════════════════════════════════════════"
 if [ "$FIXED" -eq 0 ] && [ "$MISSING" -eq 0 ]; then

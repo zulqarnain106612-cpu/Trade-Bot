@@ -7,7 +7,35 @@
 
 ## STEP 1 — SESSION START (do this before anything else)
 
-Read these three files in order. They replace reading source code.
+Read these files in order — **HANDOFF.md first**:
+
+```
+.project-intel/HANDOFF.md          ← FIRST: exact state left by previous agent
+.project-intel/CONTEXT_PRIMER.md   ← full project understanding
+.project-intel/SESSION_STATE.json  ← current progress
+.project-intel/DECISION_LOG.md     ← decisions already made
+```
+
+If HANDOFF.md shows `INTERRUPTED` — resume from the exact point shown. Do not restart.
+
+Then register yourself:
+```bash
+python3 .project-intel/scripts/handoff.py start --agent copilot --task "your task"
+```
+
+Checkpoint during work:
+```bash
+python3 .project-intel/scripts/handoff.py checkpoint --agent copilot \
+  --completed "what you just did" --next "exact next step" --files "src/file.py"
+```
+
+Finish:
+```bash
+python3 .project-intel/scripts/handoff.py finish --agent copilot \
+  --completed "summary" --next "TASK-XXX: next task"
+```
+
+If you need to know what a module does: read `.project-intel/MODULE_MAP.json` They replace reading source code.
 
 ```
 .project-intel/CONTEXT_PRIMER.md   — full project understanding + routing protocol

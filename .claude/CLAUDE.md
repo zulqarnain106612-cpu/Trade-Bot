@@ -1,19 +1,40 @@
 # Trade Bot — Claude Instructions
 
-## PRIMARY INSTRUCTIONS FILE HAS MOVED
-
-The authoritative CLAUDE.md is now at the **project root**:
-  `/home/fujitsu/Projects/Trade-Bot-main/CLAUDE.md`
-
-This file is kept here only for tools that look in `.claude/`.
-All content below mirrors the root file — root file is the source of truth.
+## PRIMARY INSTRUCTIONS FILE
+The authoritative CLAUDE.md is at the project root.
+This file mirrors it for tools that look in `.claude/`.
 
 ---
 
+# Trade Bot — Claude Instructions
+
 ## MANDATORY: Read these files before anything else
-1. `.project-intel/CONTEXT_PRIMER.md` — complete project understanding + output routing protocol
+1. `.project-intel/HANDOFF.md` — FIRST: shows exact state left by previous agent (Claude/Copilot/AmazonQ)
+2. `.project-intel/CONTEXT_PRIMER.md` — complete project understanding + output routing protocol
 2. `.project-intel/SESSION_STATE.json` — current progress and what's next
 3. `.project-intel/DECISION_LOG.md` — decisions already made
+
+
+## HANDOFF PROTOCOL — register on start, checkpoint during work, finish on end
+
+**Session start:**
+```bash
+python3 .project-intel/scripts/handoff.py start --agent claude --task "your task"
+```
+
+**During work (after every meaningful step):**
+```bash
+python3 .project-intel/scripts/handoff.py checkpoint --agent claude \
+  --completed "what you just did" --next "exact next step" --files "src/file.py"
+```
+
+**Clean finish:**
+```bash
+python3 .project-intel/scripts/handoff.py finish --agent claude \
+  --completed "what you completed" --next "TASK-XXX: next task"
+```
+
+**If interrupted** (run before closing): the daemon auto-marks stale sessions as interrupted.
 
 ## OUTPUT ROUTING PROTOCOL — mandatory for every response
 Use XML tags. System auto-routes tagged content to correct destination.
@@ -30,9 +51,10 @@ Use XML tags. System auto-routes tagged content to correct destination.
   <security>security issue</security>       → SECURITY_ISSUES.md
   <debt>technical debt</debt>               → TECH_DEBT.md
 
-→ CHAT: <chat>reply, code, explanation</chat> or untagged content
+→ CHAT: <chat>reply, code, explanation</chat>  or untagged content
 
 RULES: Never write gaps/issues/tasks as plain text. Never duplicate project content in chat.
+Always follow project-bound blocks with a brief <chat> summary.
 
 ## NEVER do these
 - Do NOT read entire source files to understand the project
