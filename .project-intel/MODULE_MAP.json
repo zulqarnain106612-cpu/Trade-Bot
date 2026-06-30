@@ -10853,7 +10853,7 @@
   },
   "src/risk/kelly.py": {
     "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.\n\nKelly (1956) \"A New Interpretation of Informa",
-    "lines": 571,
+    "lines": 604,
     "classes": [
       "KellyResult"
     ],

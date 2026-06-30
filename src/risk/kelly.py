@@ -419,6 +419,7 @@ def compute_position_size(
     min_cost: float = 0.0,
     regime_scalar: float = 1.0,
     correlation_scalar: float = 1.0,
+    notional_cap_usd: float | None = None,
     cfg: RiskSettings | None = None,
 ) -> KellyResult | None:
     """
@@ -455,6 +456,12 @@ def compute_position_size(
                      1.0 (no-op) for backward compatibility with callers
                      that do not pass a correlation tracker (e.g. unit
                      tests, single-symbol back-test harnesses).
+    notional_cap_usd : GAP-015 — absolute USD notional cap from
+                     src.strategies.position_sizing.recommend_position_notional()
+                     (Carver/AFML/Thorp minimum). Applied as a hard ceiling
+                     on the quantity after Kelly sizing, implementing
+                     Carver (2019) 'whichever method gives the smaller position'.
+                     None = no cap (no-op, backward compatible).
     cfg            : RiskSettings
 
     Returns
@@ -494,7 +501,7 @@ def compute_position_size(
 
     adj_frac = adj_frac * regime_scalar_clamped * correlation_scalar_clamped
 
-    return size_position(
+    result = size_position(
         adjusted_fraction=adj_frac,
         capital_usd=capital_usd,
         entry_price=entry_price,
@@ -503,6 +510,32 @@ def compute_position_size(
         min_cost=min_cost,
         cfg=cfg,
     )
+
+    # GAP-015: Carver/AFML/Thorp notional cap — shrink only, never expand.
+    if result is not None and notional_cap_usd is not None and notional_cap_usd > 0.0:
+        if result.notional_usd > notional_cap_usd:
+            # Re-quantise at the capped notional.
+            capped_qty_raw = notional_cap_usd / entry_price
+            decimal_places = int(amount_precision)
+            capped_qty = _floor_to_precision(capped_qty_raw, decimal_places)
+            if capped_qty > 0.0:
+                log.info(
+                    'kelly.carver_cap_applied',
+                    kelly_notional=round(result.notional_usd, 2),
+                    cap_notional=round(notional_cap_usd, 2),
+                    capped_qty=capped_qty,
+                )
+                result = KellyResult(
+                    kelly_fraction=result.kelly_fraction,
+                    adjusted_fraction=result.adjusted_fraction,
+                    capital_usd=result.capital_usd,
+                    entry_price=result.entry_price,
+                    quantity=capped_qty,
+                    notional_usd=round(capped_qty * entry_price, 2),
+                    is_capped=True,
+                )
+
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-01 02:52 | 813 Python modules | 235,413 total lines
+> Auto-generated 2026-07-01 03:03 | 813 Python modules | 235,446 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3717,7 +3717,7 @@ New gates triggered by on-chain metrics:
   - Gat
 **Classes**: GateStatus, GateEvaluation, ExchangeStressGate, WhaleActivityGate, DriftDetectorEnhanced
 
-### `src/risk/kelly.py` (571 lines)
+### `src/risk/kelly.py` (604 lines)
 **Purpose**: Kelly position sizing — half-Kelly with hard ceiling.
 
 Kelly (1956) "A New Inter
