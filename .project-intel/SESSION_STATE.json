@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T05:13:35.564346",
+  "last_updated": "2026-06-30T05:15:04.060009",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 18,
   "commit_log": [
-    {
-      "hash": "78a341a",
-      "message": "docs(intel): auto-sync after changes to src/risk/kelly.py [claude]",
-      "time": "2026-06-29T10:31:39.088274",
-      "author": "Claude"
-    },
     {
       "hash": "387a486",
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
       "time": "2026-06-30T05:13:35.877704",
       "author": "Claude"
+    },
+    {
+      "hash": "abebace",
+      "message": "docs(intel): auto-sync after changes to src/risk/gates.py [claude]",
+      "time": "2026-06-30T05:15:04.182203",
+      "author": "Claude"
     }
   ],
-  "last_commit": "f2540b5",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-  "last_commit_time": "2026-06-30T05:13:35.877793",
+  "last_commit": "abebace",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/risk/gates.py [claude]",
+  "last_commit_time": "2026-06-30T05:15:04.182254",
   "coverage_pct": 62,
   "last_session_start": "2026-06-30T04:39:46.398056",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-30T05:13:34.311206",
-  "last_extraction_trigger": "binance_provider.py",
+  "last_extraction": "2026-06-30T05:15:03.696664",
+  "last_extraction_trigger": "gates.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-06-30 03:21:11] [81e67b3] fix(intel): add .claudeignore + danger table \u2014 block all large file reads that burn session budget [claude]",
-      "[2026-06-30 03:26:16] [aee0faf] fix(intel): extend .claudeignore + danger table with package-lock, requirements.lock, Vulner-Fix.md [claude]",
       "[2026-06-30 03:35:20] [e96a0f4] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-06-30 03:35:21] [4a4bde3] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-06-30 03:45:24] [6abe639] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-06-30 04:33:42] Added tests/test_portfolio_correlation.py: 42 tests covering _EWMSeries, _EWMCov, PortfolioCorrelationTracker (push_bar_returns, push_return, correlation, avg_correlation_with_open_positions, correlation_scalar, correlation_matrix) and singleton. Coverage gate passed: 61.84% (was 59.73%, gate=60%). 778 passed.",
       "[2026-06-30 04:33:42] [82af9c8] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-06-30 04:33:43] [0c4ffe1] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-06-30 05:13:35] [f2540b5] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]"
+      "[2026-06-30 05:13:35] [f2540b5] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+      "[2026-06-30 05:13:37] [13184d9] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+      "[2026-06-30 05:15:04] [abebace] docs(intel): auto-sync after changes to src/risk/gates.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 05:13:35",
+    "last_checkpoint": "2026-06-30 05:15:04",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",

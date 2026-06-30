@@ -10809,7 +10809,7 @@
   },
   "src/risk/gates.py": {
     "purpose": "Risk gate engine \u2014 hard limits that block new positions.\n\nGates (all must pass for a trade to procee",
-    "lines": 922,
+    "lines": 937,
     "classes": [
       "GateStatus",
       "GateResult",
