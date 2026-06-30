@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-01 03:05 | 813 Python modules | 235,473 total lines
+> Auto-generated 2026-07-01 03:18 | 814 Python modules | 235,833 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3800,7 +3800,7 @@ Tests:
   - Order placem
 **Classes**: TestDriftGateIntegration, TestDriftIntegrationAdapter, TestOrderFSMInContext, TestOrderFSMStateSnapshot
 
-### `tests/test_kelly.py` (354 lines)
+### `tests/test_kelly.py` (515 lines)
 **Purpose**: Tests for src/risk/kelly.py — Kelly formula, sizing, win/loss stats.
 **Classes**: TestKellyFraction, TestHalfKellyFraction, TestKellyFromModelProbs, TestFloorToPrecision, TestSizePosition, TestComputePositionSize, TestComputeWinLossStats
 **Key functions**: reset
@@ -3823,6 +3823,12 @@ Tests that _place_market_orde
 
 Targets predict_direction, predi
 **Classes**: TestModelTrainerInit, TestPredictDirection, TestPredictMeta, TestComputeWinLossStats, TestTrainingResult
+
+### `tests/test_orchestrator.py` (199 lines)
+**Purpose**: Tests for src/engine/orchestrator.py
+
+Focus: correlation scalar computation (GAP
+**Classes**: TestPortfolioCorrelationTracker, TestOrchestratorCorrelationState, TestCorrelationScalarFailSafe
 
 ### `tests/test_order_fsm.py` (296 lines)
 **Purpose**: Test suite for Order FSM state machine.

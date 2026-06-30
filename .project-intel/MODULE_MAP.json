@@ -11099,7 +11099,7 @@
   },
   "tests/test_kelly.py": {
     "purpose": "Tests for src/risk/kelly.py \u2014 Kelly formula, sizing, win/loss stats.",
-    "lines": 354,
+    "lines": 515,
     "classes": [
       "TestKellyFraction",
       "TestHalfKellyFraction",
@@ -11175,6 +11175,21 @@
       "src.models.trainer",
       "src.risk.kelly",
       "src.config"
+    ]
+  },
+  "tests/test_orchestrator.py": {
+    "purpose": "Tests for src/engine/orchestrator.py\n\nFocus: correlation scalar computation (GAP-005/GAP-015) and th",
+    "lines": 199,
+    "classes": [
+      "TestPortfolioCorrelationTracker",
+      "TestOrchestratorCorrelationState",
+      "TestCorrelationScalarFailSafe"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.risk.portfolio_correlation",
+      "src.engine.orchestrator"
     ]
   },
   "tests/test_order_fsm.py": {
