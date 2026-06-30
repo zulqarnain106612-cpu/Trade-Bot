@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-30 04:31 | 812 Python modules | 234,512 total lines
+> Auto-generated 2026-06-30 05:13 | 813 Python modules | 235,117 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3665,6 +3665,13 @@ Replaces deterministic
 Each provider wraps a specific API:
   - glassnod
 
+### `src/intelligence/providers/binance_provider.py` (462 lines)
+**Purpose**: Binance public REST provider for intelligence metrics.
+
+All endpoints used here 
+**Classes**: BinanceIntelligenceProvider
+**Key functions**: get_b
+
 ### `src/intelligence/risk_quantification.py` (342 lines)
 **Purpose**: Risk quantification and uncertainty analysis.
 
@@ -3696,7 +3703,7 @@ States:
 A
 **Classes**: DriftIntegrationAdapter
 
-### `src/risk/gates.py` (779 lines)
+### `src/risk/gates.py` (922 lines)
 **Purpose**: Risk gate engine — hard limits that block new positions.
 
 Gates (all must pass f

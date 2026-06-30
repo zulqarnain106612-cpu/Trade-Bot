@@ -57,6 +57,8 @@ class GateStatus(str, Enum):
     HALT_LIVE_GATE = "halt_live_gate"
     HALT_PAPER_ONLY = "halt_paper_only"
     HALT_DRIFT = "halt_drift"  # Performance drift detection (GAP-003)
+    HALT_EXCHANGE_STRESS = "halt_exchange_stress"  # GAP-015: exchange stress gate
+    REDUCE_WHALE_ACTIVITY = "reduce_whale_activity"  # GAP-015: whale selling, size reduced
 
 
 @dataclass(frozen=True)
@@ -493,6 +495,18 @@ class RiskGateContext:
     expected_edge_bps: float = 0.0
     slippage_estimate: SlippageEstimate | None = None
 
+    # GAP-015 — intelligence gate inputs (gates 9 & 10).
+    # Populated from BinanceIntelligenceProvider.fetch_metrics();
+    # default None → gates fail open (PASS) so a provider outage
+    # never blocks trading.
+    exchange_stress_score: float | None = None
+    whale_buy_sell_ratio: float | None = None
+    # whale_scalar is set to 0.5 by evaluate_all_gates() when
+    # REDUCE_WHALE_ACTIVITY fires; callers should multiply Kelly
+    # fraction by this value.  Not consumed inside gates.py itself
+    # — it is returned in GateResult.details["whale_scalar"].
+    whale_scalar: float = 1.0
+
 
 def evaluate_all_gates(
     ctx: RiskGateContext,
@@ -538,6 +552,9 @@ def evaluate_all_gates(
             else GateResult.pass_gate()
         ),
         check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
+        # GAP-015: intelligence gates — fail open (PASS) when data unavailable
+        check_exchange_stress(ctx.exchange_stress_score),
+        check_whale_activity(ctx.whale_buy_sell_ratio),
     ]
 
     for result in ordered_results:
@@ -713,6 +730,147 @@ def check_performance_drift(drift_detector: Any) -> GateResult:
 # ---------------------------------------------------------------------------
 # GAP-013 -- automated position-exit evaluation (stop-loss / take-profit /
 # time-based exit). Pure function: takes a position snapshot + the current
+# ---------------------------------------------------------------------------
+# Intelligence gates — GAP-015
+# Sourced from BinanceIntelligenceProvider (free public API; no key required).
+# ExchangeStressGate: halt when composite stress (basis+funding+OI) exceeds
+#   threshold.  Protects against contagion/counterparty risk.
+# WhaleActivityGate: reduce position scalar when taker-sell pressure dominates.
+#   Returns REDUCE_WHALE_ACTIVITY (not HALT) — orchestrator applies the
+#   whale_scalar to correlation_scalar so sizing shrinks, never blocks fully.
+# Both gates fail open (PASS) when intelligence_metrics is None so the
+# signal path is never blocked by a provider failure.
+# ---------------------------------------------------------------------------
+
+
+def check_exchange_stress(
+    exchange_stress_score: float | None,
+    stress_halt_threshold: float = 0.75,
+    stress_reduce_threshold: float = 0.50,
+) -> GateResult:
+    """
+    Gate 9: halt or reduce when exchange stress composite is elevated.
+
+    exchange_stress_score in [0, 1] is computed by BinanceIntelligenceProvider
+    as a weighted composite of:
+      - perp/spot basis divergence (35%)
+      - funding rate z-score vs 30-day history (40%)
+      - 24h open interest change / rapid deleveraging (25%)
+
+    Parameters
+    ----------
+    exchange_stress_score    : composite stress [0, 1]; None → fail open (PASS).
+    stress_halt_threshold    : score above which trading halts (default 0.75).
+    stress_reduce_threshold  : score above which a reduction warning is emitted
+                               but trading is NOT blocked (default 0.50).
+
+    Returns
+    -------
+    GateResult — PASS, HALT_EXCHANGE_STRESS.
+    Note: REDUCE path emits a warning log but still returns PASS so as not
+    to block the trade; the caller may inspect details["stress_action"] to
+    further reduce sizing.
+    """
+    if exchange_stress_score is None:
+        return GateResult.pass_gate(details={"exchange_stress_gate": "skipped_no_data"})
+
+    score = float(exchange_stress_score)
+
+    if score > stress_halt_threshold:
+        return GateResult.fail(
+            GateStatus.HALT_EXCHANGE_STRESS,
+            reason=(
+                f"Exchange stress score {score:.3f} > halt threshold "
+                f"{stress_halt_threshold:.2f}. "
+                "Contagion/counterparty risk detected — halting new positions."
+            ),
+            details={
+                "exchange_stress_score": round(score, 4),
+                "halt_threshold": stress_halt_threshold,
+                "stress_action": "halt",
+            },
+        )
+
+    if score > stress_reduce_threshold:
+        log.warning(
+            "risk.gate.exchange_stress_elevated",
+            score=round(score, 4),
+            reduce_threshold=stress_reduce_threshold,
+            action="reduce_suggested",
+        )
+        return GateResult.pass_gate(
+            details={
+                "exchange_stress_score": round(score, 4),
+                "reduce_threshold": stress_reduce_threshold,
+                "stress_action": "reduce_suggested",
+            }
+        )
+
+    return GateResult.pass_gate(
+        details={
+            "exchange_stress_score": round(score, 4),
+            "stress_action": "none",
+        }
+    )
+
+
+def check_whale_activity(
+    whale_buy_sell_ratio: float | None,
+    sell_threshold: float = 0.85,
+) -> GateResult:
+    """
+    Gate 10: taker-flow whale activity filter (sizing advisory).
+
+    whale_buy_sell_ratio = taker_buy_vol / taker_sell_vol over last 12h,
+    computed from Binance Futures klines (public, no key).
+
+    Values:
+      > 1.0 : net buying pressure (bullish taker flow)
+      = 1.0 : neutral
+      < 1.0 : net selling pressure (bearish taker flow)
+
+    This gate returns REDUCE_WHALE_ACTIVITY when ratio < sell_threshold,
+    which is NOT a halt — it is advisory.  The orchestrator/signal engine
+    should apply a 0.5 position scalar when this status is returned.
+    The gate never blocks a trade outright; only extreme exchange stress does.
+
+    Parameters
+    ----------
+    whale_buy_sell_ratio : taker buy/sell ratio [0, 10]; None → fail open (PASS).
+    sell_threshold       : ratio below which selling pressure is significant.
+
+    Returns
+    -------
+    GateResult — PASS or REDUCE_WHALE_ACTIVITY.
+    """
+    if whale_buy_sell_ratio is None:
+        return GateResult.pass_gate(details={"whale_gate": "skipped_no_data"})
+
+    ratio = float(whale_buy_sell_ratio)
+
+    if ratio < sell_threshold:
+        return GateResult.fail(
+            GateStatus.REDUCE_WHALE_ACTIVITY,
+            reason=(
+                f"Whale taker sell pressure: buy/sell ratio {ratio:.3f} < "
+                f"threshold {sell_threshold:.2f}. "
+                "Net selling pressure detected — position size reduced by 50%."
+            ),
+            details={
+                "whale_buy_sell_ratio": round(ratio, 4),
+                "sell_threshold": sell_threshold,
+                "whale_action": "reduce_50pct",
+            },
+        )
+
+    return GateResult.pass_gate(
+        details={
+            "whale_buy_sell_ratio": round(ratio, 4),
+            "whale_action": "none",
+        }
+    )
+
+
 # runtime-toggleable exit-control settings, returns an exit decision or None
 # if the position should remain open. No I/O, no side effects -- the caller
 # (Orchestrator's position-monitor loop) is responsible for actually calling

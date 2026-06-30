@@ -131,6 +131,10 @@
     "purpose": "Crypto intelligence providers.",
     "functions": []
   },
+  "src/intelligence/providers/binance_provider.py": {
+    "purpose": "Binance public REST provider for intelligence metrics.",
+    "functions": []
+  },
   "src/intelligence/risk_quantification.py": {
     "purpose": "Risk quantification and uncertainty analysis.",
     "functions": []

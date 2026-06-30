@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T04:33:42.859876",
+  "last_updated": "2026-06-30T05:13:35.564346",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,14 +38,8 @@
   ],
   "next_recommended_task": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 17,
+  "total_sessions": 18,
   "commit_log": [
-    {
-      "hash": "981de06",
-      "message": "fix(risk): CognitiveEngine sizing bug [GAP-007] + test backfill for detector/cognitive_engine [claude]",
-      "time": "2026-06-23T12:57:39.967216+00:00",
-      "author": "Claude"
-    },
     {
       "hash": "78a341a",
       "message": "docs(intel): auto-sync after changes to src/risk/kelly.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "time": "2026-06-30T04:33:42.977177",
       "author": "Claude"
+    },
+    {
+      "hash": "f2540b5",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+      "time": "2026-06-30T05:13:35.877704",
+      "author": "Claude"
     }
   ],
-  "last_commit": "82af9c8",
-  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-  "last_commit_time": "2026-06-30T04:33:42.977244",
+  "last_commit": "f2540b5",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+  "last_commit_time": "2026-06-30T05:13:35.877793",
   "coverage_pct": 62,
-  "last_session_start": "2026-06-30T04:26:22.656350",
+  "last_session_start": "2026-06-30T04:39:46.398056",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-30T04:32:26.793297",
-  "last_extraction_trigger": "test_portfolio_correlation.py",
+  "last_extraction": "2026-06-30T05:13:34.311206",
+  "last_extraction_trigger": "binance_provider.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-06-29 19:46:32] [3cedb25] feat(intel): add resume.py \u2014 single-command session bootstrap to eliminate re-orientation token burn [claude]",
-      "[2026-06-30 03:18:38] [30de024] fix(intel): replace 291KB MODULE_MAP read with 6KB slim map embedded in resume.py \u2014 eliminates session token burn [claude]",
       "[2026-06-30 03:21:11] [81e67b3] fix(intel): add .claudeignore + danger table \u2014 block all large file reads that burn session budget [claude]",
       "[2026-06-30 03:26:16] [aee0faf] fix(intel): extend .claudeignore + danger table with package-lock, requirements.lock, Vulner-Fix.md [claude]",
       "[2026-06-30 03:35:20] [e96a0f4] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-06-30 04:32:27] [2214281] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
       "[2026-06-30 04:32:27] [35c1bde] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
       "[2026-06-30 04:33:42] Added tests/test_portfolio_correlation.py: 42 tests covering _EWMSeries, _EWMCov, PortfolioCorrelationTracker (push_bar_returns, push_return, correlation, avg_correlation_with_open_positions, correlation_scalar, correlation_matrix) and singleton. Coverage gate passed: 61.84% (was 59.73%, gate=60%). 778 passed.",
-      "[2026-06-30 04:33:42] [82af9c8] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
+      "[2026-06-30 04:33:42] [82af9c8] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-06-30 04:33:43] [0c4ffe1] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-06-30 05:13:35] [f2540b5] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 04:33:42",
+    "last_checkpoint": "2026-06-30 05:13:35",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -242,7 +242,9 @@
       "src/data/fetcher.py src/engine/signal_engine.py tests/test_signal_engine.py",
       "tests/test_api_and_fsm_coverage.py",
       "tests/test_trade_auditor_and_intel_gates.py",
-      "tests/test_portfolio_correlation.py"
+      "tests/test_portfolio_correlation.py",
+      "src/intelligence/providers/binance_provider.py",
+      "src/risk/gates.py"
     ],
     "current_task": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
     "session_started": "2026-06-29 17:31:43",

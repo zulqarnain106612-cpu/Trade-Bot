@@ -1101,6 +1101,7 @@
     "src/intelligence/metrics.py",
     "src/intelligence/probabilistic.py",
     "src/intelligence/providers/__init__.py",
+    "src/intelligence/providers/binance_provider.py",
     "src/intelligence/risk_quantification.py",
     "src/regime/__init__.py",
     "src/regime/detector.py",
