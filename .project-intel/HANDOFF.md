@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-01 03:32:17 | Read this before starting any work.
+> Updated: 2026-07-01 03:33:00 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests
 **Started**: 2026-07-01 02:35:45
-**Last checkpoint**: 2026-07-01 03:32:17
+**Last checkpoint**: 2026-07-01 03:33:00
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -34,6 +34,7 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - tests/test_probabilistic_gates_coverage.py
   - tests/test_trade_auditor.py
   - tests/test_trade_auditor_and_intel_gates.py
+  - .project-intel/MODULE_MAP_SLIM.json
 
 ## Session History (last 5)
   [2026-07-01 02:35:45] claude — interrupted: shell session started — TASK-010: wire live spread_bps and funding_rate_8h into 

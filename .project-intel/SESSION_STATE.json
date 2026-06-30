@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-01T03:32:59.706855",
+  "last_updated": "2026-07-01T03:33:00.227319",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -36,7 +36,7 @@
     "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping with detector.py's entropy scalar, or the compounding should be explicitly bounded/documented as intentional",
     "Debt-006: pick one canonical lint-tool-version source (pre-commit vs CI vs Trunk) \u2014 currently 3 independently-pinned configs, already found diverging"
   ],
-  "next_recommended_task": "GAP-004: define order FSM states for partial fills (order_fsm.py)",
+  "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 19,
   "commit_log": [
@@ -193,10 +193,11 @@
       "[2026-07-01 03:19:38] [1fba8db] docs(intel): auto-sync after changes to tests/test_orchestrator.py [claude]",
       "[2026-07-01 03:19:38] [3cad7df] docs(intel): auto-sync after changes to tests/test_orchestrator.py [claude]",
       "[2026-07-01 03:32:17] [8992e21] refactor: retire duplicate exchange-stress/whale gate implementations (GAP-015)",
-      "[2026-07-01 03:32:59] [c26b55b] docs(intel): auto-sync after changes to tests/test_trade_auditor.py [claude]"
+      "[2026-07-01 03:32:59] [c26b55b] docs(intel): auto-sync after changes to tests/test_trade_auditor.py [claude]",
+      "[2026-07-01 03:33:00] [f2c334d] docs(intel): auto-sync after changes to tests/test_trade_auditor.py [claude]"
     ],
     "next_step": "GAP-004: define order FSM states for partial fills (order_fsm.py)",
-    "last_checkpoint": "2026-07-01 03:32:59",
+    "last_checkpoint": "2026-07-01 03:33:00",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -247,5 +248,5 @@
     "session_started": "2026-07-01 02:35:45",
     "interruption_reason": ""
   },
-  "next_step": "GAP-004: define order FSM states for partial fills (order_fsm.py)"
+  "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan"
 }

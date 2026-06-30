@@ -60,3 +60,50 @@ Live trading must remain blocked until that follow-up lands; do not treat
 
 ---
 ## Add new decisions below this line when implementing changes
+
+## ADR-XXX (pending number): Intelligence feature wiring — blocked on API provisioning
+**Date**: 2026-07-01
+**Decision**: Do NOT fake-train on the 15 intelligence features (GAP-015) using
+default/constant values. Wait for real Glassnode (Professional plan) +
+CryptoQuant API keys, then build a proper historical backfill before
+retraining.
+**Rationale**: src/intelligence/client.py's get_exchange_netflow(),
+get_whale_activity(), get_funding_rate() and
+src/intelligence/providers/binance_provider.py's fetch_metrics() are all
+current-snapshot-only — no since/until params anywhere. Neither
+GLASSNODE_API_KEY nor CRYPTOQUANT_API_KEY is configured today (confirmed:
+empty in .env, glassnode_enabled=False / cryptoquant_enabled=False in
+intelligence_aggregator_init logs). Training on 24 features today would
+mean ~10 of the 15 new columns are constant/0.0 across all of history —
+not a real signal, and a real risk of the model latching onto spurious
+correlations with a constant or quietly ignoring the column outright.
+Scoped plan for when keys are available (multi-session):
+  1. Provision Glassnode Professional plan (historical depth + API access;
+     https://studio.glassnode.com/pricing) and a CryptoQuant plan with
+     historical endpoint access. Add real values to .env
+     (GLASSNODE_API_KEY / CRYPTOQUANT_API_KEY — placeholders already added
+     to .env and .env.example this session).
+  2. Extend src/intelligence/client.py with historical-range fetch methods
+     (Glassnode metric endpoints take `s`/`u` unix-timestamp since/until
+     params per https://docs.glassnode.com/basic-api/api — same auth/base
+     URL as the existing live methods, additive change, not a rewrite).
+  3. Build a backfill script that walks historical OHLCV bar timestamps
+     (already in src/data/storage.py) and fetches/stores the matching
+     15-feature vector per bar — likely a new src/data/storage.py table
+     (intelligence_features_history) plus a one-off backfill CLI script,
+     mirroring the migration pattern already in storage.py
+     (PRAGMA user_version / _MIGRATIONS).
+  4. Extend src/features/pipeline.py's FEATURE_COLUMNS (currently 9) to
+     include the 15 intelligence_* columns from
+     src/features/intelligence_features.py, sourced from the new history
+     table instead of a live fetch (live fetch stays for inference only,
+     as already wired in signal_engine.py's TASK-010 block).
+  5. Retrain via src/models/trainer.py once the new 24-column feature
+     matrix has real historical coverage across the full training window
+     (check coverage % per column before accepting — a column that's
+     still mostly NaN/default after backfill should be dropped, not kept).
+  6. Re-run full CPCV validation (ADR-001) on the 24-feature model before
+     promoting it over the current 9-feature model — compare out-of-sample
+     Sharpe/drawdown, don't assume more features = better.
+**Status**: BLOCKED — awaiting API key provisioning (user action, outside
+agent scope: account creation + billing).

@@ -479,7 +479,7 @@ fresh pytest --cov run (not cached claims):
      trains/predicts on 9 base features only, pipeline.py has zero
      references to intelligence_features.py). User decision: wire these in
      (real scope — extend feature pipeline 9->24 features, retrain model).
-     In progress as of this note.
+     User decided: provision Glassnode/CryptoQuant API keys first, then build full historical backfill + retrain. BLOCKED on API key provisioning (user action -- account/billing, outside agent scope). Full scoped 6-step plan recorded in DECISION_LOG.md ("Intelligence feature wiring -- blocked on API provisioning"). GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY placeholders added to .env and .env.example this session.
 
 ## Gap-016 [2026-06-29] — NEW (independent audit session, Claude)
 .claude/CLAUDE.md claims to be a pointer stub ("PRIMARY INSTRUCTIONS FILE
