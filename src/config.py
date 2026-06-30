@@ -370,6 +370,50 @@ class APISettings(BaseSettings):
 # ---------------------------------------------------------------------------
 
 
+class IntelligenceSettings(BaseSettings):
+    """
+    On-chain intelligence provider credentials and tuning.
+
+    GAP-015: These settings gate the real provider implementations in
+    src/intelligence/client.py.  With empty keys the client logs a
+    warning and uses safe fallback values so the rest of the pipeline
+    keeps running (fail-open at the intelligence layer, fail-closed at
+    the main risk gates — the opposite of a safety-critical gate).
+
+    Required env vars (set in .env, never committed):
+      INTELLIGENCE_GLASSNODE_API_KEY   — Professional tier required for
+                                         exchange-flow and large-tx metrics
+      INTELLIGENCE_CRYPTOQUANT_API_KEY — Optional; funding rate falls back
+                                         to Binance perpetual futures via
+                                         ccxt (free, already a dependency)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="INTELLIGENCE_", env_file=".env", extra="ignore"
+    )
+
+    glassnode_api_key: str = Field(default="", description="Glassnode API key")
+    cryptoquant_api_key: str = Field(default="", description="CryptoQuant API key (optional)")
+    glassnode_base_url: str = Field(
+        default="https://api.glassnode.com/v1/metrics",
+        description="Glassnode REST base URL",
+    )
+    cache_ttl_onchain_seconds: int = Field(
+        default=3600, ge=60, description="Cache TTL for on-chain metrics (min 60s)"
+    )
+    cache_ttl_exchange_seconds: int = Field(
+        default=300, ge=30, description="Cache TTL for exchange-flow metrics (min 30s)"
+    )
+    glassnode_rate_limit_seconds: float = Field(
+        default=1.0, ge=0.1, description="Min seconds between Glassnode API calls"
+    )
+    # Binance perpetual symbol for funding-rate fetch via ccxt (no key needed)
+    funding_rate_perp_symbol: str = Field(
+        default="BTC/USDT:USDT",
+        description="ccxt perpetual futures symbol for funding rate (e.g. BTC/USDT:USDT)",
+    )
+
+
 class Settings(BaseSettings):
     """
     Root settings object.  Single source of truth for the entire application.
@@ -420,6 +464,7 @@ class Settings(BaseSettings):
     features: FeatureSettings = Field(default_factory=FeatureSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     api: APISettings = Field(default_factory=APISettings)
+    intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
 
     # Logging
     log_level: str = Field(default="INFO")

@@ -10322,7 +10322,7 @@
   },
   "src/config.py": {
     "purpose": "Production configuration for the algorithmic trading bot.\n\nAuthority sources:\n  - Pydantic-Settings ",
-    "lines": 644,
+    "lines": 689,
     "classes": [
       "TradingMode",
       "ExecutionMode",
@@ -10335,6 +10335,7 @@
       "FeatureSettings",
       "StorageSettings",
       "APISettings",
+      "IntelligenceSettings",
       "Settings",
       "RuntimeConfig"
     ],
@@ -10660,7 +10661,7 @@
   },
   "src/intelligence/client.py": {
     "purpose": "Multi-provider intelligence client aggregator.\n\nResponsibilities:\n  - Manage credentials for all pro",
-    "lines": 243,
+    "lines": 464,
     "classes": [
       "CacheEntry",
       "IntelligenceAggregator"

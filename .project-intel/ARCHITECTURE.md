@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-06-30 05:13 | 813 Python modules | 235,132 total lines
+> Auto-generated 2026-07-01 02:39 | 813 Python modules | 235,398 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3505,12 +3505,12 @@ Security: ALL endpoints require X-API-Key header matchin
 an
 **Key functions**: valid
 
-### `src/config.py` (644 lines)
+### `src/config.py` (689 lines)
 **Purpose**: Production configuration for the algorithmic trading bot.
 
 Authority sources:
   
-**Classes**: TradingMode, ExecutionMode, Timeframe, BinanceSettings, OKXSettings, RiskSettings, HMMSettings, XGBoostSettings, FeatureSettings, StorageSettings, APISettings, Settings, RuntimeConfig
+**Classes**: TradingMode, ExecutionMode, Timeframe, BinanceSettings, OKXSettings, RiskSettings, HMMSettings, XGBoostSettings, FeatureSettings, StorageSettings, APISettings, IntelligenceSettings, Settings, RuntimeConfig
 **Key functions**: get_s
 
 ### `src/data/__init__.py` (1 lines)
@@ -3634,7 +3634,7 @@ Answer causal questions, not just correlations:
 - D
 **Classes**: CausalEffect, CausalDAG, CausalInferenceEngine
 
-### `src/intelligence/client.py` (243 lines)
+### `src/intelligence/client.py` (464 lines)
 **Purpose**: Multi-provider intelligence client aggregator.
 
 Responsibilities:

@@ -491,6 +491,13 @@ directory listing against import graph:
   full intelligence layer but src/intelligence/client.py and providers/ have no confirmed
   import consumers in the live path.
 - src/risk/drift_integration.py and src/risk/performance_drift.py — present in src/risk/
+  CORRECTION 2026-06-29 (re-verified, Claude): This sub-claim is FACTUALLY
+  INCORRECT. Both src/risk/drift_integration.py and src/risk/performance_drift.py
+  ARE actively imported and used: orchestrator.py imports DriftIntegrationAdapter
+  (line 48) and PerformanceDriftDetector (line 52), instantiates the detector at
+  line 213, and gates.py's check_performance_drift() (line 660) consumes it. Both
+  are live, not orphaned. The src/intelligence/ portion of this entry remains
+  accurate and duplicates Gap-015. Recommend closing the drift sub-claim here.
   but not confirmed wired into gates.py sequential gate stack or signal_engine.py.
 
 Root cause: the same pattern identified in Gap-015 (build → unit test → claim COMPLETE

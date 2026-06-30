@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-30T05:15:04.060009",
+  "last_updated": "2026-07-01T02:39:08.544399",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 18,
   "commit_log": [
-    {
-      "hash": "387a486",
-      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "time": "2026-06-29T10:33:56.956443",
-      "author": "Claude"
-    },
     {
       "hash": "a1fbccc",
       "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
@@ -159,45 +153,32 @@
       "message": "docs(intel): auto-sync after changes to src/risk/gates.py [claude]",
       "time": "2026-06-30T05:15:04.182203",
       "author": "Claude"
+    },
+    {
+      "hash": "ed73d36",
+      "message": "docs(intel): auto-sync after changes to src/config.py [claude]",
+      "time": "2026-07-01T02:39:08.666161",
+      "author": "Claude"
     }
   ],
-  "last_commit": "abebace",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/risk/gates.py [claude]",
-  "last_commit_time": "2026-06-30T05:15:04.182254",
+  "last_commit": "ed73d36",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/config.py [claude]",
+  "last_commit_time": "2026-07-01T02:39:08.666220",
   "coverage_pct": 62,
   "last_session_start": "2026-06-30T04:39:46.398056",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-06-30T05:15:03.696664",
-  "last_extraction_trigger": "gates.py",
+  "last_extraction": "2026-07-01T02:39:08.192996",
+  "last_extraction_trigger": "config.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-06-30 03:35:20] [e96a0f4] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-06-30 03:35:21] [4a4bde3] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-06-30 03:45:24] [6abe639] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-06-30 03:45:25] [ac6a39b] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-06-30 03:47:26] TASK-010: wired live spread_bps and funding_rate_8h into SignalContext \u2014 added fetch_funding_rate() to fetcher.py (ccxt fetch_funding_rate, graceful 0.0 for spot/errors), concurrent gather with fetch_orderbook in tick(), _live_funding_rate_8h passed to SignalContext.funding_rate_8h (was hardcoded 0.0); 2 new tests in test_signal_engine.py (wiring + error fallback); 727 tests pass",
-      "[2026-06-30 03:49:12] [69e607d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-06-30 03:49:13] [763e3fd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-06-30 03:51:22] [739639d] feat(signal): TASK-010 \u2014 wire live spread_bps + funding_rate_8h into SignalContext",
-      "[2026-06-30 04:05:59] [1e3e44e] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
-      "[2026-06-30 04:05:59] [95c8841] docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
-      "[2026-06-30 04:12:39] [6757129] docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
-      "[2026-06-30 04:12:41] [2d428dd] docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
-      "[2026-06-30 04:32:27] [2214281] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
-      "[2026-06-30 04:32:27] [35c1bde] docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
-      "[2026-06-30 04:33:42] Added tests/test_portfolio_correlation.py: 42 tests covering _EWMSeries, _EWMCov, PortfolioCorrelationTracker (push_bar_returns, push_return, correlation, avg_correlation_with_open_positions, correlation_scalar, correlation_matrix) and singleton. Coverage gate passed: 61.84% (was 59.73%, gate=60%). 778 passed.",
-      "[2026-06-30 04:33:42] [82af9c8] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-06-30 04:33:43] [0c4ffe1] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-06-30 05:13:35] [f2540b5] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "[2026-06-30 05:13:37] [13184d9] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "[2026-06-30 05:15:04] [abebace] docs(intel): auto-sync after changes to src/risk/gates.py [claude]"
+      "[2026-07-01 02:39:08] [ed73d36] docs(intel): auto-sync after changes to src/config.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-06-30 05:15:04",
+    "last_checkpoint": "2026-07-01 02:39:08",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -216,38 +197,25 @@
         "agent": "claude",
         "status": "interrupted",
         "summary": "shell exited with 8 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-01 02:35:45",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into "
       }
     ],
     "files_touched": [
-      ".claude/CLAUDE.md",
-      ".github/workflows/auto-fix.yml",
+      ".project-intel/ARCHITECTURE.md",
       ".project-intel/GAPS.md",
       ".project-intel/HANDOFF.md",
-      ".project-intel/ISSUES.md",
-      ".project-intel/RISK_LOG.md",
-      ".project-intel/SECURITY_ISSUES.md",
-      ".project-intel/SESSION_STATE.json",
-      ".project-intel/TECH_DEBT.md",
-      ".project-intel/scripts/resume.py",
-      "CLAUDE.md",
-      ".project-intel/MODULE_MAP_SLIM.json",
-      ".project-intel/scripts/extract_intelligence.py",
-      ".claudeignore",
-      ".project-intel/ARCHITECTURE.md",
       ".project-intel/MODULE_MAP.json",
-      ".project-intel/RAW_SCAN.json",
-      "src/data/fetcher.py",
-      "src/engine/signal_engine.py",
-      "tests/test_signal_engine.py",
-      "src/data/fetcher.py src/engine/signal_engine.py tests/test_signal_engine.py",
-      "tests/test_api_and_fsm_coverage.py",
-      "tests/test_trade_auditor_and_intel_gates.py",
-      "tests/test_portfolio_correlation.py",
-      "src/intelligence/providers/binance_provider.py",
-      "src/risk/gates.py"
+      ".project-intel/SESSION_STATE.json",
+      "src/config.py",
+      "src/intelligence/client.py"
     ],
-    "current_task": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "session_started": "2026-06-29 17:31:43",
-    "interruption_reason": "shell exited with 8 uncommitted file(s)"
+    "current_task": "GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests",
+    "session_started": "2026-07-01 02:35:45",
+    "interruption_reason": ""
   }
 }
