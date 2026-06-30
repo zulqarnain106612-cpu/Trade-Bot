@@ -38,6 +38,7 @@ from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
+from src.intelligence.client import IntelligenceAggregator as _IntelAgg
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     build_feature_matrix,
@@ -260,8 +261,15 @@ class SignalEngine:
         _live_funding_rate_8h: float = 0.0
         try:
             ob_task = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
-            fr_task = asyncio.create_task(self._fetcher.fetch_funding_rate(self._symbol))
-            ob, _live_funding_rate_8h = await asyncio.gather(ob_task, fr_task)
+            # TASK-010: use IntelligenceAggregator for perpetual funding rate
+            # (self._fetcher uses the spot ccxt instance which returns 0.0
+            # for funding-rate calls — perpetual data needs a futures instance;
+            # IntelligenceAggregator._fetch_cryptoquant_funding_rate uses a
+            # separate public, unauthenticated ccxt binance-futures instance).
+            _intel = _IntelAgg()
+            fr_task = asyncio.create_task(_intel.get_funding_rate())
+            ob, _fr_data = await asyncio.gather(ob_task, fr_task)
+            _live_funding_rate_8h = float(_fr_data.get('rate_8h_avg', 0.0))
             live_ofi = ob.order_flow_imbalance()
             mid = ob.mid_price
             if mid > 0.0:
