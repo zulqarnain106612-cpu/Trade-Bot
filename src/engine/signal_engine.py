@@ -39,6 +39,7 @@ from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.intelligence.client import IntelligenceAggregator as _IntelAgg
+from src.intelligence.metrics import IntelligenceAnalyzer as _IntelMetrics
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     build_feature_matrix,
@@ -259,6 +260,8 @@ class SignalEngine:
         # both are network I/O; running them in parallel avoids serial latency.
         _live_ob_spread_bps: float | None = None
         _live_funding_rate_8h: float = 0.0
+        _exchange_stress: float | None = None  # None → intelligence gate fails open
+        _whale_ratio: float | None = None
         try:
             ob_task = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
             # TASK-010: use IntelligenceAggregator for perpetual funding rate
@@ -267,9 +270,21 @@ class SignalEngine:
             # IntelligenceAggregator._fetch_cryptoquant_funding_rate uses a
             # separate public, unauthenticated ccxt binance-futures instance).
             _intel = _IntelAgg()
-            fr_task = asyncio.create_task(_intel.get_funding_rate())
-            ob, _fr_data = await asyncio.gather(ob_task, fr_task)
+            fr_task  = asyncio.create_task(_intel.get_funding_rate())
+            nf_task  = asyncio.create_task(_intel.get_exchange_netflow(self._symbol.split('/')[0]))
+            wh_task  = asyncio.create_task(_intel.get_whale_activity(self._symbol.split('/')[0]))
+            ob, _fr_data, _nf_data, _wh_data = await asyncio.gather(
+                ob_task, fr_task, nf_task, wh_task
+            )
             _live_funding_rate_8h = float(_fr_data.get('rate_8h_avg', 0.0))
+            # Compute composite intelligence metrics from the three provider responses
+            _intel_metrics = _IntelMetrics().compute_metrics(
+                exchange_netflow=_nf_data,
+                whale_activity=_wh_data,
+                funding_rate=_fr_data,
+            )
+            _exchange_stress = _intel_metrics.exchange_stress_score
+            _whale_ratio     = _intel_metrics.whale_buy_sell_ratio
             live_ofi = ob.order_flow_imbalance()
             mid = ob.mid_price
             if mid > 0.0:
@@ -278,6 +293,8 @@ class SignalEngine:
             self._log.debug("signal.ofi_fetch_failed", error=str(exc))
             live_ofi = None
             _live_funding_rate_8h = 0.0
+            _exchange_stress = None  # fail-open for intelligence gates
+            _whale_ratio     = None
 
         vec = build_inference_features(bars, live_ofi=live_ofi, feature_matrix=fm)
         if vec is None:
@@ -383,6 +400,8 @@ class SignalEngine:
             paper_trading_days=paper_trading_days,
             expected_edge_bps=_expected_edge_bps,
             slippage_estimate=_slippage_estimate,
+            exchange_stress_score=_exchange_stress,  # GAP-015: None → fail-open
+            whale_buy_sell_ratio=_whale_ratio,       # GAP-015: None → fail-open
         )
         gate_result = evaluate_all_gates(gate_ctx)
 

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-01T02:46:28.281079",
+  "last_updated": "2026-07-01T02:53:17.627628",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 18,
   "commit_log": [
-    {
-      "hash": "29649fd",
-      "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
-      "time": "2026-06-29T10:59:43.177059",
-      "author": "Claude"
-    },
     {
       "hash": "2da80d7",
       "message": "docs(intel): auto-sync after changes to src/intelligence/causal_inference.py [claude]",
@@ -159,17 +153,23 @@
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "time": "2026-07-01T02:46:28.376630",
       "author": "Claude"
+    },
+    {
+      "hash": "0111bb8",
+      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "time": "2026-07-01T02:53:17.790338",
+      "author": "Claude"
     }
   ],
-  "last_commit": "3f4dda0",
+  "last_commit": "0111bb8",
   "last_commit_message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-  "last_commit_time": "2026-07-01T02:46:28.376675",
+  "last_commit_time": "2026-07-01T02:53:17.790419",
   "coverage_pct": 62,
   "last_session_start": "2026-06-30T04:39:46.398056",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-01T02:46:27.961897",
+  "last_extraction": "2026-07-01T02:53:17.039651",
   "last_extraction_trigger": "signal_engine.py",
   "handoff": {
     "active_agent": "claude",
@@ -181,10 +181,12 @@
       "[2026-07-01 02:41:14] [03b9130] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
       "[2026-07-01 02:41:16] [a2f4a8d] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
       "[2026-07-01 02:41:16] [5f3a54a] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
-      "[2026-07-01 02:46:28] [3f4dda0] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]"
+      "[2026-07-01 02:46:28] [3f4dda0] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "[2026-07-01 02:46:28] [8f95452] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "[2026-07-01 02:53:17] [0111bb8] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-07-01 02:46:28",
+    "last_checkpoint": "2026-07-01 02:53:17",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -219,7 +221,8 @@
       ".project-intel/SESSION_STATE.json",
       "src/config.py",
       "src/intelligence/client.py",
-      "src/engine/signal_engine.py"
+      "src/engine/signal_engine.py",
+      ".project-intel/RAW_SCAN.json"
     ],
     "current_task": "GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests",
     "session_started": "2026-07-01 02:35:45",
