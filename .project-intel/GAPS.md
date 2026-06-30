@@ -448,6 +448,39 @@ confirm the relevant file's coverage is nonzero before accepting the
 claim — this is what surfaced the discrepancy this session.
 ────────────────────────────────────────────────────────────
 
+UPDATE [2026-07-01]: Re-verified all 5 files directly against source + a
+fresh pytest --cov run (not cached claims):
+  1. portfolio_correlation.py — RESOLVED. orchestrator.py imports
+     get_portfolio_correlation(), computes correlation_scalar per tick,
+     passes through signal_engine.py -> SignalContext. Committed (clean
+     git diff). 99% coverage. tests/test_orchestrator.py (12 tests) added
+     and passing this session.
+  2. intelligence_gates.py (ExchangeStressGate/WhaleActivityGate) and
+     probabilistic_gates.py (ProbabilisticGate7/8) — these implemented a
+     SECOND, different version (Bayesian) of the same Gate 7/8 that
+     gates.py already ships via check_exchange_stress()/check_whale_activity()
+     (deterministic, fed by signal_engine.py, called in the live
+     ordered_results gate sequence — confirmed committed, confirmed in the
+     actual gate stack). Wiring both versions in would mean two competing
+     implementations of the same risk check running simultaneously.
+     DECISION: retired as dead code. Deleted src/risk/intelligence_gates.py,
+     src/risk/probabilistic_gates.py, tests/test_probabilistic_gates_coverage.py;
+     removed the corresponding test classes from
+     tests/test_trade_auditor_and_intel_gates.py (renamed to
+     tests/test_trade_auditor.py, trade_auditor coverage retained intact).
+     Full suite re-run after deletion: 770 passed / 1 skipped / 1 pre-existing
+     unrelated failure (test_signal_engine.py::TestTask010FundingRateWiring —
+     hits live Binance API instead of mocking it, confirmed failing
+     identically before this session's changes too; separate issue, not
+     caused by this cleanup).
+  3. intelligence_features.py, ensemble_predictor.py, causal_inference.py,
+     risk_quantification.py — confirmed still genuinely disconnected (0%
+     coverage on intelligence_features.py/ensemble_predictor.py; the model
+     trains/predicts on 9 base features only, pipeline.py has zero
+     references to intelligence_features.py). User decision: wire these in
+     (real scope — extend feature pipeline 9->24 features, retrain model).
+     In progress as of this note.
+
 ## Gap-016 [2026-06-29] — NEW (independent audit session, Claude)
 .claude/CLAUDE.md claims to be a pointer stub ("PRIMARY INSTRUCTIONS FILE
 HAS MOVED ... kept here only for tools that look in .claude/ ... root
