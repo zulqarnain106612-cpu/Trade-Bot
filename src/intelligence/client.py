@@ -163,7 +163,7 @@ class IntelligenceAggregator:
 
     async def get_funding_rate(
         self,
-        symbol: str = "BTCUSDT",
+        symbol: Optional[str] = None,
     ) -> dict[str, float]:
         """
         Fetch current funding rate (leverage indicator).
@@ -176,6 +176,7 @@ class IntelligenceAggregator:
                 "timestamp": int,
             }
         """
+        symbol = symbol or self._funding_rate_perp_symbol
         cache_key = f"funding_rate_{symbol}"
 
         if cache_key in self._cache and not self._cache[cache_key].is_stale:
@@ -448,22 +449,4 @@ class IntelligenceAggregator:
     def _base_url(self) -> str:
         return self._glassnode_base_url
 
-    # -----------------------------------------------------------------------
-    # TODO (original stubs left for reference — replaced above)
-    # -----------------------------------------------------------------------
-    # _fetch_cryptoquant_funding_rate original intent:
-    async def _rate_limit_glassnode(self) -> None:
-        """Enforce Glassnode rate limit (~20 req/min)."""
-        min_interval = 60 / 20  # seconds
-        elapsed = (datetime.now(UTC) - self._last_glassnode_call).total_seconds()
-        if elapsed < min_interval:
-            await asyncio.sleep(min_interval - elapsed)
-        self._last_glassnode_call = datetime.now(UTC)
 
-    async def _rate_limit_cryptoquant(self) -> None:
-        """Enforce CryptoQuant rate limit (~10 req/sec or plan-based)."""
-        min_interval = 0.1  # 10 req/sec
-        elapsed = (datetime.now(UTC) - self._last_cryptoquant_call).total_seconds()
-        if elapsed < min_interval:
-            await asyncio.sleep(min_interval - elapsed)
-        self._last_cryptoquant_call = datetime.now(UTC)

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-01T02:39:08.544399",
+  "last_updated": "2026-07-01T02:41:14.213584",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 18,
   "commit_log": [
-    {
-      "hash": "a1fbccc",
-      "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
-      "time": "2026-06-29T10:41:49.187006",
-      "author": "Claude"
-    },
     {
       "hash": "a92578e",
       "message": "docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
@@ -159,26 +153,34 @@
       "message": "docs(intel): auto-sync after changes to src/config.py [claude]",
       "time": "2026-07-01T02:39:08.666161",
       "author": "Claude"
+    },
+    {
+      "hash": "630ff7b",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
+      "time": "2026-07-01T02:41:14.304959",
+      "author": "Claude"
     }
   ],
-  "last_commit": "ed73d36",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/config.py [claude]",
-  "last_commit_time": "2026-07-01T02:39:08.666220",
+  "last_commit": "630ff7b",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
+  "last_commit_time": "2026-07-01T02:41:14.305003",
   "coverage_pct": 62,
   "last_session_start": "2026-06-30T04:39:46.398056",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-01T02:39:08.192996",
-  "last_extraction_trigger": "config.py",
+  "last_extraction": "2026-07-01T02:41:13.846048",
+  "last_extraction_trigger": "client.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-01 02:39:08] [ed73d36] docs(intel): auto-sync after changes to src/config.py [claude]"
+      "[2026-07-01 02:39:08] [ed73d36] docs(intel): auto-sync after changes to src/config.py [claude]",
+      "[2026-07-01 02:39:08] [1ece1d2] docs(intel): auto-sync after changes to src/config.py [claude]",
+      "[2026-07-01 02:41:14] [630ff7b] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]"
     ],
     "next_step": "TASK-010: wire live spread_bps and funding_rate_8h into SignalContext in signal_engine.py",
-    "last_checkpoint": "2026-07-01 02:39:08",
+    "last_checkpoint": "2026-07-01 02:41:14",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",

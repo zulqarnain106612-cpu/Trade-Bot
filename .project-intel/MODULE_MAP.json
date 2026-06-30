@@ -10661,14 +10661,16 @@
   },
   "src/intelligence/client.py": {
     "purpose": "Multi-provider intelligence client aggregator.\n\nResponsibilities:\n  - Manage credentials for all pro",
-    "lines": 464,
+    "lines": 452,
     "classes": [
       "CacheEntry",
       "IntelligenceAggregator"
     ],
     "key_functions": [],
     "constants": [],
-    "imports_from": []
+    "imports_from": [
+      "src.config"
+    ]
   },
   "src/intelligence/ensemble_predictor.py": {
     "purpose": "Ensemble prediction framework.\n\nReduce model risk by combining diverse prediction techniques.\nOutput",
