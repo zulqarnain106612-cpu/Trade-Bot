@@ -316,6 +316,167 @@ class TestComputePositionSize:
         assert result is None
 
 
+    # ─── GAP-005/GAP-015: correlation_scalar parameter ────────────────────────────
+
+    def test_correlation_scalar_default_is_noop(self):
+        baseline = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+        )
+        with_one = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            correlation_scalar=1.0,
+        )
+        assert baseline is not None and with_one is not None
+        assert baseline.quantity == with_one.quantity
+
+    def test_correlation_scalar_half_shrinks_position(self):
+        full = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            correlation_scalar=1.0,
+        )
+        halved = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            correlation_scalar=0.5,
+        )
+        assert full is not None and halved is not None
+        assert halved.adjusted_fraction < full.adjusted_fraction
+        assert abs(halved.adjusted_fraction - full.adjusted_fraction * 0.5) < 1e-6
+
+    def test_correlation_scalar_zero_yields_none(self):
+        result = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            correlation_scalar=0.0,
+        )
+        assert result is None
+
+    def test_correlation_scalar_above_one_is_clamped_not_amplified(self):
+        normal = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            correlation_scalar=1.0,
+        )
+        amplified_attempt = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            correlation_scalar=5.0,
+        )
+        assert normal is not None and amplified_attempt is not None
+        assert amplified_attempt.quantity == normal.quantity
+
+    def test_correlation_scalar_nan_fails_safe_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            correlation_scalar=float("nan"),
+        )
+        assert result is None
+
+    def test_correlation_scalar_negative_clamped_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=20.0, avg_loss_usd=10.0,
+            correlation_scalar=-0.5,
+        )
+        assert result is None
+
+    def test_correlation_and_regime_scalars_multiply(self):
+        # Both scalars active simultaneously; combined = raw * 0.5 * 0.5
+        full = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+        )
+        combined = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            regime_scalar=0.5,
+            correlation_scalar=0.5,
+        )
+        assert full is not None and combined is not None
+        assert abs(combined.adjusted_fraction - full.adjusted_fraction * 0.25) < 1e-6
+
+    # ─── GAP-015: notional_cap_usd (Carver/AFML/Thorp ceiling) ─────────────────
+
+    def test_notional_cap_none_is_noop(self):
+        uncapped = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=10_000.0, entry_price=30000.0,
+            avg_win_usd=200.0, avg_loss_usd=100.0,
+        )
+        capped_none = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=10_000.0, entry_price=30000.0,
+            avg_win_usd=200.0, avg_loss_usd=100.0,
+            notional_cap_usd=None,
+        )
+        assert uncapped is not None and capped_none is not None
+        assert uncapped.quantity == capped_none.quantity
+
+    def test_notional_cap_above_kelly_is_noop(self):
+        result = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+        )
+        capped_high = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            notional_cap_usd=999_999.0,
+        )
+        assert result is not None and capped_high is not None
+        assert result.quantity == capped_high.quantity
+
+    def test_notional_cap_shrinks_large_kelly_position(self):
+        uncapped = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=10_000.0, entry_price=100.0,
+            avg_win_usd=200.0, avg_loss_usd=50.0,
+        )
+        assert uncapped is not None
+        cap = uncapped.notional_usd * 0.4
+        capped = compute_position_size(
+            p_long=0.75, direction=1,
+            capital_usd=10_000.0, entry_price=100.0,
+            avg_win_usd=200.0, avg_loss_usd=50.0,
+            notional_cap_usd=cap,
+        )
+        assert capped is not None
+        assert capped.notional_usd <= cap + 1.0
+        assert capped.notional_usd < uncapped.notional_usd
+        assert capped.is_capped is True
+
+    def test_notional_cap_never_amplifies(self):
+        result_no_cap = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+        )
+        result_high_cap = compute_position_size(
+            p_long=0.52, direction=1,
+            capital_usd=1000.0, entry_price=30000.0,
+            avg_win_usd=10.0, avg_loss_usd=10.0,
+            notional_cap_usd=50_000.0,
+        )
+        assert result_no_cap is not None and result_high_cap is not None
+        assert result_high_cap.quantity <= result_no_cap.quantity
+
+
 # ─── compute_win_loss_stats ───────────────────────────────────────────────────
 
 

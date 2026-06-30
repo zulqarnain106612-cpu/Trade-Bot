@@ -38,6 +38,7 @@ from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
+from src.strategies.position_sizing import recommend_position_notional, estimate_daily_vol
 from src.intelligence.client import IntelligenceAggregator as _IntelAgg
 from src.intelligence.metrics import IntelligenceAnalyzer as _IntelMetrics
 from src.features.pipeline import (
@@ -343,6 +344,31 @@ class SignalEngine:
         # fail-safe lives in the regime gate, not in sizing.
         regime_scalar = regime.position_scalar() if regime is not None else 1.0
 
+        # 7a. Carver/AFML/Thorp notional cap (GAP-015 position_sizing.py wiring)
+        # Carver (2019): 'whichever method gives the smaller position' — compute
+        # the min of four sizing methods and use it as a hard cap on Kelly output.
+        # Fails safe to None (no cap) on any error so Kelly sizing still runs.
+        _notional_cap_usd: float | None = None
+        try:
+            _entry_price = float(bars["close"].iloc[-1])
+            _daily_vol = estimate_daily_vol(bars["close"].to_numpy())
+            _win_prob = min(max(p_long if direction == 1 else (1.0 - p_long), 0.01), 0.99)
+            _wl_ratio = (avg_win_usd / avg_loss_usd) if avg_win_usd > 0 and avg_loss_usd > 0 else 1.5
+            _carver_result = recommend_position_notional(
+                capital_usd=capital_usd,
+                price=_entry_price,
+                p_long=p_long,
+                win_prob=_win_prob,
+                win_loss_ratio=_wl_ratio,
+                forecast=float(p_long * 2.0 - 1.0),  # map [0,1] p_long to [-1,+1] forecast
+                daily_vol_pct=_daily_vol,
+                avg_book_correlation=1.0 - correlation_scalar,  # higher correlation → more shrink
+            )
+            _notional_cap_usd = _carver_result["recommended"]
+        except Exception as _carver_exc:
+            self._log.warning("signal.carver_cap_failed", error=str(_carver_exc))
+            _notional_cap_usd = None
+
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
         kelly_result = compute_position_size(
             p_long=p_long,
@@ -353,6 +379,7 @@ class SignalEngine:
             avg_loss_usd=avg_loss_usd,
             regime_scalar=regime_scalar,
             correlation_scalar=correlation_scalar,
+            notional_cap_usd=_notional_cap_usd,
         )
 
         notional = kelly_result.notional_usd if kelly_result is not None else 0.0

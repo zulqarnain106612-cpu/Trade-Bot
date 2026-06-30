@@ -10476,7 +10476,7 @@
   },
   "src/engine/signal_engine.py": {
     "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.\n\nOn every tick for a given (symbol, timef",
-    "lines": 660,
+    "lines": 687,
     "classes": [
       "SignalResult",
       "SignalEngine"
@@ -10489,7 +10489,7 @@
       "src.data.storage",
       "src.diagnostics.signal_debugger",
       "src.diagnostics.trade_auditor",
-      "src.intelligence.client"
+      "src.strategies.position_sizing"
     ]
   },
   "src/execution/__init__.py": {
