@@ -163,10 +163,6 @@
     "purpose": "Risk gate engine \u2014 hard limits that block new positions.",
     "functions": []
   },
-  "src/risk/intelligence_gates.py": {
-    "purpose": "Intelligence-aware risk gates.",
-    "functions": []
-  },
   "src/risk/kelly.py": {
     "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.",
     "functions": []
@@ -177,10 +173,6 @@
   },
   "src/risk/portfolio_correlation.py": {
     "purpose": "Portfolio Correlation Layer \u2014 Gap-005.",
-    "functions": []
-  },
-  "src/risk/probabilistic_gates.py": {
-    "purpose": "Probabilistic risk gates (P2+ enhancement).",
     "functions": []
   },
   "src/risk/slippage.py": {

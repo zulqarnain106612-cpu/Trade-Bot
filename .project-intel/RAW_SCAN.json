@@ -6,7 +6,6 @@
     ".claude/.vscode/settings.json",
     ".claude/CLAUDE.md",
     ".claudeignore",
-    ".coverage",
     ".editorconfig",
     ".env",
     ".env.example",
@@ -1110,11 +1109,9 @@
     "src/risk/cognitive_engine.py",
     "src/risk/drift_integration.py",
     "src/risk/gates.py",
-    "src/risk/intelligence_gates.py",
     "src/risk/kelly.py",
     "src/risk/performance_drift.py",
     "src/risk/portfolio_correlation.py",
-    "src/risk/probabilistic_gates.py",
     "src/risk/slippage.py",
     "src/strategies/__init__.py",
     "src/strategies/filters.py",
@@ -1145,7 +1142,6 @@
     "tests/test_performance_drift.py",
     "tests/test_portfolio_correlation.py",
     "tests/test_position_sizing.py",
-    "tests/test_probabilistic_gates_coverage.py",
     "tests/test_risk_controls_api.py",
     "tests/test_risk_gates.py",
     "tests/test_risk_gates_coverage.py",
@@ -1153,6 +1149,6 @@
     "tests/test_slippage.py",
     "tests/test_storage.py",
     "tests/test_strategies_filters.py",
-    "tests/test_trade_auditor_and_intel_gates.py"
+    "tests/test_trade_auditor.py"
   ]
 }

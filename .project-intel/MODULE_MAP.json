@@ -10835,22 +10835,6 @@
       "src.risk.slippage"
     ]
   },
-  "src/risk/intelligence_gates.py": {
-    "purpose": "Intelligence-aware risk gates.\n\nNew gates triggered by on-chain metrics:\n  - Gate 7: Exchange stress",
-    "lines": 199,
-    "classes": [
-      "GateStatus",
-      "GateEvaluation",
-      "ExchangeStressGate",
-      "WhaleActivityGate",
-      "DriftDetectorEnhanced"
-    ],
-    "key_functions": [],
-    "constants": [],
-    "imports_from": [
-      "src.intelligence.metrics"
-    ]
-  },
   "src/risk/kelly.py": {
     "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.\n\nKelly (1956) \"A New Interpretation of Informa",
     "lines": 604,
@@ -10895,24 +10879,6 @@
     ],
     "constants": [],
     "imports_from": []
-  },
-  "src/risk/probabilistic_gates.py": {
-    "purpose": "Probabilistic risk gates (P2+ enhancement).\n\nReplaces deterministic thresholds with Bayesian probabi",
-    "lines": 321,
-    "classes": [
-      "GateDecision",
-      "ProbabilisticGateEvaluation",
-      "ProbabilisticGate7",
-      "ProbabilisticGate8",
-      "ProbabilisticGate6Enhanced"
-    ],
-    "key_functions": [],
-    "constants": [],
-    "imports_from": [
-      "src.intelligence.probabilistic",
-      "src.intelligence.risk_quantification",
-      "src.intelligence.causal_inference"
-    ]
   },
   "src/risk/slippage.py": {
     "purpose": "Slippage and market-impact model \u2014 Almgren-Chriss square-root impact.\n\nGAP-001: Kelly sizing (src/ri",
@@ -11309,21 +11275,6 @@
       "src.strategies.position_sizing"
     ]
   },
-  "tests/test_probabilistic_gates_coverage.py": {
-    "purpose": "Coverage for src/risk/probabilistic_gates.py \u2014 Debt-005.\n\nAll gates use internal Bayesian models; we",
-    "lines": 200,
-    "classes": [
-      "TestGateDecision",
-      "TestProbabilisticGate7",
-      "TestProbabilisticGate8",
-      "TestProbabilisticGate6Enhanced"
-    ],
-    "key_functions": [],
-    "constants": [],
-    "imports_from": [
-      "src.risk.probabilistic_gates"
-    ]
-  },
   "tests/test_risk_controls_api.py": {
     "purpose": "Tests for GAP-013: runtime-toggleable position-exit controls.\n\nCovers:\n  - check_position_exit() pur",
     "lines": 380,
@@ -11483,24 +11434,18 @@
       "src.strategies.filters"
     ]
   },
-  "tests/test_trade_auditor_and_intel_gates.py": {
+  "tests/test_trade_auditor.py": {
     "purpose": "Coverage for:\n  - src/diagnostics/trade_auditor.py\n  - src/risk/intelligence_gates.py\nDebt-005.",
-    "lines": 316,
+    "lines": 250,
     "classes": [
       "TestAuditRecord",
       "TestTradeAuditor",
-      "TestExchangeStressGate",
-      "TestWhaleActivityGate",
       "TestDetectAnomalies"
     ],
     "key_functions": [],
     "constants": [],
     "imports_from": [
-      "src.diagnostics.trade_auditor",
-      "src.risk.intelligence_gates",
-      "src.risk.intelligence_gates",
-      "src.risk.intelligence_gates",
-      "src.risk.intelligence_gates"
+      "src.diagnostics.trade_auditor"
     ]
   }
 }

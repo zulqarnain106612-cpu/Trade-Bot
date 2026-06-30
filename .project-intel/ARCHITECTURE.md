@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-01 03:18 | 814 Python modules | 235,833 total lines
+> Auto-generated 2026-07-01 03:31 | 811 Python modules | 235,047 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3710,13 +3710,6 @@ Gates (all must pass f
 **Classes**: GateStatus, GateResult, RiskGateContext, DrawdownTracker
 **Key functions**: check
 
-### `src/risk/intelligence_gates.py` (199 lines)
-**Purpose**: Intelligence-aware risk gates.
-
-New gates triggered by on-chain metrics:
-  - Gat
-**Classes**: GateStatus, GateEvaluation, ExchangeStressGate, WhaleActivityGate, DriftDetectorEnhanced
-
 ### `src/risk/kelly.py` (604 lines)
 **Purpose**: Kelly position sizing — half-Kelly with hard ceiling.
 
@@ -3737,12 +3730,6 @@ Monitors:
 Tracks rolling pairwise return correlati
 **Classes**: _EWMSeries, _EWMCov, PortfolioCorrelationTracker
 **Key functions**: get_p
-
-### `src/risk/probabilistic_gates.py` (321 lines)
-**Purpose**: Probabilistic risk gates (P2+ enhancement).
-
-Replaces deterministic thresholds w
-**Classes**: GateDecision, ProbabilisticGateEvaluation, ProbabilisticGate7, ProbabilisticGate8, ProbabilisticGate6Enhanced
 
 ### `src/risk/slippage.py` (223 lines)
 **Purpose**: Slippage and market-impact model — Almgren-Chriss square-root impact.
@@ -3859,12 +3846,6 @@ Covers: _EWMSeries, _EWMCov, Portfo
 **Purpose**: Test coverage for src/strategies/position_sizing.py — Carver/AFML/Thorp sizing.
 **Classes**: TestCarverForecastPosition, TestVolTargetQuantity, TestEstimateDailyVol, TestCorrelationAdjustedNotional, TestAfmlBetSize, TestThorpKellyWithVariance, TestRecommendPositionNotional
 
-### `tests/test_probabilistic_gates_coverage.py` (200 lines)
-**Purpose**: Coverage for src/risk/probabilistic_gates.py — Debt-005.
-
-All gates use internal
-**Classes**: TestGateDecision, TestProbabilisticGate7, TestProbabilisticGate8, TestProbabilisticGate6Enhanced
-
 ### `tests/test_risk_controls_api.py` (380 lines)
 **Purpose**: Tests for GAP-013: runtime-toggleable position-exit controls.
 
@@ -3904,11 +3885,11 @@ Strategy: mock all ex
 **Purpose**: Test coverage for src/strategies/filters.py — research-backed signal filters.
 **Classes**: TestEwmTrendSignal, TestTrendFilterPasses, TestVolAdjustedMomentum, TestOvernightGapIsExcessive, TestRegimePositionScaler, TestHurstExponent, TestHurstFilterPasses, TestObvTrendConfirms, TestVolExplosionBlocks, TestMtfTrendAligned
 
-### `tests/test_trade_auditor_and_intel_gates.py` (316 lines)
+### `tests/test_trade_auditor.py` (250 lines)
 **Purpose**: Coverage for:
   - src/diagnostics/trade_auditor.py
   - src/risk/intelligence_gat
-**Classes**: TestAuditRecord, TestTradeAuditor, TestExchangeStressGate, TestWhaleActivityGate, TestDetectAnomalies
+**Classes**: TestAuditRecord, TestTradeAuditor, TestDetectAnomalies
 
 ## Risk Architecture
 Gates execute sequentially — first fail short-circuits remaining gates:
