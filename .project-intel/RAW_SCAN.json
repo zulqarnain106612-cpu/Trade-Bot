@@ -1132,6 +1132,7 @@
     "tests/test_drift_integration_coverage.py",
     "tests/test_features.py",
     "tests/test_integration_full_pipeline.py",
+    "tests/test_intelligence_metrics.py",
     "tests/test_kelly.py",
     "tests/test_kelly_gaps.py",
     "tests/test_live_executor_fsm.py",

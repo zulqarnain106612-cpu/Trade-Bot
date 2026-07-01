@@ -11076,6 +11076,20 @@
       "src.risk.performance_drift"
     ]
   },
+  "tests/test_intelligence_metrics.py": {
+    "purpose": "Regression tests for two bugs found and fixed this session (GAP-015 follow-on):\n\n1. BinanceIntellige",
+    "lines": 170,
+    "classes": [
+      "TestWhaleTakerRatioFix",
+      "TestComputeMetricsConfidenceFix"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.intelligence.metrics",
+      "src.intelligence.providers.binance_provider"
+    ]
+  },
   "tests/test_kelly.py": {
     "purpose": "Tests for src/risk/kelly.py \u2014 Kelly formula, sizing, win/loss stats.",
     "lines": 515,
