@@ -10705,7 +10705,7 @@
   },
   "src/intelligence/metrics.py": {
     "purpose": "Intelligence metrics computation layer.\n\nTransforms raw provider data into trading-ready features:\n ",
-    "lines": 255,
+    "lines": 284,
     "classes": [
       "IntelligenceMetrics",
       "IntelligenceAnalyzer"

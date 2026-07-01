@@ -89,6 +89,16 @@ class IntelligenceAnalyzer:
       - Confidence scoring (missing data penalty)
     """
 
+    # GAP-015: of the 15 IntelligenceMetrics fields, only these are backed
+    # by a real, live data path today: exchange_netflow_7d_zscore,
+    # whale_buy_sell_ratio, binance_funding_rate_pct (all from the free
+    # Binance provider), and exchange_stress_score (a composite derived
+    # from the first and third, not an independent fetch). The remaining
+    # 11 are NaN until a real free data source is wired in (see
+    # DECISION_LOG.md). Update these two constants if that changes.
+    _REAL_METRIC_COUNT = 4
+    _TOTAL_METRIC_COUNT = 15
+
     def __init__(
         self,
         historical_data: Optional[pd.DataFrame] = None,
@@ -161,32 +171,51 @@ class IntelligenceAnalyzer:
             missing_metrics += 1
             confidence -= self._missing_data_penalty
 
+        # GAP-015 fix: previously, 11 of 15 metrics were hardcoded plausible-
+        # looking constants (e.g. exchange_reserve_ratio=0.35) marked only by
+        # a code comment, and `confidence` was never penalized for them --
+        # so this could return confidence~=1.0 while 11/15 fields were fake.
+        # That's a fabricated-completion-state bug: a downstream consumer
+        # reading `confidence` alone had no way to know most of the payload
+        # was a placeholder. Fixed: unimplemented fields are now NaN (so
+        # they fail loud in any consumer that isn't NaN-aware, matching the
+        # existing NaN-handling convention in build_inference_features), and
+        # confidence is capped by the real fraction of implemented metrics
+        # BEFORE the existing per-call exception penalty is applied.
+        _real_fraction = self._REAL_METRIC_COUNT / self._TOTAL_METRIC_COUNT
+        confidence = min(confidence, _real_fraction)
+
         # Clamp confidence to [0, 1]
         confidence = np.clip(confidence, 0.0, 1.0)
 
-        # Create metrics object (using defaults for unimplemented providers)
+        _nan = float("nan")
+
+        # Create metrics object. Only 4/15 fields are real/derived from live
+        # provider data today (see self._REAL_METRIC_COUNT); the rest are
+        # NaN pending GAP-015 data-source integration (see DECISION_LOG.md
+        # "Intelligence feature wiring -- blocked on API provisioning").
         return IntelligenceMetrics(
-            # Exchange flow (implemented: 1/6, rest stubbed)
+            # Exchange flow (implemented: 2/6, rest NaN pending real source)
             exchange_netflow_7d_zscore=netflow_zscore,
             whale_buy_sell_ratio=whale_ratio,
-            exchange_reserve_ratio=0.35,  # TODO: From Glassnode
-            miner_netflow_signal=0.0,     # TODO: From Glassnode
-            staking_unlock_risk=0.0,      # TODO: From on-chain calendar
-            entity_exchange_imbalance=0.0,  # TODO: From whale clustering
-            # Leverage (implemented: 1/4)
+            exchange_reserve_ratio=_nan,      # NEEDS: Glassnode or GraphSense
+            miner_netflow_signal=_nan,        # NEEDS: Glassnode or GraphSense
+            staking_unlock_risk=_nan,         # NEEDS: no free source found (GAP-015)
+            entity_exchange_imbalance=_nan,   # NEEDS: Glassnode or GraphSense
+            # Leverage (implemented: 1/4, rest NaN pending real source)
             binance_funding_rate_pct=rate_pct,
-            liquidation_pressure_24h_zscore=0.0,  # TODO: From CryptoQuant
-            futures_oi_change_pct=0.0,            # TODO: From CryptoQuant
-            liquidation_cascade_risk_usd=0.0,     # TODO: From liquidation model
-            # Macro regime (0/3, stubbed)
-            btc_dominance_regime=0.0,    # TODO: From macro data
-            stablecoin_reserve_ratio=0.25,  # TODO: From blockchain data
-            network_activity_score=0.0,  # TODO: From taraxa/NVT
-            # Exchange health (0/2)
+            liquidation_pressure_24h_zscore=_nan,  # NEEDS: no free source found (GAP-015)
+            futures_oi_change_pct=_nan,            # NEEDS: CryptoQuant or Binance OI hist (30d cap)
+            liquidation_cascade_risk_usd=_nan,     # NEEDS: no free source found (GAP-015)
+            # Macro regime (0/3, NaN pending real source)
+            btc_dominance_regime=_nan,       # NEEDS: CoinGecko /global (free, unwired)
+            stablecoin_reserve_ratio=_nan,   # NEEDS: blockchain data (free, unwired)
+            network_activity_score=_nan,     # NEEDS: blockchain.info charts (free, unwired)
+            # Exchange health (1/2: stress score is derived+real, basis spread NaN)
             exchange_stress_score=self._compute_exchange_stress(
                 netflow_zscore, funding_signal
             ),
-            cross_exchange_basis_spread_bps=0.0,  # TODO: From exchange feeds
+            cross_exchange_basis_spread_bps=_nan,  # NEEDS: Binance spot+futures klines (free, unwired)
             # Metadata
             timestamp=int(datetime.now(UTC).timestamp()),
             confidence=confidence,

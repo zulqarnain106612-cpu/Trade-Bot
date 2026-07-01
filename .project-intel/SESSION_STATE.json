@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-01T12:07:26.269650",
+  "last_updated": "2026-07-01T12:27:36.301765",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 20,
   "commit_log": [
-    {
-      "hash": "e96a0f4",
-      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "time": "2026-06-30T03:35:21.063776",
-      "author": "Claude"
-    },
     {
       "hash": "6abe639",
       "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
       "time": "2026-07-01T12:07:26.470055",
       "author": "Claude"
+    },
+    {
+      "hash": "e01b4bc",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
+      "time": "2026-07-01T12:27:36.409563",
+      "author": "Claude"
     }
   ],
-  "last_commit": "af1075b",
-  "last_commit_message": "docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-  "last_commit_time": "2026-07-01T12:07:26.470124",
+  "last_commit": "e01b4bc",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
+  "last_commit_time": "2026-07-01T12:27:36.409612",
   "coverage_pct": 62,
   "last_session_start": "2026-04-15T23:35:05.914836",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-01T12:07:25.666783",
-  "last_extraction_trigger": "extract_tagpack_seeds.py",
+  "last_extraction": "2026-07-01T12:27:35.933205",
+  "last_extraction_trigger": "metrics.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-01 02:41:16] [a2f4a8d] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
-      "[2026-07-01 02:41:16] [5f3a54a] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
       "[2026-07-01 02:46:28] [3f4dda0] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-01 02:46:28] [8f95452] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-01 02:53:17] [0111bb8] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-01 03:37:29] [7711140] docs(intel): record blocked status + scoped plan for GAP-015 intelligence-feature wiring",
       "[2026-07-01 12:03:46] [7849028] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
       "[2026-07-01 12:03:47] [30442a8] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "[2026-07-01 12:07:26] [af1075b] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]"
+      "[2026-07-01 12:07:26] [af1075b] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
+      "[2026-07-01 12:07:27] [9ea2f64] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
+      "[2026-07-01 12:27:36] [e01b4bc] docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-01 12:07:26",
+    "last_checkpoint": "2026-07-01 12:27:36",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -245,7 +245,8 @@
       ".project-intel/MODULE_MAP_SLIM.json",
       ".env.example",
       ".project-intel/DECISION_LOG.md",
-      "scripts/extract_tagpack_seeds.py"
+      "scripts/extract_tagpack_seeds.py",
+      "src/intelligence/metrics.py"
     ],
     "current_task": "GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests",
     "session_started": "2026-07-01 02:35:45",
