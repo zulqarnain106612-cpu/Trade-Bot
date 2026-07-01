@@ -107,3 +107,56 @@ Scoped plan for when keys are available (multi-session):
      Sharpe/drawdown, don't assume more features = better.
 **Status**: BLOCKED — awaiting API key provisioning (user action, outside
 agent scope: account creation + billing).
+
+## Two bugs found + fixed while investigating GAP-015 (2026-07-01)
+Neither was in any gap tracker; both found by reading the actual
+computation logic (not the summary docs) and verifying live against real
+Binance APIs.
+
+**Bug 1 — whale_buy_sell_ratio always fake (src/intelligence/providers/binance_provider.py)**
+`_fetch_whale_taker_ratio()` unconditionally returned the hardcoded
+neutral `1.0`. Root cause, verified live: ccxt's `fetch_ohlcv()` normalizes
+every exchange to exactly 6 fields `[ts, open, high, low, close, volume]`
+-- it silently strips taker-buy-volume. The old code checked
+`len(bar) > 7`, which is therefore always False. Separately, even the
+raw-format index used (7) was wrong: Binance's documented kline schema is
+`[open_time, open, high, low, close, volume, close_time,
+quote_asset_volume, number_of_trades, taker_buy_base_asset_volume,
+taker_buy_quote_asset_volume, ignore]` -- taker_buy_base_asset_volume is
+index 9, not 7 (7 is quote_asset_volume). Net effect: `whale_buy_sell_ratio`
+-- which feeds the LIVE `check_whale_activity` gate via gates.py -- was
+silently fake (always exactly 1.0) on every run, no exception, no
+confidence penalty, no log line.
+Fix: call the raw/implicit ccxt method (`fapiPublicGetKlines`) directly,
+bypassing normalization, and read index 9. Verified live post-fix:
+returned 0.9636 (real, varying, non-neutral) against current market data.
+
+**Bug 2 — fabricated confidence (src/intelligence/metrics.py)**
+`IntelligenceAnalyzer.compute_metrics()` hardcoded 11 of 15
+`IntelligenceMetrics` fields to plausible-looking constants
+(`exchange_reserve_ratio=0.35`, `stablecoin_reserve_ratio=0.25`, 9 more at
+`0.0`), marked only by a `# TODO` comment. `confidence` was never
+penalized for any of them -- only the 3 metrics with real
+exception-guarded computation affected it. Net effect: this could report
+`confidence~=1.0` while 11/15 fields were fabricated, with no way for a
+downstream consumer to detect it from confidence alone -- the exact
+fabricated-completion-state failure mode, already live in production.
+Fix: unimplemented fields are now NaN (consistent with the existing
+NaN-handling convention in `build_inference_features`), and confidence is
+capped by the real fraction of implemented metrics
+(`_REAL_METRIC_COUNT=4`, `_TOTAL_METRIC_COUNT=15`) before the existing
+per-call exception penalty.
+
+**Blast radius check**: confirmed the live gate stack
+(`check_exchange_stress`/`check_whale_activity` in gates.py) was NOT
+corrupted by either bug in a way that blocked/allowed trades incorrectly
+-- `exchange_stress_score` and the netflow/funding paths were already
+using real data; only `whale_buy_sell_ratio` itself was silently fake, and
+it is a soft signal (not a hard veto) in the current gate logic.
+
+**Tests**: tests/test_intelligence_metrics.py, 7 new tests, mocking
+Binance's raw kline response shape (not ccxt's normalized one) to
+regression-guard both fixes. Full suite re-run: 777 passed / 1 skipped /
+1 pre-existing unrelated failure (TestTask010FundingRateWiring -- flaky
+live-network test, confirmed failing identically before this session via
+git stash comparison).
