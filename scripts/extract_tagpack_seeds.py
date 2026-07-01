@@ -26,6 +26,11 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
+try:
+    _YAML_LOADER = yaml.CSafeLoader  # libyaml C loader -- much faster
+except AttributeError:
+    _YAML_LOADER = yaml.SafeLoader  # pure-Python fallback
+
 # Only BTC: PRIMARY_SYMBOL=BTC/USDT (.env). Pulling ETH/other-chain seeds
 # would be wasted scope for a BTC-only strategy and adds free-tier API load
 # for no signal value.
@@ -33,8 +38,25 @@ TARGET_CURRENCY = "BTC"
 
 
 def extract_pack(path: Path) -> list[dict[str, Any]]:
+    # Cheap pre-filter: most packs declare a single top-level `currency:`
+    # field for the whole file. Skip parsing files that are unambiguously
+    # not our target currency -- avoids loading e.g. the 723KB ETH-only
+    # etherscan word-cloud pack (0 BTC tags) just to discard it, and
+    # sidesteps any pathological parse time on large irrelevant files.
     with path.open(encoding="utf-8") as f:
-        doc = yaml.safe_load(f)
+        head = f.read(4096)
+    if f"currency: {TARGET_CURRENCY}" not in head:
+        # Could still be a per-tag mixed-currency pack with no top-level
+        # field, or a top-level currency of something else -- only skip
+        # if we see an explicit *other* top-level currency declaration.
+        import re
+
+        m = re.search(r"^currency:\s*(\S+)", head, re.MULTILINE)
+        if m and m.group(1).strip("'\"") != TARGET_CURRENCY:
+            return []
+
+    with path.open(encoding="utf-8") as f:
+        doc = yaml.load(f, Loader=_YAML_LOADER)
     if not doc or "tags" not in doc:
         return []
 

@@ -10257,7 +10257,7 @@
   },
   "scripts/extract_tagpack_seeds.py": {
     "purpose": "GAP-015 on-chain pipeline, phase 1: extract exchange/miner seed addresses.\n\nSource: GraphSense TagPa",
-    "lines": 124,
+    "lines": 146,
     "classes": [],
     "key_functions": [
       "extract_pack",

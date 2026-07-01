@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-01 12:02 | 812 Python modules | 235,171 total lines
+> Auto-generated 2026-07-01 12:06 | 812 Python modules | 235,193 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3481,7 +3481,7 @@ Read
 at pr
 **Key functions**: main
 
-### `scripts/extract_tagpack_seeds.py` (124 lines)
+### `scripts/extract_tagpack_seeds.py` (146 lines)
 **Purpose**: GAP-015 on-chain pipeline, phase 1: extract exchange/miner seed addresses.
 
 Sour
