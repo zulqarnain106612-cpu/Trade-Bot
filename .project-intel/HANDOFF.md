@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-01 03:33:00 | Read this before starting any work.
+> Updated: 2026-07-01 03:37:29 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests
 **Started**: 2026-07-01 02:35:45
-**Last checkpoint**: 2026-07-01 03:33:00
+**Last checkpoint**: 2026-07-01 03:37:29
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,7 +14,7 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-004: define order FSM states for partial fills (order_fsm.py)
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
   - .project-intel/ARCHITECTURE.md
@@ -35,6 +35,8 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - tests/test_trade_auditor.py
   - tests/test_trade_auditor_and_intel_gates.py
   - .project-intel/MODULE_MAP_SLIM.json
+  - .env.example
+  - .project-intel/DECISION_LOG.md
 
 ## Session History (last 5)
   [2026-07-01 02:35:45] claude — interrupted: shell session started — TASK-010: wire live spread_bps and funding_rate_8h into 
