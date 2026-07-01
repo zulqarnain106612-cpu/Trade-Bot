@@ -353,22 +353,42 @@ class BinanceIntelligenceProvider:
         if cached is not None:
             return cached  # type: ignore[return-value]
 
-        ohlcv = await self._perp.fetch_ohlcv(
-            self._perp_symbol,
-            self._kline_tf,
-            limit=_KLINE_LIMIT,
-        )
-        # ccxt futures kline: [ts, open, high, low, close, volume,
-        #                       quote_vol, taker_buy_base_vol, taker_buy_quote_vol]
-        if not ohlcv:
+        # BUG FIX (found + verified live this session): ccxt's unified
+        # fetch_ohlcv() normalizes every exchange to the standard 6-field
+        # [ts, open, high, low, close, volume] tuple -- it silently drops
+        # taker-buy-volume even though Binance's raw REST response includes
+        # it. The old code here checked `len(bar) > 7`, which is *always*
+        # false against ccxt's normalized output, so this method returned
+        # the hardcoded neutral 1.0 on every single call, unconditionally,
+        # with no exception and no confidence penalty -- meaning
+        # whale_buy_sell_ratio (which feeds the live check_whale_activity
+        # gate) has never reflected real data. Confirmed via a live call:
+        # ccxt fetch_ohlcv returned exactly 6 elements per bar.
+        #
+        # On top of that, the original index (7) was also wrong even for
+        # the raw format: Binance's documented kline schema
+        # (https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data)
+        # is [open_time, open, high, low, close, volume, close_time,
+        # quote_asset_volume, number_of_trades, taker_buy_base_asset_volume,
+        # taker_buy_quote_asset_volume, ignore] -- taker_buy_base_asset_volume
+        # is index 9, not 7 (7 is quote_asset_volume). Verified live against
+        # the raw (non-normalized) endpoint.
+        #
+        # Fix: call the raw/implicit ccxt method (bypasses normalization)
+        # and read the correct index.
+        market = self._perp.market(self._perp_symbol)
+        raw = await self._perp.fapiPublicGetKlines({
+            "symbol": market["id"],
+            "interval": self._kline_tf,
+            "limit": _KLINE_LIMIT,
+        })
+        if not raw:
             return 1.0
 
-        total_vol = sum(bar[5] for bar in ohlcv if bar[5])
-        # Index 7 = taker_buy_base_vol if available, else fall back to neutral
-        taker_buy_vol = 0.0
-        for bar in ohlcv:
-            if len(bar) > 7 and bar[7] is not None:
-                taker_buy_vol += bar[7]
+        total_vol = sum(float(bar[5]) for bar in raw if bar[5] is not None)
+        taker_buy_vol = sum(
+            float(bar[9]) for bar in raw if len(bar) > 9 and bar[9] is not None
+        )
 
         if total_vol < 1e-9 or taker_buy_vol == 0.0:
             return 1.0

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-01T12:27:36.301765",
+  "last_updated": "2026-07-01T12:34:33.635421",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 20,
   "commit_log": [
-    {
-      "hash": "6abe639",
-      "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "time": "2026-06-30T03:45:24.935297",
-      "author": "Claude"
-    },
     {
       "hash": "69e607d",
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
       "time": "2026-07-01T12:27:36.409563",
       "author": "Claude"
+    },
+    {
+      "hash": "1f34b8c",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+      "time": "2026-07-01T12:34:33.843177",
+      "author": "Claude"
     }
   ],
-  "last_commit": "e01b4bc",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
-  "last_commit_time": "2026-07-01T12:27:36.409612",
+  "last_commit": "1f34b8c",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+  "last_commit_time": "2026-07-01T12:34:33.843258",
   "coverage_pct": 62,
   "last_session_start": "2026-04-15T23:35:05.914836",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-01T12:27:35.933205",
-  "last_extraction_trigger": "metrics.py",
+  "last_extraction": "2026-07-01T12:34:32.859781",
+  "last_extraction_trigger": "binance_provider.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-01 02:46:28] [3f4dda0] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-01 02:46:28] [8f95452] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-01 02:53:17] [0111bb8] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-01 02:53:18] [433ca78] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-01 03:04:03] [a9d7dfc] docs(intel): auto-sync after changes to src/risk/kelly.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-01 12:03:47] [30442a8] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
       "[2026-07-01 12:07:26] [af1075b] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
       "[2026-07-01 12:07:27] [9ea2f64] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "[2026-07-01 12:27:36] [e01b4bc] docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]"
+      "[2026-07-01 12:27:36] [e01b4bc] docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
+      "[2026-07-01 12:27:36] [850248a] docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
+      "[2026-07-01 12:34:33] [1f34b8c] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-01 12:27:36",
+    "last_checkpoint": "2026-07-01 12:34:33",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -246,7 +246,8 @@
       ".env.example",
       ".project-intel/DECISION_LOG.md",
       "scripts/extract_tagpack_seeds.py",
-      "src/intelligence/metrics.py"
+      "src/intelligence/metrics.py",
+      "src/intelligence/providers/binance_provider.py"
     ],
     "current_task": "GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests",
     "session_started": "2026-07-01 02:35:45",

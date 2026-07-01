@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-01 12:27 | 812 Python modules | 235,222 total lines
+> Auto-generated 2026-07-01 12:33 | 812 Python modules | 235,242 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3671,7 +3671,7 @@ Replaces deterministic
 Each provider wraps a specific API:
   - glassnod
 
-### `src/intelligence/providers/binance_provider.py` (462 lines)
+### `src/intelligence/providers/binance_provider.py` (482 lines)
 **Purpose**: Binance public REST provider for intelligence metrics.
 
 All endpoints used here 
