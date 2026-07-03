@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 00:41 | 815 Python modules | 236,053 total lines
+> Auto-generated 2026-07-04 02:40 | 815 Python modules | 236,097 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3685,7 +3685,7 @@ All endpoints used here
 **Classes**: BinanceIntelligenceProvider
 **Key functions**: get_b
 
-### `src/intelligence/risk_quantification.py` (342 lines)
+### `src/intelligence/risk_quantification.py` (386 lines)
 **Purpose**: Risk quantification and uncertainty analysis.
 
 Measures: VaR, CVaR, stress testi

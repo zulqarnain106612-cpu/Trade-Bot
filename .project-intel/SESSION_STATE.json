@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T00:43:01.949751",
+  "last_updated": "2026-07-04T02:40:34.705029",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 28,
   "commit_log": [
-    {
-      "hash": "7849028",
-      "message": "docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "time": "2026-07-01T12:03:46.793627",
-      "author": "Claude"
-    },
     {
       "hash": "af1075b",
       "message": "docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
       "time": "2026-07-04T00:43:02.156633",
       "author": "Claude"
+    },
+    {
+      "hash": "8ca878e",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
+      "time": "2026-07-04T02:40:34.911032",
+      "author": "Claude"
     }
   ],
-  "last_commit": "fabb2e8",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
-  "last_commit_time": "2026-07-04T00:43:02.156713",
+  "last_commit": "8ca878e",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
+  "last_commit_time": "2026-07-04T02:40:34.911113",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T00:26:14.869779",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T00:43:01.053005",
-  "last_extraction_trigger": "orchestrator.py",
+  "last_extraction": "2026-07-04T02:40:33.657337",
+  "last_extraction_trigger": "risk_quantification.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-03 23:37:42] [b95dcc1] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
-      "[2026-07-03 23:38:54] [e0ba245] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
       "[2026-07-03 23:38:55] [59c3d9c] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
       "[2026-07-03 23:50:44] [cdf23cf] fix(intel): wire PreToolUse guard + fix SessionStart hook \u2014 hard-block large file reads at Claude Code hook level [claude]",
       "[2026-07-03 23:56:32] [31f9ac2] fix(intel): replace 20KB size-gate with exact blocklist \u2014 allow all src/ reads, block only session-killers [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 00:38:36] [e4ddae6] docs(intel): auto-sync after changes to tests/test_metrics.py [claude]",
       "[2026-07-04 00:42:58] [b6abcbe] docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
       "[2026-07-04 00:43:00] [9dc6032] docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
-      "[2026-07-04 00:43:01] [fabb2e8] docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]"
+      "[2026-07-04 00:43:01] [fabb2e8] docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
+      "[2026-07-04 00:43:03] [3e26b9b] docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
+      "[2026-07-04 02:40:34] [8ca878e] docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 00:43:01",
+    "last_checkpoint": "2026-07-04 02:40:34",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -275,7 +275,8 @@
       "src/api/metrics.py",
       "requirements.txt",
       "tests/test_metrics.py",
-      "src/engine/orchestrator.py"
+      "src/engine/orchestrator.py",
+      "src/intelligence/risk_quantification.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",
