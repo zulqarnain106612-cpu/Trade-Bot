@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-03T23:50:44.149616",
+  "last_updated": "2026-07-03T23:59:02.755156",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,7 +38,7 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 26,
+  "total_sessions": 27,
   "commit_log": [
     {
       "hash": "a2f4a8d",
@@ -165,7 +165,7 @@
   "last_commit_message": "docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
   "last_commit_time": "2026-07-03T23:38:54.946509",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-03T23:50:08.663253",
+  "last_session_start": "2026-07-03T23:56:49.567757",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -183,10 +183,12 @@
       "[2026-07-03 23:37:42] [b95dcc1] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
       "[2026-07-03 23:38:54] [e0ba245] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
       "[2026-07-03 23:38:55] [59c3d9c] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
-      "[2026-07-03 23:50:44] [cdf23cf] fix(intel): wire PreToolUse guard + fix SessionStart hook \u2014 hard-block large file reads at Claude Code hook level [claude]"
+      "[2026-07-03 23:50:44] [cdf23cf] fix(intel): wire PreToolUse guard + fix SessionStart hook \u2014 hard-block large file reads at Claude Code hook level [claude]",
+      "[2026-07-03 23:56:32] [31f9ac2] fix(intel): replace 20KB size-gate with exact blocklist \u2014 allow all src/ reads, block only session-killers [claude]",
+      "[2026-07-03 23:59:02] GAP-015: fixed .env key prefix mismatch (GLASSNODE_API_KEY \u2192 INTELLIGENCE_GLASSNODE_API_KEY), verified config loads, client.py fully implemented with real Glassnode+ccxt calls"
     ],
-    "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-03 23:50:44",
+    "next_step": "GAP-015 final: user must provision INTELLIGENCE_GLASSNODE_API_KEY (Professional tier) in .env \u2014 no code changes needed, implementation complete",
+    "last_checkpoint": "2026-07-03 23:59:02",
     "session_history": [
       {
         "time": "2026-07-01 02:35:45",
@@ -256,7 +258,8 @@
       ".project-intel/SESSION_STATE.json",
       "tests/test_signal_engine.py",
       "src/diagnostics/signal_debugger.py",
-      "tests/test_performance_drift.py"
+      "tests/test_performance_drift.py",
+      ".env"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",
