@@ -828,8 +828,8 @@ class ModelTrainer:
         and p_long is the probability of a long outcome.
         """
         # Use model's n_features_in_ to slice the correct columns.
-        # Falls back to FEATURE_COLUMNS (9) for models trained before GAP-015.
-        _n = getattr(self._direction_model, "n_features_in_", len(FEATURE_COLUMNS))
+        # Falls back to 9 base features for models trained before GAP-015.
+        _n = getattr(model, "n_features_in_", len(BASE_FEATURE_COLUMNS))
         _pred_cols = list(feature_vec.index[:_n]) if len(feature_vec) >= _n else list(feature_vec.index)
         X = feature_vec.reindex(_pred_cols).to_numpy(dtype=np.float64).reshape(1, -1)
         p_long = float(model.predict_proba(X)[0, 1])
@@ -856,14 +856,44 @@ class ModelTrainer:
         (meta_label, p_bet) where meta_label is 1 (bet) or 0 (skip),
         and p_bet is the probability of betting.
         """
-        _nm = getattr(self._meta_model, "n_features_in_", len(FEATURE_COLUMNS) + 2)
-        _base_n = _nm - 2  # subtract the 2 direction signal features appended in training
-        _pred_cols_meta = list(feature_vec.index[:_base_n]) if len(feature_vec) >= _base_n else list(feature_vec.index)
+        # GAP-015: resolve base feature count from model's n_features_in_.
+        # meta_model is trained with (base_features + 2 direction signals).
+        # Legitimate cases:
+        #   - Pre-GAP-015 model: n_features_in_ = 9 (BASE) + 2 = 9.  feature_vec has 7.
+        #   - GAP-015 model: n_features_in_ = 9 + N_intel + 2.        feature_vec has 7 + N_intel.
+        # Illegitimate case (SCAN2-005): feature_vec columns don't match model schema at all.
+        expected_n = getattr(meta_model, "n_features_in_", None)
+        if expected_n is not None:
+            # Minimum valid schema: 9 base (BASE_FEATURE_COLUMNS) + 2 direction signals.
+            # Any model with n_features_in_ < this minimum has an incompatible schema.
+            _min_valid = len(BASE_FEATURE_COLUMNS) + 2
+            if expected_n < _min_valid:
+                raise ValueError(
+                    f"predict_meta: meta_model expects {expected_n} input columns, "
+                    f"which is below the minimum valid schema ({_min_valid} = "
+                    f"{len(BASE_FEATURE_COLUMNS)} base + 2 signals). "
+                    "Model was trained with a different feature schema — retrain required."
+                )
+            # expected base cols that the model was trained on
+            _base_n_expected = expected_n - 2
+            # base cols available in this feature_vec
+            _base_n_available = len(feature_vec)
+            # Invalid iff available < expected (missing required columns).
+            if _base_n_available < _base_n_expected:
+                raise ValueError(
+                    f"predict_meta: feature vector has {_base_n_available} base columns "
+                    f"but meta_model expects {_base_n_expected} base columns (+2 signals = {expected_n}). "
+                    "Model was trained with a different feature schema — retrain required."
+                )
+            # Slice to exactly the count the model expects
+            _pred_cols_meta = list(feature_vec.index[:_base_n_expected])
+        else:
+            _pred_cols_meta = list(feature_vec.index)
+
         base = feature_vec.reindex(_pred_cols_meta).to_numpy(dtype=np.float64)
         confidence = abs(p_long - 0.5)
         X = np.append(base, [p_long, confidence]).reshape(1, -1)
-        # SCAN2-005: validate expected input shape against stored model dimensionality
-        expected_n = getattr(meta_model, "n_features_in_", None)
+        # Final shape sanity check (catches unexpected edge cases)
         if expected_n is not None and X.shape[1] != expected_n:
             raise ValueError(
                 f"predict_meta: feature vector has {X.shape[1]} columns but "
