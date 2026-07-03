@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-01 12:34:34 | Read this before starting any work.
+> Updated: 2026-07-03 18:08:16 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
-**Task**:    GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests
-**Started**: 2026-07-01 02:35:45
-**Last checkpoint**: 2026-07-01 12:34:34
+**Task**:    GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table+migration, backfill CLI, pipeline FEATURE_COLUMNS extension, trainer coverage gate
+**Started**: 2026-07-03 18:08:16
+**Last checkpoint**: 2026-07-03 18:08:16
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,34 +14,13 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
+  GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table+migration, backfill CLI, pipeline FEATURE_COLUMNS extension, trainer coverage gate
 
 ## Files to Check
-  - .project-intel/ARCHITECTURE.md
-  - .project-intel/GAPS.md
-  - .project-intel/HANDOFF.md
-  - .project-intel/MODULE_MAP.json
-  - .project-intel/SESSION_STATE.json
-  - src/config.py
-  - src/intelligence/client.py
-  - src/engine/signal_engine.py
-  - .project-intel/RAW_SCAN.json
-  - src/risk/kelly.py
-  - tests/test_kelly.py
-  - tests/test_orchestrator.py
-  - src/risk/intelligence_gates.py
-  - src/risk/probabilistic_gates.py
-  - tests/test_probabilistic_gates_coverage.py
-  - tests/test_trade_auditor.py
-  - tests/test_trade_auditor_and_intel_gates.py
-  - .project-intel/MODULE_MAP_SLIM.json
-  - .env.example
-  - .project-intel/DECISION_LOG.md
-  - scripts/extract_tagpack_seeds.py
-  - src/intelligence/metrics.py
-  - src/intelligence/providers/binance_provider.py
+  (no specific files — start from OPEN_TASKS.md)
 
 ## Session History (last 5)
+  [2026-07-03 18:08:16] claude — interrupted: GAP-015 full implementation: torch install + ensemble test, probabilistic/intell
   [2026-07-01 02:35:45] claude — interrupted: shell session started — TASK-010: wire live spread_bps and funding_rate_8h into 
   [2026-06-29 18:16:34] claude — interrupted: shell exited with 8 uncommitted file(s)
   [2026-06-29 17:31:43] claude — interrupted: 

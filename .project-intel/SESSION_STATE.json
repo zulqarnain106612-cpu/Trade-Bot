@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-01T12:39:45.667420",
+  "last_updated": "2026-07-03T18:10:18.214549",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,14 +38,8 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 20,
+  "total_sessions": 21,
   "commit_log": [
-    {
-      "hash": "1e3e44e",
-      "message": "docs(intel): auto-sync after changes to tests/test_api_and_fsm_coverage.py [claude]",
-      "time": "2026-06-30T04:05:59.527615",
-      "author": "Claude"
-    },
     {
       "hash": "6757129",
       "message": "docs(intel): auto-sync after changes to tests/test_trade_auditor_and_intel_gates.py [claude]",
@@ -159,45 +153,32 @@
       "message": "docs(intel): auto-sync after changes to tests/test_intelligence_metrics.py [claude]",
       "time": "2026-07-01T12:39:45.953656",
       "author": "Claude"
+    },
+    {
+      "hash": "d96253d",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
+      "time": "2026-07-03T18:10:18.413774",
+      "author": "Claude"
     }
   ],
-  "last_commit": "dbe0b28",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_intelligence_metrics.py [claude]",
-  "last_commit_time": "2026-07-01T12:39:45.953750",
+  "last_commit": "d96253d",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
+  "last_commit_time": "2026-07-03T18:10:18.413842",
   "coverage_pct": 62,
-  "last_session_start": "2026-04-15T23:35:05.914836",
+  "last_session_start": "2026-07-03T18:02:38.241922",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-01T12:39:44.718267",
-  "last_extraction_trigger": "test_intelligence_metrics.py",
+  "last_extraction": "2026-07-03T18:10:17.220700",
+  "last_extraction_trigger": "client.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-01 03:04:03] [a9d7dfc] docs(intel): auto-sync after changes to src/risk/kelly.py [claude]",
-      "[2026-07-01 03:04:03] [02c957f] docs(intel): auto-sync after changes to src/risk/kelly.py [claude]",
-      "[2026-07-01 03:06:33] [4fdc3b7] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-01 03:06:34] [182d8dd] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-01 03:19:12] [3da69b6] test: add orchestrator/correlation-tracker coverage; fix SESSION_STATE TASK-010 staleness",
-      "[2026-07-01 03:19:38] [1fba8db] docs(intel): auto-sync after changes to tests/test_orchestrator.py [claude]",
-      "[2026-07-01 03:19:38] [3cad7df] docs(intel): auto-sync after changes to tests/test_orchestrator.py [claude]",
-      "[2026-07-01 03:32:17] [8992e21] refactor: retire duplicate exchange-stress/whale gate implementations (GAP-015)",
-      "[2026-07-01 03:32:59] [c26b55b] docs(intel): auto-sync after changes to tests/test_trade_auditor.py [claude]",
-      "[2026-07-01 03:33:00] [f2c334d] docs(intel): auto-sync after changes to tests/test_trade_auditor.py [claude]",
-      "[2026-07-01 03:37:29] [7711140] docs(intel): record blocked status + scoped plan for GAP-015 intelligence-feature wiring",
-      "[2026-07-01 12:03:46] [7849028] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "[2026-07-01 12:03:47] [30442a8] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "[2026-07-01 12:07:26] [af1075b] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "[2026-07-01 12:07:27] [9ea2f64] docs(intel): auto-sync after changes to scripts/extract_tagpack_seeds.py [claude]",
-      "[2026-07-01 12:27:36] [e01b4bc] docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
-      "[2026-07-01 12:27:36] [850248a] docs(intel): auto-sync after changes to src/intelligence/metrics.py [claude]",
-      "[2026-07-01 12:34:33] [1f34b8c] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "[2026-07-01 12:34:34] [379fcb2] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "[2026-07-01 12:39:45] [dbe0b28] docs(intel): auto-sync after changes to tests/test_intelligence_metrics.py [claude]"
+      "[2026-07-03 18:10:18] [d96253d] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-01 12:39:45",
+    "last_checkpoint": "2026-07-03 18:10:18",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",
@@ -222,36 +203,23 @@
         "agent": "claude",
         "status": "interrupted",
         "summary": "shell session started \u2014 TASK-010: wire live spread_bps and funding_rate_8h into "
+      },
+      {
+        "time": "2026-07-03 18:08:16",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "GAP-015 full implementation: torch install + ensemble test, probabilistic/intell"
       }
     ],
     "files_touched": [
       ".project-intel/ARCHITECTURE.md",
-      ".project-intel/GAPS.md",
       ".project-intel/HANDOFF.md",
       ".project-intel/MODULE_MAP.json",
       ".project-intel/SESSION_STATE.json",
-      "src/config.py",
-      "src/intelligence/client.py",
-      "src/engine/signal_engine.py",
-      ".project-intel/RAW_SCAN.json",
-      "src/risk/kelly.py",
-      "tests/test_kelly.py",
-      "tests/test_orchestrator.py",
-      "src/risk/intelligence_gates.py",
-      "src/risk/probabilistic_gates.py",
-      "tests/test_probabilistic_gates_coverage.py",
-      "tests/test_trade_auditor.py",
-      "tests/test_trade_auditor_and_intel_gates.py",
-      ".project-intel/MODULE_MAP_SLIM.json",
-      ".env.example",
-      ".project-intel/DECISION_LOG.md",
-      "scripts/extract_tagpack_seeds.py",
-      "src/intelligence/metrics.py",
-      "src/intelligence/providers/binance_provider.py",
-      "tests/test_intelligence_metrics.py"
+      "src/intelligence/client.py"
     ],
-    "current_task": "GAP-015 full implementation: torch install + ensemble test, probabilistic/intelligence gate wiring, Glassnode/Binance clients, position_sizing wiring, all missing tests",
-    "session_started": "2026-07-01 02:35:45",
+    "current_task": "GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table+migration, backfill CLI, pipeline FEATURE_COLUMNS extension, trainer coverage gate",
+    "session_started": "2026-07-03 18:08:16",
     "interruption_reason": ""
   },
   "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan"

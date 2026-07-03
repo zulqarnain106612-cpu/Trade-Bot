@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-01 12:38 | 813 Python modules | 235,412 total lines
+> Auto-generated 2026-07-03 18:09 | 813 Python modules | 235,630 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3640,12 +3640,13 @@ Answer causal questions, not just correlations:
 - D
 **Classes**: CausalEffect, CausalDAG, CausalInferenceEngine
 
-### `src/intelligence/client.py` (452 lines)
+### `src/intelligence/client.py` (670 lines)
 **Purpose**: Multi-provider intelligence client aggregator.
 
 Responsibilities:
   - Manage cre
 **Classes**: CacheEntry, IntelligenceAggregator
+**Key functions**: get_i
 
 ### `src/intelligence/ensemble_predictor.py` (654 lines)
 **Purpose**: Ensemble prediction framework.

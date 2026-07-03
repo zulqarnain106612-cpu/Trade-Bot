@@ -450,3 +450,221 @@ class IntelligenceAggregator:
         return self._glassnode_base_url
 
 
+
+    # -----------------------------------------------------------------------
+    # Historical-range fetch methods (GAP-015 step 2)
+    # Used by scripts/backfill_intelligence.py to build training history.
+    # These mirror the live methods but accept explicit since_ts/until_ts
+    # Unix-second boundaries and return a list of (timestamp, value) pairs
+    # instead of a single snapshot.
+    # -----------------------------------------------------------------------
+
+    async def get_exchange_netflow_history(
+        self,
+        symbol: str = "BTC",
+        since_ts: int = 0,
+        until_ts: int = 0,
+        interval: str = "24h",
+        exchange: str | None = None,
+    ) -> list[dict]:
+        """
+        Fetch historical exchange netflow from Glassnode.
+
+        Args:
+            symbol:    Asset symbol (e.g. "BTC").
+            since_ts:  Start of range, Unix seconds (inclusive).
+            until_ts:  End of range, Unix seconds (inclusive). 0 = now.
+            interval:  Glassnode resolution ("24h" | "1h"). Professional tier
+                       required for sub-24h resolution.
+            exchange:  Exchange slug (e.g. "binance") or None for aggregate.
+
+        Returns:
+            List of dicts: [{"ts": int, "netflow": float, "tscore": float}, ...]
+            Sorted ascending by ts. Empty list if key absent or API error.
+        """
+        if not self.glassnode_key:
+            log.warning(
+                "get_exchange_netflow_history_skipped",
+                reason="GLASSNODE_API_KEY not set",
+            )
+            return []
+
+        await self._rate_limit_glassnode()
+
+        import httpx
+
+        now_ts = int(datetime.now(UTC).timestamp())
+        u_ts = until_ts if until_ts > 0 else now_ts
+
+        params: dict[str, Any] = {
+            "a": symbol.upper(),
+            "i": interval,
+            "s": str(since_ts),
+            "u": str(u_ts),
+        }
+        if exchange:
+            params["e"] = exchange.lower()
+
+        headers = {"X-Api-Key": self.glassnode_key}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    f"{self._base_url}/transactions/transfers_volume_exchanges_net",
+                    params=params,
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data: list[dict] = resp.json()
+        except Exception as exc:
+            log.error("glassnode_netflow_history_failed", error=str(exc))
+            return []
+        finally:
+            self._last_glassnode_call = datetime.now(UTC)
+
+        values = [(int(row["t"]), float(row["v"])) for row in data if row.get("v") is not None]
+        if not values:
+            return []
+
+        all_v = [v for _, v in values]
+        mean_v = sum(all_v) / len(all_v)
+        std_v = (sum((v - mean_v) ** 2 for v in all_v) / max(len(all_v) - 1, 1)) ** 0.5
+
+        return [
+            {
+                "ts": ts,
+                "netflow": v,
+                "tscore": round((v - mean_v) / std_v, 4) if std_v > 1e-9 else 0.0,
+            }
+            for ts, v in sorted(values, key=lambda x: x[0])
+        ]
+
+    async def get_whale_activity_history(
+        self,
+        symbol: str = "BTC",
+        since_ts: int = 0,
+        until_ts: int = 0,
+        interval: str = "24h",
+        min_transaction_usd: float = 1_000_000,
+    ) -> list[dict]:
+        """
+        Fetch historical whale large-transaction volume from Glassnode.
+
+        Returns:
+            List of dicts: [{"ts": int, "ratio": float, "sentiment": str}, ...]
+            Sorted ascending by ts.
+        """
+        if not self.glassnode_key:
+            log.warning(
+                "get_whale_activity_history_skipped",
+                reason="GLASSNODE_API_KEY not set",
+            )
+            return []
+
+        await self._rate_limit_glassnode()
+
+        import httpx
+
+        now_ts = int(datetime.now(UTC).timestamp())
+        u_ts = until_ts if until_ts > 0 else now_ts
+
+        headers = {"X-Api-Key": self.glassnode_key}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    f"{self._base_url}/transactions/transfers_volume_large",
+                    params={
+                        "a": symbol.upper(),
+                        "i": interval,
+                        "s": str(since_ts),
+                        "u": str(u_ts),
+                        "min_value": str(int(min_transaction_usd)),
+                    },
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data: list[dict] = resp.json()
+        except Exception as exc:
+            log.error("glassnode_whale_history_failed", error=str(exc))
+            return []
+        finally:
+            self._last_glassnode_call = datetime.now(UTC)
+
+        values = [(int(row["t"]), float(row["v"])) for row in data if row.get("v") is not None]
+        if not values:
+            return []
+
+        # Compute rolling ratio: compare each bar against a 7-bar trailing window
+        result = []
+        for i, (ts, vol) in enumerate(sorted(values, key=lambda x: x[0])):
+            window_start = max(0, i - 6)
+            prior = [v for _, v in values[window_start:i]] or [vol]
+            prior_avg = sum(prior) / len(prior)
+            ratio = vol / max(prior_avg, 1e-9)
+            ratio = max(0.1, min(ratio, 10.0))
+            sentiment = (
+                "bullish" if ratio > 1.5 else "bearish" if ratio < 0.67 else "neutral"
+            )
+            result.append({"ts": ts, "ratio": round(ratio, 4), "sentiment": sentiment})
+
+        return result
+
+    async def get_funding_rate_history(
+        self,
+        symbol: str | None = None,
+        since_ts: int = 0,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """
+        Fetch historical funding rate series from Binance perpetuals (public, no key).
+
+        Args:
+            symbol:   ccxt-format perp symbol, e.g. "BTC/USDT:USDT". Defaults
+                      to config value (BTCUSDT).
+            since_ts: Start Unix milliseconds. 0 = earliest available.
+            limit:    Max records per call (Binance cap: 1000).
+
+        Returns:
+            List of dicts: [{"ts": int, "rate_pct": float}, ...]  (ts in Unix ms)
+        """
+        import ccxt.async_support as ccxt_async
+
+        symbol = symbol or self._funding_rate_perp_symbol
+        if ":" not in symbol and "/" not in symbol:
+            base = symbol.replace("USDT", "")
+            symbol_ccxt = f"{base}/USDT:USDT"
+        else:
+            symbol_ccxt = symbol
+
+        exchange = ccxt_async.binance({"options": {"defaultType": "future"}})
+        try:
+            history = await exchange.fetch_funding_rate_history(
+                symbol_ccxt,
+                since=since_ts if since_ts > 0 else None,
+                limit=limit,
+            )
+            return [
+                {
+                    "ts": int(r["timestamp"]),
+                    "rate_pct": round(float(r.get("fundingRate", 0.0)) * 100.0, 6),
+                }
+                for r in history
+                if r.get("timestamp") is not None
+            ]
+        except Exception as exc:
+            log.error("binance_funding_rate_history_failed", error=str(exc))
+            return []
+        finally:
+            await exchange.close()
+
+
+def get_intelligence_aggregator() -> "IntelligenceAggregator":
+    """
+    Factory: return a fully-configured IntelligenceAggregator from settings.
+
+    GAP-015: This is the canonical way to get an aggregator instance in
+    production code. Tests should construct IntelligenceAggregator directly
+    with _settings= injection to avoid reading .env.
+    """
+    return IntelligenceAggregator()

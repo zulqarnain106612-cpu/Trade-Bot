@@ -10674,12 +10674,14 @@
   },
   "src/intelligence/client.py": {
     "purpose": "Multi-provider intelligence client aggregator.\n\nResponsibilities:\n  - Manage credentials for all pro",
-    "lines": 452,
+    "lines": 670,
     "classes": [
       "CacheEntry",
       "IntelligenceAggregator"
     ],
-    "key_functions": [],
+    "key_functions": [
+      "get_intelligence_aggregator"
+    ],
     "constants": [],
     "imports_from": [
       "src.config"
