@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-03 19:36 | 813 Python modules | 235,639 total lines
+> Auto-generated 2026-07-03 22:57 | 813 Python modules | 235,675 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3738,7 +3738,7 @@ Tracks rolling pairwise return correlati
 **Classes**: _EWMSeries, _EWMCov, PortfolioCorrelationTracker
 **Key functions**: get_p
 
-### `src/risk/slippage.py` (223 lines)
+### `src/risk/slippage.py` (228 lines)
 **Purpose**: Slippage and market-impact model — Almgren-Chriss square-root impact.
 
 GAP-001: 
@@ -3877,7 +3877,7 @@ Covers:
 Tests individual gate fun
 **Classes**: TestSlippageVeto, TestDailyDrawdown, TestConsecutiveLosses, TestRegimeGate, TestPositionSize, TestGateResult, TestEvaluateAllGates
 
-### `tests/test_signal_engine.py` (449 lines)
+### `tests/test_signal_engine.py` (480 lines)
 **Purpose**: Test coverage for src/engine/signal_engine.py — Debt-005.
 
 Strategy: mock all ex

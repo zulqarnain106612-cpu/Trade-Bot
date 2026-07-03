@@ -10897,7 +10897,7 @@
   },
   "src/risk/slippage.py": {
     "purpose": "Slippage and market-impact model \u2014 Almgren-Chriss square-root impact.\n\nGAP-001: Kelly sizing (src/ri",
-    "lines": 223,
+    "lines": 228,
     "classes": [
       "SlippageEstimate",
       "SlippageModel"
@@ -11373,7 +11373,7 @@
   },
   "tests/test_signal_engine.py": {
     "purpose": "Test coverage for src/engine/signal_engine.py \u2014 Debt-005.\n\nStrategy: mock all external dependencies ",
-    "lines": 449,
+    "lines": 480,
     "classes": [
       "TestSkipShape",
       "TestSkipPaths",

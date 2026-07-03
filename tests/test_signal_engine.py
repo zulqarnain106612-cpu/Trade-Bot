@@ -215,6 +215,37 @@ class TestSkipPaths:
         assert r.tradeable is False
 
     @pytest.mark.asyncio
+    async def test_entropy_reduces_position_size_scalar(self):
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+        async def _lb(): return good_bars
+        e._load_bars = _lb
+
+        high_entropy_pred = RegimePrediction(
+            state=1,
+            prob_ranging=0.1,
+            prob_trending=0.8,
+            prob_volatile=0.1,
+            entropy=0.9,
+        )
+        e._detector.predict_current.return_value = high_entropy_pred
+
+        with patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()), \
+             patch("src.engine.signal_engine.build_inference_features",
+                   return_value=pd.Series({"f0": 1.0})), \
+             patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()) as mock_kelly, \
+             patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)), \
+             patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)), \
+             patch("src.engine.signal_engine.evaluate_all_gates",
+                   return_value=_pass_gate()):
+            await e.tick(**_TICK)
+
+        args, kwargs = mock_kelly.call_args
+        assert args[0] == 0.1
+        assert args[1] == 0.05
+        assert kwargs["regime_scalar"] == pytest.approx(0.1)
+
+    @pytest.mark.asyncio
     async def test_direction_gate_not_passed(self):
         e = _make_engine()
         kwargs = dict(_TICK, direction_gate_pass=False)
