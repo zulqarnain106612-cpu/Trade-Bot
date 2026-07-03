@@ -43,7 +43,9 @@ from src.config import FeatureSettings, XGBoostSettings, get_settings
 from src.data.storage import ModelMetricsRecord
 from src.features.pipeline import (
     FEATURE_COLUMNS,
+    BASE_FEATURE_COLUMNS,
     FeatureMatrix,
+    get_active_feature_columns,
     meta_labels,
 )
 
@@ -506,7 +508,26 @@ class ModelTrainer:
         -------
         TrainingResult with fitted model and OOS metrics.
         """
-        X = fm.features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        # GAP-015 Step 5: use coverage-gated feature set.
+        # If an intelligence_coverage dict is attached to fm, resolve the
+        # active column list; otherwise fall back to 9 base features.
+        _active_cols = get_active_feature_columns(
+            coverage=getattr(fm, "intelligence_coverage", None),
+            min_coverage=0.6,
+        )
+        # Ensure all active columns are present in fm.features (guard against
+        # stale FeatureMatrix built before backfill).
+        _present_cols = [c for c in _active_cols if c in fm.features.columns]
+        _missing = [c for c in _active_cols if c not in fm.features.columns]
+        if _missing:
+            self._log.warning(
+                "trainer.direction.missing_columns",
+                missing=_missing,
+                reason="column in active set but absent from FeatureMatrix — dropping",
+            )
+        _active_cols = _present_cols
+
+        X = fm.features[_active_cols].to_numpy(dtype=np.float64)
         y = fm.labels.to_numpy(dtype=np.int8)
         log_ret = fm.log_returns.to_numpy(dtype=np.float64)
         weights = compute_sample_weights(fm.log_returns)
@@ -516,6 +537,8 @@ class ModelTrainer:
             n_samples=len(X),
             n_long=int((y == 1).sum()),
             n_short=int((y == 0).sum()),
+            n_features=len(_active_cols),
+            feature_mode="24" if len(_active_cols) > 7 else "9",
         )
 
         cpcv_cfg = self._feature_cfg
