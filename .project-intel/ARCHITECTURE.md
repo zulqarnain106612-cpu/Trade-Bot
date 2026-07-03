@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-03 22:57 | 813 Python modules | 235,675 total lines
+> Auto-generated 2026-07-03 23:32 | 813 Python modules | 235,725 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3545,7 +3545,7 @@ Respon
 **Classes**: ProbeResult, HealthSnapshot, RuntimeMonitor
 **Key functions**: get_m
 
-### `src/diagnostics/signal_debugger.py` (392 lines)
+### `src/diagnostics/signal_debugger.py` (424 lines)
 **Purpose**: Signal Debugger — feature drift detection, model degradation scanner,
           
 **Classes**: FeatureDriftRecord, FeatureDriftMonitor, PredictionRecord, ModelDegradationTracker, LabelShiftRecord, LabelShiftDetector
@@ -3844,9 +3844,9 @@ endpoints (GE
 **Classes**: TestPaperPosition, TestApprovalRequestToDict, TestLifecycle, TestSubmitSignalAutomatic, TestSubmitSignalRestricted, TestSubmitSignalManual, TestClosePosition, TestMarkToMarket, TestApprovalQueueManagement, TestApprovalTimeout, TestStateQueriesAndProperties
 **Key functions**: make_
 
-### `tests/test_performance_drift.py` (161 lines)
+### `tests/test_performance_drift.py` (179 lines)
 **Purpose**: Test suite for Performance Drift Detector.
-**Classes**: TestPerformanceBaseline, TestDriftDetector, TestSharpeDrift, TestAccuracyDrift, TestLiveMetrics
+**Classes**: TestPerformanceBaseline, TestDriftDetector, TestSharpeDrift, TestAccuracyDrift, TestLiveMetrics, TestModelDegradationTracker
 
 ### `tests/test_portfolio_correlation.py` (364 lines)
 **Purpose**: Tests for src/risk/portfolio_correlation.py

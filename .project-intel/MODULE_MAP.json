@@ -10429,7 +10429,7 @@
   },
   "src/diagnostics/signal_debugger.py": {
     "purpose": "Signal Debugger \u2014 feature drift detection, model degradation scanner,\n                  and signal p",
-    "lines": 392,
+    "lines": 424,
     "classes": [
       "FeatureDriftRecord",
       "FeatureDriftMonitor",
@@ -11252,18 +11252,20 @@
   },
   "tests/test_performance_drift.py": {
     "purpose": "Test suite for Performance Drift Detector.",
-    "lines": 161,
+    "lines": 179,
     "classes": [
       "TestPerformanceBaseline",
       "TestDriftDetector",
       "TestSharpeDrift",
       "TestAccuracyDrift",
-      "TestLiveMetrics"
+      "TestLiveMetrics",
+      "TestModelDegradationTracker"
     ],
     "key_functions": [],
     "constants": [],
     "imports_from": [
-      "src.risk.performance_drift"
+      "src.risk.performance_drift",
+      "src.diagnostics.signal_debugger"
     ]
   },
   "tests/test_portfolio_correlation.py": {

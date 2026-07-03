@@ -159,3 +159,21 @@ class TestLiveMetrics:
         assert metrics["rolling_winrate"] == 1.0
         assert "rolling_sharpe" in metrics
         assert "max_live_drawdown_pct" in metrics
+
+
+class TestModelDegradationTracker:
+    def test_degradation_tracker_flags_low_accuracy_and_sharpe(self):
+        from src.diagnostics.signal_debugger import ModelDegradationTracker
+
+        tracker = ModelDegradationTracker(window=50)
+        tracker.set_training_metrics(accuracy=0.6, f1=0.55)
+
+        for _ in range(25):
+            tracker.record_prediction(p_long=0.4, p_bet=0.5)
+            tracker.resolve_last(actual_direction=0)
+            tracker.record_trade_result(-10.0)
+
+        report = tracker.check_degradation()
+        assert report["degraded"] is True
+        assert report["retrain_recommended"] is True
+        assert report["tighten_meta_label_threshold"] is True

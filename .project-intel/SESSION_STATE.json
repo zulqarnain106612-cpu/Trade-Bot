@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-03T22:59:24.199115",
+  "last_updated": "2026-07-03T23:34:09.783284",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 25,
   "commit_log": [
-    {
-      "hash": "abebace",
-      "message": "docs(intel): auto-sync after changes to src/risk/gates.py [claude]",
-      "time": "2026-06-30T05:15:04.182203",
-      "author": "Claude"
-    },
     {
       "hash": "ed73d36",
       "message": "docs(intel): auto-sync after changes to src/config.py [claude]",
@@ -159,26 +153,34 @@
       "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "time": "2026-07-03T22:59:24.591637",
       "author": "Claude"
+    },
+    {
+      "hash": "1e5a1b0",
+      "message": "docs(intel): auto-sync after changes to tests/test_performance_drift.py [claude]",
+      "time": "2026-07-03T23:34:10.098219",
+      "author": "Claude"
     }
   ],
-  "last_commit": "4f5fdbd",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-  "last_commit_time": "2026-07-03T22:59:24.591708",
+  "last_commit": "1e5a1b0",
+  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_performance_drift.py [claude]",
+  "last_commit_time": "2026-07-03T23:34:10.098304",
   "coverage_pct": 62,
   "last_session_start": "2026-07-03T22:01:54.949141",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-03T22:59:23.050197",
-  "last_extraction_trigger": "test_signal_engine.py",
+  "last_extraction": "2026-07-03T23:34:08.111079",
+  "last_extraction_trigger": "test_performance_drift.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-03 22:59:24] [4f5fdbd] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]"
+      "[2026-07-03 22:59:24] [4f5fdbd] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "[2026-07-03 22:59:26] [1ecdbbb] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "[2026-07-03 23:34:09] [1e5a1b0] docs(intel): auto-sync after changes to tests/test_performance_drift.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-03 22:59:24",
+    "last_checkpoint": "2026-07-03 23:34:09",
     "session_history": [
       {
         "time": "2026-07-01 02:35:45",
@@ -246,7 +248,9 @@
       ".project-intel/HANDOFF.md",
       ".project-intel/MODULE_MAP.json",
       ".project-intel/SESSION_STATE.json",
-      "tests/test_signal_engine.py"
+      "tests/test_signal_engine.py",
+      "src/diagnostics/signal_debugger.py",
+      "tests/test_performance_drift.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",

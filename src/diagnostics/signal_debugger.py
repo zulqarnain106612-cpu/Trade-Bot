@@ -42,6 +42,10 @@ LIVE_WINDOW: Final[int] = 500
 
 # Model degradation: alert if live accuracy drops >15pp below training accuracy
 ACCURACY_DROP_THRESHOLD: Final[float] = 0.15
+# GAP-003: rolling Sharpe threshold to trigger retrain / meta-label tightening
+ROLLING_SHARPE_THRESHOLD: Final[float] = 0.8
+ROLLING_ACCURACY_THRESHOLD: Final[float] = 0.52
+META_LABEL_THRESHOLD: Final[float] = 0.65
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +178,7 @@ class ModelDegradationTracker:
     def __init__(self, window: int = 200) -> None:
         self._window = window
         self._preds: deque[PredictionRecord] = deque(maxlen=window)
+        self._trade_pnls: deque[float] = deque(maxlen=window)
         self._train_accuracy: float | None = None
         self._train_f1: float | None = None
 
@@ -201,6 +206,23 @@ class ModelDegradationTracker:
                 rec.actual_direction = actual_direction
                 return
 
+    def record_trade_result(self, pnl_usd: float) -> None:
+        """Append realized trade PnL for rolling Sharpe tracking."""
+        self._trade_pnls.append(float(pnl_usd))
+
+    def rolling_sharpe(self) -> float | None:
+        """Compute rolling Sharpe ratio over realized trade PnLs."""
+        if len(self._trade_pnls) < 20:
+            return None
+        returns = np.array(list(self._trade_pnls), dtype=float)
+        if np.allclose(returns, 0.0):
+            return 0.0
+        mean_ret = float(np.mean(returns))
+        std_ret = float(np.std(returns))
+        if std_ret <= 0.0:
+            return 0.0
+        return mean_ret / std_ret
+
     def live_accuracy(self) -> float | None:
         """Compute rolling accuracy from resolved predictions."""
         resolved = [r for r in self._preds if r.actual_direction is not None]
@@ -215,25 +237,35 @@ class ModelDegradationTracker:
 
     def check_degradation(self) -> dict[str, Any]:
         """
-        Compare live accuracy to training accuracy.
+        Compare live accuracy to training accuracy and rolling Sharpe.
         Returns degradation report dict.
         """
         live_acc = self.live_accuracy()
+        rolling_sharpe = self.rolling_sharpe()
         report: dict[str, Any] = {
             "live_accuracy": round(live_acc, 4) if live_acc is not None else None,
             "train_accuracy": round(self._train_accuracy, 4) if self._train_accuracy else None,
+            "rolling_sharpe": round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
             "degraded": False,
             "drop": None,
+            "tighten_meta_label_threshold": False,
+            "retrain_recommended": False,
         }
         if live_acc is not None and self._train_accuracy is not None:
             drop = self._train_accuracy - live_acc
             report["drop"] = round(drop, 4)
-            report["degraded"] = drop > ACCURACY_DROP_THRESHOLD
+            accuracy_degraded = drop > ACCURACY_DROP_THRESHOLD
+            sharpe_degraded = rolling_sharpe is not None and rolling_sharpe < ROLLING_SHARPE_THRESHOLD
+            accuracy_below_floor = live_acc < ROLLING_ACCURACY_THRESHOLD
+            report["degraded"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
+            report["tighten_meta_label_threshold"] = accuracy_below_floor or sharpe_degraded
+            report["retrain_recommended"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
             if report["degraded"]:
                 log.warning(
                     "signal_debugger.model_degradation",
                     train_accuracy=round(self._train_accuracy, 4),
                     live_accuracy=round(live_acc, 4),
+                    rolling_sharpe=round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
                     drop=round(drop, 4),
                     action="retrain_recommended (AFML Ch.11)",
                 )
