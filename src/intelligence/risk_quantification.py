@@ -51,10 +51,17 @@ class RiskQuantifier:
         # We invalidate the cache only when the data window changes
         # meaningfully (first/last value + length fingerprint), so the
         # 280ms cost is paid once per new window, not once per tick.
+        # Level 1: fitted parameters (invalidated when window changes)
         self._t_fit_cache: dict = {
             "fingerprint": None,
             "df": None, "loc": None, "scale": None,
         }
+        # Level 2: computed quantiles, keyed by confidence_level.
+        # t.ppf() is ~421µs per call even with cached parameters -- the
+        # full quantile result is deterministic given (df, loc, scale,
+        # confidence_level), so caching it drops the hot path to ~13µs
+        # (fingerprint build only).
+        self._t_quantile_cache: dict[tuple, float] = {}
     
     def value_at_risk(
         self,
@@ -100,7 +107,12 @@ class RiskQuantifier:
             # of sample size, so a fat-tailed market correctly yields a low
             # df (heavier tails) however much data you have.
             df, loc, scale = self._fit_student_t(returns)
-            var = t.ppf(1 - confidence_level, df, loc=loc, scale=scale)
+            q_key = (df, loc, scale, confidence_level)
+            if q_key not in self._t_quantile_cache:
+                self._t_quantile_cache[q_key] = float(
+                    t.ppf(1 - confidence_level, df, loc=loc, scale=scale)
+                )
+            var = self._t_quantile_cache[q_key]
             
         elif method == "montecarlo":
             # Simulate market paths from the SAME properly-fitted
@@ -341,6 +353,10 @@ class RiskQuantifier:
             "fingerprint": fingerprint,
             "df": df, "loc": loc, "scale": scale,
         }
+        # Invalidate quantile cache: new fit params mean all cached
+        # quantiles are stale. Keep the dict object (no realloc) but
+        # clear its contents.
+        self._t_quantile_cache.clear()
         return df, loc, scale
     
     def _simulate_scenario(
