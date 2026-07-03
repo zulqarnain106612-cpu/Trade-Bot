@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 00:36 | 815 Python modules | 236,035 total lines
+> Auto-generated 2026-07-04 00:37 | 815 Python modules | 236,036 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3823,7 +3823,7 @@ Companion
 Tests that _place_market_orde
 **Classes**: TestOrderManagerMock, TestFSMStateTransitions, TestOrderReconciliation
 
-### `tests/test_metrics.py` (115 lines)
+### `tests/test_metrics.py` (116 lines)
 **Purpose**: Tests for src/api/metrics.py — TASK-007 Prometheus endpoint.
 **Classes**: TestUpdateMetrics, TestMetricsOutput
 

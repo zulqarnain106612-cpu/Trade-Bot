@@ -68,7 +68,8 @@ class TestUpdateMetrics:
             "prob_trending": 0.3,
             "prob_volatile": 0.1,
         })
-        text, _ = metrics_output()
+        raw, _ = metrics_output()
+        text = raw.decode()
         parsed = _parse_metrics(text)
         assert parsed.get('tradebot_regime_prob{state="ranging"}') == pytest.approx(0.6)
         assert parsed.get('tradebot_regime_prob{state="trending"}') == pytest.approx(0.3)

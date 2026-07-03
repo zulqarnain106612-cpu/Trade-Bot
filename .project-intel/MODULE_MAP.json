@@ -11166,7 +11166,7 @@
   },
   "tests/test_metrics.py": {
     "purpose": "Tests for src/api/metrics.py \u2014 TASK-007 Prometheus endpoint.",
-    "lines": 115,
+    "lines": 116,
     "classes": [
       "TestUpdateMetrics",
       "TestMetricsOutput"
