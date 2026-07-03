@@ -45,8 +45,15 @@ COL_ATR_MOMENTUM: Final[str] = "atr_momentum"
 COL_ROLLING_SHARPE: Final[str] = "rolling_sharpe"
 COL_VOLUME_ZSCORE: Final[str] = "volume_zscore"
 
-# All feature columns in canonical order — used by trainer for consistent X matrix
-FEATURE_COLUMNS: Final[list[str]] = [
+# All feature columns in canonical order — used by trainer for consistent X matrix.
+#
+# GAP-015: INTELLIGENCE_FEATURE_COLUMNS are defined separately in
+# src/features/intelligence_features.py.  The trainer resolves the active
+# column set at runtime via get_active_feature_columns() below, which
+# reads coverage from the DB and drops columns below the threshold.
+# This list (BASE_FEATURE_COLUMNS) is the fallback when no intelligence
+# history is available.
+BASE_FEATURE_COLUMNS: Final[list[str]] = [
     COL_FRAC_DIFF,
     COL_VWAP_DEV,
     COL_OFI,
@@ -55,6 +62,74 @@ FEATURE_COLUMNS: Final[list[str]] = [
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
 ]
+
+# Backward-compat alias: existing imports of FEATURE_COLUMNS still work.
+# New code that needs the full 24-feature set should call
+# get_active_feature_columns() instead.
+FEATURE_COLUMNS: Final[list[str]] = BASE_FEATURE_COLUMNS
+
+
+def get_active_feature_columns(
+    coverage: dict[str, float] | None = None,
+    min_coverage: float = 0.6,
+) -> list[str]:
+    """
+    GAP-015 Step 4: Return the ordered column list for the current training run.
+
+    Starts with BASE_FEATURE_COLUMNS (9 core features), then appends any
+    intelligence columns whose coverage fraction meets the threshold.
+
+    Args:
+        coverage:     Output of storage.intelligence_feature_coverage()['coverage'].
+                      None or empty → return BASE_FEATURE_COLUMNS only (9-feature mode).
+        min_coverage: Minimum non-NULL fraction [0,1] to include a column.
+
+    Returns:
+        Ordered list of column names.  Always starts with the 9 base features.
+        May include up to 15 additional intelligence columns.
+
+    Example:
+        coverage = await storage.intelligence_feature_coverage("BTCUSDT", "1h")
+        cols = get_active_feature_columns(coverage["coverage"], min_coverage=0.6)
+        # trainer then uses: X = df[cols].to_numpy()
+    """
+    from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
+    import structlog as _sl
+    _log = _sl.get_logger(__name__)
+
+    if not coverage:
+        _log.info(
+            "get_active_feature_columns",
+            mode="9-feature",
+            reason="no intelligence coverage data",
+        )
+        return list(BASE_FEATURE_COLUMNS)
+
+    included = []
+    excluded = []
+    for col in INTELLIGENCE_FEATURE_COLUMNS:
+        frac = coverage.get(col, 0.0)
+        if frac >= min_coverage:
+            included.append(col)
+        else:
+            excluded.append((col, frac))
+
+    if excluded:
+        _log.warning(
+            "get_active_feature_columns_excluded",
+            excluded=[(c, f"{f*100:.1f}%") for c, f in excluded],
+            threshold=f"{min_coverage*100:.0f}%",
+        )
+
+    active = list(BASE_FEATURE_COLUMNS) + included
+    _log.info(
+        "get_active_feature_columns",
+        total=len(active),
+        base=len(BASE_FEATURE_COLUMNS),
+        intelligence=len(included),
+        mode="24-feature" if len(included) == 15 else f"{len(active)}-feature",
+    )
+    return active
 
 # Label columns
 COL_LABEL: Final[str] = "label"

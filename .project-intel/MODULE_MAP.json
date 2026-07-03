@@ -10233,6 +10233,17 @@
     ],
     "imports_from": []
   },
+  "scripts/backfill_intelligence.py": {
+    "purpose": "GAP-015 Step 3 \u2014 Historical intelligence features backfill.\n\nWalks every bar timestamp in storage fo",
+    "lines": 310,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.data.storage",
+      "src.intelligence.client"
+    ]
+  },
   "scripts/claude_debug_analysis.py": {
     "purpose": "scripts/claude_debug_analysis.py \u2014 Called by auto-debug.yml GitHub Action.\n\nReads ci_failures.json, ",
     "lines": 118,
@@ -10644,24 +10655,25 @@
   },
   "src/features/pipeline.py": {
     "purpose": "Feature engineering pipeline.\n\nImplements every feature from the signal architecture spec:\n  1. Frac",
-    "lines": 832,
+    "lines": 907,
     "classes": [
       "TripleBarrierResult",
       "FeatureMatrix"
     ],
     "key_functions": [
+      "get_active_feature_columns",
       "fractional_differentiation",
       "vwap_deviation_zscore",
       "order_flow_imbalance",
       "realized_vol_ratio",
       "atr_momentum",
       "rolling_sharpe",
-      "volume_zscore",
-      "triple_barrier_labels"
+      "volume_zscore"
     ],
     "constants": [],
     "imports_from": [
-      "src.config"
+      "src.config",
+      "src.features.intelligence_features"
     ]
   },
   "src/intelligence/__init__.py": {

@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 03:08 | 816 Python modules | 236,548 total lines
+> Auto-generated 2026-07-04 03:09 | 817 Python modules | 236,933 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3470,6 +3470,11 @@ THIS IS ONLY KEPT IN PLACE FOR BA
 **Classes**: WheelError, WheelFile
 **Key functions**: urlsa
 
+### `scripts/backfill_intelligence.py` (310 lines)
+**Purpose**: GAP-015 Step 3 — Historical intelligence features backfill.
+
+Walks every bar tim
+
 ### `scripts/claude_debug_analysis.py` (118 lines)
 **Purpose**: scripts/claude_debug_analysis.py — Called by auto-debug.yml GitHub Action.
 
@@ -3627,12 +3632,12 @@ Extends core feature pipeline (9 features) wit
 **Classes**: IntelligenceFeatureMatrix
 **Key functions**: add_i
 
-### `src/features/pipeline.py` (832 lines)
+### `src/features/pipeline.py` (907 lines)
 **Purpose**: Feature engineering pipeline.
 
 Implements every feature from the signal architec
 **Classes**: TripleBarrierResult, FeatureMatrix
-**Key functions**: fract
+**Key functions**: get_a
 
 ### `src/intelligence/__init__.py` (18 lines)
 **Purpose**: Crypto intelligence layer — on-chain metrics, exchange flows, whale tracking.
