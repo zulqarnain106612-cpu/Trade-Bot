@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 03:09 | 817 Python modules | 236,933 total lines
+> Auto-generated 2026-07-04 03:12 | 818 Python modules | 237,301 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3803,6 +3803,14 @@ layer
 **Purpose**: Tests for src/features/pipeline.py — all feature functions and the full pipeline
 **Classes**: TestFracDiffWeights, TestFractionalDifferentiation, TestVWAPDevZscore, TestOrderFlowImbalance, TestRealizedVolRatio, TestATRMomentum, TestRollingSharpe, TestVolumeZscore, TestComputeDailyVol, TestTripleBarrierLabels, TestMetaLabels, TestBuildFeatureMatrix, TestBuildInferenceFeatures
 **Key functions**: reset
+
+### `tests/test_gap015_backfill.py` (368 lines)
+**Purpose**: GAP-015 backfill pipeline tests.
+
+Covers:
+  - storage migration v3 creates intel
+**Classes**: _FakeSettings, _FakeSettingsWithKey
+**Key functions**: tmp_d
 
 ### `tests/test_integration_full_pipeline.py` (288 lines)
 **Purpose**: End-to-end integration tests for full trading pipeline.

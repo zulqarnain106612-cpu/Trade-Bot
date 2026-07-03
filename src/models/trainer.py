@@ -639,9 +639,9 @@ class ModelTrainer:
                 get_degradation_tracker,
                 get_drift_monitor,
             )
-            _X_df = fm.features[FEATURE_COLUMNS]
+            _X_df = fm.features[_active_cols]
             _dm = get_drift_monitor()
-            for col in FEATURE_COLUMNS:
+            for col in _active_cols:
                 if col in _X_df.columns:
                     _dm.set_baseline(col, _X_df[col].dropna().tolist())
             get_degradation_tracker().set_training_metrics(
@@ -687,7 +687,13 @@ class ModelTrainer:
         -------
         TrainingResult for the meta-label model.
         """
-        x_dir = fm.features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        # GAP-015: resolve active cols same way as train_direction.
+        _active_cols_meta = get_active_feature_columns(
+            coverage=getattr(fm, "intelligence_coverage", None),
+            min_coverage=0.6,
+        )
+        _active_cols_meta = [c for c in _active_cols_meta if c in fm.features.columns]
+        x_dir = fm.features[_active_cols_meta].to_numpy(dtype=np.float64)
         dir_probs = direction_model.predict_proba(x_dir)[:, 1]  # P(long)
         dir_preds = (dir_probs >= 0.5).astype(np.int8)
 
@@ -821,7 +827,11 @@ class ModelTrainer:
         (direction, p_long) where direction is 1 (long) or 0 (short),
         and p_long is the probability of a long outcome.
         """
-        X = feature_vec[FEATURE_COLUMNS].to_numpy(dtype=np.float64).reshape(1, -1)
+        # Use model's n_features_in_ to slice the correct columns.
+        # Falls back to FEATURE_COLUMNS (9) for models trained before GAP-015.
+        _n = getattr(self._direction_model, "n_features_in_", len(FEATURE_COLUMNS))
+        _pred_cols = list(feature_vec.index[:_n]) if len(feature_vec) >= _n else list(feature_vec.index)
+        X = feature_vec.reindex(_pred_cols).to_numpy(dtype=np.float64).reshape(1, -1)
         p_long = float(model.predict_proba(X)[0, 1])
         direction = 1 if p_long >= 0.5 else 0
         return direction, p_long
@@ -846,7 +856,10 @@ class ModelTrainer:
         (meta_label, p_bet) where meta_label is 1 (bet) or 0 (skip),
         and p_bet is the probability of betting.
         """
-        base = feature_vec[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        _nm = getattr(self._meta_model, "n_features_in_", len(FEATURE_COLUMNS) + 2)
+        _base_n = _nm - 2  # subtract the 2 direction signal features appended in training
+        _pred_cols_meta = list(feature_vec.index[:_base_n]) if len(feature_vec) >= _base_n else list(feature_vec.index)
+        base = feature_vec.reindex(_pred_cols_meta).to_numpy(dtype=np.float64)
         confidence = abs(p_long - 0.5)
         X = np.append(base, [p_long, confidence]).reshape(1, -1)
         # SCAN2-005: validate expected input shape against stored model dimensionality

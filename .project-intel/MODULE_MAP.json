@@ -11100,6 +11100,33 @@
       "src.features.pipeline"
     ]
   },
+  "tests/test_gap015_backfill.py": {
+    "purpose": "GAP-015 backfill pipeline tests.\n\nCovers:\n  - storage migration v3 creates intelligence_features_his",
+    "lines": 368,
+    "classes": [
+      "_FakeSettings",
+      "_FakeSettingsWithKey"
+    ],
+    "key_functions": [
+      "tmp_db",
+      "storage",
+      "test_no_coverage_returns_base",
+      "test_empty_coverage_returns_base",
+      "test_full_coverage_returns_24",
+      "test_partial_coverage_excludes_low_cols",
+      "test_threshold_boundary",
+      "test_feature_columns_backward_compat"
+    ],
+    "constants": [
+      "_SAMPLE_FEATURES"
+    ],
+    "imports_from": [
+      "src.data.storage",
+      "src.features.pipeline",
+      "src.features.intelligence_features",
+      "src.intelligence.client"
+    ]
+  },
   "tests/test_integration_full_pipeline.py": {
     "purpose": "End-to-end integration tests for full trading pipeline.\n\nTests:\n  - Order placement + FSM confirmati",
     "lines": 288,
