@@ -10299,7 +10299,7 @@
   },
   "src/api/main.py": {
     "purpose": "FastAPI dashboard API.\n\nSecurity: ALL endpoints require X-API-Key header matching API_SECRET_KEY env",
-    "lines": 992,
+    "lines": 993,
     "classes": [
       "AppState",
       "ResolveApprovalRequest",
@@ -10316,10 +10316,23 @@
     ],
     "imports_from": [
       "src.api.auth",
+      "src.api.metrics",
       "src.api.middleware",
-      "src.config",
-      "src.data.fetcher"
+      "src.config"
     ]
+  },
+  "src/api/metrics.py": {
+    "purpose": "Prometheus metrics for Trade Bot \u2014 TASK-007.\n\nExposes GET /metrics in Prometheus text format.\nMetric",
+    "lines": 186,
+    "classes": [],
+    "key_functions": [
+      "update_metrics",
+      "metrics_output"
+    ],
+    "constants": [
+      "_REGISTRY"
+    ],
+    "imports_from": []
   },
   "src/api/middleware.py": {
     "purpose": "CORS validation middleware \u2014 prevents wildcard + credentials misconfiguration\nand rejects unsafe ori",

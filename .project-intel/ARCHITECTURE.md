@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-03 23:37 | 813 Python modules | 235,725 total lines
+> Auto-generated 2026-07-04 00:33 | 814 Python modules | 235,912 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3499,12 +3499,18 @@ Sour
 All routes and 
 **Key functions**: verif
 
-### `src/api/main.py` (992 lines)
+### `src/api/main.py` (993 lines)
 **Purpose**: FastAPI dashboard API.
 
 Security: ALL endpoints require X-API-Key header matchin
 **Classes**: AppState, ResolveApprovalRequest, SetExecutionModeRequest, SetRiskControlsRequest
 **Key functions**: api_k
+
+### `src/api/metrics.py` (186 lines)
+**Purpose**: Prometheus metrics for Trade Bot — TASK-007.
+
+Exposes GET /metrics in Prometheus
+**Key functions**: updat
 
 ### `src/api/middleware.py` (52 lines)
 **Purpose**: CORS validation middleware — prevents wildcard + credentials misconfiguration

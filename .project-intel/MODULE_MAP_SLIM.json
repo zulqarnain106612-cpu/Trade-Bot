@@ -15,6 +15,10 @@
     "purpose": "FastAPI dashboard API.",
     "functions": []
   },
+  "src/api/metrics.py": {
+    "purpose": "Prometheus metrics for Trade Bot \u2014 TASK-007.",
+    "functions": []
+  },
   "src/api/middleware.py": {
     "purpose": "CORS validation middleware \u2014 prevents wildcard + credentials misconfiguration",
     "functions": []
