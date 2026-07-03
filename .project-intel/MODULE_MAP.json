@@ -11164,6 +11164,21 @@
       "src.execution.order_manager"
     ]
   },
+  "tests/test_metrics.py": {
+    "purpose": "Tests for src/api/metrics.py \u2014 TASK-007 Prometheus endpoint.",
+    "lines": 115,
+    "classes": [
+      "TestUpdateMetrics",
+      "TestMetricsOutput"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.api.metrics",
+      "src.api.metrics",
+      "src.api.metrics"
+    ]
+  },
   "tests/test_model_trainer_coverage.py": {
     "purpose": "Coverage for src/models/trainer.py \u2014 Debt-005.\n\nTargets predict_direction, predict_meta, TrainingRes",
     "lines": 263,

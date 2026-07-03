@@ -1139,6 +1139,7 @@
     "tests/test_kelly.py",
     "tests/test_kelly_gaps.py",
     "tests/test_live_executor_fsm.py",
+    "tests/test_metrics.py",
     "tests/test_model_trainer_coverage.py",
     "tests/test_orchestrator.py",
     "tests/test_order_fsm.py",
