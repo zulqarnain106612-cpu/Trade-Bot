@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-04 02:50:24 | Read this before starting any work.
+> Updated: 2026-07-04 03:08:24 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-03 22:01:55
-**Last checkpoint**: 2026-07-04 02:50:24
+**Last checkpoint**: 2026-07-04 03:08:24
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -35,6 +35,8 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/intelligence/risk_quantification.py
   - src/intelligence/probabilistic_adapter.py
   - src/engine/signal_engine.py
+  - .project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md
+  - src/data/storage.py
 
 ## Session History (last 5)
   [2026-07-04 00:23:37] claude — interrupted: shell exited with 2 uncommitted file(s)

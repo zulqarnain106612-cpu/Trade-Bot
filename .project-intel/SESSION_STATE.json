@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T03:08:23.661155",
+  "last_updated": "2026-07-04T03:09:02.717502",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 28,
   "commit_log": [
-    {
-      "hash": "d048e87",
-      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "time": "2026-07-03T18:21:44.051971",
-      "author": "Claude"
-    },
     {
       "hash": "7d72a41",
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
       "time": "2026-07-04T03:08:23.856678",
       "author": "Claude"
+    },
+    {
+      "hash": "b2f1443",
+      "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
+      "time": "2026-07-04T03:09:02.936656",
+      "author": "Claude"
     }
   ],
-  "last_commit": "09172aa",
+  "last_commit": "b2f1443",
   "last_commit_message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
-  "last_commit_time": "2026-07-04T03:08:23.856775",
+  "last_commit_time": "2026-07-04T03:09:02.936743",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T00:26:14.869779",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T03:08:22.986284",
+  "last_extraction": "2026-07-04T03:09:01.963878",
   "last_extraction_trigger": "storage.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 00:35:36] [17fe83b] docs(intel): auto-sync after changes to src/api/main.py [claude]",
-      "[2026-07-04 00:37:07] [123c0af] docs(intel): auto-sync after changes to tests/test_metrics.py [claude]",
       "[2026-07-04 00:37:08] [542c940] docs(intel): auto-sync after changes to tests/test_metrics.py [claude]",
       "[2026-07-04 00:38:35] [aa0db82] docs(intel): auto-sync after changes to tests/test_metrics.py [claude]",
       "[2026-07-04 00:38:36] [e4ddae6] docs(intel): auto-sync after changes to tests/test_metrics.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 02:46:44] [ff493cd] docs(intel): auto-sync after changes to src/intelligence/probabilistic_adapter.py [claude]",
       "[2026-07-04 02:50:23] [c769033] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-04 02:50:24] [a048a38] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-04 03:08:23] [09172aa] docs(intel): auto-sync after changes to src/data/storage.py [claude]"
+      "[2026-07-04 03:08:23] [09172aa] docs(intel): auto-sync after changes to src/data/storage.py [claude]",
+      "[2026-07-04 03:08:24] [c229430] docs(intel): auto-sync after changes to src/data/storage.py [claude]",
+      "[2026-07-04 03:09:02] [b2f1443] docs(intel): auto-sync after changes to src/data/storage.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 03:08:23",
+    "last_checkpoint": "2026-07-04 03:09:02",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -280,7 +280,8 @@
       "src/intelligence/probabilistic_adapter.py",
       "src/engine/signal_engine.py",
       ".project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md",
-      "src/data/storage.py"
+      "src/data/storage.py",
+      "scripts/backfill_intelligence.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",
