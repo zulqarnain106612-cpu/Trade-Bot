@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-03T18:21:43.882846",
+  "last_updated": "2026-07-03T18:21:49.206982",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 25,
   "commit_log": [
-    {
-      "hash": "2214281",
-      "message": "docs(intel): auto-sync after changes to tests/test_portfolio_correlation.py [claude]",
-      "time": "2026-06-30T04:32:27.420324",
-      "author": "Claude"
-    },
     {
       "hash": "82af9c8",
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -159,17 +153,23 @@
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "time": "2026-07-03T18:21:44.051971",
       "author": "Claude"
+    },
+    {
+      "hash": "7d72a41",
+      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "time": "2026-07-03T18:21:49.342221",
+      "author": "Claude"
     }
   ],
-  "last_commit": "d048e87",
+  "last_commit": "7d72a41",
   "last_commit_message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-  "last_commit_time": "2026-07-03T18:21:44.052068",
+  "last_commit_time": "2026-07-03T18:21:49.342290",
   "coverage_pct": 62,
   "last_session_start": "2026-07-03T18:18:44.180374",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-03T18:21:43.405587",
+  "last_extraction": "2026-07-03T18:21:48.756811",
   "last_extraction_trigger": "signal_engine.py",
   "handoff": {
     "active_agent": "claude",
@@ -178,10 +178,12 @@
       "[2026-07-03 18:10:18] [d96253d] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
       "[2026-07-03 18:10:19] [4f045e6] docs(intel): auto-sync after changes to src/intelligence/client.py [claude]",
       "[2026-07-03 18:19:03] [5ff567b] fix(intel): reduce session token bloat \u2014 prune GAPS.md resolved stubs, block MODULE_MAP.json full load, add no-cat rules [claude]",
-      "[2026-07-03 18:21:43] [d048e87] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]"
+      "[2026-07-03 18:21:43] [d048e87] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "[2026-07-03 18:21:44] [1eaeba3] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "[2026-07-03 18:21:49] [7d72a41] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-03 18:21:43",
+    "last_checkpoint": "2026-07-03 18:21:49",
     "session_history": [
       {
         "time": "2026-06-29 14:43:07",

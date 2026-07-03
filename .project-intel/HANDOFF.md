@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-03 18:19:03 | Read this before starting any work.
+> Updated: 2026-07-03 18:21:44 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table+migration, backfill CLI, pipeline FEATURE_COLUMNS extension, trainer coverage gate
 **Started**: 2026-07-03 18:08:16
-**Last checkpoint**: 2026-07-03 18:19:03
+**Last checkpoint**: 2026-07-03 18:21:44
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -24,6 +24,9 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/intelligence/client.py
   - .project-intel/GAPS.md
   - .project-intel/scripts/resume.py
+  - .project-intel/GAPS.md.bak
+  - .project-intel/RAW_SCAN.json
+  - src/engine/signal_engine.py
 
 ## Session History (last 5)
   [2026-07-03 18:08:16] claude — interrupted: GAP-015 full implementation: torch install + ensemble test, probabilistic/intell
