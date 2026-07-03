@@ -376,6 +376,14 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.get("/metrics", dependencies=[Depends(api_key_header)])
+async def prometheus_metrics() -> Any:
+    """Prometheus text format metrics for Grafana scraping — TASK-007."""
+    from fastapi.responses import Response
+    body, content_type = metrics_output()
+    return Response(content=body, media_type=content_type)
+
+
 @app.get("/status", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""

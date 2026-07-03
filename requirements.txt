@@ -18,3 +18,4 @@ structlog>=24.1,<26.0
 rich>=13.7,<15.0
 joblib>=1.4,<2.0
 watchdog>=4.0.0
+prometheus_client>=0.20,<1.0

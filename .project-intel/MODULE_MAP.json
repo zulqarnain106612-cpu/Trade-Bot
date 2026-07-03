@@ -10299,7 +10299,7 @@
   },
   "src/api/main.py": {
     "purpose": "FastAPI dashboard API.\n\nSecurity: ALL endpoints require X-API-Key header matching API_SECRET_KEY env",
-    "lines": 993,
+    "lines": 1001,
     "classes": [
       "AppState",
       "ResolveApprovalRequest",

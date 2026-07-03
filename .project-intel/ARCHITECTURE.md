@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 00:33 | 814 Python modules | 235,912 total lines
+> Auto-generated 2026-07-04 00:34 | 814 Python modules | 235,920 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3499,7 +3499,7 @@ Sour
 All routes and 
 **Key functions**: verif
 
-### `src/api/main.py` (993 lines)
+### `src/api/main.py` (1001 lines)
 **Purpose**: FastAPI dashboard API.
 
 Security: ALL endpoints require X-API-Key header matchin
