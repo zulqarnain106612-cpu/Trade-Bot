@@ -49,9 +49,11 @@ def load_slim_map(intel: Path) -> dict:
             return json.loads(slim_path.read_text())
         except Exception:
             pass
-    # Fallback: build from full if slim missing
-    full_path = intel / "MODULE_MAP.json"
-    if full_path.exists():
+    # MODULE_MAP.json (~11k lines) intentionally NOT loaded — it floods context.
+    # Run: python3 .project-intel/scripts/extract_intelligence.py . to rebuild slim.
+    return {}
+    full_path = intel / "MODULE_MAP.json"  # unreachable
+    if False:
         try:
             full = json.loads(full_path.read_text())
             slim = {}
@@ -165,6 +167,8 @@ def main():
         "══ RULES — READ BEFORE FIRST ACTION ══",
         "  1. This brief IS your complete context. Do NOT read any other files to orient.",
         "  2. Read a source file ONLY immediately before editing it — not for context.",
+        "  2a. NEVER use cat on files >100 lines. Use grep -n / sed -n 'L1,L2p' / head / tail instead.",
+        "  2b. NEVER read full test files or large JSON (MODULE_MAP.json, storage.py, client.py) for context.",
         "  3. Do NOT read MODULE_MAP.json — the map above replaces it entirely.",
         "  4. Do NOT read CONTEXT_PRIMER, SESSION_STATE, HANDOFF, DECISION_LOG.",
         "  5. Checkpoint after every meaningful change:",
