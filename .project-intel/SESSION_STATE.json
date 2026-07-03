@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-03T23:38:55.879617",
+  "last_updated": "2026-07-03T23:50:44.149616",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -182,10 +182,11 @@
       "[2026-07-03 23:37:41] [98e325d] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
       "[2026-07-03 23:37:42] [b95dcc1] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
       "[2026-07-03 23:38:54] [e0ba245] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
-      "[2026-07-03 23:38:55] [59c3d9c] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]"
+      "[2026-07-03 23:38:55] [59c3d9c] docs(intel): auto-sync after changes to src/diagnostics/signal_debugger.py [claude]",
+      "[2026-07-03 23:50:44] [cdf23cf] fix(intel): wire PreToolUse guard + fix SessionStart hook \u2014 hard-block large file reads at Claude Code hook level [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-03 23:38:55",
+    "last_checkpoint": "2026-07-03 23:50:44",
     "session_history": [
       {
         "time": "2026-07-01 02:35:45",
