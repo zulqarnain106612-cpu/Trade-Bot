@@ -68,9 +68,45 @@ _MIGRATIONS: Final[list[tuple[int, str, str]]] = [
         "add spread_bps to trades for slippage audit trail",
         "ALTER TABLE trades ADD COLUMN spread_bps REAL;",
     ),
+    # Version 3 — GAP-015: intelligence features history for model training.
+    # Stores one row per (symbol, timeframe, bar_ts) with all 15 intelligence
+    # feature values and per-row confidence. bar_ts matches bars.ts (Unix ms)
+    # so the backfill script can JOIN/align by timestamp.
+    # NULLs permitted: NULL = provider had no data for that bar.
+    # Trainer coverage check must reject columns with >threshold NULL rate.
+    (
+        3,
+        "gap-015: add intelligence_features_history table for backfill pipeline",
+        """CREATE TABLE IF NOT EXISTS intelligence_features_history (
+    symbol      TEXT    NOT NULL,
+    timeframe   TEXT    NOT NULL,
+    bar_ts      INTEGER NOT NULL,
+    fetched_at  INTEGER NOT NULL,
+    exchange_netflow_7d_zscore      REAL,
+    whale_buy_sell_ratio            REAL,
+    exchange_reserve_ratio          REAL,
+    miner_netflow_signal            REAL,
+    staking_unlock_risk             REAL,
+    entity_exchange_imbalance       REAL,
+    binance_funding_rate_pct        REAL,
+    liquidation_pressure_24h_zscore REAL,
+    futures_oi_change_pct           REAL,
+    liquidation_cascade_risk_usd    REAL,
+    btc_dominance_regime            REAL,
+    stablecoin_reserve_ratio        REAL,
+    network_activity_score          REAL,
+    exchange_stress_score           REAL,
+    cross_exchange_basis_spread_bps REAL,
+    confidence  REAL NOT NULL DEFAULT 0.0,
+    source      TEXT NOT NULL DEFAULT 'backfill',
+    PRIMARY KEY (symbol, timeframe, bar_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_intel_hist_ts
+    ON intelligence_features_history (symbol, timeframe, bar_ts ASC);""",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 2
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 3
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -677,6 +713,198 @@ class StorageBackend:
             )
             for r in rows
         ]
+
+    # -----------------------------------------------------------------------
+    # Intelligence features history (GAP-015)
+    # -----------------------------------------------------------------------
+
+    async def store_intelligence_features(
+        self,
+        symbol: str,
+        timeframe: str,
+        bar_ts: int,
+        features: dict,
+        confidence: float,
+        source: str = "backfill",
+    ) -> None:
+        """
+        Upsert one row into intelligence_features_history.
+
+        Args:
+            symbol:     Asset symbol, e.g. "BTCUSDT".
+            timeframe:  Timeframe string, e.g. "1h".
+            bar_ts:     Bar timestamp, Unix ms (matches bars.ts).
+            features:   Dict keyed by the 15 intelligence column names.
+                        Missing keys are stored as NULL (acceptable — coverage
+                        check in trainer will flag low-coverage columns).
+            confidence: Provider confidence score [0.0, 1.0].
+            source:     "backfill" | "live" | "test".
+        """
+        from datetime import UTC, datetime as _dt
+        conn = self._require_conn()
+        fetched_at = int(_dt.now(UTC).timestamp() * 1000)
+
+        def _f(key: str):
+            v = features.get(key)
+            return float(v) if v is not None else None
+
+        await conn.execute(
+            """
+            INSERT OR REPLACE INTO intelligence_features_history (
+                symbol, timeframe, bar_ts, fetched_at,
+                exchange_netflow_7d_zscore, whale_buy_sell_ratio,
+                exchange_reserve_ratio, miner_netflow_signal,
+                staking_unlock_risk, entity_exchange_imbalance,
+                binance_funding_rate_pct, liquidation_pressure_24h_zscore,
+                futures_oi_change_pct, liquidation_cascade_risk_usd,
+                btc_dominance_regime, stablecoin_reserve_ratio,
+                network_activity_score, exchange_stress_score,
+                cross_exchange_basis_spread_bps,
+                confidence, source
+            ) VALUES (
+                ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?
+            )
+            """,
+            (
+                symbol, timeframe, bar_ts, fetched_at,
+                _f("intelligence_exchange_netflow_7d_zscore"),
+                _f("intelligence_whale_buy_sell_ratio"),
+                _f("intelligence_exchange_reserve_ratio"),
+                _f("intelligence_miner_netflow_signal"),
+                _f("intelligence_staking_unlock_risk"),
+                _f("intelligence_entity_exchange_imbalance"),
+                _f("intelligence_binance_funding_rate_pct"),
+                _f("intelligence_liquidation_pressure_24h_zscore"),
+                _f("intelligence_futures_oi_change_pct"),
+                _f("intelligence_liquidation_cascade_risk_usd"),
+                _f("intelligence_btc_dominance_regime"),
+                _f("intelligence_stablecoin_reserve_ratio"),
+                _f("intelligence_network_activity_score"),
+                _f("intelligence_exchange_stress_score"),
+                _f("intelligence_cross_exchange_basis_spread_bps"),
+                float(confidence),
+                source,
+            ),
+        )
+        await conn.commit()
+
+    async def fetch_intelligence_features(
+        self,
+        symbol: str,
+        timeframe: str,
+        since_ts: int = 0,
+        limit: int = 100_000,
+    ) -> "pd.DataFrame":
+        """
+        Fetch intelligence_features_history as a DataFrame aligned by bar_ts.
+
+        Returns:
+            DataFrame indexed by bar_ts (Unix ms), columns are the 15
+            intelligence_* feature names + "confidence". Rows with all-NULL
+            features are included so the caller can compute coverage per column.
+
+        Usage in trainer (GAP-015 step 4):
+            intel_df = await storage.fetch_intelligence_features(symbol, tf)
+            feature_df = feature_df.join(intel_df, on="ts", how="left")
+        """
+        import pandas as _pd
+        conn = self._require_conn()
+        async with conn.execute(
+            """
+            SELECT bar_ts,
+                   exchange_netflow_7d_zscore,     whale_buy_sell_ratio,
+                   exchange_reserve_ratio,          miner_netflow_signal,
+                   staking_unlock_risk,             entity_exchange_imbalance,
+                   binance_funding_rate_pct,        liquidation_pressure_24h_zscore,
+                   futures_oi_change_pct,           liquidation_cascade_risk_usd,
+                   btc_dominance_regime,            stablecoin_reserve_ratio,
+                   network_activity_score,          exchange_stress_score,
+                   cross_exchange_basis_spread_bps, confidence
+            FROM intelligence_features_history
+            WHERE symbol=? AND timeframe=? AND bar_ts>=?
+            ORDER BY bar_ts ASC
+            LIMIT ?
+            """,
+            (symbol, timeframe, since_ts, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+
+        if not rows:
+            return _pd.DataFrame()
+
+        col_map = {
+            "exchange_netflow_7d_zscore":      "intelligence_exchange_netflow_7d_zscore",
+            "whale_buy_sell_ratio":             "intelligence_whale_buy_sell_ratio",
+            "exchange_reserve_ratio":           "intelligence_exchange_reserve_ratio",
+            "miner_netflow_signal":             "intelligence_miner_netflow_signal",
+            "staking_unlock_risk":              "intelligence_staking_unlock_risk",
+            "entity_exchange_imbalance":        "intelligence_entity_exchange_imbalance",
+            "binance_funding_rate_pct":         "intelligence_binance_funding_rate_pct",
+            "liquidation_pressure_24h_zscore":  "intelligence_liquidation_pressure_24h_zscore",
+            "futures_oi_change_pct":            "intelligence_futures_oi_change_pct",
+            "liquidation_cascade_risk_usd":     "intelligence_liquidation_cascade_risk_usd",
+            "btc_dominance_regime":             "intelligence_btc_dominance_regime",
+            "stablecoin_reserve_ratio":         "intelligence_stablecoin_reserve_ratio",
+            "network_activity_score":           "intelligence_network_activity_score",
+            "exchange_stress_score":            "intelligence_exchange_stress_score",
+            "cross_exchange_basis_spread_bps":  "intelligence_cross_exchange_basis_spread_bps",
+            "confidence":                       "intelligence_confidence",
+        }
+
+        df = _pd.DataFrame(
+            [dict(r) for r in rows],
+        ).rename(columns=col_map).set_index("bar_ts")
+        return df
+
+    async def intelligence_feature_coverage(
+        self,
+        symbol: str,
+        timeframe: str,
+    ) -> dict:
+        """
+        Return per-column non-NULL fraction for intelligence_features_history.
+
+        Used by trainer before accepting the 24-feature matrix — any column
+        with coverage < threshold should be dropped rather than trained on.
+
+        Returns:
+            {
+                "total_rows": int,
+                "coverage": {"intelligence_<col>": float, ...}   # 0.0–1.0
+            }
+        """
+        conn = self._require_conn()
+        columns = [
+            "exchange_netflow_7d_zscore", "whale_buy_sell_ratio",
+            "exchange_reserve_ratio", "miner_netflow_signal",
+            "staking_unlock_risk", "entity_exchange_imbalance",
+            "binance_funding_rate_pct", "liquidation_pressure_24h_zscore",
+            "futures_oi_change_pct", "liquidation_cascade_risk_usd",
+            "btc_dominance_regime", "stablecoin_reserve_ratio",
+            "network_activity_score", "exchange_stress_score",
+            "cross_exchange_basis_spread_bps",
+        ]
+        count_exprs = ", ".join(
+            f"SUM(CASE WHEN {c} IS NOT NULL THEN 1 ELSE 0 END) AS {c}"
+            for c in columns
+        )
+        async with conn.execute(
+            f"SELECT COUNT(*) AS total, {count_exprs} "
+            "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
+            (symbol, timeframe),
+        ) as cur:
+            row = dict(await cur.fetchone())
+
+        total = int(row.get("total") or 0)
+        if total == 0:
+            return {"total_rows": 0, "coverage": {}}
+
+        prefix = "intelligence_"
+        coverage = {
+            f"{prefix}{c}": round(float(row.get(c) or 0) / total, 4)
+            for c in columns
+        }
+        return {"total_rows": total, "coverage": coverage}
 
     async def latest_bar_ts(self, symbol: str, timeframe: str) -> int | None:
         """Return the most recent bar timestamp (Unix ms) or None if no data."""
