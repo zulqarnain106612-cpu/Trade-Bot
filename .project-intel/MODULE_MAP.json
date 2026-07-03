@@ -10765,7 +10765,7 @@
   },
   "src/intelligence/risk_quantification.py": {
     "purpose": "Risk quantification and uncertainty analysis.\n\nMeasures: VaR, CVaR, stress testing, uncertainty deco",
-    "lines": 386,
+    "lines": 402,
     "classes": [
       "RiskMetrics",
       "RiskQuantifier"
