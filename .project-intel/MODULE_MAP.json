@@ -10743,6 +10743,19 @@
     "constants": [],
     "imports_from": []
   },
+  "src/intelligence/probabilistic_adapter.py": {
+    "purpose": "ProbabilisticMetricsAdapter\n===========================\nWraps BinanceIntelligenceProvider (or any pr",
+    "lines": 199,
+    "classes": [
+      "ProbabilisticGateInputs",
+      "ProbabilisticMetricsAdapter"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.intelligence.probabilistic"
+    ]
+  },
   "src/intelligence/providers/__init__.py": {
     "purpose": "Crypto intelligence providers.\n\nEach provider wraps a specific API:\n  - glassnode: On-chain metrics ",
     "lines": 10,

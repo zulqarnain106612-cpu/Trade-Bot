@@ -131,6 +131,10 @@
     "purpose": "Probabilistic inference engine for crypto intelligence.",
     "functions": []
   },
+  "src/intelligence/probabilistic_adapter.py": {
+    "purpose": "ProbabilisticMetricsAdapter",
+    "functions": []
+  },
   "src/intelligence/providers/__init__.py": {
     "purpose": "Crypto intelligence providers.",
     "functions": []

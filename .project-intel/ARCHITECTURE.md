@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 02:41 | 815 Python modules | 236,113 total lines
+> Auto-generated 2026-07-04 02:46 | 816 Python modules | 236,312 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3671,6 +3671,12 @@ Transforms raw provider data into tradi
 
 Replaces deterministic 
 **Classes**: ProbabilisticPrediction, RiskAssessment, BayesianExchangeStressModel, BayesianWhaleActivityModel, BayesianRegimeDetection
+
+### `src/intelligence/probabilistic_adapter.py` (199 lines)
+**Purpose**: ProbabilisticMetricsAdapter
+===========================
+Wraps BinanceIntelligenc
+**Classes**: ProbabilisticGateInputs, ProbabilisticMetricsAdapter
 
 ### `src/intelligence/providers/__init__.py` (10 lines)
 **Purpose**: Crypto intelligence providers.

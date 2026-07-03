@@ -1104,6 +1104,7 @@
     "src/intelligence/ensemble_predictor.py",
     "src/intelligence/metrics.py",
     "src/intelligence/probabilistic.py",
+    "src/intelligence/probabilistic_adapter.py",
     "src/intelligence/providers/__init__.py",
     "src/intelligence/providers/binance_provider.py",
     "src/intelligence/risk_quantification.py",
