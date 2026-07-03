@@ -48,6 +48,7 @@ from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
+from src.api.metrics import update_metrics
 from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 
@@ -463,6 +464,22 @@ class Orchestrator:
                 prob_volatile=result.regime.prob_volatile,
             )
             await self._storage.upsert_regime_snapshot(snap)
+
+        # TASK-007: push metrics snapshot to Prometheus gauges/counters
+        try:
+            _executor = getattr(self, "_executor", None)
+            update_metrics({
+                "signal_score":   float(result.p_long - (1.0 - result.p_long)),
+                "regime_state":   result.regime.state if result.regime else 0,
+                "prob_ranging":   result.regime.prob_ranging if result.regime else 0.0,
+                "prob_trending":  result.regime.prob_trending if result.regime else 0.0,
+                "prob_volatile":  result.regime.prob_volatile if result.regime else 0.0,
+                "kelly_fraction": result.kelly_result.adjusted_fraction if result.kelly_result else 0.0,
+                "equity_usd":     _executor.equity_usd if _executor else 0.0,
+                "open_positions": len(_executor.open_positions) if _executor else 0,
+            })
+        except Exception:  # noqa: BLE001
+            pass  # metric failure must never affect trade path
 
         # Route to executor if tradeable
         if result.tradeable and result.kelly_result is not None:

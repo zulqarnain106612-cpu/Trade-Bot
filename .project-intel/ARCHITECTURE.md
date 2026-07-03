@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 00:37 | 815 Python modules | 236,036 total lines
+> Auto-generated 2026-07-04 00:41 | 815 Python modules | 236,053 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3567,7 +3567,7 @@ Ev
 ### `src/engine/__init__.py` (1 lines)
 **Purpose**: __init__ module
 
-### `src/engine/orchestrator.py` (807 lines)
+### `src/engine/orchestrator.py` (824 lines)
 **Purpose**: Orchestrator — top-level async event loop coordinating all subsystems.
 
 Responsi
