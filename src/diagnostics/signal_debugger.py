@@ -244,7 +244,7 @@ class ModelDegradationTracker:
         rolling_sharpe = self.rolling_sharpe()
         report: dict[str, Any] = {
             "live_accuracy": round(live_acc, 4) if live_acc is not None else None,
-            "train_accuracy": round(self._train_accuracy, 4) if self._train_accuracy else None,
+            "train_accuracy": round(self._train_accuracy, 4) if self._train_accuracy is not None else None,
             "rolling_sharpe": round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
             "degraded": False,
             "drop": None,
