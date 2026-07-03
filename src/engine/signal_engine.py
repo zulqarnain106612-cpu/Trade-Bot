@@ -39,8 +39,9 @@ from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.strategies.position_sizing import recommend_position_notional, estimate_daily_vol
-from src.intelligence.client import IntelligenceAggregator as _IntelAgg
-from src.intelligence.metrics import IntelligenceAnalyzer as _IntelMetrics
+from src.intelligence.providers.binance_provider import (
+    get_binance_intelligence_provider as _get_intel_provider,
+)
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     build_feature_matrix,
@@ -264,28 +265,22 @@ class SignalEngine:
         _exchange_stress: float | None = None  # None → intelligence gate fails open
         _whale_ratio: float | None = None
         try:
-            ob_task = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
-            # TASK-010: use IntelligenceAggregator for perpetual funding rate
-            # (self._fetcher uses the spot ccxt instance which returns 0.0
-            # for funding-rate calls — perpetual data needs a futures instance;
-            # IntelligenceAggregator._fetch_cryptoquant_funding_rate uses a
-            # separate public, unauthenticated ccxt binance-futures instance).
-            _intel = _IntelAgg()
-            fr_task  = asyncio.create_task(_intel.get_funding_rate())
-            nf_task  = asyncio.create_task(_intel.get_exchange_netflow(self._symbol.split('/')[0]))
-            wh_task  = asyncio.create_task(_intel.get_whale_activity(self._symbol.split('/')[0]))
-            ob, _fr_data, _nf_data, _wh_data = await asyncio.gather(
-                ob_task, fr_task, nf_task, wh_task
+            # GAP-015: BinanceIntelligenceProvider singleton — free public API,
+            # no key required. Initialized lazily; cache_ttl=300s so metrics
+            # are fetched at most once per 5 min across all ticks.
+            # Derive perp symbol: 'BTC/USDT' → 'BTC/USDT:USDT'
+            _perp_sym = (self._symbol + ':USDT') if ':' not in self._symbol else self._symbol
+            _intel_provider = _get_intel_provider(
+                symbol=self._symbol,
+                perp_symbol=_perp_sym,
             )
-            _live_funding_rate_8h = float(_fr_data.get('rate_8h_avg', 0.0))
-            # Compute composite intelligence metrics from the three provider responses
-            _intel_metrics = _IntelMetrics().compute_metrics(
-                exchange_netflow=_nf_data,
-                whale_activity=_wh_data,
-                funding_rate=_fr_data,
-            )
-            _exchange_stress = _intel_metrics.exchange_stress_score
-            _whale_ratio     = _intel_metrics.whale_buy_sell_ratio
+            ob_task     = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
+            intel_task  = asyncio.create_task(_intel_provider.fetch_metrics())
+            ob, _intel_metrics_dict = await asyncio.gather(ob_task, intel_task)
+            # Map provider output to local variables
+            _live_funding_rate_8h = float(_intel_metrics_dict.get('binance_funding_rate_pct', 0.0))
+            _exchange_stress      = _intel_metrics_dict.get('exchange_stress_score')
+            _whale_ratio          = _intel_metrics_dict.get('whale_buy_sell_ratio')
             live_ofi = ob.order_flow_imbalance()
             mid = ob.mid_price
             if mid > 0.0:

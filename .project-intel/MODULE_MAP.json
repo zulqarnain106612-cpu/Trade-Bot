@@ -119,7 +119,7 @@
   },
   ".project-intel/scripts/resume.py": {
     "purpose": "SESSION RESUME \u2014 single command, zero follow-up file reads.\n\nOutputs ONE compressed brief (~150-200 ",
-    "lines": 189,
+    "lines": 193,
     "classes": [],
     "key_functions": [
       "git_status",
@@ -10489,7 +10489,7 @@
   },
   "src/engine/signal_engine.py": {
     "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.\n\nOn every tick for a given (symbol, timef",
-    "lines": 687,
+    "lines": 682,
     "classes": [
       "SignalResult",
       "SignalEngine"
