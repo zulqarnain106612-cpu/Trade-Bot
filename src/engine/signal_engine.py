@@ -42,6 +42,10 @@ from src.strategies.position_sizing import recommend_position_notional, estimate
 from src.intelligence.providers.binance_provider import (
     get_binance_intelligence_provider as _get_intel_provider,
 )
+from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
+
+# Module-level adapter singleton -- stateless, safe to reuse across ticks.
+_PROB_ADAPTER = _ProbAdapter()
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     build_feature_matrix,
@@ -280,8 +284,12 @@ class SignalEngine:
             ob, _intel_metrics_dict = await asyncio.gather(ob_task, intel_task)
             # Map provider output to local variables
             _live_funding_rate_8h = float(_intel_metrics_dict.get('binance_funding_rate_pct', 0.0))
-            _exchange_stress      = _intel_metrics_dict.get('exchange_stress_score')
-            _whale_ratio          = _intel_metrics_dict.get('whale_buy_sell_ratio')
+            # Probabilistic post-processing: replace deterministic scalars with
+            # Bayesian-posterior estimates (ProbabilisticMetricsAdapter).
+            # On any model error the adapter returns None and gates fail open.
+            _p_inputs        = _PROB_ADAPTER.process(_intel_metrics_dict)
+            _exchange_stress = _p_inputs.exchange_stress_score  # P(failure) via Bayesian model
+            _whale_ratio     = _p_inputs.whale_buy_sell_ratio   # posterior-shrunk ratio
             live_ofi = ob.order_flow_imbalance()
             mid = ob.mid_price
             if mid > 0.0:
