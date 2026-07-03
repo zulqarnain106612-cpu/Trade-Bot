@@ -37,22 +37,38 @@
 .project-intel/HANDOFF.md
 .project-intel/DECISION_LOG.md
 .project-intel/GAPS.md
+.project-intel/GAPS.md.bak
 .project-intel/TECH_DEBT.md
 .project-intel/SECURITY_ISSUES.md
 .project-intel/ISSUES.md
 .project-intel/RISK_LOG.md
+.project-intel/OPEN_TASKS.md
+.project-intel/DIAGNOSTICS.md
+.project-intel/MODULE_MAP_SLIM.json
+
+# ── KNOWLEDGE BASE (query via cognitive_layer.py, never read directly) ──
+.project-intel/knowledge/
+
+# ── RUNTIME / TEMP FILES ──
+.project-intel/daemon.pid
+.project-intel/.session_marker
+.project-intel/.active_session_context
+.project-intel/archive/
 
 # ── LARGE NON-SOURCE FILES (never need to read) ──
 frontend/package-lock.json
 requirements.lock
-assets/tradebot_architecture_map.svg
+assets/
 Vulner-Fix.md
+data/
+logs/
 
 # ── PYTHON CACHE / BUILD ARTIFACTS ──
 .project-intel/scripts/__pycache__/
 **/__pycache__/
 **/*.pyc
 .venv/
+.venv_temp/
 node_modules/
 dist/
 build/

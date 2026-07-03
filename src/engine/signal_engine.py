@@ -56,6 +56,7 @@ from src.risk.cognitive_engine import (
 from src.risk.gates import (
     GateResult,
     RiskGateContext,
+    check_slippage_veto,
     evaluate_all_gates,
 )
 from src.risk.kelly import KellyResult, compute_position_size
@@ -409,6 +410,15 @@ class SignalEngine:
                 self._log.warning("signal.slippage_estimate_failed", error=str(_slip_exc))
 
         # 8. Risk gate stack
+        slippage_gate_result = check_slippage_veto(
+            expected_edge_bps=_expected_edge_bps,
+            slippage=_slippage_estimate,
+        )
+        if not slippage_gate_result.passed:
+            gate_result = slippage_gate_result
+            _emit_audit("skipped", "slippage_negative_ev", kelly_result, gate_result)
+            return self._skip("slippage_negative_ev")
+
         gate_ctx = RiskGateContext(
             daily_pnl_usd=daily_pnl_usd,
             starting_equity_usd=starting_equity_usd,

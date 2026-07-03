@@ -1,2 +1,67 @@
-# Exclude virtual environment — third-party packages, not project code
+# Large / binary / stale files — never index
 .venv/
+.venv_temp/
+node_modules/
+**/__pycache__/
+**/*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+models/
+data/
+logs/
+
+# Large intel files (resume.py covers all of these)
+.project-intel/MODULE_MAP.json
+.project-intel/MODULE_MAP_SLIM.json
+.project-intel/ARCHITECTURE.md
+.project-intel/RAW_SCAN.json
+.project-intel/rag.db
+.project-intel/SESSION_STATE.json
+.project-intel/GAPS.md
+.project-intel/GAPS.md.bak
+.project-intel/TECH_DEBT.md
+.project-intel/SECURITY_ISSUES.md
+.project-intel/ISSUES.md
+.project-intel/RISK_LOG.md
+.project-intel/CONTEXT_PRIMER.md
+.project-intel/HANDOFF.md
+.project-intel/DECISION_LOG.md
+.project-intel/OPEN_TASKS.md
+.project-intel/DIAGNOSTICS.md
+.project-intel/scripts/extract_intelligence.py
+.project-intel/scripts/cognitive_layer.py
+.project-intel/scripts/rag_engine.py
+.project-intel/scripts/context_builder.py
+.project-intel/scripts/update_session.py
+
+# Knowledge base (query via cognitive_layer.py tool, never index directly)
+.project-intel/knowledge/
+
+# Stale/superseded intel docs
+.project-intel/ENHANCED_PROBABILISTIC_ARCHITECTURE.md
+.project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md
+.project-intel/FINAL_STATUS_P1.md
+.project-intel/P2_CRYPTO_INTELLIGENCE_SUMMARY.md
+.project-intel/CRYPTO_INTELLIGENCE_INTEGRATION_SPEC.md
+.project-intel/CRYPTO_INTELLIGENCE_IMPLEMENTATION_GUIDE.md
+.project-intel/P2_VS_P2PLUS_COMPARISON.md
+.project-intel/P1_IMPLEMENTATION_GUIDE.md
+.project-intel/INDEX_P1_COMPLETE.md
+.project-intel/EXECUTIVE_SUMMARY_P1.md
+.project-intel/PRE_FLIGHT_DIAGNOSTIC_SESSION4.md
+.project-intel/ORCHESTRATION_READINESS_SESSION4.md
+.project-intel/OPERATOR_RUNBOOK.md
+
+# Runtime / temp files
+.project-intel/daemon.pid
+.project-intel/.session_marker
+.project-intel/.active_session_context
+.project-intel/archive/
+
+# Lockfiles / generated / binary assets
+frontend/package-lock.json
+requirements.lock
+assets/
+Vulner-Fix.md

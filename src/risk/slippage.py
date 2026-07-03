@@ -40,6 +40,11 @@ import structlog
 from src.config import RiskSettings, get_settings
 
 
+DEFAULT_SLIPPAGE_SPREAD_BPS: Final[float] = 2.0
+DEFAULT_SLIPPAGE_IMPACT_COEFF_BPS: Final[float] = 10.0
+DEFAULT_SLIPPAGE_VETO_MARGIN_BPS: Final[float] = 1.0
+
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BPS: Final[float] = 10_000.0

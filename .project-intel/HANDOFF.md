@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-03 18:21:44 | Read this before starting any work.
+> Updated: 2026-07-03 18:27:10 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
-**Task**:    GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table+migration, backfill CLI, pipeline FEATURE_COLUMNS extension, trainer coverage gate
-**Started**: 2026-07-03 18:08:16
-**Last checkpoint**: 2026-07-03 18:21:44
+**Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
+**Started**: 2026-07-03 18:27:10
+**Last checkpoint**: 2026-07-03 18:27:10
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,26 +14,17 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
+  shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 
 ## Files to Check
-  - .project-intel/ARCHITECTURE.md
-  - .project-intel/HANDOFF.md
-  - .project-intel/MODULE_MAP.json
-  - .project-intel/SESSION_STATE.json
-  - src/intelligence/client.py
-  - .project-intel/GAPS.md
-  - .project-intel/scripts/resume.py
-  - .project-intel/GAPS.md.bak
-  - .project-intel/RAW_SCAN.json
-  - src/engine/signal_engine.py
+  (no specific files — start from OPEN_TASKS.md)
 
 ## Session History (last 5)
+  [2026-07-03 18:27:10] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
+  [2026-07-03 18:25:39] claude — interrupted: GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table
   [2026-07-03 18:08:16] claude — interrupted: GAP-015 full implementation: torch install + ensemble test, probabilistic/intell
   [2026-07-01 02:35:45] claude — interrupted: shell session started — TASK-010: wire live spread_bps and funding_rate_8h into 
   [2026-06-29 18:16:34] claude — interrupted: shell exited with 8 uncommitted file(s)
-  [2026-06-29 17:31:43] claude — interrupted: 
-  [2026-06-29 14:43:07] claude — completed: Handoff system built — 3-agent protocol (claude/copilot/amazonq) with stale sess
 
 ## Quick Start for Any Agent
 ```
