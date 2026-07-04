@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 22:49 | 824 Python modules | 239,177 total lines
+> Auto-generated 2026-07-04 22:53 | 824 Python modules | 239,195 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3578,7 +3578,7 @@ Ev
 Responsi
 **Classes**: Orchestrator
 
-### `src/engine/signal_engine.py` (711 lines)
+### `src/engine/signal_engine.py` (729 lines)
 **Purpose**: Signal engine — per-timeframe signal computation pipeline.
 
 On every tick for a 

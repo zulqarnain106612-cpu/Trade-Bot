@@ -268,64 +268,62 @@ class SignalEngine:
         _exchange_stress: float | None = None  # None → intelligence gate fails open
         _whale_ratio: float | None = None
         _intel_metrics_dict: dict[str, float] = {}
-        try:
-            # Multi-provider intelligence aggregator — Binance + OKX + CoinGecko +
-            # blockchain.info.  All providers use free public APIs (no key required).
-            # Singleton; cache_ttl=300s so metrics fetched at most once per 5 min.
-            # Derive perp symbol: 'BTC/USDT' → 'BTC/USDT:USDT'
-            _perp_sym = (self._symbol + ':USDT') if ':' not in self._symbol else self._symbol
-            _intel_agg = _get_intel_aggregator(
-                symbol=self._symbol,
-                perp_symbol=_perp_sym,
-            )
-            ob_task       = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
-            intel_task    = asyncio.create_task(_intel_agg.fetch_metrics())
-            # TASK-010: fetch live funding rate directly from fetcher (lower latency,
-            # no aggregator cache) — perp symbol required for funding rate endpoint.
-            funding_task  = asyncio.create_task(
-                self._fetcher.fetch_funding_rate(_perp_sym)
-            )
-            _results = await asyncio.gather(
-                ob_task, intel_task, funding_task, return_exceptions=True
-            )
-            _ob_res, _intel_res, _fr_res = _results
+        # Derive perp symbol: 'BTC/USDT' → 'BTC/USDT:USDT'
+        _perp_sym = (self._symbol + ':USDT') if ':' not in self._symbol else self._symbol
 
-            # Funding rate — independent of intel aggregator failures.
+        # TASK-010: phase-1 — fetch orderbook + funding rate concurrently.
+        # These are independent of the intel aggregator so they always run,
+        # even if the aggregator construction or fetch fails.
+        try:
+            _ob_res, _fr_res = await asyncio.gather(
+                self._fetcher.fetch_orderbook(self._symbol),
+                self._fetcher.fetch_funding_rate(_perp_sym),
+                return_exceptions=True,
+            )
             if isinstance(_fr_res, Exception):
                 self._log.debug("signal.funding_rate_fetch_failed", error=str(_fr_res))
             else:
                 _live_funding_rate_8h = float(_fr_res)
 
-            # Orderbook — needed for OFI and spread_bps.
             if isinstance(_ob_res, Exception):
-                raise _ob_res  # re-raise so outer except handles OFI fallback
+                raise _ob_res  # fall through to outer except for OFI fallback
 
             ob = _ob_res
             live_ofi = ob.order_flow_imbalance()
             mid = ob.mid_price
             if mid > 0.0:
                 _live_ob_spread_bps = (ob.spread / mid) * 10_000.0
-
-            # Intelligence aggregator — optional; failure degrades gracefully.
-            if isinstance(_intel_res, Exception):
-                self._log.debug("signal.intel_fetch_failed", error=str(_intel_res))
+        except Exception as exc:
+            self._log.debug("signal.ofi_fetch_failed", error=str(exc))
+            live_ofi = None
+            _exchange_stress = None
+            _whale_ratio     = None
+            _intel_metrics_dict = {}
+        else:
+            # TASK-010: phase-2 — intel aggregator (optional, may degrade gracefully).
+            # Wrapped separately so a broken aggregator/provider never resets funding_rate.
+            try:
+                # Multi-provider intelligence aggregator — Binance + OKX + CoinGecko +
+                # blockchain.info.  Singleton; cache_ttl=300s (at most once per 5 min).
+                _intel_agg = _get_intel_aggregator(
+                    symbol=self._symbol,
+                    perp_symbol=_perp_sym,
+                )
+                _intel_metrics_dict = await _intel_agg.fetch_metrics()
+            except Exception as _intel_exc:
+                self._log.debug("signal.intel_fetch_failed", error=str(_intel_exc))
                 _intel_metrics_dict = {}
-            else:
-                _intel_metrics_dict = _intel_res
 
             # Probabilistic post-processing: replace deterministic scalars with
             # Bayesian-posterior estimates (ProbabilisticMetricsAdapter).
             # On any model error the adapter returns None and gates fail open.
-            _p_inputs        = _PROB_ADAPTER.process(_intel_metrics_dict)
-            _exchange_stress = _p_inputs.exchange_stress_score  # P(failure) via Bayesian model
-            _whale_ratio     = _p_inputs.whale_buy_sell_ratio   # posterior-shrunk ratio
-        except Exception as exc:
-            self._log.debug("signal.ofi_fetch_failed", error=str(exc))
-            live_ofi = None
-            _live_funding_rate_8h = _live_funding_rate_8h  # preserve if already set above
-            _exchange_stress = None  # fail-open for intelligence gates
-            _whale_ratio     = None
-            _intel_metrics_dict = {}
+            try:
+                _p_inputs        = _PROB_ADAPTER.process(_intel_metrics_dict)
+                _exchange_stress = _p_inputs.exchange_stress_score
+                _whale_ratio     = _p_inputs.whale_buy_sell_ratio
+            except Exception:
+                _exchange_stress = None
+                _whale_ratio     = None
 
         vec = build_inference_features(
             bars,
