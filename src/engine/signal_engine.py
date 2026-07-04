@@ -278,25 +278,51 @@ class SignalEngine:
                 symbol=self._symbol,
                 perp_symbol=_perp_sym,
             )
-            ob_task     = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
-            intel_task  = asyncio.create_task(_intel_agg.fetch_metrics())
-            ob, _intel_metrics_dict = await asyncio.gather(ob_task, intel_task)
-            # Map aggregated output to local variables
-            _live_funding_rate_8h = float(_intel_metrics_dict.get('binance_funding_rate_pct', 0.0))
+            ob_task       = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
+            intel_task    = asyncio.create_task(_intel_agg.fetch_metrics())
+            # TASK-010: fetch live funding rate directly from fetcher (lower latency,
+            # no aggregator cache) — perp symbol required for funding rate endpoint.
+            funding_task  = asyncio.create_task(
+                self._fetcher.fetch_funding_rate(_perp_sym)
+            )
+            _results = await asyncio.gather(
+                ob_task, intel_task, funding_task, return_exceptions=True
+            )
+            _ob_res, _intel_res, _fr_res = _results
+
+            # Funding rate — independent of intel aggregator failures.
+            if isinstance(_fr_res, Exception):
+                self._log.debug("signal.funding_rate_fetch_failed", error=str(_fr_res))
+            else:
+                _live_funding_rate_8h = float(_fr_res)
+
+            # Orderbook — needed for OFI and spread_bps.
+            if isinstance(_ob_res, Exception):
+                raise _ob_res  # re-raise so outer except handles OFI fallback
+
+            ob = _ob_res
+            live_ofi = ob.order_flow_imbalance()
+            mid = ob.mid_price
+            if mid > 0.0:
+                _live_ob_spread_bps = (ob.spread / mid) * 10_000.0
+
+            # Intelligence aggregator — optional; failure degrades gracefully.
+            if isinstance(_intel_res, Exception):
+                self._log.debug("signal.intel_fetch_failed", error=str(_intel_res))
+                _intel_metrics_dict = {}
+            else:
+                _intel_metrics_dict = _intel_res
+
             # Probabilistic post-processing: replace deterministic scalars with
             # Bayesian-posterior estimates (ProbabilisticMetricsAdapter).
             # On any model error the adapter returns None and gates fail open.
             _p_inputs        = _PROB_ADAPTER.process(_intel_metrics_dict)
             _exchange_stress = _p_inputs.exchange_stress_score  # P(failure) via Bayesian model
             _whale_ratio     = _p_inputs.whale_buy_sell_ratio   # posterior-shrunk ratio
-            live_ofi = ob.order_flow_imbalance()
-            mid = ob.mid_price
-            if mid > 0.0:
-                _live_ob_spread_bps = (ob.spread / mid) * 10_000.0
         except Exception as exc:
             self._log.debug("signal.ofi_fetch_failed", error=str(exc))
             live_ofi = None
-            _live_funding_rate_8h = 0.0
+            _live_funding_rate_8h = _live_funding_rate_8h  # preserve if already set above
             _exchange_stress = None  # fail-open for intelligence gates
             _whale_ratio     = None
             _intel_metrics_dict = {}
