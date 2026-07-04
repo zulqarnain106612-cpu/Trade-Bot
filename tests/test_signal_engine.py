@@ -16,7 +16,7 @@ from xgboost import XGBClassifier
 
 from src.config import Timeframe
 from src.engine.signal_engine import SignalEngine, SignalResult
-from src.features.pipeline import FeatureMatrix
+from src.features.pipeline import FEATURE_COLUMNS, FeatureMatrix
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.risk.gates import GateResult, GateStatus
 from src.risk.kelly import KellyResult
