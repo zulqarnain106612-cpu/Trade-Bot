@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T06:57:04.973695",
+  "last_updated": "2026-07-04T06:58:06.501977",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 30,
   "commit_log": [
-    {
-      "hash": "09172aa",
-      "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
-      "time": "2026-07-04T03:08:23.856678",
-      "author": "Claude"
-    },
     {
       "hash": "b2f1443",
       "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/providers/okx_provider.py [claude]",
       "time": "2026-07-04T06:57:05.130937",
       "author": "Claude"
+    },
+    {
+      "hash": "d060978",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/blockchain_provider.py [claude]",
+      "time": "2026-07-04T06:58:06.688952",
+      "author": "Claude"
     }
   ],
-  "last_commit": "c6f37d5",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/okx_provider.py [claude]",
-  "last_commit_time": "2026-07-04T06:57:05.131005",
+  "last_commit": "d060978",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/blockchain_provider.py [claude]",
+  "last_commit_time": "2026-07-04T06:58:06.689043",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T06:46:21.975902",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T06:57:03.868299",
-  "last_extraction_trigger": "okx_provider.py",
+  "last_extraction": "2026-07-04T06:58:05.769310",
+  "last_extraction_trigger": "blockchain_provider.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 05:40:44] [1202a23] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-07-04 05:42:48] [5cb6742] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:42:49] [c311fea] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:42:51] [9b6b8f3] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:42:52] [660ed79] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 06:47:29] [99f7f84] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-04 06:55:20] [6ce610a] docs(intel): auto-sync after changes to src/intelligence/providers/base.py [claude]",
       "[2026-07-04 06:55:21] [468d230] docs(intel): auto-sync after changes to src/intelligence/providers/base.py [claude]",
-      "[2026-07-04 06:57:04] [c6f37d5] docs(intel): auto-sync after changes to src/intelligence/providers/okx_provider.py [claude]"
+      "[2026-07-04 06:57:04] [c6f37d5] docs(intel): auto-sync after changes to src/intelligence/providers/okx_provider.py [claude]",
+      "[2026-07-04 06:57:06] [9eb9d09] docs(intel): auto-sync after changes to src/intelligence/providers/okx_provider.py [claude]",
+      "[2026-07-04 06:58:06] [d060978] docs(intel): auto-sync after changes to src/intelligence/providers/blockchain_provider.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 06:57:04",
+    "last_checkpoint": "2026-07-04 06:58:06",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -288,7 +288,8 @@
       "src/intelligence/providers/base.py",
       "src/intelligence/providers/okx_provider.py",
       "src/intelligence/providers/blockchain_provider.py",
-      "src/intelligence/providers/coingecko_provider.py"
+      "src/intelligence/providers/coingecko_provider.py",
+      "src/intelligence/providers/aggregator.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",
