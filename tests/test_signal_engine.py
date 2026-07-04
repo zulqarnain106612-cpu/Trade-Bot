@@ -222,8 +222,11 @@ class TestSkipPaths:
         async def _lb(): return good_bars
         e._load_bars = _lb
 
-        # Patch position_scalar directly to return 0.6 (simulates high-entropy output)
-        # This bypasses the mock-chain ordering issue and tests the wiring directly.
+        # Patch position_scalar on the specific RegimePrediction instance the
+        # detector mock will return, so the engine receives exactly 0.6.
+        regime_pred = e._detector.predict_current.return_value
+        regime_pred.position_scalar = lambda *a, **kw: 0.6
+
         with patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()), \
              patch("src.engine.signal_engine.build_inference_features",
                    return_value=pd.Series({"f0": 1.0})), \
@@ -232,7 +235,6 @@ class TestSkipPaths:
              patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)), \
              patch("src.engine.signal_engine.evaluate_all_gates",
                    return_value=_pass_gate()), \
-             patch("src.regime.detector.RegimePrediction.position_scalar", return_value=0.6), \
              patch("src.engine.signal_engine.get_cognitive_engine") as mock_cog:
             mock_cog.return_value.evaluate.return_value = MagicMock(
                 passed=True, adjusted_size_fraction=1.0, veto_reason=None
