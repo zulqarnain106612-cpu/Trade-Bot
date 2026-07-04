@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T23:38:52.128607",
+  "last_updated": "2026-07-04T23:40:33.856121",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 30,
   "commit_log": [
-    {
-      "hash": "57667db",
-      "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "time": "2026-07-04T05:46:08.796636",
-      "author": "Claude"
-    },
     {
       "hash": "14ac9b8",
       "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
@@ -159,11 +153,17 @@
       "message": "docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "time": "2026-07-04T23:38:52.246448",
       "author": "Claude"
+    },
+    {
+      "hash": "33eff53",
+      "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "time": "2026-07-04T23:40:33.948033",
+      "author": "Claude"
     }
   ],
-  "last_commit": "01e29b2",
-  "last_commit_message": "docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
-  "last_commit_time": "2026-07-04T23:38:52.246498",
+  "last_commit": "33eff53",
+  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+  "last_commit_time": "2026-07-04T23:40:33.948086",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T06:46:21.975902",
   "session_status": "active",
@@ -175,9 +175,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 07:03:30] [986434d] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-04 07:03:31] [ab32580] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-04 07:05:25] [119e0a9] docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
       "[2026-07-04 07:05:26] [edca960] docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
       "[2026-07-04 07:08:34] [f2e2896] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
       "[2026-07-04 07:08:35] [a3056bb] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
@@ -194,10 +191,13 @@
       "[2026-07-04 23:35:50] [062e889] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "[2026-07-04 23:37:44] [8de5138] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "[2026-07-04 23:37:45] [a66b0c2] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
-      "[2026-07-04 23:38:52] [01e29b2] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]"
+      "[2026-07-04 23:38:52] [01e29b2] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
+      "[2026-07-04 23:38:52] [d1079e1] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
+      "[2026-07-04 23:39:15] GAP-015 pipeline unblocked: fixed TradeStorage\u2192StorageBackend import in backfill_intelligence.py, added storage.close() to all exit paths (dry-run, no-bars, coverage), verified end-to-end: 97 bars written 0 errors, funding_rate 99% coverage. Glassnode cols at 0% pending API key provisioning.",
+      "[2026-07-04 23:40:33] [33eff53] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 23:38:52",
+    "last_checkpoint": "2026-07-04 23:40:33",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
