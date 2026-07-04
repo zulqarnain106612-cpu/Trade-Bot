@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 06:54 | 819 Python modules | 237,370 total lines
+> Auto-generated 2026-07-04 06:57 | 822 Python modules | 238,139 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3701,6 +3701,27 @@ Every exchange-specific prov
 All endpoints used here 
 **Classes**: BinanceIntelligenceProvider
 **Key functions**: get_b
+
+### `src/intelligence/providers/blockchain_provider.py` (198 lines)
+**Purpose**: Blockchain.info free public REST provider for network activity metrics.
+
+Covers 
+**Classes**: BlockchainIntelligenceProvider
+**Key functions**: get_b
+
+### `src/intelligence/providers/coingecko_provider.py` (189 lines)
+**Purpose**: CoinGecko free public REST provider for macro intelligence metrics.
+
+Covers cros
+**Classes**: CoinGeckoIntelligenceProvider
+**Key functions**: get_c
+
+### `src/intelligence/providers/okx_provider.py` (382 lines)
+**Purpose**: OKX public REST provider for intelligence metrics.
+
+All endpoints used here are 
+**Classes**: OKXIntelligenceProvider
+**Key functions**: get_o
 
 ### `src/intelligence/risk_quantification.py` (402 lines)
 **Purpose**: Risk quantification and uncertainty analysis.

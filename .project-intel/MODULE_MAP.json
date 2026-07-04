@@ -10800,6 +10800,48 @@
     "constants": [],
     "imports_from": []
   },
+  "src/intelligence/providers/blockchain_provider.py": {
+    "purpose": "Blockchain.info free public REST provider for network activity metrics.\n\nCovers on-chain network hea",
+    "lines": 198,
+    "classes": [
+      "BlockchainIntelligenceProvider"
+    ],
+    "key_functions": [
+      "get_blockchain_intelligence_provider"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.intelligence.providers.base"
+    ]
+  },
+  "src/intelligence/providers/coingecko_provider.py": {
+    "purpose": "CoinGecko free public REST provider for macro intelligence metrics.\n\nCovers cross-market metrics tha",
+    "lines": 189,
+    "classes": [
+      "CoinGeckoIntelligenceProvider"
+    ],
+    "key_functions": [
+      "get_coingecko_intelligence_provider"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.intelligence.providers.base"
+    ]
+  },
+  "src/intelligence/providers/okx_provider.py": {
+    "purpose": "OKX public REST provider for intelligence metrics.\n\nAll endpoints used here are unauthenticated OKX ",
+    "lines": 382,
+    "classes": [
+      "OKXIntelligenceProvider"
+    ],
+    "key_functions": [
+      "get_okx_intelligence_provider"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.intelligence.providers.base"
+    ]
+  },
   "src/intelligence/risk_quantification.py": {
     "purpose": "Risk quantification and uncertainty analysis.\n\nMeasures: VaR, CVaR, stress testing, uncertainty deco",
     "lines": 402,

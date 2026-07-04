@@ -147,6 +147,18 @@
     "purpose": "Binance public REST provider for intelligence metrics.",
     "functions": []
   },
+  "src/intelligence/providers/blockchain_provider.py": {
+    "purpose": "Blockchain.info free public REST provider for network activity metrics.",
+    "functions": []
+  },
+  "src/intelligence/providers/coingecko_provider.py": {
+    "purpose": "CoinGecko free public REST provider for macro intelligence metrics.",
+    "functions": []
+  },
+  "src/intelligence/providers/okx_provider.py": {
+    "purpose": "OKX public REST provider for intelligence metrics.",
+    "functions": []
+  },
   "src/intelligence/risk_quantification.py": {
     "purpose": "Risk quantification and uncertainty analysis.",
     "functions": []
