@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 07:04 | 823 Python modules | 238,518 total lines
+> Auto-generated 2026-07-04 07:07 | 824 Python modules | 239,171 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3857,6 +3857,14 @@ Tests:
 **Purpose**: Regression tests for two bugs found and fixed this session (GAP-015 follow-on):
 
 **Classes**: TestWhaleTakerRatioFix, TestComputeMetricsConfidenceFix
+
+### `tests/test_intelligence_providers.py` (653 lines)
+**Purpose**: Tests for multi-provider intelligence wiring (GAP-015).
+
+Coverage:
+  1. Exchange
+**Classes**: TestExchangeIntelligenceProviderABC, TestOKXIntelligenceProvider, TestCoinGeckoIntelligenceProvider, TestBlockchainIntelligenceProvider, TestMultiProviderIntelligenceAggregator, TestInjectIntelligenceFeatures, TestBuildInferenceFeaturesWithIntelligence, TestGetMultiProviderAggregatorSingleton, Incomplete, Complete, MockProvider
+**Key functions**: base_
 
 ### `tests/test_kelly.py` (515 lines)
 **Purpose**: Tests for src/risk/kelly.py — Kelly formula, sizing, win/loss stats.

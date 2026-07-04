@@ -11230,6 +11230,36 @@
       "src.intelligence.providers.binance_provider"
     ]
   },
+  "tests/test_intelligence_providers.py": {
+    "purpose": "Tests for multi-provider intelligence wiring (GAP-015).\n\nCoverage:\n  1. ExchangeIntelligenceProvider",
+    "lines": 653,
+    "classes": [
+      "TestExchangeIntelligenceProviderABC",
+      "TestOKXIntelligenceProvider",
+      "TestCoinGeckoIntelligenceProvider",
+      "TestBlockchainIntelligenceProvider",
+      "TestMultiProviderIntelligenceAggregator",
+      "TestInjectIntelligenceFeatures",
+      "TestBuildInferenceFeaturesWithIntelligence",
+      "TestGetMultiProviderAggregatorSingleton",
+      "Incomplete",
+      "Complete",
+      "MockProvider"
+    ],
+    "key_functions": [
+      "base_feature_vec",
+      "full_intel_metrics"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.features.pipeline",
+      "src.intelligence.providers.base",
+      "src.intelligence.providers.okx_provider",
+      "src.features.intelligence_features",
+      "src.intelligence.providers.coingecko_provider",
+      "src.intelligence.providers.blockchain_provider"
+    ]
+  },
   "tests/test_kelly.py": {
     "purpose": "Tests for src/risk/kelly.py \u2014 Kelly formula, sizing, win/loss stats.",
     "lines": 515,
