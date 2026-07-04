@@ -792,28 +792,37 @@ def build_inference_features(
     cfg: FeatureSettings | None = None,
     live_ofi: float | None = None,
     feature_matrix: FeatureMatrix | None = None,
+    intelligence_metrics: "dict[str, float] | None" = None,
 ) -> pd.Series | None:
     """
     Compute feature vector for the most recent bar only.
 
     Accepts a history DataFrame (must include current bar as last row).
-    Returns a pd.Series of FEATURE_COLUMNS or None if not enough history.
+    Returns a pd.Series of FEATURE_COLUMNS (9 base) or FEATURE_COLUMNS +
+    INTELLIGENCE_FEATURE_COLUMNS (up to 24 total) when intelligence_metrics
+    is supplied and passes NaN validation.
 
     Parameters
     ----------
-    history        : OHLCV DataFrame, last row = most recent closed bar
-    cfg            : FeatureSettings (optional, loaded from config if None)
-    live_ofi       : real-time OFI scalar from OrderBookSnapshot (optional).
-                     When provided, overrides the OHLCV-derived OFI for the
-                     last row only.
-    feature_matrix : pre-computed FeatureMatrix from build_feature_matrix().
-                     SCAN2-007: when supplied the full feature computation is
-                     skipped — only the last row is extracted and live_ofi
-                     is applied, eliminating the duplicate pipeline run.
+    history              : OHLCV DataFrame, last row = most recent closed bar
+    cfg                  : FeatureSettings (optional, loaded from config if None)
+    live_ofi             : real-time OFI scalar from OrderBookSnapshot (optional).
+                           When provided, overrides the OHLCV-derived OFI for the
+                           last row only.
+    feature_matrix       : pre-computed FeatureMatrix from build_feature_matrix().
+                           SCAN2-007: when supplied the full feature computation is
+                           skipped — only the last row is extracted and live_ofi
+                           is applied, eliminating the duplicate pipeline run.
+    intelligence_metrics : flat dict from MultiProviderIntelligenceAggregator.
+                           Keys are IntelligenceMetrics field names (no "intelligence_"
+                           prefix — the mapping is applied inside _inject_intelligence_features).
+                           NaN / missing fields are skipped with a confidence penalty.
+                           When None or empty, returns 9-feature base vector (backward-compat).
 
     Returns
     -------
-    pd.Series indexed by FEATURE_COLUMNS, or None if insufficient data.
+    pd.Series indexed by FEATURE_COLUMNS [+ finite intelligence cols], or None if
+    insufficient base feature data.
     """
     # Fast path — reuse pre-built feature matrix (SCAN2-007)
     if feature_matrix is not None and feature_matrix.features is not None:
@@ -833,6 +842,9 @@ def build_inference_features(
                 action="signal_skipped — check history length vs feature window config",
             )
             return None
+        # Inject intelligence features when available (GAP-015 wiring)
+        if intelligence_metrics:
+            vec = _inject_intelligence_features(vec, intelligence_metrics)
         return vec
     if cfg is None:
         cfg = get_settings().features
