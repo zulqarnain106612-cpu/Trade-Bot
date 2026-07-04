@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T06:47:29.077533",
+  "last_updated": "2026-07-04T06:55:20.939789",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 30,
   "commit_log": [
-    {
-      "hash": "60fa7b9",
-      "message": "docs(intel): auto-sync after changes to src/intelligence/probabilistic_adapter.py [claude]",
-      "time": "2026-07-04T02:46:44.167340",
-      "author": "Claude"
-    },
     {
       "hash": "c769033",
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "time": "2026-07-04T06:47:29.174726",
       "author": "Claude"
+    },
+    {
+      "hash": "6ce610a",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/base.py [claude]",
+      "time": "2026-07-04T06:55:21.274775",
+      "author": "Claude"
     }
   ],
-  "last_commit": "722daad",
-  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-  "last_commit_time": "2026-07-04T06:47:29.174771",
+  "last_commit": "6ce610a",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/base.py [claude]",
+  "last_commit_time": "2026-07-04T06:55:21.274861",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T06:46:21.975902",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T06:26:10.280960",
-  "last_extraction_trigger": "test_signal_engine.py",
+  "last_extraction": "2026-07-04T06:55:20.087662",
+  "last_extraction_trigger": "base.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 05:35:22] [b5ecf76] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-07-04 05:40:06] [f92b15e] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:40:08] [aff9505] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:40:43] [7b41201] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:40:44] [1202a23] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 06:25:04] [28283ad] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 06:26:10] [80c84dd] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 06:26:10] [69941ea] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-07-04 06:47:29] [722daad] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
+      "[2026-07-04 06:47:29] [722daad] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-07-04 06:47:29] [99f7f84] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-07-04 06:55:20] [6ce610a] docs(intel): auto-sync after changes to src/intelligence/providers/base.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 06:47:29",
+    "last_checkpoint": "2026-07-04 06:55:20",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -284,7 +284,9 @@
       "scripts/backfill_intelligence.py",
       "src/features/pipeline.py",
       "src/models/trainer.py",
-      "tests/test_gap015_backfill.py"
+      "tests/test_gap015_backfill.py",
+      "src/intelligence/providers/base.py",
+      "src/intelligence/providers/okx_provider.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",

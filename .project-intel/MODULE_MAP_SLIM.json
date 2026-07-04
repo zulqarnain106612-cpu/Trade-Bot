@@ -139,6 +139,10 @@
     "purpose": "Crypto intelligence providers.",
     "functions": []
   },
+  "src/intelligence/providers/base.py": {
+    "purpose": "Abstract base for exchange intelligence providers.",
+    "functions": []
+  },
   "src/intelligence/providers/binance_provider.py": {
     "purpose": "Binance public REST provider for intelligence metrics.",
     "functions": []
