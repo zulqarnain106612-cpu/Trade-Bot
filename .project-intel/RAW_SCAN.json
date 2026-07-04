@@ -1107,6 +1107,7 @@
     "src/intelligence/probabilistic.py",
     "src/intelligence/probabilistic_adapter.py",
     "src/intelligence/providers/__init__.py",
+    "src/intelligence/providers/aggregator.py",
     "src/intelligence/providers/base.py",
     "src/intelligence/providers/binance_provider.py",
     "src/intelligence/providers/blockchain_provider.py",

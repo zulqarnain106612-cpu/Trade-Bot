@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-04 06:57:06 | Read this before starting any work.
+> Updated: 2026-07-04 06:58:07 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-03 22:01:55
-**Last checkpoint**: 2026-07-04 06:57:06
+**Last checkpoint**: 2026-07-04 06:58:07
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -45,6 +45,7 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/intelligence/providers/okx_provider.py
   - src/intelligence/providers/blockchain_provider.py
   - src/intelligence/providers/coingecko_provider.py
+  - src/intelligence/providers/aggregator.py
 
 ## Session History (last 5)
   [2026-07-04 00:23:37] claude — interrupted: shell exited with 2 uncommitted file(s)

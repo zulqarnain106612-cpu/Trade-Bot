@@ -39,9 +39,7 @@ from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.strategies.position_sizing import recommend_position_notional, estimate_daily_vol
-from src.intelligence.providers.binance_provider import (
-    get_binance_intelligence_provider as _get_intel_provider,
-)
+from src.intelligence.providers.aggregator import get_multi_provider_aggregator as _get_intel_aggregator
 from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
 
 # Module-level adapter singleton -- stateless, safe to reuse across ticks.
@@ -269,20 +267,21 @@ class SignalEngine:
         _live_funding_rate_8h: float = 0.0
         _exchange_stress: float | None = None  # None → intelligence gate fails open
         _whale_ratio: float | None = None
+        _intel_metrics_dict: dict[str, float] = {}
         try:
-            # GAP-015: BinanceIntelligenceProvider singleton — free public API,
-            # no key required. Initialized lazily; cache_ttl=300s so metrics
-            # are fetched at most once per 5 min across all ticks.
+            # Multi-provider intelligence aggregator — Binance + OKX + CoinGecko +
+            # blockchain.info.  All providers use free public APIs (no key required).
+            # Singleton; cache_ttl=300s so metrics fetched at most once per 5 min.
             # Derive perp symbol: 'BTC/USDT' → 'BTC/USDT:USDT'
             _perp_sym = (self._symbol + ':USDT') if ':' not in self._symbol else self._symbol
-            _intel_provider = _get_intel_provider(
+            _intel_agg = _get_intel_aggregator(
                 symbol=self._symbol,
                 perp_symbol=_perp_sym,
             )
             ob_task     = asyncio.create_task(self._fetcher.fetch_orderbook(self._symbol))
-            intel_task  = asyncio.create_task(_intel_provider.fetch_metrics())
+            intel_task  = asyncio.create_task(_intel_agg.fetch_metrics())
             ob, _intel_metrics_dict = await asyncio.gather(ob_task, intel_task)
-            # Map provider output to local variables
+            # Map aggregated output to local variables
             _live_funding_rate_8h = float(_intel_metrics_dict.get('binance_funding_rate_pct', 0.0))
             # Probabilistic post-processing: replace deterministic scalars with
             # Bayesian-posterior estimates (ProbabilisticMetricsAdapter).
@@ -300,8 +299,14 @@ class SignalEngine:
             _live_funding_rate_8h = 0.0
             _exchange_stress = None  # fail-open for intelligence gates
             _whale_ratio     = None
+            _intel_metrics_dict = {}
 
-        vec = build_inference_features(bars, live_ofi=live_ofi, feature_matrix=fm)
+        vec = build_inference_features(
+            bars,
+            live_ofi=live_ofi,
+            feature_matrix=fm,
+            intelligence_metrics=_intel_metrics_dict if _intel_metrics_dict else None,
+        )
         if vec is None:
             return self._skip("insufficient_features_with_ofi")
 

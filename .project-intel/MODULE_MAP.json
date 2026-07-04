@@ -10778,6 +10778,24 @@
     "constants": [],
     "imports_from": []
   },
+  "src/intelligence/providers/aggregator.py": {
+    "purpose": "Multi-provider intelligence aggregator.\n\nMerges outputs from all configured ExchangeIntelligenceProv",
+    "lines": 282,
+    "classes": [
+      "MultiProviderIntelligenceAggregator"
+    ],
+    "key_functions": [
+      "get_multi_provider_aggregator"
+    ],
+    "constants": [],
+    "imports_from": [
+      "src.intelligence.providers.base",
+      "src.intelligence.providers.binance_provider",
+      "src.intelligence.providers.okx_provider",
+      "src.intelligence.providers.coingecko_provider",
+      "src.intelligence.providers.blockchain_provider"
+    ]
+  },
   "src/intelligence/providers/base.py": {
     "purpose": "Abstract base for exchange intelligence providers.\n\nEvery exchange-specific provider (Binance, OKX, ",
     "lines": 65,
