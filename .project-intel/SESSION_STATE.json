@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T05:42:51.643190",
+  "last_updated": "2026-07-04T05:46:08.678347",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 28,
   "commit_log": [
-    {
-      "hash": "aa0db82",
-      "message": "docs(intel): auto-sync after changes to tests/test_metrics.py [claude]",
-      "time": "2026-07-04T00:38:35.632731",
-      "author": "Claude"
-    },
     {
       "hash": "b6abcbe",
       "message": "docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "time": "2026-07-04T05:42:51.779076",
       "author": "Claude"
+    },
+    {
+      "hash": "57667db",
+      "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "time": "2026-07-04T05:46:08.796636",
+      "author": "Claude"
     }
   ],
-  "last_commit": "9b6b8f3",
+  "last_commit": "57667db",
   "last_commit_message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-  "last_commit_time": "2026-07-04T05:42:51.779153",
+  "last_commit_time": "2026-07-04T05:46:08.796700",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T00:26:14.869779",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T05:42:51.044469",
+  "last_extraction": "2026-07-04T05:46:08.237365",
   "last_extraction_trigger": "test_signal_engine.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 03:09:07] [e23bf4c] docs(intel): auto-sync after changes to src/data/storage.py [claude]",
-      "[2026-07-04 03:09:08] [e9679bd] docs(intel): auto-sync after changes to src/data/storage.py [claude]",
       "[2026-07-04 03:10:08] [94b375d] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "[2026-07-04 03:10:08] [e89aa47] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "[2026-07-04 03:10:27] [42240fb] docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 05:40:44] [1202a23] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:42:48] [5cb6742] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:42:49] [c311fea] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-07-04 05:42:51] [9b6b8f3] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]"
+      "[2026-07-04 05:42:51] [9b6b8f3] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "[2026-07-04 05:42:52] [660ed79] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "[2026-07-04 05:46:08] [57667db] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 05:42:51",
+    "last_checkpoint": "2026-07-04 05:46:08",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
