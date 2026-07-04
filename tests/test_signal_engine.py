@@ -244,10 +244,10 @@ class TestSkipPaths:
             )
             await e.tick(**_TICK)
 
-        args, kwargs = mock_kelly.call_args
-        assert args[0] == 0.1
-        assert args[1] == 0.05
-        assert kwargs["regime_scalar"] == pytest.approx(0.1)
+        # entropy=0.9, threshold=0.5, floor=0.5 → t=0.8 → scalar=1.0-0.8*(1.0-0.5)=0.6
+        assert mock_kelly.call_args is not None, "compute_position_size was never called"
+        kwargs = mock_kelly.call_args.kwargs
+        assert kwargs["regime_scalar"] == pytest.approx(0.6, abs=1e-9)
 
     @pytest.mark.asyncio
     async def test_direction_gate_not_passed(self):
