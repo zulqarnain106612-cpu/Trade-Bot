@@ -10235,7 +10235,7 @@
   },
   "scripts/backfill_intelligence.py": {
     "purpose": "GAP-015 Step 3 \u2014 Historical intelligence features backfill.\n\nWalks every bar timestamp in storage fo",
-    "lines": 312,
+    "lines": 314,
     "classes": [],
     "key_functions": [],
     "constants": [],
