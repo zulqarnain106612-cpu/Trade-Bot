@@ -78,6 +78,11 @@ class BinanceIntelligenceProvider:
         await provider.close()
     """
 
+    @property
+    def exchange_id(self) -> str:
+        """Stable lowercase exchange name — required by MultiProviderIntelligenceAggregator."""
+        return "binance"
+
     def __init__(
         self,
         symbol: str = "BTC/USDT",

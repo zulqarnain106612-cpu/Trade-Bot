@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 22:53 | 824 Python modules | 239,195 total lines
+> Auto-generated 2026-07-04 23:01 | 824 Python modules | 239,200 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3702,7 +3702,7 @@ Merges outputs from all configured Exch
 Every exchange-specific prov
 **Classes**: ExchangeIntelligenceProvider
 
-### `src/intelligence/providers/binance_provider.py` (482 lines)
+### `src/intelligence/providers/binance_provider.py` (487 lines)
 **Purpose**: Binance public REST provider for intelligence metrics.
 
 All endpoints used here 
