@@ -113,7 +113,13 @@ _TICK = dict(
 
 def _fm(n=120, cols=5):
     fm = MagicMock(spec=FeatureMatrix)
-    fm.features = pd.DataFrame(np.random.rand(n, cols), columns=[f"f{i}" for i in range(cols)])
+    # Use real FEATURE_COLUMNS so history_df passes the >=3 column guard in
+    # signal_engine (enabling regime detection in tests). Extra synthetic cols
+    # appended to reach the requested `cols` count.
+    real_cols = list(FEATURE_COLUMNS)
+    extra = [f"_extra_{i}" for i in range(max(0, cols - len(real_cols)))]
+    all_cols = (real_cols + extra)[:max(cols, len(real_cols))]
+    fm.features = pd.DataFrame(np.random.rand(n, len(all_cols)), columns=all_cols)
     return fm
 
 def _pass_gate() -> GateResult:

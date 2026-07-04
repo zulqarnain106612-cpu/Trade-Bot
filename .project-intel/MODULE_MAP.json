@@ -11457,7 +11457,7 @@
   },
   "tests/test_signal_engine.py": {
     "purpose": "Test coverage for src/engine/signal_engine.py \u2014 Debt-005.\n\nStrategy: mock all external dependencies ",
-    "lines": 478,
+    "lines": 484,
     "classes": [
       "TestSkipShape",
       "TestSkipPaths",
