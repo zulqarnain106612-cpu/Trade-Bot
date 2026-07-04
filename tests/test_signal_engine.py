@@ -237,7 +237,11 @@ class TestSkipPaths:
              patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)), \
              patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)), \
              patch("src.engine.signal_engine.evaluate_all_gates",
-                   return_value=_pass_gate()):
+                   return_value=_pass_gate()), \
+             patch("src.engine.signal_engine.get_cognitive_engine") as mock_cog:
+            mock_cog.return_value.evaluate.return_value = MagicMock(
+                passed=True, adjusted_size_fraction=1.0, veto_reason=None
+            )
             await e.tick(**_TICK)
 
         args, kwargs = mock_kelly.call_args
