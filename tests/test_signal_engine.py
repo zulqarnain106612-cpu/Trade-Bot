@@ -222,7 +222,9 @@ class TestSkipPaths:
         async def _lb(): return good_bars
         e._load_bars = _lb
 
-        # position_scalar is on a frozen dataclass — patch the class method directly
+        # position_scalar is on a frozen dataclass. Patch the class method so
+        # all instances return 0.6 during this test (frozen = can't patch instances).
+        from src.regime.detector import RegimePrediction as _RP
         with patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()), \
              patch("src.engine.signal_engine.build_inference_features",
                    return_value=pd.Series({"f0": 1.0})), \
@@ -231,8 +233,7 @@ class TestSkipPaths:
              patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)), \
              patch("src.engine.signal_engine.evaluate_all_gates",
                    return_value=_pass_gate()), \
-             patch("src.regime.detector.RegimePrediction.position_scalar",
-                   autospec=True, return_value=0.6), \
+             patch.object(_RP, "position_scalar", lambda self, cfg=None: 0.6), \
              patch("src.engine.signal_engine.get_cognitive_engine") as mock_cog:
             mock_cog.return_value.evaluate.return_value = MagicMock(
                 passed=True, adjusted_size_fraction=1.0, veto_reason=None
