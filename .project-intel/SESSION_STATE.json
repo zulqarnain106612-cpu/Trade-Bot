@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T05:49:11.627674",
+  "last_updated": "2026-07-04T06:16:16.064482",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,14 +38,8 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 28,
+  "total_sessions": 29,
   "commit_log": [
-    {
-      "hash": "fabb2e8",
-      "message": "docs(intel): auto-sync after changes to src/engine/orchestrator.py [claude]",
-      "time": "2026-07-04T00:43:02.156633",
-      "author": "Claude"
-    },
     {
       "hash": "8ca878e",
       "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
@@ -159,13 +153,19 @@
       "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "time": "2026-07-04T05:49:11.781978",
       "author": "Claude"
+    },
+    {
+      "hash": "7f9a2e3",
+      "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "time": "2026-07-04T06:16:16.142389",
+      "author": "Claude"
     }
   ],
-  "last_commit": "14ac9b8",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-  "last_commit_time": "2026-07-04T05:49:11.782098",
+  "last_commit": "7f9a2e3",
+  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+  "last_commit_time": "2026-07-04T06:16:16.142436",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-04T00:26:14.869779",
+  "last_session_start": "2026-07-04T06:15:55.916045",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -175,8 +175,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 03:10:27] [42240fb] docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
-      "[2026-07-04 03:10:28] [b86fa61] docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
       "[2026-07-04 03:13:11] [8132999] docs(intel): auto-sync after changes to tests/test_gap015_backfill.py [claude]",
       "[2026-07-04 03:13:12] [1a4a17d] docs(intel): auto-sync after changes to tests/test_gap015_backfill.py [claude]",
       "[2026-07-04 03:45:25] [928e0c9] GAP-015 steps 2-5: historical intelligence backfill pipeline",
@@ -194,10 +192,12 @@
       "[2026-07-04 05:42:52] [660ed79] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:46:08] [57667db] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:46:09] [00dfc77] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-07-04 05:49:11] [14ac9b8] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]"
+      "[2026-07-04 05:49:11] [14ac9b8] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "[2026-07-04 05:49:12] [ae37e6a] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
+      "[2026-07-04 06:16:16] [7f9a2e3] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 05:49:11",
+    "last_checkpoint": "2026-07-04 06:16:16",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
