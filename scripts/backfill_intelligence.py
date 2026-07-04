@@ -79,7 +79,7 @@ async def _backfill(args: argparse.Namespace) -> int:
     # -- import here so script works from project root without install --
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-    from src.data.storage import TradeStorage
+    from src.data.storage import StorageBackend as TradeStorage
     from src.intelligence.client import IntelligenceAggregator
 
     # ---- open DB ----
