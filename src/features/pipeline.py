@@ -916,4 +916,84 @@ def build_inference_features(
         )
         return None
 
+    # Inject intelligence features when available (GAP-015 wiring)
+    if intelligence_metrics:
+        vec = _inject_intelligence_features(vec, intelligence_metrics)
+
     return vec
+
+
+# ---------------------------------------------------------------------------
+# Intelligence feature injection helper (GAP-015)
+# ---------------------------------------------------------------------------
+
+def _inject_intelligence_features(
+    vec: "pd.Series",
+    intelligence_metrics: "dict[str, float]",
+) -> "pd.Series":
+    """
+    Append intelligence feature columns to a base feature vector.
+
+    Mapping: provider dict key (e.g. "exchange_stress_score") →
+             column name (e.g. "intelligence_exchange_stress_score").
+
+    Only finite (non-NaN, non-Inf) values are injected; fields that are
+    NaN in the provider output are silently dropped so the downstream
+    model receives only real values (avoids silent fabrication).
+
+    The returned Series extends the input without modifying it.
+    Confidence is included as "intelligence_confidence" when present.
+
+    Args:
+        vec:                  Base 9-feature pd.Series.
+        intelligence_metrics: Flat dict from MultiProviderIntelligenceAggregator.
+
+    Returns:
+        Extended pd.Series with up to 15 additional intelligence columns.
+    """
+    from src.features.intelligence_features import (
+        INTELLIGENCE_FEATURE_COLUMNS,
+        COL_INTELLIGENCE_CONFIDENCE,
+    )
+
+    # Build prefix mapping: "exchange_stress_score" → "intelligence_exchange_stress_score"
+    # INTELLIGENCE_FEATURE_COLUMNS uses the "intelligence_" prefix; strip it for lookup.
+    extras: dict[str, float] = {}
+    for col in INTELLIGENCE_FEATURE_COLUMNS:
+        raw_key = col.removeprefix("intelligence_")
+        val = intelligence_metrics.get(raw_key)
+        if val is None:
+            continue
+        try:
+            fval = float(val)
+        except (TypeError, ValueError):
+            continue
+        import math as _math
+        if _math.isfinite(fval):
+            extras[col] = fval
+
+    # Always include confidence when available and finite
+    conf = intelligence_metrics.get("confidence")
+    if conf is not None:
+        try:
+            cval = float(conf)
+            import math as _math
+            if _math.isfinite(cval):
+                extras[COL_INTELLIGENCE_CONFIDENCE] = cval
+        except (TypeError, ValueError):
+            pass
+
+    if not extras:
+        return vec
+
+    import pandas as _pd
+    import numpy as _np
+    extras_series = _pd.Series(extras, dtype=_np.float64)
+    result = _pd.concat([vec, extras_series])
+
+    log.debug(
+        "pipeline.intelligence_features_injected",
+        n_injected=len(extras),
+        confidence=extras.get(COL_INTELLIGENCE_CONFIDENCE),
+    )
+    return result

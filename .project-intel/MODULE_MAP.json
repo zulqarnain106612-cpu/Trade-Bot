@@ -10655,7 +10655,7 @@
   },
   "src/features/pipeline.py": {
     "purpose": "Feature engineering pipeline.\n\nImplements every feature from the signal architecture spec:\n  1. Frac",
-    "lines": 907,
+    "lines": 999,
     "classes": [
       "TripleBarrierResult",
       "FeatureMatrix"
@@ -10673,6 +10673,7 @@
     "constants": [],
     "imports_from": [
       "src.config",
+      "src.features.intelligence_features",
       "src.features.intelligence_features"
     ]
   },

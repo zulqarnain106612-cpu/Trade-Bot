@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 07:02 | 823 Python modules | 238,426 total lines
+> Auto-generated 2026-07-04 07:04 | 823 Python modules | 238,518 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3632,7 +3632,7 @@ Extends core feature pipeline (9 features) wit
 **Classes**: IntelligenceFeatureMatrix
 **Key functions**: add_i
 
-### `src/features/pipeline.py` (907 lines)
+### `src/features/pipeline.py` (999 lines)
 **Purpose**: Feature engineering pipeline.
 
 Implements every feature from the signal architec

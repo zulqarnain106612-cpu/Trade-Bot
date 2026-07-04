@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T07:03:30.204115",
+  "last_updated": "2026-07-04T07:05:25.635831",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 30,
   "commit_log": [
-    {
-      "hash": "94b375d",
-      "message": "docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
-      "time": "2026-07-04T03:10:08.198625",
-      "author": "Claude"
-    },
     {
       "hash": "42240fb",
       "message": "docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "time": "2026-07-04T07:03:30.835265",
       "author": "Claude"
+    },
+    {
+      "hash": "119e0a9",
+      "message": "docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
+      "time": "2026-07-04T07:05:25.930847",
+      "author": "Claude"
     }
   ],
-  "last_commit": "986434d",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-  "last_commit_time": "2026-07-04T07:03:30.835361",
+  "last_commit": "119e0a9",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/features/pipeline.py [claude]",
+  "last_commit_time": "2026-07-04T07:05:25.930925",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T06:46:21.975902",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T07:03:28.812470",
-  "last_extraction_trigger": "signal_engine.py",
+  "last_extraction": "2026-07-04T07:05:24.711928",
+  "last_extraction_trigger": "pipeline.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 05:46:09] [00dfc77] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "[2026-07-04 05:49:11] [14ac9b8] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 05:49:12] [ae37e6a] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-04 06:16:16] [7f9a2e3] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-04 06:16:16] [838d04f] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 06:58:07] [545a5e4] docs(intel): auto-sync after changes to src/intelligence/providers/blockchain_provider.py [claude]",
       "[2026-07-04 07:02:21] [8172aa9] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-04 07:02:23] [000ed44] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-04 07:03:30] [986434d] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]"
+      "[2026-07-04 07:03:30] [986434d] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "[2026-07-04 07:03:31] [ab32580] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
+      "[2026-07-04 07:05:25] [119e0a9] docs(intel): auto-sync after changes to src/features/pipeline.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 07:03:30",
+    "last_checkpoint": "2026-07-04 07:05:25",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
