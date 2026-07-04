@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 23:35 | 824 Python modules | 239,200 total lines
+> Auto-generated 2026-07-04 23:37 | 824 Python modules | 239,202 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3470,7 +3470,7 @@ THIS IS ONLY KEPT IN PLACE FOR BA
 **Classes**: WheelError, WheelFile
 **Key functions**: urlsa
 
-### `scripts/backfill_intelligence.py` (310 lines)
+### `scripts/backfill_intelligence.py` (312 lines)
 **Purpose**: GAP-015 Step 3 — Historical intelligence features backfill.
 
 Walks every bar tim

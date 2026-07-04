@@ -113,11 +113,13 @@ async def _backfill(args: argparse.Namespace) -> int:
     bars = [b for b in bars if b.ts <= until_ms]
     if not bars:
         log.warning("No bars found in range — nothing to backfill.")
+        await storage.close()
         return 0
     log.info("Bars to backfill: %d", len(bars))
 
     if args.dry_run:
         log.info("[DRY RUN] Would backfill %d bars. No writes.", len(bars))
+        await storage.close()
         return 0
 
     # ---- build intelligence client ----
@@ -263,6 +265,8 @@ async def _backfill(args: argparse.Namespace) -> int:
         log.info("  %s  %.1f%%  %s", col, frac * 100, status)
         if frac < args.min_coverage:
             low_cols.append(col)
+
+    await storage.close()
 
     if low_cols:
         log.warning(

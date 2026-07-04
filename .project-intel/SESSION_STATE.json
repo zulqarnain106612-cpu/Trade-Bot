@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-04T23:35:49.670111",
+  "last_updated": "2026-07-04T23:37:44.910321",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 30,
   "commit_log": [
-    {
-      "hash": "5cb6742",
-      "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "time": "2026-07-04T05:42:48.462834",
-      "author": "Claude"
-    },
     {
       "hash": "9b6b8f3",
       "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "time": "2026-07-04T23:35:49.747000",
       "author": "Claude"
+    },
+    {
+      "hash": "8de5138",
+      "message": "docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
+      "time": "2026-07-04T23:37:45.040427",
+      "author": "Claude"
     }
   ],
-  "last_commit": "3e82d8b",
+  "last_commit": "8de5138",
   "last_commit_message": "docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
-  "last_commit_time": "2026-07-04T23:35:49.747066",
+  "last_commit_time": "2026-07-04T23:37:45.040486",
   "coverage_pct": 62,
   "last_session_start": "2026-07-04T06:46:21.975902",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-04T23:35:49.380255",
+  "last_extraction": "2026-07-04T23:37:44.568428",
   "last_extraction_trigger": "backfill_intelligence.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 06:58:06] [d060978] docs(intel): auto-sync after changes to src/intelligence/providers/blockchain_provider.py [claude]",
-      "[2026-07-04 06:58:07] [545a5e4] docs(intel): auto-sync after changes to src/intelligence/providers/blockchain_provider.py [claude]",
       "[2026-07-04 07:02:21] [8172aa9] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-04 07:02:23] [000ed44] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-04 07:03:30] [986434d] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-04 23:29:56] TASK-010 complete: wired live spread_bps+funding_rate_8h into SignalContext. Restructured co-fetch into phase-1 (ob+funding, always runs) + phase-2 (intel aggregator, isolated failure). Fixed BinanceIntelligenceProvider missing exchange_id. Fixed test _fm() to use FEATURE_COLUMNS so regime detector path is exercised. All 16 signal_engine tests pass, 830 total pass.",
       "[2026-07-04 23:30:06] [ee2b00d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-04 23:30:07] [13a89bd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-07-04 23:35:49] [3e82d8b] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]"
+      "[2026-07-04 23:35:49] [3e82d8b] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
+      "[2026-07-04 23:35:50] [062e889] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
+      "[2026-07-04 23:37:44] [8de5138] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-04 23:35:49",
+    "last_checkpoint": "2026-07-04 23:37:44",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
