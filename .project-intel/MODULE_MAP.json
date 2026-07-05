@@ -11387,6 +11387,16 @@
       "src.engine.orchestrator"
     ]
   },
+  "tests/test_orchestrator_coverage.py": {
+    "purpose": "Comprehensive coverage tests for src/engine/orchestrator.py.\n\nCoverage target: 10% \u2192 70%+. Every maj",
+    "lines": 58,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config"
+    ]
+  },
   "tests/test_order_fsm.py": {
     "purpose": "Test suite for Order FSM state machine.",
     "lines": 296,
