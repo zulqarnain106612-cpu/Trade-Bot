@@ -177,13 +177,11 @@ stability priorities — works today, but the safety margin between "CI
 green" and "actually safe on the interpreter operators run" is thinner
 than it should be).
 File: .venv (symlink target), .python-version, pyproject.toml
-Status: OPEN — Action: rebuild .venv with `python3.11 -m venv .venv`
-using an actual 3.11 interpreter (install via pyenv/deadsnakes if not
-present on this host), or explicitly accept 3.14 as the supported local
-version and update CI's matrix + .python-version + the pyproject comment
-to say so consistently — currently the three sources of truth
-(.python-version, pyproject.toml comment, CI) don't agree with each
-other or with the real venv.
+Status: PARTIALLY RESOLVED [2026-07-05] — python3.11 not available on host (only 3.14).
+Decision: accept 3.14 as local dev interpreter. .python-version updated to 3.14;
+pyproject.toml comment updated to "CI: 3.11 | local dev: 3.14". The 3-minor-version
+gap (CI=3.11, local=3.14) remains a reproducibility risk — install python3.11 via
+deadsnakes PPA if stricter parity is needed: `sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11`.
 
 ## Debt-009 [2026-06-29] — NEW (independent audit session, Claude)
 Repo-wide coverage gate is 60.55% (just above the 60% gate), but this
