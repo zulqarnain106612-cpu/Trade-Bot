@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-05T19:45:27.047368",
+  "last_updated": "2026-07-05T19:45:28.207958",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -169,13 +169,12 @@
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-05T19:45:25.882503",
-  "last_extraction_trigger": "runtime_monitor.py",
+  "last_extraction": "2026-07-05T19:45:30.452115",
+  "last_extraction_trigger": "App.jsx",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-05 18:23:24] Fixed 2 pre-existing test_intelligence_providers failures (OKX cache test patched at network level; bars n=120->220). GAP-016: .claude/CLAUDE.md now single-line redirect. 36/36 intel provider tests pass.",
       "[2026-07-05 18:23:25] [d3eeb29] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-05 18:23:25] [89dc326] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-05 18:38:46] [8bbfcd8] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
@@ -194,10 +193,11 @@
       "[2026-07-05 18:49:56] [fbabff8] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
       "[2026-07-05 18:50:01] [650b384] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "[2026-07-05 19:44:53] [085680d] fix(issues): resolve Issue-002/004/005/006",
-      "[2026-07-05 19:45:27] [fada3f7] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
+      "[2026-07-05 19:45:27] [fada3f7] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "[2026-07-05 19:45:28] [f5f45a8] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-05 19:45:27",
+    "last_checkpoint": "2026-07-05 19:45:28",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
