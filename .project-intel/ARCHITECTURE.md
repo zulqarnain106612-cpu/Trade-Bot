@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-05 18:38 | 824 Python modules | 239,215 total lines
+> Auto-generated 2026-07-05 18:39 | 824 Python modules | 239,216 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3761,7 +3761,7 @@ States:
 A
 **Classes**: DriftIntegrationAdapter
 
-### `src/risk/gates.py` (937 lines)
+### `src/risk/gates.py` (938 lines)
 **Purpose**: Risk gate engine — hard limits that block new positions.
 
 Gates (all must pass f
