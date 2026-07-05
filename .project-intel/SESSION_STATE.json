@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-05T19:45:28.207958",
+  "last_updated": "2026-07-05T19:45:31.909769",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,18 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 32,
   "commit_log": [
-    {
-      "hash": "dd549c5",
-      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "time": "2026-07-04T22:54:22.771832",
-      "author": "Claude"
-    },
-    {
-      "hash": "29aee81",
-      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "time": "2026-07-04T23:01:44.661758",
-      "author": "Claude"
-    },
     {
       "hash": "ee2b00d",
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -159,24 +147,34 @@
       "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "time": "2026-07-05T19:45:27.329378",
       "author": "Claude"
+    },
+    {
+      "hash": "30d3a04",
+      "message": "docs(intel): auto-sync after changes to frontend/src/App.jsx [claude]",
+      "time": "2026-07-05T19:45:31.874719",
+      "author": "Claude"
+    },
+    {
+      "hash": "c939d32",
+      "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "time": "2026-07-05T19:45:32.093089",
+      "author": "Claude"
     }
   ],
-  "last_commit": "fada3f7",
+  "last_commit": "c939d32",
   "last_commit_message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-  "last_commit_time": "2026-07-05T19:45:27.329463",
+  "last_commit_time": "2026-07-05T19:45:32.093155",
   "coverage_pct": 62,
   "last_session_start": "2026-07-05T18:18:05.239483",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-05T19:45:30.452115",
-  "last_extraction_trigger": "App.jsx",
+  "last_extraction": "2026-07-05T19:45:30.855190",
+  "last_extraction_trigger": "runtime_monitor.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-05 18:23:25] [d3eeb29] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "[2026-07-05 18:23:25] [89dc326] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-05 18:38:46] [8bbfcd8] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
       "[2026-07-05 18:38:46] [3cfb1d7] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
       "[2026-07-05 18:38:53] [44941aa] docs(intel): auto-sync after changes to src/api/main.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-05 18:50:01] [650b384] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "[2026-07-05 19:44:53] [085680d] fix(issues): resolve Issue-002/004/005/006",
       "[2026-07-05 19:45:27] [fada3f7] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-      "[2026-07-05 19:45:28] [f5f45a8] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
+      "[2026-07-05 19:45:28] [f5f45a8] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "[2026-07-05 19:45:31] [8ded64f] docs(intel): auto-sync after changes to frontend/src/App.jsx [claude]",
+      "[2026-07-05 19:45:31] [30d3a04] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-05 19:45:28",
+    "last_checkpoint": "2026-07-05 19:45:31",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
