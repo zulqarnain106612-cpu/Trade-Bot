@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-06T03:11:29.161459",
+  "last_updated": "2026-07-06T03:17:19.120185",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -175,7 +175,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-05 20:09:45] [13c94db] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-05 20:09:46] [347c3dd] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-05 20:35:46] [a164dfc] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-05 20:35:47] [55c3a99] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
@@ -194,10 +193,11 @@
       "[2026-07-06 02:59:46] [3d915d8] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
       "[2026-07-06 03:02:59] [438a8eb] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-06 03:03:00] [4d6d0d3] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
-      "[2026-07-06 03:11:29] [6466ff3] fix(live): add missing _extract_fee method + coverage tests (Debt-009)"
+      "[2026-07-06 03:11:29] [6466ff3] fix(live): add missing _extract_fee method + coverage tests (Debt-009)",
+      "[2026-07-06 03:17:19] [3b3026d] docs(issues/debt): log Issue-007 (critical _extract_fee bug) + Debt-009 update"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-06 03:11:29",
+    "last_checkpoint": "2026-07-06 03:17:19",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",

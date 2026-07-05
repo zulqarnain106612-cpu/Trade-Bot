@@ -6,7 +6,10 @@
 DIAGNOSTICS.md reported ruff and pyright not installed in CI environment.
 Affects: CI linting gates may pass without actual lint checks.
 Severity: Medium. Action: Verify ruff installed in CI venv (see pyproject.toml — ruff IS configured).
-Status: NEEDS VERIFICATION
+Status: VERIFIED [2026-07-06] — ruff 0.4.4 confirmed in .venv. mypy and pyright
+are NOT in .venv and NOT installed globally. bandit/semgrep also absent.
+CI runs ruff only (via pre-commit). mypy/pyright remain optional dev tools;
+no CI gate depends on them — acceptable for current maturity. No action needed.
 ────────────────────────────────────────────────────────────
 
 ## Issue-001 — RESOLVED (verified 2026-06-24)

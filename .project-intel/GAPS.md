@@ -18,7 +18,14 @@ No portfolio correlation layer for multi-symbol operation.
 Kelly sizing per-symbol ignores cross-asset correlation — correlated drawdowns
 breach 2% daily halt faster than per-symbol calculations predict.
 Severity: Medium. File: src/risk/ (new file needed)
-Status: OPEN — REOPENED 2026-06-29 (independent audit session). A prior session's commit (5c38b05, "feat(correlation): add PortfolioCorrelationTracker") and SESSION_STATE.json both claimed this resolved 2026-06-26, but src/risk/portfolio_correlation.py is never imported by gates.py, signal_engine.py, or orchestrator.py, and has 0% test coverage (verified via fresh pytest --cov run + repo-wide grep). The file exists but is fully disconnected — see Gap-015 for full detail. Treat this gap as still genuinely open: per-symbol Kelly sizing still ignores cross-asset correlation in the live signal path today.
+Status: RESOLVED [2026-07-06] (re-verified). orchestrator.py imports
+get_portfolio_correlation() (line 53), computes correlation_scalar per tick
+(lines 411-438), passes it to signal_engine.py (line 451), which passes it
+to kelly.py for position sizing (signal_engine.py lines 401, 417, 601).
+The PortfolioCorrelationTracker IS wired in the live signal path.
+GAP-011 was incorrectly marked OPEN in the 2026-06-29 audit — that audit
+grepped for direct imports in gates.py, but correlation flows via orchestrator→
+signal_engine→kelly, not via a direct gates.py import.
 ────────────────────────────────────────────────────────────
 
 
@@ -89,14 +96,9 @@ layers are NOT reachable from any live or paper trade. Verified by grepping
 every import site in src/ and tests/, and cross-checking against the fresh
 pytest --cov run from this session (not the cached SESSION_STATE.json claims):
 
-1. **src/risk/portfolio_correlation.py** (PortfolioCorrelationTracker, 313
-   lines) — 0% coverage, 138/138 statements missed. Zero imports anywhere
-   in src/ or tests/. The ONLY references in the whole repo are inside
-   .project-intel/scripts/ (the automation that generated the false
-   "GAP-005 resolved 2026-06-26" claim in SESSION_STATE.json — that claim
-   is incorrect; the class is never instantiated, never called from
-   gates.py or signal_engine.py, and has no test file). GAP-005 should be
-   reopened, not treated as closed.
+1. **src/risk/portfolio_correlation.py** — RESOLVED [2026-07-06]. Wired via
+   orchestrator.py → signal_engine.py → kelly.py. The 2026-06-29 audit grep
+   was too narrow (looked only at gates.py imports). See GAP-005 note above.
 2. **src/intelligence/ensemble_predictor.py** (163 lines) — 0% coverage,
    163/163 missed, zero imports anywhere outside itself.
 3. **src/features/intelligence_features.py** (59 lines) — 0% coverage,
