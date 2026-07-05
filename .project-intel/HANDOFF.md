@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-04 23:39:15 | Read this before starting any work.
+> Updated: 2026-07-04 23:40:34 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-03 22:01:55
-**Last checkpoint**: 2026-07-04 23:39:15
+**Last checkpoint**: 2026-07-04 23:40:34
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,7 +14,7 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-015 step: user must register GLASSNODE_API_KEY (Professional tier) + optionally CRYPTOQUANT_API_KEY, add to .env, then run: python3 scripts/backfill_intelligence.py --symbol BTC/USDT --timeframe 15m --since 2024-01-01
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
   - .project-intel/ARCHITECTURE.md
