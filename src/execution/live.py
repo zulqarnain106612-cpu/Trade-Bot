@@ -954,6 +954,36 @@ class LiveExecutor(AbstractExecutor):
         """
         return self._order_fsm_registry.get(order_id)
 
+    def _extract_fee(self, order: dict, price: float, qty: float) -> float:
+        """Extract exchange fee from a ccxt order dict.
+
+        ccxt returns fees as a list of dicts with 'cost' (amount) and
+        'currency' keys.  We sum costs that appear to be in the quote
+        currency (USDT/USDC/BUSD/USD) and fall back to the flat-rate
+        estimate when the field is absent or unusable.
+
+        Ref: ccxt unified order structure — order['fees'] (list) or
+             order['fee'] (single dict, older exchange responses).
+        """
+        fees: list[dict] = order.get("fees") or []
+        if not fees:
+            single = order.get("fee")
+            if isinstance(single, dict):
+                fees = [single]
+        total = 0.0
+        for f in fees:
+            cost = f.get("cost")
+            currency = str(f.get("currency", "")).upper()
+            if cost is not None and currency in {"USDT", "USDC", "BUSD", "USD", ""}:
+                try:
+                    total += float(cost)
+                except (TypeError, ValueError):
+                    pass
+        if total > 0.0:
+            return total
+        # Fallback: estimate from notional
+        return price * qty * _LIVE_FEE_FALLBACK
+
     def _require_initialized(self) -> None:
         if not self._initialized:
             raise RuntimeError(

@@ -10551,7 +10551,7 @@
   },
   "src/execution/live.py": {
     "purpose": "Live trading executor \u2014 real money order placement via ccxt.\n\nMirrors PaperExecutor's interface exac",
-    "lines": 961,
+    "lines": 991,
     "classes": [
       "LivePosition",
       "ApprovalRequest",
@@ -11306,10 +11306,15 @@
   },
   "tests/test_live_executor_coverage.py": {
     "purpose": "Coverage tests for LiveExecutor critical paths (Debt-009).\n\nUses object.__new__ to bypass TRADING_MO",
-    "lines": 185,
+    "lines": 449,
     "classes": [
       "TestInitialize",
-      "TestProperties"
+      "TestProperties",
+      "TestSubmitSignalRouting",
+      "TestPlaceAndRecordGuards",
+      "TestMarkToMarket",
+      "TestClosePosition",
+      "TestEquityAccounting"
     ],
     "key_functions": [],
     "constants": [],

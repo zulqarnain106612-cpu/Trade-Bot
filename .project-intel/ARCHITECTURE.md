@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-06 02:21 | 826 Python modules | 239,802 total lines
+> Auto-generated 2026-07-06 02:58 | 826 Python modules | 240,096 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3593,7 +3593,7 @@ On every tick for a
 Both LiveExecutor and PaperE
 **Classes**: AbstractExecutor
 
-### `src/execution/live.py` (961 lines)
+### `src/execution/live.py` (991 lines)
 **Purpose**: Live trading executor — real money order placement via ccxt.
 
 Mirrors PaperExecu
@@ -3878,11 +3878,11 @@ Companion
 **Classes**: TestKellyResultPositionSizePct, TestHalfKellyFractionBoundsValidation, TestKellyFromModelProbsInvalidDirection, TestKellyFromModelProbsNonFinitePLong, TestKellyFromModelProbsNonFiniteWinLossRatio, TestSizePositionMinAmountRejection, TestSizePositionMaxPositionPctValidation, TestComputePositionSizeDefaultCfg, TestComputeWinLossStatsAllWinsOrAllLosses
 **Key functions**: cfg
 
-### `tests/test_live_executor_coverage.py` (185 lines)
+### `tests/test_live_executor_coverage.py` (449 lines)
 **Purpose**: Coverage tests for LiveExecutor critical paths (Debt-009).
 
 Uses object.__new__ 
-**Classes**: TestInitialize, TestProperties
+**Classes**: TestInitialize, TestProperties, TestSubmitSignalRouting, TestPlaceAndRecordGuards, TestMarkToMarket, TestClosePosition, TestEquityAccounting
 
 ### `tests/test_live_executor_fsm.py` (274 lines)
 **Purpose**: Integration tests for LiveExecutor with OrderFSM.
