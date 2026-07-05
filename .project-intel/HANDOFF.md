@@ -94,3 +94,17 @@ python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'descr
 python3 .project-intel/scripts/handoff.py checkpoint --agent YOUR_AGENT \
   --completed 'what you just did' --next 'exact next action' --files 'src/x.py'
 ```
+
+## ⚠ MANDATORY COMPLETION CRITERIA (Debt-010 — enforced 2026-07-05)
+A task/module is ONLY COMPLETE when ALL THREE are true:
+  1. Unit tests pass (`pytest tests/test_<module>.py -q`)
+  2. Coverage is nonzero for the file (`pytest --cov=src/path/module.py` → not 0%)
+  3. The module is imported by signal_engine.py, gates.py, or orchestrator.py
+     (verify: `grep -rn "from src.<module>" src/engine/ src/risk/gates.py`)
+
+If criterion 3 is not met: mark the module EXPERIMENTAL/UNUSED in MODULE_MAP.json
+and CONTEXT_PRIMER.md — do NOT mark it COMPLETE in SESSION_STATE.json.
+
+This rule exists because multiple prior sessions marked modules COMPLETE based
+on passing unit tests alone, while the modules were fully disconnected from the
+live signal path (Gap-015, Gap-017, Debt-010).

@@ -229,10 +229,8 @@ provably reachable from the live signal path.
 
 Severity: Medium (process/documentation debt — directly enables Risk-003 above)
 File: .project-intel/SESSION_STATE.json, .project-intel/HANDOFF.md
-Status: OPEN — Action: add a mandatory completion criterion to the agent handoff protocol:
-"A module is only COMPLETE when: (1) unit tests pass, AND (2) `pytest --cov` shows nonzero
-coverage for the file, AND (3) a grep of signal_engine.py/gates.py/orchestrator.py confirms
-it is imported." Document this rule in HANDOFF.md's Quick Start section so all future
-agents (claude, copilot, amazonq) apply it consistently.
+Status: RESOLVED [2026-07-05] — Mandatory 3-criterion completion rule added to HANDOFF.md
+under "MANDATORY COMPLETION CRITERIA" section. All future agents must satisfy: (1) tests pass,
+(2) coverage nonzero, (3) imported from live signal path — before marking COMPLETE.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
