@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-05 18:43 | 824 Python modules | 239,218 total lines
+> Auto-generated 2026-07-05 18:49 | 824 Python modules | 239,195 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3540,7 +3540,7 @@ Responsibiliti
 **Classes**: OrderBookSnapshot, MarketDataFetcher, _FetcherContextManager
 **Key functions**: open_
 
-### `src/data/storage.py` (1555 lines)
+### `src/data/storage.py` (1556 lines)
 **Purpose**: Async SQLite storage layer — aiosqlite, WAL mode, typed queries.
 
 Schema owns fi
@@ -3593,7 +3593,7 @@ On every tick for a
 Both LiveExecutor and PaperE
 **Classes**: AbstractExecutor
 
-### `src/execution/live.py` (985 lines)
+### `src/execution/live.py` (961 lines)
 **Purpose**: Live trading executor — real money order placement via ccxt.
 
 Mirrors PaperExecu

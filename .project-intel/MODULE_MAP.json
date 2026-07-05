@@ -10412,7 +10412,7 @@
   },
   "src/data/storage.py": {
     "purpose": "Async SQLite storage layer \u2014 aiosqlite, WAL mode, typed queries.\n\nSchema owns five tables:\n  bars   ",
-    "lines": 1555,
+    "lines": 1556,
     "classes": [
       "BarRecord",
       "TradeRecord",
@@ -10551,7 +10551,7 @@
   },
   "src/execution/live.py": {
     "purpose": "Live trading executor \u2014 real money order placement via ccxt.\n\nMirrors PaperExecutor's interface exac",
-    "lines": 985,
+    "lines": 961,
     "classes": [
       "LivePosition",
       "ApprovalRequest",

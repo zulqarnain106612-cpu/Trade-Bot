@@ -847,30 +847,6 @@ class LiveExecutor(AbstractExecutor):
         except ccxt.ExchangeError:
             # Already logged by OrderManager
             raise
-        req = ApprovalRequest(
-            request_id=req_id,
-            symbol=symbol,
-            timeframe=timeframe,
-            direction=direction,
-            notional_usd=kelly_result.notional_usd,
-            entry_price=indicative_price,  # indicative at request time
-            quantity=kelly_result.quantity,
-            kelly_fraction=kelly_result.adjusted_fraction,
-            regime_state=regime_state,
-            meta_label_prob=meta_label_prob,
-            raw_signal=raw_signal,
-            created_at=time.monotonic(),
-        )
-        async with self._lock:
-            self._approval_queue[req_id] = req
-        self._log.info(
-            "live.approval_queued",
-            request_id=req_id,
-            symbol=symbol,
-            notional_usd=round(kelly_result.notional_usd, 2),
-            indicative_price=round(indicative_price, 4),
-        )
-        return req_id
 
     async def _await_approval(
         self,

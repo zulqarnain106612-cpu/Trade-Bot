@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final
 
+
 if TYPE_CHECKING:
     import pandas as pd
 

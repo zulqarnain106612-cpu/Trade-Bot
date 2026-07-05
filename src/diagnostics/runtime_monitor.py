@@ -17,6 +17,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import time
 from collections.abc import Callable, Coroutine
@@ -24,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 import structlog
-import contextlib
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
