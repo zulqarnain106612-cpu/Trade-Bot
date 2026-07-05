@@ -449,41 +449,12 @@ class SignalEngine:
             except Exception as _slip_exc:
                 self._log.warning("signal.slippage_estimate_failed", error=str(_slip_exc))
 
-        # 8. Risk gate stack
-        slippage_gate_result = check_slippage_veto(
-            expected_edge_bps=_expected_edge_bps,
-            slippage=_slippage_estimate,
-        )
-        if not slippage_gate_result.passed:
-            gate_result = slippage_gate_result
-            _emit_audit("skipped", "slippage_negative_ev", kelly_result, gate_result)
-            return self._skip("slippage_negative_ev")
-
-        gate_ctx = RiskGateContext(
-            daily_pnl_usd=daily_pnl_usd,
-            starting_equity_usd=starting_equity_usd,
-            consecutive_loss_count=consecutive_loss_count,
-            regime_state=regime_state,
-            notional_usd=notional,
-            capital_usd=capital_usd,
-            trading_mode=self._cfg.trading_mode,
-            direction_gate_pass=direction_gate_pass,
-            meta_gate_pass=meta_gate_pass,
-            paper_trading_days=paper_trading_days,
-            expected_edge_bps=_expected_edge_bps,
-            slippage_estimate=_slippage_estimate,
-            exchange_stress_score=_exchange_stress,  # GAP-015: None → fail-open
-            whale_buy_sell_ratio=_whale_ratio,       # GAP-015: None → fail-open
-        )
-        gate_result = evaluate_all_gates(gate_ctx)
-
-        # ── Regime values for filters and audit ──
+        # ── Audit closure setup — must precede all early-exit gates ──
         _prob_ranging  = regime.prob_ranging  if regime else 0.33
         _prob_trending = regime.prob_trending if regime else 0.33
         _prob_volatile = regime.prob_volatile if regime else 0.34
         _feat_dict = {str(k): float(v) for k, v in vec.items()}
-        # p_bet is assigned later (after meta-label); default to 0.0 for early exits
-        _p_bet_ref: list[float] = [0.0]
+        _p_bet_ref: list[float] = [0.0]  # updated after meta-label prediction
 
         def _emit_audit(outcome: str, skip: str, kr: KellyResult | None, gr: GateResult | None) -> None:
             latency_ms = (time.monotonic() - _tick_start) * 1000
@@ -514,6 +485,34 @@ class SignalEngine:
             )
             get_auditor().record(rec)
             get_degradation_tracker().record_prediction(p_long, _p_bet_ref[0])
+
+        # 8. Risk gate stack
+        slippage_gate_result = check_slippage_veto(
+            expected_edge_bps=_expected_edge_bps,
+            slippage=_slippage_estimate,
+        )
+        if not slippage_gate_result.passed:
+            gate_result = slippage_gate_result
+            _emit_audit("skipped", "slippage_negative_ev", kelly_result, gate_result)
+            return self._skip("slippage_negative_ev")
+
+        gate_ctx = RiskGateContext(
+            daily_pnl_usd=daily_pnl_usd,
+            starting_equity_usd=starting_equity_usd,
+            consecutive_loss_count=consecutive_loss_count,
+            regime_state=regime_state,
+            notional_usd=notional,
+            capital_usd=capital_usd,
+            trading_mode=self._cfg.trading_mode,
+            direction_gate_pass=direction_gate_pass,
+            meta_gate_pass=meta_gate_pass,
+            paper_trading_days=paper_trading_days,
+            expected_edge_bps=_expected_edge_bps,
+            slippage_estimate=_slippage_estimate,
+            exchange_stress_score=_exchange_stress,  # GAP-015: None → fail-open
+            whale_buy_sell_ratio=_whale_ratio,       # GAP-015: None → fail-open
+        )
+        gate_result = evaluate_all_gates(gate_ctx)
 
         if not gate_result.passed:
             _emit_audit("skipped", gate_result.status.value, None, gate_result)
