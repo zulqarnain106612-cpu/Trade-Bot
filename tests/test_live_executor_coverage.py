@@ -225,7 +225,7 @@ class TestSubmitSignalRouting:
             result = await ex.submit_signal(
                 symbol="BTC/USDT", timeframe="1h", direction=1,
                 kelly_result=_kelly(), regime_state=0,
-                meta_label_prob=0.7, raw_signal=1.0,
+                meta_label_prob=0.7, raw_signal=1.0, current_price=50_000.0,
             )
         assert result == ("trade-1", "opened")
         ex._submit_signal_auto.assert_awaited_once()
@@ -240,7 +240,7 @@ class TestSubmitSignalRouting:
             result = await ex.submit_signal(
                 symbol="ETH/USDT", timeframe="1h", direction=1,
                 kelly_result=_kelly(notional=3_000.0), regime_state=0,
-                meta_label_prob=0.6, raw_signal=1.0,
+                meta_label_prob=0.6, raw_signal=1.0, current_price=3_000.0,
             )
         assert result[1] == "opened"
         ex._submit_signal_auto.assert_awaited_once()
@@ -255,7 +255,7 @@ class TestSubmitSignalRouting:
             result = await ex.submit_signal(
                 symbol="BTC/USDT", timeframe="1h", direction=1,
                 kelly_result=_kelly(notional=15_000.0), regime_state=0,
-                meta_label_prob=0.8, raw_signal=1.0,
+                meta_label_prob=0.8, raw_signal=1.0, current_price=50_000.0,
             )
         assert result == (None, "skipped")
         ex._submit_signal_with_approval.assert_awaited_once()
@@ -269,7 +269,7 @@ class TestSubmitSignalRouting:
             await ex.submit_signal(
                 symbol="BTC/USDT", timeframe="1h", direction=-1,
                 kelly_result=_kelly(), regime_state=1,
-                meta_label_prob=0.55, raw_signal=-1.0,
+                meta_label_prob=0.55, raw_signal=-1.0, current_price=50_000.0,
             )
         ex._submit_signal_with_approval.assert_awaited_once()
 

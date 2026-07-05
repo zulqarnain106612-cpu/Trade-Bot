@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-06T02:59:44.909506",
+  "last_updated": "2026-07-06T03:02:59.475544",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 32,
   "commit_log": [
-    {
-      "hash": "d3eeb29",
-      "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "time": "2026-07-05T18:23:25.143535",
-      "author": "Claude"
-    },
     {
       "hash": "8bbfcd8",
       "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/execution/live.py [claude]",
       "time": "2026-07-06T02:59:45.196530",
       "author": "Claude"
+    },
+    {
+      "hash": "438a8eb",
+      "message": "docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
+      "time": "2026-07-06T03:02:59.605321",
+      "author": "Claude"
     }
   ],
-  "last_commit": "4a44470",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/execution/live.py [claude]",
-  "last_commit_time": "2026-07-06T02:59:45.196611",
+  "last_commit": "438a8eb",
+  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
+  "last_commit_time": "2026-07-06T03:02:59.605380",
   "coverage_pct": 62,
   "last_session_start": "2026-07-05T18:18:05.239483",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-06T02:59:43.674114",
-  "last_extraction_trigger": "live.py",
+  "last_extraction": "2026-07-06T03:02:59.024980",
+  "last_extraction_trigger": "test_live_executor_coverage.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-05 19:45:28] [f5f45a8] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-      "[2026-07-05 19:45:31] [8ded64f] docs(intel): auto-sync after changes to frontend/src/App.jsx [claude]",
       "[2026-07-05 19:45:31] [30d3a04] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "[2026-07-05 19:58:30] [092efc1] docs(process): resolve Debt-010 \u2014 add mandatory 3-criterion completion rule to HANDOFF.md",
       "[2026-07-05 20:09:45] [13c94db] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-06 02:20:49] [854f447] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 02:22:10] [fd1b51c] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 02:22:11] [bd68901] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 02:59:44] [4a44470] docs(intel): auto-sync after changes to src/execution/live.py [claude]"
+      "[2026-07-06 02:59:44] [4a44470] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
+      "[2026-07-06 02:59:46] [3d915d8] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
+      "[2026-07-06 03:02:59] [438a8eb] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-06 02:59:44",
+    "last_checkpoint": "2026-07-06 03:02:59",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
