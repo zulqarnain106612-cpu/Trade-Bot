@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-05T18:22:57.582870",
+  "last_updated": "2026-07-05T18:23:25.061566",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 32,
   "commit_log": [
-    {
-      "hash": "80c84dd",
-      "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "time": "2026-07-04T06:26:10.681473",
-      "author": "Claude"
-    },
     {
       "hash": "722daad",
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -159,11 +153,17 @@
       "message": "docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
       "time": "2026-07-05T18:22:57.678294",
       "author": "Claude"
+    },
+    {
+      "hash": "d3eeb29",
+      "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "time": "2026-07-05T18:23:25.143535",
+      "author": "Claude"
     }
   ],
-  "last_commit": "2ef8c5d",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
-  "last_commit_time": "2026-07-05T18:22:57.678355",
+  "last_commit": "d3eeb29",
+  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+  "last_commit_time": "2026-07-05T18:23:25.143580",
   "coverage_pct": 62,
   "last_session_start": "2026-07-05T18:18:05.239483",
   "session_status": "active",
@@ -175,9 +175,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 22:54:23] [4059d1f] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "[2026-07-04 23:01:44] [29aee81] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "[2026-07-04 23:01:44] [7570f54] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
       "[2026-07-04 23:29:56] TASK-010 complete: wired live spread_bps+funding_rate_8h into SignalContext. Restructured co-fetch into phase-1 (ob+funding, always runs) + phase-2 (intel aggregator, isolated failure). Fixed BinanceIntelligenceProvider missing exchange_id. Fixed test _fm() to use FEATURE_COLUMNS so regime detector path is exercised. All 16 signal_engine tests pass, 830 total pass.",
       "[2026-07-04 23:30:06] [ee2b00d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-04 23:30:07] [13a89bd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -194,10 +191,13 @@
       "[2026-07-05 18:18:09] [39ce26c] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-05 18:22:52] [40a7b09] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
       "[2026-07-05 18:22:53] [07832c0] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
-      "[2026-07-05 18:22:57] [2ef8c5d] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]"
+      "[2026-07-05 18:22:57] [2ef8c5d] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
+      "[2026-07-05 18:22:58] [cb7691c] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
+      "[2026-07-05 18:23:24] Fixed 2 pre-existing test_intelligence_providers failures (OKX cache test patched at network level; bars n=120->220). GAP-016: .claude/CLAUDE.md now single-line redirect. 36/36 intel provider tests pass.",
+      "[2026-07-05 18:23:25] [d3eeb29] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-05 18:22:57",
+    "last_checkpoint": "2026-07-05 18:23:25",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",

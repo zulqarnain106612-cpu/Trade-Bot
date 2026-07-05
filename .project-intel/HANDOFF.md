@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-05 18:22:53 | Read this before starting any work.
+> Updated: 2026-07-05 18:23:24 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-03 22:01:55
-**Last checkpoint**: 2026-07-05 18:22:53
+**Last checkpoint**: 2026-07-05 18:23:24
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,7 +14,7 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
+  GAP-017: wire src/intelligence/ into live signal path OR mark explicitly as EXPERIMENTAL. Priority: ensemble_predictor.py and risk_quantification.py have 0% coverage and are unreachable.
 
 ## Files to Check
   - .project-intel/ARCHITECTURE.md
