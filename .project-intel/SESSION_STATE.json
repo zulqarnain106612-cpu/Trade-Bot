@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-05T18:50:01.769346",
+  "last_updated": "2026-07-05T19:45:27.047368",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 32,
   "commit_log": [
-    {
-      "hash": "5de237b",
-      "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
-      "time": "2026-07-04T22:50:40.601831",
-      "author": "Claude"
-    },
     {
       "hash": "dd549c5",
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "time": "2026-07-05T18:50:02.013144",
       "author": "Claude"
+    },
+    {
+      "hash": "fada3f7",
+      "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "time": "2026-07-05T19:45:27.329378",
+      "author": "Claude"
     }
   ],
-  "last_commit": "650b384",
+  "last_commit": "fada3f7",
   "last_commit_message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-  "last_commit_time": "2026-07-05T18:50:02.013209",
+  "last_commit_time": "2026-07-05T19:45:27.329463",
   "coverage_pct": 62,
   "last_session_start": "2026-07-05T18:18:05.239483",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-05T18:50:01.247210",
+  "last_extraction": "2026-07-05T19:45:25.882503",
   "last_extraction_trigger": "runtime_monitor.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-05 18:22:57] [2ef8c5d] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
-      "[2026-07-05 18:22:58] [cb7691c] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
       "[2026-07-05 18:23:24] Fixed 2 pre-existing test_intelligence_providers failures (OKX cache test patched at network level; bars n=120->220). GAP-016: .claude/CLAUDE.md now single-line redirect. 36/36 intel provider tests pass.",
       "[2026-07-05 18:23:25] [d3eeb29] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-05 18:23:25] [89dc326] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-05 18:44:23] [dacfb51] docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
       "[2026-07-05 18:49:56] [b93a0c4] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
       "[2026-07-05 18:49:56] [fbabff8] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
-      "[2026-07-05 18:50:01] [650b384] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
+      "[2026-07-05 18:50:01] [650b384] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "[2026-07-05 19:44:53] [085680d] fix(issues): resolve Issue-002/004/005/006",
+      "[2026-07-05 19:45:27] [fada3f7] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-05 18:50:01",
+    "last_checkpoint": "2026-07-05 19:45:27",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -308,7 +308,10 @@
       "src/risk/gates.py",
       "src/risk/performance_drift.py",
       "src/risk/portfolio_correlation.py",
-      "src/execution/live.py"
+      "src/execution/live.py",
+      ".project-intel/ISSUES.md",
+      "frontend/src/App.jsx",
+      ".project-intel/CONTEXT_PRIMER.md"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",
