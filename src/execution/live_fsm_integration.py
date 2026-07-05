@@ -25,10 +25,10 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 class LiveExecutorOrderFSM:
     """
     Wrapper providing FSM-based order placement for LiveExecutor.
-    
+
     Usage in live.py:
         self._order_manager = OrderManager()
-        
+
         # Replace: order = await self._place_market_order(...)
         # With: fsm = await self._place_market_order_with_fsm(...)
         fsm, order_dict = await self._place_market_order_with_fsm(
@@ -52,12 +52,12 @@ class LiveExecutorOrderFSM:
     ) -> tuple[OrderFSM, dict[str, Any]]:
         """
         Place a market order and track via FSM.
-        
+
         Replaces _place_market_order polling loop with state machine.
-        
+
         Returns:
             (OrderFSM, final_order_dict from exchange)
-        
+
         Raises:
             asyncio.TimeoutError: Order confirmation timeout
             ccxt.ExchangeError: Permanent exchange error

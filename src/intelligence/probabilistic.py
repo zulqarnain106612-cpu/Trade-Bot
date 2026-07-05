@@ -12,13 +12,13 @@ Authority:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Callable
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm, binom, beta, gamma
-from scipy.special import expit  # Logistic function
 import structlog
+from scipy.special import expit  # Logistic function
+from scipy.stats import beta, norm
+
 
 log = structlog.get_logger(__name__)
 
@@ -27,32 +27,32 @@ log = structlog.get_logger(__name__)
 class ProbabilisticPrediction:
     """
     Complete prediction with uncertainty quantification.
-    
+
     Instead of: prediction = 0.75
     We output: prediction = 0.75, credible_interval = [0.62, 0.88], confidence = 0.82
     """
-    
+
     point_estimate: float                      # Expected value (posterior mean)
     lower_credible_interval: float             # 2.5th percentile
     upper_credible_interval: float             # 97.5th percentile
-    posterior_samples: Optional[np.ndarray] = None  # Full distribution
+    posterior_samples: np.ndarray | None = None  # Full distribution
     model_uncertainty: float = 0.0             # From ensemble disagreement
     aleatoric_uncertainty: float = 0.0         # Irreducible noise
     epistemic_uncertainty: float = 0.0         # Reducible (learnable)
     confidence: float = 0.0                    # 0-1, how certain are we?
-    
+
     @property
     def credible_interval_width(self) -> float:
         """Width of 95% credible interval."""
         return self.upper_credible_interval - self.lower_credible_interval
-    
+
     @property
     def is_confident(self) -> bool:
         """Is uncertainty small relative to estimate? (< 20% of estimate)."""
         if abs(self.point_estimate) < 0.01:
             return False
         return self.credible_interval_width < 0.2 * abs(self.point_estimate)
-    
+
     def decision_weight(self) -> float:
         """
         Weight estimate by confidence for decision-making.
@@ -67,7 +67,7 @@ class RiskAssessment:
     """
     Complete risk picture (no assumptions hidden).
     """
-    
+
     value_at_risk_95: float                    # 95% VaR (worst 5%)
     conditional_var_95: float                  # Expected loss in tail
     probability_of_drawdown_gt_20pct: float    # P(DD > 20%)
@@ -81,14 +81,14 @@ class RiskAssessment:
 class BayesianExchangeStressModel:
     """
     Probabilistic alternative to Gate 7 (deterministic stress > 0.75).
-    
+
     Model: P(exchange_failure | observed_indicators)
-    
+
     Training data: Historical crises (Celsius, Luna, FTX, etc.)
     Inputs: netflow_zscore, funding_rate, basis_spread, reserve_ratio
     Output: Probability of exchange failure in next 24h
     """
-    
+
     def __init__(self):
         """
         Initialize with weakly informative priors.
@@ -97,7 +97,7 @@ class BayesianExchangeStressModel:
         # Prior: 5% baseline probability of major exchange issue
         # (Based on crypto history: ~5 crises/year across all exchanges)
         self.prior_probability = 0.05
-        
+
         # Likelihood: How much do indicators increase probability?
         # E.g., netflow_zscore=-3.0 (extreme outflows) multiplies prob by 10x
         self.indicator_weights = {
@@ -106,7 +106,7 @@ class BayesianExchangeStressModel:
             "basis_spread": {"slope": 0.01, "intercept": 0.0},    # Wider spread = fragmentation
             "reserve_ratio": {"slope": -3.0, "intercept": 0.5},   # Lower reserves = riskier
         }
-    
+
     def predict_failure_probability(
         self,
         netflow_zscore: float,
@@ -116,40 +116,40 @@ class BayesianExchangeStressModel:
     ) -> ProbabilisticPrediction:
         """
         P(exchange_failure | indicators) using Bayesian logistic regression.
-        
+
         Args:
             netflow_zscore: Z-score of exchange netflow (negative = sellers leaving)
             funding_rate: Binance funding rate in %
             basis_spread: Binance/OKX price difference in bps
             reserve_ratio: Exchange reserves / total market cap
-        
+
         Returns:
             ProbabilisticPrediction with P(failure), credible interval, confidence
         """
-        
+
         # Logit (log-odds) of failure
         # logit(p) = log(p / (1-p))
         logit_failure = self._compute_logit(
             netflow_zscore, funding_rate, basis_spread, reserve_ratio
         )
-        
+
         # CROMWELL'S RULE: Clip logit (not probability) before transforming.
         # A Bayesian model must never assign literal certainty (P=0 or P=1) --
         # doing so means no amount of contrary evidence could ever update the belief.
         # Clipping logit to [-8, 8] bounds P to [0.00034, 0.99966], preserving
         # monotonic ordering while keeping the estimate falsifiable.
         logit_failure = float(np.clip(logit_failure, -8.0, 8.0))
-        
+
         # Convert back to probability via logistic function
         # P = 1 / (1 + exp(-logit))
         prob_failure = expit(logit_failure)  # Logistic(logit) = probability
-        
+
         # Uncertainty via credible interval
         # Bootstrap resampling to account for estimation uncertainty
         ci_lower, ci_upper = self._compute_credible_interval(
             netflow_zscore, funding_rate, basis_spread, reserve_ratio
         )
-        
+
         # Confidence: derived from credible-interval width, not a separate
         # ad-hoc function of inputs. This is the principled approach --
         # confidence and the interval must agree with each other by
@@ -160,14 +160,14 @@ class BayesianExchangeStressModel:
         # estimate has CI width -> 0. confidence = 1 - normalized_width.
         ci_width = ci_upper - ci_lower
         confidence = float(np.clip(1.0 - ci_width, 0.02, 0.98))
-        
+
         log.info(
             "exchange_failure_probability",
             prob=prob_failure,
             ci=[ci_lower, ci_upper],
             confidence=confidence,
         )
-        
+
         return ProbabilisticPrediction(
             point_estimate=prob_failure,
             lower_credible_interval=ci_lower,
@@ -175,27 +175,27 @@ class BayesianExchangeStressModel:
             confidence=confidence,
             epistemic_uncertainty=(ci_upper - ci_lower) / 2 / 1.96,
         )
-    
+
     def _compute_logit(
         self, netflow: float, funding: float, basis: float, reserve: float
     ) -> float:
         """Logit of failure probability from indicators."""
         logit = np.log(self.prior_probability / (1 - self.prior_probability))
-        
+
         # Each indicator adds to logit
         logit += netflow * self.indicator_weights["netflow_zscore"]["slope"]
         logit += funding * self.indicator_weights["funding_rate"]["slope"]
         logit += basis * self.indicator_weights["basis_spread"]["slope"]
         logit += reserve * self.indicator_weights["reserve_ratio"]["slope"]
-        
+
         return logit
-    
+
     def _compute_credible_interval(
         self, netflow: float, funding: float, basis: float, reserve: float
     ) -> tuple[float, float]:
         """
         Bayesian credible interval via Beta-distribution approximation.
-        
+
         WHY BETA, NOT NORMAL (Wald) INTERVALS:
         A symmetric normal interval (prob +/- z*se) is the standard textbook
         mistake for bounding a probability: it has poor coverage near 0/1
@@ -205,7 +205,7 @@ class BayesianExchangeStressModel:
         we are removing. The Beta distribution is the conjugate distribution
         for probabilities and is continuous on the OPEN interval (0,1) by
         construction -- no clipping needed, no boundary pathology.
-        
+
         EFFECTIVE SAMPLE SIZE (n_eff): the interval width is controlled by
         how much relevant historical evidence informs this region of
         indicator-space. We do NOT assume uniform confidence everywhere.
@@ -219,72 +219,72 @@ class BayesianExchangeStressModel:
         logit = self._compute_logit(netflow, funding, basis, reserve)
         logit = float(np.clip(logit, -8.0, 8.0))  # Cromwell's rule, see predict_failure_probability
         prob = float(expit(logit))
-        
+
         # How far is this input from the "normal/calibrated" region?
         # Each term normalized by a scale roughly matching observed historical
         # crisis magnitudes (documented in CRYPTO_INTELLIGENCE_INTEGRATION_SPEC.md).
         extremity = abs(netflow) / 3.0 + funding / 0.15 + (basis / 150.0) + abs(reserve - 0.35) / 0.35
-        
+
         # Baseline effective sample size ~ number of historical crisis/non-crisis
         # episodes the prior was informed by. Floors at 3 (always some irreducible
         # uncertainty; never claim near-infinite effective evidence).
         base_n_eff = 25.0
         n_eff = max(3.0, base_n_eff / (1.0 + extremity))
-        
+
         alpha = max(prob * n_eff, 0.5)
         beta_param = max((1.0 - prob) * n_eff, 0.5)
-        
+
         ci_lower = float(beta.ppf(0.025, alpha, beta_param))
         ci_upper = float(beta.ppf(0.975, alpha, beta_param))
-        
+
         return ci_lower, ci_upper
 
 
 class BayesianWhaleActivityModel:
     """
     Probabilistic whale signal with uncertainty and causal effect.
-    
+
     Old: IF whale_ratio > 3.0 THEN signal is "strong buy"
     New: whale_ratio=3.0 → P(true_ratio > 2.5) = 65%, expected_impact = +1.2% vol reduction
     """
-    
+
     def __init__(self):
         # Prior: Based on historical whale trading, ratio ~ 1.5 on average
         self.prior_mean = 1.5
         self.prior_std = 0.4
-    
+
     def estimate_true_ratio(
         self,
         observed_ratio: float,
         sample_size: int,  # Number of whale transactions observed
-        prior_mean: Optional[float] = None,
+        prior_mean: float | None = None,
     ) -> ProbabilisticPrediction:
         """
         Estimate TRUE whale ratio, accounting for sampling variability.
-        
+
         Small sample (n=10) → huge credible interval
         Large sample (n=1000) → tight credible interval
-        
+
         Combines prior belief with observed data (Bayesian update).
         """
         prior_mean = prior_mean or self.prior_mean
-        
+
         # Bayesian update: posterior = weighted average of prior + likelihood
         # Weight by sample size (large n → data dominates)
         posterior_mean = (
             (prior_mean * 10) +  # Prior: effective sample size = 10
             (observed_ratio * sample_size)
         ) / (10 + sample_size)
-        
+
         # Posterior uncertainty decreases with sample size
         # SE = prior_std / sqrt(1 + sample_size / prior_effective_size)
         posterior_std = self.prior_std / np.sqrt(1 + sample_size / 10)
-        
+
         ci_lower = norm.ppf(0.025, posterior_mean, posterior_std)
         ci_upper = norm.ppf(0.975, posterior_mean, posterior_std)
-        
+
         confidence = 1 - np.exp(-sample_size / 100)  # Confidence grows with n
-        
+
         log.info(
             "whale_ratio_estimated",
             observed=observed_ratio,
@@ -292,7 +292,7 @@ class BayesianWhaleActivityModel:
             sample_size=sample_size,
             confidence=confidence,
         )
-        
+
         return ProbabilisticPrediction(
             point_estimate=posterior_mean,
             lower_credible_interval=ci_lower,
@@ -300,7 +300,7 @@ class BayesianWhaleActivityModel:
             confidence=confidence,
             epistemic_uncertainty=posterior_std,
         )
-    
+
     def estimate_market_impact(
         self,
         whale_ratio: float,
@@ -308,7 +308,7 @@ class BayesianWhaleActivityModel:
     ) -> dict:
         """
         Causal effect: Does whale buying actually reduce volatility?
-        
+
         Different effects by regime (CATE: Conditional Average Treatment Effect).
         """
         # Effect sizes calibrated on backtesting (whale trading data)
@@ -317,10 +317,10 @@ class BayesianWhaleActivityModel:
             "bear": {"impact": -0.005, "std": 0.012},     # -0.5% vol in bear (less effective)
             "neutral": {"impact": -0.012, "std": 0.010},  # -1.2% vol neutral
         }
-        
+
         effect = regime_effects[market_regime]["impact"] * whale_ratio
         std = regime_effects[market_regime]["std"]
-        
+
         return {
             "causal_effect": effect,  # Volatility reduction from whale buying
             "effect_ci_lower": effect - 1.96 * std,
@@ -332,11 +332,11 @@ class BayesianWhaleActivityModel:
 class BayesianRegimeDetection:
     """
     Probabilistic regime identification (replaces hard Gate 6 logic).
-    
+
     Old: IF btc_dominance_zscore > 2.0 THEN regime_shift
     New: P(regime=bull | data) = 0.78, P(regime=bear | data) = 0.15, P(regime=neutral | data) = 0.07
     """
-    
+
     def detect_regime(
         self,
         returns_series: pd.Series,  # Recent returns (30-90 days)
@@ -348,7 +348,7 @@ class BayesianRegimeDetection:
         Posterior probability of each regime via an ORDERED LOGISTIC
         (proportional-odds) model over a continuous latent "bullishness"
         score -- NOT hard if/elif thresholds.
-        
+
         WHY: the original if/elif/else scoring produced literal 0.0
         probabilities and literal 1.0 confidence whenever indicators sat
         on one side of an arbitrary cutoff. That is a Cromwell's-rule
@@ -359,9 +359,9 @@ class BayesianRegimeDetection:
         outcome (bear < neutral < bull): it is smooth, monotonic in each
         indicator, and -- combined with a small Dirichlet smoothing term
         below -- structurally cannot output an exact 0 or 1.
-        
+
         Returns:
-            {"bull": 0.65, "neutral": 0.25, "bear": 0.10, 
+            {"bull": 0.65, "neutral": 0.25, "bear": 0.10,
              "most_likely": "bull", "confidence": 0.65}
         """
         # NOTE: we deliberately do NOT use "mean_return * 252" (naive
@@ -387,7 +387,7 @@ class BayesianRegimeDetection:
             t_stat = daily_mean / standard_error if standard_error > 0 and np.isfinite(standard_error) else 0.0
         else:
             t_stat = 0.0
-        
+
         # Standardize each indicator onto a comparable scale and combine into
         # a single latent "bullishness" score Z. Relative weights (0.4/0.3/
         # 0.2/0.1) match the indicator importances from the original design,
@@ -399,21 +399,21 @@ class BayesianRegimeDetection:
         z_dominance = (btc_dominance - 47.5) / 10.0  # 47.5 ~ historical BTC.D midpoint
         z_network = network_activity_zscore
         z_liquidation = -liquidation_pressure_zscore  # high liquidation pressure -> bearish
-        
+
         Z = 0.4 * z_return + 0.3 * z_dominance + 0.2 * z_network + 0.1 * z_liquidation
-        
+
         # Cutpoints separating bear|neutral|bull on the Z scale, calibrated
         # so that Z=0 (perfectly neutral indicators) gives roughly equal
         # probability mass to all three regimes.
         c1, c2 = -0.55, 0.55
-        
+
         p_le_bear = expit(c1 - Z)      # P(regime <= bear)
         p_le_neutral = expit(c2 - Z)   # P(regime <= neutral)
-        
+
         p_bear = p_le_bear
         p_neutral = max(p_le_neutral - p_le_bear, 0.0)
         p_bull = max(1.0 - p_le_neutral, 0.0)
-        
+
         # Dirichlet smoothing: every regime keeps a minimum floor of
         # plausibility. This is the multi-class analogue of clipping the
         # logit in the exchange-stress model above -- it ensures the model
@@ -422,21 +422,21 @@ class BayesianRegimeDetection:
         smoothing = 0.02
         raw = np.array([p_bear, p_neutral, p_bull]) + smoothing
         raw = raw / raw.sum()
-        
+
         regime_probs = {"bear": float(raw[0]), "neutral": float(raw[1]), "bull": float(raw[2])}
-        
+
         most_likely = max(regime_probs, key=regime_probs.get)
         # Cap confidence below 1.0 -- structurally guaranteed by smoothing above,
         # but clip defensively in case smoothing parameters are tuned later.
         confidence = float(np.clip(regime_probs[most_likely], 0.0, 0.98))
-        
+
         log.info(
             "regime_detected",
             probabilities=regime_probs,
             most_likely=most_likely,
             confidence=confidence,
         )
-        
+
         return {
             "probabilities": regime_probs,
             "most_likely_regime": most_likely,

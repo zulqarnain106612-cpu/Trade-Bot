@@ -38,13 +38,13 @@ Authority:
 from __future__ import annotations
 
 import asyncio
-import math
 import statistics
 import time
 from typing import Final
 
 import ccxt.async_support as ccxt
 import structlog
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -398,7 +398,7 @@ class BinanceIntelligenceProvider:
         if total_vol < 1e-9 or taker_buy_vol == 0.0:
             return 1.0
 
-        taker_buy_ratio = taker_buy_vol / total_vol  # [0, 1]
+        taker_buy_vol / total_vol  # [0, 1]
         sell_vol = total_vol - taker_buy_vol
         # Ratio convention: buy / sell (>1 = net buy, <1 = net sell)
         ratio = taker_buy_vol / sell_vol if sell_vol > 1e-9 else 10.0

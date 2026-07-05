@@ -26,6 +26,7 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BLOCKCHAIN_STATS_URL: Final[str] = "https://blockchain.info/stats?format=json"

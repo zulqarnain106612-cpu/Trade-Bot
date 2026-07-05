@@ -30,7 +30,7 @@ Authority:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -38,6 +38,7 @@ from src.intelligence.probabilistic import (
     BayesianExchangeStressModel,
     BayesianWhaleActivityModel,
 )
+
 
 log = structlog.get_logger(__name__)
 
@@ -59,13 +60,13 @@ class ProbabilisticGateInputs:
     the existing gate fail-open logic (``if exchange_stress_score is None:
     return GateResult.pass_gate()``) handles correctly without changes.
     """
-    exchange_stress_score: Optional[float]    # Bayesian P(exchange failure)
-    whale_buy_sell_ratio: Optional[float]     # Bayesian estimate of true ratio
+    exchange_stress_score: float | None    # Bayesian P(exchange failure)
+    whale_buy_sell_ratio: float | None     # Bayesian estimate of true ratio
     # Metadata — not consumed by gates but useful for logging/monitoring.
     exchange_stress_confidence: float = 0.0
     whale_ratio_confidence: float = 0.0
-    raw_stress_score: Optional[float] = None  # Pre-Bayesian deterministic score
-    raw_whale_ratio: Optional[float] = None
+    raw_stress_score: float | None = None  # Pre-Bayesian deterministic score
+    raw_whale_ratio: float | None = None
 
 
 class ProbabilisticMetricsAdapter:

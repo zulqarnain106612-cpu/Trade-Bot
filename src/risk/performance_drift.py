@@ -46,7 +46,7 @@ _MIN_LIVE_TRADES: Final[int] = 30
 class PerformanceBaseline:
     """
     Training-time performance baseline — set once during model training.
-    
+
     Attributes:
         train_sharpe: In-sample Sharpe ratio from backtest
         oos_sharpe: Out-of-sample Sharpe ratio (walk-forward validation)
@@ -93,7 +93,7 @@ class DriftDetected:
 class PerformanceDriftDetector:
     """
     Monitors live trading performance vs training baseline.
-    
+
     Maintains rolling window of live P&L and trade results.
     Detects degradation in Sharpe, accuracy, win rate, max drawdown.
     """
@@ -135,7 +135,7 @@ class PerformanceDriftDetector:
     ) -> None:
         """
         Record a live trade outcome and update rolling stats.
-        
+
         Args:
             pnl_usd: Trade P&L in USD (can be negative)
             predicted_prob: Model prediction probability [0, 1]
@@ -175,7 +175,7 @@ class PerformanceDriftDetector:
     def check_drift(self) -> DriftDetected:
         """
         Check if performance has drifted beyond acceptable thresholds.
-        
+
         Returns:
             DriftDetected with details on what drifted (if anything)
         """

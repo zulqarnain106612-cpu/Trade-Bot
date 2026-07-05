@@ -10334,7 +10334,7 @@
   },
   "src/api/metrics.py": {
     "purpose": "Prometheus metrics for Trade Bot \u2014 TASK-007.\n\nExposes GET /metrics in Prometheus text format.\nMetric",
-    "lines": 186,
+    "lines": 187,
     "classes": [],
     "key_functions": [
       "update_metrics",
@@ -10439,7 +10439,7 @@
   },
   "src/diagnostics/runtime_monitor.py": {
     "purpose": "Runtime Monitor \u2014 continuous async health diagnostics with auto-healing.\n\nResponsibilities:\n  - Poll",
-    "lines": 308,
+    "lines": 307,
     "classes": [
       "ProbeResult",
       "HealthSnapshot",
@@ -10503,17 +10503,17 @@
     "key_functions": [],
     "constants": [],
     "imports_from": [
+      "src.api.metrics",
       "src.config",
       "src.data.fetcher",
       "src.data.storage",
       "src.diagnostics.runtime_monitor",
-      "src.diagnostics.signal_debugger",
-      "src.engine.signal_engine"
+      "src.diagnostics.signal_debugger"
     ]
   },
   "src/engine/signal_engine.py": {
     "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.\n\nOn every tick for a given (symbol, timef",
-    "lines": 729,
+    "lines": 732,
     "classes": [
       "SignalResult",
       "SignalEngine"
@@ -10528,7 +10528,7 @@
       "src.data.storage",
       "src.diagnostics.signal_debugger",
       "src.diagnostics.trade_auditor",
-      "src.strategies.position_sizing"
+      "src.intelligence.probabilistic_adapter"
     ]
   },
   "src/execution/__init__.py": {
@@ -10655,7 +10655,7 @@
   },
   "src/features/pipeline.py": {
     "purpose": "Feature engineering pipeline.\n\nImplements every feature from the signal architecture spec:\n  1. Frac",
-    "lines": 999,
+    "lines": 1000,
     "classes": [
       "TripleBarrierResult",
       "FeatureMatrix"
@@ -10679,7 +10679,7 @@
   },
   "src/intelligence/__init__.py": {
     "purpose": "Crypto intelligence layer \u2014 on-chain metrics, exchange flows, whale tracking.\n\nProviders:\n  - Glassn",
-    "lines": 18,
+    "lines": 19,
     "classes": [],
     "key_functions": [],
     "constants": [],
@@ -10690,7 +10690,7 @@
   },
   "src/intelligence/causal_inference.py": {
     "purpose": "Causal inference framework.\n\nAnswer causal questions, not just correlations:\n- Does whale selling CA",
-    "lines": 469,
+    "lines": 466,
     "classes": [
       "CausalEffect",
       "CausalDAG",
@@ -10702,7 +10702,7 @@
   },
   "src/intelligence/client.py": {
     "purpose": "Multi-provider intelligence client aggregator.\n\nResponsibilities:\n  - Manage credentials for all pro",
-    "lines": 670,
+    "lines": 671,
     "classes": [
       "CacheEntry",
       "IntelligenceAggregator"
@@ -10717,7 +10717,7 @@
   },
   "src/intelligence/ensemble_predictor.py": {
     "purpose": "Ensemble prediction framework.\n\nReduce model risk by combining diverse prediction techniques.\nOutput",
-    "lines": 654,
+    "lines": 650,
     "classes": [
       "EnsemblePrediction",
       "PredictionModel",
@@ -10735,7 +10735,7 @@
   },
   "src/intelligence/metrics.py": {
     "purpose": "Intelligence metrics computation layer.\n\nTransforms raw provider data into trading-ready features:\n ",
-    "lines": 284,
+    "lines": 283,
     "classes": [
       "IntelligenceMetrics",
       "IntelligenceAnalyzer"
@@ -10760,7 +10760,7 @@
   },
   "src/intelligence/probabilistic_adapter.py": {
     "purpose": "ProbabilisticMetricsAdapter\n===========================\nWraps BinanceIntelligenceProvider (or any pr",
-    "lines": 199,
+    "lines": 200,
     "classes": [
       "ProbabilisticGateInputs",
       "ProbabilisticMetricsAdapter"
@@ -10781,7 +10781,7 @@
   },
   "src/intelligence/providers/aggregator.py": {
     "purpose": "Multi-provider intelligence aggregator.\n\nMerges outputs from all configured ExchangeIntelligenceProv",
-    "lines": 282,
+    "lines": 288,
     "classes": [
       "MultiProviderIntelligenceAggregator"
     ],
@@ -10792,9 +10792,9 @@
     "imports_from": [
       "src.intelligence.providers.base",
       "src.intelligence.providers.binance_provider",
-      "src.intelligence.providers.okx_provider",
+      "src.intelligence.providers.blockchain_provider",
       "src.intelligence.providers.coingecko_provider",
-      "src.intelligence.providers.blockchain_provider"
+      "src.intelligence.providers.okx_provider"
     ]
   },
   "src/intelligence/providers/base.py": {
@@ -10821,7 +10821,7 @@
   },
   "src/intelligence/providers/blockchain_provider.py": {
     "purpose": "Blockchain.info free public REST provider for network activity metrics.\n\nCovers on-chain network hea",
-    "lines": 198,
+    "lines": 199,
     "classes": [
       "BlockchainIntelligenceProvider"
     ],
@@ -10835,7 +10835,7 @@
   },
   "src/intelligence/providers/coingecko_provider.py": {
     "purpose": "CoinGecko free public REST provider for macro intelligence metrics.\n\nCovers cross-market metrics tha",
-    "lines": 189,
+    "lines": 190,
     "classes": [
       "CoinGeckoIntelligenceProvider"
     ],
@@ -10849,7 +10849,7 @@
   },
   "src/intelligence/providers/okx_provider.py": {
     "purpose": "OKX public REST provider for intelligence metrics.\n\nAll endpoints used here are unauthenticated OKX ",
-    "lines": 382,
+    "lines": 383,
     "classes": [
       "OKXIntelligenceProvider"
     ],
@@ -10863,7 +10863,7 @@
   },
   "src/intelligence/risk_quantification.py": {
     "purpose": "Risk quantification and uncertainty analysis.\n\nMeasures: VaR, CVaR, stress testing, uncertainty deco",
-    "lines": 402,
+    "lines": 401,
     "classes": [
       "RiskMetrics",
       "RiskQuantifier"

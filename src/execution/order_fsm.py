@@ -54,7 +54,7 @@ class OrderFSMError(Exception):
 class OrderFSMState:
     """
     Order state snapshot — serializable, resumable.
-    
+
     Attributes:
         order_id: Exchange order ID (ccxt format)
         symbol: Trading pair (e.g., 'BTC/USDT')
@@ -130,7 +130,7 @@ class OrderFSMState:
 class OrderFSM:
     """
     Finite State Machine for order lifecycle.
-    
+
     Rules:
       - Only valid transitions allowed (guarded)
       - Terminal states are immutable
@@ -162,7 +162,7 @@ class OrderFSM:
     def transition(self, next_status: OrderStatus, context: dict[str, Any] | None = None) -> None:
         """
         Attempt transition to next_status.
-        
+
         Args:
             next_status: Target OrderStatus
             context: Optional dict with:
@@ -170,7 +170,7 @@ class OrderFSM:
                 - average_price: Updated average fill price
                 - exchange_response: Latest order dict from exchange
                 - error: Error message (for FAILED)
-        
+
         Raises:
             OrderFSMError: If transition is invalid or state is already terminal
         """
@@ -211,11 +211,11 @@ class OrderFSM:
         """
         Record a partial fill and update average fill price.
         Only valid when in FILLING state.
-        
+
         Args:
             qty: Filled quantity
             price: Fill price
-        
+
         Raises:
             OrderFSMError: If not in FILLING state
         """

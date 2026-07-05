@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-05T18:23:25.061566",
+  "last_updated": "2026-07-05T18:38:46.140772",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 32,
   "commit_log": [
-    {
-      "hash": "722daad",
-      "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-      "time": "2026-07-04T06:47:29.174726",
-      "author": "Claude"
-    },
     {
       "hash": "6ce610a",
       "message": "docs(intel): auto-sync after changes to src/intelligence/providers/base.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "time": "2026-07-05T18:23:25.143535",
       "author": "Claude"
+    },
+    {
+      "hash": "8bbfcd8",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+      "time": "2026-07-05T18:38:46.326192",
+      "author": "Claude"
     }
   ],
-  "last_commit": "d3eeb29",
-  "last_commit_message": "docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
-  "last_commit_time": "2026-07-05T18:23:25.143580",
+  "last_commit": "8bbfcd8",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
+  "last_commit_time": "2026-07-05T18:38:46.326242",
   "coverage_pct": 62,
   "last_session_start": "2026-07-05T18:18:05.239483",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-05T18:22:57.163475",
-  "last_extraction_trigger": "test_intelligence_providers.py",
+  "last_extraction": "2026-07-05T18:38:45.582287",
+  "last_extraction_trigger": "binance_provider.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-04 23:29:56] TASK-010 complete: wired live spread_bps+funding_rate_8h into SignalContext. Restructured co-fetch into phase-1 (ob+funding, always runs) + phase-2 (intel aggregator, isolated failure). Fixed BinanceIntelligenceProvider missing exchange_id. Fixed test _fm() to use FEATURE_COLUMNS so regime detector path is exercised. All 16 signal_engine tests pass, 830 total pass.",
-      "[2026-07-04 23:30:06] [ee2b00d] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-04 23:30:07] [13a89bd] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
       "[2026-07-04 23:35:49] [3e82d8b] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
       "[2026-07-04 23:35:50] [062e889] docs(intel): auto-sync after changes to scripts/backfill_intelligence.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-05 18:22:57] [2ef8c5d] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
       "[2026-07-05 18:22:58] [cb7691c] docs(intel): auto-sync after changes to tests/test_intelligence_providers.py [claude]",
       "[2026-07-05 18:23:24] Fixed 2 pre-existing test_intelligence_providers failures (OKX cache test patched at network level; bars n=120->220). GAP-016: .claude/CLAUDE.md now single-line redirect. 36/36 intel provider tests pass.",
-      "[2026-07-05 18:23:25] [d3eeb29] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]"
+      "[2026-07-05 18:23:25] [d3eeb29] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-07-05 18:23:25] [89dc326] docs(intel): update .project-intel/HANDOFF.md (+2 files) [claude]",
+      "[2026-07-05 18:38:46] [8bbfcd8] docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-05 18:23:25",
+    "last_checkpoint": "2026-07-05 18:38:46",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -293,7 +293,21 @@
       "tests/test_intelligence_providers.py",
       "src/intelligence/providers/binance_provider.py",
       ".claude/CLAUDE.md",
-      ".project-intel/GAPS.md"
+      ".project-intel/GAPS.md",
+      "src/diagnostics/runtime_monitor.py",
+      "src/execution/live_fsm_integration.py",
+      "src/execution/order_fsm.py",
+      "src/features/intelligence_features.py",
+      "src/intelligence/__init__.py",
+      "src/intelligence/causal_inference.py",
+      "src/intelligence/client.py",
+      "src/intelligence/ensemble_predictor.py",
+      "src/intelligence/metrics.py",
+      "src/intelligence/probabilistic.py",
+      "src/risk/drift_integration.py",
+      "src/risk/gates.py",
+      "src/risk/performance_drift.py",
+      "src/risk/portfolio_correlation.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",

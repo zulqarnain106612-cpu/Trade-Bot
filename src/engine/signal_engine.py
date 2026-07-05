@@ -38,9 +38,12 @@ from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
-from src.strategies.position_sizing import recommend_position_notional, estimate_daily_vol
-from src.intelligence.providers.aggregator import get_multi_provider_aggregator as _get_intel_aggregator
 from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
+from src.intelligence.providers.aggregator import (
+    get_multi_provider_aggregator as _get_intel_aggregator,
+)
+from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
+
 
 # Module-level adapter singleton -- stateless, safe to reuse across ticks.
 _PROB_ADAPTER = _ProbAdapter()

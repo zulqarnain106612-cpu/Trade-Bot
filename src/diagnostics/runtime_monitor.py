@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 import structlog
+import contextlib
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -132,10 +133,8 @@ class RuntimeMonitor:
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         log.info("runtime_monitor.stopped")
 
     def get_snapshot(self) -> HealthSnapshot | None:

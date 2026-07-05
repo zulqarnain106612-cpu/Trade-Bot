@@ -910,18 +910,18 @@ async def get_order_status(
 ) -> dict[str, Any]:
     """
     Get order FSM state for reconciliation.
-    
+
     Useful for debugging unconfirmed orders or recovering from network
     failures. Returns the order's state machine snapshot including:
       - Current status (PENDING, FILLING, FILLED, etc.)
       - Filled quantity and average fill price
       - Retry count and last error
       - Exchange response snapshot
-    
+
     Parameters
     ----------
     order_id : Exchange order ID
-    
+
     Returns
     -------
     Order FSM state snapshot (serialized)
@@ -965,10 +965,10 @@ async def get_order_status(
 async def get_performance_drift() -> dict[str, Any]:
     """
     Get current performance drift status.
-    
+
     Monitors model degradation in live trading. Compares live performance
     metrics (Sharpe, accuracy, win rate, max DD) against training baseline.
-    
+
     Returns
     -------
     {

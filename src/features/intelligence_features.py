@@ -21,12 +21,12 @@ Authority: Glassnode/CryptoQuant APIs, AFML architecture
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import pandas as pd
 import structlog
 
 from src.intelligence.metrics import IntelligenceMetrics
+
 
 log = structlog.get_logger(__name__)
 
@@ -138,9 +138,9 @@ class IntelligenceFeatureMatrix:
     """
 
     X: pd.DataFrame                      # Shape (n_samples, 24)
-    y_direction: Optional[pd.Series] = None  # Direction labels (if training)
-    y_meta: Optional[pd.Series] = None       # Meta-labels (if training)
-    intelligence_metrics: Optional[IntelligenceMetrics] = None
+    y_direction: pd.Series | None = None  # Direction labels (if training)
+    y_meta: pd.Series | None = None       # Meta-labels (if training)
+    intelligence_metrics: IntelligenceMetrics | None = None
 
     @property
     def feature_count(self) -> int:

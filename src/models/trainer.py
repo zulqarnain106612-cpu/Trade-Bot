@@ -42,7 +42,6 @@ from xgboost import XGBClassifier
 from src.config import FeatureSettings, XGBoostSettings, get_settings
 from src.data.storage import ModelMetricsRecord
 from src.features.pipeline import (
-    FEATURE_COLUMNS,
     BASE_FEATURE_COLUMNS,
     FeatureMatrix,
     get_active_feature_columns,

@@ -13,12 +13,12 @@ Authority: López de Prado (2018) AFML, Cont et al. flow analysis
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Optional
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
 import structlog
+
 
 log = structlog.get_logger(__name__)
 
@@ -101,7 +101,7 @@ class IntelligenceAnalyzer:
 
     def __init__(
         self,
-        historical_data: Optional[pd.DataFrame] = None,
+        historical_data: pd.DataFrame | None = None,
         rolling_window_days: int = 30,
     ):
         """Initialize analyzer.
@@ -119,7 +119,7 @@ class IntelligenceAnalyzer:
         exchange_netflow: dict,           # From Glassnode
         whale_activity: dict,             # From Glassnode
         funding_rate: dict,               # From CryptoQuant
-        macro_regime: Optional[dict] = None,  # From macro data source
+        macro_regime: dict | None = None,  # From macro data source
     ) -> IntelligenceMetrics:
         """
         Compute full intelligence metrics from provider data.
@@ -152,10 +152,9 @@ class IntelligenceAnalyzer:
         try:
             whale_ratio = whale_activity.get("ratio", 1.0)
             # Clamp and normalize: ratio > 3 = bullish, < 0.33 = bearish
-            whale_buy_sell = np.clip(np.log(whale_ratio + 0.01) / np.log(3), -1, 1)
+            np.clip(np.log(whale_ratio + 0.01) / np.log(3), -1, 1)
         except Exception as e:
             log.warning("whale_ratio_compute_failed", error=str(e))
-            whale_buy_sell = 0.0
             missing_metrics += 1
             confidence -= self._missing_data_penalty
 
@@ -225,7 +224,7 @@ class IntelligenceAnalyzer:
         self,
         value: float,
         metric_name: str,
-        window_days: Optional[int] = None,
+        window_days: int | None = None,
     ) -> float:
         """
         Compute z-score vs historical rolling window.

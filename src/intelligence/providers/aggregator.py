@@ -37,11 +37,13 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from typing import Final, Sequence
+from collections.abc import Sequence
+from typing import Final
 
 import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -130,7 +132,7 @@ class MultiProviderIntelligenceAggregator:
             *[p.initialize() for p in self._all_providers],
             return_exceptions=True,
         )
-        for provider, result in zip(self._all_providers, results):
+        for provider, result in zip(self._all_providers, results, strict=False):
             if isinstance(result, Exception):
                 self._log.warning(
                     "aggregator.provider_init_failed",
@@ -172,7 +174,7 @@ class MultiProviderIntelligenceAggregator:
         exchange_results: list[dict[str, float]] = []
         macro_results: list[dict[str, float]] = []
 
-        for provider, result in zip(self._all_providers, all_results):
+        for provider, result in zip(self._all_providers, all_results, strict=False):
             if isinstance(result, Exception):
                 self._log.warning(
                     "aggregator.provider_fetch_failed",
@@ -198,7 +200,7 @@ class MultiProviderIntelligenceAggregator:
                     weights.append(r.get("confidence", 0.5))
             if values and weights:
                 total_w = sum(weights)
-                merged[field] = sum(v * w for v, w in zip(values, weights)) / total_w
+                merged[field] = sum(v * w for v, w in zip(values, weights, strict=False)) / total_w
 
         # --- Merge cross-market fields (best-confidence macro provider) ---
         for field in _CROSS_MARKET_FIELDS:
@@ -265,9 +267,13 @@ def get_multi_provider_aggregator(
     global _aggregator
     if _aggregator is None:
         from src.intelligence.providers.binance_provider import get_binance_intelligence_provider
+        from src.intelligence.providers.blockchain_provider import (
+            get_blockchain_intelligence_provider,
+        )
+        from src.intelligence.providers.coingecko_provider import (
+            get_coingecko_intelligence_provider,
+        )
         from src.intelligence.providers.okx_provider import get_okx_intelligence_provider
-        from src.intelligence.providers.coingecko_provider import get_coingecko_intelligence_provider
-        from src.intelligence.providers.blockchain_provider import get_blockchain_intelligence_provider
 
         _aggregator = MultiProviderIntelligenceAggregator(
             exchange_providers=[

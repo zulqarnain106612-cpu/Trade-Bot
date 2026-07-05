@@ -25,6 +25,7 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _COINGECKO_GLOBAL_URL: Final[str] = "https://api.coingecko.com/api/v3/global"

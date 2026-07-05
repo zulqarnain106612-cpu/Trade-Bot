@@ -40,6 +40,7 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Funding history window: 90 × 8h periods = 30 days

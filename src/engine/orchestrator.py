@@ -26,6 +26,7 @@ from typing import Union
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
 
+from src.api.metrics import update_metrics
 from src.config import (
     TIMEFRAME_SECONDS,
     Timeframe,
@@ -48,9 +49,8 @@ from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
-from src.api.metrics import update_metrics
-from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
+from src.risk.portfolio_correlation import get_portfolio_correlation
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -478,7 +478,7 @@ class Orchestrator:
                 "equity_usd":     _executor.equity_usd if _executor else 0.0,
                 "open_positions": len(_executor.open_positions) if _executor else 0,
             })
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass  # metric failure must never affect trade path
 
         # Route to executor if tradeable

@@ -11,12 +11,13 @@ Responsibilities:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
 import asyncio
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
+
 
 log = structlog.get_logger(__name__)
 
@@ -54,10 +55,10 @@ class IntelligenceAggregator:
 
     def __init__(
         self,
-        glassnode_api_key: Optional[str] = None,
-        cryptoquant_api_key: Optional[str] = None,
-        cache_ttl_onchain_seconds: Optional[int] = None,
-        cache_ttl_exchange_seconds: Optional[int] = None,
+        glassnode_api_key: str | None = None,
+        cryptoquant_api_key: str | None = None,
+        cache_ttl_onchain_seconds: int | None = None,
+        cache_ttl_exchange_seconds: int | None = None,
         _settings=None,  # injected in tests; reads get_settings() if None
     ) -> None:
         from src.config import get_settings
@@ -84,7 +85,7 @@ class IntelligenceAggregator:
     async def get_exchange_netflow(
         self,
         symbol: str = "BTC",
-        exchange: Optional[str] = None,  # None = aggregate all
+        exchange: str | None = None,  # None = aggregate all
         days_back: int = 7,
     ) -> dict[str, float]:
         """
@@ -163,7 +164,7 @@ class IntelligenceAggregator:
 
     async def get_funding_rate(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
     ) -> dict[str, float]:
         """
         Fetch current funding rate (leverage indicator).
@@ -207,7 +208,7 @@ class IntelligenceAggregator:
     async def _fetch_glassnode_netflow(
         self,
         symbol: str,
-        exchange: Optional[str],
+        exchange: str | None,
         days_back: int,
     ) -> dict[str, float]:
         """
@@ -230,8 +231,8 @@ class IntelligenceAggregator:
                 "set it in .env or disable on-chain gates"
             )
 
+
         import httpx
-        from datetime import timezone
 
         now_ts = int(datetime.now(UTC).timestamp())
         since_ts = now_ts - days_back * 86_400
@@ -659,7 +660,7 @@ class IntelligenceAggregator:
             await exchange.close()
 
 
-def get_intelligence_aggregator() -> "IntelligenceAggregator":
+def get_intelligence_aggregator() -> IntelligenceAggregator:
     """
     Factory: return a fully-configured IntelligenceAggregator from settings.
 

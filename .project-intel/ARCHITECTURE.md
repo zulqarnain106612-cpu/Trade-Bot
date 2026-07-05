@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-05 18:22 | 824 Python modules | 239,208 total lines
+> Auto-generated 2026-07-05 18:38 | 824 Python modules | 239,215 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3511,7 +3511,7 @@ Security: ALL endpoints require X-API-Key header matchin
 **Classes**: AppState, ResolveApprovalRequest, SetExecutionModeRequest, SetRiskControlsRequest
 **Key functions**: api_k
 
-### `src/api/metrics.py` (186 lines)
+### `src/api/metrics.py` (187 lines)
 **Purpose**: Prometheus metrics for Trade Bot — TASK-007.
 
 Exposes GET /metrics in Prometheus
@@ -3549,7 +3549,7 @@ Schema owns fi
 ### `src/diagnostics/__init__.py` (0 lines)
 **Purpose**: __init__ module
 
-### `src/diagnostics/runtime_monitor.py` (308 lines)
+### `src/diagnostics/runtime_monitor.py` (307 lines)
 **Purpose**: Runtime Monitor — continuous async health diagnostics with auto-healing.
 
 Respon
@@ -3578,7 +3578,7 @@ Ev
 Responsi
 **Classes**: Orchestrator
 
-### `src/engine/signal_engine.py` (729 lines)
+### `src/engine/signal_engine.py` (732 lines)
 **Purpose**: Signal engine — per-timeframe signal computation pipeline.
 
 On every tick for a 
@@ -3632,26 +3632,26 @@ Extends core feature pipeline (9 features) wit
 **Classes**: IntelligenceFeatureMatrix
 **Key functions**: add_i
 
-### `src/features/pipeline.py` (999 lines)
+### `src/features/pipeline.py` (1000 lines)
 **Purpose**: Feature engineering pipeline.
 
 Implements every feature from the signal architec
 **Classes**: TripleBarrierResult, FeatureMatrix
 **Key functions**: get_a
 
-### `src/intelligence/__init__.py` (18 lines)
+### `src/intelligence/__init__.py` (19 lines)
 **Purpose**: Crypto intelligence layer — on-chain metrics, exchange flows, whale tracking.
 
 P
 
-### `src/intelligence/causal_inference.py` (469 lines)
+### `src/intelligence/causal_inference.py` (466 lines)
 **Purpose**: Causal inference framework.
 
 Answer causal questions, not just correlations:
 - D
 **Classes**: CausalEffect, CausalDAG, CausalInferenceEngine
 
-### `src/intelligence/client.py` (670 lines)
+### `src/intelligence/client.py` (671 lines)
 **Purpose**: Multi-provider intelligence client aggregator.
 
 Responsibilities:
@@ -3659,13 +3659,13 @@ Responsibilities:
 **Classes**: CacheEntry, IntelligenceAggregator
 **Key functions**: get_i
 
-### `src/intelligence/ensemble_predictor.py` (654 lines)
+### `src/intelligence/ensemble_predictor.py` (650 lines)
 **Purpose**: Ensemble prediction framework.
 
 Reduce model risk by combining diverse predictio
 **Classes**: EnsemblePrediction, PredictionModel, ARIMAPredictor, XGBoostPredictor, LSTMPredictor, GaussianProcessPredictor, TreeEnsemblePredictor, EnsemblePredictor, _LSTMNet
 
-### `src/intelligence/metrics.py` (284 lines)
+### `src/intelligence/metrics.py` (283 lines)
 **Purpose**: Intelligence metrics computation layer.
 
 Transforms raw provider data into tradi
@@ -3677,7 +3677,7 @@ Transforms raw provider data into tradi
 Replaces deterministic 
 **Classes**: ProbabilisticPrediction, RiskAssessment, BayesianExchangeStressModel, BayesianWhaleActivityModel, BayesianRegimeDetection
 
-### `src/intelligence/probabilistic_adapter.py` (199 lines)
+### `src/intelligence/probabilistic_adapter.py` (200 lines)
 **Purpose**: ProbabilisticMetricsAdapter
 ===========================
 Wraps BinanceIntelligenc
@@ -3689,7 +3689,7 @@ Wraps BinanceIntelligenc
 Each provider wraps a specific API:
   - glassnod
 
-### `src/intelligence/providers/aggregator.py` (282 lines)
+### `src/intelligence/providers/aggregator.py` (288 lines)
 **Purpose**: Multi-provider intelligence aggregator.
 
 Merges outputs from all configured Exch
@@ -3709,28 +3709,28 @@ All endpoints used here
 **Classes**: BinanceIntelligenceProvider
 **Key functions**: get_b
 
-### `src/intelligence/providers/blockchain_provider.py` (198 lines)
+### `src/intelligence/providers/blockchain_provider.py` (199 lines)
 **Purpose**: Blockchain.info free public REST provider for network activity metrics.
 
 Covers 
 **Classes**: BlockchainIntelligenceProvider
 **Key functions**: get_b
 
-### `src/intelligence/providers/coingecko_provider.py` (189 lines)
+### `src/intelligence/providers/coingecko_provider.py` (190 lines)
 **Purpose**: CoinGecko free public REST provider for macro intelligence metrics.
 
 Covers cros
 **Classes**: CoinGeckoIntelligenceProvider
 **Key functions**: get_c
 
-### `src/intelligence/providers/okx_provider.py` (382 lines)
+### `src/intelligence/providers/okx_provider.py` (383 lines)
 **Purpose**: OKX public REST provider for intelligence metrics.
 
 All endpoints used here are 
 **Classes**: OKXIntelligenceProvider
 **Key functions**: get_o
 
-### `src/intelligence/risk_quantification.py` (402 lines)
+### `src/intelligence/risk_quantification.py` (401 lines)
 **Purpose**: Risk quantification and uncertainty analysis.
 
 Measures: VaR, CVaR, stress testi

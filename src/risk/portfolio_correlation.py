@@ -27,11 +27,11 @@ Ch.11 — correlation-adjusted position sizing.
 
 from __future__ import annotations
 
-from collections import deque
+import math
 from typing import Final
 
-import math
 import structlog
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -49,7 +49,7 @@ class _EWMSeries:
         self._alpha = 1.0 - math.exp(-math.log(2) / halflife)
         self._mean: float | None = None
         self._var: float | None = None
-        self._cov_partner: dict[str, "_EWMCov"] = {}
+        self._cov_partner: dict[str, _EWMCov] = {}
         self._n = 0
 
     def update(self, value: float) -> None:
@@ -140,7 +140,7 @@ class PortfolioCorrelationTracker:
         self._series[symbol].update(ret)
 
         # Update pairwise covariances with all other symbols
-        for other, other_series in self._series.items():
+        for other in self._series:
             if other == symbol:
                 continue
             key = self._cov_key(symbol, other)
@@ -154,7 +154,7 @@ class PortfolioCorrelationTracker:
             # returns and update covariances once per bar after all symbols
             # have reported.  For now this is correct when push_return is
             # called for all symbols before the covariance is read.
-            cov_tracker = self._covs[key]
+            self._covs[key]
             # We reconstruct other's last value from its EWM mean — this is
             # approximate.  A production implementation would buffer last values.
             # However, for the purpose of computing an approximate correlation

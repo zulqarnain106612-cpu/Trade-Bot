@@ -794,7 +794,7 @@ class StorageBackend:
         timeframe: str,
         since_ts: int = 0,
         limit: int = 100_000,
-    ) -> "pd.DataFrame":
+    ) -> pd.DataFrame:
         """
         Fetch intelligence_features_history as a DataFrame aligned by bar_ts.
 

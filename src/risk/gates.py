@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import structlog
 
@@ -563,7 +564,7 @@ def evaluate_all_gates(
                 "risk.gate.blocked",
                 status=result.status.value,
                 reason=result.reason,
-                **{k: v for k, v in result.details.items()},
+                **dict(result.details.items()),
             )
             return result
 

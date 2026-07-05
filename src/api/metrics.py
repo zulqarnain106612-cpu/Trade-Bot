@@ -32,13 +32,14 @@ from __future__ import annotations
 from typing import Any
 
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
-    CONTENT_TYPE_LATEST,
 )
+
 
 # ── Singleton registry (not the default global — avoids test cross-talk) ──────
 _REGISTRY = CollectorRegistry(auto_describe=True)
@@ -169,7 +170,7 @@ def update_metrics(snapshot: dict[str, Any]) -> None:
         if (v := snapshot.get("tick_duration_seconds")) is not None:
             tick_duration_seconds.observe(float(v))
 
-    except Exception:  # noqa: BLE001
+    except Exception:
         # Metric update failure must never propagate to trade path
         import structlog
         structlog.get_logger(__name__).warning(

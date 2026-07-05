@@ -93,8 +93,9 @@ def get_active_feature_columns(
         cols = get_active_feature_columns(coverage["coverage"], min_coverage=0.6)
         # trainer then uses: X = df[cols].to_numpy()
     """
-    from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
     import structlog as _sl
+
+    from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
     _log = _sl.get_logger(__name__)
 
     if not coverage:
@@ -745,7 +746,7 @@ def build_feature_matrix(
     # (tail rows where holding window extends beyond data)
     before = len(feature_df)
     feature_df = feature_df.dropna(
-        subset=FEATURE_COLUMNS + [COL_LABEL]
+        subset=[*FEATURE_COLUMNS, COL_LABEL]
     )
     dropped = before - len(feature_df)
 
@@ -792,7 +793,7 @@ def build_inference_features(
     cfg: FeatureSettings | None = None,
     live_ofi: float | None = None,
     feature_matrix: FeatureMatrix | None = None,
-    intelligence_metrics: "dict[str, float] | None" = None,
+    intelligence_metrics: dict[str, float] | None = None,
 ) -> pd.Series | None:
     """
     Compute feature vector for the most recent bar only.
@@ -928,9 +929,9 @@ def build_inference_features(
 # ---------------------------------------------------------------------------
 
 def _inject_intelligence_features(
-    vec: "pd.Series",
-    intelligence_metrics: "dict[str, float]",
-) -> "pd.Series":
+    vec: pd.Series,
+    intelligence_metrics: dict[str, float],
+) -> pd.Series:
     """
     Append intelligence feature columns to a base feature vector.
 
@@ -952,8 +953,8 @@ def _inject_intelligence_features(
         Extended pd.Series with up to 15 additional intelligence columns.
     """
     from src.features.intelligence_features import (
-        INTELLIGENCE_FEATURE_COLUMNS,
         COL_INTELLIGENCE_CONFIDENCE,
+        INTELLIGENCE_FEATURE_COLUMNS,
     )
 
     # Build prefix mapping: "exchange_stress_score" → "intelligence_exchange_stress_score"
@@ -986,8 +987,8 @@ def _inject_intelligence_features(
     if not extras:
         return vec
 
-    import pandas as _pd
     import numpy as _np
+    import pandas as _pd
     extras_series = _pd.Series(extras, dtype=_np.float64)
     result = _pd.concat([vec, extras_series])
 

@@ -27,7 +27,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 class DriftIntegrationAdapter:
     """
     Adapter to funnel trade outcomes from executor → drift detector.
-    
+
     Records P&L, predictions, and equity snapshots after each trade closure.
     """
 
@@ -48,9 +48,9 @@ class DriftIntegrationAdapter:
     ) -> None:
         """
         Record a closed trade outcome to drift detector.
-        
+
         Called by orchestrator after executor.close_position() completes.
-        
+
         Args:
             trade_id: Trade identifier
             exit_price: Close price
@@ -90,7 +90,7 @@ class DriftIntegrationAdapter:
     def check_drift(self) -> dict[str, Any]:
         """
         Check current drift status and return metrics.
-        
+
         Returns:
             dict with keys:
               - drifted (bool): True if drift detected
