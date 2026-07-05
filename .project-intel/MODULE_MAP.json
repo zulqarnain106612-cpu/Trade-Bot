@@ -11304,6 +11304,23 @@
       "src.risk.kelly"
     ]
   },
+  "tests/test_live_executor_coverage.py": {
+    "purpose": "Coverage tests for LiveExecutor critical paths (Debt-009).\n\nUses object.__new__ to bypass TRADING_MO",
+    "lines": 185,
+    "classes": [
+      "TestInitialize",
+      "TestProperties"
+    ],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": [
+      "src.config",
+      "src.execution.live",
+      "src.risk.kelly",
+      "src.diagnostics.trade_auditor",
+      "src.execution.order_manager"
+    ]
+  },
   "tests/test_live_executor_fsm.py": {
     "purpose": "Integration tests for LiveExecutor with OrderFSM.\n\nTests that _place_market_order now uses OrderMana",
     "lines": 274,

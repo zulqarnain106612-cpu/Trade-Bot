@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-05 19:44 | 824 Python modules | 239,195 total lines
+> Auto-generated 2026-07-05 20:08 | 825 Python modules | 239,380 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3877,6 +3877,12 @@ Coverage:
 Companion 
 **Classes**: TestKellyResultPositionSizePct, TestHalfKellyFractionBoundsValidation, TestKellyFromModelProbsInvalidDirection, TestKellyFromModelProbsNonFinitePLong, TestKellyFromModelProbsNonFiniteWinLossRatio, TestSizePositionMinAmountRejection, TestSizePositionMaxPositionPctValidation, TestComputePositionSizeDefaultCfg, TestComputeWinLossStatsAllWinsOrAllLosses
 **Key functions**: cfg
+
+### `tests/test_live_executor_coverage.py` (185 lines)
+**Purpose**: Coverage tests for LiveExecutor critical paths (Debt-009).
+
+Uses object.__new__ 
+**Classes**: TestInitialize, TestProperties
 
 ### `tests/test_live_executor_fsm.py` (274 lines)
 **Purpose**: Integration tests for LiveExecutor with OrderFSM.
