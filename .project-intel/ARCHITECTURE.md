@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-05 20:34 | 825 Python modules | 239,380 total lines
+> Auto-generated 2026-07-06 01:30 | 825 Python modules | 239,395 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3954,7 +3954,7 @@ Covers:
 Tests individual gate fun
 **Classes**: TestSlippageVeto, TestDailyDrawdown, TestConsecutiveLosses, TestRegimeGate, TestPositionSize, TestGateResult, TestEvaluateAllGates
 
-### `tests/test_signal_engine.py` (484 lines)
+### `tests/test_signal_engine.py` (499 lines)
 **Purpose**: Test coverage for src/engine/signal_engine.py — Debt-005.
 
 Strategy: mock all ex

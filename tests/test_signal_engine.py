@@ -23,6 +23,21 @@ from src.risk.kelly import KellyResult
 
 
 # ---------------------------------------------------------------------------
+# Module-level autouse fixture: isolate all tests from real network calls.
+# BinanceIntelligenceProvider.exchange_id was fixed so the intel aggregator
+# no longer fails at construction — without this patch it makes live HTTP
+# calls and hangs every test that doesn't explicitly mock the aggregator.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _mock_intel_aggregator():
+    """Patch _get_intel_aggregator for every test in this module."""
+    mock_agg = AsyncMock()
+    mock_agg.fetch_metrics = AsyncMock(return_value={})
+    with patch("src.engine.signal_engine._get_intel_aggregator", return_value=mock_agg):
+        yield
+
+
+# ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
 
