@@ -11317,7 +11317,7 @@
       "src.config",
       "src.execution.live",
       "src.risk.kelly",
-      "src.diagnostics.trade_auditor",
+      "src.risk.gates",
       "src.execution.order_manager"
     ]
   },

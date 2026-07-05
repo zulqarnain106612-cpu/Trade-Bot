@@ -51,7 +51,7 @@ def _make_executor(
     import asyncio
     from collections import OrderedDict
 
-    from src.diagnostics.trade_auditor import DrawdownTracker
+    from src.risk.gates import DrawdownTracker
     from src.execution.order_manager import OrderManager
     import structlog
 
@@ -142,12 +142,12 @@ class TestProperties:
 
     def test_position_count_empty(self):
         ex = _make_executor()
-        assert ex.position_count == 0
+        assert ex.position_count() == 0
 
     def test_position_count_with_positions(self):
         ex = _make_executor()
         ex._positions["BTC/USDT"] = MagicMock()
-        assert ex.position_count == 1
+        assert ex.position_count() == 1
 
     def test_equity_usd_no_positions(self):
         ex = _make_executor(cash=80_000.0)
