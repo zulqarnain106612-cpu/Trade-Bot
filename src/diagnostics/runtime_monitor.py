@@ -5,7 +5,7 @@ Responsibilities:
   - Poll all subsystem health probes every POLL_INTERVAL_S seconds
   - Detect anomalies: memory leaks, task death, NaN equity, stalled ticks
   - Emit structured WARNING/CRITICAL logs for every failure
-  - Attempt safe auto-recovery (restart stalled tasks, flush caches)
+  - Alert only — no auto-restart (manual operator intervention required for crashed tasks)
   - Expose get_snapshot() for the /debug/health API endpoint
 
 Authority:
@@ -157,7 +157,7 @@ class RuntimeMonitor:
             log.critical(
                 "runtime_monitor.task_crashed",
                 error=str(t.exception()),
-                action="monitor_offline — restart required",
+                action="monitor_offline — alert only, manual restart required",
             )
 
     async def _run_all_probes(self) -> None:

@@ -69,11 +69,7 @@ Severity: Medium (operational/documentation mismatch — could delay
 incident response if an operator assumes auto-recovery is handling a
 crashed orchestrator task when it is not).
 File: src/diagnostics/runtime_monitor.py
-Status: OPEN — Action: either implement actual task restart (e.g. via a
-supervisor that recreates the asyncio.Task from its original coroutine
-factory) or correct the docstring/log message to say "alert only — no
-auto-restart" so operators don't have a false sense of self-healing.
-RE-VERIFIED 2026-06-29 (independent audit session): still accurate. Docstring line 8 still says "Attempt safe auto-recovery (restart stalled tasks, flush caches)"; line 161 still logs "monitor_offline — restart required"; only concrete remediation in the whole file is gc.collect() at line 246 on the memory probe. Coverage for this file is also only 26% this session, so the gap between documented and actual behavior has not been test-covered either. Still open.
+Status: RESOLVED [2026-07-05] — Docstring corrected to "Alert only — no auto-restart (manual operator intervention required for crashed tasks)"; log action updated to "monitor_offline — alert only, manual restart required". No behavioral change — documentation now matches implementation.
 ────────────────────────────────────────────────────────────
 
 ## Issue-005 [2026-06-24] — NEW
@@ -92,10 +88,7 @@ Severity: Low (comment/documentation accuracy only, not a real
 vulnerability — no exploitable path found, since the value is
 operator-controlled at build time, not attacker-controlled at runtime).
 File: frontend/src/App.jsx line 9-12
-Status: OPEN — Action: correct the comment to "build-time config
-sanity check — rejects malformed/non-http(s) VITE_API_URL values" rather
-than calling it an SSRF guard, to avoid a future auditor assuming SSRF is
-mitigated here.
+Status: RESOLVED [2026-07-05] — Comment corrected to "Build-time config sanity check: rejects malformed/non-http(s) VITE_API_URL values (operator misconfiguration guard — does NOT block internal IPs)."
 
 ## Issue-002 [2026-06-24] — CORRECTED (2026-06-24, same session)
 Original framing was imprecise. Corrected root cause, verified directly:
@@ -117,9 +110,7 @@ same tools, so this isn't the only check, but every commit reaching CI
 has already skipped the fast local gate that's supposed to catch issues
 before push).
 File: .git/hooks/ (missing pre-commit hook), .pre-commit-config.yaml
-Status: OPEN — Action: run `pre-commit install` once in this clone (and
-document it in README/setup script as a required setup step — checked
-setup_dev.ps1 does not currently call it either, see follow-up).
+Status: RESOLVED [2026-07-05] — `pre-commit install` run; .git/hooks/pre-commit now exists.
 
 ## Issue-006 [2026-06-29] — NEW (audit session, Amazon Q)
 src/diagnostics/runtime_monitor.py documents "auto-recovery" behavior that does not exist
@@ -139,10 +130,6 @@ that would trigger this non-recovery have essentially no regression protection.
 Severity: Medium-High (operational safety — a crashed tick loop means no new signals, no
 position monitoring, no stop-loss execution. Positions stay open indefinitely with no oversight.)
 File: src/diagnostics/runtime_monitor.py, src/engine/orchestrator.py
-Status: OPEN — Action: either (a) implement a task-factory registry so _on_task_done() can
-restart crashed tasks via asyncio.create_task(factory()), or (b) update all docstrings and
-log messages to say "alert only — manual restart required" and document the operator runbook
-step for responding to this alert. Option (b) is the minimum viable fix; option (a) is the
-correct long-term solution.
+Status: RESOLVED [2026-07-05] — Docstring + log message corrected (option b, minimum viable fix). See Issue-004 resolution. Task-factory supervisor (option a) remains a future enhancement if needed.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────

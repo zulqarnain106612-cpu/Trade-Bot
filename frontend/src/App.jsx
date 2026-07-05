@@ -7,7 +7,7 @@ import {
 const _RAW_API  = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const API_KEY   = import.meta.env.VITE_API_KEY || "";
 
-// SSRF guard: only allow http/https to explicit hostnames — reject file://, internal IPs, etc.
+// Build-time config sanity check: rejects malformed/non-http(s) VITE_API_URL values (operator misconfiguration guard — does NOT block internal IPs).
 const _ALLOWED_API_RE = /^https?:\/\/[a-zA-Z0-9._-]+(:\d+)?$/;
 if (!_ALLOWED_API_RE.test(_RAW_API)) {
   throw new Error(`VITE_API_URL "${_RAW_API}" is not an allowed origin.`);
