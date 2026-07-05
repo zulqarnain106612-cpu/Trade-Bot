@@ -180,19 +180,23 @@ class TestOKXIntelligenceProvider:
     async def test_caching_prevents_duplicate_calls(self, provider):
         call_count = 0
 
-        async def counting_fetch():
+        async def counting_network_fetch(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            return {"rate_pct": 0.01, "zscore": 0.3}
+            # Return minimal valid funding rate history (2+ entries required for zscore)
+            return [{"fundingRate": 0.0001}, {"fundingRate": 0.0001}]
 
-        provider._fetch_funding_data = counting_fetch
+        # Patch at the network level so the cache logic inside _fetch_funding_data runs.
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = counting_network_fetch
         provider._fetch_oi_data = AsyncMock(return_value={"change_pct": 0.0, "value_usd": 0.0})
         provider._fetch_basis_data = AsyncMock(return_value=0.0)
         provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.0)
+        # Ensure a nonzero TTL so the cache entry is valid on the second call.
+        provider._cache_ttl = 300
 
         await provider.fetch_metrics()
-        await provider.fetch_metrics()  # second call — funding should be cached
-        # call_count ≤ 2 because cache hits for OI/basis/whale; funding: 1 real call
+        await provider.fetch_metrics()  # second call — funding should hit cache
         assert call_count == 1
 
 
@@ -556,8 +560,8 @@ class TestInjectIntelligenceFeatures:
 # ---------------------------------------------------------------------------
 
 class TestBuildInferenceFeaturesWithIntelligence:
-    def _make_bars(self, n: int = 120) -> pd.DataFrame:
-        """Minimal OHLCV DataFrame with enough rows for all feature windows."""
+    def _make_bars(self, n: int = 220) -> pd.DataFrame:
+        """Minimal OHLCV DataFrame with enough rows for all feature windows (need ≥200)."""
         rng = np.random.default_rng(42)
         close = 30_000.0 + np.cumsum(rng.normal(0, 50, n))
         return pd.DataFrame(

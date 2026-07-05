@@ -11232,7 +11232,7 @@
   },
   "tests/test_intelligence_providers.py": {
     "purpose": "Tests for multi-provider intelligence wiring (GAP-015).\n\nCoverage:\n  1. ExchangeIntelligenceProvider",
-    "lines": 653,
+    "lines": 657,
     "classes": [
       "TestExchangeIntelligenceProviderABC",
       "TestOKXIntelligenceProvider",

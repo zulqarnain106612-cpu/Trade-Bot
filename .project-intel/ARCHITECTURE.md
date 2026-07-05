@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-04 23:38 | 824 Python modules | 239,204 total lines
+> Auto-generated 2026-07-05 18:22 | 824 Python modules | 239,208 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3858,7 +3858,7 @@ Tests:
 
 **Classes**: TestWhaleTakerRatioFix, TestComputeMetricsConfidenceFix
 
-### `tests/test_intelligence_providers.py` (653 lines)
+### `tests/test_intelligence_providers.py` (657 lines)
 **Purpose**: Tests for multi-provider intelligence wiring (GAP-015).
 
 Coverage:

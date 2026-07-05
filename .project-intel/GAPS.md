@@ -211,11 +211,9 @@ accurate about their respective daemons — just a documentation-clarity
 risk worth a one-line disambiguation.
 Severity: Low (documentation integrity, not a code defect).
 File: .claude/CLAUDE.md, CLAUDE.md, .project-intel/SESSION_STATE.json
-Status: OPEN — Action: make .claude/CLAUDE.md a literal one-line redirect
-(e.g. "See ../CLAUDE.md — this file intentionally left minimal") instead
-of a near-duplicate, so drift becomes impossible. Optionally rename
-SESSION_STATE.json's two daemon-related fields to disambiguate
-(e.g. `intel_extraction_daemon_running` vs `output_router_daemon_exists`).
+Status: RESOLVED [2026-07-05] — .claude/CLAUDE.md replaced with a single-line
+redirect ("See ../CLAUDE.md"). Content drift between the two files is now
+structurally impossible.
 ────────────────────────────────────────────────────────────
 
 
