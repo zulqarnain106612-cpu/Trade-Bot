@@ -204,10 +204,15 @@ not a bug by itself, but the kind of gap that lets a real bug in live.py
 or orchestrator.py ship without a failing test catching it).
 File: src/execution/live.py, src/engine/orchestrator.py,
 src/models/trainer.py, src/data/fetcher.py
-Status: OPEN — Action: consider a per-file or per-package minimum
-coverage floor for src/execution/ and src/engine/ specifically (e.g. 70%+)
-rather than relying on a single repo-wide average that high-coverage
-files like storage.py/kelly.py can subsidize.
+Status: PARTIALLY RESOLVED [2026-07-06] — live.py: 27% → 69% (32 new tests covering
+submit_signal routing, _place_and_record VUL-009 guards, mark_to_market, close_position,
+equity accounting). Also fixed _extract_fee missing-method bug (would crash on any real
+order). Remaining uncovered in live.py: initialize() Settings mock (lines 166-196),
+_place_market_order OrderManager integration (813-849), _await_approval async event (862-884).
+orchestrator.py still at ~10% — startup/_tick/_train_models need heavy async mock scaffold;
+deferred. Action: add orchestrator coverage when startup integration tests are set up.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────
 
 ## Debt-010 [2026-06-29] — NEW (audit session, Amazon Q)
 SESSION_STATE.json records multiple "COMPLETE" claims for modules that are either

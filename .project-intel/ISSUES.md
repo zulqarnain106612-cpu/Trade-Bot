@@ -133,3 +133,17 @@ File: src/diagnostics/runtime_monitor.py, src/engine/orchestrator.py
 Status: RESOLVED [2026-07-05] — Docstring + log message corrected (option b, minimum viable fix). See Issue-004 resolution. Task-factory supervisor (option a) remains a future enhancement if needed.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
+
+## Issue-007 [2026-07-06] — CRITICAL BUG (discovered during coverage work)
+LiveExecutor._extract_fee() called at live.py:408 (close_position) and live.py:699
+(_place_and_record) but method was NEVER DEFINED anywhere in the class or its base.
+Every real order placed or closed would raise AttributeError at exchange-interaction time —
+i.e. the bot could place an order but crash before recording the position, leaking cash.
+
+Root cause: method was likely planned but never implemented; coverage gap (27%) hid it.
+File: src/execution/live.py
+Status: RESOLVED [2026-07-06] — Implemented _extract_fee() with ccxt unified fee
+structure parsing (fees list, fee single-dict fallback, quote-currency filter,
+_LIVE_FEE_FALLBACK for missing data). 32 new tests validate the paths that call it.
+Discovered by: Claude [claude] during Debt-009 coverage work
+────────────────────────────────────────────────────────────
