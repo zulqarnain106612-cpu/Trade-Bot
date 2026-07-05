@@ -58,6 +58,15 @@ frontend/src/App.jsx             React dashboard
 Exchange → fetch → store → features → regime → models → filters
 → sizing → gates → executor → api → dashboard
 
+### EXPERIMENTAL/UNUSED modules (NOT active in live signal path)
+These exist in the repo and have unit tests but are NOT imported from
+signal_engine.py or orchestrator.py. Do NOT assume they provide runtime protection.
+  src/intelligence/causal_inference.py      — wiring blocked on Glassnode/CryptoQuant API keys
+  src/intelligence/ensemble_predictor.py    — wiring blocked on API keys + feature backfill
+  src/intelligence/risk_quantification.py   — wiring blocked on API keys + feature backfill
+  src/features/intelligence_features.py     — wiring blocked on API keys + feature backfill
+See: DECISION_LOG.md "Intelligence feature wiring — blocked on API provisioning", GAP-015, GAP-017.
+
 ### Risk gates (sequential, short-circuit on first fail)
 DD>2% | losses>=3 | regime=volatile | pos>5% | paper<30d | live_gate_fail
 

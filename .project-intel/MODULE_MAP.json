@@ -10651,7 +10651,8 @@
     ],
     "imports_from": [
       "src.intelligence.metrics"
-    ]
+    ],
+    "status": "EXPERIMENTAL/UNUSED \u2014 not imported from signal_engine.py or orchestrator.py; pending API key provisioning (Glassnode/CryptoQuant) before wiring. See DECISION_LOG.md ADR-XXX and GAP-015/017."
   },
   "src/features/pipeline.py": {
     "purpose": "Feature engineering pipeline.\n\nImplements every feature from the signal architecture spec:\n  1. Frac",
@@ -10698,7 +10699,8 @@
     ],
     "key_functions": [],
     "constants": [],
-    "imports_from": []
+    "imports_from": [],
+    "status": "EXPERIMENTAL/UNUSED \u2014 not imported from signal_engine.py or orchestrator.py; pending API key provisioning (Glassnode/CryptoQuant) before wiring. See DECISION_LOG.md ADR-XXX and GAP-015/017."
   },
   "src/intelligence/client.py": {
     "purpose": "Multi-provider intelligence client aggregator.\n\nResponsibilities:\n  - Manage credentials for all pro",
@@ -10731,7 +10733,8 @@
     ],
     "key_functions": [],
     "constants": [],
-    "imports_from": []
+    "imports_from": [],
+    "status": "EXPERIMENTAL/UNUSED \u2014 not imported from signal_engine.py or orchestrator.py; pending API key provisioning (Glassnode/CryptoQuant) before wiring. See DECISION_LOG.md ADR-XXX and GAP-015/017."
   },
   "src/intelligence/metrics.py": {
     "purpose": "Intelligence metrics computation layer.\n\nTransforms raw provider data into trading-ready features:\n ",
@@ -10870,7 +10873,8 @@
     ],
     "key_functions": [],
     "constants": [],
-    "imports_from": []
+    "imports_from": [],
+    "status": "EXPERIMENTAL/UNUSED \u2014 not imported from signal_engine.py or orchestrator.py; pending API key provisioning (Glassnode/CryptoQuant) before wiring. See DECISION_LOG.md ADR-XXX and GAP-015/017."
   },
   "src/regime/__init__.py": {
     "purpose": "__init__ module",

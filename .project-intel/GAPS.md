@@ -245,9 +245,11 @@ modules is incomplete or absent.
 Severity: Medium — not dangerous, but operators reading MODULE_MAP.json or the README
 signal architecture diagram may assume these are active runtime components when they are not.
 File: src/intelligence/, src/risk/drift_integration.py, src/risk/performance_drift.py
-Status: OPEN — Action: run `grep -rn "from src.intelligence" src/` and `grep -rn
-"from src.risk.drift_integration" src/` to confirm actual import graph. For any module
-not imported from signal_engine.py/orchestrator.py, either wire it in with an integration
-test or clearly mark it as EXPERIMENTAL/UNUSED in MODULE_MAP.json.
-Reported by: Amazon Q [amazonq]
+Status: RESOLVED [2026-07-05] — Import graph verified: drift_integration.py/performance_drift.py
+ARE wired (see Gap-015 correction note). Disconnected intelligence modules
+(causal_inference.py, ensemble_predictor.py, risk_quantification.py, intelligence_features.py)
+marked EXPERIMENTAL/UNUSED in MODULE_MAP.json and CONTEXT_PRIMER.md with explicit note that they
+are NOT active in the live signal path. Wiring blocked on API key provisioning — see
+DECISION_LOG.md "Intelligence feature wiring — blocked on API provisioning". GAP-015 captures
+the backfill/wiring plan in full detail.
 ────────────────────────────────────────────────────────────
