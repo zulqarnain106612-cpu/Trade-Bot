@@ -1,84 +1,41 @@
 # Agent Handoff State
-> Updated: 2026-07-06 17:00:25 | Read this before starting any work.
+> Updated: 2026-07-07 00:22:48 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
-**Status**:  🟢 ACTIVE
+**Status**:  🔴 INTERRUPTED — resume required
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
-**Started**: 2026-07-03 22:01:55
-**Last checkpoint**: 2026-07-06 17:00:25
+**Started**: 2026-07-07 00:18:08
+**Last checkpoint**: 2026-07-07 00:22:48
 
-## ⚠ ANOTHER AGENT IS ACTIVE
-If claude is no longer running, status is stale.
-Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
-Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
+## ⚠ INTERRUPTION — Resume from here
+**Reason**: shell exited with 3 uncommitted file(s)
+
+### What was completed before interruption:
+
+### Exact resume point:
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
+
+### Files modified (may have uncommitted changes):
+
+### Action required:
+  1. Run `git status` — check for uncommitted changes
+  2. Run `git diff` — review what was partially done
+  3. Read the files listed above — continue from next_step above
+  4. Do NOT restart from scratch — work is partially done
 
 ## Next Step for Incoming Agent
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 
 ## Files to Check
-  - .project-intel/ARCHITECTURE.md
-  - .project-intel/HANDOFF.md
-  - .project-intel/MODULE_MAP.json
-  - .project-intel/SESSION_STATE.json
-  - tests/test_signal_engine.py
-  - src/diagnostics/signal_debugger.py
-  - tests/test_performance_drift.py
-  - .env
-  - .project-intel/MODULE_MAP_SLIM.json
-  - .project-intel/RAW_SCAN.json
-  - src/api/main.py
-  - src/api/metrics.py
-  - requirements.txt
-  - tests/test_metrics.py
-  - src/engine/orchestrator.py
-  - src/intelligence/risk_quantification.py
-  - src/intelligence/probabilistic_adapter.py
-  - src/engine/signal_engine.py
-  - .project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md
-  - src/data/storage.py
-  - scripts/backfill_intelligence.py
-  - src/features/pipeline.py
-  - src/models/trainer.py
-  - tests/test_gap015_backfill.py
-  - src/intelligence/providers/base.py
-  - src/intelligence/providers/okx_provider.py
-  - src/intelligence/providers/blockchain_provider.py
-  - src/intelligence/providers/coingecko_provider.py
-  - src/intelligence/providers/aggregator.py
-  - tests/test_intelligence_providers.py
-  - src/intelligence/providers/binance_provider.py
-  - .claude/CLAUDE.md
-  - .project-intel/GAPS.md
-  - src/diagnostics/runtime_monitor.py
-  - src/execution/live_fsm_integration.py
-  - src/execution/order_fsm.py
-  - src/features/intelligence_features.py
-  - src/intelligence/__init__.py
-  - src/intelligence/causal_inference.py
-  - src/intelligence/client.py
-  - src/intelligence/ensemble_predictor.py
-  - src/intelligence/metrics.py
-  - src/intelligence/probabilistic.py
-  - src/risk/drift_integration.py
-  - src/risk/gates.py
-  - src/risk/performance_drift.py
-  - src/risk/portfolio_correlation.py
-  - src/execution/live.py
-  - .project-intel/ISSUES.md
-  - frontend/src/App.jsx
-  - .project-intel/CONTEXT_PRIMER.md
-  - .project-intel/TECH_DEBT.md
-  - tests/test_live_executor_coverage.py
-  - tests/test_orchestrator_coverage.py
-  - src/execution/live.py tests/test_live_executor_coverage.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/HANDOFF.md
+  (no specific files — start from OPEN_TASKS.md)
 
 ## Session History (last 5)
+  [2026-07-07 00:22:48] claude — interrupted: shell exited with 3 uncommitted file(s)
+  [2026-07-07 00:22:48] claude — interrupted: shell exited with 3 uncommitted file(s)
+  [2026-07-07 00:18:08] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
+  [2026-07-07 00:16:14] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
   [2026-07-04 00:23:37] claude — interrupted: shell exited with 2 uncommitted file(s)
-  [2026-07-04 00:23:37] claude — interrupted: shell exited with 2 uncommitted file(s)
-  [2026-07-03 22:01:55] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
-  [2026-07-03 21:58:54] claude — interrupted: shell exited with 3 uncommitted file(s)
-  [2026-07-03 21:42:44] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
 
 ## Quick Start for Any Agent
 ```

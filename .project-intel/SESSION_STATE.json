@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-06T17:17:28.194016",
+  "last_updated": "2026-07-07T00:22:48.714732",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,7 +38,7 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 33,
+  "total_sessions": 35,
   "commit_log": [
     {
       "hash": "650b384",
@@ -165,7 +165,7 @@
   "last_commit_message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
   "last_commit_time": "2026-07-06T17:17:28.321775",
   "coverage_pct": 62,
-  "last_session_start": "2026-04-15T23:34:21.067301",
+  "last_session_start": "2026-07-07T00:18:06.747774",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -173,56 +173,11 @@
   "last_extraction_trigger": "test_orchestrator_coverage.py",
   "handoff": {
     "active_agent": "claude",
-    "status": "active",
-    "completed_this_session": [
-      "[2026-07-06 02:59:46] [3d915d8] docs(intel): auto-sync after changes to src/execution/live.py [claude]",
-      "[2026-07-06 03:02:59] [438a8eb] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
-      "[2026-07-06 03:03:00] [4d6d0d3] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
-      "[2026-07-06 03:11:29] [6466ff3] fix(live): add missing _extract_fee method + coverage tests (Debt-009)",
-      "[2026-07-06 03:17:19] [3b3026d] docs(issues/debt): log Issue-007 (critical _extract_fee bug) + Debt-009 update",
-      "[2026-07-06 03:30:17] [57f4077] docs(gaps/issues): close GAP-005/GAP-011 (correlation wired), update GAP-015, verify Issue-001",
-      "[2026-07-06 03:30:27] Session complete: GAP-017 resolved; Issue-002/004/005/006 resolved; Debt-008/010 resolved; Debt-009 partial (live.py 27%->69%); Issue-007 critical bug fixed (_extract_fee missing); GAP-005/011 closed (correlation wired); GAP-015 item 1 corrected; pre-commit installed; 32 new tests",
-      "[2026-07-06 16:54:17] [a09af31] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:54:17] [c23c0ae] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:54:40] [2b0eabe] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:54:40] [4941196] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:54:49] [ec95e40] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:54:49] [5d239a3] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:56:06] [6ee5d29] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:56:06] [6283331] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:57:02] [16e2b3d] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:57:03] [30b4395] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 17:00:25] [29ef736] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 17:00:25] [88d9ed5] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 17:17:28] [557513f] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]"
-    ],
-    "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-06 17:17:28",
+    "status": "interrupted",
+    "completed_this_session": [],
+    "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
+    "last_checkpoint": "2026-07-07 00:22:48",
     "session_history": [
-      {
-        "time": "2026-07-03 18:25:39",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "GAP-015 steps 2-5: historical fetch methods, intelligence_features_history table"
-      },
-      {
-        "time": "2026-07-03 18:27:10",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
-      },
-      {
-        "time": "2026-07-03 21:27:44",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell exited with 3 uncommitted file(s)"
-      },
-      {
-        "time": "2026-07-03 21:29:04",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
-      },
       {
         "time": "2026-07-03 21:41:10",
         "agent": "claude",
@@ -258,68 +213,36 @@
         "agent": "claude",
         "status": "interrupted",
         "summary": "shell exited with 2 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-07 00:16:14",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
+      },
+      {
+        "time": "2026-07-07 00:18:08",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
+      },
+      {
+        "time": "2026-07-07 00:22:48",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell exited with 3 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-07 00:22:48",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell exited with 3 uncommitted file(s)"
       }
     ],
-    "files_touched": [
-      ".project-intel/ARCHITECTURE.md",
-      ".project-intel/HANDOFF.md",
-      ".project-intel/MODULE_MAP.json",
-      ".project-intel/SESSION_STATE.json",
-      "tests/test_signal_engine.py",
-      "src/diagnostics/signal_debugger.py",
-      "tests/test_performance_drift.py",
-      ".env",
-      ".project-intel/MODULE_MAP_SLIM.json",
-      ".project-intel/RAW_SCAN.json",
-      "src/api/main.py",
-      "src/api/metrics.py",
-      "requirements.txt",
-      "tests/test_metrics.py",
-      "src/engine/orchestrator.py",
-      "src/intelligence/risk_quantification.py",
-      "src/intelligence/probabilistic_adapter.py",
-      "src/engine/signal_engine.py",
-      ".project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md",
-      "src/data/storage.py",
-      "scripts/backfill_intelligence.py",
-      "src/features/pipeline.py",
-      "src/models/trainer.py",
-      "tests/test_gap015_backfill.py",
-      "src/intelligence/providers/base.py",
-      "src/intelligence/providers/okx_provider.py",
-      "src/intelligence/providers/blockchain_provider.py",
-      "src/intelligence/providers/coingecko_provider.py",
-      "src/intelligence/providers/aggregator.py",
-      "tests/test_intelligence_providers.py",
-      "src/intelligence/providers/binance_provider.py",
-      ".claude/CLAUDE.md",
-      ".project-intel/GAPS.md",
-      "src/diagnostics/runtime_monitor.py",
-      "src/execution/live_fsm_integration.py",
-      "src/execution/order_fsm.py",
-      "src/features/intelligence_features.py",
-      "src/intelligence/__init__.py",
-      "src/intelligence/causal_inference.py",
-      "src/intelligence/client.py",
-      "src/intelligence/ensemble_predictor.py",
-      "src/intelligence/metrics.py",
-      "src/intelligence/probabilistic.py",
-      "src/risk/drift_integration.py",
-      "src/risk/gates.py",
-      "src/risk/performance_drift.py",
-      "src/risk/portfolio_correlation.py",
-      "src/execution/live.py",
-      ".project-intel/ISSUES.md",
-      "frontend/src/App.jsx",
-      ".project-intel/CONTEXT_PRIMER.md",
-      ".project-intel/TECH_DEBT.md",
-      "tests/test_live_executor_coverage.py",
-      "tests/test_orchestrator_coverage.py",
-      "src/execution/live.py tests/test_live_executor_coverage.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/HANDOFF.md"
-    ],
+    "files_touched": [],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
-    "session_started": "2026-07-03 22:01:55",
-    "interruption_reason": "shell exited with 2 uncommitted file(s)"
+    "session_started": "2026-07-07 00:18:08",
+    "interruption_reason": "shell exited with 3 uncommitted file(s)"
   },
   "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan"
 }
