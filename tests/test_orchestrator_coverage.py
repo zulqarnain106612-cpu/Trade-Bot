@@ -333,7 +333,9 @@ class TestOrchestratorTick:
         from src.engine.signal_engine import SignalResult
         orch = _make_orch()
         executor = _make_executor()
-        executor.execute = AsyncMock(return_value=None)
+        executor.submit_signal = AsyncMock(return_value=("trade-123", "opened"))
+        executor.get_current_equity = AsyncMock(return_value=1000.0)
+        executor.open_positions_safe = AsyncMock(return_value=[])
         orch._executor = executor
 
         tradeable = SignalResult(
@@ -352,7 +354,7 @@ class TestOrchestratorTick:
                    return_value=(0, 0.0, 0.0)):
             await orch._tick(Timeframe.INTRADAY)
 
-        executor.execute.assert_called_once()
+        executor.submit_signal.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
