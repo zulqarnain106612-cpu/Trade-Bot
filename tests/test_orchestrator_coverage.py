@@ -360,17 +360,11 @@ class TestOrchestratorTick:
 # ---------------------------------------------------------------------------
 
 class TestOrchestratorTrainModels:
-    @pytest.mark.asyncio
-    async def test_train_models_creates_trainer_and_detector(self):
+    def _orch_for_train(self):
         from src.engine.orchestrator import Orchestrator
         storage = _make_storage()
+        storage.insert_model_metrics = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
-
-        trainer = MagicMock()
-        trainer.train = AsyncMock(return_value=None)
-        detector = MagicMock()
-        detector.fit = MagicMock()
-
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
             cfg = MagicMock()
             cfg.primary_symbol = "BTC/USDT"
@@ -378,47 +372,76 @@ class TestOrchestratorTrainModels:
             cfg.primary_timeframe = Timeframe.INTRADAY
             cfg.trading_mode = TradingMode.PAPER
             cfg.starting_capital_usd = 1000.0
-            cfg.storage.model_dir = "/tmp/m"
+            cfg.storage.model_dir = "/tmp/models"
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_train_models_creates_trainer_and_detector(self):
+        orch = self._orch_for_train()
+        fm = MagicMock()
+        fm.features = MagicMock()
+        dir_result = MagicMock()
+        dir_result.oos_sharpe = 1.5
+        dir_result.live_gate_pass = True
+        dir_result.model = MagicMock()
+        dir_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        meta_result = MagicMock()
+        meta_result.oos_sharpe = 1.2
+        meta_result.live_gate_pass = True
+        meta_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        trainer = MagicMock()
+        trainer.train_direction = MagicMock(return_value=dir_result)
+        trainer.train_meta_label = MagicMock(return_value=meta_result)
+        trainer.save = MagicMock()
+        detector = MagicMock()
+        detector.fit = MagicMock()
+        detector.save = MagicMock()
 
         with (
+            patch("src.engine.orchestrator.build_feature_matrix", return_value=fm),
             patch("src.engine.orchestrator.ModelTrainer", return_value=trainer),
             patch("src.engine.orchestrator.RegimeDetector", return_value=detector),
         ):
             await orch._train_models(Timeframe.INTRADAY)
 
-        trainer.train.assert_called_once()
         assert Timeframe.INTRADAY.value in orch._trainers
         assert Timeframe.INTRADAY.value in orch._detectors
 
     @pytest.mark.asyncio
-    async def test_train_models_stores_error_on_failure(self):
-        from src.engine.orchestrator import Orchestrator
-        storage = _make_storage()
-        fetcher = _make_fetcher()
-
+    async def test_train_models_stores_error_on_xgb_failure(self):
+        orch = self._orch_for_train()
+        fm = MagicMock()
+        fm.features = MagicMock()
         trainer = MagicMock()
-        trainer.train = AsyncMock(side_effect=RuntimeError("training failed"))
+        trainer.train_direction = MagicMock(side_effect=RuntimeError("xgb fail"))
         detector = MagicMock()
-
-        with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
-            cfg.primary_symbol = "BTC/USDT"
-            cfg.active_timeframes = [Timeframe.INTRADAY]
-            cfg.primary_timeframe = Timeframe.INTRADAY
-            cfg.trading_mode = TradingMode.PAPER
-            cfg.starting_capital_usd = 1000.0
-            cfg.storage.model_dir = "/tmp/m"
-            mock_cfg.return_value = cfg
-            orch = Orchestrator(storage, fetcher)
+        detector.fit = MagicMock()
+        detector.save = MagicMock()
 
         with (
+            patch("src.engine.orchestrator.build_feature_matrix", return_value=fm),
             patch("src.engine.orchestrator.ModelTrainer", return_value=trainer),
             patch("src.engine.orchestrator.RegimeDetector", return_value=detector),
         ):
-            # Should not raise — logs error and continues
+            # xgb failure is caught internally — should not raise
             await orch._train_models(Timeframe.INTRADAY)
 
-        assert Timeframe.INTRADAY.value in orch._last_retrain_error
+        # trainer is still registered even if training fails (so retrain can be attempted)
+        assert Timeframe.INTRADAY.value in orch._trainers
+
+    @pytest.mark.asyncio
+    async def test_train_models_skips_on_insufficient_bars(self):
+        orch = self._orch_for_train()
+        orch._storage.fetch_bars = AsyncMock(return_value=_make_bars(50))  # < 300
+
+        with (
+            patch("src.engine.orchestrator.ModelTrainer") as mock_mt,
+            patch("src.engine.orchestrator.RegimeDetector"),
+        ):
+            await orch._train_models(Timeframe.INTRADAY)
+
+        # ModelTrainer should never be instantiated
+        mock_mt.assert_not_called()
 

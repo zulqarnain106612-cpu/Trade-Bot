@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-06T16:54:49.136278",
+  "last_updated": "2026-07-06T16:56:06.441568",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -40,12 +40,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 33,
   "commit_log": [
-    {
-      "hash": "2ffa577",
-      "message": "docs(intel): auto-sync after changes to src/data/storage.py [claude]",
-      "time": "2026-07-05T18:40:43.037787",
-      "author": "Claude"
-    },
     {
       "hash": "f4ac482",
       "message": "docs(intel): auto-sync after changes to src/engine/signal_engine.py [claude]",
@@ -159,24 +153,28 @@
       "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "time": "2026-07-06T16:54:49.225435",
       "author": "Claude"
+    },
+    {
+      "hash": "6ee5d29",
+      "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
+      "time": "2026-07-06T16:56:06.527041",
+      "author": "Claude"
     }
   ],
-  "last_commit": "ec95e40",
+  "last_commit": "6ee5d29",
   "last_commit_message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-  "last_commit_time": "2026-07-06T16:54:49.225497",
+  "last_commit_time": "2026-07-06T16:56:06.527085",
   "coverage_pct": 62,
   "last_session_start": "2026-04-15T23:34:21.067301",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-06T16:54:48.862743",
+  "last_extraction": "2026-07-06T16:56:06.145063",
   "last_extraction_trigger": "test_orchestrator_coverage.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-06 02:17:59] [6a9afd3] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 02:20:46] [3d99a4c] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 02:20:47] [6240ce0] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 02:20:48] [c93420b] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 02:20:49] [854f447] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
@@ -194,10 +192,12 @@
       "[2026-07-06 16:54:17] [c23c0ae] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 16:54:40] [2b0eabe] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "[2026-07-06 16:54:40] [4941196] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "[2026-07-06 16:54:49] [ec95e40] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]"
+      "[2026-07-06 16:54:49] [ec95e40] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
+      "[2026-07-06 16:54:49] [5d239a3] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
+      "[2026-07-06 16:56:06] [6ee5d29] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-06 16:54:49",
+    "last_checkpoint": "2026-07-06 16:56:06",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
