@@ -331,27 +331,33 @@ class TestOrchestratorTick:
     @pytest.mark.asyncio
     async def test_tick_tradeable_calls_executor(self):
         from src.engine.signal_engine import SignalResult
+        from src.risk.kelly import KellyResult
         orch = _make_orch()
         executor = _make_executor()
         executor.submit_signal = AsyncMock(return_value=("trade-123", "opened"))
         executor.get_current_equity = AsyncMock(return_value=1000.0)
         executor.open_positions_safe = AsyncMock(return_value=[])
         orch._executor = executor
+        orch._storage = _make_storage()
+        orch._storage.latest_close = AsyncMock(return_value=None)
 
+        kr = KellyResult(adjusted_fraction=0.05, entry_price=42000.0,
+                         quantity=0.001, notional_usd=42.0, is_capped=False)
         tradeable = SignalResult(
             tradeable=True, direction=1, p_long=0.75, p_bet=0.7,
-            kelly_result=None, regime=None, gate_result=None,
-            skip_reason=None,
+            kelly_result=kr, regime=None, gate_result=None, skip_reason=None,
         )
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=tradeable)
         orch._engines = {Timeframe.INTRADAY.value: mock_engine}
         orch._tick_counts = {Timeframe.INTRADAY.value: 0}
         orch._last_tick_ts = {Timeframe.INTRADAY.value: 0.0}
-        orch._storage = _make_storage()
 
-        with patch("src.engine.orchestrator.compute_win_loss_stats",
-                   return_value=(0, 0.0, 0.0)):
+        with (
+            patch("src.engine.orchestrator.compute_win_loss_stats",
+                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.update_metrics"),
+        ):
             await orch._tick(Timeframe.INTRADAY)
 
         executor.submit_signal.assert_called_once()
