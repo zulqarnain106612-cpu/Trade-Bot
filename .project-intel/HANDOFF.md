@@ -1,34 +1,24 @@
 # Agent Handoff State
-> Updated: 2026-07-07 00:22:48 | Read this before starting any work.
+> Updated: 2026-07-07 00:26:12 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
-**Status**:  🔴 INTERRUPTED — resume required
+**Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-07 00:18:08
-**Last checkpoint**: 2026-07-07 00:22:48
+**Last checkpoint**: 2026-07-07 00:26:12
 
-## ⚠ INTERRUPTION — Resume from here
-**Reason**: shell exited with 3 uncommitted file(s)
-
-### What was completed before interruption:
-
-### Exact resume point:
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
-
-### Files modified (may have uncommitted changes):
-
-### Action required:
-  1. Run `git status` — check for uncommitted changes
-  2. Run `git diff` — review what was partially done
-  3. Read the files listed above — continue from next_step above
-  4. Do NOT restart from scratch — work is partially done
+## ⚠ ANOTHER AGENT IS ACTIVE
+If claude is no longer running, status is stale.
+Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
+Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
-  (no specific files — start from OPEN_TASKS.md)
+  - .project-intel/HANDOFF.md
+  - .project-intel/SESSION_STATE.json
 
 ## Session History (last 5)
   [2026-07-07 00:22:48] claude — interrupted: shell exited with 3 uncommitted file(s)
