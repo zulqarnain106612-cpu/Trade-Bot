@@ -11394,7 +11394,7 @@
   },
   "tests/test_orchestrator_coverage.py": {
     "purpose": "Comprehensive coverage tests for src/engine/orchestrator.py.\n\nCoverage target: 10% \u2192 70%+. Every maj",
-    "lines": 407,
+    "lines": 424,
     "classes": [
       "TestOrchestratorInit",
       "TestOrchestratorStartup",
@@ -11406,6 +11406,7 @@
     "constants": [],
     "imports_from": [
       "src.config",
+      "src.data.storage",
       "src.engine.orchestrator",
       "src.engine.signal_engine"
     ]

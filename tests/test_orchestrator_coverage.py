@@ -12,6 +12,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.config import Timeframe, TradingMode
+from src.data.storage import BarRecord
+
+
+def _make_bars(n: int = 350) -> list[BarRecord]:
+    """Return minimal BarRecord list large enough to pass the 300-row guard."""
+    return [
+        BarRecord(
+            ts=1_700_000_000_000 + i * 900_000,
+            symbol="BTC/USDT",
+            timeframe="15m",
+            open=40_000.0 + i,
+            high=40_100.0 + i,
+            low=39_900.0 + i,
+            close=40_050.0 + i,
+            volume=10.0 + i,
+            quote_volume=400_500.0,
+        )
+        for i in range(n)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +44,7 @@ def _make_storage():
     s.fetch_trades = AsyncMock(return_value=[])
     s.earliest_equity_ts = AsyncMock(return_value=None)
     s.insert_bar = AsyncMock(return_value=None)
-    s.fetch_bars = AsyncMock(return_value=[])
+    s.fetch_bars = AsyncMock(return_value=_make_bars())   # ≥300 rows for trainer
     s.initialize = AsyncMock(return_value=None)
     s.close = AsyncMock(return_value=None)
     return s
@@ -288,10 +307,9 @@ class TestOrchestratorTick:
         orch._executor = executor
 
         skip_result = SignalResult(
-            symbol="BTC/USDT", timeframe="15m", tradeable=False,
-            direction=None, kelly_fraction=None, notional_usd=None,
-            quantity=None, p_long=None, p_bet=None,
-            regime_state=None, hurst=None, skip_reason="test",
+            tradeable=False, direction=0, p_long=0.3, p_bet=0.3,
+            kelly_result=None, regime=None, gate_result=None,
+            skip_reason="test",
         )
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=skip_result)
@@ -319,10 +337,9 @@ class TestOrchestratorTick:
         orch._executor = executor
 
         tradeable = SignalResult(
-            symbol="BTC/USDT", timeframe="15m", tradeable=True,
-            direction="long", kelly_fraction=0.05, notional_usd=50.0,
-            quantity=0.001, p_long=0.75, p_bet=0.7,
-            regime_state=1, hurst=0.6, skip_reason=None,
+            tradeable=True, direction=1, p_long=0.75, p_bet=0.7,
+            kelly_result=None, regime=None, gate_result=None,
+            skip_reason=None,
         )
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=tradeable)

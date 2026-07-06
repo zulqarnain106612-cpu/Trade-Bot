@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-06 03:17:19 | Read this before starting any work.
+> Updated: 2026-07-06 03:30:27 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-03 22:01:55
-**Last checkpoint**: 2026-07-06 03:17:19
+**Last checkpoint**: 2026-07-06 03:30:27
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,7 +14,7 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
+  GAP-015 items 2-4: intelligence modules (ensemble_predictor, intelligence_features, probabilistic_gates, intelligence_gates) need API key provisioning (GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY) to wire. Provision keys, then wire intelligence_gates.py into gates.py evaluate() call chain. OR: tackle orchestrator.py coverage (10%) — next highest-ROI testing target.
 
 ## Files to Check
   - .project-intel/ARCHITECTURE.md
@@ -71,6 +71,7 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - .project-intel/TECH_DEBT.md
   - tests/test_live_executor_coverage.py
   - tests/test_orchestrator_coverage.py
+  - src/execution/live.py tests/test_live_executor_coverage.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/HANDOFF.md
 
 ## Session History (last 5)
   [2026-07-04 00:23:37] claude — interrupted: shell exited with 2 uncommitted file(s)

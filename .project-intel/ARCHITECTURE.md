@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-06 03:02 | 826 Python modules | 240,096 total lines
+> Auto-generated 2026-07-06 16:54 | 826 Python modules | 240,113 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3906,7 +3906,7 @@ Targets predict_direction, predi
 Focus: correlation scalar computation (GAP
 **Classes**: TestPortfolioCorrelationTracker, TestOrchestratorCorrelationState, TestCorrelationScalarFailSafe
 
-### `tests/test_orchestrator_coverage.py` (407 lines)
+### `tests/test_orchestrator_coverage.py` (424 lines)
 **Purpose**: Comprehensive coverage tests for src/engine/orchestrator.py.
 
 Coverage target: 1

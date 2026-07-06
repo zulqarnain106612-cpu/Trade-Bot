@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-06T03:17:19.120185",
+  "last_updated": "2026-07-06T16:54:17.043200",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -38,14 +38,8 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 32,
+  "total_sessions": 33,
   "commit_log": [
-    {
-      "hash": "8bbfcd8",
-      "message": "docs(intel): auto-sync after changes to src/intelligence/providers/binance_provider.py [claude]",
-      "time": "2026-07-05T18:38:46.326192",
-      "author": "Claude"
-    },
     {
       "hash": "44941aa",
       "message": "docs(intel): auto-sync after changes to src/api/main.py [claude]",
@@ -159,25 +153,28 @@
       "message": "docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "time": "2026-07-06T03:02:59.605321",
       "author": "Claude"
+    },
+    {
+      "hash": "a09af31",
+      "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
+      "time": "2026-07-06T16:54:17.206176",
+      "author": "Claude"
     }
   ],
-  "last_commit": "438a8eb",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
-  "last_commit_time": "2026-07-06T03:02:59.605380",
+  "last_commit": "a09af31",
+  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
+  "last_commit_time": "2026-07-06T16:54:17.206245",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-05T18:18:05.239483",
+  "last_session_start": "2026-04-15T23:34:21.067301",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-06T03:02:59.024980",
-  "last_extraction_trigger": "test_live_executor_coverage.py",
+  "last_extraction": "2026-07-06T16:54:16.379563",
+  "last_extraction_trigger": "test_orchestrator_coverage.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-05 20:09:46] [347c3dd] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
-      "[2026-07-05 20:35:46] [a164dfc] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
-      "[2026-07-05 20:35:47] [55c3a99] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-06 01:31:25] [ea6500e] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-06 01:31:26] [2f41551] docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
       "[2026-07-06 01:38:46] [8a97fcf] fix: ruff cleanup, dead-code removal, F821 fixes, test hang fix",
@@ -194,10 +191,13 @@
       "[2026-07-06 03:02:59] [438a8eb] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-06 03:03:00] [4d6d0d3] docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
       "[2026-07-06 03:11:29] [6466ff3] fix(live): add missing _extract_fee method + coverage tests (Debt-009)",
-      "[2026-07-06 03:17:19] [3b3026d] docs(issues/debt): log Issue-007 (critical _extract_fee bug) + Debt-009 update"
+      "[2026-07-06 03:17:19] [3b3026d] docs(issues/debt): log Issue-007 (critical _extract_fee bug) + Debt-009 update",
+      "[2026-07-06 03:30:17] [57f4077] docs(gaps/issues): close GAP-005/GAP-011 (correlation wired), update GAP-015, verify Issue-001",
+      "[2026-07-06 03:30:27] Session complete: GAP-017 resolved; Issue-002/004/005/006 resolved; Debt-008/010 resolved; Debt-009 partial (live.py 27%->69%); Issue-007 critical bug fixed (_extract_fee missing); GAP-005/011 closed (correlation wired); GAP-015 item 1 corrected; pre-commit installed; 32 new tests",
+      "[2026-07-06 16:54:17] [a09af31] docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-06 03:17:19",
+    "last_checkpoint": "2026-07-06 16:54:17",
     "session_history": [
       {
         "time": "2026-07-03 18:25:39",
@@ -314,7 +314,8 @@
       ".project-intel/CONTEXT_PRIMER.md",
       ".project-intel/TECH_DEBT.md",
       "tests/test_live_executor_coverage.py",
-      "tests/test_orchestrator_coverage.py"
+      "tests/test_orchestrator_coverage.py",
+      "src/execution/live.py tests/test_live_executor_coverage.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/HANDOFF.md"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-03 22:01:55",
