@@ -341,7 +341,8 @@ class TestOrchestratorTick:
         orch._storage = _make_storage()
         orch._storage.latest_close = AsyncMock(return_value=None)
 
-        kr = KellyResult(adjusted_fraction=0.05, entry_price=42000.0,
+        kr = KellyResult(kelly_fraction=0.05, adjusted_fraction=0.05,
+                         capital_usd=10000.0, entry_price=42000.0,
                          quantity=0.001, notional_usd=42.0, is_capped=False)
         tradeable = SignalResult(
             tradeable=True, direction=1, p_long=0.75, p_bet=0.7,

@@ -11394,7 +11394,7 @@
   },
   "tests/test_orchestrator_coverage.py": {
     "purpose": "Comprehensive coverage tests for src/engine/orchestrator.py.\n\nCoverage target: 10% \u2192 70%+. Every maj",
-    "lines": 455,
+    "lines": 456,
     "classes": [
       "TestOrchestratorInit",
       "TestOrchestratorStartup",

@@ -6,7 +6,6 @@
     ".claude/.vscode/settings.json",
     ".claude/CLAUDE.md",
     ".claudeignore",
-    ".coverage",
     ".editorconfig",
     ".env",
     ".env.example",
