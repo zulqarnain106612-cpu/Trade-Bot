@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T19:40:19.800419",
+  "last_updated": "2026-07-07T19:41:15.186679",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -41,12 +41,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 40,
   "commit_log": [
-    {
-      "hash": "e7d0e5b",
-      "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "time": "2026-07-06T02:17:58.403692",
-      "author": "Claude"
-    },
     {
       "hash": "6240ce0",
       "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
@@ -160,11 +154,17 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
       "time": "2026-07-07T19:40:19.887057",
       "author": "Claude"
+    },
+    {
+      "hash": "fd78c0e",
+      "message": "fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
+      "time": "2026-07-07T19:41:15.263267",
+      "author": "Claude"
     }
   ],
-  "last_commit": "3481d39",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
-  "last_commit_time": "2026-07-07T19:40:19.887109",
+  "last_commit": "fd78c0e",
+  "last_commit_message": "fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
+  "last_commit_time": "2026-07-07T19:41:15.263312",
   "coverage_pct": 62,
   "last_session_start": "2026-07-07T18:49:49.167808",
   "session_status": "active",
@@ -178,10 +178,13 @@
     "completed_this_session": [
       "[2026-07-07 19:00:10] [2bef074] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "[2026-07-07 19:00:10] [bb4e832] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-      "[2026-07-07 19:40:19] [3481d39] docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]"
+      "[2026-07-07 19:40:19] [3481d39] docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
+      "[2026-07-07 19:40:20] [6c8a3d4] docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
+      "[2026-07-07 19:41:08] Gap audit session: found Gap-018/019/020, Issue-008/009, Debt-011, SEC-010, Risk-005. Fixed: context_builder.py test (Issue-009, 899+1fail\u2192900 passed), runtime_monitor docstring (Issue-008), .env.example key prefix mismatch (Gap-019), EXPERIMENTAL markers on 3 disconnected intelligence modules (Debt-011)",
+      "[2026-07-07 19:41:15] [fd78c0e] fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 19:40:19",
+    "last_checkpoint": "2026-07-07 19:41:15",
     "session_history": [
       {
         "time": "2026-07-07 00:16:14",
@@ -264,7 +267,8 @@
       ".env.example",
       "src/intelligence/causal_inference.py",
       "src/intelligence/ensemble_predictor.py",
-      "src/intelligence/risk_quantification.py"
+      "src/intelligence/risk_quantification.py",
+      "src/diagnostics/runtime_monitor.py .env.example src/intelligence/causal_inference.py src/intelligence/ensemble_predictor.py src/intelligence/risk_quantification.py .project-intel/scripts/context_builder.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/SECURITY_ISSUES.md .project-intel/RISK_LOG.md"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-07 18:34:30",
