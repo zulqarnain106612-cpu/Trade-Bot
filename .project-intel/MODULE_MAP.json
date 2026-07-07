@@ -10460,7 +10460,7 @@
     "imports_from": []
   },
   "src/diagnostics/runtime_monitor.py": {
-    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics with auto-healing.\n\nResponsibilities:\n  - Poll",
+    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics (alert-only, no auto-restart).\n\nResponsibiliti",
     "lines": 307,
     "classes": [
       "ProbeResult",

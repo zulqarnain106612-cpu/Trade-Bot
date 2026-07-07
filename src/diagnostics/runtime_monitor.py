@@ -1,5 +1,5 @@
 """
-Runtime Monitor — continuous async health diagnostics with auto-healing.
+Runtime Monitor — continuous async health diagnostics (alert-only, no auto-restart).
 
 Responsibilities:
   - Poll all subsystem health probes every POLL_INTERVAL_S seconds

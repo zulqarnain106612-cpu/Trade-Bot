@@ -255,3 +255,56 @@ are NOT active in the live signal path. Wiring blocked on API key provisioning �
 DECISION_LOG.md "Intelligence feature wiring — blocked on API provisioning". GAP-015 captures
 the backfill/wiring plan in full detail.
 ────────────────────────────────────────────────────────────
+
+
+## Gap-018 [2026-07-07] — NEW (audit session, Amazon Q)
+src/intelligence/onchain/ directory exists in the repo tree but is completely empty
+(no __init__.py, no source files). It is referenced by the directory structure and
+the intelligence layer architecture, but has no implementation. Any future code that
+attempts `from src.intelligence.onchain import ...` will raise ImportError at runtime.
+The empty directory is also a misleading signal to contributors that on-chain data
+fetching is implemented when it is not.
+Severity: Low (no runtime impact today — nothing imports from it; but a maintenance
+and documentation clarity gap).
+File: src/intelligence/onchain/ (empty)
+Status: OPEN — Action: either add __init__.py + stub module with EXPERIMENTAL marker,
+or remove the directory and add a note in CONTEXT_PRIMER.md that on-chain fetching
+is planned but not yet implemented.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────
+
+
+## Gap-019 [2026-07-07] — NEW (audit session, Amazon Q)
+config.py IntelligenceSettings uses env_prefix="INTELLIGENCE_" so the Glassnode key
+reads from INTELLIGENCE_GLASSNODE_API_KEY. The .env file (line 33) correctly sets
+INTELLIGENCE_GLASSNODE_API_KEY. However, .env.example (lines 22-23) uses the bare
+names GLASSNODE_API_KEY and CRYPTOQUANT_API_KEY without the INTELLIGENCE_ prefix —
+a new operator copying .env.example will set the wrong env var names and the
+IntelligenceSettings fields will silently remain empty strings (default="").
+This is a silent misconfiguration: no startup error, no warning, intelligence client
+just skips all Glassnode calls with "GLASSNODE_API_KEY not set" log lines.
+Severity: Medium (operator onboarding trap — silent failure, not a crash).
+File: .env.example (lines 22-23), src/config.py (IntelligenceSettings)
+Status: OPEN — Action: update .env.example to use INTELLIGENCE_GLASSNODE_API_KEY
+and INTELLIGENCE_CRYPTOQUANT_API_KEY to match the actual env_prefix.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────
+
+
+## Gap-020 [2026-07-07] — NEW (audit session, Amazon Q)
+No per-package coverage floors exist in pyproject.toml. The single global
+fail_under=60 gate can be satisfied while src/execution/live.py (live order
+placement) and src/engine/orchestrator.py (main event loop) remain severely
+under-tested. Current coverage: runtime_monitor.py 27%, orchestrator.py ~10%
+(per Debt-009 history), live.py 69% (improved from 27% but still below any
+reasonable safety-critical floor). The 60% global gate provides false confidence
+that the highest-blast-radius files are adequately covered.
+Severity: Medium-High (safety-critical path protection gap — mirrors Risk-004).
+File: pyproject.toml ([tool.coverage.report])
+Status: OPEN — Action: add per-package minimums under [tool.coverage.report]
+exclude_also or use pytest-cov --cov-fail-under per path. Recommend:
+  src/execution/ → 75%
+  src/engine/    → 60%
+  src/diagnostics/runtime_monitor.py → 50%
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

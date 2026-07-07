@@ -44,7 +44,7 @@
     "functions": []
   },
   "src/diagnostics/runtime_monitor.py": {
-    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics with auto-healing.",
+    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics (alert-only, no auto-restart).",
     "functions": []
   },
   "src/diagnostics/signal_debugger.py": {

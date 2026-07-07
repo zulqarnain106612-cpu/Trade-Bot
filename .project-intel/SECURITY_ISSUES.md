@@ -198,3 +198,19 @@ in auto-fix.yml so the workflow can only ever stage known source directories, no
 repo-root files. This is a one-line change that eliminates the risk entirely.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
+
+## SEC-010 [2026-07-07] — RE-VERIFIED OPEN (audit session, Amazon Q)
+SEC-008 (auto-fix.yml push trigger covers main branch directly) is still OPEN.
+Re-verified this session: .github/workflows/auto-fix.yml line 14 still has
+`push: branches: [main, dev]` with `permissions: contents: write`.
+SEC-009 was resolved (git add -A → git add src/ frontend/src/ at line 65).
+SEC-008 itself (the push-to-main trigger) has no resolution recorded.
+The workflow header comment still says "Commits fixes back to the PR branch"
+but the trigger covers direct main pushes — comment and trigger still disagree.
+Severity: Low-Medium (unchanged from original assessment).
+File: .github/workflows/auto-fix.yml lines 10-14
+Status: OPEN — Action: either remove `push:` trigger (PR-only) or update the
+header comment to accurately describe the actual trigger scope. Confirm GitHub
+branch protection settings cover this path.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

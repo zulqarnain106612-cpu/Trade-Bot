@@ -121,15 +121,26 @@ def summarize_source_file(path: str | Path, query: str = "", max_tokens: int = 6
     if not relevant:
         relevant = definitions[:4]
 
+    # Fill remaining cap slots with non-matching symbols so small files always
+    # show all their symbols (Issue-009 fix — Amazon Q [amazonq])
+    shown = list(relevant)
+    if len(shown) < 6:
+        shown_names = {n for n, _, _ in shown}
+        for defn in definitions:
+            if len(shown) >= 6:
+                break
+            if defn[0] not in shown_names:
+                shown.append(defn)
+
     summary_parts = [f"{rel_path} — {len(lines)} lines, {len(definitions)} top-level symbols"]
-    for name, kind, doc in relevant[:6]:
+    for name, kind, doc in shown:
         label = "func" if kind == "func" else "class"
         if doc:
             summary_parts.append(f"- {label} {name}: {doc[:110]}")
         else:
             summary_parts.append(f"- {label} {name}: compact interface only")
-    if len(definitions) > len(relevant):
-        summary_parts.append(f"- ... {len(definitions) - len(relevant)} additional symbols omitted")
+    if len(definitions) > len(shown):
+        summary_parts.append(f"- ... {len(definitions) - len(shown)} additional symbols omitted")
 
     return truncate_to_budget("\n".join(summary_parts), max_tokens)
 

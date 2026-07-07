@@ -239,3 +239,21 @@ under "MANDATORY COMPLETION CRITERIA" section. All future agents must satisfy: (
 (2) coverage nonzero, (3) imported from live signal path — before marking COMPLETE.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
+
+## Debt-011 [2026-07-07] — NEW (audit session, Amazon Q)
+Three intelligence modules (causal_inference.py, ensemble_predictor.py,
+risk_quantification.py) have no EXPERIMENTAL/UNUSED marker in their module
+docstrings. Gap-017 resolution claimed these were "marked EXPERIMENTAL/UNUSED
+in MODULE_MAP.json and CONTEXT_PRIMER.md" — but the source files themselves
+have no such marker. A contributor reading the source directly (not the intel
+docs) sees production-quality docstrings with no indication the module is
+disconnected from the live path. Same documentation-drift pattern as Debt-010.
+Severity: Low (documentation only — no runtime impact).
+File: src/intelligence/causal_inference.py (line 1-6),
+      src/intelligence/ensemble_predictor.py (line 1-4),
+      src/intelligence/risk_quantification.py (line 1-4)
+Status: OPEN — Action: prepend "EXPERIMENTAL — NOT wired into live signal path.
+Blocked on API key provisioning (see DECISION_LOG.md GAP-015)." to each module
+docstring.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

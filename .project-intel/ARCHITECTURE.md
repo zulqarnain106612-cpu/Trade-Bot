@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 18:30 | 830 Python modules | 240,375 total lines
+> Auto-generated 2026-07-07 18:59 | 830 Python modules | 240,375 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3559,9 +3559,7 @@ Schema owns fi
 **Purpose**: __init__ module
 
 ### `src/diagnostics/runtime_monitor.py` (307 lines)
-**Purpose**: Runtime Monitor — continuous async health diagnostics with auto-healing.
-
-Respon
+**Purpose**: Runtime Monitor — continuous async health diagnostics (alert-only, no auto-resta
 **Classes**: ProbeResult, HealthSnapshot, RuntimeMonitor
 **Key functions**: get_m
 

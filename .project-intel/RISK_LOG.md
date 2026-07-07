@@ -73,3 +73,19 @@ and src/engine/ should have a separate minimum (recommend 70%+). The global gate
 insufficient for a system that places real financial orders.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
+
+## Risk-005 [2026-07-07] — NEW (audit session, Amazon Q)
+1 test is failing in the suite (tests/test_context_builder.py::
+test_summarize_source_file_uses_compact_ast_summary — see Issue-009).
+This is a persistent CI failure that masks real regressions: when CI
+always shows 1 failure, contributors stop treating a red CI as a signal.
+The "1 known failure" pattern is the same shape as the "0% coverage on
+live.py" pattern — a known-bad baseline that normalises ignoring CI output.
+Severity: Low-Medium (process risk — not a trading safety issue, but
+degrades CI signal quality for the whole team).
+File: .project-intel/scripts/context_builder.py, tests/test_context_builder.py
+Status: OPEN — Fix is in context_builder.py summarize_source_file(): when
+len(relevant) < 6, fill remaining slots from non-matching definitions before
+emitting the "N additional symbols omitted" line. See Issue-009 for detail.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────

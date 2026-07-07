@@ -5,6 +5,7 @@
 python3 .project-intel/scripts/resume.py /home/fujitsu/Projects/Trade-Bot-main
 ```
 Read its output. That is your complete context. Begin work on NEXT TASK immediately.
+'''
 
 ## Checkpoint after every meaningful step
 ```bash

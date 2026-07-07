@@ -150,3 +150,43 @@ structure parsing (fees list, fee single-dict fallback, quote-currency filter,
 _LIVE_FEE_FALLBACK for missing data). 32 new tests validate the paths that call it.
 Discovered by: Claude [claude] during Debt-009 coverage work
 ────────────────────────────────────────────────────────────
+
+## Issue-008 [2026-07-07] — NEW (audit session, Amazon Q)
+src/diagnostics/runtime_monitor.py module docstring (line 2) still reads:
+  "Runtime Monitor — continuous async health diagnostics with auto-healing."
+Issue-004 and Issue-006 were both resolved by correcting the body docstring
+(line 8: "Alert only — no auto-restart") and the log message (line 160:
+"monitor_offline — alert only, manual restart required"). However the
+module-level one-liner on line 2 was NOT updated and still claims "auto-healing".
+A contributor reading only the module summary (e.g. via IDE hover, pydoc, or
+the MODULE_MAP.json description field) gets the old misleading claim.
+Severity: Low (documentation accuracy — the body docstring is correct; only
+the one-liner summary is stale).
+File: src/diagnostics/runtime_monitor.py line 2
+Status: OPEN — Action: change line 2 to:
+  "Runtime Monitor — continuous async health diagnostics (alert-only, no auto-restart)."
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────
+
+## Issue-009 [2026-07-07] — NEW (audit session, Amazon Q)
+tests/test_context_builder.py::test_summarize_source_file_uses_compact_ast_summary
+is the 1 failing test in the suite (confirmed: 899 passed, 1 failed, 1 skipped).
+Root cause: summarize_source_file() in .project-intel/scripts/context_builder.py
+filters symbols by query relevance (line ~115: `if not terms or any(term in name_l
+for term in terms)`). When query="compute", only the `compute` function matches;
+`Worker` class does not match and is omitted from the output. The test asserts
+`"worker" in summary.lower()` which fails because Worker is counted in
+"1 additional symbols omitted" but not shown.
+The function's intent is to show relevant symbols first, but the test expects ALL
+top-level symbols to appear when there are only 2 (a reasonable expectation for
+small files). The fix is to always show all symbols when total count <= 4, or
+always include non-matching symbols after the relevant ones up to the 6-symbol cap.
+Severity: Medium (CI gate failure — this test fails on every run, polluting CI
+output and masking real failures).
+File: .project-intel/scripts/context_builder.py (~line 115-132),
+      tests/test_context_builder.py line 14
+Status: OPEN — Action: in summarize_source_file(), when len(relevant) < 6 and
+len(definitions) > len(relevant), append remaining definitions up to the 6-symbol
+cap so small files always show all symbols.
+Reported by: Amazon Q [amazonq]
+────────────────────────────────────────────────────────────
