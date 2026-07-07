@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 18:28 | 829 Python modules | 240,361 total lines
+> Auto-generated 2026-07-07 18:30 | 830 Python modules | 240,375 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3497,6 +3497,9 @@ at pr
 
 Sour
 **Key functions**: extra
+
+### `scripts/smart_read.py` (14 lines)
+**Purpose**: Compatibility wrapper for the compact file reader.
 
 ### `src/__init__.py` (1 lines)
 **Purpose**: __init__ module

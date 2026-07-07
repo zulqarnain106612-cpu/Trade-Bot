@@ -10293,6 +10293,14 @@
     ],
     "imports_from": []
   },
+  "scripts/smart_read.py": {
+    "purpose": "Compatibility wrapper for the compact file reader.",
+    "lines": 14,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
   "src/__init__.py": {
     "purpose": "__init__ module",
     "lines": 1,

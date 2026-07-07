@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-07 18:21:38 | Read this before starting any work.
+> Updated: 2026-07-07 18:29:39 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-07 17:55:29
-**Last checkpoint**: 2026-07-07 18:21:38
+**Last checkpoint**: 2026-07-07 18:29:39
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -29,6 +29,9 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - .github/copilot-instructions.md
   - .project-intel/scripts/resume.py
   - .project-intel/scripts/update_session.py
+  - .claudeignore
+  - .project-intel/scripts/smart_read.py
+  - tests/test_smart_read.py
 
 ## Session History (last 5)
   [2026-07-07 17:55:29] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA

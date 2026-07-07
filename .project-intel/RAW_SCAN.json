@@ -1072,6 +1072,7 @@
     "scripts/export_diagnostics.py",
     "scripts/extract_tagpack_seeds.py",
     "scripts/intel-health.sh",
+    "scripts/smart_read.py",
     "setup_dev.ps1",
     "setup_dev.sh",
     "src/__init__.py",
