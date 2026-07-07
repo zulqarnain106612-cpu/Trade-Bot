@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-07 23:38:40 | Read this before starting any work.
+> Updated: 2026-07-08 02:00:46 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-07 18:34:30
-**Last checkpoint**: 2026-07-07 23:38:40
+**Last checkpoint**: 2026-07-08 02:00:46
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,28 +17,26 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
-  - .project-intel/SESSION_STATE.json
-  - .project-intel/TECH_DEBT.md
-  - .project-intel/scripts/context_builder.py
-  - src/diagnostics/runtime_monitor.py
-  - .env.example
-  - src/intelligence/causal_inference.py
-  - src/intelligence/ensemble_predictor.py
-  - src/intelligence/risk_quantification.py
-  - src/diagnostics/runtime_monitor.py .env.example src/intelligence/causal_inference.py src/intelligence/ensemble_predictor.py src/intelligence/risk_quantification.py .project-intel/scripts/context_builder.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/SECURITY_ISSUES.md .project-intel/RISK_LOG.md
-  - src/intelligence/onchain/__init__.py
   - pyproject.toml
   - scripts/check_coverage_floors.py
+  - src/diagnostics/runtime_monitor.py
+  - src/intelligence/causal_inference.py
+  - src/intelligence/ensemble_predictor.py
+  - src/intelligence/onchain/__init__.py
+  - src/intelligence/risk_quantification.py
+  - .claude/CLAUDE.md
+  - .coverage_floors_tmp.json
+  - .project-intel/ARCHITECTURE.md
+  - .project-intel/HANDOFF.md
+  - .project-intel/SESSION_STATE.json
+  - .project-intel/scripts/resume.py
+  - .project-intel/scripts/update_session.py
   - =.coverage_floors_tmp.json
-  - .claudeignore
-  - .project-intel/scripts/handoff.py
 
 ## Session History (last 5)
   [2026-07-07 18:34:44] claude — interrupted: shell exited with 2 uncommitted file(s)
   [2026-07-07 18:34:39] claude — interrupted: shell exited with 2 uncommitted file(s)
-  [2026-07-07 18:34:30] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
-  [2026-07-07 18:34:07] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
-  [2026-07-07 17:55:29] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
+  [2026-07-07 18:34:30] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNO
 
 ## Quick Start for Any Agent
 ```
