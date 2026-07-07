@@ -21,7 +21,9 @@ Usage:
   python3 context_builder.py "fix slippage in live.py" --files src/execution/live.py
 """
 
+import ast
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -49,7 +51,71 @@ BUDGET_KNOWLEDGE = 1000   # up to 2 domain entries
 
 
 def estimate_tokens(text: str) -> int:
-    return len(text) // 4
+    return max(1, len(text) // 4)
+
+
+def summarize_source_file(path: str | Path, query: str = "", max_tokens: int = 600) -> str:
+    """Create a compact AST-based summary for a source file instead of dumping raw code."""
+    target = Path(path)
+    if not target.exists():
+        return f"[missing] {target}"
+
+    try:
+        text = target.read_text(errors="ignore")
+    except Exception:
+        return f"[unreadable] {target}"
+
+    try:
+        rel_path = target.relative_to(ROOT)
+    except Exception:
+        rel_path = target.name
+
+    lines = text.splitlines()
+    if target.suffix.lower() != ".py":
+        preview = " ".join(line.strip() for line in lines[:8] if line.strip())
+        preview = preview[:220]
+        return f"{rel_path} — {len(lines)} lines; preview: {preview or 'no preview'}"
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        preview = " ".join(line.strip() for line in lines[:8] if line.strip())
+        return f"{rel_path} — {len(lines)} lines; non-parseable Python preview: {preview[:220]}"
+
+    terms = {term for term in re.split(r"[^a-z0-9]+", query.lower()) if len(term) >= 3}
+    definitions = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node) or ""
+            doc = re.sub(r"\s+", " ", doc).strip()
+            definitions.append((node.name, "func", doc))
+        elif isinstance(node, ast.ClassDef):
+            doc = ast.get_docstring(node) or ""
+            doc = re.sub(r"\s+", " ", doc).strip()
+            definitions.append((node.name, "class", doc))
+
+    if not definitions:
+        return f"{rel_path} — {len(lines)} lines; no top-level functions/classes"
+
+    relevant = []
+    for name, kind, doc in definitions:
+        name_l = name.lower()
+        if not terms or any(term in name_l for term in terms):
+            relevant.append((name, kind, doc))
+    if not relevant:
+        relevant = definitions[:4]
+
+    summary_parts = [f"{rel_path} — {len(lines)} lines, {len(definitions)} top-level symbols"]
+    for name, kind, doc in relevant[:6]:
+        label = "func" if kind == "func" else "class"
+        if doc:
+            summary_parts.append(f"- {label} {name}: {doc[:110]}")
+        else:
+            summary_parts.append(f"- {label} {name}: compact interface only")
+    if len(definitions) > len(relevant):
+        summary_parts.append(f"- ... {len(definitions) - len(relevant)} additional symbols omitted")
+
+    return "\n".join(summary_parts)[:max_tokens * 4]
 
 
 def load_primer() -> str:
@@ -102,20 +168,19 @@ def load_knowledge(query: str) -> str:
 
 
 def load_specific_files(file_paths: list[str]) -> str:
-    """Load specific source files (only when explicitly requested)."""
+    """Load compact summaries for specific source files (only when explicitly requested)."""
     parts = []
     used  = 0
     for fp in file_paths:
         fpath = ROOT / fp
         if not fpath.exists():
             continue
-        content = fpath.read_text(errors="ignore")
-        tokens  = estimate_tokens(content)
+        summary = summarize_source_file(fpath, query="")
+        tokens  = estimate_tokens(summary)
         if used + tokens > BUDGET_RAG:
-            # Truncate
-            content = content[:BUDGET_RAG * 4] + "\n... [truncated]"
-            tokens  = BUDGET_RAG
-        parts.append(f"### {fp}\n```python\n{content}\n```")
+            summary = summary[:BUDGET_RAG * 4] + "\n... [truncated]"
+            tokens  = estimate_tokens(summary)
+        parts.append(f"### {fp}\n{summary}")
         used += tokens
         if used >= BUDGET_RAG:
             break

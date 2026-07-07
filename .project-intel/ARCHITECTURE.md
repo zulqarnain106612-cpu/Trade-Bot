@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-06 17:16 | 826 Python modules | 240,145 total lines
+> Auto-generated 2026-07-07 18:10 | 827 Python modules | 240,182 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3822,6 +3822,10 @@ Covers:
 layer
 **Classes**: TestQuantValidator, TestProbabilityValidator, TestRiskValidator, TestBlockchainValidator, TestRegimeValidator, TestCognitiveEngineAggregation
 **Key functions**: reset
+
+### `tests/test_context_builder.py` (37 lines)
+**Purpose**: test_context_builder module
+**Key functions**: load_
 
 ### `tests/test_detector.py` (334 lines)
 **Purpose**: Tests for src/regime/detector.py — GaussianHMM 3-state regime detector

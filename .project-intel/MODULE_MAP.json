@@ -11105,6 +11105,17 @@
       "src.risk.cognitive_engine"
     ]
   },
+  "tests/test_context_builder.py": {
+    "purpose": "test_context_builder module",
+    "lines": 37,
+    "classes": [],
+    "key_functions": [
+      "load_context_builder",
+      "test_summarize_source_file_uses_compact_ast_summary"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
   "tests/test_detector.py": {
     "purpose": "Tests for src/regime/detector.py \u2014 GaussianHMM 3-state regime detector\n(Hamilton 1989) and the GAP-0",
     "lines": 334,

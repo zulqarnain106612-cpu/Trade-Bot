@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T00:30:16.346479",
+  "last_updated": "2026-07-07T18:11:21.604613",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -21,7 +21,8 @@
     "sec_007_approval_second_factor": "RESOLVED (prior session) \u2014 confirmed in source: /approvals/{id}/resolve requires operator_secret verified via hmac.compare_digest.",
     "gap_008_double_regime_scalar": "RESOLVED (prior session) \u2014 confirmed in source: signal_engine.py logs regime_scalar_filter_logged_only, does NOT apply second scalar multiplicatively.",
     "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageModel.",
-    "debt_005_test_coverage": "RESOLVED [2026-06-26] \u2014 62% total coverage (gate=60%). 725 tests. Key files: signal_engine.py 87%, gates.py 87%, trainer predict_* covered, trade_auditor covered, intelligence_gates + probabilistic_gates covered."
+    "debt_005_test_coverage": "RESOLVED [2026-06-26] \u2014 62% total coverage (gate=60%). 725 tests. Key files: signal_engine.py 87%, gates.py 87%, trainer predict_* covered, trade_auditor covered, intelligence_gates + probabilistic_gates covered.",
+    "onchain_intelligence": "PLANNED v2 (corrected) \u2014 10 tasks in ONCHAIN_TASKS.md. CryptoQuant removed (no free API). Schema update + model gate added as distinct tasks. All 9 NaN fields have real free-API sources. 3 new fields (mvrv/sopr/defi_tvl) gated inactive pending model retrain. Next: OCI-001."
   },
   "current_focus": "completed by claude \u2014 Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
@@ -38,14 +39,8 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 35,
+  "total_sessions": 37,
   "commit_log": [
-    {
-      "hash": "650b384",
-      "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-      "time": "2026-07-05T18:50:02.013144",
-      "author": "Claude"
-    },
     {
       "hash": "fada3f7",
       "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
@@ -159,40 +154,33 @@
       "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
       "time": "2026-07-06T17:17:28.321728",
       "author": "Claude"
+    },
+    {
+      "hash": "1aa803d",
+      "message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "time": "2026-07-07T18:11:21.768534",
+      "author": "Claude"
     }
   ],
-  "last_commit": "557513f",
-  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-  "last_commit_time": "2026-07-06T17:17:28.321775",
+  "last_commit": "1aa803d",
+  "last_commit_message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+  "last_commit_time": "2026-07-07T18:11:21.768595",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-07T00:18:06.747774",
+  "last_session_start": "2026-07-07T17:55:28.733083",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-06T17:17:27.824834",
-  "last_extraction_trigger": "test_orchestrator_coverage.py",
+  "last_extraction": "2026-07-07T18:11:20.863197",
+  "last_extraction_trigger": "test_context_builder.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-07 00:26:12] [1f99010] docs(intel): session resume \u2014 fix KellyResult test, 870 tests passing [claude]",
-      "[2026-07-07 00:30:16] [0f0fb12] docs(intel): session resume \u2014 KellyResult fix, 870 tests passing [claude]"
+      "[2026-07-07 18:11:21] [1aa803d] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 00:30:16",
+    "last_checkpoint": "2026-07-07 18:11:21",
     "session_history": [
-      {
-        "time": "2026-07-03 21:41:10",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell exited with 3 uncommitted file(s)"
-      },
-      {
-        "time": "2026-07-03 21:42:44",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
-      },
       {
         "time": "2026-07-03 21:58:54",
         "agent": "claude",
@@ -240,15 +228,34 @@
         "agent": "claude",
         "status": "interrupted",
         "summary": "shell exited with 3 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-07 17:54:20",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
+      },
+      {
+        "time": "2026-07-07 17:55:29",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
       }
     ],
     "files_touched": [
+      ".project-intel/ARCHITECTURE.md",
       ".project-intel/HANDOFF.md",
-      ".project-intel/SESSION_STATE.json"
+      ".project-intel/MODULE_MAP.json",
+      ".project-intel/ONCHAIN_TASKS.md",
+      ".project-intel/RAW_SCAN.json",
+      ".project-intel/SESSION_STATE.json",
+      ".project-intel/scripts/context_builder.py",
+      "glassnode-features.md",
+      "tests/test_context_builder.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
-    "session_started": "2026-07-07 00:18:08",
-    "interruption_reason": "shell exited with 3 uncommitted file(s)"
+    "session_started": "2026-07-07 17:55:29",
+    "interruption_reason": ""
   },
   "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan"
 }
