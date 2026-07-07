@@ -46,15 +46,15 @@ def main():
         # Extract the file/component from the task description
         task_lower = task.lower()
         if "entropy" in task_lower or "hmm" in task_lower:
-            state.setdefault("implementation_status", {})["entropy_gate"] = f"COMPLETE — {task}"
+            state.setdefault("implementation_status", {})["entropy_gate"] = "complete"
         elif "slippage" in task_lower:
-            state.setdefault("implementation_status", {})["slippage_model"] = f"COMPLETE — {task}"
+            state.setdefault("implementation_status", {})["slippage_model"] = "complete"
         elif "order_fsm" in task_lower or "fsm" in task_lower:
-            state.setdefault("implementation_status", {})["order_fsm"] = f"COMPLETE — {task}"
+            state.setdefault("implementation_status", {})["order_fsm"] = "complete"
         elif "drift" in task_lower or "degradation" in task_lower:
-            state.setdefault("implementation_status", {})["performance_drift_trigger"] = f"COMPLETE — {task}"
+            state.setdefault("implementation_status", {})["performance_drift_trigger"] = "complete"
         elif "correlation" in task_lower:
-            state.setdefault("implementation_status", {})["portfolio_correlation_layer"] = f"COMPLETE — {task}"
+            state.setdefault("implementation_status", {})["portfolio_correlation_layer"] = "complete"
 
     state["last_updated"] = datetime.now().isoformat()
     state["last_session_completed"] = args.completed

@@ -1,28 +1,28 @@
 {
-  "last_updated": "2026-07-07T22:57:11.556733",
+  "last_updated": "2026-07-07T23:38:40.474242",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
-    "paper_executor": "COMPLETE \u2014 GAP-011 resolved: SlippageModel wired into _open_position_internal. Paper fills now use slippage-adjusted pri\u2026",
-    "live_executor": "complete \u2014 missing order FSM (GAP-004)",
+    "paper_executor": "complete",
+    "live_executor": "complete",
     "api": "complete",
     "frontend": "complete",
     "diagnostics": "complete",
-    "slippage_model": "COMPLETE \u2014 gate 0 fully wired: SlippageModel.estimate() called in signal_engine.py with live spread_bps (from order book\u2026",
-    "entropy_gate": "complete \u2014 verified, AND test-backfilled this session (tests/test_detector.py, 32 tests, detector.py coverage 0% -> 92%)",
-    "performance_drift_trigger": "COMPLETE \u2014 LabelShiftDetector + rolling win-rate drift (GAP-003 resolved 2026-06-26)",
-    "order_fsm": "COMPLETE \u2014 order_fsm.py + order_manager.py + live_fsm_integration.py (GAP-004 resolved 2026-06-24)",
-    "portfolio_correlation_layer": "COMPLETE \u2014 PortfolioCorrelationTracker with rolling correlations (GAP-005 resolved 2026-06-26)",
-    "intel_layer": "COMPLETE \u2014 .project-intel/ active. RAG engine (332 chunks), cognitive_layer.py (13 domain knowledge entries), context_bu\u2026",
-    "output_router": "NOT a running daemon \u2014 no process found. Claude performs the tag->file routing manually via direct file writes each sess\u2026",
-    "cognitive_layer": "complete (5 validators: Quant/Probability/Risk/Blockchain/Regime), CRITICAL sizing bug fixed this session [GAP-007, now \u2026",
-    "sec_006_dependency_hash_pinning": "RESOLVED [2026-06-24] \u2014 requirements.lock generated (1777 unique METADATA sha256 hashes); dependabot-auto-merge.yml excl\u2026",
-    "sec_005_unsafe_autofix": "RESOLVED (prior session) \u2014 confirmed in source: auto-fix.yml runs ruff check --fix only, no --unsafe-fixes.",
-    "sec_007_approval_second_factor": "RESOLVED (prior session) \u2014 confirmed in source: /approvals/{id}/resolve requires operator_secret verified via hmac.compa\u2026",
-    "gap_008_double_regime_scalar": "RESOLVED (prior session) \u2014 confirmed in source: signal_engine.py logs regime_scalar_filter_logged_only, does NOT apply s\u2026",
-    "gap_011_paper_slippage": "RESOLVED (prior session) \u2014 confirmed in source: paper.py _open_position_internal uses simulated_fill_price via SlippageM\u2026",
-    "debt_005_test_coverage": "RESOLVED [2026-06-26] \u2014 62% total coverage (gate=60%). 725 tests. Key files: signal_engine.py 87%, gates.py 87%, trainer\u2026",
-    "onchain_intelligence": "PLANNED v2 (corrected) \u2014 10 tasks in ONCHAIN_TASKS.md. CryptoQuant removed (no free API). Schema update + model gate add\u2026"
+    "slippage_model": "complete",
+    "entropy_gate": "complete",
+    "performance_drift_trigger": "complete",
+    "order_fsm": "complete",
+    "portfolio_correlation_layer": "complete",
+    "intel_layer": "complete",
+    "output_router": "NOT a running daemon \u2014 no process found. Claude performs the tag->file routing m",
+    "cognitive_layer": "complete",
+    "sec_006_dependency_hash_pinning": "complete",
+    "sec_005_unsafe_autofix": "complete",
+    "sec_007_approval_second_factor": "complete",
+    "gap_008_double_regime_scalar": "complete",
+    "gap_011_paper_slippage": "complete",
+    "debt_005_test_coverage": "complete",
+    "onchain_intelligence": "PLANNED v2 (corrected) \u2014 10 tasks in ONCHAIN_TASKS.md. CryptoQuant removed (no f"
   },
   "current_focus": "completed by claude \u2014 Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
@@ -30,123 +30,43 @@
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
     "Decide online retraining trigger: time-based vs performance-based",
     "Define order FSM states for partial fills (GAP-004) \u2014 next task",
-    "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config default, not fitted)",
+    "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config ",
     "TASK-010: live spread_bps/funding_rate_8h wiring into SignalContext (P0, new)",
-    "TASK-011: audit strategies/filters.py 'scalar' for the same independent-recompute risk pattern that caused GAP-007 (P1, new, not yet investigated)",
-    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 \u2014 never validated against the declared minimum (Low severity, new)",
-    "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping with detector.py's entropy scalar, or the compounding should be explicitly bounded/documented as intentional",
-    "Debt-006: pick one canonical lint-tool-version source (pre-commit vs CI vs Trunk) \u2014 currently 3 independently-pinned configs, already found diverging"
+    "TASK-011: audit strategies/filters.py 'scalar' for the same independent-recompute risk pattern that ",
+    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 \u2014 never validated agains",
+    "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping"
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 49,
-  "commit_log": [
-    {
-      "hash": "9a4f52c",
-      "message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
-      "time": "2026-07-07T18:21:37.744515",
-      "author": "Claude"
-    },
-    {
-      "hash": "85d15e9",
-      "message": "docs(intel): auto-sync after changes to tests/test_smart_read.py [claude]",
-      "time": "2026-07-07T18:29:38.693895",
-      "author": "Claude"
-    },
-    {
-      "hash": "f347be8",
-      "message": "docs(intel): auto-sync after changes to scripts/smart_read.py [claude]",
-      "time": "2026-07-07T18:31:51.758755",
-      "author": "Claude"
-    },
-    {
-      "hash": "2bef074",
-      "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-      "time": "2026-07-07T19:00:10.700414",
-      "author": "Claude"
-    },
-    {
-      "hash": "3481d39",
-      "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
-      "time": "2026-07-07T19:40:19.887057",
-      "author": "Claude"
-    },
-    {
-      "hash": "fd78c0e",
-      "message": "fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
-      "time": "2026-07-07T19:41:15.263267",
-      "author": "Claude"
-    },
-    {
-      "hash": "c4423b7",
-      "message": "docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
-      "time": "2026-07-07T22:37:54.534204",
-      "author": "Claude"
-    },
-    {
-      "hash": "e60beda",
-      "message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
-      "time": "2026-07-07T22:42:42.116622",
-      "author": "Claude"
-    },
-    {
-      "hash": "ddbb0b2",
-      "message": "docs(intel): auto-sync after changes to pyproject.toml [claude]",
-      "time": "2026-07-07T22:43:30.190202",
-      "author": "Claude"
-    },
-    {
-      "hash": "51935df",
-      "message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
-      "time": "2026-07-07T22:57:10.839404",
-      "author": "Claude"
-    }
-  ],
+  "total_sessions": 60,
   "last_commit": "51935df",
   "last_commit_message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
   "last_commit_time": "2026-07-07T22:57:10.839489",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-07T23:38:31.012298",
+  "last_session_start": "2026-07-08T02:00:28.865020",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-07T22:57:09.360419",
-  "last_extraction_trigger": "check_coverage_floors.py",
+  "last_extraction": "2026-04-15T23:34:18.932955",
+  "last_extraction_trigger": "startup",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-07 19:41:15] [fd78c0e] fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
-      "[2026-07-07 19:41:15] [817b7a7] fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
-      "[2026-07-07 22:37:54] [c4423b7] docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
-      "[2026-07-07 22:37:54] [eeb81da] docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
-      "[2026-07-07 22:42:41] [e60beda] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
-      "[2026-07-07 22:42:43] [10dfa3a] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
-      "[2026-07-07 22:43:30] [ddbb0b2] docs(intel): auto-sync after changes to pyproject.toml [claude]",
-      "[2026-07-07 22:43:30] [673b7c0] docs(intel): auto-sync after changes to pyproject.toml [claude]",
-      "[2026-07-07 22:57:10] [51935df] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
-      "[2026-07-07 22:57:11] [9441430] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]"
+      "[2026-07-07 22:43:30] [ddbb0b2] docs(intel): auto-sync after changes to pyprojec",
+      "[2026-07-07 22:43:30] [673b7c0] docs(intel): auto-sync after changes to pyprojec",
+      "[2026-07-07 22:57:10] [51935df] docs(intel): auto-sync after changes to scripts/",
+      "[2026-07-07 22:57:11] [9441430] docs(intel): auto-sync after changes to scripts/",
+      "[2026-07-07 23:38:40] [c5eb3a2] chore(context): fix session-limit causes \u2014 block"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 22:57:11",
+    "last_checkpoint": "2026-07-07 23:38:40",
     "session_history": [
-      {
-        "time": "2026-07-07 17:55:29",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
-      },
-      {
-        "time": "2026-07-07 18:34:07",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
-      },
       {
         "time": "2026-07-07 18:34:30",
         "agent": "claude",
         "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
+        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNO"
       },
       {
         "time": "2026-07-07 18:34:39",
@@ -162,21 +82,16 @@
       }
     ],
     "files_touched": [
-      ".project-intel/RISK_LOG.md",
-      ".project-intel/SECURITY_ISSUES.md",
-      ".project-intel/SESSION_STATE.json",
       ".project-intel/TECH_DEBT.md",
       ".project-intel/scripts/context_builder.py",
-      "src/diagnostics/runtime_monitor.py",
-      ".env.example",
-      "src/intelligence/causal_inference.py",
-      "src/intelligence/ensemble_predictor.py",
-      "src/intelligence/risk_quantification.py",
-      "src/diagnostics/runtime_monitor.py .env.example src/intelligence/causal_inference.py src/intelligence/ensemble_predictor.py src/intelligence/risk_quantification.py .project-intel/scripts/context_builder.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/SECURITY_ISSUES.md .project-intel/RISK_LOG.md",
-      "src/intelligence/onchain/__init__.py",
+      ".project-intel/scripts/handoff.py",
       "pyproject.toml",
       "scripts/check_coverage_floors.py",
-      "=.coverage_floors_tmp.json"
+      "src/diagnostics/runtime_monitor.py",
+      "src/intelligence/causal_inference.py",
+      "src/intelligence/ensemble_predictor.py",
+      "src/intelligence/onchain/__init__.py",
+      "src/intelligence/risk_quantification.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-07 18:34:30",

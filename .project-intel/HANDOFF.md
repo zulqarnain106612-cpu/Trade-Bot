@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-07 22:43:30 | Read this before starting any work.
+> Updated: 2026-07-07 23:38:40 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-07 18:34:30
-**Last checkpoint**: 2026-07-07 22:43:30
+**Last checkpoint**: 2026-07-07 23:38:40
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,18 +17,6 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
-  - .amazonq/rules/project.md
-  - .amazonq/rules/trade-bot.md
-  - .claude/CLAUDE.md
-  - .project-intel/ARCHITECTURE.md
-  - .project-intel/GAPS.md
-  - .project-intel/HANDOFF.md
-  - .project-intel/ISSUES.md
-  - .project-intel/MODULE_MAP.json
-  - .project-intel/MODULE_MAP_SLIM.json
-  - .project-intel/RAW_SCAN.json
-  - .project-intel/RISK_LOG.md
-  - .project-intel/SECURITY_ISSUES.md
   - .project-intel/SESSION_STATE.json
   - .project-intel/TECH_DEBT.md
   - .project-intel/scripts/context_builder.py
@@ -41,6 +29,9 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/intelligence/onchain/__init__.py
   - pyproject.toml
   - scripts/check_coverage_floors.py
+  - =.coverage_floors_tmp.json
+  - .claudeignore
+  - .project-intel/scripts/handoff.py
 
 ## Session History (last 5)
   [2026-07-07 18:34:44] claude — interrupted: shell exited with 2 uncommitted file(s)

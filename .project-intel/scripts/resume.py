@@ -1,73 +1,33 @@
 #!/usr/bin/env python3
 """
 SESSION RESUME — single command, zero follow-up file reads.
-
-Outputs ONE compressed brief (~150-200 lines) containing:
-  - Next task
-  - Git state
-  - Project health / coverage
-  - Open decisions
-  - FULL slim module map (src/ only, 1-line per file)
-  - Signal flow + risk constants
-  - Output routing rules
-  - Exact rules forbidding further file reads
-
-Claude reads this ONE output and begins work immediately.
-No CONTEXT_PRIMER, SESSION_STATE, MODULE_MAP, DECISION_LOG, HANDOFF reads needed.
+Target: ≤800 tokens. Every token here costs context window space.
 """
-
-import json
-import subprocess
-import sys
+import json, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 
 
-def git_status(root: Path) -> str:
+def git_status(root):
     try:
-        out = subprocess.check_output(
-            ["git", "status", "--short"], cwd=root, text=True, timeout=5
-        ).strip()
-        return out[:400] if out else "clean"
+        out = subprocess.check_output(["git","status","--short"], cwd=root, text=True, timeout=5).strip()
+        return out[:300] if out else "clean"
     except Exception:
         return "unknown"
 
 
-def git_log(root: Path, n: int = 3) -> str:
+def git_log(root, n=2):
     try:
-        return subprocess.check_output(
-            ["git", "log", f"-{n}", "--oneline"], cwd=root, text=True, timeout=5
-        ).strip()
+        return subprocess.check_output(["git","log",f"-{n}","--oneline"], cwd=root, text=True, timeout=5).strip()
     except Exception:
         return ""
 
 
-def load_slim_map(intel: Path) -> dict:
-    slim_path = intel / "MODULE_MAP_SLIM.json"
-    if slim_path.exists():
+def load_slim_map(intel):
+    p = intel / "MODULE_MAP_SLIM.json"
+    if p.exists():
         try:
-            return json.loads(slim_path.read_text())
-        except Exception:
-            pass
-    # MODULE_MAP.json (~11k lines) intentionally NOT loaded — it floods context.
-    # Run: python3 .project-intel/scripts/extract_intelligence.py . to rebuild slim.
-    return {}
-    full_path = intel / "MODULE_MAP.json"  # unreachable
-    if False:
-        try:
-            full = json.loads(full_path.read_text())
-            slim = {}
-            for fp, info in full.items():
-                if not fp.startswith("src/"):
-                    continue
-                if isinstance(info, dict):
-                    purpose = info.get("purpose", "").strip().split("\n")[0][:90]
-                    slim[fp] = {"purpose": purpose, "functions": info.get("functions", [])[:4]}
-                else:
-                    slim[fp] = {"purpose": str(info)[:90], "functions": []}
-            # Save for next time
-            slim_path.write_text(json.dumps(slim, indent=2))
-            return slim
+            return json.loads(p.read_text())
         except Exception:
             pass
     return {}
@@ -77,112 +37,102 @@ def main():
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()
     intel = root / ".project-intel"
 
-    # Load state
-    state: dict = {}
+    state = {}
     try:
         state = json.loads((intel / "SESSION_STATE.json").read_text())
     except Exception:
         pass
 
-    handoff: dict = state.get("handoff", {})
-    impl: dict = state.get("implementation_status", {})
-    pending_decisions = state.get("open_decisions", [])
-    next_task = (
-        handoff.get("next_step")
-        or state.get("next_recommended_task", "check OPEN_TASKS.md")
-    )
-    interruption = handoff.get("interruption_reason", "")
+    handoff       = state.get("handoff", {})
+    impl          = state.get("implementation_status", {})
+    decisions     = state.get("open_decisions", [])
+    next_task     = handoff.get("next_step") or state.get("next_recommended_task", "check OPEN_TASKS.md")
+    interruption  = handoff.get("interruption_reason", "")
     files_touched = handoff.get("files_touched", [])
-    last_checkpoint = handoff.get("last_checkpoint", "")
-    coverage = state.get("coverage_pct", "?")
-    total_sessions = state.get("total_sessions", 0)
-    health = state.get("project_health", "")
+    last_cp       = handoff.get("last_checkpoint", "")
+    coverage      = state.get("coverage_pct", "?")
+    sessions      = state.get("total_sessions", 0)
+    health        = state.get("project_health", "")
 
-    # Git
-    status = git_status(root)
-    recent_commits = git_log(root, 3)
+    status  = git_status(root)
+    commits = git_log(root, 2)
+    slim    = load_slim_map(intel)
+    now     = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # Slim module map
-    slim_map = load_slim_map(intel)
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
-        "╔══════════════════════════════════════════════════════════════════╗",
-        f"║  TRADE-BOT RESUME  [{now}]  Session #{total_sessions}",
-        "╚══════════════════════════════════════════════════════════════════╝",
-        "",
-        f"▶ NEXT TASK  : {next_task}",
+        f"╔══ TRADE-BOT RESUME [{now}] Session #{sessions} ══╗",
+        f"▶ NEXT: {next_task[:160]}",
     ]
+
     if interruption:
-        lines += [f"⚠ INTERRUPTED: {interruption}"]
+        lines.append(f"⚠ {interruption}")
     if files_touched:
-        lines += [f"  In-flight  : {', '.join(files_touched[:6])}"]
-    if last_checkpoint:
-        lines += [f"  Checkpoint : {last_checkpoint}"]
+        lines.append(f"  in-flight: {', '.join(files_touched[:8])}")
+    if last_cp:
+        lines.append(f"  checkpoint: {last_cp}")
 
-    lines += ["", f"PROJECT HEALTH : {health}", f"COVERAGE       : {coverage}% (gate=60%)"]
-
-    lines += ["", "GIT STATUS:"]
-    for l in status.splitlines()[:12]:
+    lines += [
+        f"HEALTH: {health[:120]}",
+        f"COVER:  {coverage}% (gate=60%)",
+        "",
+        "GIT:",
+    ]
+    for l in status.splitlines()[:8]:
         lines.append(f"  {l}")
-    if recent_commits:
-        lines += ["RECENT COMMITS:"]
-        for l in recent_commits.splitlines():
+    if commits:
+        for l in commits.splitlines():
             lines.append(f"  {l}")
 
-    # Implementation status — compact
+    # Implementation status — key: one-word status only (no long descriptions)
     if impl:
-        lines += ["", "IMPLEMENTATION STATUS (key areas):"]
-        for k, v in list(impl.items())[:12]:
-            short = str(v)[:70] + ("…" if len(str(v)) > 70 else "")
-            lines.append(f"  {k:<38} {short}")
+        lines.append("\nSTATUS:")
+        # Group by state
+        done  = [k for k,v in impl.items() if "COMPLETE" in str(v).upper() or str(v).strip().lower()=="complete"]
+        other = {k: str(v)[:60] for k,v in impl.items() if k not in done}
+        lines.append(f"  ✓ complete: {', '.join(done)}")
+        for k,v in other.items():
+            lines.append(f"  ⚡ {k}: {v}")
 
-    # Open decisions — top 5
-    if pending_decisions:
-        lines += ["", "OPEN DECISIONS (do NOT re-debate — check DECISION_LOG.md for context):"]
-        for d in pending_decisions[:5]:
-            lines.append(f"  • {str(d)[:110]}")
+    # Open decisions — first line only, capped at 3
+    if decisions:
+        lines.append("\nDECISIONS (do not re-debate):")
+        for d in decisions[:3]:
+            lines.append(f"  • {str(d)[:100]}")
+        if len(decisions) > 3:
+            lines.append(f"  • (+{len(decisions)-3} more — see DECISION_LOG.md)")
 
-    # Full slim module map
-    if slim_map:
-        lines += ["", "SOURCE MODULE MAP (src/ — full):"]
-        for fp, info in slim_map.items():
-            purpose = info.get("purpose", "") if isinstance(info, dict) else str(info)
-            fns = info.get("functions", []) if isinstance(info, dict) else []
-            fn_str = f"  [{', '.join(fns[:4])}]" if fns else ""
-            lines.append(f"  {fp:<52} {purpose[:60]}{fn_str}")
+    # Module map — src/ only, skip __init__.py, 1 line each, purpose truncated to 55 chars
+    if slim:
+        lines.append("\nSRC MAP:")
+        for fp, info in slim.items():
+            if fp.endswith("__init__.py"):
+                continue  # zero value
+            purpose = (info.get("purpose","") if isinstance(info,dict) else str(info))[:55]
+            # strip package path noise, keep just filename
+            short_fp = fp.replace("src/","")
+            lines.append(f"  {short_fp:<40} {purpose}")
 
     lines += [
         "",
-        "SIGNAL FLOW:",
-        "  Exchange→fetcher→storage→features→regime→models→filters→sizing→gates→executor→api",
+        "FLOW: exchange→fetcher→storage→features→regime→models→filters→sizing→gates→executor→api",
+        "GATES: DD>2%|losses≥3|regime=volatile|pos>5%|paper<30d — KELLY×0.5 ceil 0.25",
         "",
-        "RISK GATES (never bypass):",
-        "  DD>2% | losses>=3 | regime=volatile | pos>5% | paper<30d | live_gate_fail",
-        "  KELLY×0.5 ceil 0.25 | PAPER_MIN 30d | LIVE_SHARPE≥1.5 | LIVE_DD≤15%",
-        "",
-        "OUTPUT ROUTING (wrap every output in tags):",
-        "  <gap>  <issue>  <broken>  <missing>  <decision>  <task>  <risk>  <debt>  <chat>",
-        "",
-        "══ RULES — READ BEFORE FIRST ACTION ══",
-        "  1. This brief IS your complete context. Do NOT read any other files to orient.",
-        "  2. Read a source file ONLY immediately before editing it — not for context.",
-        "  2a. NEVER use cat on files >100 lines. Use grep -n / sed -n 'L1,L2p' / head / tail instead.",
-        "  2b. NEVER read full test files or large JSON (MODULE_MAP.json, storage.py, client.py) for context.",
-        "  2c. When you need file-specific context, use .project-intel/scripts/smart_read.py <path> or .project-intel/scripts/context_builder.py --files <path> and expect a compact summary, not raw code.",
-        "  3. Do NOT read MODULE_MAP.json — the map above replaces it entirely.",
-        "  4. Do NOT read CONTEXT_PRIMER, SESSION_STATE, HANDOFF, DECISION_LOG.",
-        "  5. Checkpoint after every meaningful change:",
-        "     python3 .project-intel/scripts/handoff.py checkpoint --agent claude \\",
-        '       --completed "done X" --next "do Y" --files "src/file.py"',
-        "  6. Commit intel files after checkpointing: bash scripts/claude-commit.sh",
+        "RULES:",
+        "  1. This IS your full context. Read NO other files to orient.",
+        "  2. Read src file ONLY immediately before editing it.",
+        "  2a. Never cat files >100L — use grep/sed/head/tail.",
+        "  3. Checkpoint: python3 .project-intel/scripts/handoff.py checkpoint --agent claude \\",
+        '       --completed "X" --next "Y" --files "src/f.py"',
+        "  4. Commit: bash scripts/claude-commit.sh --msg 'type(scope): desc'",
+        "  NEVER read: MODULE_MAP.json|ARCHITECTURE.md|RAW_SCAN.json|SESSION_STATE.json|GAPS.md",
+        "  TAG outputs: <gap><issue><broken><missing><decision><task><risk><debt><chat>",
     ]
 
     print("\n".join(lines))
 
-    # Auto-register session start in state
+    # Update session counter
     try:
-        state["total_sessions"] = int(total_sessions or 0) + 1
+        state["total_sessions"] = int(sessions or 0) + 1
         state["last_session_start"] = datetime.now().isoformat()
         state["session_status"] = "active"
         (intel / "SESSION_STATE.json").write_text(json.dumps(state, indent=2))
