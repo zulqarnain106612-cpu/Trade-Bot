@@ -112,7 +112,7 @@
     "functions": []
   },
   "src/intelligence/causal_inference.py": {
-    "purpose": "Causal inference framework.",
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.",
     "functions": []
   },
   "src/intelligence/client.py": {
@@ -120,7 +120,7 @@
     "functions": []
   },
   "src/intelligence/ensemble_predictor.py": {
-    "purpose": "Ensemble prediction framework.",
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.",
     "functions": []
   },
   "src/intelligence/metrics.py": {
@@ -164,7 +164,7 @@
     "functions": []
   },
   "src/intelligence/risk_quantification.py": {
-    "purpose": "Risk quantification and uncertainty analysis.",
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.",
     "functions": []
   },
   "src/regime/__init__.py": {

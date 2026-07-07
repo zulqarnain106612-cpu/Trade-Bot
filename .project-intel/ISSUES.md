@@ -163,7 +163,7 @@ the MODULE_MAP.json description field) gets the old misleading claim.
 Severity: Low (documentation accuracy — the body docstring is correct; only
 the one-liner summary is stale).
 File: src/diagnostics/runtime_monitor.py line 2
-Status: OPEN — Action: change line 2 to:
+Status: RESOLVED [2026-07-07] — Line 2 updated to
   "Runtime Monitor — continuous async health diagnostics (alert-only, no auto-restart)."
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
@@ -185,8 +185,8 @@ Severity: Medium (CI gate failure — this test fails on every run, polluting CI
 output and masking real failures).
 File: .project-intel/scripts/context_builder.py (~line 115-132),
       tests/test_context_builder.py line 14
-Status: OPEN — Action: in summarize_source_file(), when len(relevant) < 6 and
-len(definitions) > len(relevant), append remaining definitions up to the 6-symbol
-cap so small files always show all symbols.
+Status: RESOLVED [2026-07-07] — context_builder.py summarize_source_file() now fills
+remaining cap slots with non-matching definitions before emitting the omitted-count line.
+All top-level symbols in small files are now shown. Test passes.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────

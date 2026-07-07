@@ -252,8 +252,7 @@ Severity: Low (documentation only — no runtime impact).
 File: src/intelligence/causal_inference.py (line 1-6),
       src/intelligence/ensemble_predictor.py (line 1-4),
       src/intelligence/risk_quantification.py (line 1-4)
-Status: OPEN — Action: prepend "EXPERIMENTAL — NOT wired into live signal path.
-Blocked on API key provisioning (see DECISION_LOG.md GAP-015)." to each module
-docstring.
+Status: RESOLVED [2026-07-07] — EXPERIMENTAL marker prepended to all three module
+docstrings. Wiring still blocked on API key provisioning (GAP-015).
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────

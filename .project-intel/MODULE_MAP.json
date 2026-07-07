@@ -31,7 +31,7 @@
   },
   ".project-intel/scripts/context_builder.py": {
     "purpose": "Smart Context Builder\n======================\nAssembles the MINIMUM context for any agent query.\nPull",
-    "lines": 308,
+    "lines": 319,
     "classes": [],
     "key_functions": [
       "find_project_root",
@@ -10711,8 +10711,8 @@
     ]
   },
   "src/intelligence/causal_inference.py": {
-    "purpose": "Causal inference framework.\n\nAnswer causal questions, not just correlations:\n- Does whale selling CA",
-    "lines": 466,
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.\nBlocked on API key provisioning (see DECISION_LOG.md",
+    "lines": 469,
     "classes": [
       "CausalEffect",
       "CausalDAG",
@@ -10738,8 +10738,8 @@
     ]
   },
   "src/intelligence/ensemble_predictor.py": {
-    "purpose": "Ensemble prediction framework.\n\nReduce model risk by combining diverse prediction techniques.\nOutput",
-    "lines": 650,
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.\nBlocked on API key provisioning (see DECISION_LOG.md",
+    "lines": 653,
     "classes": [
       "EnsemblePrediction",
       "PredictionModel",
@@ -10884,8 +10884,8 @@
     ]
   },
   "src/intelligence/risk_quantification.py": {
-    "purpose": "Risk quantification and uncertainty analysis.\n\nMeasures: VaR, CVaR, stress testing, uncertainty deco",
-    "lines": 401,
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.\nBlocked on API key provisioning (see DECISION_LOG.md",
+    "lines": 404,
     "classes": [
       "RiskMetrics",
       "RiskQuantifier"

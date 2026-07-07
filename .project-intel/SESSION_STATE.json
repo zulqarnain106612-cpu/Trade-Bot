@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T19:00:10.509138",
+  "last_updated": "2026-07-07T19:40:19.800419",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -41,12 +41,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 40,
   "commit_log": [
-    {
-      "hash": "ea6500e",
-      "message": "docs(intel): auto-sync after changes to tests/test_signal_engine.py [claude]",
-      "time": "2026-07-06T01:31:25.285697",
-      "author": "Claude"
-    },
     {
       "hash": "e7d0e5b",
       "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
@@ -160,26 +154,34 @@
       "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
       "time": "2026-07-07T19:00:10.700414",
       "author": "Claude"
+    },
+    {
+      "hash": "3481d39",
+      "message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
+      "time": "2026-07-07T19:40:19.887057",
+      "author": "Claude"
     }
   ],
-  "last_commit": "2bef074",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-  "last_commit_time": "2026-07-07T19:00:10.700463",
+  "last_commit": "3481d39",
+  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]",
+  "last_commit_time": "2026-07-07T19:40:19.887109",
   "coverage_pct": 62,
   "last_session_start": "2026-07-07T18:49:49.167808",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-07T19:00:10.203500",
-  "last_extraction_trigger": "runtime_monitor.py",
+  "last_extraction": "2026-07-07T19:40:19.472707",
+  "last_extraction_trigger": "risk_quantification.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-07 19:00:10] [2bef074] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]"
+      "[2026-07-07 19:00:10] [2bef074] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "[2026-07-07 19:00:10] [bb4e832] docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
+      "[2026-07-07 19:40:19] [3481d39] docs(intel): auto-sync after changes to src/intelligence/risk_quantification.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 19:00:10",
+    "last_checkpoint": "2026-07-07 19:40:19",
     "session_history": [
       {
         "time": "2026-07-07 00:16:14",
@@ -258,7 +260,11 @@
       ".project-intel/SESSION_STATE.json",
       ".project-intel/TECH_DEBT.md",
       ".project-intel/scripts/context_builder.py",
-      "src/diagnostics/runtime_monitor.py"
+      "src/diagnostics/runtime_monitor.py",
+      ".env.example",
+      "src/intelligence/causal_inference.py",
+      "src/intelligence/ensemble_predictor.py",
+      "src/intelligence/risk_quantification.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-07 18:34:30",

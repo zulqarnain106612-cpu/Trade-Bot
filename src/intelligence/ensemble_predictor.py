@@ -1,4 +1,7 @@
 """
+EXPERIMENTAL — NOT wired into live signal path.
+Blocked on API key provisioning (see DECISION_LOG.md GAP-015).
+
 Ensemble prediction framework.
 
 Reduce model risk by combining diverse prediction techniques.

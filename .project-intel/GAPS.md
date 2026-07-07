@@ -285,8 +285,8 @@ This is a silent misconfiguration: no startup error, no warning, intelligence cl
 just skips all Glassnode calls with "GLASSNODE_API_KEY not set" log lines.
 Severity: Medium (operator onboarding trap — silent failure, not a crash).
 File: .env.example (lines 22-23), src/config.py (IntelligenceSettings)
-Status: OPEN — Action: update .env.example to use INTELLIGENCE_GLASSNODE_API_KEY
-and INTELLIGENCE_CRYPTOQUANT_API_KEY to match the actual env_prefix.
+Status: RESOLVED [2026-07-07] — .env.example lines 22-23 updated to
+INTELLIGENCE_GLASSNODE_API_KEY= and INTELLIGENCE_CRYPTOQUANT_API_KEY=.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
 

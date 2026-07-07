@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 18:59 | 830 Python modules | 240,375 total lines
+> Auto-generated 2026-07-07 19:39 | 830 Python modules | 240,395 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -37,7 +37,7 @@ Detects which agent is currently active from envir
 Persistent domain kn
 **Key functions**: build
 
-### `.project-intel/scripts/context_builder.py` (308 lines)
+### `.project-intel/scripts/context_builder.py` (319 lines)
 **Purpose**: Smart Context Builder
 ======================
 Assembles the MINIMUM context for a
@@ -3651,11 +3651,9 @@ Implements every feature from the signal architec
 
 P
 
-### `src/intelligence/causal_inference.py` (466 lines)
-**Purpose**: Causal inference framework.
-
-Answer causal questions, not just correlations:
-- D
+### `src/intelligence/causal_inference.py` (469 lines)
+**Purpose**: EXPERIMENTAL — NOT wired into live signal path.
+Blocked on API key provisioning 
 **Classes**: CausalEffect, CausalDAG, CausalInferenceEngine
 
 ### `src/intelligence/client.py` (671 lines)
@@ -3666,10 +3664,9 @@ Responsibilities:
 **Classes**: CacheEntry, IntelligenceAggregator
 **Key functions**: get_i
 
-### `src/intelligence/ensemble_predictor.py` (650 lines)
-**Purpose**: Ensemble prediction framework.
-
-Reduce model risk by combining diverse predictio
+### `src/intelligence/ensemble_predictor.py` (653 lines)
+**Purpose**: EXPERIMENTAL — NOT wired into live signal path.
+Blocked on API key provisioning 
 **Classes**: EnsemblePrediction, PredictionModel, ARIMAPredictor, XGBoostPredictor, LSTMPredictor, GaussianProcessPredictor, TreeEnsemblePredictor, EnsemblePredictor, _LSTMNet
 
 ### `src/intelligence/metrics.py` (283 lines)
@@ -3737,10 +3734,9 @@ All endpoints used here are
 **Classes**: OKXIntelligenceProvider
 **Key functions**: get_o
 
-### `src/intelligence/risk_quantification.py` (401 lines)
-**Purpose**: Risk quantification and uncertainty analysis.
-
-Measures: VaR, CVaR, stress testi
+### `src/intelligence/risk_quantification.py` (404 lines)
+**Purpose**: EXPERIMENTAL — NOT wired into live signal path.
+Blocked on API key provisioning 
 **Classes**: RiskMetrics, RiskQuantifier
 
 ### `src/regime/__init__.py` (1 lines)
