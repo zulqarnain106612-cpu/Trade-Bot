@@ -91,9 +91,9 @@ def main():
     print("\n── Next Session Bootstrap ──────────────────────────────────────")
     print("Tell your agent exactly this:\n")
     print('"""')
-    print("Read .project-intel/CONTEXT_PRIMER.md first — this gives you full project understanding.")
-    print("Then read .project-intel/SESSION_STATE.json to see current progress.")
-    print("Then read .project-intel/DECISION_LOG.md for decisions already made.")
+    print("Use .project-intel/scripts/resume.py for the initial compact brief.")
+    print("Use .project-intel/scripts/context_builder.py --files <path> only when you need file-specific context.")
+    print("Do not read large source files for orientation.")
     print(f"Current focus: {args.focus or state.get('current_focus', 'not set')}")
     print(f"Next task: {args.next or state.get('next_recommended_task', 'check OPEN_TASKS.md')}")
     if args.modified:

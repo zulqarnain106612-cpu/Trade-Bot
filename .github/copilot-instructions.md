@@ -26,6 +26,7 @@ bash scripts/claude-commit.sh --msg "type(scope): description [copilot]"
 ## Never
 - go for (simple, partial, minimal, demo, assumpted, incomplete) approaches
 - Read source files to understand the project — resume.py output is orientation
+- Use .project-intel/scripts/context_builder.py --files <path> when file-specific context is genuinely required
 - Read: MODULE_MAP.json (291KB), ARCHITECTURE.md (160KB), RAW_SCAN.json (87KB), rag.db (8.9MB), package-lock.json (230KB), requirements.lock (173KB), GAPS.md (34KB), SESSION_STATE.json (11KB)
 - Push to git — commit only
 - Bypass CognitiveEngine validators

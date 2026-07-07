@@ -169,6 +169,7 @@ def main():
         "  2. Read a source file ONLY immediately before editing it — not for context.",
         "  2a. NEVER use cat on files >100 lines. Use grep -n / sed -n 'L1,L2p' / head / tail instead.",
         "  2b. NEVER read full test files or large JSON (MODULE_MAP.json, storage.py, client.py) for context.",
+        "  2c. When you need file-specific context, use .project-intel/scripts/context_builder.py --files <path> and expect a compact summary, not raw code.",
         "  3. Do NOT read MODULE_MAP.json — the map above replaces it entirely.",
         "  4. Do NOT read CONTEXT_PRIMER, SESSION_STATE, HANDOFF, DECISION_LOG.",
         "  5. Checkpoint after every meaningful change:",

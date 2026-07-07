@@ -31,17 +31,17 @@
   },
   ".project-intel/scripts/context_builder.py": {
     "purpose": "Smart Context Builder\n======================\nAssembles the MINIMUM context for any agent query.\nPull",
-    "lines": 285,
+    "lines": 305,
     "classes": [],
     "key_functions": [
       "find_project_root",
       "estimate_tokens",
+      "summarize_text",
+      "truncate_to_budget",
       "summarize_source_file",
       "load_primer",
       "load_session_state",
-      "load_rag",
-      "load_knowledge",
-      "load_specific_files"
+      "load_rag"
     ],
     "constants": [
       "ROOT",
@@ -119,7 +119,7 @@
   },
   ".project-intel/scripts/resume.py": {
     "purpose": "SESSION RESUME \u2014 single command, zero follow-up file reads.\n\nOutputs ONE compressed brief (~150-200 ",
-    "lines": 193,
+    "lines": 194,
     "classes": [],
     "key_functions": [
       "git_status",

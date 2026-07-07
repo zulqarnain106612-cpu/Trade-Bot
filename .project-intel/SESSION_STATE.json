@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T18:18:15.079134",
+  "last_updated": "2026-07-07T18:21:37.558135",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -41,12 +41,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 37,
   "commit_log": [
-    {
-      "hash": "30d3a04",
-      "message": "docs(intel): auto-sync after changes to frontend/src/App.jsx [claude]",
-      "time": "2026-07-05T19:45:31.874719",
-      "author": "Claude"
-    },
     {
       "hash": "c939d32",
       "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
@@ -160,17 +154,23 @@
       "message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
       "time": "2026-07-07T18:18:15.252226",
       "author": "Claude"
+    },
+    {
+      "hash": "9a4f52c",
+      "message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "time": "2026-07-07T18:21:37.744515",
+      "author": "Claude"
     }
   ],
-  "last_commit": "b6d38f2",
+  "last_commit": "9a4f52c",
   "last_commit_message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
-  "last_commit_time": "2026-07-07T18:18:15.252311",
+  "last_commit_time": "2026-07-07T18:21:37.744572",
   "coverage_pct": 62,
   "last_session_start": "2026-07-07T17:55:28.733083",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-07T18:18:14.538063",
+  "last_extraction": "2026-07-07T18:21:36.957412",
   "last_extraction_trigger": "test_context_builder.py",
   "handoff": {
     "active_agent": "claude",
@@ -178,10 +178,12 @@
     "completed_this_session": [
       "[2026-07-07 18:11:21] [1aa803d] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
       "[2026-07-07 18:11:22] [7a72954] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
-      "[2026-07-07 18:18:15] [b6d38f2] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]"
+      "[2026-07-07 18:18:15] [b6d38f2] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "[2026-07-07 18:18:16] [2fa2e17] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "[2026-07-07 18:21:37] [9a4f52c] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 18:18:15",
+    "last_checkpoint": "2026-07-07 18:21:37",
     "session_history": [
       {
         "time": "2026-07-03 21:58:54",
@@ -253,7 +255,10 @@
       ".project-intel/SESSION_STATE.json",
       ".project-intel/scripts/context_builder.py",
       "glassnode-features.md",
-      "tests/test_context_builder.py"
+      "tests/test_context_builder.py",
+      ".github/copilot-instructions.md",
+      ".project-intel/scripts/resume.py",
+      ".project-intel/scripts/update_session.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-07 17:55:29",

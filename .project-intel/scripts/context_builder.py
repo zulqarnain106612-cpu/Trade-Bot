@@ -242,6 +242,7 @@ def build(query: str, specific_files: list[str] = None,
     elif use_rag:
         rag = load_rag(query)
         if rag:
+            rag = truncate_to_budget(rag, BUDGET_RAG // 2)
             sections.append(f"[RELEVANT SOURCE — retrieved by query]\n{rag}")
             tokens["rag_chunks"] = estimate_tokens(rag)
 
@@ -251,12 +252,16 @@ def build(query: str, specific_files: list[str] = None,
         f"[RULES]\n"
         f"Use OUTPUT ROUTING PROTOCOL — tag gaps/issues/tasks with XML tags.\n"
         f"Only read additional source files if absolutely necessary.\n"
+        f"Use compact summaries from context_builder.py instead of raw file dumps.\n"
         f"Use domain knowledge above for any quant/crypto/risk reasoning."
     )
     tokens["task"] = estimate_tokens(query)
 
     context = "\n\n" + ("─" * 60) + "\n\n".join(sections)
     tokens["TOTAL"] = sum(v for k, v in tokens.items() if k != "TOTAL")
+    if tokens["TOTAL"] > BUDGET_TOTAL:
+        context = truncate_to_budget(context, BUDGET_TOTAL)
+        tokens["TOTAL"] = estimate_tokens(context)
 
     return context, tokens
 
