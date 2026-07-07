@@ -10766,6 +10766,14 @@
     "constants": [],
     "imports_from": []
   },
+  "src/intelligence/onchain/__init__.py": {
+    "purpose": "On-chain data fetching layer \u2014 EXPERIMENTAL, NOT YET IMPLEMENTED.\n\nThis package is planned but not y",
+    "lines": 21,
+    "classes": [],
+    "key_functions": [],
+    "constants": [],
+    "imports_from": []
+  },
   "src/intelligence/probabilistic.py": {
     "purpose": "Probabilistic inference engine for crypto intelligence.\n\nReplaces deterministic thresholds with Baye",
     "lines": 444,

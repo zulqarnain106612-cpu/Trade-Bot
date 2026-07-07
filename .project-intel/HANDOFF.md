@@ -1,20 +1,20 @@
 # Agent Handoff State
-> Updated: 2026-07-07 19:41:08 | Read this before starting any work.
+> Updated: 2026-07-07 19:41:15 | Read this before starting any work.
 
 ## Current Status
-**Agent**:   amazonq
+**Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-07 18:34:30
-**Last checkpoint**: 2026-07-07 19:41:08
+**Last checkpoint**: 2026-07-07 19:41:15
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
-If amazonq is no longer running, status is stale.
+If claude is no longer running, status is stale.
 Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  Gap-018: add __init__.py stub to src/intelligence/onchain/ OR remove directory. Gap-020: add per-package coverage floors to pyproject.toml. SEC-008/SEC-010: remove push: trigger from auto-fix.yml or confirm branch protection.
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
   - .amazonq/rules/project.md

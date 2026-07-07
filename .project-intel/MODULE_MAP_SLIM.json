@@ -127,6 +127,10 @@
     "purpose": "Intelligence metrics computation layer.",
     "functions": []
   },
+  "src/intelligence/onchain/__init__.py": {
+    "purpose": "On-chain data fetching layer \u2014 EXPERIMENTAL, NOT YET IMPLEMENTED.",
+    "functions": []
+  },
   "src/intelligence/probabilistic.py": {
     "purpose": "Probabilistic inference engine for crypto intelligence.",
     "functions": []

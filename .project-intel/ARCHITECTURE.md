@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 19:39 | 830 Python modules | 240,395 total lines
+> Auto-generated 2026-07-07 22:36 | 831 Python modules | 240,416 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3674,6 +3674,11 @@ Blocked on API key provisioning
 
 Transforms raw provider data into tradi
 **Classes**: IntelligenceMetrics, IntelligenceAnalyzer
+
+### `src/intelligence/onchain/__init__.py` (21 lines)
+**Purpose**: On-chain data fetching layer — EXPERIMENTAL, NOT YET IMPLEMENTED.
+
+This package 
 
 ### `src/intelligence/probabilistic.py` (444 lines)
 **Purpose**: Probabilistic inference engine for crypto intelligence.
