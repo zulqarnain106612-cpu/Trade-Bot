@@ -79,3 +79,20 @@ htmlcov/
 .pytest_cache/
 models/
 artifacts/
+
+# ── COVERAGE / TEMP FILES (session killers — never read) ──
+=.coverage_floors_tmp.json
+.coverage
+.coverage.*
+coverage.json
+htmlcov/
+
+# ── LARGE TASK PLANNING FILES (read only via resume.py summary) ──
+.project-intel/ONCHAIN_TASKS.md
+.project-intel/OPEN_TASKS.md
+
+# ── HANDOFF.md (resume.py already covers its content) ──
+.project-intel/HANDOFF.md
+
+# ── knowledge base dir ──
+.project-intel/knowledge/

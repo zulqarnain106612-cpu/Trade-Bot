@@ -240,7 +240,7 @@ def cmd_checkpoint(agent: str, completed: str, next_step: str, files: str = ""):
             f = f.strip()
             if f and f not in touched:
                 touched.append(f)
-        hs["files_touched"] = touched
+        hs["files_touched"] = touched[-15:]  # cap: keep last 15 unique files
 
     hs["next_step"]       = next_step
     hs["last_checkpoint"] = _now()
@@ -296,7 +296,7 @@ def cmd_interrupt(agent: str, reason: str, next_step: str, files: str = ""):
             f = f.strip()
             if f and f not in touched:
                 touched.append(f)
-        hs["files_touched"] = touched
+        hs["files_touched"] = touched[-15:]  # cap: keep last 15 unique files
 
     history = hs.get("session_history", [])
     history.append({
