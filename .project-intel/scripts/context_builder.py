@@ -43,15 +43,31 @@ KNOWLEDGE_DIR= INTEL_DIR / "knowledge"
 DB_PATH      = INTEL_DIR / "rag.db"
 
 # Token budget allocation
-BUDGET_TOTAL     = 4000
-BUDGET_PRIMER    = 700
-BUDGET_STATE     = 250
-BUDGET_RAG       = 1800   # up to 3 chunks × 600 each
-BUDGET_KNOWLEDGE = 1000   # up to 2 domain entries
+BUDGET_TOTAL     = 3000
+BUDGET_PRIMER    = 600
+BUDGET_STATE     = 200
+BUDGET_RAG       = 1200   # compact summaries, not full files
+BUDGET_KNOWLEDGE = 800    # up to 2 domain entries
 
 
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
+
+
+def summarize_text(text: str, max_tokens: int = 400) -> str:
+    """Compact a raw text block into a short, information-dense summary."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    if len(cleaned) <= max_tokens * 4:
+        return cleaned
+    return cleaned[: max_tokens * 4 - 20] + "…"
+
+
+def truncate_to_budget(text: str, budget_tokens: int) -> str:
+    if estimate_tokens(text) <= budget_tokens:
+        return text
+    return text[: budget_tokens * 4 - 20] + "\n... [truncated]"
 
 
 def summarize_source_file(path: str | Path, query: str = "", max_tokens: int = 600) -> str:
@@ -115,7 +131,7 @@ def summarize_source_file(path: str | Path, query: str = "", max_tokens: int = 6
     if len(definitions) > len(relevant):
         summary_parts.append(f"- ... {len(definitions) - len(relevant)} additional symbols omitted")
 
-    return "\n".join(summary_parts)[:max_tokens * 4]
+    return truncate_to_budget("\n".join(summary_parts), max_tokens)
 
 
 def load_primer() -> str:
@@ -167,15 +183,15 @@ def load_knowledge(query: str) -> str:
     return load_relevant(query, KNOWLEDGE_DIR, max_tokens=BUDGET_KNOWLEDGE)
 
 
-def load_specific_files(file_paths: list[str]) -> str:
+def load_specific_files(file_paths: list[str], query: str = "") -> str:
     """Load compact summaries for specific source files (only when explicitly requested)."""
     parts = []
     used  = 0
-    for fp in file_paths:
+    for fp in file_paths[:3]:
         fpath = ROOT / fp
         if not fpath.exists():
             continue
-        summary = summarize_source_file(fpath, query="")
+        summary = summarize_source_file(fpath, query=query)
         tokens  = estimate_tokens(summary)
         if used + tokens > BUDGET_RAG:
             summary = summary[:BUDGET_RAG * 4] + "\n... [truncated]"
@@ -212,13 +228,15 @@ def build(query: str, specific_files: list[str] = None,
     if use_knowledge:
         knowledge = load_knowledge(query)
         if knowledge:
+            knowledge = truncate_to_budget(knowledge, BUDGET_KNOWLEDGE // 2)
             sections.append(f"[DOMAIN KNOWLEDGE — relevant to query]\n{knowledge}")
             tokens["domain_knowledge"] = estimate_tokens(knowledge)
 
     # 4. RAG source chunks OR specific files
     if specific_files:
-        code = load_specific_files(specific_files)
+        code = load_specific_files(specific_files, query=query)
         if code:
+            code = truncate_to_budget(code, BUDGET_RAG // 2)
             sections.append(f"[SOURCE FILES]\n{code}")
             tokens["specific_files"] = estimate_tokens(code)
     elif use_rag:

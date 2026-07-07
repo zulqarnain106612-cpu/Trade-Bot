@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 18:10 | 827 Python modules | 240,182 total lines
+> Auto-generated 2026-07-07 18:17 | 827 Python modules | 240,247 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -37,7 +37,7 @@ Detects which agent is currently active from envir
 Persistent domain kn
 **Key functions**: build
 
-### `.project-intel/scripts/context_builder.py` (220 lines)
+### `.project-intel/scripts/context_builder.py` (285 lines)
 **Purpose**: Smart Context Builder
 ======================
 Assembles the MINIMUM context for a

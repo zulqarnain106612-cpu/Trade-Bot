@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T18:11:21.604613",
+  "last_updated": "2026-07-07T18:18:15.079134",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -41,12 +41,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 37,
   "commit_log": [
-    {
-      "hash": "fada3f7",
-      "message": "docs(intel): auto-sync after changes to src/diagnostics/runtime_monitor.py [claude]",
-      "time": "2026-07-05T19:45:27.329378",
-      "author": "Claude"
-    },
     {
       "hash": "30d3a04",
       "message": "docs(intel): auto-sync after changes to frontend/src/App.jsx [claude]",
@@ -160,26 +154,34 @@
       "message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
       "time": "2026-07-07T18:11:21.768534",
       "author": "Claude"
+    },
+    {
+      "hash": "b6d38f2",
+      "message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "time": "2026-07-07T18:18:15.252226",
+      "author": "Claude"
     }
   ],
-  "last_commit": "1aa803d",
+  "last_commit": "b6d38f2",
   "last_commit_message": "docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
-  "last_commit_time": "2026-07-07T18:11:21.768595",
+  "last_commit_time": "2026-07-07T18:18:15.252311",
   "coverage_pct": 62,
   "last_session_start": "2026-07-07T17:55:28.733083",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-07T18:11:20.863197",
+  "last_extraction": "2026-07-07T18:18:14.538063",
   "last_extraction_trigger": "test_context_builder.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-07 18:11:21] [1aa803d] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]"
+      "[2026-07-07 18:11:21] [1aa803d] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "[2026-07-07 18:11:22] [7a72954] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]",
+      "[2026-07-07 18:18:15] [b6d38f2] docs(intel): auto-sync after changes to tests/test_context_builder.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 18:11:21",
+    "last_checkpoint": "2026-07-07 18:18:15",
     "session_history": [
       {
         "time": "2026-07-03 21:58:54",

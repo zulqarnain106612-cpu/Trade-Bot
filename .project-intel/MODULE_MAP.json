@@ -31,17 +31,17 @@
   },
   ".project-intel/scripts/context_builder.py": {
     "purpose": "Smart Context Builder\n======================\nAssembles the MINIMUM context for any agent query.\nPull",
-    "lines": 220,
+    "lines": 285,
     "classes": [],
     "key_functions": [
       "find_project_root",
       "estimate_tokens",
+      "summarize_source_file",
       "load_primer",
       "load_session_state",
       "load_rag",
       "load_knowledge",
-      "load_specific_files",
-      "build"
+      "load_specific_files"
     ],
     "constants": [
       "ROOT",
