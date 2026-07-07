@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T22:37:54.343404",
+  "last_updated": "2026-07-07T22:42:41.754456",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -41,12 +41,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 41,
   "commit_log": [
-    {
-      "hash": "c93420b",
-      "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
-      "time": "2026-07-06T02:20:47.844282",
-      "author": "Claude"
-    },
     {
       "hash": "fd1b51c",
       "message": "docs(intel): auto-sync after changes to tests/test_orchestrator_coverage.py [claude]",
@@ -160,18 +154,24 @@
       "message": "docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
       "time": "2026-07-07T22:37:54.534204",
       "author": "Claude"
+    },
+    {
+      "hash": "e60beda",
+      "message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
+      "time": "2026-07-07T22:42:42.116622",
+      "author": "Claude"
     }
   ],
-  "last_commit": "c4423b7",
-  "last_commit_message": "docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
-  "last_commit_time": "2026-07-07T22:37:54.534280",
+  "last_commit": "e60beda",
+  "last_commit_message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
+  "last_commit_time": "2026-07-07T22:42:42.116730",
   "coverage_pct": 62,
   "last_session_start": "2026-07-07T22:29:38.539471",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-07T22:37:53.812669",
-  "last_extraction_trigger": "__init__.py",
+  "last_extraction": "2026-07-07T22:42:40.545608",
+  "last_extraction_trigger": "check_coverage_floors.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
@@ -183,10 +183,12 @@
       "[2026-07-07 19:41:08] Gap audit session: found Gap-018/019/020, Issue-008/009, Debt-011, SEC-010, Risk-005. Fixed: context_builder.py test (Issue-009, 899+1fail\u2192900 passed), runtime_monitor docstring (Issue-008), .env.example key prefix mismatch (Gap-019), EXPERIMENTAL markers on 3 disconnected intelligence modules (Debt-011)",
       "[2026-07-07 19:41:15] [fd78c0e] fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
       "[2026-07-07 19:41:15] [817b7a7] fix(intel): gap audit \u2014 fix test, docstrings, env keys, EXPERIMENTAL markers [amazonq]",
-      "[2026-07-07 22:37:54] [c4423b7] docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]"
+      "[2026-07-07 22:37:54] [c4423b7] docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
+      "[2026-07-07 22:37:54] [eeb81da] docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
+      "[2026-07-07 22:42:41] [e60beda] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 22:37:54",
+    "last_checkpoint": "2026-07-07 22:42:41",
     "session_history": [
       {
         "time": "2026-07-07 00:16:14",
@@ -271,7 +273,9 @@
       "src/intelligence/ensemble_predictor.py",
       "src/intelligence/risk_quantification.py",
       "src/diagnostics/runtime_monitor.py .env.example src/intelligence/causal_inference.py src/intelligence/ensemble_predictor.py src/intelligence/risk_quantification.py .project-intel/scripts/context_builder.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/SECURITY_ISSUES.md .project-intel/RISK_LOG.md",
-      "src/intelligence/onchain/__init__.py"
+      "src/intelligence/onchain/__init__.py",
+      "pyproject.toml",
+      "scripts/check_coverage_floors.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-07 18:34:30",

@@ -10258,6 +10258,16 @@
       "src.intelligence.client"
     ]
   },
+  "scripts/check_coverage_floors.py": {
+    "purpose": "Per-package / per-file coverage floor enforcement \u2014 GAP-020.\n\nReads the .coverage data produced by p",
+    "lines": 163,
+    "classes": [],
+    "key_functions": [
+      "main"
+    ],
+    "constants": [],
+    "imports_from": []
+  },
   "scripts/claude_debug_analysis.py": {
     "purpose": "scripts/claude_debug_analysis.py \u2014 Called by auto-debug.yml GitHub Action.\n\nReads ci_failures.json, ",
     "lines": 118,

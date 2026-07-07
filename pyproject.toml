@@ -106,6 +106,10 @@ branch   = true
 [tool.coverage.report]
 show_missing   = true
 skip_covered   = false
+# Global gate — does NOT protect individual high-blast-radius files.
+# Per-file floors are enforced by scripts/check_coverage_floors.py (GAP-020).
+# Run after pytest: python3 scripts/check_coverage_floors.py
+# Floors: src/execution/ ≥75%, src/engine/ ≥60%, runtime_monitor ≥50%
 fail_under     = 60
 exclude_lines  = [
     "pragma: no cover",

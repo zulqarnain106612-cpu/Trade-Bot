@@ -1067,6 +1067,7 @@
     "scripts/autocommit.sh",
     "scripts/autofix.sh",
     "scripts/backfill_intelligence.py",
+    "scripts/check_coverage_floors.py",
     "scripts/claude-commit.sh",
     "scripts/claude_debug_analysis.py",
     "scripts/export_diagnostics.py",
