@@ -92,7 +92,7 @@ def main():
     print("Tell your agent exactly this:\n")
     print('"""')
     print("Use .project-intel/scripts/resume.py for the initial compact brief.")
-    print("Use .project-intel/scripts/context_builder.py --files <path> only when you need file-specific context.")
+    print("Use .project-intel/scripts/smart_read.py <path> for file-specific context.")
     print("Do not read large source files for orientation.")
     print(f"Current focus: {args.focus or state.get('current_focus', 'not set')}")
     print(f"Next task: {args.next or state.get('next_recommended_task', 'check OPEN_TASKS.md')}")

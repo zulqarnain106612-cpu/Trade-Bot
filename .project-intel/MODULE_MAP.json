@@ -31,7 +31,7 @@
   },
   ".project-intel/scripts/context_builder.py": {
     "purpose": "Smart Context Builder\n======================\nAssembles the MINIMUM context for any agent query.\nPull",
-    "lines": 305,
+    "lines": 308,
     "classes": [],
     "key_functions": [
       "find_project_root",
@@ -128,6 +128,20 @@
       "main"
     ],
     "constants": [],
+    "imports_from": []
+  },
+  ".project-intel/scripts/smart_read.py": {
+    "purpose": "Compact file-reading wrapper for agents.\n\nThis script is the preferred way to inspect source files. ",
+    "lines": 62,
+    "classes": [],
+    "key_functions": [
+      "build_summary",
+      "summarize_paths",
+      "main"
+    ],
+    "constants": [
+      "SCRIPT_DIR"
+    ],
     "imports_from": []
   },
   ".project-intel/scripts/update_session.py": {
@@ -11648,6 +11662,17 @@
       "src.risk.slippage",
       "src.config"
     ]
+  },
+  "tests/test_smart_read.py": {
+    "purpose": "test_smart_read module",
+    "lines": 28,
+    "classes": [],
+    "key_functions": [
+      "load_smart_read",
+      "test_smart_read_returns_compact_summary"
+    ],
+    "constants": [],
+    "imports_from": []
   },
   "tests/test_storage.py": {
     "purpose": "Test coverage for src/data/storage.py \u2014 async SQLite storage backend.",

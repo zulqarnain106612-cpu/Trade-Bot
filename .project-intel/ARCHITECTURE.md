@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 18:20 | 827 Python modules | 240,268 total lines
+> Auto-generated 2026-07-07 18:28 | 829 Python modules | 240,361 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -37,7 +37,7 @@ Detects which agent is currently active from envir
 Persistent domain kn
 **Key functions**: build
 
-### `.project-intel/scripts/context_builder.py` (305 lines)
+### `.project-intel/scripts/context_builder.py` (308 lines)
 **Purpose**: Smart Context Builder
 ======================
 Assembles the MINIMUM context for a
@@ -66,6 +66,12 @@ Tracks which agent is working, what
 
 Outputs ONE compres
 **Key functions**: git_s
+
+### `.project-intel/scripts/smart_read.py` (62 lines)
+**Purpose**: Compact file-reading wrapper for agents.
+
+This script is the preferred way to in
+**Key functions**: build
 
 ### `.project-intel/scripts/update_session.py` (106 lines)
 **Purpose**: Session State Updater
@@ -3974,6 +3980,10 @@ Strategy: mock all ex
 **Purpose**: Tests for src/risk/slippage.py — Almgren-Chriss slippage/impact model.
 **Classes**: TestEstimate, TestVetoIfNegativeEv
 **Key functions**: reset
+
+### `tests/test_smart_read.py` (28 lines)
+**Purpose**: test_smart_read module
+**Key functions**: load_
 
 ### `tests/test_storage.py` (655 lines)
 **Purpose**: Test coverage for src/data/storage.py — async SQLite storage backend.

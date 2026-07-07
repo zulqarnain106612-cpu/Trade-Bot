@@ -75,6 +75,7 @@
     ".project-intel/scripts/handoff.py",
     ".project-intel/scripts/rag_engine.py",
     ".project-intel/scripts/resume.py",
+    ".project-intel/scripts/smart_read.py",
     ".project-intel/scripts/update_session.py",
     ".python-version",
     ".secrets.baseline",
@@ -1166,6 +1167,7 @@
     "tests/test_risk_gates_coverage.py",
     "tests/test_signal_engine.py",
     "tests/test_slippage.py",
+    "tests/test_smart_read.py",
     "tests/test_storage.py",
     "tests/test_strategies_filters.py",
     "tests/test_trade_auditor.py"

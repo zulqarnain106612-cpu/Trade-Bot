@@ -194,7 +194,7 @@ def load_specific_files(file_paths: list[str], query: str = "") -> str:
         summary = summarize_source_file(fpath, query=query)
         tokens  = estimate_tokens(summary)
         if used + tokens > BUDGET_RAG:
-            summary = summary[:BUDGET_RAG * 4] + "\n... [truncated]"
+            summary = truncate_to_budget(summary, BUDGET_RAG // 2)
             tokens  = estimate_tokens(summary)
         parts.append(f"### {fp}\n{summary}")
         used += tokens
