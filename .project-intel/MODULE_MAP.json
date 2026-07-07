@@ -10260,7 +10260,7 @@
   },
   "scripts/check_coverage_floors.py": {
     "purpose": "Per-package / per-file coverage floor enforcement \u2014 GAP-020.\n\nReads the .coverage data produced by p",
-    "lines": 163,
+    "lines": 164,
     "classes": [],
     "key_functions": [
       "main"

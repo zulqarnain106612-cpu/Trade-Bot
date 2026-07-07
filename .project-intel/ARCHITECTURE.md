@@ -1,5 +1,5 @@
 # Trade Bot — Architecture Intelligence
-> Auto-generated 2026-07-07 22:42 | 832 Python modules | 240,579 total lines
+> Auto-generated 2026-07-07 22:56 | 832 Python modules | 240,580 total lines
 
 ## System Purpose
 Production algorithmic trading bot: Binance (primary) + OKX (secondary).
@@ -3481,7 +3481,7 @@ THIS IS ONLY KEPT IN PLACE FOR BA
 
 Walks every bar tim
 
-### `scripts/check_coverage_floors.py` (163 lines)
+### `scripts/check_coverage_floors.py` (164 lines)
 **Purpose**: Per-package / per-file coverage floor enforcement — GAP-020.
 
 Reads the .coverag

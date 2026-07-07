@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-07T22:43:30.023719",
+  "last_updated": "2026-07-07T22:57:10.613317",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -41,12 +41,6 @@
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 41,
   "commit_log": [
-    {
-      "hash": "4a44470",
-      "message": "docs(intel): auto-sync after changes to src/execution/live.py [claude]",
-      "time": "2026-07-06T02:59:45.196530",
-      "author": "Claude"
-    },
     {
       "hash": "438a8eb",
       "message": "docs(intel): auto-sync after changes to tests/test_live_executor_coverage.py [claude]",
@@ -160,18 +154,24 @@
       "message": "docs(intel): auto-sync after changes to pyproject.toml [claude]",
       "time": "2026-07-07T22:43:30.190202",
       "author": "Claude"
+    },
+    {
+      "hash": "51935df",
+      "message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
+      "time": "2026-07-07T22:57:10.839404",
+      "author": "Claude"
     }
   ],
-  "last_commit": "ddbb0b2",
-  "last_commit_message": "docs(intel): auto-sync after changes to pyproject.toml [claude]",
-  "last_commit_time": "2026-07-07T22:43:30.190273",
+  "last_commit": "51935df",
+  "last_commit_message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
+  "last_commit_time": "2026-07-07T22:57:10.839489",
   "coverage_pct": 62,
   "last_session_start": "2026-07-07T22:29:38.539471",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
-  "last_extraction": "2026-07-07T22:43:29.654657",
-  "last_extraction_trigger": "pyproject.toml",
+  "last_extraction": "2026-07-07T22:57:09.360419",
+  "last_extraction_trigger": "check_coverage_floors.py",
   "handoff": {
     "active_agent": "claude",
     "status": "active",
@@ -187,10 +187,12 @@
       "[2026-07-07 22:37:54] [eeb81da] docs(intel): auto-sync after changes to src/intelligence/onchain/__init__.py [claude]",
       "[2026-07-07 22:42:41] [e60beda] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
       "[2026-07-07 22:42:43] [10dfa3a] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
-      "[2026-07-07 22:43:30] [ddbb0b2] docs(intel): auto-sync after changes to pyproject.toml [claude]"
+      "[2026-07-07 22:43:30] [ddbb0b2] docs(intel): auto-sync after changes to pyproject.toml [claude]",
+      "[2026-07-07 22:43:30] [673b7c0] docs(intel): auto-sync after changes to pyproject.toml [claude]",
+      "[2026-07-07 22:57:10] [51935df] docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-07 22:43:30",
+    "last_checkpoint": "2026-07-07 22:57:10",
     "session_history": [
       {
         "time": "2026-07-07 00:16:14",
@@ -277,7 +279,8 @@
       "src/diagnostics/runtime_monitor.py .env.example src/intelligence/causal_inference.py src/intelligence/ensemble_predictor.py src/intelligence/risk_quantification.py .project-intel/scripts/context_builder.py .project-intel/GAPS.md .project-intel/ISSUES.md .project-intel/TECH_DEBT.md .project-intel/SECURITY_ISSUES.md .project-intel/RISK_LOG.md",
       "src/intelligence/onchain/__init__.py",
       "pyproject.toml",
-      "scripts/check_coverage_floors.py"
+      "scripts/check_coverage_floors.py",
+      "=.coverage_floors_tmp.json"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-07 18:34:30",
