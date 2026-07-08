@@ -4,6 +4,7 @@ On-chain intelligence providers.
 OCI-001: Foundation layer — RateLimiter, CircuitBreaker, AsyncHTTPCache, OnChainProvider ABC.
 Concrete providers (OCI-002..006) are added here as they land.
 """
+from src.intelligence.onchain.arkham_provider import ArkhamProvider
 from src.intelligence.onchain.base import (
     AsyncHTTPCache,
     CircuitBreaker,
@@ -13,6 +14,7 @@ from src.intelligence.onchain.base import (
 )
 
 __all__ = [
+    "ArkhamProvider",
     "AsyncHTTPCache",
     "CircuitBreaker",
     "CircuitOpenError",
