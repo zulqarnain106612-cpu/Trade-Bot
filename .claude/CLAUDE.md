@@ -4,6 +4,9 @@ python3 .project-intel/scripts/resume.py /home/fujitsu/Projects/Trade-Bot-main
 ```
 That output IS your complete context. Act on NEXT task immediately.
 
+## Fallback (if resume.py missing)
+Read `CLAUDE.md` at project root — it has the full module map, rules, and commands.
+
 ## Checkpoint
 ```bash
 python3 .project-intel/scripts/handoff.py checkpoint --agent claude \

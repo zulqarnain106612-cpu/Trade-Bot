@@ -1,98 +1,43 @@
-# .claudeignore — files Claude must NEVER read
-# Claude Code and Claude Desktop both respect this file.
-# Reading any file below will burn the session budget instantly.
+# .claudeignore — Claude Desktop + Claude Code never read these
+# Rule: if it's not in CLAUDE.md's module map, it burns tokens for nothing.
 
-# ── LARGE INTEL FILES (never read — resume.py covers all of these) ──
-.project-intel/MODULE_MAP.json
-.project-intel/ARCHITECTURE.md
-.project-intel/RAW_SCAN.json
-.project-intel/rag.db
-.project-intel/rag.db-journal
-
-# ── INTEL SCRIPTS (never read — internal tooling only) ──
-.project-intel/scripts/extract_intelligence.py
-.project-intel/scripts/cognitive_layer.py
-.project-intel/scripts/rag_engine.py
-.project-intel/scripts/context_builder.py
-.project-intel/scripts/smart_read.py
-.project-intel/scripts/update_session.py
-
-# ── STALE/SUPERSEDED INTEL DOCS ──
-.project-intel/ENHANCED_PROBABILISTIC_ARCHITECTURE.md
-.project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md
-.project-intel/FINAL_STATUS_P1.md
-.project-intel/P2_CRYPTO_INTELLIGENCE_SUMMARY.md
-.project-intel/CRYPTO_INTELLIGENCE_INTEGRATION_SPEC.md
-.project-intel/CRYPTO_INTELLIGENCE_IMPLEMENTATION_GUIDE.md
-.project-intel/P2_VS_P2PLUS_COMPARISON.md
-.project-intel/P1_IMPLEMENTATION_GUIDE.md
-.project-intel/INDEX_P1_COMPLETE.md
-.project-intel/EXECUTIVE_SUMMARY_P1.md
-.project-intel/PRE_FLIGHT_DIAGNOSTIC_SESSION4.md
-.project-intel/ORCHESTRATION_READINESS_SESSION4.md
-.project-intel/OPERATOR_RUNBOOK.md
-
-# ── DO NOT READ AT SESSION START (resume.py embeds summaries) ──
-.project-intel/CONTEXT_PRIMER.md
-.project-intel/SESSION_STATE.json
-.project-intel/HANDOFF.md
-.project-intel/DECISION_LOG.md
-.project-intel/GAPS.md
-.project-intel/GAPS.md.bak
-.project-intel/TECH_DEBT.md
-.project-intel/SECURITY_ISSUES.md
-.project-intel/ISSUES.md
-.project-intel/RISK_LOG.md
-.project-intel/OPEN_TASKS.md
-.project-intel/DIAGNOSTICS.md
-.project-intel/MODULE_MAP_SLIM.json
-
-# ── KNOWLEDGE BASE (query via cognitive_layer.py, never read directly) ──
-.project-intel/knowledge/
-
-# ── RUNTIME / TEMP FILES ──
-.project-intel/daemon.pid
-.project-intel/.session_marker
-.project-intel/.active_session_context
-.project-intel/archive/
-
-# ── LARGE NON-SOURCE FILES (never need to read) ──
-frontend/package-lock.json
-requirements.lock
-assets/
-Vulner-Fix.md
+# Runtime data — never source of truth
 data/
 logs/
-
-# ── PYTHON CACHE / BUILD ARTIFACTS ──
-.project-intel/scripts/__pycache__/
-**/__pycache__/
-**/*.pyc
-.venv/
-.venv_temp/
-node_modules/
-dist/
-build/
-htmlcov/
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
 models/
-artifacts/
 
-# ── COVERAGE / TEMP FILES (session killers — never read) ──
-=.coverage_floors_tmp.json
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.mypy_cache/
 .coverage
-.coverage.*
-coverage.json
-htmlcov/
+.coverage_floors_tmp.json
 
-# ── LARGE TASK PLANNING FILES (read only via resume.py summary) ──
-.project-intel/ONCHAIN_TASKS.md
-.project-intel/OPEN_TASKS.md
+# Node
+node_modules/
 
-# ── HANDOFF.md (resume.py already covers its content) ──
-.project-intel/HANDOFF.md
+# Project-intel — large, stale, superseded by CLAUDE.md
+.project-intel/
 
-# ── knowledge base dir ──
-.project-intel/knowledge/
+# Secrets — never read
+.env
+
+# Git internals
+.git/
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+
+# Lock files (too large, not useful for tasks)
+requirements.lock
+
+# DB files
+*.db
+*.wal
+
+# CI artifacts
+check_runs.json
+ci_jobs.json

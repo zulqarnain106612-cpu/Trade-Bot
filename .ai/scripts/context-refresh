@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Regenerate CLAUDE.md module map and git log section
+# Usage: bash .ai/scripts/context-refresh
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+CLAUDE_MD="$ROOT/CLAUDE.md"
+TMP=$(mktemp)
+
+# Preserve everything above the Module Map line
+awk '/^## Module Map/{exit} {print}' "$CLAUDE_MD" > "$TMP"
+
+# Regenerate Module Map
+echo '## Module Map (read only what the task touches)' >> "$TMP"
+echo '```' >> "$TMP"
+find src -name '*.py' -not -path '*/__pycache__/*' | sort | while read -r f; do
+  # get first class or def as hint
+  hint=$(grep -m1 -E '^(class |def |async def )' "$f" 2>/dev/null | sed 's/[:(].*//' | xargs || echo '')
+  printf '%-50s — %s\n' "$f" "$hint"
+done >> "$TMP"
+echo '```' >> "$TMP"
+echo >> "$TMP"
+
+# Key Commands block (static)
+cat >> "$TMP" << 'STATIC'
+## Key Commands
+```bash
+uv sync                            # install/sync deps
+uv run pytest tests/ -x -q        # run tests (always after changes)
+uv run pytest tests/path/test.py  # single test file
+uv run ruff check --fix src/       # lint + fix
+uv run mypy src/                   # type check
+bash .ai/scripts/context-refresh   # regenerate CLAUDE.md
+```
+
+## Engineering Rules
+- **uv run** — never bare `python3` or `pip install`
+- **pyproject.toml** — single source of truth; never touch requirements.txt directly
+- **No mocks/placeholders** — production-grade only
+- **Conventional commits**: `feat|fix|refactor|test|chore|docs|perf(<scope>): <subject>`
+- **Secrets**: env vars only; reference `.env.example`, never read `.env`
+- **After every code change**: ruff + mypy + pytest
+
+## Forbidden (without explicit user approval)
+- Reading `.env`
+- Deleting/renaming src/ files
+- Committing to git remote
+- Reading any file in `.project-intel/`, `data/`, `logs/`, `models/`, `.venv/`
+- Reading ALL files in a package — read only the file the task requires
+
+STATIC
+
+# Recent git log
+echo '## Recent Activity (last 5 commits)' >> "$TMP"
+echo '```' >> "$TMP"
+git log --oneline -5 >> "$TMP"
+echo '```' >> "$TMP"
+
+# Update timestamp in header
+DATE=$(date +%Y-%m-%d)
+sed -i "s/<!-- Last updated:.*/<!-- Last updated: $DATE -->/" "$TMP"
+
+mv "$TMP" "$CLAUDE_MD"
+echo "CLAUDE.md regenerated: $(wc -l < "$CLAUDE_MD") lines"
