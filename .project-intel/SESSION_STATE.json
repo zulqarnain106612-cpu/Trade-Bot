@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-08T02:00:46.336661",
+  "last_updated": "2026-07-09T01:31:05.139793",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -25,7 +25,7 @@
     "onchain_intelligence": "PLANNED v2 (corrected) \u2014 10 tasks in ONCHAIN_TASKS.md. CryptoQuant removed (no f"
   },
   "current_focus": "completed by claude \u2014 Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess",
-  "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kelly.py, .gitignore (.coverage untracked), .project-intel/GAPS.md, .project-intel/OPEN_TASKS.md, .project-intel/TECH_DEBT.md",
+  "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kell",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
     "Decide online retraining trigger: time-based vs performance-based",
@@ -38,12 +38,12 @@
   ],
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 62,
+  "total_sessions": 68,
   "last_commit": "51935df",
   "last_commit_message": "docs(intel): auto-sync after changes to scripts/check_coverage_floors.py [claude]",
   "last_commit_time": "2026-07-07T22:57:10.839489",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-08T02:01:49.102367",
+  "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -52,16 +52,9 @@
   "handoff": {
     "active_agent": "claude",
     "status": "active",
-    "completed_this_session": [
-      "[2026-07-07 22:43:30] [ddbb0b2] docs(intel): auto-sync after changes to pyprojec",
-      "[2026-07-07 22:43:30] [673b7c0] docs(intel): auto-sync after changes to pyprojec",
-      "[2026-07-07 22:57:10] [51935df] docs(intel): auto-sync after changes to scripts/",
-      "[2026-07-07 22:57:11] [9441430] docs(intel): auto-sync after changes to scripts/",
-      "[2026-07-07 23:38:40] [c5eb3a2] chore(context): fix session-limit causes \u2014 block",
-      "[2026-07-08 02:00:46] [133ddf0] chore(context): maximize token savings \u2014 compressed resume.py, SESSION_STATE, CLAUDE.md, all blocklists"
-    ],
-    "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-08 02:00:46",
+    "completed_this_session": [],
+    "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
+    "last_checkpoint": "2026-07-09 01:31:05",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -80,28 +73,18 @@
         "agent": "claude",
         "status": "interrupted",
         "summary": "shell exited with 2 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-09 01:31:05",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
       }
     ],
-    "files_touched": [
-      "pyproject.toml",
-      "scripts/check_coverage_floors.py",
-      "src/diagnostics/runtime_monitor.py",
-      "src/intelligence/causal_inference.py",
-      "src/intelligence/ensemble_predictor.py",
-      "src/intelligence/onchain/__init__.py",
-      "src/intelligence/risk_quantification.py",
-      ".claude/CLAUDE.md",
-      ".coverage_floors_tmp.json",
-      ".project-intel/ARCHITECTURE.md",
-      ".project-intel/HANDOFF.md",
-      ".project-intel/SESSION_STATE.json",
-      ".project-intel/scripts/resume.py",
-      ".project-intel/scripts/update_session.py",
-      "=.coverage_floors_tmp.json"
-    ],
+    "files_touched": [],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
-    "session_started": "2026-07-07 18:34:30",
-    "interruption_reason": "shell exited with 2 uncommitted file(s)"
+    "session_started": "2026-07-09 01:31:05",
+    "interruption_reason": ""
   },
   "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan"
 }
