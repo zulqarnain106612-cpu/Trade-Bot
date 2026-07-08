@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-09 01:31:05 | Read this before starting any work.
+> Updated: 2026-07-09 01:33:29 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-09 01:31:05
-**Last checkpoint**: 2026-07-09 01:31:05
+**Last checkpoint**: 2026-07-09 01:33:29
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,10 +14,13 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
+  GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
-  (no specific files — start from OPEN_TASKS.md)
+  - .project-intel/HANDOFF.md
+  - .project-intel/SESSION_STATE.json
+  - .project-intel/scripts/resume.py
+  - CLAUDE.md
 
 ## Session History (last 5)
   [2026-07-09 01:31:05] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
@@ -27,11 +30,14 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
 
 ## Quick Start for Any Agent
 ```
-# 1. ONLY command needed to load context:
-python3 .project-intel/scripts/resume.py /home/fujitsu/Projects/Trade-Bot-main
+# 1. Read context (mandatory):
+cat .project-intel/CONTEXT_PRIMER.md
+cat .project-intel/HANDOFF.md          ← you are here
+cat .project-intel/SESSION_STATE.json
 
 # 2. Check uncommitted work:
 git status --short
+git diff --stat
 
 # 3. Register yourself:
 python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'describe task'
