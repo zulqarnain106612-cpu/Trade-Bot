@@ -394,6 +394,14 @@ class IntelligenceSettings(BaseSettings):
 
     glassnode_api_key: str = Field(default="", description="Glassnode API key")
     cryptoquant_api_key: str = Field(default="", description="CryptoQuant API key (optional)")
+    # OCI-001: free-tier on-chain providers (no paid plan required)
+    arkham_api_key: str = Field(default="", description="Arkham Intel API key (free)")
+    dune_api_key: str = Field(default="", description="Dune Analytics API key (free tier)")
+    coinglass_api_key: str = Field(default="", description="Coinglass API key (free tier)")
+    arkham_cache_ttl_s: int = Field(default=60, ge=10, description="Arkham cache TTL seconds")
+    defillama_cache_ttl_s: int = Field(default=300, ge=30, description="DeFiLlama cache TTL seconds")
+    dune_cache_ttl_s: int = Field(default=3600, ge=60, description="Dune cache TTL seconds")
+    coinglass_cache_ttl_s: int = Field(default=30, ge=10, description="Coinglass cache TTL seconds")
     glassnode_base_url: str = Field(
         default="https://api.glassnode.com/v1/metrics",
         description="Glassnode REST base URL",
