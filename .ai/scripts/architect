@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Start aider in architect mode (plan first, no auto-apply)
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+if [ -f ".venv/bin/activate" ]; then
+  source .venv/bin/activate
+fi
+
+PROMPT="$(cat "$PROJECT_ROOT/.ai/prompts/aider/architect.md")"
+SESSION_ID="$(date +%Y%m%d-%H%M%S)"
+LOG="$PROJECT_ROOT/.ai/logs/architect-$SESSION_ID.log"
+
+echo "=== Architect Mode — $SESSION_ID ==="
+echo "Design first. No code changes without approval."
+echo "Log: $LOG"
+echo ""
+
+exec aider \
+  --config "$PROJECT_ROOT/.ai/configs/aider.conf.yml" \
+  --architect \
+  --no-auto-commits \
+  --read "$PROJECT_ROOT/.ai/prompts/aider/architect.md" \
+  "$@" 2>&1 | tee "$LOG"

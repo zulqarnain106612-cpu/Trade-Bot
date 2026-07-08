@@ -1,0 +1,16 @@
+{
+  "base_url": "http://localhost:11434",
+  "default_model": "codellama:13b",
+  "fallback_model": "mistral:7b",
+  "use_cases": {
+    "quick_review": "mistral:7b",
+    "code_generation": "codellama:13b",
+    "architecture": "llama3:70b"
+  },
+  "options": {
+    "temperature": 0.1,
+    "num_ctx": 8192,
+    "num_predict": 2048
+  },
+  "system_prompt_file": ".ai/context/project.md"
+}

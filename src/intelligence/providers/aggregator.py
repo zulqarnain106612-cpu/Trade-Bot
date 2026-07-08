@@ -286,3 +286,116 @@ def get_multi_provider_aggregator(
             ],
         )
     return _aggregator
+
+
+# ---------------------------------------------------------------------------
+# OCI-008: OnChain provider integration
+# ---------------------------------------------------------------------------
+
+from src.intelligence.onchain.base import OnChainProvider  # noqa: E402
+from src.intelligence.onchain.schema import (  # noqa: E402
+    GATED_FIELDS,
+    ONCHAIN_NEUTRAL,
+    merge_onchain_results,
+    validate_provider_result,
+)
+
+
+class OnChainAwareAggregator(MultiProviderIntelligenceAggregator):
+    """
+    Extends MultiProviderIntelligenceAggregator with on-chain provider support.
+
+    On-chain results are merged via schema.merge_onchain_results() then blended
+    into the exchange/macro merged dict using confidence-weighted mean per field.
+
+    Gate policy (OCI-010):
+      Fields in GATED_FIELDS remain at neutral until their on-chain provider
+      returns confidence > 0 (i.e. an API key is present and the call succeeded).
+    """
+
+    def __init__(
+        self,
+        exchange_providers: "Sequence[ExchangeIntelligenceProvider]",
+        macro_providers: "Sequence[ExchangeIntelligenceProvider]",
+        onchain_providers: "Sequence[OnChainProvider] | None" = None,
+    ) -> None:
+        super().__init__(exchange_providers, macro_providers)
+        self._onchain_providers: list[OnChainProvider] = list(onchain_providers or [])
+
+    async def initialize_all(self) -> None:
+        await super().initialize_all()
+        oc_results = await asyncio.gather(
+            *[p.initialize() for p in self._onchain_providers],
+            return_exceptions=True,
+        )
+        for provider, result in zip(self._onchain_providers, oc_results, strict=False):
+            if isinstance(result, Exception):
+                self._log.warning(
+                    "aggregator.onchain_init_failed",
+                    exchange_id=provider.exchange_id,
+                    error=str(result),
+                )
+
+    async def close_all(self) -> None:
+        await super().close_all()
+        await asyncio.gather(
+            *[p.close() for p in self._onchain_providers],
+            return_exceptions=True,
+        )
+
+    async def fetch_metrics(self) -> dict[str, float]:
+        """Fetch exchange/macro + on-chain concurrently; merge all into one dict."""
+        exchange_macro_task = asyncio.create_task(super().fetch_metrics())
+        onchain_tasks = [
+            asyncio.create_task(p.fetch_metrics()) for p in self._onchain_providers
+        ]
+
+        base = await exchange_macro_task
+        raw_onchain = await asyncio.gather(*onchain_tasks, return_exceptions=True)
+
+        # Validate + collect clean on-chain results
+        clean_onchain: list[dict[str, float]] = []
+        for provider, result in zip(self._onchain_providers, raw_onchain, strict=False):
+            if isinstance(result, Exception):
+                self._log.warning(
+                    "aggregator.onchain_fetch_failed",
+                    exchange_id=provider.exchange_id,
+                    error=str(result),
+                )
+                continue
+            clean = validate_provider_result(result, provider.exchange_id)
+            clean_onchain.append(clean)
+
+        if not clean_onchain:
+            return base  # no on-chain data; return exchange/macro as-is
+
+        merged_onchain = merge_onchain_results(clean_onchain)
+
+        # Blend on-chain results into base dict (OCI-010 gate policy)
+        oc_conf = merged_onchain.get("confidence", 0.0)
+        base_conf = base.get("confidence", 0.0)
+
+        for field, oc_val in merged_onchain.items():
+            if field in ("confidence", "timestamp"):
+                continue
+            neutral = ONCHAIN_NEUTRAL.get(field)
+            if neutral is None:
+                continue  # cross-market field not in schema, skip
+            if field in GATED_FIELDS and oc_conf <= 0.0:
+                continue  # gated: no key provisioned, leave base value
+            if abs(oc_val - neutral) < 1e-9:
+                continue  # on-chain returned neutral, do not overwrite
+            # Confidence-weighted blend with existing base value
+            base_val = base.get(field, neutral)
+            if abs(base_val - neutral) < 1e-9 or base_conf <= 0.0:
+                base[field] = oc_val
+            else:
+                total_w = base_conf + oc_conf
+                base[field] = (base_val * base_conf + oc_val * oc_conf) / total_w
+
+        # Blend confidences
+        if oc_conf > 0.0:
+            total = base_conf + oc_conf
+            base["confidence"] = total / 2.0 if total > 0 else 0.0
+
+        return base

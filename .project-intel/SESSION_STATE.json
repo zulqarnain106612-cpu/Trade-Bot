@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T01:33:29.430059",
+  "last_updated": "2026-07-09T01:33:58.590351",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -53,10 +53,11 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 01:33:29] [7543b84] chore(context): zero-burn session protocol [claude]"
+      "[2026-07-09 01:33:29] [7543b84] chore(context): zero-burn session protocol [claude]",
+      "[2026-07-09 01:33:58] [86df193] fix(context): strip shell-session prefix from next_step in SESSION_STATE [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-09 01:33:29",
+    "last_checkpoint": "2026-07-09 01:33:58",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",

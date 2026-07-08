@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# AI code review of staged or specified changes
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+PROMPT_FILE="$PROJECT_ROOT/.ai/prompts/shared/review.md"
+TARGET="${1:-staged}"
+
+echo "=== AI Code Review: $TARGET ==="
+
+if [ "$TARGET" = "staged" ]; then
+  DIFF="$(git diff --cached)"
+  if [ -z "$DIFF" ]; then
+    echo "No staged changes found. Stage changes with 'git add' first."
+    echo "Usage: .ai/scripts/review [staged|HEAD|<commit>|<file>]"
+    exit 1
+  fi
+  CONTEXT="Staged changes:\n$DIFF"
+elif [ "$TARGET" = "HEAD" ]; then
+  CONTEXT="Last commit diff:\n$(git diff HEAD~1 HEAD)"
+else
+  CONTEXT="Diff for $TARGET:\n$(git diff "$TARGET" 2>/dev/null || git show "$TARGET" 2>/dev/null)"
+fi
+
+SYSTEM="$(cat "$PROMPT_FILE")"
+
+# Use aider in message mode for non-interactive review
+aider \
+  --config "$PROJECT_ROOT/.ai/configs/aider.conf.yml" \
+  --message "$(printf '%s\n\n---\n%b' "$SYSTEM" "$CONTEXT")" \
+  --no-auto-commits \
+  --no-git \
+  2>/dev/null || true
+
+echo ""
+echo "Review complete. Log saved to .ai/logs/"

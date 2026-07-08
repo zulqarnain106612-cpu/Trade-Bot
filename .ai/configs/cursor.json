@@ -1,0 +1,16 @@
+{
+  "aiContext": ".ai/context/project.md",
+  "rules": [
+    "Use uv for all Python package management",
+    "Run ruff + mypy after every code change",
+    "Follow conventional commits: <type>(<scope>): <subject>",
+    "Never mutate .env — use .env.example as reference",
+    "Source code is in src/ — preserve structure",
+    "Tests in tests/ — run pytest after changes"
+  ],
+  "ignore": [".venv", ".venv_temp", "__pycache__", ".mypy_cache", ".ruff_cache"],
+  "indexing": {
+    "include": ["src", "tests", ".ai"],
+    "exclude": [".venv", ".venv_temp", "data", "logs", "models"]
+  }
+}
