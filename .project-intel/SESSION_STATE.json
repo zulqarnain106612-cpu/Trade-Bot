@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T19:09:42.219359",
+  "last_updated": "2026-07-09T19:13:54.290115",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -48,7 +48,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 15:59:52] [24fa4f1] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
       "[2026-07-09 18:27:48] [9e99787] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
       "[2026-07-09 18:27:48] [bf918fc] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
       "[2026-07-09 18:33:35] [735934f] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
@@ -67,10 +66,11 @@
       "[2026-07-09 18:46:41] [81043d9] fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
       "[2026-07-09 18:47:05] [04b3582] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
       "[2026-07-09 18:47:06] [116374b] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
-      "[2026-07-09 19:09:42] [3fced7e] fix(api,storage,intelligence): 3 bugs from static audit [claude]"
+      "[2026-07-09 19:09:42] [3fced7e] fix(api,storage,intelligence): 3 bugs from static audit [claude]",
+      "[2026-07-09 19:13:54] [38f3f1d] fix(deps,tests): aiohttp/prometheus_client missing from requirements; fix test mock for VF-022 [claude]"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 19:09:42",
+    "last_checkpoint": "2026-07-09 19:13:54",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -104,10 +104,6 @@
       }
     ],
     "files_touched": [
-      "src/features/intelligence_features.py",
-      "src/intelligence/metrics.py",
-      "src/features/pipeline.py",
-      "src/models/trainer.py",
       "tests/test_gap015_backfill.py",
       ".project-intel/HANDOFF.md",
       ".project-intel/SESSION_STATE.json",
@@ -118,7 +114,11 @@
       "tests/test_intelligence_metrics.py",
       ".project-intel/ISSUES.md",
       "Vulner-Fix.md",
-      "src/intelligence/client.py"
+      "src/intelligence/client.py",
+      ".project-intel/TECH_DEBT.md",
+      "requirements-dev.txt",
+      "requirements.in",
+      "requirements.txt"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",

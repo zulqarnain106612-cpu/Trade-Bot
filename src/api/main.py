@@ -806,6 +806,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             await asyncio.sleep(heartbeat)
 
+            if _state.orchestrator is None:
+                continue  # Server still starting — skip tick, retry next heartbeat
             executor = cast(AbstractExecutor, _state.orchestrator._executor)
             if executor is None:
                 continue
