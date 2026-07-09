@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T18:39:32.482495",
+  "last_updated": "2026-07-09T18:43:32.720150",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -22,23 +22,21 @@
     "gap_008_double_regime_scalar": "complete",
     "gap_011_paper_slippage": "complete",
     "debt_005_test_coverage": "complete",
-    "onchain_intelligence": "complete \u2014 OCI-001..011 + OCI-012 (defi_tvl/mvrv_z_score/sopr). Free provider stack: Arkham/DefiLlama/Dune/CryptoQuant/Coinglass. Signal engine wired via get_onchain_aware_aggregator."
+    "onchain_intelligence": "complete \u2014 OCI-001..012. Free provider stack: Arkham/DefiLlama/Dune/CryptoQuant/Coinglass wired via get_onchain_aware_aggregator."
   },
   "current_focus": "completed by claude \u2014 Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kell",
   "open_decisions": [
     "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
-    "Decide online retraining trigger: time-based vs performance-based",
     "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config ",
-    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 \u2014 never validated agains",
-    "GAP-008: decide whether filters.py's regime_position_scalar should be redefined to avoid overlapping"
+    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 \u2014 never validated agains"
   ],
   "next_recommended_task": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are architecture decisions \u2014 no code gaps found in src/.",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "90144a1",
-  "last_commit_message": "feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
-  "last_commit_time": "2026-07-09T18:39:32.630373",
+  "last_commit": "7067398",
+  "last_commit_message": "feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
+  "last_commit_time": "2026-07-09T18:43:32.911364",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -50,8 +48,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 02:06:44] [ff368ef] feat(oci): OCI-005..011 complete \u2014 133 tests pass",
-      "[2026-07-09 06:15:04] [7929ac2] feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
       "[2026-07-09 06:15:04] [451c79a] feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
       "[2026-07-09 06:17:33] [a9497bc] test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
       "[2026-07-09 06:17:34] [f7cfa31] test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
@@ -69,10 +65,12 @@
       "[2026-07-09 18:33:36] [0dfa635] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
       "[2026-07-09 18:35:37] [761448f] fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]",
       "[2026-07-09 18:35:37] [306e2f6] fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]",
-      "[2026-07-09 18:39:32] [90144a1] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]"
+      "[2026-07-09 18:39:32] [90144a1] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
+      "[2026-07-09 18:39:33] [3bf645d] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
+      "[2026-07-09 18:43:32] [7067398] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 18:39:32",
+    "last_checkpoint": "2026-07-09 18:43:32",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -106,8 +104,6 @@
       }
     ],
     "files_touched": [
-      "src/engine/signal_engine.py",
-      "src/intelligence/client.py",
       "tests/test_intelligence_providers.py",
       "src/intelligence/providers/aggregator.py",
       "src/intelligence/onchain/schema.py",
@@ -120,7 +116,9 @@
       "tests/test_gap015_backfill.py",
       ".project-intel/HANDOFF.md",
       ".project-intel/SESSION_STATE.json",
-      "src/engine/orchestrator.py"
+      "src/engine/orchestrator.py",
+      "tests/test_orchestrator_coverage.py",
+      "src/api/main.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -186,6 +184,12 @@
       "hash": "90144a1",
       "message": "feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
       "time": "2026-07-09T18:39:32.630308",
+      "author": "Claude"
+    },
+    {
+      "hash": "7067398",
+      "message": "feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
+      "time": "2026-07-09T18:43:32.911298",
       "author": "Claude"
     }
   ]

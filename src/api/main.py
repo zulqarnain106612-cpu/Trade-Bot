@@ -999,3 +999,64 @@ async def get_performance_drift() -> dict[str, Any]:
         return _state.orchestrator._drift_adapter.check_drift()
     except Exception as exc:
         return {"error": str(exc)}
+
+
+@app.get("/intelligence/coverage", tags=["intelligence"], dependencies=[Depends(api_key_header)])
+async def get_intelligence_coverage() -> dict:
+    """
+    Return per-column non-NULL coverage for intelligence_features_history.
+
+    Useful for operators to verify OCI backfill health and understand which
+    features are active in the current training run.
+
+    Returns
+    -------
+    {
+        "symbol": str,
+        "timeframe": str,
+        "total_rows": int,
+        "coverage": {"intelligence_<col>": float, ...}   # 0.0–1.0
+    }
+    """
+    if _state.orchestrator is None:
+        return {"error": "Orchestrator not initialised."}
+    try:
+        storage = _state.orchestrator._storage
+        cfg = _state.runtime_config
+        symbol = cfg.symbol
+        timeframe = cfg.primary_timeframe.value if hasattr(cfg.primary_timeframe, "value") else str(cfg.primary_timeframe)
+        cov = await storage.intelligence_feature_coverage(symbol, timeframe)
+        return {"symbol": symbol, "timeframe": timeframe, **cov}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.get("/intelligence/providers", tags=["intelligence"], dependencies=[Depends(api_key_header)])
+async def get_intelligence_providers() -> dict:
+    """
+    Return the current OCI provider configuration (which keys are active).
+
+    Does NOT expose key values — only reports which providers are enabled
+    (key non-empty) vs disabled (key empty → fail-open neutral mode).
+
+    Returns
+    -------
+    {
+        "providers": [
+            {"name": str, "enabled": bool, "exchange_id": str}
+        ]
+    }
+    """
+    try:
+        from src.config import get_settings
+        cfg = get_settings().intelligence
+        providers = [
+            {"name": "ArkhamProvider",      "exchange_id": "arkham_intel",   "enabled": bool(cfg.arkham_api_key)},
+            {"name": "DeFiLlamaProvider",   "exchange_id": "defillama",      "enabled": True},  # public API
+            {"name": "DuneProvider",        "exchange_id": "dune_analytics",  "enabled": bool(cfg.dune_api_key)},
+            {"name": "CryptoQuantProvider", "exchange_id": "cryptoquant",    "enabled": bool(cfg.cryptoquant_api_key)},
+            {"name": "CoinglassProvider",   "exchange_id": "coinglass",      "enabled": bool(cfg.coinglass_api_key)},
+        ]
+        return {"providers": providers}
+    except Exception as exc:
+        return {"error": str(exc)}

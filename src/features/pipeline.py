@@ -800,7 +800,7 @@ def build_inference_features(
 
     Accepts a history DataFrame (must include current bar as last row).
     Returns a pd.Series of FEATURE_COLUMNS (7 base) or FEATURE_COLUMNS +
-    INTELLIGENCE_FEATURE_COLUMNS (up to 24 total) when intelligence_metrics
+    INTELLIGENCE_FEATURE_COLUMNS (up to 25 total) when intelligence_metrics
     is supplied and passes NaN validation.
 
     Parameters
