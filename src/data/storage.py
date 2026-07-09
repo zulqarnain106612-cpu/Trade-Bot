@@ -73,7 +73,7 @@ _MIGRATIONS: Final[list[tuple[int, str, str]]] = [
         "ALTER TABLE trades ADD COLUMN spread_bps REAL;",
     ),
     # Version 3 — GAP-015: intelligence features history for model training.
-    # Stores one row per (symbol, timeframe, bar_ts) with all 15 intelligence
+    # Stores one row per (symbol, timeframe, bar_ts) with all 18 intelligence
     # feature values and per-row confidence. bar_ts matches bars.ts (Unix ms)
     # so the backfill script can JOIN/align by timestamp.
     # NULLs permitted: NULL = provider had no data for that bar.
@@ -746,7 +746,7 @@ class StorageBackend:
             symbol:     Asset symbol, e.g. "BTCUSDT".
             timeframe:  Timeframe string, e.g. "1h".
             bar_ts:     Bar timestamp, Unix ms (matches bars.ts).
-            features:   Dict keyed by the 15 intelligence column names.
+            features:   Dict keyed by the 18 intelligence column names.
                         Missing keys are stored as NULL (acceptable — coverage
                         check in trainer will flag low-coverage columns).
             confidence: Provider confidence score [0.0, 1.0].
@@ -886,7 +886,7 @@ class StorageBackend:
         """
         Return per-column non-NULL fraction for intelligence_features_history.
 
-        Used by trainer before accepting the 24-feature matrix — any column
+        Used by trainer before accepting the full intelligence feature matrix — any column
         with coverage < threshold should be dropped rather than trained on.
 
         Returns:

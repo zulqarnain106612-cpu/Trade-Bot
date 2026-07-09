@@ -453,7 +453,7 @@ def get_onchain_aware_aggregator(
                     api_key=cfg.arkham_api_key,
                     cache_ttl_s=cfg.arkham_cache_ttl_s,
                 ),
-                DeFiLlamaProvider(),  # public API; no key required
+                DeFiLlamaProvider(cache_ttl_s=cfg.defillama_cache_ttl_s),
                 DuneProvider(
                     api_key=cfg.dune_api_key,
                     cache_ttl_s=cfg.dune_cache_ttl_s,

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T18:33:35.126217",
+  "last_updated": "2026-07-09T18:35:37.006074",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -39,9 +39,9 @@
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "735934f",
-  "last_commit_message": "fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
-  "last_commit_time": "2026-07-09T18:33:35.397076",
+  "last_commit": "761448f",
+  "last_commit_message": "fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]",
+  "last_commit_time": "2026-07-09T18:35:37.137654",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -70,10 +70,12 @@
       "[2026-07-09 15:59:52] [24fa4f1] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
       "[2026-07-09 18:27:48] [9e99787] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
       "[2026-07-09 18:27:48] [bf918fc] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
-      "[2026-07-09 18:33:35] [735934f] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]"
+      "[2026-07-09 18:33:35] [735934f] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
+      "[2026-07-09 18:33:36] [0dfa635] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
+      "[2026-07-09 18:35:37] [761448f] fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-09 18:33:35",
+    "last_checkpoint": "2026-07-09 18:35:37",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -107,8 +109,6 @@
       }
     ],
     "files_touched": [
-      "src/models/online_trainer.py",
-      "tests/test_online_trainer.py",
       "tests/test_orchestrator_coverage.py",
       "src/engine/signal_engine.py",
       "src/intelligence/client.py",
@@ -121,7 +121,9 @@
       "src/intelligence/metrics.py",
       "src/features/pipeline.py",
       "src/models/trainer.py",
-      "tests/test_gap015_backfill.py"
+      "tests/test_gap015_backfill.py",
+      ".project-intel/HANDOFF.md",
+      ".project-intel/SESSION_STATE.json"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -175,6 +177,12 @@
       "hash": "735934f",
       "message": "fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
       "time": "2026-07-09T18:33:35.396988",
+      "author": "Claude"
+    },
+    {
+      "hash": "761448f",
+      "message": "fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]",
+      "time": "2026-07-09T18:35:37.137583",
       "author": "Claude"
     }
   ]
