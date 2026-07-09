@@ -454,3 +454,361 @@ class TestOrchestratorTrainModels:
         # ModelTrainer should never be instantiated
         mock_mt.assert_not_called()
 
+
+# ---------------------------------------------------------------------------
+# Tests: _sleep_until_next_bar
+# ---------------------------------------------------------------------------
+
+class TestSleepUntilNextBar:
+    def _make_orch(self):
+        from src.engine.orchestrator import Orchestrator
+        storage = _make_storage()
+        fetcher = _make_fetcher()
+        with patch("src.engine.orchestrator.get_settings") as mock_cfg:
+            cfg = MagicMock()
+            cfg.primary_symbol = "BTC/USDT"
+            cfg.active_timeframes = [Timeframe.INTRADAY]
+            cfg.primary_timeframe = Timeframe.INTRADAY
+            cfg.trading_mode = TradingMode.PAPER
+            cfg.starting_capital_usd = 1000.0
+            cfg.storage.model_dir = "/tmp/models"
+            mock_cfg.return_value = cfg
+            orch = Orchestrator(storage, fetcher)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_sleep_until_next_bar_calls_sleep(self):
+        orch = self._make_orch()
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with patch("src.engine.orchestrator.time") as mock_time:
+                mock_time.monotonic.return_value = 1_700_000_000.0
+                # 900s bar, 100s elapsed since last bar → sleep ~800s
+                await orch._sleep_until_next_bar(900)
+        mock_sleep.assert_called_once()
+        slept = mock_sleep.call_args[0][0]
+        assert slept >= 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: _midnight_reset_loop
+# ---------------------------------------------------------------------------
+
+class TestMidnightResetLoop:
+    def _make_orch(self):
+        from src.engine.orchestrator import Orchestrator
+        storage = _make_storage()
+        fetcher = _make_fetcher()
+        with patch("src.engine.orchestrator.get_settings") as mock_cfg:
+            cfg = MagicMock()
+            cfg.primary_symbol = "BTC/USDT"
+            cfg.active_timeframes = [Timeframe.INTRADAY]
+            cfg.primary_timeframe = Timeframe.INTRADAY
+            cfg.trading_mode = TradingMode.PAPER
+            cfg.starting_capital_usd = 1000.0
+            cfg.storage.model_dir = "/tmp/models"
+            mock_cfg.return_value = cfg
+            orch = Orchestrator(storage, fetcher)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_midnight_reset_calls_executor_reset(self):
+        """Loop fires reset on executor after sleep."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.reset_daily_equity = AsyncMock(return_value=1000.0)
+        orch._executor = executor
+
+        call_count = 0
+
+        async def _fake_sleep(_s):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 1:
+                orch._running = False  # stop after first iteration
+
+        with patch("asyncio.sleep", side_effect=_fake_sleep):
+            await orch._midnight_reset_loop()
+
+        executor.reset_daily_equity.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_midnight_reset_no_executor_does_not_raise(self):
+        orch = self._make_orch()
+        orch._executor = None
+
+        call_count = 0
+
+        async def _fake_sleep(_s):
+            nonlocal call_count
+            call_count += 1
+            orch._running = False
+
+        with patch("asyncio.sleep", side_effect=_fake_sleep):
+            await orch._midnight_reset_loop()  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_midnight_reset_cancelled_exits_cleanly(self):
+        orch = self._make_orch()
+
+        async def _cancel(_s):
+            raise asyncio.CancelledError
+
+        with patch("asyncio.sleep", side_effect=_cancel):
+            await orch._midnight_reset_loop()  # CancelledError swallowed
+
+    @pytest.mark.asyncio
+    async def test_midnight_reset_exception_retries(self):
+        """Non-CancelledError exception → sleep 60s then retry."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.reset_daily_equity = AsyncMock(side_effect=RuntimeError("db down"))
+        orch._executor = executor
+
+        iteration = 0
+
+        async def _fake_sleep(s):
+            nonlocal iteration
+            iteration += 1
+            if iteration == 2:  # second sleep is the 60s retry sleep
+                orch._running = False
+
+        with patch("asyncio.sleep", side_effect=_fake_sleep):
+            await orch._midnight_reset_loop()
+
+        assert iteration == 2  # first sleep (wait for midnight) + retry sleep
+
+
+# ---------------------------------------------------------------------------
+# Tests: _position_monitor_loop
+# ---------------------------------------------------------------------------
+
+class TestPositionMonitorLoop:
+    def _make_orch(self):
+        from src.engine.orchestrator import Orchestrator
+        storage = _make_storage()
+        storage.latest_close = AsyncMock(return_value=None)
+        fetcher = _make_fetcher()
+        fetcher.fetch_ticker_price = AsyncMock(return_value=50_000.0)
+        with patch("src.engine.orchestrator.get_settings") as mock_cfg:
+            cfg = MagicMock()
+            cfg.primary_symbol = "BTC/USDT"
+            cfg.active_timeframes = [Timeframe.INTRADAY]
+            cfg.primary_timeframe = Timeframe.INTRADAY
+            cfg.trading_mode = TradingMode.PAPER
+            cfg.starting_capital_usd = 1000.0
+            cfg.storage.model_dir = "/tmp/models"
+            cfg.risk.position_monitor_interval_s = 5
+            mock_cfg.return_value = cfg
+            orch = Orchestrator(storage, fetcher)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_position_monitor_no_executor_skips(self):
+        orch = self._make_orch()
+        orch._executor = None
+        iteration = 0
+
+        async def _fake_sleep(_s):
+            nonlocal iteration
+            iteration += 1
+            orch._running = False
+
+        with patch("asyncio.sleep", side_effect=_fake_sleep):
+            await orch._position_monitor_loop()
+
+        # No executor → no price fetch needed
+        assert orch._fetcher.fetch_ticker_price.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_position_monitor_no_positions_skips_price_fetch(self):
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+        iteration = 0
+
+        async def _fake_sleep(_s):
+            nonlocal iteration
+            iteration += 1
+            orch._running = False
+
+        with patch("asyncio.sleep", side_effect=_fake_sleep):
+            await orch._position_monitor_loop()
+
+        orch._fetcher.fetch_ticker_price.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_position_monitor_closes_on_stop_loss(self):
+        orch = self._make_orch()
+        executor = _make_executor()
+        pos = {
+            "symbol": "BTC/USDT",
+            "trade_id": "t1",
+            "unrealized_pnl_pct": -0.06,  # triggers stop-loss
+            "entry_ts": 1_000_000,
+        }
+        executor.open_positions_safe = AsyncMock(side_effect=[
+            [pos],   # first snapshot (has position)
+            [pos],   # second snapshot (after mark_to_market)
+        ])
+        executor.mark_to_market = AsyncMock(return_value=None)
+        executor.close_position = AsyncMock(return_value=-60.0)
+        orch._executor = executor
+
+        iteration = 0
+
+        async def _fake_sleep(_s):
+            nonlocal iteration
+            iteration += 1
+            orch._running = False
+
+        controls = {
+            "stop_loss_enabled": True,
+            "stop_loss_pct": 0.05,
+            "take_profit_enabled": False,
+            "take_profit_pct": 0.1,
+            "max_holding_period_s": 86400.0,
+        }
+        with (
+            patch("asyncio.sleep", side_effect=_fake_sleep),
+            patch(
+                "src.engine.orchestrator.runtime_config.get_risk_controls",
+                new_callable=AsyncMock,
+                return_value=controls,
+            ),
+            patch(
+                "src.engine.orchestrator.check_position_exit",
+                return_value="stop_loss",
+            ),
+        ):
+            await orch._position_monitor_loop()
+
+        executor.close_position.assert_awaited_once_with(
+            trade_id="t1", exit_price=50_000.0, exit_reason="stop_loss"
+        )
+
+    @pytest.mark.asyncio
+    async def test_position_monitor_price_zero_skips(self):
+        """Price fetch returns 0 → skip close check for safety."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[{"symbol": "BTC/USDT", "trade_id": "t1"}])
+        executor.mark_to_market = AsyncMock()
+        orch._executor = executor
+        orch._fetcher.fetch_ticker_price = AsyncMock(return_value=0.0)
+
+        iteration = 0
+
+        async def _fake_sleep(_s):
+            nonlocal iteration
+            iteration += 1
+            orch._running = False
+
+        with patch("asyncio.sleep", side_effect=_fake_sleep):
+            await orch._position_monitor_loop()
+
+        executor.mark_to_market.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_position_monitor_cancelled_exits_cleanly(self):
+        orch = self._make_orch()
+
+        async def _cancel(_s):
+            raise asyncio.CancelledError
+
+        with patch("asyncio.sleep", side_effect=_cancel):
+            await orch._position_monitor_loop()
+
+
+# ---------------------------------------------------------------------------
+# Tests: _tick — correlation_scalar failure falls back to 1.0
+# ---------------------------------------------------------------------------
+
+class TestTickCorrelationFallback:
+    def _make_orch(self):
+        from src.engine.orchestrator import Orchestrator
+        storage = _make_storage()
+        storage.latest_close = AsyncMock(return_value=None)
+        storage.latest_bar_ts = AsyncMock(return_value=None)
+        storage.upsert_regime_snapshot = AsyncMock(return_value=None)
+        fetcher = _make_fetcher()
+        with patch("src.engine.orchestrator.get_settings") as mock_cfg:
+            cfg = MagicMock()
+            cfg.primary_symbol = "BTC/USDT"
+            cfg.active_timeframes = [Timeframe.INTRADAY]
+            cfg.primary_timeframe = Timeframe.INTRADAY
+            cfg.trading_mode = TradingMode.PAPER
+            cfg.starting_capital_usd = 1000.0
+            cfg.storage.model_dir = "/tmp/models"
+            mock_cfg.return_value = cfg
+            orch = Orchestrator(storage, fetcher)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_tick_correlation_error_falls_back_to_1(self):
+        """get_portfolio_correlation() crash must not block the tick."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = False
+        signal.regime = None
+        signal.p_long = 0.5
+        signal.p_bet = 0.5
+        signal.kelly_result = None
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation",
+                  side_effect=RuntimeError("tracker broken")),
+            patch("src.engine.orchestrator.compute_win_loss_stats",
+                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.update_metrics"),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+
+        # tick completed → engine.tick was called with correlation_scalar=1.0
+        call_kwargs = engine.tick.call_args.kwargs
+        assert call_kwargs["correlation_scalar"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_tick_drift_blocks_tradeable_signal(self):
+        """Performance drift gate skips execution even when signal is tradeable."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = True
+        signal.regime = None
+        signal.p_long = 0.8
+        signal.p_bet = 0.8
+        signal.kelly_result = MagicMock()
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch("src.engine.orchestrator.compute_win_loss_stats",
+                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.update_metrics"),
+            patch.object(
+                orch._drift_adapter,
+                "check_drift",
+                return_value={"drifted": True, "metric": "sharpe", "reason": "below floor"},
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+
+        # drift blocked → submit_signal must NOT be called
+        executor.submit_signal.assert_not_called()

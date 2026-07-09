@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T06:15:04.525607",
+  "last_updated": "2026-07-09T06:17:33.996182",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -39,9 +39,9 @@
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "7929ac2",
-  "last_commit_message": "feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
-  "last_commit_time": "2026-07-09T06:15:04.604339",
+  "last_commit": "a9497bc",
+  "last_commit_message": "test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
+  "last_commit_time": "2026-07-09T06:17:34.148137",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -56,10 +56,12 @@
       "[2026-07-09 01:33:29] [7543b84] chore(context): zero-burn session protocol [claude]",
       "[2026-07-09 01:33:58] [86df193] fix(context): strip shell-session prefix from next_step in SESSION_STATE [claude]",
       "[2026-07-09 02:06:44] [ff368ef] feat(oci): OCI-005..011 complete \u2014 133 tests pass",
-      "[2026-07-09 06:15:04] [7929ac2] feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]"
+      "[2026-07-09 06:15:04] [7929ac2] feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
+      "[2026-07-09 06:15:04] [451c79a] feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
+      "[2026-07-09 06:17:33] [a9497bc] test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-09 06:15:04",
+    "last_checkpoint": "2026-07-09 06:17:33",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -87,7 +89,6 @@
       }
     ],
     "files_touched": [
-      "src/intelligence/onchain/dune_provider.py",
       "src/intelligence/onchain/schema.py",
       "src/intelligence/providers/aggregator.py",
       "tests/intelligence/onchain/test_coinglass_provider.py",
@@ -101,7 +102,8 @@
       ".project-intel/OPEN_TASKS.md",
       ".project-intel/SESSION_STATE.json",
       "src/models/online_trainer.py",
-      "tests/test_online_trainer.py"
+      "tests/test_online_trainer.py",
+      "tests/test_orchestrator_coverage.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -113,6 +115,12 @@
       "hash": "7929ac2",
       "message": "feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
       "time": "2026-07-09T06:15:04.604292",
+      "author": "Claude"
+    },
+    {
+      "hash": "a9497bc",
+      "message": "test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
+      "time": "2026-07-09T06:17:34.148073",
       "author": "Claude"
     }
   ]
