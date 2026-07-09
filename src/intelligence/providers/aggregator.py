@@ -399,3 +399,58 @@ class OnChainAwareAggregator(MultiProviderIntelligenceAggregator):
             base["confidence"] = total / 2.0 if total > 0 else 0.0
 
         return base
+
+
+# ---------------------------------------------------------------------------
+# OCI-008: Singleton factory for OnChainAwareAggregator
+# ---------------------------------------------------------------------------
+
+_onchain_aware_aggregator: "OnChainAwareAggregator | None" = None
+
+
+def get_onchain_aware_aggregator(
+    symbol: str = "BTC/USDT",
+    perp_symbol: str = "BTC/USDT:USDT",
+) -> "OnChainAwareAggregator":
+    """
+    Return module-level OnChainAwareAggregator singleton.
+
+    Lazily constructs exchange/macro providers (same as get_multi_provider_aggregator)
+    plus all configured on-chain providers.  On-chain providers fail-open when API
+    keys are absent — they return neutral + confidence=0.0, and gated fields are not
+    written into the merged dict.  Symbol args are only used on first call.
+    """
+    global _onchain_aware_aggregator
+    if _onchain_aware_aggregator is None:
+        from src.intelligence.onchain.arkham_provider import ArkhamProvider
+        from src.intelligence.onchain.coinglass_provider import CoinglassProvider
+        from src.intelligence.onchain.cryptoquant_provider import CryptoQuantProvider
+        from src.intelligence.onchain.defillama_provider import DefiLlamaProvider
+        from src.intelligence.onchain.dune_provider import DuneProvider
+        from src.intelligence.providers.binance_provider import get_binance_intelligence_provider
+        from src.intelligence.providers.blockchain_provider import (
+            get_blockchain_intelligence_provider,
+        )
+        from src.intelligence.providers.coingecko_provider import (
+            get_coingecko_intelligence_provider,
+        )
+        from src.intelligence.providers.okx_provider import get_okx_intelligence_provider
+
+        _onchain_aware_aggregator = OnChainAwareAggregator(
+            exchange_providers=[
+                get_binance_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
+                get_okx_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
+            ],
+            macro_providers=[
+                get_coingecko_intelligence_provider(),
+                get_blockchain_intelligence_provider(),
+            ],
+            onchain_providers=[
+                ArkhamProvider(),
+                DefiLlamaProvider(),
+                DuneProvider(),
+                CryptoQuantProvider(),
+                CoinglassProvider(),
+            ],
+        )
+    return _onchain_aware_aggregator

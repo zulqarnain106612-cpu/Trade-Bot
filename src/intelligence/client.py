@@ -198,10 +198,6 @@ class IntelligenceAggregator:
             return {"rate_pct": 0.0, "rate_8h_avg": 0.0, "excessive": False}
 
     # -----------------------------------------------------------------------
-    # Private provider implementations (stubs for now, replaced with real calls)
-    # -----------------------------------------------------------------------
-
-    # -----------------------------------------------------------------------
     # Private provider implementations
     # -----------------------------------------------------------------------
 

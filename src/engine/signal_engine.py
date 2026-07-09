@@ -40,7 +40,7 @@ from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_m
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
 from src.intelligence.providers.aggregator import (
-    get_multi_provider_aggregator as _get_intel_aggregator,
+    get_onchain_aware_aggregator as _get_intel_aggregator,
 )
 from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
 

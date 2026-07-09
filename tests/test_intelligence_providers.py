@@ -655,3 +655,44 @@ class TestGetMultiProviderAggregatorSingleton:
         assert "coingecko" in ids
         assert "blockchain_info" in ids
         agg_mod._aggregator = None
+
+
+class TestGetOnChainAwareAggregatorSingleton:
+    """OCI-008: get_onchain_aware_aggregator singleton and wiring."""
+
+    def test_same_instance_on_repeated_calls(self):
+        import src.intelligence.providers.aggregator as agg_mod
+        agg_mod._onchain_aware_aggregator = None
+        from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
+        a1 = get_onchain_aware_aggregator()
+        a2 = get_onchain_aware_aggregator()
+        assert a1 is a2
+        agg_mod._onchain_aware_aggregator = None
+
+    def test_aggregator_has_exchange_macro_and_onchain_providers(self):
+        import src.intelligence.providers.aggregator as agg_mod
+        agg_mod._onchain_aware_aggregator = None
+        from src.intelligence.providers.aggregator import OnChainAwareAggregator, get_onchain_aware_aggregator
+        agg = get_onchain_aware_aggregator()
+        assert isinstance(agg, OnChainAwareAggregator)
+        # Exchange + macro providers
+        base_ids = {p.exchange_id for p in agg._all_providers}
+        assert "binance" in base_ids
+        assert "okx" in base_ids
+        assert "coingecko" in base_ids
+        assert "blockchain_info" in base_ids
+        # On-chain providers
+        oc_ids = {p.exchange_id for p in agg._onchain_providers}
+        assert len(oc_ids) == 5
+        assert "arkham_intel" in oc_ids
+        assert "defillama" in oc_ids
+        assert "dune_analytics" in oc_ids
+        assert "cryptoquant" in oc_ids
+        assert "coinglass" in oc_ids
+        agg_mod._onchain_aware_aggregator = None
+
+    def test_signal_engine_uses_onchain_aware_aggregator(self):
+        """signal_engine._get_intel_aggregator must resolve to get_onchain_aware_aggregator."""
+        import src.engine.signal_engine as se_mod
+        from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
+        assert se_mod._get_intel_aggregator is get_onchain_aware_aggregator
