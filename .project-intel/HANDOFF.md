@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-09 18:47:06 | Read this before starting any work.
+> Updated: 2026-07-09 19:09:42 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-09 01:31:05
-**Last checkpoint**: 2026-07-09 18:47:06
+**Last checkpoint**: 2026-07-09 19:09:42
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,9 +17,6 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
 
 ## Files to Check
-  - src/intelligence/onchain/schema.py
-  - scripts/backfill_intelligence.py
-  - src/data/storage.py
   - src/features/intelligence_features.py
   - src/intelligence/metrics.py
   - src/features/pipeline.py
@@ -32,6 +29,9 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/api/main.py
   - tests/test_api_and_fsm_coverage.py
   - tests/test_intelligence_metrics.py
+  - .project-intel/ISSUES.md
+  - Vulner-Fix.md
+  - src/intelligence/client.py
 
 ## Session History (last 5)
   [2026-07-09 18:32:40] claude — interrupted: shell exited with 5 uncommitted file(s)

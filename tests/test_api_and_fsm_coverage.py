@@ -305,22 +305,27 @@ class TestIntelligenceEndpoints:
         orch._cfg = cfg
         state.orchestrator = orch
 
-        rcfg = MagicMock()
-        rcfg.symbol = "BTC/USDT"
-        rcfg.primary_timeframe.value = "1h"
-        state.runtime_config = rcfg
+        # VF-022 fix: get_intelligence_coverage() now calls get_settings() directly
+        # (not _state.runtime_config, which was never an AppState attribute).
+        # Tests patch get_settings at the api.main import site instead.
         return state
 
     @pytest.mark.asyncio
     async def test_coverage_returns_total_rows_and_coverage_dict(self):
+        from unittest.mock import MagicMock, patch
         from src.api.main import get_intelligence_coverage
         import src.api.main as api_mod
 
         state = self._make_state()
+        mock_settings = MagicMock()
+        mock_settings.primary_symbol = "BTC/USDT"
+        mock_settings.primary_timeframe.value = "1h"
+
         orig = api_mod._state
         try:
             api_mod._state = state
-            result = await get_intelligence_coverage()
+            with patch("src.api.main.get_settings", return_value=mock_settings):
+                result = await get_intelligence_coverage()
         finally:
             api_mod._state = orig
 

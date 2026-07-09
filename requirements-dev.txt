@@ -6,4 +6,4 @@ black>=24.10.0
 isort>=5.13.0
 detect-secrets>=1.4
 pip-tools>=7.4
-watchdog>=4.0.0
+# watchdog removed — never imported in src/ (was dead dependency in both req files)

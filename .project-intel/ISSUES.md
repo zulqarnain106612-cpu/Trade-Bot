@@ -224,3 +224,17 @@ Status: RESOLVED [2026-07-09] — Added `self._cache_lock: asyncio.Lock` in `__i
 Check-reads and store-writes are now each protected by `async with self._cache_lock`.
 Network I/O runs outside the lock. See VF-021.
 ────────────────────────────────────────────────────────────
+
+## Issue-013 [2026-07-09] — MEDIUM (static audit, Claude)
+`aiohttp` is imported in 3 source files (`src/intelligence/onchain/base.py`,
+`src/intelligence/providers/blockchain_provider.py`, `src/intelligence/providers/coingecko_provider.py`)
+but was absent from both `requirements.txt` and `requirements.in`. On a clean install via
+`pip install --require-hashes -r requirements.lock`, the OCI stack would fail at import time
+with `ModuleNotFoundError`. Masked locally because the `.venv` was built incrementally.
+File: `requirements.txt`, `requirements.in`
+Status: RESOLVED [2026-07-09] — `aiohttp>=3.9,<4.0` added to both files.
+`prometheus_client` (used in `src/api/metrics.py`) also added to `requirements.in` (was in
+`requirements.txt` but missing from the pip-compile source). `watchdog` removed from
+`requirements.txt` and `requirements-dev.txt` — never imported anywhere in `src/`.
+Discovered by: Claude [claude] static audit
+────────────────────────────────────────────────────────────
