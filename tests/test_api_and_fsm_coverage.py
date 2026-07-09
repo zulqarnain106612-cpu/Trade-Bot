@@ -273,3 +273,89 @@ class TestLiveExecutorOrderFSMPlaceOrder:
             await wrapper.place_market_order_with_fsm(
                 symbol="BTC/USDT", side="sell", quantity=0.1
             )
+
+
+# ---------------------------------------------------------------------------
+# /intelligence/coverage and /intelligence/providers endpoint tests
+# ---------------------------------------------------------------------------
+
+class TestIntelligenceEndpoints:
+    """OCI-012: coverage and provider-status endpoints."""
+
+    def _make_state(self):
+        from unittest.mock import AsyncMock, MagicMock
+        from src.api.main import _AppState
+        state = _AppState()
+        orch = MagicMock()
+        storage = MagicMock()
+        storage.intelligence_feature_coverage = AsyncMock(return_value={
+            "total_rows": 100,
+            "coverage": {
+                "intelligence_binance_funding_rate_pct": 1.0,
+                "intelligence_defi_tvl_7d_change_pct": 0.95,
+                "intelligence_mvrv_z_score": 0.0,
+                "intelligence_sopr": 0.0,
+            },
+        })
+        orch._storage = storage
+
+        cfg = MagicMock()
+        cfg.symbol = "BTC/USDT"
+        cfg.primary_timeframe.value = "1h"
+        orch._cfg = cfg
+        state.orchestrator = orch
+
+        rcfg = MagicMock()
+        rcfg.symbol = "BTC/USDT"
+        rcfg.primary_timeframe.value = "1h"
+        state.runtime_config = rcfg
+        return state
+
+    @pytest.mark.asyncio
+    async def test_coverage_returns_total_rows_and_coverage_dict(self):
+        from src.api.main import get_intelligence_coverage
+        import src.api.main as api_mod
+
+        state = self._make_state()
+        orig = api_mod._state
+        try:
+            api_mod._state = state
+            result = await get_intelligence_coverage()
+        finally:
+            api_mod._state = orig
+
+        assert result["total_rows"] == 100
+        assert "coverage" in result
+        assert result["coverage"]["intelligence_defi_tvl_7d_change_pct"] == 0.95
+
+    @pytest.mark.asyncio
+    async def test_coverage_no_orchestrator_returns_error(self):
+        from src.api.main import get_intelligence_coverage, _AppState
+        import src.api.main as api_mod
+
+        state = _AppState()
+        orig = api_mod._state
+        try:
+            api_mod._state = state
+            result = await get_intelligence_coverage()
+        finally:
+            api_mod._state = orig
+
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_providers_returns_five_providers(self):
+        from src.api.main import get_intelligence_providers
+        result = await get_intelligence_providers()
+        assert "providers" in result
+        providers = result["providers"]
+        assert len(providers) == 5
+        ids = {p["exchange_id"] for p in providers}
+        assert ids == {"arkham_intel", "defillama", "dune_analytics", "cryptoquant", "coinglass"}
+
+    @pytest.mark.asyncio
+    async def test_defillama_always_enabled(self):
+        from src.api.main import get_intelligence_providers
+        result = await get_intelligence_providers()
+        defillama = next(p for p in result["providers"] if p["exchange_id"] == "defillama")
+        assert defillama["enabled"] is True
