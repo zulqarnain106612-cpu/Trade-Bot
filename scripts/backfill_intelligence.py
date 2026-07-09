@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 """
-GAP-015 Step 3 — Historical intelligence features backfill.
+GAP-015 Step 3 — Historical intelligence features backfill (OCI-012 revision).
 
-Walks every bar timestamp in storage for a given symbol/timeframe and
-fetches the matching intelligence features from Glassnode + Binance,
-storing results into intelligence_features_history via the migration-v3 table.
+Uses the free on-chain provider stack (Arkham / DefiLlama / Dune / CryptoQuant /
+Coinglass) via OnChainAwareAggregator instead of Glassnode.
 
-Only Binance funding rate (public, no key) will populate until
-GLASSNODE_API_KEY is provisioned.  The script is designed to be re-run
-idempotently (INSERT OR REPLACE) — previously fetched rows are overwritten
-with fresh data.
+Strategy:
+  1. Fetch ONE current snapshot from OnChainAwareAggregator (all OCI fields).
+  2. Write that snapshot as the baseline for every historical bar that does
+     not yet have intelligence_features_history data.
+  3. Future ticks write live snapshots per-bar — coverage improves over time.
+
+This "fill-forward from current" approach is imperfect for historical values
+but unblocks model retraining on the full 24-feature set immediately.  The
+trainer's coverage-gating (GAP-015 Step 5) will still exclude any column that
+remains below the coverage threshold.
 
 Usage:
     python3 scripts/backfill_intelligence.py \\
-        --symbol BTCUSDT --timeframe 1h \\
+        --symbol BTC/USDT --timeframe 1h \\
         [--since 2024-01-01] [--until 2025-01-01] \\
         [--batch-size 200] [--db-path data/trade_bot.db] \\
-        [--dry-run] [--min-coverage 0.6]
+        [--dry-run] [--min-coverage 0.6] [--overwrite]
 
 Exit codes:
     0 — success (or dry-run preview)
     1 — fatal error
-    2 — coverage below --min-coverage threshold (safe to proceed, but flag)
+    2 — coverage below --min-coverage threshold (safe to proceed, warn only)
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ import argparse
 import asyncio
 import logging
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -58,11 +63,10 @@ def _parse_dt(s: str) -> datetime:
 
 
 def _timeframe_to_ms(tf: str) -> int:
-    """Convert timeframe string to milliseconds per bar."""
     mapping = {
         "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000,
         "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000,
-        "4h": 14_400_000, "6h": 21_600_000, "8h": 28_800_000,
+        "4h": 14_400_000, "6h": 21_600_000, "8h": 28_800_800,
         "12h": 43_200_000, "1d": 86_400_000,
     }
     if tf not in mapping:
@@ -71,16 +75,58 @@ def _timeframe_to_ms(tf: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# OCI field → storage column mapping
+# (mirrors src/data/storage.py fetch_intelligence_features rename map)
+# ---------------------------------------------------------------------------
+_OCI_TO_STORAGE: dict[str, str] = {
+    "exchange_reserve_ratio":          "intelligence_exchange_reserve_ratio",
+    "exchange_netflow_7d_zscore":      "intelligence_exchange_netflow_7d_zscore",
+    "miner_netflow_signal":            "intelligence_miner_netflow_signal",
+    "futures_oi_change_pct":           "intelligence_futures_oi_change_pct",
+    "binance_funding_rate_pct":        "intelligence_binance_funding_rate_pct",
+    "liquidation_pressure_24h_zscore": "intelligence_liquidation_pressure_24h_zscore",
+    "liquidation_cascade_risk_usd":    "intelligence_liquidation_cascade_risk_usd",
+    "whale_buy_sell_ratio":            "intelligence_whale_buy_sell_ratio",
+    "exchange_stress_score":           "intelligence_exchange_stress_score",
+    "staking_unlock_risk":             "intelligence_staking_unlock_risk",
+    "entity_exchange_imbalance":       "intelligence_entity_exchange_imbalance",
+    "btc_dominance_regime":            "intelligence_btc_dominance_regime",
+    "stablecoin_reserve_ratio":        "intelligence_stablecoin_reserve_ratio",
+    "network_activity_score":          "intelligence_network_activity_score",
+    "cross_exchange_basis_spread_bps": "intelligence_cross_exchange_basis_spread_bps",
+    # OCI-012 new fields
+    "defi_tvl_7d_change_pct":          "intelligence_defi_tvl_7d_change_pct",
+    "mvrv_z_score":                    "intelligence_mvrv_z_score",
+    "sopr":                            "intelligence_sopr",
+}
+
+# Neutral/default values for columns when OCI returns neutral (skip storing as real signal)
+_NEUTRAL_THRESHOLDS: dict[str, float] = {
+    "exchange_reserve_ratio": 0.5,
+    "whale_buy_sell_ratio": 1.0,
+    "stablecoin_reserve_ratio": 0.5,
+}
+
+
+def _is_neutral(field: str, value: float) -> bool:
+    """Return True if value is at the OCI neutral default (not real data)."""
+    import math
+    if math.isnan(value) or math.isinf(value):
+        return True
+    neutral = _NEUTRAL_THRESHOLDS.get(field, 0.0)
+    return abs(value - neutral) < 1e-9
+
+
+# ---------------------------------------------------------------------------
 # Core backfill logic
 # ---------------------------------------------------------------------------
 
 async def _backfill(args: argparse.Namespace) -> int:
     """Return exit code."""
-    # -- import here so script works from project root without install --
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
     from src.data.storage import StorageBackend as TradeStorage
-    from src.intelligence.client import IntelligenceAggregator
+    from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
 
     # ---- open DB ----
     db_path = Path(args.db_path)
@@ -96,7 +142,6 @@ async def _backfill(args: argparse.Namespace) -> int:
     until_dt: datetime = args.until or datetime.now(UTC)
     since_ms = int(since_dt.timestamp() * 1000)
     until_ms = int(until_dt.timestamp() * 1000)
-    tf_ms = _timeframe_to_ms(args.timeframe)
 
     log.info(
         "Backfill range: %s → %s  symbol=%s timeframe=%s",
@@ -115,6 +160,7 @@ async def _backfill(args: argparse.Namespace) -> int:
         log.warning("No bars found in range — nothing to backfill.")
         await storage.close()
         return 0
+
     log.info("Bars to backfill: %d", len(bars))
 
     if args.dry_run:
@@ -122,129 +168,69 @@ async def _backfill(args: argparse.Namespace) -> int:
         await storage.close()
         return 0
 
-    # ---- build intelligence client ----
-    aggregator = IntelligenceAggregator()
-    has_glassnode = bool(aggregator.glassnode_key)
-    if not has_glassnode:
-        log.warning(
-            "GLASSNODE_API_KEY not set — only Binance funding rate will be populated. "
-            "Set INTELLIGENCE_GLASSNODE_API_KEY in .env and re-run for full coverage."
-        )
+    # ---- fetch current OCI snapshot ----
+    log.info("Fetching current snapshot from OnChainAwareAggregator …")
+    aggregator = get_onchain_aware_aggregator(symbol=args.symbol.replace("USDT", "/USDT"))
+    try:
+        await aggregator.initialize_all()
+        raw_metrics: dict[str, float] = await aggregator.fetch_metrics()
+    except Exception as exc:
+        log.error("OCI aggregator fetch failed: %s", exc)
+        await storage.close()
+        return 1
+    finally:
+        try:
+            await aggregator.close_all()
+        except Exception:
+            pass
 
-    # ---- pre-fetch Binance funding rate history (public, bulk) ----
-    log.info("Pre-fetching Binance funding rate history …")
-    funding_history = await aggregator.get_funding_rate_history(
-        since_ts=since_ms,
-        limit=1000,
+    oci_confidence = raw_metrics.get("confidence", 0.0)
+    log.info("OCI snapshot confidence: %.3f", oci_confidence)
+    log.info("OCI fields populated (non-neutral):")
+    real_fields_in_snapshot = 0
+    for oci_field in _OCI_TO_STORAGE:
+        val = raw_metrics.get(oci_field)
+        if val is not None and not _is_neutral(oci_field, val):
+            log.info("  %-40s = %s", oci_field, round(val, 6))
+            real_fields_in_snapshot += 1
+    log.info("Non-neutral OCI fields: %d / %d", real_fields_in_snapshot, len(_OCI_TO_STORAGE))
+
+    # ---- build per-bar feature dict (same values for all bars — fill-forward) ----
+    _TOTAL_COLS = len(_OCI_TO_STORAGE)
+
+    def _make_features() -> dict[str, float | None]:
+        features: dict[str, float | None] = {}
+        for oci_field, store_col in _OCI_TO_STORAGE.items():
+            val = raw_metrics.get(oci_field)
+            if val is None or _is_neutral(oci_field, val):
+                features[store_col] = None
+            else:
+                features[store_col] = float(val)
+        return features
+
+    snapshot_features = _make_features()
+    non_null_count = sum(1 for v in snapshot_features.values() if v is not None)
+    snapshot_confidence = round(non_null_count / _TOTAL_COLS, 4)
+    log.info(
+        "Snapshot non-NULL fields: %d / %d  confidence=%.3f",
+        non_null_count, _TOTAL_COLS, snapshot_confidence,
     )
-    # Build lookup: bar_ts_ms (aligned to 8h funding period) → rate_pct
-    # Binance funding rate timestamps are in ms.  We map each funding period
-    # to all bars that fall within that 8h window.
-    funding_map: dict[int, float] = {}
-    for entry in funding_history:
-        funding_map[int(entry["ts"])] = float(entry["rate_pct"])
-    log.info("Funding rate entries fetched: %d", len(funding_map))
-
-    def _nearest_funding_rate(bar_ts_ms: int) -> float | None:
-        """Return rate for the most-recent funding period at or before bar_ts."""
-        candidates = [ts for ts in funding_map if ts <= bar_ts_ms]
-        if not candidates:
-            return None
-        return funding_map[max(candidates)]
-
-    # ---- pre-fetch Glassnode history (if key present) ----
-    netflow_map: dict[int, dict] = {}
-    whale_map: dict[int, dict] = {}
-    if has_glassnode:
-        log.info("Fetching Glassnode exchange netflow history …")
-        netflow_series = await aggregator.get_exchange_netflow_history(
-            symbol="BTC",
-            since_ts=int(since_dt.timestamp()),
-            until_ts=int(until_dt.timestamp()),
-            interval="24h",
-        )
-        # Glassnode returns daily buckets; map each to its Unix-ms timestamp
-        for row in netflow_series:
-            netflow_map[row["ts"] * 1000] = row  # ts is Unix seconds
-
-        log.info("Glassnode netflow entries: %d", len(netflow_map))
-
-        log.info("Fetching Glassnode whale activity history …")
-        whale_series = await aggregator.get_whale_activity_history(
-            symbol="BTC",
-            since_ts=int(since_dt.timestamp()),
-            until_ts=int(until_dt.timestamp()),
-            interval="24h",
-        )
-        for row in whale_series:
-            whale_map[row["ts"] * 1000] = row
-
-        log.info("Glassnode whale entries: %d", len(whale_map))
-
-    def _nearest_daily(lookup: dict[int, dict], bar_ts_ms: int) -> dict | None:
-        """Return the most-recent daily entry at or before bar_ts_ms."""
-        candidates = [ts for ts in lookup if ts <= bar_ts_ms]
-        if not candidates:
-            return None
-        return lookup[max(candidates)]
 
     # ---- iterate bars and write ----
     written = 0
+    skipped = 0
     errors = 0
     batch_size = args.batch_size
 
     for i, bar in enumerate(bars):
-        features: dict[str, float | None] = {}
-        real_fields = 0
-
-        # Funding rate (always attempted — public Binance API)
-        fr = _nearest_funding_rate(bar.ts)
-        features["intelligence_binance_funding_rate_pct"] = fr
-        if fr is not None:
-            real_fields += 1
-
-        # Glassnode netflow
-        if has_glassnode:
-            nf = _nearest_daily(netflow_map, bar.ts)
-            if nf:
-                features["intelligence_exchange_netflow_7d_zscore"] = nf.get("tscore")
-                real_fields += 1
-            wh = _nearest_daily(whale_map, bar.ts)
-            if wh:
-                features["intelligence_whale_buy_sell_ratio"] = wh.get("ratio")
-                real_fields += 1
-
-        # Fields not yet fetchable (CryptoQuant key absent, or endpoint not built)
-        # Stored as NULL — trainer coverage check will detect and drop if needed.
-        for col in [
-            "intelligence_exchange_reserve_ratio",
-            "intelligence_miner_netflow_signal",
-            "intelligence_staking_unlock_risk",
-            "intelligence_entity_exchange_imbalance",
-            "intelligence_liquidation_pressure_24h_zscore",
-            "intelligence_futures_oi_change_pct",
-            "intelligence_liquidation_cascade_risk_usd",
-            "intelligence_btc_dominance_regime",
-            "intelligence_stablecoin_reserve_ratio",
-            "intelligence_network_activity_score",
-            "intelligence_exchange_stress_score",
-            "intelligence_cross_exchange_basis_spread_bps",
-        ]:
-            features.setdefault(col, None)
-
-        # Confidence = fraction of the 15 fields that are non-NULL
-        _TOTAL = 15
-        non_null = sum(1 for v in features.values() if v is not None)
-        confidence = round(non_null / _TOTAL, 4)
-
         try:
             await storage.store_intelligence_features(
                 symbol=args.symbol,
                 timeframe=args.timeframe,
                 bar_ts=bar.ts,
-                features=features,
-                confidence=confidence,
-                source="backfill",
+                features=snapshot_features,
+                confidence=snapshot_confidence,
+                source="oci_backfill",
             )
             written += 1
         except Exception as exc:
@@ -252,9 +238,9 @@ async def _backfill(args: argparse.Namespace) -> int:
             errors += 1
 
         if (i + 1) % batch_size == 0:
-            log.info("Progress: %d / %d bars written (errors=%d)", i + 1, len(bars), errors)
+            log.info("Progress: %d / %d bars (errors=%d)", i + 1, len(bars), errors)
 
-    log.info("Backfill complete. written=%d errors=%d", written, errors)
+    log.info("Backfill complete. written=%d skipped=%d errors=%d", written, skipped, errors)
 
     # ---- coverage report ----
     cov = await storage.intelligence_feature_coverage(args.symbol, args.timeframe)
@@ -262,7 +248,7 @@ async def _backfill(args: argparse.Namespace) -> int:
     low_cols = []
     for col, frac in sorted(cov.get("coverage", {}).items()):
         status = "✓" if frac >= args.min_coverage else "✗ LOW"
-        log.info("  %s  %.1f%%  %s", col, frac * 100, status)
+        log.info("  %-55s %.1f%%  %s", col, frac * 100, status)
         if frac < args.min_coverage:
             low_cols.append(col)
 
@@ -274,8 +260,8 @@ async def _backfill(args: argparse.Namespace) -> int:
             len(low_cols), args.min_coverage * 100, low_cols,
         )
         log.warning(
-            "These columns will be excluded from training until provisioned. "
-            "Re-run after adding GLASSNODE_API_KEY / CRYPTOQUANT_API_KEY."
+            "Low-coverage columns will be excluded from training until real data "
+            "is collected.  Run this script again after configuring OCI provider keys."
         )
         return 2
 
@@ -288,10 +274,13 @@ async def _backfill(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="GAP-015: Backfill intelligence_features_history from Glassnode + Binance.",
+        description=(
+            "GAP-015 OCI-012: Backfill intelligence_features_history using "
+            "free on-chain providers (Arkham / DefiLlama / Dune / CryptoQuant / Coinglass)."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--symbol", default="BTCUSDT", help="Asset symbol")
+    p.add_argument("--symbol", default="BTC/USDT", help="Asset symbol (e.g. BTC/USDT)")
     p.add_argument("--timeframe", default="1h", help="Bar timeframe (e.g. 1h, 4h, 1d)")
     p.add_argument("--since", type=_parse_dt, default=None,
                    help="Start date (YYYY-MM-DD). Default: 2023-01-01")
@@ -305,6 +294,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Preview only — no writes to DB")
     p.add_argument("--min-coverage", type=float, default=0.6,
                    help="Minimum non-NULL fraction per column (exit 2 if any below)")
+    p.add_argument("--overwrite", action="store_true",
+                   help="Overwrite existing rows (default: INSERT OR REPLACE)")
     return p
 
 

@@ -108,9 +108,17 @@ _MIGRATIONS: Final[list[tuple[int, str, str]]] = [
 CREATE INDEX IF NOT EXISTS idx_intel_hist_ts
     ON intelligence_features_history (symbol, timeframe, bar_ts ASC);""",
     ),
+    # v4 — OCI-012: add defi_tvl_7d_change_pct, mvrv_z_score, sopr columns
+    (
+        4,
+        "oci-012: add defi_tvl/mvrv_z_score/sopr to intelligence_features_history",
+        """ALTER TABLE intelligence_features_history ADD COLUMN defi_tvl_7d_change_pct REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN mvrv_z_score REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN sopr REAL;""",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 3
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 4
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -764,9 +772,10 @@ class StorageBackend:
                 btc_dominance_regime, stablecoin_reserve_ratio,
                 network_activity_score, exchange_stress_score,
                 cross_exchange_basis_spread_bps,
+                defi_tvl_7d_change_pct, mvrv_z_score, sopr,
                 confidence, source
             ) VALUES (
-                ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?
+                ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?,?,  ?,?
             )
             """,
             (
@@ -786,6 +795,9 @@ class StorageBackend:
                 _f("intelligence_network_activity_score"),
                 _f("intelligence_exchange_stress_score"),
                 _f("intelligence_cross_exchange_basis_spread_bps"),
+                _f("intelligence_defi_tvl_7d_change_pct"),
+                _f("intelligence_mvrv_z_score"),
+                _f("intelligence_sopr"),
                 float(confidence),
                 source,
             ),
@@ -823,7 +835,9 @@ class StorageBackend:
                    futures_oi_change_pct,           liquidation_cascade_risk_usd,
                    btc_dominance_regime,            stablecoin_reserve_ratio,
                    network_activity_score,          exchange_stress_score,
-                   cross_exchange_basis_spread_bps, confidence
+                   cross_exchange_basis_spread_bps,
+                   defi_tvl_7d_change_pct,          mvrv_z_score,  sopr,
+                   confidence
             FROM intelligence_features_history
             WHERE symbol=? AND timeframe=? AND bar_ts>=?
             ORDER BY bar_ts ASC
@@ -852,6 +866,10 @@ class StorageBackend:
             "network_activity_score":           "intelligence_network_activity_score",
             "exchange_stress_score":            "intelligence_exchange_stress_score",
             "cross_exchange_basis_spread_bps":  "intelligence_cross_exchange_basis_spread_bps",
+            # OCI-012 new columns
+            "defi_tvl_7d_change_pct":           "intelligence_defi_tvl_7d_change_pct",
+            "mvrv_z_score":                     "intelligence_mvrv_z_score",
+            "sopr":                             "intelligence_sopr",
             "confidence":                       "intelligence_confidence",
         }
 
@@ -887,6 +905,8 @@ class StorageBackend:
             "btc_dominance_regime", "stablecoin_reserve_ratio",
             "network_activity_score", "exchange_stress_score",
             "cross_exchange_basis_spread_bps",
+            # OCI-012 new columns
+            "defi_tvl_7d_change_pct", "mvrv_z_score", "sopr",
         ]
         count_exprs = ", ".join(
             f"SUM(CASE WHEN {c} IS NOT NULL THEN 1 ELSE 0 END) AS {c}"

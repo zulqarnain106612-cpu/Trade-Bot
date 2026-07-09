@@ -54,9 +54,14 @@ class IntelligenceMetrics:
     exchange_stress_score: float               # Composite health (0-1, 1=max stress)
     cross_exchange_basis_spread_bps: float     # Basis between Binance/OKX (bps)
 
+    # OCI-012: DeFi TVL + on-chain sentiment (DefiLlama / Dune Analytics)
+    defi_tvl_7d_change_pct: float = 0.0        # 7d % change in total DeFi TVL (DefiLlama, public)
+    mvrv_z_score: float = 0.0                  # MVRV Z-score (Dune Analytics, paid key)
+    sopr: float = 0.0                          # Spent Output Profit Ratio (Dune Analytics, paid key)
+
     # Metadata
-    timestamp: int                             # Unix seconds
-    confidence: float                          # Data quality (0-1, missing data = low)
+    timestamp: int = 0                         # Unix seconds
+    confidence: float = 0.0                    # Data quality (0-1, missing data = low)
 
     def to_dict(self) -> dict[str, float]:
         """Export as flat dict for feature pipeline."""

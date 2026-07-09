@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T15:59:51.865988",
+  "last_updated": "2026-07-09T18:27:48.171323",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -39,9 +39,9 @@
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "7ab6500",
-  "last_commit_message": "fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
-  "last_commit_time": "2026-07-09T15:59:51.953731",
+  "last_commit": "9e99787",
+  "last_commit_message": "feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
+  "last_commit_time": "2026-07-09T18:27:48.368603",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -66,10 +66,12 @@
       "[2026-07-09 15:57:22] [6ffbe05] fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
       "[2026-07-09 15:58:53] [2b1dba0] fix(oci): OCI-012 wire config API keys into get_onchain_aware_aggregator factory [claude]",
       "[2026-07-09 15:58:53] [04424ba] fix(oci): OCI-012 wire config API keys into get_onchain_aware_aggregator factory [claude]",
-      "[2026-07-09 15:59:51] [7ab6500] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]"
+      "[2026-07-09 15:59:51] [7ab6500] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
+      "[2026-07-09 15:59:52] [24fa4f1] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
+      "[2026-07-09 18:27:48] [9e99787] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-09 15:59:51",
+    "last_checkpoint": "2026-07-09 18:27:48",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -97,10 +99,6 @@
       }
     ],
     "files_touched": [
-      "tests/intelligence/onchain/test_onchain_aggregator_integration.py",
-      "tests/intelligence/onchain/test_onchain_gating.py",
-      "tests/intelligence/onchain/test_schema.py",
-      ".project-intel/GAPS.md",
       ".project-intel/HANDOFF.md",
       ".project-intel/OPEN_TASKS.md",
       ".project-intel/SESSION_STATE.json",
@@ -111,7 +109,11 @@
       "src/intelligence/client.py",
       "tests/test_intelligence_providers.py",
       "src/intelligence/providers/aggregator.py",
-      "src/intelligence/onchain/schema.py"
+      "src/intelligence/onchain/schema.py",
+      "scripts/backfill_intelligence.py",
+      "src/data/storage.py",
+      "src/features/intelligence_features.py",
+      "src/intelligence/metrics.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -153,6 +155,12 @@
       "hash": "7ab6500",
       "message": "fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
       "time": "2026-07-09T15:59:51.953686",
+      "author": "Claude"
+    },
+    {
+      "hash": "9e99787",
+      "message": "feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
+      "time": "2026-07-09T18:27:48.368554",
       "author": "Claude"
     }
   ]

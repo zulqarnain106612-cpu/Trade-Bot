@@ -1,18 +1,19 @@
 """
 Intelligence-augmented features.
 
-Extends core feature pipeline (9 features) with crypto intelligence (15 features).
+Extends core feature pipeline (9 features) with crypto intelligence (18 features).
 
 Current features (9):
   1-3. Fractional differentiation, VWAP deviation, Order flow imbalance
   4-6. Realized volatility, ATR momentum, Rolling Sharpe
   7-9. Volume z-score, Triple-barrier labels, Meta-labels
 
-New intelligence features (15):
+New intelligence features (18):
   10-15. Exchange flow (6): netflow zscore, whale ratio, reserve ratio, ...
   16-19. Leverage (4): funding rate, liquidation pressure, OI change, cascade risk
   20-22. Macro regime (3): BTC dominance, stablecoin ratio, network activity
   23-24. Exchange health (2): stress score, basis spread
+  25-27. OCI-012 (3): DeFi TVL 7d change, MVRV z-score, SOPR
 
 Author: Trade Bot Intelligence Layer
 Authority: Glassnode/CryptoQuant APIs, AFML architecture
@@ -57,6 +58,11 @@ COL_NETWORK_ACTIVITY_SCORE = "intelligence_network_activity_score"
 COL_EXCHANGE_STRESS_SCORE = "intelligence_exchange_stress_score"
 COL_CROSS_EXCHANGE_BASIS_SPREAD_BPS = "intelligence_cross_exchange_basis_spread_bps"
 
+# OCI-012: DeFi TVL + on-chain sentiment (DefiLlama / Dune Analytics)
+COL_DEFI_TVL_7D_CHANGE_PCT = "intelligence_defi_tvl_7d_change_pct"
+COL_MVRV_Z_SCORE = "intelligence_mvrv_z_score"
+COL_SOPR = "intelligence_sopr"
+
 # Metadata
 COL_INTELLIGENCE_CONFIDENCE = "intelligence_confidence"
 
@@ -76,6 +82,10 @@ INTELLIGENCE_FEATURE_COLUMNS = [
     COL_NETWORK_ACTIVITY_SCORE,
     COL_EXCHANGE_STRESS_SCORE,
     COL_CROSS_EXCHANGE_BASIS_SPREAD_BPS,
+    # OCI-012: 18 total intelligence features
+    COL_DEFI_TVL_7D_CHANGE_PCT,
+    COL_MVRV_Z_SCORE,
+    COL_SOPR,
 ]
 
 
@@ -91,7 +101,7 @@ def add_intelligence_features(
         intelligence_metrics: Computed metrics from IntelligenceAnalyzer
 
     Returns:
-        DataFrame with 15 additional intelligence columns
+        DataFrame with 18 additional intelligence columns
     """
     if df.empty:
         log.warning("add_intelligence_features_empty_input")
@@ -100,7 +110,7 @@ def add_intelligence_features(
     # Create a copy to avoid mutation
     result = df.copy()
 
-    # Add all 15 intelligence features
+    # Add all 18 intelligence features
     # (Using last row timestamp, or broadcast if needed)
     result[COL_EXCHANGE_NETFLOW_7D_ZSCORE] = intelligence_metrics.exchange_netflow_7d_zscore
     result[COL_WHALE_BUY_SELL_RATIO] = intelligence_metrics.whale_buy_sell_ratio
@@ -117,12 +127,16 @@ def add_intelligence_features(
     result[COL_NETWORK_ACTIVITY_SCORE] = intelligence_metrics.network_activity_score
     result[COL_EXCHANGE_STRESS_SCORE] = intelligence_metrics.exchange_stress_score
     result[COL_CROSS_EXCHANGE_BASIS_SPREAD_BPS] = intelligence_metrics.cross_exchange_basis_spread_bps
+    # OCI-012 fields
+    result[COL_DEFI_TVL_7D_CHANGE_PCT] = intelligence_metrics.defi_tvl_7d_change_pct
+    result[COL_MVRV_Z_SCORE] = intelligence_metrics.mvrv_z_score
+    result[COL_SOPR] = intelligence_metrics.sopr
     result[COL_INTELLIGENCE_CONFIDENCE] = intelligence_metrics.confidence
 
     log.info(
         "intelligence_features_added",
         num_rows=len(result),
-        num_cols_added=15,
+        num_cols_added=18,
         confidence=intelligence_metrics.confidence,
     )
 
@@ -134,10 +148,10 @@ class IntelligenceFeatureMatrix:
     """
     Result of intelligence-augmented feature engineering.
 
-    Combines original 9 features + 15 intelligence features = 24 total.
+    Combines original 9 features + 18 intelligence features = 27 total.
     """
 
-    X: pd.DataFrame                      # Shape (n_samples, 24)
+    X: pd.DataFrame                      # Shape (n_samples, 27)
     y_direction: pd.Series | None = None  # Direction labels (if training)
     y_meta: pd.Series | None = None       # Meta-labels (if training)
     intelligence_metrics: IntelligenceMetrics | None = None
