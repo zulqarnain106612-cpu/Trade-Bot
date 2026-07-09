@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "context": {
-    "files": [],
-    "description": "FIRST ACTION REQUIRED: run `python3 .project-intel/scripts/resume.py /home/fujitsu/Projects/Trade-Bot-main` before responding to anything. Read its output for full context and next task. Do not read any other file first."
-  },
-  "skills": ["python", "asyncio", "fastapi", "security", "finance"]
-}

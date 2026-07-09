@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(git *)",
+      "Bash(grep *)",
+      "Bash(sed *)",
+      "Bash(find *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(bash scripts/*)",
+      "Bash(python3 .project-intel/scripts/resume.py *)",
+      "Read(**)",
+      "Edit(**)",
+      "Write(src/**)",
+      "Write(tests/**)",
+      "Write(.project-intel/**)",
+      "Write(scripts/**)",
+      "Bash(rm -rf .venv_temp)",
+      "Bash(rm -rf .mypy_cache)",
+      "Bash(rm -rf .coverage_floors_tmp.json)",
+      "Bash(rm -rf .ai)",
+      "Bash(rm -rf .amazonq)",
+      "Bash(rm -rf .continue)",
+      "Bash(rm -rf .trunk)",
+      "Bash(rm -rf .github/copilot)",
+      "Bash(rm -rf TOOL_VERSIONS.md)",
+      "Bash(rm -rf deploy_diagnostics.sh)",
+      "Bash(rm -rf assets)",
+      "Bash(rm -rf frontend/node_modules)"
+    ],
+    "deny": [
+      "Bash(pip *)",
+      "Bash(python3 -c \"*\" *)",
+      "Bash(cat .env*)",
+      "Read(.env*)",
+      "Read(data/**)",
+      "Read(logs/**)",
+      "Read(models/**)",
+      "Read(.venv/**)"
+    ]
+  }
+}
