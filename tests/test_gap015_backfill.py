@@ -191,10 +191,10 @@ def test_empty_coverage_returns_base():
     assert cols == list(BASE_FEATURE_COLUMNS)
 
 
-def test_full_coverage_returns_24():
+def test_full_coverage_returns_25():
     full = {c: 1.0 for c in INTELLIGENCE_FEATURE_COLUMNS}
     cols = get_active_feature_columns(full, min_coverage=0.6)
-    assert len(cols) == 7 + 15  # 22... wait — 7 base + 15 intel
+    assert len(cols) == 7 + 18  # 7 base + 18 intel (OCI-012)
     assert cols[:7] == list(BASE_FEATURE_COLUMNS)
     for ic in INTELLIGENCE_FEATURE_COLUMNS:
         assert ic in cols

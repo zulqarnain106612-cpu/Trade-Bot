@@ -60,6 +60,10 @@ def full_intel_metrics() -> dict[str, float]:
         "btc_dominance_regime":            0.8,
         "stablecoin_reserve_ratio":        0.07,
         "network_activity_score":          0.4,
+        # OCI-012 fields
+        "defi_tvl_7d_change_pct":          2.5,
+        "mvrv_z_score":                    0.0,
+        "sopr":                            0.0,
         "confidence":                      0.75,
         "timestamp":                       float(int(time.time())),
     }

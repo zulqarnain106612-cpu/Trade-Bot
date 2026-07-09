@@ -509,7 +509,7 @@ class ModelTrainer:
         """
         # GAP-015 Step 5: use coverage-gated feature set.
         # If an intelligence_coverage dict is attached to fm, resolve the
-        # active column list; otherwise fall back to 9 base features.
+        # active column list; otherwise fall back to 7 base features.
         _active_cols = get_active_feature_columns(
             coverage=getattr(fm, "intelligence_coverage", None),
             min_coverage=0.6,
@@ -537,7 +537,7 @@ class ModelTrainer:
             n_long=int((y == 1).sum()),
             n_short=int((y == 0).sum()),
             n_features=len(_active_cols),
-            feature_mode="24" if len(_active_cols) > 7 else "9",
+            feature_mode=f"{len(_active_cols)}" if len(_active_cols) > 7 else "9",
         )
 
         cpcv_cfg = self._feature_cfg
@@ -827,7 +827,7 @@ class ModelTrainer:
         and p_long is the probability of a long outcome.
         """
         # Use model's n_features_in_ to slice the correct columns.
-        # Falls back to 9 base features for models trained before GAP-015.
+        # Falls back to 7 base features for models trained before GAP-015.
         _n = getattr(model, "n_features_in_", len(BASE_FEATURE_COLUMNS))
         _pred_cols = list(feature_vec.index[:_n]) if len(feature_vec) >= _n else list(feature_vec.index)
         X = feature_vec.reindex(_pred_cols).to_numpy(dtype=np.float64).reshape(1, -1)
@@ -863,7 +863,7 @@ class ModelTrainer:
         # Illegitimate case (SCAN2-005): feature_vec columns don't match model schema at all.
         expected_n = getattr(meta_model, "n_features_in_", None)
         if expected_n is not None:
-            # Minimum valid schema: 9 base (BASE_FEATURE_COLUMNS) + 2 direction signals.
+            # Minimum valid schema: 7 base (BASE_FEATURE_COLUMNS) + 2 direction signals.
             # Any model with n_features_in_ < this minimum has an incompatible schema.
             _min_valid = len(BASE_FEATURE_COLUMNS) + 2
             if expected_n < _min_valid:

@@ -64,7 +64,7 @@ BASE_FEATURE_COLUMNS: Final[list[str]] = [
 ]
 
 # Backward-compat alias: existing imports of FEATURE_COLUMNS still work.
-# New code that needs the full 24-feature set should call
+# New code that needs the full 25-feature set should call
 # get_active_feature_columns() instead.
 FEATURE_COLUMNS: Final[list[str]] = BASE_FEATURE_COLUMNS
 
@@ -76,17 +76,17 @@ def get_active_feature_columns(
     """
     GAP-015 Step 4: Return the ordered column list for the current training run.
 
-    Starts with BASE_FEATURE_COLUMNS (9 core features), then appends any
+    Starts with BASE_FEATURE_COLUMNS (7 core features), then appends any
     intelligence columns whose coverage fraction meets the threshold.
 
     Args:
         coverage:     Output of storage.intelligence_feature_coverage()['coverage'].
-                      None or empty → return BASE_FEATURE_COLUMNS only (9-feature mode).
+                      None or empty → return BASE_FEATURE_COLUMNS only (7-feature mode).
         min_coverage: Minimum non-NULL fraction [0,1] to include a column.
 
     Returns:
-        Ordered list of column names.  Always starts with the 9 base features.
-        May include up to 15 additional intelligence columns.
+        Ordered list of column names.  Always starts with the 7 base features.
+        May include up to 18 additional intelligence columns.
 
     Example:
         coverage = await storage.intelligence_feature_coverage("BTCUSDT", "1h")
@@ -101,7 +101,7 @@ def get_active_feature_columns(
     if not coverage:
         _log.info(
             "get_active_feature_columns",
-            mode="9-feature",
+            mode="7-feature",
             reason="no intelligence coverage data",
         )
         return list(BASE_FEATURE_COLUMNS)
@@ -128,7 +128,7 @@ def get_active_feature_columns(
         total=len(active),
         base=len(BASE_FEATURE_COLUMNS),
         intelligence=len(included),
-        mode="24-feature" if len(included) == 15 else f"{len(active)}-feature",
+        mode=f"{len(active)}-feature",
     )
     return active
 
@@ -799,7 +799,7 @@ def build_inference_features(
     Compute feature vector for the most recent bar only.
 
     Accepts a history DataFrame (must include current bar as last row).
-    Returns a pd.Series of FEATURE_COLUMNS (9 base) or FEATURE_COLUMNS +
+    Returns a pd.Series of FEATURE_COLUMNS (7 base) or FEATURE_COLUMNS +
     INTELLIGENCE_FEATURE_COLUMNS (up to 24 total) when intelligence_metrics
     is supplied and passes NaN validation.
 
@@ -818,7 +818,7 @@ def build_inference_features(
                            Keys are IntelligenceMetrics field names (no "intelligence_"
                            prefix — the mapping is applied inside _inject_intelligence_features).
                            NaN / missing fields are skipped with a confidence penalty.
-                           When None or empty, returns 9-feature base vector (backward-compat).
+                           When None or empty, returns 7-feature base vector (backward-compat).
 
     Returns
     -------
@@ -946,11 +946,11 @@ def _inject_intelligence_features(
     Confidence is included as "intelligence_confidence" when present.
 
     Args:
-        vec:                  Base 9-feature pd.Series.
+        vec:                  Base 7-feature pd.Series.
         intelligence_metrics: Flat dict from MultiProviderIntelligenceAggregator.
 
     Returns:
-        Extended pd.Series with up to 15 additional intelligence columns.
+        Extended pd.Series with up to 18 additional intelligence columns.
     """
     from src.features.intelligence_features import (
         COL_INTELLIGENCE_CONFIDENCE,
