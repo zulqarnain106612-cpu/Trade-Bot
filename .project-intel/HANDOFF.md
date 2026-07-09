@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-09 19:13:54 | Read this before starting any work.
+> Updated: 2026-07-09 19:27:30 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-09 01:31:05
-**Last checkpoint**: 2026-07-09 19:13:54
+**Last checkpoint**: 2026-07-09 19:27:30
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,11 +14,9 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
+  GAP-006 storage migration decision (TimescaleDB vs QuestDB) or run full test suite to verify 60% coverage gate
 
 ## Files to Check
-  - tests/test_gap015_backfill.py
-  - .project-intel/HANDOFF.md
   - .project-intel/SESSION_STATE.json
   - src/engine/orchestrator.py
   - tests/test_orchestrator_coverage.py
@@ -32,6 +30,8 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - requirements-dev.txt
   - requirements.in
   - requirements.txt
+  - requirements.lock
+  - src/data/storage.py src/intelligence/client.py src/api/main.py requirements.txt requirements.in requirements-dev.txt requirements.lock
 
 ## Session History (last 5)
   [2026-07-09 18:32:40] claude — interrupted: shell exited with 5 uncommitted file(s)

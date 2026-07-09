@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T19:13:54.290115",
+  "last_updated": "2026-07-09T19:46:13.609071",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -34,9 +34,9 @@
   "next_recommended_task": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are architecture decisions \u2014 no code gaps found in src/.",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "04b3582",
-  "last_commit_message": "fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
-  "last_commit_time": "2026-07-09T18:47:05.454356",
+  "last_commit": "5c9d3b8",
+  "last_commit_message": "chore(context): remove dead-weight docs and redundant CLAUDE.md [claude]",
+  "last_commit_time": "2026-07-09T19:46:13.710828",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -48,13 +48,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 18:27:48] [9e99787] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
-      "[2026-07-09 18:27:48] [bf918fc] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
-      "[2026-07-09 18:33:35] [735934f] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
-      "[2026-07-09 18:33:36] [0dfa635] fix(features): OCI-012 stale counts 9\u21927 base/15\u219218 intel, update test fixtures [claude]",
-      "[2026-07-09 18:35:37] [761448f] fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]",
-      "[2026-07-09 18:35:37] [306e2f6] fix(intelligence): wire defillama cache_ttl, fix stale 15\u219218/24\u219225 docstrings [claude]",
-      "[2026-07-09 18:39:32] [90144a1] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
       "[2026-07-09 18:39:33] [3bf645d] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
       "[2026-07-09 18:43:32] [7067398] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
       "[2026-07-09 18:43:33] [e7709c5] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
@@ -67,10 +60,17 @@
       "[2026-07-09 18:47:05] [04b3582] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
       "[2026-07-09 18:47:06] [116374b] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
       "[2026-07-09 19:09:42] [3fced7e] fix(api,storage,intelligence): 3 bugs from static audit [claude]",
-      "[2026-07-09 19:13:54] [38f3f1d] fix(deps,tests): aiohttp/prometheus_client missing from requirements; fix test mock for VF-022 [claude]"
+      "[2026-07-09 19:13:54] [38f3f1d] fix(deps,tests): aiohttp/prometheus_client missing from requirements; fix test mock for VF-022 [claude]",
+      "[2026-07-09 19:17:37] [1df42a5] fix(api): guard WS tick against orchestrator=None before startup [claude]",
+      "[2026-07-09 19:17:56] [4bbfbd1] docs(security): log VF-023 WS orchestrator None-deref [claude]",
+      "[2026-07-09 19:23:29] [fffb40c] fix(deps): regenerate requirements.lock with aiohttp+prometheus_client+setuptools pinned [claude]",
+      "[2026-07-09 19:24:04] [967708f] fix(tests): _AppState -> AppState import in coverage test [claude]",
+      "[2026-07-09 19:24:51] [6ad2dfb] fix(api): init orchestrator=None in AppState.__init__ [claude]",
+      "[2026-07-09 19:27:30] Static audit: fixed VF-020 dead guard storage.py, VF-021 cache race intelligence/client.py, VF-022 AttributeError /intelligence/coverage, VF-023 WS None-deref. Fixed deps: aiohttp+prometheus_client added to requirements.in/txt, watchdog removed. AppState.orchestrator=None init fix. requirements.lock regenerated. 244 related tests pass.",
+      "[2026-07-09 19:46:13] [5c9d3b8] chore(context): remove dead-weight docs and redundant CLAUDE.md [claude]"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 19:13:54",
+    "last_checkpoint": "2026-07-09 19:46:13",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -104,21 +104,21 @@
       }
     ],
     "files_touched": [
-      "tests/test_gap015_backfill.py",
+      ".project-intel/GAPS.md.bak",
       ".project-intel/HANDOFF.md",
-      ".project-intel/SESSION_STATE.json",
-      "src/engine/orchestrator.py",
-      "tests/test_orchestrator_coverage.py",
-      "src/api/main.py",
-      "tests/test_api_and_fsm_coverage.py",
-      "tests/test_intelligence_metrics.py",
-      ".project-intel/ISSUES.md",
-      "Vulner-Fix.md",
-      "src/intelligence/client.py",
-      ".project-intel/TECH_DEBT.md",
-      "requirements-dev.txt",
-      "requirements.in",
-      "requirements.txt"
+      ".project-intel/INDEX_P1_COMPLETE.md",
+      ".project-intel/MODULE_MAP.json",
+      ".project-intel/MODULE_MAP_SLIM.json",
+      ".project-intel/ONCHAIN_TASKS.md",
+      ".project-intel/ORCHESTRATION_READINESS_SESSION4.md",
+      ".project-intel/P1_IMPLEMENTATION_GUIDE.md",
+      ".project-intel/P2_CRYPTO_INTELLIGENCE_SUMMARY.md",
+      ".project-intel/P2_VS_P2PLUS_COMPARISON.md",
+      ".project-intel/PRE_FLIGHT_DIAGNOSTIC_SESSION4.md",
+      ".project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md",
+      ".project-intel/RAW_SCAN.json",
+      "CLAUDE.md",
+      "uv.lock"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -214,6 +214,12 @@
       "hash": "04b3582",
       "message": "fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
       "time": "2026-07-09T18:47:05.454275",
+      "author": "Claude"
+    },
+    {
+      "hash": "5c9d3b8",
+      "message": "chore(context): remove dead-weight docs and redundant CLAUDE.md [claude]",
+      "time": "2026-07-09T19:46:13.710782",
       "author": "Claude"
     }
   ]
