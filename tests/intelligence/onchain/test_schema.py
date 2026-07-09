@@ -127,3 +127,39 @@ class TestMergeOnchainResults:
         r["exchange_stress_score_mvrv_contrib"] = 0.5
         out = merge_onchain_results([r])
         assert out["exchange_stress_score"] <= 1.0
+
+
+class TestNewSchemaFields:
+    """OCI-012: defi_tvl_7d_change_pct / mvrv_z_score / sopr coverage."""
+
+    def test_new_fields_in_onchain_neutral(self):
+        assert "defi_tvl_7d_change_pct" in ONCHAIN_NEUTRAL
+        assert "mvrv_z_score" in ONCHAIN_NEUTRAL
+        assert "sopr" in ONCHAIN_NEUTRAL
+
+    def test_new_field_neutral_defaults(self):
+        assert ONCHAIN_NEUTRAL["defi_tvl_7d_change_pct"] == 0.0
+        assert ONCHAIN_NEUTRAL["mvrv_z_score"] == 0.0
+        assert ONCHAIN_NEUTRAL["sopr"] == 0.0
+
+    def test_dune_fields_are_gated(self):
+        assert "mvrv_z_score" in GATED_FIELDS
+        assert "sopr" in GATED_FIELDS
+
+    def test_defi_tvl_not_gated(self):
+        # DefiLlama is public; defi_tvl_7d_change_pct should pass without a key
+        assert "defi_tvl_7d_change_pct" not in GATED_FIELDS
+
+    def test_new_fields_in_all_fields(self):
+        assert "defi_tvl_7d_change_pct" in ALL_FIELDS
+        assert "mvrv_z_score" in ALL_FIELDS
+        assert "sopr" in ALL_FIELDS
+
+    def test_validate_passes_new_fields(self):
+        r = dict(ONCHAIN_NEUTRAL)
+        r.update({"confidence": 0.8, "defi_tvl_7d_change_pct": -3.5,
+                   "mvrv_z_score": 2.1, "sopr": 0.4, "timestamp": 1.0})
+        out = validate_provider_result(r, "test")
+        assert out["defi_tvl_7d_change_pct"] == pytest.approx(-3.5)
+        assert out["mvrv_z_score"] == pytest.approx(2.1)
+        assert out["sopr"] == pytest.approx(0.4)

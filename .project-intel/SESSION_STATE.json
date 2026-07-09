@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T15:53:32.870387",
+  "last_updated": "2026-07-09T15:57:22.341828",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -39,9 +39,9 @@
   "next_recommended_task": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "ecd6a73",
-  "last_commit_message": "feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
-  "last_commit_time": "2026-07-09T15:53:32.968190",
+  "last_commit": "b21fd5c",
+  "last_commit_message": "fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
+  "last_commit_time": "2026-07-09T15:57:22.477883",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -60,10 +60,12 @@
       "[2026-07-09 06:15:04] [451c79a] feat(models): TASK-008 online learning hook \u2014 SGDClassifier partial_fit over batch XGBoost, 13 tests, fail-open blend [claude]",
       "[2026-07-09 06:17:33] [a9497bc] test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
       "[2026-07-09 06:17:34] [f7cfa31] test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
-      "[2026-07-09 15:53:32] [ecd6a73] feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]"
+      "[2026-07-09 15:53:32] [ecd6a73] feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
+      "[2026-07-09 15:53:33] [8e455cd] feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
+      "[2026-07-09 15:57:22] [b21fd5c] fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]"
     ],
     "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig",
-    "last_checkpoint": "2026-07-09 15:53:32",
+    "last_checkpoint": "2026-07-09 15:57:22",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -91,8 +93,6 @@
       }
     ],
     "files_touched": [
-      "tests/intelligence/onchain/test_cryptoquant_provider.py",
-      "tests/intelligence/onchain/test_dune_provider.py",
       "tests/intelligence/onchain/test_onchain_aggregator_integration.py",
       "tests/intelligence/onchain/test_onchain_gating.py",
       "tests/intelligence/onchain/test_schema.py",
@@ -105,7 +105,9 @@
       "tests/test_orchestrator_coverage.py",
       "src/engine/signal_engine.py",
       "src/intelligence/client.py",
-      "tests/test_intelligence_providers.py"
+      "tests/test_intelligence_providers.py",
+      "src/intelligence/providers/aggregator.py",
+      "src/intelligence/onchain/schema.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -129,6 +131,12 @@
       "hash": "ecd6a73",
       "message": "feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
       "time": "2026-07-09T15:53:32.968134",
+      "author": "Claude"
+    },
+    {
+      "hash": "b21fd5c",
+      "message": "fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
+      "time": "2026-07-09T15:57:22.477818",
       "author": "Claude"
     }
   ]

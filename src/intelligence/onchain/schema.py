@@ -39,6 +39,11 @@ ONCHAIN_NEUTRAL: Final[dict[str, float]] = {
     # --- Glassnode-gated (provisioned when key present) ---
     "staking_unlock_risk": 0.0,
     "entity_exchange_imbalance": 0.0,
+    # --- DeFi TVL (DefiLlama) ---
+    "defi_tvl_7d_change_pct": 0.0,
+    # --- On-chain sentiment (Dune Analytics) ---
+    "mvrv_z_score": 0.0,
+    "sopr": 0.0,
     # --- Cross-market macro (CoinGecko / blockchain.info) ---
     "btc_dominance_regime": 0.0,
     "stablecoin_reserve_ratio": 0.5,
@@ -60,6 +65,9 @@ GATED_FIELDS: Final[frozenset[str]] = frozenset({
     "miner_netflow_signal",
     "staking_unlock_risk",
     "entity_exchange_imbalance",
+    # Dune Analytics (paid key required)
+    "mvrv_z_score",
+    "sopr",
 })
 
 # Required output fields (every provider result must have at least these)

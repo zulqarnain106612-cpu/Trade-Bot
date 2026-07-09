@@ -34,6 +34,9 @@ class TestGatedFieldsDefinition:
             "miner_netflow_signal",
             "staking_unlock_risk",
             "entity_exchange_imbalance",
+            # Dune Analytics (paid key required) — OCI-012
+            "mvrv_z_score",
+            "sopr",
         }
         assert GATED_FIELDS == expected
 
@@ -61,6 +64,8 @@ class TestGatingViaDisabledProviders:
         p = DuneProvider(api_key="")
         m = await p.fetch_metrics()
         assert m["miner_netflow_signal"] == pytest.approx(0.0)
+        assert m["mvrv_z_score"] == pytest.approx(0.0)
+        assert m["sopr"] == pytest.approx(0.0)
         assert m["confidence"] == 0.0
 
     @pytest.mark.asyncio
