@@ -426,7 +426,7 @@ def get_onchain_aware_aggregator(
         from src.intelligence.onchain.arkham_provider import ArkhamProvider
         from src.intelligence.onchain.coinglass_provider import CoinglassProvider
         from src.intelligence.onchain.cryptoquant_provider import CryptoQuantProvider
-        from src.intelligence.onchain.defillama_provider import DefiLlamaProvider
+        from src.intelligence.onchain.defillama_provider import DeFiLlamaProvider
         from src.intelligence.onchain.dune_provider import DuneProvider
         from src.intelligence.providers.binance_provider import get_binance_intelligence_provider
         from src.intelligence.providers.blockchain_provider import (
@@ -453,7 +453,7 @@ def get_onchain_aware_aggregator(
                     api_key=cfg.arkham_api_key,
                     cache_ttl_s=cfg.arkham_cache_ttl_s,
                 ),
-                DefiLlamaProvider(),  # public API; no key required
+                DeFiLlamaProvider(),  # public API; no key required
                 DuneProvider(
                     api_key=cfg.dune_api_key,
                     cache_ttl_s=cfg.dune_cache_ttl_s,
