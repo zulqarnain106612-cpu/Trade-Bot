@@ -815,7 +815,7 @@ class StorageBackend:
         Fetch intelligence_features_history as a DataFrame aligned by bar_ts.
 
         Returns:
-            DataFrame indexed by bar_ts (Unix ms), columns are the 15
+            DataFrame indexed by bar_ts (Unix ms), columns are the 18
             intelligence_* feature names + "confidence". Rows with all-NULL
             features are included so the caller can compute coverage per column.
 

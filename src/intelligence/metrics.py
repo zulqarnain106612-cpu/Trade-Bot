@@ -179,7 +179,7 @@ class IntelligenceAnalyzer:
             missing_metrics += 1
             confidence -= self._missing_data_penalty
 
-        # GAP-015 fix: previously, 11 of 15 metrics were hardcoded plausible-
+        # GAP-015 fix: previously, 11 of 18 metrics were hardcoded plausible-
         # looking constants (e.g. exchange_reserve_ratio=0.35) marked only by
         # a code comment, and `confidence` was never penalized for them --
         # so this could return confidence~=1.0 while 11/18 fields were fake.
