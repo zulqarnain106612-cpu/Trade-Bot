@@ -151,9 +151,9 @@ class TestComputeMetricsConfidenceFix:
             whale_activity={"ratio": 1.5},
             funding_rate={"rate_pct": 0.02},
         )
-        # Old bug: confidence could read ~1.0 with 11/15 fields fabricated.
-        # Fixed: confidence must be capped near the real fraction (4/15).
-        assert metrics.confidence <= (4 / 15) + 1e-9
+        # Old bug: confidence could read ~1.0 with 14/18 fields fabricated.
+        # Fixed: confidence must be capped near the real fraction (4/18).
+        assert metrics.confidence <= (4 / 18) + 1e-9
         assert metrics.confidence > 0.0  # the 4 real/derived fields still count
 
     def test_real_fields_are_still_populated_normally(self):

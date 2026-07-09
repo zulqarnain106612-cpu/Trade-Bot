@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T18:45:52.998270",
+  "last_updated": "2026-07-09T18:46:41.116916",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -34,9 +34,9 @@
   "next_recommended_task": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are architecture decisions \u2014 no code gaps found in src/.",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "ba0f221",
-  "last_commit_message": "fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
-  "last_commit_time": "2026-07-09T18:45:53.167609",
+  "last_commit": "994ea04",
+  "last_commit_message": "fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
+  "last_commit_time": "2026-07-09T18:46:41.259987",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -48,8 +48,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 15:53:33] [8e455cd] feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
-      "[2026-07-09 15:57:22] [b21fd5c] fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
       "[2026-07-09 15:57:22] [6ffbe05] fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
       "[2026-07-09 15:58:53] [2b1dba0] fix(oci): OCI-012 wire config API keys into get_onchain_aware_aggregator factory [claude]",
       "[2026-07-09 15:58:53] [04424ba] fix(oci): OCI-012 wire config API keys into get_onchain_aware_aggregator factory [claude]",
@@ -67,10 +65,12 @@
       "[2026-07-09 18:43:33] [e7709c5] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
       "[2026-07-09 18:44:16] [4e0d70f] test(api): intelligence coverage/providers endpoint tests [claude]",
       "[2026-07-09 18:44:17] [cb1ed00] test(api): intelligence coverage/providers endpoint tests [claude]",
-      "[2026-07-09 18:45:52] [ba0f221] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]"
+      "[2026-07-09 18:45:52] [ba0f221] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
+      "[2026-07-09 18:45:53] [182312b] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
+      "[2026-07-09 18:46:41] [994ea04] fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 18:45:52",
+    "last_checkpoint": "2026-07-09 18:46:41",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -104,7 +104,6 @@
       }
     ],
     "files_touched": [
-      "src/intelligence/providers/aggregator.py",
       "src/intelligence/onchain/schema.py",
       "scripts/backfill_intelligence.py",
       "src/data/storage.py",
@@ -118,7 +117,8 @@
       "src/engine/orchestrator.py",
       "tests/test_orchestrator_coverage.py",
       "src/api/main.py",
-      "tests/test_api_and_fsm_coverage.py"
+      "tests/test_api_and_fsm_coverage.py",
+      "tests/test_intelligence_metrics.py"
     ],
     "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
     "session_started": "2026-07-09 01:31:05",
@@ -202,6 +202,12 @@
       "hash": "ba0f221",
       "message": "fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
       "time": "2026-07-09T18:45:53.167544",
+      "author": "Claude"
+    },
+    {
+      "hash": "994ea04",
+      "message": "fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
+      "time": "2026-07-09T18:46:41.259923",
       "author": "Claude"
     }
   ]
