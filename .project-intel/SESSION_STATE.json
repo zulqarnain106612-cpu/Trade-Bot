@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T18:47:05.319043",
+  "last_updated": "2026-07-09T18:47:06.005038",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -48,7 +48,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 15:58:53] [04424ba] fix(oci): OCI-012 wire config API keys into get_onchain_aware_aggregator factory [claude]",
       "[2026-07-09 15:59:51] [7ab6500] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
       "[2026-07-09 15:59:52] [24fa4f1] fix(oci): OCI-012 fix DeFiLlamaProvider import case typo in factory [claude]",
       "[2026-07-09 18:27:48] [9e99787] feat(intelligence): OCI-012 wire defi_tvl/mvrv_z_score/sopr through full stack [claude]",
@@ -67,10 +66,11 @@
       "[2026-07-09 18:45:53] [182312b] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
       "[2026-07-09 18:46:41] [994ea04] fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
       "[2026-07-09 18:46:41] [81043d9] fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
-      "[2026-07-09 18:47:05] [04b3582] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]"
+      "[2026-07-09 18:47:05] [04b3582] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
+      "[2026-07-09 18:47:06] [116374b] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 18:47:05",
+    "last_checkpoint": "2026-07-09 18:47:06",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",

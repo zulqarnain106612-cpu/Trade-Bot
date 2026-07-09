@@ -1540,13 +1540,20 @@ class StorageBackend:
         """Return row counts per table — used by API health endpoint."""
         conn = self._require_conn()
         counts: dict[str, object] = {}
-        # VF-009: Defence-in-depth allowlist check before interpolating table name.
-        # The loop variable already comes FROM _ALLOWED_TABLES (safe), but an
-        # explicit guard here ensures a misconfigured _ALLOWED_TABLES value can
-        # never reach the f-string even if the set is modified in future.
+        # VF-009: Defence-in-depth: validate each table name against a safe-chars
+        # pattern before interpolating into the f-string.  The loop variable comes
+        # FROM _ALLOWED_TABLES (membership is already guaranteed), but a secondary
+        # regex check catches any future misconfiguration where an unsafe value
+        # (e.g. containing spaces, quotes, or SQL keywords) was accidentally added
+        # to the allowlist itself.  The previous guard (table not in _ALLOWED_TABLES)
+        # was logically dead — it could never be True since table is drawn from the
+        # same set — and has been replaced with this character-level validation.
+        _SAFE_TABLE_RE = _re.compile(r"^[a-z][a-z0-9_]{0,63}$")
         for table in _ALLOWED_TABLES:
-            if table not in _ALLOWED_TABLES:
-                raise RuntimeError(f"health_check: table {table!r} not in allowlist")
+            if not _SAFE_TABLE_RE.match(table):
+                raise RuntimeError(
+                    f"health_check: table {table!r} contains unsafe characters"
+                )
             async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
                 row = await cur.fetchone()
             counts[table] = int(row[0]) if row else 0

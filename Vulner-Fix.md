@@ -271,3 +271,50 @@
 - **Summary:** `compute_win_loss_stats()` requires ≥50 trades before trusting the sample (per in-code comment, threshold was raised from 10 — "NEW-010"), but these two tests still supplied only 10 trades, so they silently exercised the conservative-default fallback `(0.5, 1.0, 1.0)` rather than the real computation they claim to test. Both assertions were failing (caught while validating this session's kelly.py changes, unrelated to them).
 - **Fix:** Scaled both test PnL series to 50 trades at the same 6:4 win:loss ratio (`[10.0]*30 + [-5.0]*20`) so the real computation path is exercised. `tests/test_kelly.py` now 41/41 passing.
 
+
+### [VF-020] — 2026-07-09 — src/data/storage.py health_check dead guard
+- **Severity:** MEDIUM
+- **Tool:** Claude static audit
+- **File:** `src/data/storage.py` — `health_check()` line ~1548
+- **Status:** Applied
+- **Summary:** Guard `if table not in _ALLOWED_TABLES` was logically dead — `table` is drawn
+  from iterating `_ALLOWED_TABLES` itself, so the condition can never be True. The intended
+  defence-in-depth (prevent a misconfigured allowlist value reaching the f-string) never fired.
+  An attacker or future developer who added an unsafe name to `_ALLOWED_TABLES` would see it
+  interpolated into the SQL `SELECT COUNT(*) FROM {table}` without any validation stopping it.
+- **Fix:** Replaced the dead set-membership check with a regex `^[a-z][a-z0-9_]{0,63}$`
+  validation that actually catches unsafe characters (spaces, quotes, SQL keywords) independent
+  of allowlist membership. Regex compiled as `_SAFE_TABLE_RE` inline in the loop.
+- **Verified:** `python3 -m py_compile src/data/storage.py` → OK
+
+### [VF-021] — 2026-07-09 — src/intelligence/client.py cache TOCTOU race
+- **Severity:** MEDIUM
+- **Tool:** Claude static audit
+- **File:** `src/intelligence/client.py` — `IntelligenceAggregator._cache` in all three
+  `get_*` methods (lines ~107-126, ~147-164, ~184-199)
+- **Status:** Applied
+- **Summary:** `self._cache` dict was read (check-for-staleness) and written (store new entry)
+  without any asyncio lock. Two concurrent coroutines fetching the same key could both pass
+  the staleness check, both fire the expensive network fetch, and race to overwrite each other's
+  result — or one could read stale data between the other's check and write. No data corruption
+  risk (values are idempotent), but duplicate fetches waste rate-limit quota (Glassnode: 5/min).
+- **Fix:** Added `self._cache_lock: asyncio.Lock` in `__init__`. Each `get_*` method now wraps
+  its check-read under `async with self._cache_lock` and its store-write under a second
+  `async with self._cache_lock`. Network I/O is performed *outside* the lock to avoid blocking
+  peer coroutines waiting for unrelated cache keys.
+- **Verified:** `python3 -m py_compile src/intelligence/client.py` → OK
+
+### [VF-022] — 2026-07-09 — src/api/main.py AttributeError on /intelligence/coverage
+- **Severity:** HIGH (runtime crash — endpoint returns 500 on every call)
+- **Tool:** Claude static audit
+- **File:** `src/api/main.py` — `get_intelligence_coverage()` line ~1025
+- **Status:** Applied
+- **Summary:** Endpoint read `_state.runtime_config` but `AppState` has no `runtime_config`
+  attribute. `runtime_config` is a module-level singleton imported at line 51 from `src.config`.
+  The attribute access would raise `AttributeError` on every call, masked by the bare
+  `except Exception` that returns `{"error": str(exc)}` — making the endpoint appear to work
+  but always return an error JSON instead of coverage data.
+- **Fix:** Replaced `cfg = _state.runtime_config` with `cfg = get_settings()` and
+  `cfg.symbol` with `cfg.primary_symbol` (the correct Settings field name, matching all other
+  endpoints in the file).
+- **Verified:** `python3 -m py_compile src/api/main.py` → OK

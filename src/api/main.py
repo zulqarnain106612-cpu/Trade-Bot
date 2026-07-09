@@ -1022,8 +1022,11 @@ async def get_intelligence_coverage() -> dict:
         return {"error": "Orchestrator not initialised."}
     try:
         storage = _state.orchestrator._storage
-        cfg = _state.runtime_config
-        symbol = cfg.symbol
+        # BUG FIX: _state.runtime_config is not an AppState attribute — runtime_config
+        # is a module-level singleton imported at line 51. Use get_settings() instead,
+        # which is already used for symbol/timeframe throughout the rest of this file.
+        cfg = get_settings()
+        symbol = cfg.primary_symbol
         timeframe = cfg.primary_timeframe.value if hasattr(cfg.primary_timeframe, "value") else str(cfg.primary_timeframe)
         cov = await storage.intelligence_feature_coverage(symbol, timeframe)
         return {"symbol": symbol, "timeframe": timeframe, **cov}

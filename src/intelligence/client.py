@@ -72,6 +72,7 @@ class IntelligenceAggregator:
         self._glassnode_min_interval = cfg.glassnode_rate_limit_seconds
         self._funding_rate_perp_symbol = cfg.funding_rate_perp_symbol
         self._cache: dict[str, CacheEntry] = {}
+        self._cache_lock: asyncio.Lock = asyncio.Lock()
         self._last_glassnode_call: datetime = datetime.fromtimestamp(0, UTC)
         self._last_cryptoquant_call: datetime = datetime.fromtimestamp(0, UTC)
 
@@ -102,26 +103,29 @@ class IntelligenceAggregator:
         """
         cache_key = f"exchange_netflow_{symbol}_{exchange or 'all'}_{days_back}d"
 
-        # Check cache
-        if cache_key in self._cache and not self._cache[cache_key].is_stale:
-            return self._cache[cache_key].value
+        # Guard: hold lock for entire check-then-write to prevent TOCTOU races
+        # between concurrent coroutines hitting the same cache key simultaneously.
+        async with self._cache_lock:
+            if cache_key in self._cache and not self._cache[cache_key].is_stale:
+                return self._cache[cache_key].value
 
-        # Fetch from Glassnode
+        # Fetch from Glassnode (outside lock — long-running I/O should not block peers)
         try:
             result = await self._fetch_glassnode_netflow(
                 symbol=symbol, exchange=exchange, days_back=days_back
             )
-            self._cache[cache_key] = CacheEntry(
-                value=result,
-                fetched_at=datetime.now(UTC),
-                ttl_seconds=self.cache_ttl_exchange,
-            )
+            async with self._cache_lock:
+                self._cache[cache_key] = CacheEntry(
+                    value=result,
+                    fetched_at=datetime.now(UTC),
+                    ttl_seconds=self.cache_ttl_exchange,
+                )
             return result
         except Exception as e:
             log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol)
-            # Return stale cache if available, else default
-            if cache_key in self._cache:
-                return self._cache[cache_key].value
+            async with self._cache_lock:
+                if cache_key in self._cache:
+                    return self._cache[cache_key].value
             return {"netflow": 0.0, "inflow": 0.0, "outflow": 0.0, "tscore": 0.0}
 
     async def get_whale_activity(
@@ -143,23 +147,26 @@ class IntelligenceAggregator:
         """
         cache_key = f"whale_activity_{symbol}_{min_transaction_usd}"
 
-        if cache_key in self._cache and not self._cache[cache_key].is_stale:
-            return self._cache[cache_key].value
+        async with self._cache_lock:
+            if cache_key in self._cache and not self._cache[cache_key].is_stale:
+                return self._cache[cache_key].value
 
         try:
             result = await self._fetch_glassnode_whale_activity(
                 symbol=symbol, min_transaction_usd=min_transaction_usd
             )
-            self._cache[cache_key] = CacheEntry(
-                value=result,
-                fetched_at=datetime.now(UTC),
-                ttl_seconds=self.cache_ttl_onchain,
-            )
+            async with self._cache_lock:
+                self._cache[cache_key] = CacheEntry(
+                    value=result,
+                    fetched_at=datetime.now(UTC),
+                    ttl_seconds=self.cache_ttl_onchain,
+                )
             return result
         except Exception as e:
             log.error("glassnode_whale_activity_failed", error=str(e))
-            if cache_key in self._cache:
-                return self._cache[cache_key].value
+            async with self._cache_lock:
+                if cache_key in self._cache:
+                    return self._cache[cache_key].value
             return {"buy_volume": 0.0, "sell_volume": 0.0, "ratio": 1.0, "sentiment": "neutral"}
 
     async def get_funding_rate(
@@ -180,21 +187,24 @@ class IntelligenceAggregator:
         symbol = symbol or self._funding_rate_perp_symbol
         cache_key = f"funding_rate_{symbol}"
 
-        if cache_key in self._cache and not self._cache[cache_key].is_stale:
-            return self._cache[cache_key].value
+        async with self._cache_lock:
+            if cache_key in self._cache and not self._cache[cache_key].is_stale:
+                return self._cache[cache_key].value
 
         try:
             result = await self._fetch_cryptoquant_funding_rate(symbol=symbol)
-            self._cache[cache_key] = CacheEntry(
-                value=result,
-                fetched_at=datetime.now(UTC),
-                ttl_seconds=self.cache_ttl_exchange,  # Fast updates
-            )
+            async with self._cache_lock:
+                self._cache[cache_key] = CacheEntry(
+                    value=result,
+                    fetched_at=datetime.now(UTC),
+                    ttl_seconds=self.cache_ttl_exchange,
+                )
             return result
         except Exception as e:
             log.error("cryptoquant_funding_rate_failed", error=str(e))
-            if cache_key in self._cache:
-                return self._cache[cache_key].value
+            async with self._cache_lock:
+                if cache_key in self._cache:
+                    return self._cache[cache_key].value
             return {"rate_pct": 0.0, "rate_8h_avg": 0.0, "excessive": False}
 
     # -----------------------------------------------------------------------

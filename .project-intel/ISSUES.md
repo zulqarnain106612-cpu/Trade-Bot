@@ -190,3 +190,37 @@ remaining cap slots with non-matching definitions before emitting the omitted-co
 All top-level symbols in small files are now shown. Test passes.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
+
+## Issue-010 [2026-07-09] — CRITICAL BUG (static audit, Claude)
+`/intelligence/coverage` API endpoint (added OCI-011) always returned `{"error": "..."}` in
+production because `get_intelligence_coverage()` read `_state.runtime_config` — an attribute
+that does not exist on `AppState`. `runtime_config` is a module-level singleton imported at
+the top of `main.py`, not an instance attribute. The bare `except Exception` in the endpoint
+body swallowed the `AttributeError`, making the bug invisible in logs beyond the error JSON.
+File: `src/api/main.py` line 1025
+Status: RESOLVED [2026-07-09] — Replaced `_state.runtime_config` → `get_settings()` and
+`cfg.symbol` → `cfg.primary_symbol`. Matches pattern used by all other endpoints in the file.
+Discovered by: Claude [claude] static audit
+────────────────────────────────────────────────────────────
+
+## Issue-011 [2026-07-09] — MEDIUM (static audit, Claude)
+Dead guard in `storage.py health_check()`: `if table not in _ALLOWED_TABLES` can never be
+True since `table` is the loop variable drawn from iterating `_ALLOWED_TABLES`. The comment
+described intent to catch misconfigured allowlist values before f-string interpolation, but
+the check never fires. A future developer who added an unsafe table name to `_ALLOWED_TABLES`
+would see it reach the SQL string without any guard stopping it.
+File: `src/data/storage.py` line ~1548
+Status: RESOLVED [2026-07-09] — Replaced dead membership check with regex `^[a-z][a-z0-9_]{0,63}$`
+that validates character safety independent of allowlist membership. See VF-020.
+────────────────────────────────────────────────────────────
+
+## Issue-012 [2026-07-09] — MEDIUM (static audit, Claude)
+TOCTOU race on `IntelligenceAggregator._cache` dict in `intelligence/client.py`. All three
+`get_*` methods (exchange_netflow, whale_activity, funding_rate) performed read-then-write on
+`self._cache` without any asyncio lock. Two concurrent coroutines requesting the same key
+could both see stale data, both fire expensive network fetches, and race on the write.
+File: `src/intelligence/client.py`
+Status: RESOLVED [2026-07-09] — Added `self._cache_lock: asyncio.Lock` in `__init__`.
+Check-reads and store-writes are now each protected by `async with self._cache_lock`.
+Network I/O runs outside the lock. See VF-021.
+────────────────────────────────────────────────────────────
