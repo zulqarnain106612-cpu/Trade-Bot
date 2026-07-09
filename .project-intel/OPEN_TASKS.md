@@ -51,7 +51,7 @@
 **What**: GET /metrics → Prometheus format for Grafana dashboarding
 **Metrics**: signal_score, regime_state, kelly_fraction, gate_pass_rate, model_accuracy_rolling
 
-### TASK-008: Online learning hook
+### TASK-008: Online learning hook — RESOLVED [2026-07-09]
 **File**: src/models/ (new file: online_trainer.py)
 **What**: river or vowpal wabbit for incremental model updates without full retrain
 **Why**: XGBoost batch retrain is expensive; online learning catches drift faster

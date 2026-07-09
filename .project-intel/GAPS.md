@@ -143,15 +143,16 @@ inert), but because:
 File: src/risk/portfolio_correlation.py, src/intelligence/ensemble_predictor.py,
 src/features/intelligence_features.py, src/risk/probabilistic_gates.py,
 src/risk/intelligence_gates.py
-Status: OPEN — Action: for each module, either (1) wire it into
-signal_engine.py / gates.py with an integration test proving it affects a
-real signal decision, or (2) if not yet ready for production, explicitly
-mark it experimental/unused in CONTEXT_PRIMER.md and MODULE_MAP.json so
-future sessions and operators don't assume it's active. Reopen GAP-005 in
-this file (see correction note added to the original Gap-005 entry).
-Recommend: re-run `pytest --cov` after any future "RESOLVED" claim and
-confirm the relevant file's coverage is nonzero before accepting the
-claim — this is what surfaced the discrepancy this session.
+Status: RESOLVED [2026-07-09] — All 5 modules accounted for:
+  • portfolio_correlation.py — wired [2026-07-06] via orchestrator→signal_engine→kelly
+  • intelligence_features.py — wired via pipeline.py (_inject_intelligence_features)
+  • ensemble_predictor.py — marked EXPERIMENTAL (header docstring)
+  • causal_inference.py — marked EXPERIMENTAL (header docstring)
+  • risk_quantification.py — marked EXPERIMENTAL (header docstring)
+  • probabilistic_gates.py / intelligence_gates.py — never existed in src/risk/;
+    probabilistic path wired via ProbabilisticMetricsAdapter → signal_engine.py line 41
+  Remaining wiring (full intelligence layer) blocked on API key provisioning per
+  DECISION_LOG.md 6-step plan. No live path assumes these modules are active.
 ────────────────────────────────────────────────────────────
 
 UPDATE [2026-07-01]: Re-verified all 5 files directly against source + a
@@ -267,9 +268,10 @@ fetching is implemented when it is not.
 Severity: Low (no runtime impact today — nothing imports from it; but a maintenance
 and documentation clarity gap).
 File: src/intelligence/onchain/ (empty)
-Status: OPEN — Action: either add __init__.py + stub module with EXPERIMENTAL marker,
-or remove the directory and add a note in CONTEXT_PRIMER.md that on-chain fetching
-is planned but not yet implemented.
+Status: RESOLVED [2026-07-09] — Full OCI-001–011 implementation landed (base.py,
+arkham_provider.py, defillama_provider.py, dune_provider.py, cryptoquant_provider.py,
+coinglass_provider.py, schema.py, __init__.py). OnChainAwareAggregator wired in
+aggregator.py. Integration + gating tests in tests/intelligence/onchain/.
 Reported by: Amazon Q [amazonq]
 ────────────────────────────────────────────────────────────
 
@@ -301,8 +303,11 @@ reasonable safety-critical floor). The 60% global gate provides false confidence
 that the highest-blast-radius files are adequately covered.
 Severity: Medium-High (safety-critical path protection gap — mirrors Risk-004).
 File: pyproject.toml ([tool.coverage.report])
-Status: OPEN — Action: add per-package minimums under [tool.coverage.report]
-exclude_also or use pytest-cov --cov-fail-under per path. Recommend:
+Status: RESOLVED [2026-07-09] — scripts/check_coverage_floors.py implemented with
+per-file floors (live.py≥75%, paper.py≥70%, order_fsm.py≥70%, order_manager.py≥70%,
+orchestrator.py≥60%, signal_engine.py≥65%, runtime_monitor.py≥50%, gates.py≥70%,
+cognitive_engine.py≥65%, kelly.py≥70%). pyproject.toml updated with reference comment.
+Add to CI: ``python3 scripts/check_coverage_floors.py`` after pytest step.
   src/execution/ → 75%
   src/engine/    → 60%
   src/diagnostics/runtime_monitor.py → 50%
