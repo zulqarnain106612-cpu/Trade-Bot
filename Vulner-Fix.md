@@ -318,3 +318,19 @@
   `cfg.symbol` with `cfg.primary_symbol` (the correct Settings field name, matching all other
   endpoints in the file).
 - **Verified:** `python3 -m py_compile src/api/main.py` → OK
+
+### [VF-023] — 2026-07-09 — src/api/main.py WebSocket orchestrator None-deref
+- **Severity:** LOW
+- **Tool:** Claude static audit
+- **File:** `src/api/main.py` — `websocket_endpoint()` line ~809
+- **Status:** Applied
+- **Summary:** WS tick loop accessed `_state.orchestrator._executor` without first
+  checking `_state.orchestrator is not None`. The WS endpoint has no `require_ready`
+  dependency guard. A client connecting during the startup window (before `_state.ready=True`)
+  would trigger an `AttributeError` on `None._executor`, caught by the bare `except Exception`
+  at the bottom of the loop — silently killing the WS connection with a logged error rather
+  than a graceful skip.
+- **Fix:** Added `if _state.orchestrator is None: continue` before the `_executor` access.
+  Client receives no tick during startup but stays connected and resumes automatically once
+  orchestrator is initialized.
+- **Verified:** `python3 -m py_compile src/api/main.py` → OK
