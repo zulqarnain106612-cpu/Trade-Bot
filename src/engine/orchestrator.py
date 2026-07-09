@@ -493,6 +493,33 @@ class Orchestrator:
                     drift_metric=drift_status.get("metric"),
                     reason=drift_status.get("reason"),
                 )
+                # Drift-triggered retrain: immediately kick off model refresh
+                # so the next window of signals uses an updated model.
+                # Guard against overlap with a running scheduled retrain.
+                prior = self._retrain_tasks.get(tf.value)
+                if prior is None or prior.done():
+                    self._log.info(
+                        "orchestrator.drift_triggered_retrain",
+                        timeframe=tf.value,
+                    )
+                    task = asyncio.create_task(
+                        self._train_models(tf),
+                        name=f"retrain_{tf.value}_drift",
+                    )
+
+                    def _drift_retrain_done(t: asyncio.Task, _tf: str = tf.value) -> None:
+                        if not t.cancelled() and t.exception() is not None:
+                            self._last_retrain_error[_tf] = str(t.exception())
+                            self._log.error(
+                                "orchestrator.drift_retrain_failed",
+                                timeframe=_tf,
+                                error=str(t.exception()),
+                            )
+                        if self._retrain_tasks.get(_tf) is t:
+                            del self._retrain_tasks[_tf]
+
+                    task.add_done_callback(_drift_retrain_done)
+                    self._retrain_tasks[tf.value] = task
                 return  # Skip this signal due to drift
 
             current_price = result.kelly_result.entry_price

@@ -812,3 +812,53 @@ class TestTickCorrelationFallback:
 
         # drift blocked → submit_signal must NOT be called
         executor.submit_signal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_drift_triggers_retrain_task(self):
+        """Drift detection must schedule an immediate retrain task (not just block)."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = True
+        signal.regime = None
+        signal.p_long = 0.8
+        signal.p_bet = 0.8
+        signal.kelly_result = MagicMock()
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        train_called = []
+
+        async def _fake_train(tf):
+            train_called.append(tf)
+
+        orch._train_models = _fake_train
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch("src.engine.orchestrator.compute_win_loss_stats",
+                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.update_metrics"),
+            patch.object(
+                orch._drift_adapter,
+                "check_drift",
+                return_value={"drifted": True, "metric": "sharpe", "reason": "below floor"},
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            # Allow the created task to run
+            await asyncio.sleep(0)
+
+        # Signal must be blocked
+        executor.submit_signal.assert_not_called()
+        # Retrain must have been triggered
+        assert len(train_called) == 1, "drift should trigger one retrain task"
+        assert train_called[0] == Timeframe.INTRADAY
