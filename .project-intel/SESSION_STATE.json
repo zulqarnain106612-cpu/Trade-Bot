@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T18:44:16.826240",
+  "last_updated": "2026-07-09T18:45:52.998270",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -34,9 +34,9 @@
   "next_recommended_task": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are architecture decisions \u2014 no code gaps found in src/.",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
   "total_sessions": 68,
-  "last_commit": "4e0d70f",
-  "last_commit_message": "test(api): intelligence coverage/providers endpoint tests [claude]",
-  "last_commit_time": "2026-07-09T18:44:17.014136",
+  "last_commit": "ba0f221",
+  "last_commit_message": "fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
+  "last_commit_time": "2026-07-09T18:45:53.167609",
   "coverage_pct": 62,
   "last_session_start": "2026-07-09T01:31:03.665618",
   "session_status": "active",
@@ -48,8 +48,6 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 06:17:34] [f7cfa31] test(orchestrator): Debt-009 \u2014 cover _midnight_reset_loop, _position_monitor_loop, _sleep_until_next_bar, correlation fallback, drift gate (17 new tests) [claude]",
-      "[2026-07-09 15:53:32] [ecd6a73] feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
       "[2026-07-09 15:53:33] [8e455cd] feat(oci): OCI-012 wire OnChainAwareAggregator into signal_engine + add singleton factory [claude]",
       "[2026-07-09 15:57:22] [b21fd5c] fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
       "[2026-07-09 15:57:22] [6ffbe05] fix(oci): OCI-012 add defi_tvl/mvrv_z_score/sopr to schema, gate Dune fields, fix silent discard [claude]",
@@ -67,10 +65,12 @@
       "[2026-07-09 18:39:33] [3bf645d] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
       "[2026-07-09 18:43:32] [7067398] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
       "[2026-07-09 18:43:33] [e7709c5] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
-      "[2026-07-09 18:44:16] [4e0d70f] test(api): intelligence coverage/providers endpoint tests [claude]"
+      "[2026-07-09 18:44:16] [4e0d70f] test(api): intelligence coverage/providers endpoint tests [claude]",
+      "[2026-07-09 18:44:17] [cb1ed00] test(api): intelligence coverage/providers endpoint tests [claude]",
+      "[2026-07-09 18:45:52] [ba0f221] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 18:44:16",
+    "last_checkpoint": "2026-07-09 18:45:52",
     "session_history": [
       {
         "time": "2026-07-07 18:34:30",
@@ -196,6 +196,12 @@
       "hash": "4e0d70f",
       "message": "test(api): intelligence coverage/providers endpoint tests [claude]",
       "time": "2026-07-09T18:44:17.014063",
+      "author": "Claude"
+    },
+    {
+      "hash": "ba0f221",
+      "message": "fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
+      "time": "2026-07-09T18:45:53.167544",
       "author": "Claude"
     }
   ]

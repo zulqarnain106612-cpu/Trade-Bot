@@ -81,6 +81,10 @@ class IntelligenceMetrics:
             "network_activity_score": self.network_activity_score,
             "exchange_stress_score": self.exchange_stress_score,
             "cross_exchange_basis_spread_bps": self.cross_exchange_basis_spread_bps,
+            # OCI-012
+            "defi_tvl_7d_change_pct": self.defi_tvl_7d_change_pct,
+            "mvrv_z_score": self.mvrv_z_score,
+            "sopr": self.sopr,
         }
 
 
@@ -94,7 +98,7 @@ class IntelligenceAnalyzer:
       - Confidence scoring (missing data penalty)
     """
 
-    # GAP-015: of the 15 IntelligenceMetrics fields, only these are backed
+    # GAP-015: of the 18 IntelligenceMetrics fields, only these are backed
     # by a real, live data path today: exchange_netflow_7d_zscore,
     # whale_buy_sell_ratio, binance_funding_rate_pct (all from the free
     # Binance provider), and exchange_stress_score (a composite derived
@@ -102,7 +106,7 @@ class IntelligenceAnalyzer:
     # 11 are NaN until a real free data source is wired in (see
     # DECISION_LOG.md). Update these two constants if that changes.
     _REAL_METRIC_COUNT = 4
-    _TOTAL_METRIC_COUNT = 15
+    _TOTAL_METRIC_COUNT = 18
 
     def __init__(
         self,
@@ -178,7 +182,7 @@ class IntelligenceAnalyzer:
         # GAP-015 fix: previously, 11 of 15 metrics were hardcoded plausible-
         # looking constants (e.g. exchange_reserve_ratio=0.35) marked only by
         # a code comment, and `confidence` was never penalized for them --
-        # so this could return confidence~=1.0 while 11/15 fields were fake.
+        # so this could return confidence~=1.0 while 11/18 fields were fake.
         # That's a fabricated-completion-state bug: a downstream consumer
         # reading `confidence` alone had no way to know most of the payload
         # was a placeholder. Fixed: unimplemented fields are now NaN (so
@@ -194,7 +198,7 @@ class IntelligenceAnalyzer:
 
         _nan = float("nan")
 
-        # Create metrics object. Only 4/15 fields are real/derived from live
+        # Create metrics object. Only 4/18 fields are real/derived from live
         # provider data today (see self._REAL_METRIC_COUNT); the rest are
         # NaN pending GAP-015 data-source integration (see DECISION_LOG.md
         # "Intelligence feature wiring -- blocked on API provisioning").
