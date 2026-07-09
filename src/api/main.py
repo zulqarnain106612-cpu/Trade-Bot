@@ -89,6 +89,7 @@ class AppState:
 
     def __init__(self) -> None:
         self.ready = False
+        self.orchestrator: Orchestrator | None = None  # set in lifespan after startup()
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
         self._ws_clients: set[WebSocket] = set()
