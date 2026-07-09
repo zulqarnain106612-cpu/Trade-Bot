@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-09 15:53:33 | Read this before starting any work.
+> Updated: 2026-07-09 15:57:22 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
 **Started**: 2026-07-09 01:31:05
-**Last checkpoint**: 2026-07-09 15:53:33
+**Last checkpoint**: 2026-07-09 15:57:22
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,7 +17,6 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intellig
 
 ## Files to Check
-  - tests/intelligence/onchain/test_dune_provider.py
   - tests/intelligence/onchain/test_onchain_aggregator_integration.py
   - tests/intelligence/onchain/test_onchain_gating.py
   - tests/intelligence/onchain/test_schema.py
@@ -32,6 +31,7 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/intelligence/client.py
   - tests/test_intelligence_providers.py
   - src/intelligence/providers/aggregator.py
+  - src/intelligence/onchain/schema.py
 
 ## Session History (last 5)
   [2026-07-09 01:31:05] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA

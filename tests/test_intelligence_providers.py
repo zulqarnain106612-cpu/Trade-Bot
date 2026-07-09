@@ -658,14 +658,29 @@ class TestGetMultiProviderAggregatorSingleton:
 
 
 class TestGetOnChainAwareAggregatorSingleton:
-    """OCI-008: get_onchain_aware_aggregator singleton and wiring."""
+    """OCI-008/012: get_onchain_aware_aggregator singleton and wiring."""
+
+    def _mock_intel_cfg(self):
+        """Return a MagicMock IntelligenceSettings with empty API keys (fail-open)."""
+        cfg = MagicMock()
+        cfg.arkham_api_key = ""
+        cfg.arkham_cache_ttl_s = 60
+        cfg.dune_api_key = ""
+        cfg.dune_cache_ttl_s = 3600
+        cfg.cryptoquant_api_key = ""
+        cfg.coinglass_api_key = ""
+        cfg.coinglass_cache_ttl_s = 30
+        return cfg
 
     def test_same_instance_on_repeated_calls(self):
         import src.intelligence.providers.aggregator as agg_mod
         agg_mod._onchain_aware_aggregator = None
         from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
-        a1 = get_onchain_aware_aggregator()
-        a2 = get_onchain_aware_aggregator()
+        mock_settings = MagicMock()
+        mock_settings.intelligence = self._mock_intel_cfg()
+        with patch("src.config.get_settings", return_value=mock_settings):
+            a1 = get_onchain_aware_aggregator()
+            a2 = get_onchain_aware_aggregator()
         assert a1 is a2
         agg_mod._onchain_aware_aggregator = None
 
@@ -673,7 +688,10 @@ class TestGetOnChainAwareAggregatorSingleton:
         import src.intelligence.providers.aggregator as agg_mod
         agg_mod._onchain_aware_aggregator = None
         from src.intelligence.providers.aggregator import OnChainAwareAggregator, get_onchain_aware_aggregator
-        agg = get_onchain_aware_aggregator()
+        mock_settings = MagicMock()
+        mock_settings.intelligence = self._mock_intel_cfg()
+        with patch("src.config.get_settings", return_value=mock_settings):
+            agg = get_onchain_aware_aggregator()
         assert isinstance(agg, OnChainAwareAggregator)
         # Exchange + macro providers
         base_ids = {p.exchange_id for p in agg._all_providers}

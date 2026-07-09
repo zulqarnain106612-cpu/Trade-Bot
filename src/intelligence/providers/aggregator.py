@@ -422,6 +422,7 @@ def get_onchain_aware_aggregator(
     """
     global _onchain_aware_aggregator
     if _onchain_aware_aggregator is None:
+        from src.config import get_settings
         from src.intelligence.onchain.arkham_provider import ArkhamProvider
         from src.intelligence.onchain.coinglass_provider import CoinglassProvider
         from src.intelligence.onchain.cryptoquant_provider import CryptoQuantProvider
@@ -436,6 +437,8 @@ def get_onchain_aware_aggregator(
         )
         from src.intelligence.providers.okx_provider import get_okx_intelligence_provider
 
+        cfg = get_settings().intelligence  # IntelligenceSettings
+
         _onchain_aware_aggregator = OnChainAwareAggregator(
             exchange_providers=[
                 get_binance_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
@@ -446,11 +449,22 @@ def get_onchain_aware_aggregator(
                 get_blockchain_intelligence_provider(),
             ],
             onchain_providers=[
-                ArkhamProvider(),
-                DefiLlamaProvider(),
-                DuneProvider(),
-                CryptoQuantProvider(),
-                CoinglassProvider(),
+                ArkhamProvider(
+                    api_key=cfg.arkham_api_key,
+                    cache_ttl_s=cfg.arkham_cache_ttl_s,
+                ),
+                DefiLlamaProvider(),  # public API; no key required
+                DuneProvider(
+                    api_key=cfg.dune_api_key,
+                    cache_ttl_s=cfg.dune_cache_ttl_s,
+                ),
+                CryptoQuantProvider(
+                    api_key=cfg.cryptoquant_api_key,
+                ),
+                CoinglassProvider(
+                    api_key=cfg.coinglass_api_key,
+                    cache_ttl_s=cfg.coinglass_cache_ttl_s,
+                ),
             ],
         )
     return _onchain_aware_aggregator
