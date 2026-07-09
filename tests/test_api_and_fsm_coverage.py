@@ -284,7 +284,7 @@ class TestIntelligenceEndpoints:
 
     def _make_state(self):
         from unittest.mock import AsyncMock, MagicMock
-        from src.api.main import _AppState
+        from src.api.main import AppState as _AppState
         state = _AppState()
         orch = MagicMock()
         storage = MagicMock()
@@ -335,7 +335,7 @@ class TestIntelligenceEndpoints:
 
     @pytest.mark.asyncio
     async def test_coverage_no_orchestrator_returns_error(self):
-        from src.api.main import get_intelligence_coverage, _AppState
+        from src.api.main import get_intelligence_coverage, AppState as _AppState
         import src.api.main as api_mod
 
         state = _AppState()
