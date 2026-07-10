@@ -72,6 +72,10 @@ class TuningAuditLog:
         self._path = path
         self._lock = threading.Lock()
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     def record(
         self,
         param_name: str,

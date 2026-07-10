@@ -56,6 +56,15 @@ from src.data.fetcher import open_fetcher
 from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.tuning.audit import TuningEventType
+from src.tuning.state import (
+    audit_log as tuning_audit_log,
+    parameter_registry as tuning_registry,
+    pause_state as tuning_pause_state,
+    version_store as tuning_version_store,
+    watchdog as tuning_watchdog,
+)
+from src.tuning.store import NoPriorVersionError, NoVersionsError
 
 
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
@@ -359,6 +368,56 @@ class SetRiskControlsRequest(BaseModel):
     @classmethod
     def validate_operator(cls, v: str) -> str:
         return _validate_operator(v)
+
+
+class SelfTuningPauseRequest(BaseModel):
+    """Phase 6 -- runtime, no-restart pause switch for the self-tuning
+    subsystem. Independent of the .env-level SELF_TUNING_ENABLED kill
+    switch (that one requires a restart; this one is for an operator who
+    needs to pause immediately without a deploy)."""
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise pause/resume",
+    )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class SelfTuningRollbackRequest(BaseModel):
+    """Phase 6 -- manual forced revert of a tuned parameter to its
+    previous version, bypassing the watchdog's own drift detection
+    (e.g. an operator noticing a problem before automated drift
+    detection would have)."""
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise a manual rollback",
+    )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+def _verify_operator_secret(operator_secret: str, operator: str, endpoint: str) -> None:
+    expected_op_secret = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected_op_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="OPERATOR_SECRET is not configured on the server.",
+        )
+    if not hmac.compare_digest(operator_secret.encode("utf-8"), expected_op_secret.encode("utf-8")):
+        log.warning(f"api.{endpoint}_bad_operator_secret", operator=operator)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
 
 
 # ---------------------------------------------------------------------------
@@ -776,6 +835,141 @@ async def model_metrics(timeframe: str | None = None) -> dict[str, Any]:
         "meta_label": _fmt(meta_m),
         "live_gate_passes": await _state.storage.live_gate_passes(tf),
     }
+
+
+# ---------------------------------------------------------------------------
+# Self-tuning operator API (Phase 6) — see docs/SELF_TUNING_IMPLEMENTATION_PLAN.md
+#
+# Read-only status matches the api_key_header-only pattern used elsewhere
+# for GET endpoints. Pause/resume/rollback follow the /risk-controls
+# pattern: operator_secret required (same second factor as execution-mode
+# changes), rate-limited, audited.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/self-tuning/status", dependencies=[Depends(api_key_header)])
+async def self_tuning_status() -> dict[str, Any]:
+    """
+    Registry state, current champion values, and probation status for
+    every registered self-tuning parameter, plus recent audit history.
+    """
+    cfg = get_settings().self_tuning
+    paused = await tuning_pause_state.is_paused()
+
+    params: list[dict[str, Any]] = []
+    for param in tuning_registry.list_all():
+        current_version = None
+        if tuning_version_store.has_versions(param.name):
+            v = tuning_version_store.current(param.name)
+            current_version = {
+                "value": v.value,
+                "version": v.version,
+                "timestamp": v.timestamp,
+                "promoted_by": v.promoted_by,
+                "is_rollback": v.is_rollback,
+            }
+        recent_events = [
+            {"event_type": e.event_type.value, "timestamp": e.timestamp, "details": e.details}
+            for e in tuning_audit_log.read_for_param(param.name)[-10:]
+        ]
+        params.append(
+            {
+                "name": param.name,
+                "description": param.description,
+                "floor": param.floor,
+                "ceiling": param.ceiling,
+                "registered_current": param.current,
+                "current_version": current_version,
+                "probation_status": tuning_watchdog.probation_status(param.name).value,
+                "recent_events": recent_events,
+            }
+        )
+
+    return {
+        "enabled": cfg.enabled,
+        "shadow_mode": cfg.shadow_mode,
+        "paused": paused,
+        "parameters": params,
+    }
+
+
+@app.post(
+    "/self-tuning/pause",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def self_tuning_pause(body: SelfTuningPauseRequest, request: Request) -> dict[str, Any]:
+    """Runtime pause, no restart required. Blocks new attempt() calls at
+    the caller level (this flag is advisory to callers of TuningRunner.attempt,
+    e.g. scripts/run_tuning_attempt.py and any future scheduler, not enforced
+    inside TuningRunner itself -- see src/tuning/state.py)."""
+    _state.check_endpoint_rate_limit(
+        "self_tuning_pause", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "self_tuning_pause")
+    await tuning_pause_state.set_paused(True)
+    tuning_audit_log.record("__global__", TuningEventType.PAUSED, {"operator": body.operator})
+    log.info("api.self_tuning_paused", operator=body.operator)
+    return {"paused": True, "operator": body.operator}
+
+
+@app.post(
+    "/self-tuning/resume",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def self_tuning_resume(body: SelfTuningPauseRequest, request: Request) -> dict[str, Any]:
+    _state.check_endpoint_rate_limit(
+        "self_tuning_resume", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "self_tuning_resume")
+    await tuning_pause_state.set_paused(False)
+    tuning_audit_log.record("__global__", TuningEventType.RESUMED, {"operator": body.operator})
+    log.info("api.self_tuning_resumed", operator=body.operator)
+    return {"paused": False, "operator": body.operator}
+
+
+@app.post(
+    "/self-tuning/rollback/{param_name}",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        404: {"description": "Parameter has no version history"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def self_tuning_rollback(
+    param_name: str, body: SelfTuningRollbackRequest, request: Request
+) -> dict[str, Any]:
+    """Manual forced revert to the previous promoted version."""
+    _state.check_endpoint_rate_limit(
+        "self_tuning_rollback", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "self_tuning_rollback")
+
+    try:
+        reverted = tuning_version_store.rollback(param_name)
+    except (NoVersionsError, NoPriorVersionError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    tuning_audit_log.record(
+        param_name,
+        TuningEventType.ROLLED_BACK,
+        {"operator": body.operator, "reverted_to_value": reverted.value, "manual": True},
+    )
+    log.info(
+        "api.self_tuning_manual_rollback",
+        param=param_name,
+        value=reverted.value,
+        operator=body.operator,
+    )
+    return {"param_name": param_name, "reverted_value": reverted.value, "operator": body.operator}
 
 
 # ---------------------------------------------------------------------------

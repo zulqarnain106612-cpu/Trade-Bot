@@ -75,6 +75,10 @@ class VersionedConfigStore:
         self._history: dict[str, list[ConfigVersion]] = {}
         self._load()
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     def _load(self) -> None:
         if not self._path.exists():
             return

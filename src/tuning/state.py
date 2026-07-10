@@ -1,0 +1,72 @@
+"""
+Process-wide singletons for the self-tuning subsystem.
+
+Mirrors the pattern of `runtime_config` in src/config.py: module-level
+singletons constructed once, imported by both the API layer (Phase 6)
+and manual operator scripts (Phase 4). Nothing here registers any
+parameter -- that stays an explicit, separate step (src/tuning/bootstrap.py)
+so importing this module never silently makes a parameter tunable.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from src.config import get_settings
+from src.tuning.audit import TuningAuditLog
+from src.tuning.gate import PromotionGate
+from src.tuning.proposer import TuningProposer
+from src.tuning.registry import parameter_registry
+from src.tuning.runner import TuningRunner
+from src.tuning.store import VersionedConfigStore
+from src.tuning.watchdog import PostPromotionWatchdog
+
+
+_settings = get_settings().self_tuning
+
+audit_log: TuningAuditLog = TuningAuditLog(_settings.audit_log_path)
+version_store: VersionedConfigStore = VersionedConfigStore(_settings.version_store_path)
+proposer: TuningProposer = TuningProposer()
+gate: PromotionGate = PromotionGate()
+
+# Phase 7: shadow_mode is driven by SelfTuningSettings.shadow_mode (default
+# True). Flipping it to False requires an explicit .env edit + restart --
+# the same ceremony as TRADING_MODE=live -- never a live API toggle.
+runner: TuningRunner = TuningRunner(
+    parameter_registry,
+    version_store,
+    audit_log,
+    _settings,
+    proposer,
+    gate,
+    shadow_mode=_settings.shadow_mode,
+)
+
+watchdog: PostPromotionWatchdog = PostPromotionWatchdog(version_store, audit_log, _settings)
+
+
+class _PauseState:
+    """Runtime, no-restart pause switch (Phase 6), independent of the
+    .env-level SELF_TUNING_ENABLED kill switch. An operator can pause via
+    the API without needing a restart; resuming likewise takes effect
+    immediately for the next attempt() call."""
+
+    def __init__(self) -> None:
+        self._paused = False
+        self._lock: asyncio.Lock | None = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    async def is_paused(self) -> bool:
+        async with self._get_lock():
+            return self._paused
+
+    async def set_paused(self, value: bool) -> None:
+        async with self._get_lock():
+            self._paused = value
+
+
+pause_state: _PauseState = _PauseState()

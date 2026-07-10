@@ -476,6 +476,17 @@ class SelfTuningSettings(BaseSettings):
     )
     audit_log_path: Path = Field(default=Path("logs/self_tuning_audit.jsonl"))
     version_store_path: Path = Field(default=Path("logs/self_tuning_versions.jsonl"))
+    shadow_mode: bool = Field(
+        default=True,
+        description=(
+            "Phase 7: when True (default), an accepted challenger is logged as "
+            "WOULD_PROMOTE but never written to VersionedConfigStore. Flipping to "
+            "False requires an explicit .env edit + restart -- the same ceremony "
+            "as TRADING_MODE=live -- and must only be done after the Phase 4 "
+            "shadow soak and Phase 5 watchdog are in place per "
+            "docs/SELF_TUNING_IMPLEMENTATION_PLAN.md."
+        ),
+    )
 
 
 class Settings(BaseSettings):

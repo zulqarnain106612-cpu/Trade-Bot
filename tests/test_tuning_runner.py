@@ -7,7 +7,7 @@ from src.config import SelfTuningSettings
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.evaluator import MetricComparison
 from src.tuning.gate import PromotionGate
-from src.tuning.proposer import TuningProposer
+from src.tuning.proposer import Proposal, TuningProposer
 from src.tuning.registry import ParameterRegistry, TunableParameter
 from src.tuning.runner import TuningRunner
 from src.tuning.store import VersionedConfigStore
@@ -75,9 +75,19 @@ def regressing_comparisons() -> list[MetricComparison]:
     ]
 
 
+def eval_fn_returning(comparisons: list[MetricComparison]):
+    def _eval(param: TunableParameter, proposal: Proposal) -> list[MetricComparison]:
+        assert param.name == proposal.param_name
+        return comparisons
+
+    return _eval
+
+
 def test_disabled_kill_switch_skips_everything(tmp_path: Path) -> None:
     runner, _, store, audit = build_runner(tmp_path, enabled=False)
-    result = runner.attempt("hmm.entropy_threshold", improving_comparisons(), "oos_sharpe")
+    result = runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
+    )
     assert not result.attempted
     assert not store.has_versions("hmm.entropy_threshold")
     events = [e.event_type for e in audit.read_all()]
@@ -86,7 +96,9 @@ def test_disabled_kill_switch_skips_everything(tmp_path: Path) -> None:
 
 def test_shadow_mode_never_promotes_even_on_accept(tmp_path: Path) -> None:
     runner, _, store, audit = build_runner(tmp_path, shadow_mode=True)
-    result = runner.attempt("hmm.entropy_threshold", improving_comparisons(), "oos_sharpe")
+    result = runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
+    )
     assert result.attempted
     assert result.accepted
     assert not result.promoted
@@ -98,7 +110,9 @@ def test_shadow_mode_never_promotes_even_on_accept(tmp_path: Path) -> None:
 
 def test_live_mode_promotes_on_accept(tmp_path: Path) -> None:
     runner, _, store, audit = build_runner(tmp_path, shadow_mode=False)
-    result = runner.attempt("hmm.entropy_threshold", improving_comparisons(), "oos_sharpe")
+    result = runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
+    )
     assert result.promoted
     assert store.has_versions("hmm.entropy_threshold")
     events = [e.event_type for e in audit.read_all()]
@@ -107,7 +121,9 @@ def test_live_mode_promotes_on_accept(tmp_path: Path) -> None:
 
 def test_regression_is_rejected_and_never_promoted(tmp_path: Path) -> None:
     runner, _, store, audit = build_runner(tmp_path, shadow_mode=False)
-    result = runner.attempt("hmm.entropy_threshold", regressing_comparisons(), "oos_sharpe")
+    result = runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(regressing_comparisons()), "oos_sharpe"
+    )
     assert not result.accepted
     assert not result.promoted
     assert not store.has_versions("hmm.entropy_threshold")
@@ -117,8 +133,12 @@ def test_regression_is_rejected_and_never_promoted(tmp_path: Path) -> None:
 
 def test_cooldown_blocks_second_attempt(tmp_path: Path) -> None:
     runner, _, store, audit = build_runner(tmp_path, shadow_mode=True)
-    runner.attempt("hmm.entropy_threshold", improving_comparisons(), "oos_sharpe")
-    result = runner.attempt("hmm.entropy_threshold", improving_comparisons(), "oos_sharpe")
+    runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
+    )
+    result = runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
+    )
     assert not result.attempted
     assert result.reasons == ("cooldown_active",)
 
@@ -126,4 +146,28 @@ def test_cooldown_blocks_second_attempt(tmp_path: Path) -> None:
 def test_unregistered_parameter_raises(tmp_path: Path) -> None:
     runner, registry, _, _ = build_runner(tmp_path)
     with pytest.raises(KeyError):
-        runner.attempt("does.not.exist", improving_comparisons(), "oos_sharpe")
+        runner.attempt("does.not.exist", eval_fn_returning(improving_comparisons()), "oos_sharpe")
+
+
+def test_evaluate_fn_receives_actual_proposed_value(tmp_path: Path) -> None:
+    """The evaluate_fn must be called with the SAME proposal the runner
+    committed to (and later promotes), not an independently chosen value --
+    this is the correctness property that motivated the callback design."""
+    registry = ParameterRegistry()
+    registry.register(make_param())
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    audit = TuningAuditLog(tmp_path / "audit.jsonl")
+    settings = SelfTuningSettings(enabled=True, min_hours_between_attempts=24.0)
+    proposer = TuningProposer(step_pct=0.2, rng=random.Random(99))
+    gate = PromotionGate()
+    runner = TuningRunner(registry, store, audit, settings, proposer, gate, shadow_mode=False)
+
+    seen_values: list[float] = []
+
+    def eval_fn(param: TunableParameter, proposal: Proposal) -> list[MetricComparison]:
+        seen_values.append(proposal.challenger_value)
+        return improving_comparisons()
+
+    result = runner.attempt("hmm.entropy_threshold", eval_fn, "oos_sharpe")
+    assert seen_values == [result.challenger_value]
+    assert store.current("hmm.entropy_threshold").value == result.challenger_value

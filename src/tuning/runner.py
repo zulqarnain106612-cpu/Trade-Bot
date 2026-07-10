@@ -15,6 +15,7 @@ promotion is a separate, explicit configuration step for a later phase
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -22,9 +23,12 @@ from src.config import SelfTuningSettings
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.evaluator import EvaluationResult, MetricComparison
 from src.tuning.gate import GateDecision, PromotionGate
-from src.tuning.proposer import TuningProposer
-from src.tuning.registry import ParameterRegistry
+from src.tuning.proposer import Proposal, TuningProposer
+from src.tuning.registry import ParameterRegistry, TunableParameter
 from src.tuning.store import VersionedConfigStore
+
+
+EvaluateFn = Callable[[TunableParameter, Proposal], list[MetricComparison]]
 
 
 @dataclass(frozen=True)
@@ -77,16 +81,18 @@ class TuningRunner:
     def attempt(
         self,
         param_name: str,
-        comparisons: list[MetricComparison],
+        evaluate_fn: EvaluateFn,
         primary_metric: str,
     ) -> AttemptResult:
         """
         Run one propose -> evaluate -> gate -> (shadow-log | promote) cycle.
 
-        `comparisons` are pre-computed by the caller (e.g. a CPCV backtest
-        harness) via ChallengerEvaluator.compare_metric/compare_proportion
-        -- this runner only orchestrates the decision, it does not itself
-        run backtests.
+        `evaluate_fn(param, proposal) -> list[MetricComparison]` is called
+        AFTER the challenger value is proposed, so the caller's backtest
+        harness (e.g. run_entropy_threshold_backtest) always evaluates the
+        actual proposed value -- not a value chosen independently of what
+        the proposer picked. This runner only orchestrates the decision;
+        it does not itself run backtests.
         """
         if not self._settings.enabled:
             self._audit_log.record(
@@ -123,6 +129,7 @@ class TuningRunner:
             },
         )
 
+        comparisons = evaluate_fn(param, proposal)
         evaluation = EvaluationResult(
             param_name=param_name,
             challenger_value=proposal.challenger_value,
