@@ -2,24 +2,28 @@
 OCI-005 — CryptoQuantProvider unit tests.
 All HTTP calls are mocked; no network required.
 """
+
 from __future__ import annotations
-import math
-import pytest
+
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from src.intelligence.onchain.cryptoquant_provider import (
     CryptoQuantProvider,
-    _extract_rows,
-    _reserve_ratio,
-    _netflow_zscore,
-    _miner_signal,
     _extract_binance_funding,
+    _extract_rows,
+    _miner_signal,
     _mvrv_stress_contrib,
+    _netflow_zscore,
+    _reserve_ratio,
 )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _rows(n: int, value: float = 1_000.0, key: str = "netflow_usd") -> dict:
     return {"result": {"data": [{key: value} for _ in range(n)]}}
@@ -36,6 +40,7 @@ def _mvrv_row(mvrv: float) -> dict:
 # ---------------------------------------------------------------------------
 # _extract_rows
 # ---------------------------------------------------------------------------
+
 
 class TestExtractRows:
     def test_nested_data(self):
@@ -54,6 +59,7 @@ class TestExtractRows:
 # ---------------------------------------------------------------------------
 # _reserve_ratio
 # ---------------------------------------------------------------------------
+
 
 class TestReserveRatio:
     def test_empty(self):
@@ -77,6 +83,7 @@ class TestReserveRatio:
 # _netflow_zscore
 # ---------------------------------------------------------------------------
 
+
 class TestNetflowZscore:
     def test_insufficient_rows(self):
         assert _netflow_zscore({"result": {"data": [{"netflow_usd": 1}]}}) == 0.0
@@ -97,6 +104,7 @@ class TestNetflowZscore:
 # _miner_signal
 # ---------------------------------------------------------------------------
 
+
 class TestMinerSignal:
     def test_insufficient_rows(self):
         assert _miner_signal({"result": {"data": [{"netflow_usd": 1}]}}) == 0.0
@@ -112,12 +120,17 @@ class TestMinerSignal:
 # _extract_binance_funding
 # ---------------------------------------------------------------------------
 
+
 class TestExtractBinanceFunding:
     def test_found(self):
-        data = {"result": {"data": [
-            {"exchange": "OKX", "funding_rate": 0.1},
-            {"exchange": "Binance", "funding_rate": 0.05},
-        ]}}
+        data = {
+            "result": {
+                "data": [
+                    {"exchange": "OKX", "funding_rate": 0.1},
+                    {"exchange": "Binance", "funding_rate": 0.05},
+                ]
+            }
+        }
         assert _extract_binance_funding(data) == pytest.approx(0.05)
 
     def test_not_found(self):
@@ -132,6 +145,7 @@ class TestExtractBinanceFunding:
 # ---------------------------------------------------------------------------
 # _mvrv_stress_contrib
 # ---------------------------------------------------------------------------
+
 
 class TestMvrvStressContrib:
     def test_empty(self):
@@ -148,6 +162,7 @@ class TestMvrvStressContrib:
 # ---------------------------------------------------------------------------
 # CryptoQuantProvider — disabled (no key)
 # ---------------------------------------------------------------------------
+
 
 class TestCryptoQuantProviderDisabled:
     def setup_method(self):
@@ -176,9 +191,10 @@ class TestCryptoQuantProviderDisabled:
 # CryptoQuantProvider — enabled (mocked HTTP)
 # ---------------------------------------------------------------------------
 
+
 class TestCryptoQuantProviderEnabled:
     def _make_provider(self):
-        return CryptoQuantProvider(api_key="test-key-123")
+        return CryptoQuantProvider(api_key="test-key-123")  # pragma: allowlist secret
 
     def _reserve_data(self):
         return {"result": {"data": [{"reserve_usd": 5e9, "price": 60_000}]}}
@@ -213,7 +229,7 @@ class TestCryptoQuantProviderEnabled:
             call_count += 1
             return r
 
-        with patch.object(prov, '_get', side_effect=mock_get):
+        with patch.object(prov, "_get", side_effect=mock_get):
             m = await prov.fetch_metrics()
 
         assert m["confidence"] == pytest.approx(1.0)
@@ -229,7 +245,7 @@ class TestCryptoQuantProviderEnabled:
         prov = self._make_provider()
         call_count = 0
         responses = [
-            None,                # reserve fails
+            None,  # reserve fails
             {"result": {"data": [{"netflow_usd": 1.0} for _ in range(30)]}},
             {"result": {"data": [{"netflow_usd": 1.0} for _ in range(30)]}},
             {"result": {"data": [{"exchange": "Binance", "funding_rate": 0.01}]}},
@@ -242,7 +258,7 @@ class TestCryptoQuantProviderEnabled:
             call_count += 1
             return r
 
-        with patch.object(prov, '_get', side_effect=mock_get):
+        with patch.object(prov, "_get", side_effect=mock_get):
             m = await prov.fetch_metrics()
 
         assert m["confidence"] < 1.0
@@ -252,6 +268,6 @@ class TestCryptoQuantProviderEnabled:
     async def test_initialize_warms_cache(self):
         prov = self._make_provider()
         mock_get = AsyncMock(return_value={"result": {"data": []}})
-        with patch.object(prov, '_get', mock_get):
+        with patch.object(prov, "_get", mock_get):
             await prov.initialize()
         mock_get.assert_called_once()

@@ -3,6 +3,7 @@ Additional coverage for src/risk/gates.py — Debt-005.
 
 Tests individual gate functions directly (pure functions, no async).
 """
+
 from __future__ import annotations
 
 from src.config import TradingMode
@@ -38,6 +39,7 @@ def _slip(total_bps: float = 5.0) -> SlippageEstimate:
 # check_slippage_veto
 # ---------------------------------------------------------------------------
 
+
 class TestSlippageVeto:
     def test_none_slippage_passes(self):
         r = check_slippage_veto(expected_edge_bps=10.0, slippage=None)
@@ -63,6 +65,7 @@ class TestSlippageVeto:
 # ---------------------------------------------------------------------------
 # check_daily_drawdown
 # ---------------------------------------------------------------------------
+
 
 class TestDailyDrawdown:
     def test_no_loss_passes(self):
@@ -95,6 +98,7 @@ class TestDailyDrawdown:
 # check_consecutive_losses
 # ---------------------------------------------------------------------------
 
+
 class TestConsecutiveLosses:
     def test_zero_losses_passes(self):
         r = check_consecutive_losses(0)
@@ -106,6 +110,7 @@ class TestConsecutiveLosses:
 
     def test_at_threshold_blocks(self):
         from src.config import get_settings
+
         threshold = get_settings().risk.consecutive_loss_halt
         r = check_consecutive_losses(threshold)
         assert r.passed is False
@@ -124,6 +129,7 @@ class TestConsecutiveLosses:
 # ---------------------------------------------------------------------------
 # check_regime_gate
 # ---------------------------------------------------------------------------
+
 
 class TestRegimeGate:
     def test_ranging_passes(self):
@@ -148,6 +154,7 @@ class TestRegimeGate:
 # check_position_size
 # ---------------------------------------------------------------------------
 
+
 class TestPositionSize:
     def test_small_notional_passes(self):
         r = check_position_size(notional_usd=100.0, capital_usd=10_000.0)
@@ -171,6 +178,7 @@ class TestPositionSize:
 # ---------------------------------------------------------------------------
 # GateResult class methods
 # ---------------------------------------------------------------------------
+
 
 class TestGateResult:
     def test_pass_gate_creates_passed_result(self):
@@ -197,22 +205,23 @@ class TestGateResult:
 # evaluate_all_gates integration
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateAllGates:
     def _ctx(self, **overrides) -> RiskGateContext:
-        defaults = dict(
-            daily_pnl_usd=0.0,
-            starting_equity_usd=10_000.0,
-            consecutive_loss_count=0,
-            regime_state=1,  # trending
-            notional_usd=200.0,
-            capital_usd=10_000.0,
-            trading_mode=TradingMode.PAPER,
-            direction_gate_pass=True,
-            meta_gate_pass=True,
-            paper_trading_days=30,
-            expected_edge_bps=20.0,
-            slippage_estimate=None,
-        )
+        defaults = {
+            "daily_pnl_usd": 0.0,
+            "starting_equity_usd": 10_000.0,
+            "consecutive_loss_count": 0,
+            "regime_state": 1,  # trending
+            "notional_usd": 200.0,
+            "capital_usd": 10_000.0,
+            "trading_mode": TradingMode.PAPER,
+            "direction_gate_pass": True,
+            "meta_gate_pass": True,
+            "paper_trading_days": 30,
+            "expected_edge_bps": 20.0,
+            "slippage_estimate": None,
+        }
         defaults.update(overrides)
         return RiskGateContext(**defaults)
 

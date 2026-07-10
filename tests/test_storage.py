@@ -1,5 +1,6 @@
 """Test coverage for src/data/storage.py — async SQLite storage backend."""
 
+import contextlib
 import os
 import pathlib
 import tempfile
@@ -28,52 +29,90 @@ async def backend():
     yield sb
     await sb.close()
     for ext in ("", "-wal", "-shm"):
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.remove(path + ext)
-        except FileNotFoundError:
-            pass
 
 
 def make_bar(symbol="BTC/USDT", timeframe="15m", ts=1000, close=100.0):
     return BarRecord(
-        symbol=symbol, timeframe=timeframe, ts=ts,
-        open=close - 1, high=close + 1, low=close - 2, close=close,
-        volume=10.0, quote_volume=1000.0, taker_buy_vol=5.0,
+        symbol=symbol,
+        timeframe=timeframe,
+        ts=ts,
+        open=close - 1,
+        high=close + 1,
+        low=close - 2,
+        close=close,
+        volume=10.0,
+        quote_volume=1000.0,
+        taker_buy_vol=5.0,
     )
 
 
 def make_trade(trade_id="t1", symbol="BTC/USDT", entry_ts=1000, pnl_usd=None, exit_ts=None):
     return TradeRecord(
-        id=trade_id, symbol=symbol, timeframe="15m", trading_mode="paper",
-        execution_mode="paper", direction=1, entry_price=100.0, exit_price=None,
-        quantity=1.0, notional_usd=100.0, entry_ts=entry_ts, exit_ts=exit_ts,
-        pnl_usd=pnl_usd, pnl_pct=None, fee_usd=0.1, kelly_fraction=0.1,
-        regime_at_entry=1, meta_label_prob=0.6, exit_reason=None,
-        approved_by="system", raw_signal=0.5,
+        id=trade_id,
+        symbol=symbol,
+        timeframe="15m",
+        trading_mode="paper",
+        execution_mode="paper",
+        direction=1,
+        entry_price=100.0,
+        exit_price=None,
+        quantity=1.0,
+        notional_usd=100.0,
+        entry_ts=entry_ts,
+        exit_ts=exit_ts,
+        pnl_usd=pnl_usd,
+        pnl_pct=None,
+        fee_usd=0.1,
+        kelly_fraction=0.1,
+        regime_at_entry=1,
+        meta_label_prob=0.6,
+        exit_reason=None,
+        approved_by="system",
+        raw_signal=0.5,
     )
 
 
 def make_regime(symbol="BTC/USDT", timeframe="15m", ts=1000, state=1):
     return RegimeSnapshotRecord(
-        symbol=symbol, timeframe=timeframe, ts=ts, regime_state=state,
-        prob_ranging=0.2, prob_trending=0.7, prob_volatile=0.1,
+        symbol=symbol,
+        timeframe=timeframe,
+        ts=ts,
+        regime_state=state,
+        prob_ranging=0.2,
+        prob_trending=0.7,
+        prob_volatile=0.1,
     )
 
 
 def make_metrics(model_name="direction", timeframe="15m", version="v1", gate_pass=True):
     return ModelMetricsRecord(
-        model_name=model_name, timeframe=timeframe, version=version,
-        oos_sharpe=1.5, max_drawdown=0.1, n_trades=50, accuracy=0.6,
-        precision_score=0.65, recall_score=0.55, f1_score=0.6,
+        model_name=model_name,
+        timeframe=timeframe,
+        version=version,
+        oos_sharpe=1.5,
+        max_drawdown=0.1,
+        n_trades=50,
+        accuracy=0.6,
+        precision_score=0.65,
+        recall_score=0.55,
+        f1_score=0.6,
         live_gate_pass=gate_pass,
     )
 
 
 def make_equity(ts=1000, trading_mode="paper", equity=10000.0):
     return EquityRecord(
-        ts=ts, trading_mode=trading_mode, equity_usd=equity, cash_usd=5000.0,
-        unrealized_pnl=0.0, daily_pnl_usd=0.0, daily_pnl_pct=0.0,
-        peak_equity_usd=equity, drawdown_pct=0.0,
+        ts=ts,
+        trading_mode=trading_mode,
+        equity_usd=equity,
+        cash_usd=5000.0,
+        unrealized_pnl=0.0,
+        daily_pnl_usd=0.0,
+        daily_pnl_pct=0.0,
+        peak_equity_usd=equity,
+        drawdown_pct=0.0,
     )
 
 
@@ -81,7 +120,9 @@ class TestRecordConstructors:
     """Lightweight dataclass-like record construction."""
 
     def test_bar_record_defaults(self):
-        bar = BarRecord(symbol="BTC/USDT", timeframe="15m", ts=1, open=1, high=2, low=0, close=1, volume=10)
+        bar = BarRecord(
+            symbol="BTC/USDT", timeframe="15m", ts=1, open=1, high=2, low=0, close=1, volume=10
+        )
         assert bar.quote_volume == 0.0
         assert bar.taker_buy_vol == 0.0
 
@@ -148,10 +189,8 @@ class TestOpenStorageContextManager:
             health = await storage.health_check()
             assert "bars" in health
         for ext in ("", "-wal", "-shm"):
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.remove(path + ext)
-            except FileNotFoundError:
-                pass
 
 
 class TestBars:
@@ -230,6 +269,7 @@ class TestBars:
     @pytest.mark.asyncio
     async def test_prune_old_bars_keeps_recent(self, backend):
         import time
+
         recent_ts = int(time.time() * 1000)
         await backend.upsert_bars([make_bar(ts=recent_ts)])
         deleted = await backend.prune_old_bars("BTC/USDT", "15m", keep_days=30)
@@ -258,8 +298,13 @@ class TestTrades:
     async def test_update_trade_exit_success(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1"))
         await backend.update_trade_exit(
-            trade_id="t1", exit_price=110.0, exit_ts=2000,
-            pnl_usd=10.0, pnl_pct=0.1, exit_reason="tp", fee_usd=0.05,
+            trade_id="t1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
         )
         rows = await backend.fetch_trades()
         assert rows[0].exit_price == 110.0
@@ -271,8 +316,13 @@ class TestTrades:
         trade.fee_usd = 0.1
         await backend.insert_trade(trade)
         await backend.update_trade_exit(
-            trade_id="t1", exit_price=110.0, exit_ts=2000,
-            pnl_usd=10.0, pnl_pct=0.1, exit_reason="tp", fee_usd=0.05,
+            trade_id="t1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
         )
         rows = await backend.fetch_trades()
         assert rows[0].fee_usd == pytest.approx(0.15)
@@ -281,21 +331,36 @@ class TestTrades:
     async def test_update_trade_exit_nonexistent_raises(self, backend):
         with pytest.raises(ValueError, match="No open trade found"):
             await backend.update_trade_exit(
-                trade_id="ghost", exit_price=110.0, exit_ts=2000,
-                pnl_usd=10.0, pnl_pct=0.1, exit_reason="tp", fee_usd=0.05,
+                trade_id="ghost",
+                exit_price=110.0,
+                exit_ts=2000,
+                pnl_usd=10.0,
+                pnl_pct=0.1,
+                exit_reason="tp",
+                fee_usd=0.05,
             )
 
     @pytest.mark.asyncio
     async def test_update_trade_exit_already_closed_raises(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1"))
         await backend.update_trade_exit(
-            trade_id="t1", exit_price=110.0, exit_ts=2000,
-            pnl_usd=10.0, pnl_pct=0.1, exit_reason="tp", fee_usd=0.05,
+            trade_id="t1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
         )
         with pytest.raises(ValueError, match="already closed"):
             await backend.update_trade_exit(
-                trade_id="t1", exit_price=120.0, exit_ts=3000,
-                pnl_usd=20.0, pnl_pct=0.2, exit_reason="tp", fee_usd=0.05,
+                trade_id="t1",
+                exit_price=120.0,
+                exit_ts=3000,
+                pnl_usd=20.0,
+                pnl_pct=0.2,
+                exit_reason="tp",
+                fee_usd=0.05,
             )
 
     @pytest.mark.asyncio
@@ -362,6 +427,7 @@ class TestTrades:
     @pytest.mark.asyncio
     async def test_daily_pnl_sums_todays_trades(self, backend):
         import time
+
         now_ms = int(time.time() * 1000)
         t = make_trade(trade_id="t1", entry_ts=now_ms, pnl_usd=15.0, exit_ts=now_ms)
         await backend.insert_trade(t)
@@ -542,7 +608,8 @@ class TestAuditLog:
     @pytest.mark.asyncio
     async def test_insert_audit_event_with_details(self, backend):
         await backend.insert_audit_event(
-            event_type="mode_change", operator="admin",
+            event_type="mode_change",
+            operator="admin",
             details={"from": "paper", "to": "live"},
         )
         health = await backend.health_check()
@@ -561,7 +628,14 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_all_tables_present(self, backend):
         health = await backend.health_check()
-        expected_tables = {"bars", "trades", "regime_snapshots", "model_metrics", "equity_curve", "audit_log"}
+        expected_tables = {
+            "bars",
+            "trades",
+            "regime_snapshots",
+            "model_metrics",
+            "equity_curve",
+            "audit_log",
+        }
         assert expected_tables.issubset(set(health.keys()))
 
     @pytest.mark.asyncio
@@ -577,6 +651,7 @@ class TestHealthCheck:
 # Gap-012: Schema migration tests
 # ---------------------------------------------------------------------------
 
+
 class TestSchemaMigrations:
     """Verify the PRAGMA user_version migration system (Gap-012)."""
 
@@ -587,9 +662,7 @@ class TestSchemaMigrations:
 
         row = await backend._conn.execute("PRAGMA user_version")
         version = (await row.fetchone())[0]
-        assert version == _SCHEMA_VERSION, (
-            f"Expected user_version={_SCHEMA_VERSION}, got {version}"
-        )
+        assert version == _SCHEMA_VERSION, f"Expected user_version={_SCHEMA_VERSION}, got {version}"
 
     @pytest.mark.asyncio
     async def test_migration_is_idempotent(self, backend: StorageBackend) -> None:

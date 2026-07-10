@@ -2,10 +2,10 @@
 OCI-002: Tests for ArkhamProvider.
 All HTTP calls mocked via unittest.mock.AsyncMock — no network required.
 """
+
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -24,6 +24,7 @@ def _make_provider(key: str = "test-key", ttl: int = 60) -> ArkhamProvider:
 # ---------------------------------------------------------------------------
 # Helper unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_sum_usd_empty() -> None:
     assert _sum_usd({}) == 0.0
@@ -59,6 +60,7 @@ def test_herfindahl_monopoly_near_one() -> None:
 # ---------------------------------------------------------------------------
 # ArkhamProvider tests (mocked HTTP)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_no_api_key_returns_neutral_confidence_zero() -> None:
@@ -154,7 +156,7 @@ async def test_auth_failure_returns_neutral_confidence_penalty() -> None:
 
     provider._get = mock_get  # type: ignore[assignment]
     metrics = await provider.fetch_metrics()
-    # 4 fields × 0.05 penalty = 0.8 max reduction, but summaries count as 1
+    # 4 fields x 0.05 penalty = 0.8 max reduction, but summaries count as 1
     assert metrics["confidence"] < 1.0
     assert metrics["confidence"] >= 0.0
 
@@ -204,12 +206,10 @@ async def test_circuit_breaker_fires_after_3_consecutive_http_errors() -> None:
 
     for _ in range(3):
         try:
-            await cb.call(failing())
+            await cb.call(failing)
         except RuntimeError:
             failures += 1
 
-    coro = failing()
     with pytest.raises(CircuitOpenError):
-        await cb.call(coro)
-    coro.close()
+        await cb.call(failing)
     assert failures == 3

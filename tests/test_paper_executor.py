@@ -1,6 +1,7 @@
 """Test coverage for src/execution/paper.py — paper trading executor."""
 
 import asyncio
+import contextlib
 import os
 import tempfile
 
@@ -22,10 +23,8 @@ async def storage():
     yield sb
     await sb.close()
     for ext in ("", "-wal", "-shm"):
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.remove(path + ext)
-        except FileNotFoundError:
-            pass
 
 
 @pytest.fixture
@@ -55,10 +54,21 @@ class TestPaperPosition:
 
     def test_mark_long_profit(self):
         pos = PaperPosition(
-            trade_id="t1", symbol="BTC/USDT", timeframe="15m", direction=1,
-            entry_price=100.0, quantity=2.0, notional_usd=200.0, entry_ts=1000,
-            kelly_fraction=0.1, regime_at_entry=1, meta_label_prob=0.6,
-            raw_signal=0.5, approved_by="auto", execution_mode="automatic", fee_usd=0.2,
+            trade_id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            entry_price=100.0,
+            quantity=2.0,
+            notional_usd=200.0,
+            entry_ts=1000,
+            kelly_fraction=0.1,
+            regime_at_entry=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="automatic",
+            fee_usd=0.2,
         )
         pnl = pos.mark(110.0)
         assert pnl == pytest.approx(20.0)
@@ -66,30 +76,63 @@ class TestPaperPosition:
 
     def test_mark_long_loss(self):
         pos = PaperPosition(
-            trade_id="t1", symbol="BTC/USDT", timeframe="15m", direction=1,
-            entry_price=100.0, quantity=2.0, notional_usd=200.0, entry_ts=1000,
-            kelly_fraction=0.1, regime_at_entry=1, meta_label_prob=0.6,
-            raw_signal=0.5, approved_by="auto", execution_mode="automatic", fee_usd=0.2,
+            trade_id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            entry_price=100.0,
+            quantity=2.0,
+            notional_usd=200.0,
+            entry_ts=1000,
+            kelly_fraction=0.1,
+            regime_at_entry=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="automatic",
+            fee_usd=0.2,
         )
         pnl = pos.mark(90.0)
         assert pnl == pytest.approx(-20.0)
 
     def test_mark_short_profit(self):
         pos = PaperPosition(
-            trade_id="t1", symbol="BTC/USDT", timeframe="15m", direction=0,
-            entry_price=100.0, quantity=2.0, notional_usd=200.0, entry_ts=1000,
-            kelly_fraction=0.1, regime_at_entry=1, meta_label_prob=0.6,
-            raw_signal=0.5, approved_by="auto", execution_mode="automatic", fee_usd=0.2,
+            trade_id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=0,
+            entry_price=100.0,
+            quantity=2.0,
+            notional_usd=200.0,
+            entry_ts=1000,
+            kelly_fraction=0.1,
+            regime_at_entry=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="automatic",
+            fee_usd=0.2,
         )
         pnl = pos.mark(90.0)
         assert pnl == pytest.approx(20.0)
 
     def test_mark_short_loss(self):
         pos = PaperPosition(
-            trade_id="t1", symbol="BTC/USDT", timeframe="15m", direction=0,
-            entry_price=100.0, quantity=2.0, notional_usd=200.0, entry_ts=1000,
-            kelly_fraction=0.1, regime_at_entry=1, meta_label_prob=0.6,
-            raw_signal=0.5, approved_by="auto", execution_mode="automatic", fee_usd=0.2,
+            trade_id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=0,
+            entry_price=100.0,
+            quantity=2.0,
+            notional_usd=200.0,
+            entry_ts=1000,
+            kelly_fraction=0.1,
+            regime_at_entry=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="automatic",
+            fee_usd=0.2,
         )
         pnl = pos.mark(110.0)
         assert pnl == pytest.approx(-20.0)
@@ -100,10 +143,18 @@ class TestApprovalRequestToDict:
 
     def test_to_dict_long(self):
         req = ApprovalRequest(
-            request_id="r1", symbol="BTC/USDT", timeframe="15m", direction=1,
-            notional_usd=500.0, entry_price=100.0, quantity=5.0,
-            kelly_fraction=0.1, regime_state=1, meta_label_prob=0.6,
-            raw_signal=0.5, created_at=0.0,
+            request_id="r1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            notional_usd=500.0,
+            entry_price=100.0,
+            quantity=5.0,
+            kelly_fraction=0.1,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            created_at=0.0,
         )
         d = req.to_dict()
         assert d["direction"] == "long"
@@ -111,10 +162,18 @@ class TestApprovalRequestToDict:
 
     def test_to_dict_short(self):
         req = ApprovalRequest(
-            request_id="r1", symbol="BTC/USDT", timeframe="15m", direction=0,
-            notional_usd=500.0, entry_price=100.0, quantity=5.0,
-            kelly_fraction=0.1, regime_state=1, meta_label_prob=0.6,
-            raw_signal=0.5, created_at=0.0,
+            request_id="r1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=0,
+            notional_usd=500.0,
+            entry_price=100.0,
+            quantity=5.0,
+            kelly_fraction=0.1,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            created_at=0.0,
         )
         d = req.to_dict()
         assert d["direction"] == "short"
@@ -296,10 +355,10 @@ class TestClosePosition:
     async def test_close_long_profit(self, executor):
         await runtime_config.set_execution_mode(ExecutionMode.AUTOMATIC)
         kelly = make_kelly(notional=500.0, price=100.0)
-        trade_id, _ = await executor.submit_signal(
-            "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
+        trade_id, _ = await executor.submit_signal("BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0)
+        net_pnl = await executor.close_position(
+            trade_id, exit_price=110.0, exit_reason="profit_target"
         )
-        net_pnl = await executor.close_position(trade_id, exit_price=110.0, exit_reason="profit_target")
         assert net_pnl > 0
         assert executor.position_count() == 0
 
@@ -307,9 +366,7 @@ class TestClosePosition:
     async def test_close_long_loss(self, executor):
         await runtime_config.set_execution_mode(ExecutionMode.AUTOMATIC)
         kelly = make_kelly(notional=500.0, price=100.0)
-        trade_id, _ = await executor.submit_signal(
-            "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
-        )
+        trade_id, _ = await executor.submit_signal("BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0)
         net_pnl = await executor.close_position(trade_id, exit_price=90.0, exit_reason="stop_loss")
         assert net_pnl < 0
 
@@ -317,10 +374,10 @@ class TestClosePosition:
     async def test_close_short_profit(self, executor):
         await runtime_config.set_execution_mode(ExecutionMode.AUTOMATIC)
         kelly = make_kelly(notional=500.0, price=100.0)
-        trade_id, _ = await executor.submit_signal(
-            "BTC/USDT", "15m", 0, kelly, 1, 0.6, 0.5, 100.0
+        trade_id, _ = await executor.submit_signal("BTC/USDT", "15m", 0, kelly, 1, 0.6, 0.5, 100.0)
+        net_pnl = await executor.close_position(
+            trade_id, exit_price=90.0, exit_reason="profit_target"
         )
-        net_pnl = await executor.close_position(trade_id, exit_price=90.0, exit_reason="profit_target")
         assert net_pnl > 0
 
     @pytest.mark.asyncio
@@ -328,9 +385,7 @@ class TestClosePosition:
         await runtime_config.set_execution_mode(ExecutionMode.AUTOMATIC)
         cash_before_open = executor.cash_usd
         kelly = make_kelly(notional=500.0, price=100.0)
-        trade_id, _ = await executor.submit_signal(
-            "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
-        )
+        trade_id, _ = await executor.submit_signal("BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0)
         cash_after_open = executor.cash_usd
         assert cash_after_open < cash_before_open
         await executor.close_position(trade_id, exit_price=100.0, exit_reason="time_exit")
@@ -346,9 +401,7 @@ class TestClosePosition:
     async def test_close_persists_to_storage(self, executor, storage):
         await runtime_config.set_execution_mode(ExecutionMode.AUTOMATIC)
         kelly = make_kelly(notional=500.0, price=100.0)
-        trade_id, _ = await executor.submit_signal(
-            "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
-        )
+        trade_id, _ = await executor.submit_signal("BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0)
         await executor.close_position(trade_id, exit_price=110.0, exit_reason="profit_target")
         trades = await storage.fetch_trades(symbol="BTC/USDT")
         assert trades[0].exit_price == 110.0
@@ -447,9 +500,7 @@ class TestApprovalTimeout:
         await runtime_config.set_execution_mode(ExecutionMode.RESTRICTED)
         ex._risk_cfg.approval_timeout_s = 0.05  # speed up test
         kelly = make_kelly(notional=500.0, price=100.0)
-        trade_id, outcome = await ex.submit_signal(
-            "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
-        )
+        trade_id, outcome = await ex.submit_signal("BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0)
         assert outcome == "skipped"
         assert trade_id is None
         await runtime_config.set_execution_mode(ExecutionMode.AUTOMATIC)

@@ -12,13 +12,13 @@ mark_to_market, reset_daily_equity, get_risk_snapshot, helper properties.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import OrderedDict
-from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config import ExecutionMode, TradingMode
+from src.config import ExecutionMode
 from src.execution.live import LiveExecutor, LivePosition
 from src.risk.kelly import KellyResult
 
@@ -26,6 +26,7 @@ from src.risk.kelly import KellyResult
 # ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
+
 
 def _kelly(
     notional: float = 5000.0,
@@ -48,12 +49,11 @@ def _make_executor(
     cash: float | None = None,
 ) -> LiveExecutor:
     """Construct LiveExecutor without __init__ (no TRADING_MODE=live needed)."""
-    import asyncio
-    from collections import OrderedDict
 
-    from src.risk.gates import DrawdownTracker
-    from src.execution.order_manager import OrderManager
     import structlog
+
+    from src.execution.order_manager import OrderManager
+    from src.risk.gates import DrawdownTracker
 
     executor = object.__new__(LiveExecutor)
     executor._starting_capital = starting_capital
@@ -98,6 +98,7 @@ def _filled_order(
 # initialize()
 # ─────────────────────────────────────────────────────────────
 
+
 class TestInitialize:
     @pytest.mark.asyncio
     async def test_initialize_fresh_no_prior_equity(self):
@@ -125,6 +126,7 @@ class TestInitialize:
 # ─────────────────────────────────────────────────────────────
 # Properties
 # ─────────────────────────────────────────────────────────────
+
 
 class TestProperties:
     def test_cash_usd(self):
@@ -223,9 +225,14 @@ class TestSubmitSignalRouting:
             mock_rc.get_execution_mode = AsyncMock(return_value=ExecutionMode.AUTOMATIC)
             ex._submit_signal_auto = AsyncMock(return_value=("trade-1", "opened"))
             result = await ex.submit_signal(
-                symbol="BTC/USDT", timeframe="1h", direction=1,
-                kelly_result=_kelly(), regime_state=0,
-                meta_label_prob=0.7, raw_signal=1.0, current_price=50_000.0,
+                symbol="BTC/USDT",
+                timeframe="1h",
+                direction=1,
+                kelly_result=_kelly(),
+                regime_state=0,
+                meta_label_prob=0.7,
+                raw_signal=1.0,
+                current_price=50_000.0,
             )
         assert result == ("trade-1", "opened")
         ex._submit_signal_auto.assert_awaited_once()
@@ -238,9 +245,14 @@ class TestSubmitSignalRouting:
             mock_rc.get_execution_mode = AsyncMock(return_value=ExecutionMode.RESTRICTED)
             ex._submit_signal_auto = AsyncMock(return_value=("trade-2", "opened"))
             result = await ex.submit_signal(
-                symbol="ETH/USDT", timeframe="1h", direction=1,
-                kelly_result=_kelly(notional=3_000.0), regime_state=0,
-                meta_label_prob=0.6, raw_signal=1.0, current_price=3_000.0,
+                symbol="ETH/USDT",
+                timeframe="1h",
+                direction=1,
+                kelly_result=_kelly(notional=3_000.0),
+                regime_state=0,
+                meta_label_prob=0.6,
+                raw_signal=1.0,
+                current_price=3_000.0,
             )
         assert result[1] == "opened"
         ex._submit_signal_auto.assert_awaited_once()
@@ -253,9 +265,14 @@ class TestSubmitSignalRouting:
             mock_rc.get_execution_mode = AsyncMock(return_value=ExecutionMode.RESTRICTED)
             ex._submit_signal_with_approval = AsyncMock(return_value=(None, "skipped"))
             result = await ex.submit_signal(
-                symbol="BTC/USDT", timeframe="1h", direction=1,
-                kelly_result=_kelly(notional=15_000.0), regime_state=0,
-                meta_label_prob=0.8, raw_signal=1.0, current_price=50_000.0,
+                symbol="BTC/USDT",
+                timeframe="1h",
+                direction=1,
+                kelly_result=_kelly(notional=15_000.0),
+                regime_state=0,
+                meta_label_prob=0.8,
+                raw_signal=1.0,
+                current_price=50_000.0,
             )
         assert result == (None, "skipped")
         ex._submit_signal_with_approval.assert_awaited_once()
@@ -267,9 +284,14 @@ class TestSubmitSignalRouting:
             mock_rc.get_execution_mode = AsyncMock(return_value=ExecutionMode.MANUAL)
             ex._submit_signal_with_approval = AsyncMock(return_value=(None, "pending"))
             await ex.submit_signal(
-                symbol="BTC/USDT", timeframe="1h", direction=-1,
-                kelly_result=_kelly(), regime_state=1,
-                meta_label_prob=0.55, raw_signal=-1.0, current_price=50_000.0,
+                symbol="BTC/USDT",
+                timeframe="1h",
+                direction=-1,
+                kelly_result=_kelly(),
+                regime_state=1,
+                meta_label_prob=0.55,
+                raw_signal=-1.0,
+                current_price=50_000.0,
             )
         ex._submit_signal_with_approval.assert_awaited_once()
 
@@ -279,9 +301,13 @@ class TestPlaceAndRecordGuards:
     async def test_insufficient_cash_returns_none(self):
         ex = _make_executor(cash=10.0)
         result = await ex._place_and_record(
-            symbol="BTC/USDT", timeframe="1h", direction=1,
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
             kelly_result=_kelly(notional=5_000.0),
-            regime_state=0, meta_label_prob=0.7, raw_signal=1.0,
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
             approved_by="auto",
         )
         assert result is None
@@ -290,14 +316,24 @@ class TestPlaceAndRecordGuards:
     @pytest.mark.asyncio
     async def test_bad_fill_price_returns_none_restores_cash(self):
         ex = _make_executor(cash=100_000.0)
-        bad_order = {"id": "ord-bad", "status": "closed", "filled": 0.1,
-                     "amount": 0.1, "average": 0.0, "fees": []}
+        bad_order = {
+            "id": "ord-bad",
+            "status": "closed",
+            "filled": 0.1,
+            "amount": 0.1,
+            "average": 0.0,
+            "fees": [],
+        }
         ex._place_market_order = AsyncMock(return_value=bad_order)
         ex._storage.insert_trade = AsyncMock()
         result = await ex._place_and_record(
-            symbol="BTC/USDT", timeframe="1h", direction=1,
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
             kelly_result=_kelly(notional=5_000.0, qty=0.1, price=50_000.0),
-            regime_state=0, meta_label_prob=0.7, raw_signal=1.0,
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
             approved_by="auto",
         )
         assert result is None
@@ -306,12 +342,17 @@ class TestPlaceAndRecordGuards:
     @pytest.mark.asyncio
     async def test_network_error_restores_cash(self):
         import ccxt
+
         ex = _make_executor(cash=100_000.0)
         ex._place_market_order = AsyncMock(side_effect=ccxt.NetworkError("timeout"))
         result = await ex._place_and_record(
-            symbol="BTC/USDT", timeframe="1h", direction=1,
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
             kelly_result=_kelly(notional=5_000.0),
-            regime_state=0, meta_label_prob=0.7, raw_signal=1.0,
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
             approved_by="auto",
         )
         assert result is None
@@ -320,19 +361,46 @@ class TestPlaceAndRecordGuards:
     @pytest.mark.asyncio
     async def test_successful_fill_creates_position(self):
         ex = _make_executor(cash=100_000.0)
-        ex._place_market_order = AsyncMock(return_value=_filled_order(
-            price=50_000.0, qty=0.1, fee_usd=2.5))
+        ex._place_market_order = AsyncMock(
+            return_value=_filled_order(price=50_000.0, qty=0.1, fee_usd=2.5)
+        )
         ex._storage.insert_trade = AsyncMock()
         ex._storage.insert_equity = AsyncMock()
         trade_id = await ex._place_and_record(
-            symbol="BTC/USDT", timeframe="1h", direction=1,
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
             kelly_result=_kelly(notional=5_000.0, qty=0.1, price=50_000.0),
-            regime_state=0, meta_label_prob=0.7, raw_signal=1.0,
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
             approved_by="auto",
         )
         assert trade_id is not None
         assert trade_id in ex._positions
         ex._storage.insert_trade.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_post_reconcile_cash_insufficient_returns_none(self):
+        # Estimated notional (5_000) is affordable, but the actual fill
+        # (price*qty=50_000*0.2=10_000) costs more than the reserved estimate —
+        # after undoing the pre-check reserve, cash is short for the real cost.
+        ex = _make_executor(cash=5_100.0)
+        ex._place_market_order = AsyncMock(
+            return_value=_filled_order(price=50_000.0, qty=0.2, fee_usd=1.0)
+        )
+        result = await ex._place_and_record(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(notional=5_000.0, qty=0.2, price=50_000.0),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+            approved_by="auto",
+        )
+        assert result is None
+        assert "BTC/USDT" not in ex._positions
 
 
 class TestMarkToMarket:
@@ -386,12 +454,16 @@ class TestClosePosition:
     async def test_close_long_profitable(self):
         ex = _make_executor(cash=95_000.0)
         pos = _make_position(
-            trade_id="trade-1", entry_price=50_000.0,
-            quantity=0.1, notional_usd=5_000.0, direction=1,
+            trade_id="trade-1",
+            entry_price=50_000.0,
+            quantity=0.1,
+            notional_usd=5_000.0,
+            direction=1,
         )
         ex._positions["trade-1"] = pos
-        ex._place_market_order = AsyncMock(return_value=_filled_order(
-            price=51_000.0, qty=0.1, fee_usd=2.55))
+        ex._place_market_order = AsyncMock(
+            return_value=_filled_order(price=51_000.0, qty=0.1, fee_usd=2.55)
+        )
         ex._storage.update_trade_exit = AsyncMock()
         ex._storage.insert_equity = AsyncMock()
         net_pnl = await ex.close_position("trade-1", exit_price=51_000.0, exit_reason="tp")
@@ -403,12 +475,16 @@ class TestClosePosition:
     async def test_close_short_profitable(self):
         ex = _make_executor(cash=95_000.0)
         pos = _make_position(
-            trade_id="trade-s", entry_price=50_000.0,
-            quantity=0.1, notional_usd=5_000.0, direction=-1,
+            trade_id="trade-s",
+            entry_price=50_000.0,
+            quantity=0.1,
+            notional_usd=5_000.0,
+            direction=-1,
         )
         ex._positions["trade-s"] = pos
-        ex._place_market_order = AsyncMock(return_value=_filled_order(
-            price=49_000.0, qty=0.1, fee_usd=2.45))
+        ex._place_market_order = AsyncMock(
+            return_value=_filled_order(price=49_000.0, qty=0.1, fee_usd=2.45)
+        )
         ex._storage.update_trade_exit = AsyncMock()
         ex._storage.insert_equity = AsyncMock()
         net_pnl = await ex.close_position("trade-s", exit_price=49_000.0, exit_reason="tp")
@@ -418,6 +494,7 @@ class TestClosePosition:
     @pytest.mark.asyncio
     async def test_exchange_error_propagates_position_intact(self):
         import ccxt
+
         ex = _make_executor(cash=95_000.0)
         ex._positions["trade-err"] = _make_position(trade_id="trade-err")
         ex._place_market_order = AsyncMock(side_effect=ccxt.ExchangeError("rejected"))
@@ -447,3 +524,365 @@ class TestEquityAccounting:
         pos.unrealized_pnl = 200.0
         ex._positions["BTC/USDT"] = pos
         assert ex.equity_usd == pytest.approx(ex._equity_usd())
+
+
+# ─────────────────────────────────────────────────────────────
+# __init__() — TRADING_MODE gate
+# ─────────────────────────────────────────────────────────────
+
+
+class TestInit:
+    def test_raises_when_not_live_mode(self):
+        from src.config import TradingMode
+
+        storage = AsyncMock()
+        fetcher = MagicMock()
+        cfg = MagicMock(trading_mode=TradingMode.PAPER)
+        with patch("src.execution.live.get_settings", return_value=cfg):
+            with pytest.raises(RuntimeError, match="TRADING_MODE=live"):
+                LiveExecutor(storage, fetcher)
+
+    def test_constructs_when_live_mode(self):
+        from src.config import TradingMode
+
+        storage = AsyncMock()
+        fetcher = MagicMock()
+        cfg = MagicMock(trading_mode=TradingMode.LIVE, starting_capital_usd=50_000.0)
+        cfg.risk = MagicMock()
+        with patch("src.execution.live.get_settings", return_value=cfg):
+            ex = LiveExecutor(storage, fetcher)
+        assert ex._starting_capital == 50_000.0
+        assert ex._cash == 50_000.0
+        assert ex._initialized is False
+        assert ex._positions == {}
+        assert ex._approval_queue == {}
+
+    def test_explicit_starting_capital_overrides_settings(self):
+        from src.config import TradingMode
+
+        storage = AsyncMock()
+        fetcher = MagicMock()
+        cfg = MagicMock(trading_mode=TradingMode.LIVE, starting_capital_usd=50_000.0)
+        cfg.risk = MagicMock()
+        with patch("src.execution.live.get_settings", return_value=cfg):
+            ex = LiveExecutor(storage, fetcher, starting_capital=200_000.0)
+        assert ex._starting_capital == 200_000.0
+        assert ex._peak_equity == 200_000.0
+
+
+# ─────────────────────────────────────────────────────────────
+# _submit_signal_auto / _submit_signal_with_approval / _enqueue_approval /
+# _await_approval — internal routing (not exercised by TestSubmitSignalRouting,
+# which mocks these methods away)
+# ─────────────────────────────────────────────────────────────
+
+
+class TestSubmitSignalAuto:
+    @pytest.mark.asyncio
+    async def test_delegates_to_place_and_record(self):
+        ex = _make_executor()
+        ex._place_and_record = AsyncMock(return_value="trade-auto-1")
+        trade_id, outcome = await ex._submit_signal_auto(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+            approved_by="system",
+        )
+        assert trade_id == "trade-auto-1"
+        assert outcome == "opened"
+        ex._place_and_record.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rejected_when_place_and_record_returns_none(self):
+        ex = _make_executor()
+        ex._place_and_record = AsyncMock(return_value=None)
+        trade_id, outcome = await ex._submit_signal_auto(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+            approved_by="system",
+        )
+        assert trade_id is None
+        assert outcome == "rejected"
+
+
+class TestEnqueueApproval:
+    @pytest.mark.asyncio
+    async def test_adds_request_to_queue(self):
+        ex = _make_executor()
+        req_id = await ex._enqueue_approval(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(notional=1_234.0),
+            regime_state=2,
+            meta_label_prob=0.65,
+            raw_signal=0.5,
+        )
+        assert req_id in ex._approval_queue
+        req = ex._approval_queue[req_id]
+        assert req.symbol == "BTC/USDT"
+        assert req.notional_usd == pytest.approx(1_234.0)
+        assert req.resolved is False
+
+
+class TestPendingApprovalsSafe:
+    @pytest.mark.asyncio
+    async def test_returns_unresolved_and_prunes_stale_resolved(self):
+        ex = _make_executor()
+        req_id = await ex._enqueue_approval(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+        )
+        stale_id = await ex._enqueue_approval(
+            symbol="ETH/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+        )
+        stale_req = ex._approval_queue[stale_id]
+        stale_req.resolved = True
+        stale_req.created_at = time.monotonic() - 7200.0
+
+        pending = await ex.pending_approvals_safe()
+        assert stale_id not in ex._approval_queue
+        assert any(p["request_id"] == req_id for p in pending)
+
+
+class TestAwaitApproval:
+    @pytest.mark.asyncio
+    async def test_missing_request_returns_false(self):
+        ex = _make_executor()
+        approved, operator = await ex._await_approval("nonexistent", timeout_s=1.0)
+        assert approved is False
+        assert operator == ""
+
+    @pytest.mark.asyncio
+    async def test_resolved_approval_returns_true(self):
+        ex = _make_executor()
+        req_id = await ex._enqueue_approval(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+        )
+        await ex.resolve_approval(req_id, approved=True, operator="alice")
+        approved, operator = await ex._await_approval(req_id, timeout_s=1.0)
+        assert approved is True
+        assert operator == "alice"
+
+    @pytest.mark.asyncio
+    async def test_timeout_auto_denies(self):
+        ex = _make_executor()
+        req_id = await ex._enqueue_approval(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+        )
+        approved, operator = await ex._await_approval(req_id, timeout_s=0.01)
+        assert approved is False
+        assert operator == "auto_timeout"
+        assert req_id not in ex._approval_queue
+
+
+class TestSubmitSignalWithApproval:
+    @pytest.mark.asyncio
+    async def test_denied_returns_denied_outcome(self):
+        ex = _make_executor()
+        ex._await_approval = AsyncMock(return_value=(False, "auto_timeout"))
+        trade_id, outcome = await ex._submit_signal_with_approval(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+            timeout_s=1.0,
+            denied_outcome="skipped",
+        )
+        assert trade_id is None
+        assert outcome == "skipped"
+
+    @pytest.mark.asyncio
+    async def test_approved_delegates_to_auto_path(self):
+        ex = _make_executor()
+        ex._await_approval = AsyncMock(return_value=(True, "alice"))
+        ex._submit_signal_auto = AsyncMock(return_value=("trade-2", "opened"))
+        trade_id, outcome = await ex._submit_signal_with_approval(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            direction=1,
+            kelly_result=_kelly(),
+            regime_state=0,
+            meta_label_prob=0.7,
+            raw_signal=1.0,
+            timeout_s=1.0,
+            denied_outcome="skipped",
+        )
+        assert trade_id == "trade-2"
+        assert outcome == "opened"
+        _, kwargs = ex._submit_signal_auto.call_args
+        assert kwargs["approved_by"] == "alice"
+
+
+# ─────────────────────────────────────────────────────────────
+# _place_market_order — FSM success, timeout, exchange-error paths
+# ─────────────────────────────────────────────────────────────
+
+
+class TestPlaceMarketOrder:
+    @pytest.mark.asyncio
+    async def test_success_registers_fsm(self):
+        ex = _make_executor()
+        fsm = MagicMock()
+        fsm.state.order_id = "ord-42"
+        fsm.state.filled_qty = 0.1
+        fsm.state.average_fill_price = 50_000.0
+        fsm.state.retry_count = 1
+        confirmed = _filled_order(order_id="ord-42")
+        ex._order_manager.place_order_with_fsm = AsyncMock(return_value=(fsm, confirmed))
+        result = await ex._place_market_order("BTC/USDT", "buy", 0.1)
+        assert result == confirmed
+        assert ex._order_fsm_registry["ord-42"] is fsm.state
+
+    @pytest.mark.asyncio
+    async def test_timeout_raises_exchange_error(self):
+        import ccxt
+
+        ex = _make_executor()
+        ex._order_manager.place_order_with_fsm = AsyncMock(side_effect=TimeoutError("no fill"))
+        with pytest.raises(ccxt.ExchangeError, match="did not confirm"):
+            await ex._place_market_order("BTC/USDT", "buy", 0.1)
+
+    @pytest.mark.asyncio
+    async def test_exchange_error_propagates(self):
+        import ccxt
+
+        ex = _make_executor()
+        ex._order_manager.place_order_with_fsm = AsyncMock(
+            side_effect=ccxt.ExchangeError("rejected")
+        )
+        with pytest.raises(ccxt.ExchangeError, match="rejected"):
+            await ex._place_market_order("BTC/USDT", "buy", 0.1)
+
+
+# ─────────────────────────────────────────────────────────────
+# _register_order_fsm / get_order_fsm_state
+# ─────────────────────────────────────────────────────────────
+
+
+class TestOrderFsmRegistry:
+    def test_register_and_lookup(self):
+        ex = _make_executor()
+        fsm = MagicMock()
+        fsm.state.order_id = "ord-99"
+        ex._register_order_fsm(fsm)
+        assert ex._order_fsm_registry["ord-99"] is fsm.state
+
+    @pytest.mark.asyncio
+    async def test_get_order_fsm_state_found(self):
+        ex = _make_executor()
+        fsm = MagicMock()
+        fsm.state.order_id = "ord-100"
+        ex._register_order_fsm(fsm)
+        result = await ex.get_order_fsm_state("ord-100")
+        assert result is fsm.state
+
+    @pytest.mark.asyncio
+    async def test_get_order_fsm_state_not_found(self):
+        ex = _make_executor()
+        result = await ex.get_order_fsm_state("nonexistent")
+        assert result is None
+
+    def test_registry_evicts_oldest_when_over_capacity(self):
+        from src.execution.live import _ORDER_FSM_REGISTRY_MAX_SIZE
+
+        ex = _make_executor()
+        for i in range(_ORDER_FSM_REGISTRY_MAX_SIZE + 5):
+            fsm = MagicMock()
+            fsm.state.order_id = f"ord-{i}"
+            ex._register_order_fsm(fsm)
+        assert len(ex._order_fsm_registry) == _ORDER_FSM_REGISTRY_MAX_SIZE
+        assert "ord-0" not in ex._order_fsm_registry
+        assert f"ord-{_ORDER_FSM_REGISTRY_MAX_SIZE + 4}" in ex._order_fsm_registry
+
+
+# ─────────────────────────────────────────────────────────────
+# _extract_fee — fee parsing fallbacks
+# ─────────────────────────────────────────────────────────────
+
+
+class TestExtractFee:
+    def test_uses_fees_list_cost(self):
+        ex = _make_executor()
+        order = {"fees": [{"currency": "USDT", "cost": 5.0}]}
+        fee = ex._extract_fee(order, price=50_000.0, qty=0.1)
+        assert fee == pytest.approx(5.0)
+
+    def test_falls_back_to_single_fee_dict(self):
+        ex = _make_executor()
+        order = {"fee": {"currency": "USDC", "cost": 3.5}}
+        fee = ex._extract_fee(order, price=50_000.0, qty=0.1)
+        assert fee == pytest.approx(3.5)
+
+    def test_ignores_non_quote_currency_and_falls_back(self):
+        ex = _make_executor()
+        order = {"fees": [{"currency": "BTC", "cost": 0.0001}]}
+        fee = ex._extract_fee(order, price=50_000.0, qty=0.1)
+        # BTC-denominated fee not summed → falls back to flat-rate estimate
+        assert fee > 0.0
+        assert fee != pytest.approx(0.0001)
+
+    def test_unparseable_cost_falls_back(self):
+        ex = _make_executor()
+        order = {"fees": [{"currency": "USDT", "cost": "not-a-number"}]}
+        fee = ex._extract_fee(order, price=50_000.0, qty=0.1)
+        assert fee > 0.0
+
+    def test_no_fee_info_uses_flat_rate_estimate(self):
+        ex = _make_executor()
+        order = {}
+        fee = ex._extract_fee(order, price=50_000.0, qty=0.1)
+        assert fee > 0.0
+
+
+# ─────────────────────────────────────────────────────────────
+# _require_initialized
+# ─────────────────────────────────────────────────────────────
+
+
+class TestRequireInitialized:
+    def test_raises_when_not_initialized(self):
+        ex = _make_executor()
+        ex._initialized = False
+        with pytest.raises(RuntimeError, match="not initialized"):
+            ex._require_initialized()
+
+    def test_passes_when_initialized(self):
+        ex = _make_executor()
+        ex._initialized = True
+        ex._require_initialized()  # no raise

@@ -114,14 +114,22 @@ class TestRegimePredictionEntropyMath:
         assert abs(pred.dominant_prob - 0.72) < 1e-9
 
     def test_is_volatile_property(self):
-        pred = RegimePrediction(state=REGIME_VOLATILE, prob_ranging=0.1, prob_trending=0.1, prob_volatile=0.8)
+        pred = RegimePrediction(
+            state=REGIME_VOLATILE, prob_ranging=0.1, prob_trending=0.1, prob_volatile=0.8
+        )
         assert pred.is_volatile is True
-        pred2 = RegimePrediction(state=REGIME_TRENDING, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1)
+        pred2 = RegimePrediction(
+            state=REGIME_TRENDING, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1
+        )
         assert pred2.is_volatile is False
 
     def test_as_dict_includes_entropy_and_confidence(self):
         pred = RegimePrediction(
-            state=REGIME_TRENDING, prob_ranging=0.15, prob_trending=0.72, prob_volatile=0.13, entropy=0.7157,
+            state=REGIME_TRENDING,
+            prob_ranging=0.15,
+            prob_trending=0.72,
+            prob_volatile=0.13,
+            entropy=0.7157,
         )
         d = pred.as_dict()
         assert d["entropy"] == round(0.7157, 6)
@@ -134,37 +142,63 @@ class TestPositionScalar:
         self.cfg = HMMSettings(entropy_threshold=0.5, entropy_scalar_floor=0.5)
 
     def test_full_scalar_below_threshold(self):
-        pred = RegimePrediction(state=REGIME_TRENDING, prob_ranging=0.05, prob_trending=0.9, prob_volatile=0.05, entropy=0.3)
+        pred = RegimePrediction(
+            state=REGIME_TRENDING,
+            prob_ranging=0.05,
+            prob_trending=0.9,
+            prob_volatile=0.05,
+            entropy=0.3,
+        )
         assert pred.position_scalar(self.cfg) == 1.0
 
     def test_scalar_at_exact_threshold_is_one(self):
-        pred = RegimePrediction(state=REGIME_TRENDING, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1, entropy=0.5)
+        pred = RegimePrediction(
+            state=REGIME_TRENDING,
+            prob_ranging=0.1,
+            prob_trending=0.8,
+            prob_volatile=0.1,
+            entropy=0.5,
+        )
         assert pred.position_scalar(self.cfg) == 1.0
 
     def test_scalar_at_max_entropy_equals_floor(self):
-        pred = RegimePrediction(state=REGIME_TRENDING, prob_ranging=0.33, prob_trending=0.34, prob_volatile=0.33, entropy=1.0)
+        pred = RegimePrediction(
+            state=REGIME_TRENDING,
+            prob_ranging=0.33,
+            prob_trending=0.34,
+            prob_volatile=0.33,
+            entropy=1.0,
+        )
         assert abs(pred.position_scalar(self.cfg) - 0.5) < 1e-9
 
     def test_scalar_continuous_no_discontinuity_at_threshold(self):
         # Linear ramp: an infinitesimal entropy change near the threshold
         # must NOT cause a large jump in the scalar (this was the whole
         # point of choosing continuous over a hard step function).
-        just_below = RegimePrediction(state=1, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1, entropy=0.4999)
-        just_above = RegimePrediction(state=1, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1, entropy=0.5001)
+        just_below = RegimePrediction(
+            state=1, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1, entropy=0.4999
+        )
+        just_above = RegimePrediction(
+            state=1, prob_ranging=0.1, prob_trending=0.8, prob_volatile=0.1, entropy=0.5001
+        )
         scalar_below = just_below.position_scalar(self.cfg)
         scalar_above = just_above.position_scalar(self.cfg)
         assert abs(scalar_below - scalar_above) < 0.001
 
     def test_scalar_halfway_between_threshold_and_max(self):
         # entropy = 0.75 is halfway between threshold(0.5) and max(1.0)
-        pred = RegimePrediction(state=1, prob_ranging=0.2, prob_trending=0.6, prob_volatile=0.2, entropy=0.75)
+        pred = RegimePrediction(
+            state=1, prob_ranging=0.2, prob_trending=0.6, prob_volatile=0.2, entropy=0.75
+        )
         scalar = pred.position_scalar(self.cfg)
         assert abs(scalar - 0.75) < 1e-9  # 1.0 - 0.5*(1.0-0.5) = 0.75
 
     def test_scalar_monotonically_decreasing_with_entropy(self):
         entropies = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
         scalars = [
-            RegimePrediction(state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=e).position_scalar(self.cfg)
+            RegimePrediction(
+                state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=e
+            ).position_scalar(self.cfg)
             for e in entropies
         ]
         for i in range(len(scalars) - 1):
@@ -172,20 +206,26 @@ class TestPositionScalar:
 
     def test_scalar_never_exceeds_one_or_drops_below_floor(self):
         for e in [0.0, 0.25, 0.5, 0.75, 1.0]:
-            pred = RegimePrediction(state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=e)
+            pred = RegimePrediction(
+                state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=e
+            )
             scalar = pred.position_scalar(self.cfg)
             assert 0.5 - 1e-9 <= scalar <= 1.0 + 1e-9
 
     def test_uses_global_settings_when_cfg_not_passed(self):
         # No cfg arg -> falls back to get_settings().hmm; just confirm no crash
         # and a sane bounded result using defaults (threshold=0.5, floor=0.5).
-        pred = RegimePrediction(state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=0.9)
+        pred = RegimePrediction(
+            state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=0.9
+        )
         scalar = pred.position_scalar()
         assert 0.0 <= scalar <= 1.0
 
     def test_degenerate_threshold_equals_one_returns_floor_above_threshold(self):
         cfg = HMMSettings(entropy_threshold=1.0, entropy_scalar_floor=0.4)
-        pred = RegimePrediction(state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=1.0)
+        pred = RegimePrediction(
+            state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=1.0
+        )
         # entropy <= threshold (1.0 <= 1.0) -> full scalar, span-zero branch not hit
         assert pred.position_scalar(cfg) == 1.0
 
@@ -255,7 +295,9 @@ class TestRegimeDetectorPredict:
         row_sums = probs.sum(axis=1)
         assert np.allclose(row_sums, 1.0, atol=1e-6)
 
-    def test_predict_current_returns_regime_prediction_with_entropy(self, fitted_detector, synthetic_features):
+    def test_predict_current_returns_regime_prediction_with_entropy(
+        self, fitted_detector, synthetic_features
+    ):
         pred = fitted_detector.predict_current(synthetic_features, lookback=100)
         assert isinstance(pred, RegimePrediction)
         assert 0.0 <= pred.entropy <= 1.0 + 1e-9
@@ -263,7 +305,9 @@ class TestRegimeDetectorPredict:
             pred.prob_ranging + pred.prob_trending + pred.prob_volatile, 1.0, abs_tol=1e-6
         )
 
-    def test_predict_current_entropy_matches_manual_shannon_calc(self, fitted_detector, synthetic_features):
+    def test_predict_current_entropy_matches_manual_shannon_calc(
+        self, fitted_detector, synthetic_features
+    ):
         pred = fitted_detector.predict_current(synthetic_features, lookback=100)
         probs = [pred.prob_ranging, pred.prob_trending, pred.prob_volatile]
         eps = 1e-12
@@ -329,6 +373,10 @@ class TestRegimeStatistics:
         stats = fitted_detector.regime_statistics(synthetic_features)
         assert set(stats.index) == {"ranging", "trending", "volatile"}
         assert set(stats.columns) == {
-            "count", "pct", "mean_vol_ratio", "mean_atr_momentum", "mean_rolling_sharpe",
+            "count",
+            "pct",
+            "mean_vol_ratio",
+            "mean_atr_momentum",
+            "mean_rolling_sharpe",
         }
         assert stats["count"].sum() == len(synthetic_features)

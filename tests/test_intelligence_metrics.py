@@ -32,6 +32,7 @@ from src.intelligence.providers.binance_provider import BinanceIntelligenceProvi
 # Bug 1: whale taker-ratio ccxt-normalization fix
 # ---------------------------------------------------------------------------
 
+
 class TestWhaleTakerRatioFix:
     def _make_provider(self) -> BinanceIntelligenceProvider:
         p = BinanceIntelligenceProvider(symbol="BTC/USDT", perp_symbol="BTC/USDT:USDT")
@@ -56,16 +57,32 @@ class TestWhaleTakerRatioFix:
         provider = self._make_provider()
         raw_klines = [
             [
-                1782889200000, "100", "101", "99", "100.5", "1000",
-                1782890099999, "100500", "500",
+                1782889200000,
+                "100",
+                "101",
+                "99",
+                "100.5",
+                "1000",
+                1782890099999,
+                "100500",
+                "500",
                 "800",  # taker_buy_base_asset_volume -- index 9, 80% of volume
-                "80400", "0",
+                "80400",
+                "0",
             ],
             [
-                1782890100000, "100.5", "102", "100", "101", "1000",
-                1782890999999, "101000", "500",
+                1782890100000,
+                "100.5",
+                "102",
+                "100",
+                "101",
+                "1000",
+                1782890999999,
+                "101000",
+                "500",
                 "800",
-                "80800", "0",
+                "80800",
+                "0",
             ],
         ]
         provider._perp.fapiPublicGetKlines = AsyncMock(return_value=raw_klines)
@@ -81,9 +98,11 @@ class TestWhaleTakerRatioFix:
         """The fix must bypass ccxt's normalized fetch_ohlcv (which strips
         taker-buy-volume) and call the raw implicit method instead."""
         provider = self._make_provider()
-        provider._perp.fapiPublicGetKlines = AsyncMock(return_value=[
-            [0, "1", "1", "1", "1", "100", 0, "100", "1", "50", "50", "0"],
-        ])
+        provider._perp.fapiPublicGetKlines = AsyncMock(
+            return_value=[
+                [0, "1", "1", "1", "1", "100", 0, "100", "1", "50", "50", "0"],
+            ]
+        )
         # If the implementation regresses to fetch_ohlcv(), this would need
         # to exist; assert it's simply never called.
         provider._perp.fetch_ohlcv = AsyncMock(
@@ -106,9 +125,11 @@ class TestWhaleTakerRatioFix:
     async def test_ratio_capped_at_ten(self):
         """All-taker-buy volume (no sell side) should cap at 10.0, not inf."""
         provider = self._make_provider()
-        provider._perp.fapiPublicGetKlines = AsyncMock(return_value=[
-            [0, "1", "1", "1", "1", "1000", 0, "1000", "1", "1000", "1000", "0"],
-        ])
+        provider._perp.fapiPublicGetKlines = AsyncMock(
+            return_value=[
+                [0, "1", "1", "1", "1", "1000", 0, "1000", "1", "1000", "1000", "0"],
+            ]
+        )
         ratio = await provider._fetch_whale_taker_ratio()
         assert ratio == 10.0
 
@@ -116,6 +137,7 @@ class TestWhaleTakerRatioFix:
 # ---------------------------------------------------------------------------
 # Bug 2: fabricated-confidence fix in IntelligenceAnalyzer.compute_metrics
 # ---------------------------------------------------------------------------
+
 
 class TestComputeMetricsConfidenceFix:
     def test_unimplemented_fields_are_nan_not_fabricated_constants(self):

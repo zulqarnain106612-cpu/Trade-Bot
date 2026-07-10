@@ -4,6 +4,7 @@ Coverage for:
   - src/risk/intelligence_gates.py
 Debt-005.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -11,33 +12,33 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.diagnostics.trade_auditor import AuditRecord, TradeAuditor, MAX_AUDIT_RECORDS
+from src.diagnostics.trade_auditor import MAX_AUDIT_RECORDS, AuditRecord, TradeAuditor
 
 
 def _rec(**overrides) -> AuditRecord:
-    defaults = dict(
-        ts_utc=datetime.now(tz=UTC).timestamp(),
-        symbol="BTC/USDT",
-        timeframe="15m",
-        features={"frac_diff": 0.1, "ofi": 0.05},
-        p_long=0.7,
-        p_bet=0.8,
-        direction=1,
-        regime_state=1,
-        prob_ranging=0.1,
-        prob_trending=0.8,
-        prob_volatile=0.1,
-        gate_status="PASS",
-        gate_reason="",
-        gate_details={},
-        kelly_fraction=0.05,
-        kelly_notional_usd=500.0,
-        kelly_quantity=0.1,
-        kelly_is_capped=False,
-        outcome="opened",
-        trade_id=None,
-        skip_reason="",
-    )
+    defaults = {
+        "ts_utc": datetime.now(tz=UTC).timestamp(),
+        "symbol": "BTC/USDT",
+        "timeframe": "15m",
+        "features": {"frac_diff": 0.1, "ofi": 0.05},
+        "p_long": 0.7,
+        "p_bet": 0.8,
+        "direction": 1,
+        "regime_state": 1,
+        "prob_ranging": 0.1,
+        "prob_trending": 0.8,
+        "prob_volatile": 0.1,
+        "gate_status": "PASS",
+        "gate_reason": "",
+        "gate_details": {},
+        "kelly_fraction": 0.05,
+        "kelly_notional_usd": 500.0,
+        "kelly_quantity": 0.1,
+        "kelly_is_capped": False,
+        "outcome": "opened",
+        "trade_id": None,
+        "skip_reason": "",
+    }
     defaults.update(overrides)
     return AuditRecord(**defaults)
 
@@ -45,6 +46,7 @@ def _rec(**overrides) -> AuditRecord:
 # ---------------------------------------------------------------------------
 # AuditRecord
 # ---------------------------------------------------------------------------
+
 
 class TestAuditRecord:
     def test_fields_stored(self):
@@ -55,6 +57,7 @@ class TestAuditRecord:
 
     def test_to_dict_json_serializable(self):
         import json
+
         r = _rec()
         d = r.to_dict()
         json.dumps(d)
@@ -67,9 +70,14 @@ class TestAuditRecord:
         assert "features" in d
 
     def test_skip_record_fields(self):
-        r = _rec(outcome="skipped", skip_reason="gap_fill_failed",
-                 kelly_fraction=None, kelly_notional_usd=None,
-                 kelly_quantity=None, kelly_is_capped=None)
+        r = _rec(
+            outcome="skipped",
+            skip_reason="gap_fill_failed",
+            kelly_fraction=None,
+            kelly_notional_usd=None,
+            kelly_quantity=None,
+            kelly_is_capped=None,
+        )
         assert r.skip_reason == "gap_fill_failed"
         assert r.kelly_fraction is None
 
@@ -82,6 +90,7 @@ class TestAuditRecord:
 # ---------------------------------------------------------------------------
 # TradeAuditor
 # ---------------------------------------------------------------------------
+
 
 class TestTradeAuditor:
     def test_init_empty(self):
@@ -167,6 +176,7 @@ class TestTradeAuditor:
 # ExchangeStressGate
 # ---------------------------------------------------------------------------
 
+
 def _intel_metrics(**overrides) -> MagicMock:
     m = MagicMock()
     m.exchange_stress_score = 0.1
@@ -183,10 +193,11 @@ def _intel_metrics(**overrides) -> MagicMock:
 # TradeAuditor.detect_anomalies — coverage for lines 205-256
 # ---------------------------------------------------------------------------
 
+
 class TestDetectAnomalies:
     """Coverage for TradeAuditor.detect_anomalies (requires >=50 records)."""
 
-    def _auditor_with_records(self, n: int = 60, **rec_overrides) -> "TradeAuditor":
+    def _auditor_with_records(self, n: int = 60, **rec_overrides) -> TradeAuditor:
         a = TradeAuditor()
         for _ in range(n):
             a.record(_rec(**rec_overrides))
@@ -201,15 +212,18 @@ class TestDetectAnomalies:
     def test_returns_list_with_no_anomalies_on_healthy_data(self):
         """Varied p_long, p_bet, mixed gate statuses → no alert."""
         import random
+
         random.seed(42)
         a = TradeAuditor()
         for i in range(60):
-            a.record(_rec(
-                p_long=0.5 + random.uniform(-0.3, 0.3),
-                p_bet=0.5 + random.uniform(-0.3, 0.3),
-                gate_status="PASS" if i % 2 == 0 else "REGIME",
-                kelly_is_capped=i % 5 == 0,
-            ))
+            a.record(
+                _rec(
+                    p_long=0.5 + random.uniform(-0.3, 0.3),
+                    p_bet=0.5 + random.uniform(-0.3, 0.3),
+                    gate_status="PASS" if i % 2 == 0 else "REGIME",
+                    kelly_is_capped=i % 5 == 0,
+                )
+            )
         result = a.anomaly_scan()
         assert isinstance(result, list)
 
@@ -238,13 +252,16 @@ class TestDetectAnomalies:
         """80%+ of records have kelly_is_capped=True → kelly_ceiling_always_binding."""
         a = TradeAuditor()
         import random
+
         random.seed(7)
         for i in range(60):
-            a.record(_rec(
-                kelly_is_capped=True,
-                p_long=0.5 + random.uniform(-0.25, 0.25),
-                p_bet=0.5 + random.uniform(-0.25, 0.25),
-                gate_status="PASS" if i % 3 == 0 else "REGIME",
-            ))
+            a.record(
+                _rec(
+                    kelly_is_capped=True,
+                    p_long=0.5 + random.uniform(-0.25, 0.25),
+                    p_bet=0.5 + random.uniform(-0.25, 0.25),
+                    gate_status="PASS" if i % 3 == 0 else "REGIME",
+                )
+            )
         alerts = a.anomaly_scan()
         assert any("kelly_ceiling_always_binding" in a for a in alerts), alerts

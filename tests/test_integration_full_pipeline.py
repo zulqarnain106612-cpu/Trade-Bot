@@ -137,9 +137,9 @@ class TestOrderFSMInContext:
         assert fsm.state.status == OrderStatus.PENDING
 
         # Exchange confirms order
-        fsm.transition(OrderStatus.FILLING, {
-            "exchange_response": {"id": "ORDER-001", "status": "open"}
-        })
+        fsm.transition(
+            OrderStatus.FILLING, {"exchange_response": {"id": "ORDER-001", "status": "open"}}
+        )
         assert fsm.state.status == OrderStatus.FILLING
         assert fsm.state.first_confirmed_at_ms is not None
 
@@ -153,10 +153,13 @@ class TestOrderFSMInContext:
         assert fsm.state.filled_qty == 1.5
 
         # Mark as FILLED
-        fsm.transition(OrderStatus.FILLED, {
-            "filled_qty": 1.5,
-            "average_price": fsm.state.average_fill_price,
-        })
+        fsm.transition(
+            OrderStatus.FILLED,
+            {
+                "filled_qty": 1.5,
+                "average_price": fsm.state.average_fill_price,
+            },
+        )
         assert fsm.state.status == OrderStatus.FILLED
         assert fsm.state.is_terminal()
 

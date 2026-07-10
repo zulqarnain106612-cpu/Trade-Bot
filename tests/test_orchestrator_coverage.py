@@ -4,9 +4,11 @@ Comprehensive coverage tests for src/engine/orchestrator.py.
 Coverage target: 10% → 70%+. Every major code path exercised with mocked
 external dependencies — no real network, DB, or model I/O.
 """
+
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,6 +39,7 @@ def _make_bars(n: int = 350) -> list[BarRecord]:
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_storage():
     s = AsyncMock()
     s.health_check = AsyncMock(return_value=True)
@@ -44,7 +47,7 @@ def _make_storage():
     s.fetch_trades = AsyncMock(return_value=[])
     s.earliest_equity_ts = AsyncMock(return_value=None)
     s.insert_bar = AsyncMock(return_value=None)
-    s.fetch_bars = AsyncMock(return_value=_make_bars())   # ≥300 rows for trainer
+    s.fetch_bars = AsyncMock(return_value=_make_bars())  # ≥300 rows for trainer
     s.initialize = AsyncMock(return_value=None)
     s.close = AsyncMock(return_value=None)
     return s
@@ -79,8 +82,6 @@ def _selftest_fail():
 # ---------------------------------------------------------------------------
 # Context manager that patches all external dependencies for Orchestrator
 # ---------------------------------------------------------------------------
-
-from contextlib import contextmanager
 
 
 @contextmanager
@@ -120,10 +121,8 @@ def _orch_patches(executor=None, selftest=None, load_models=True):
         patch("src.engine.orchestrator.get_monitor", return_value=mon),
         patch("src.engine.orchestrator.run_pipeline_selftest", side_effect=selftest),
         patch("src.engine.orchestrator.ModelTrainer", return_value=trainer),
-        patch("src.engine.orchestrator.ModelTrainer.load_direction",
-              return_value=direction_model),
-        patch("src.engine.orchestrator.ModelTrainer.load_meta",
-              return_value=meta_model),
+        patch("src.engine.orchestrator.ModelTrainer.load_direction", return_value=direction_model),
+        patch("src.engine.orchestrator.ModelTrainer.load_meta", return_value=meta_model),
         patch("src.engine.orchestrator.RegimeDetector", return_value=detector),
         patch("src.engine.orchestrator.SignalEngine"),
     ):
@@ -134,9 +133,11 @@ def _orch_patches(executor=None, selftest=None, load_models=True):
 # Tests: __init__ and basic state
 # ---------------------------------------------------------------------------
 
+
 class TestOrchestratorInit:
     def test_init_sets_symbol_and_timeframes(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
@@ -155,6 +156,7 @@ class TestOrchestratorInit:
 
     def test_init_creates_stop_event(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
@@ -170,13 +172,14 @@ class TestOrchestratorInit:
         assert not orch._stop_event.is_set()
 
 
-
 # ---------------------------------------------------------------------------
 # Helper to build a configured Orchestrator inside all required patches
 # ---------------------------------------------------------------------------
 
+
 def _make_orch(storage=None, fetcher=None):
     from src.engine.orchestrator import Orchestrator
+
     if storage is None:
         storage = _make_storage()
     if fetcher is None:
@@ -198,6 +201,7 @@ def _make_orch(storage=None, fetcher=None):
 # Tests: startup — happy path
 # ---------------------------------------------------------------------------
 
+
 class TestOrchestratorStartup:
     @pytest.mark.asyncio
     async def test_startup_paper_creates_executor(self):
@@ -217,9 +221,7 @@ class TestOrchestratorStartup:
             executor.initialize = AsyncMock(return_value=None)
             with patch("src.engine.orchestrator.PaperExecutor", return_value=executor):
                 # Make bootstrap fail
-                fetcher.bootstrap_history = AsyncMock(
-                    side_effect=RuntimeError("exchange down")
-                )
+                fetcher.bootstrap_history = AsyncMock(side_effect=RuntimeError("exchange down"))
                 with pytest.raises(RuntimeError, match="Bootstrap failed"):
                     await orch.startup()
 
@@ -239,16 +241,15 @@ class TestOrchestratorStartup:
         orch = _make_orch(storage, fetcher)
         mock_engine = MagicMock()
         with _orch_patches() as (_, __, ___):
-            with patch("src.engine.orchestrator.SignalEngine",
-                       return_value=mock_engine):
+            with patch("src.engine.orchestrator.SignalEngine", return_value=mock_engine):
                 await orch.startup()
         assert Timeframe.INTRADAY.value in orch._engines
-
 
 
 # ---------------------------------------------------------------------------
 # Tests: stop / shutdown
 # ---------------------------------------------------------------------------
+
 
 class TestOrchestratorStopShutdown:
     def test_stop_sets_event(self):
@@ -282,6 +283,7 @@ class TestOrchestratorStopShutdown:
 # Tests: _tick — signal engine dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestOrchestratorTick:
     @pytest.mark.asyncio
     async def test_tick_skips_when_no_engine(self):
@@ -302,13 +304,19 @@ class TestOrchestratorTick:
     @pytest.mark.asyncio
     async def test_tick_increments_count(self):
         from src.engine.signal_engine import SignalResult
+
         orch = _make_orch()
         executor = _make_executor()
         orch._executor = executor
 
         skip_result = SignalResult(
-            tradeable=False, direction=0, p_long=0.3, p_bet=0.3,
-            kelly_result=None, regime=None, gate_result=None,
+            tradeable=False,
+            direction=0,
+            p_long=0.3,
+            p_bet=0.3,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
             skip_reason="test",
         )
         mock_engine = MagicMock()
@@ -320,18 +328,16 @@ class TestOrchestratorTick:
         storage = _make_storage()
         orch._storage = storage
 
-        with patch("src.engine.orchestrator.compute_win_loss_stats",
-                   return_value=(0, 0.0, 0.0)):
+        with patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)):
             await orch._tick(Timeframe.INTRADAY)
 
         assert orch._tick_counts[Timeframe.INTRADAY.value] == 1
-
-
 
     @pytest.mark.asyncio
     async def test_tick_tradeable_calls_executor(self):
         from src.engine.signal_engine import SignalResult
         from src.risk.kelly import KellyResult
+
         orch = _make_orch()
         executor = _make_executor()
         executor.submit_signal = AsyncMock(return_value=("trade-123", "opened"))
@@ -341,12 +347,24 @@ class TestOrchestratorTick:
         orch._storage = _make_storage()
         orch._storage.latest_close = AsyncMock(return_value=None)
 
-        kr = KellyResult(kelly_fraction=0.05, adjusted_fraction=0.05,
-                         capital_usd=10000.0, entry_price=42000.0,
-                         quantity=0.001, notional_usd=42.0, is_capped=False)
+        kr = KellyResult(
+            kelly_fraction=0.05,
+            adjusted_fraction=0.05,
+            capital_usd=10000.0,
+            entry_price=42000.0,
+            quantity=0.001,
+            notional_usd=42.0,
+            is_capped=False,
+        )
         tradeable = SignalResult(
-            tradeable=True, direction=1, p_long=0.75, p_bet=0.7,
-            kelly_result=kr, regime=None, gate_result=None, skip_reason=None,
+            tradeable=True,
+            direction=1,
+            p_long=0.75,
+            p_bet=0.7,
+            kelly_result=kr,
+            regime=None,
+            gate_result=None,
+            skip_reason=None,
         )
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=tradeable)
@@ -355,8 +373,7 @@ class TestOrchestratorTick:
         orch._last_tick_ts = {Timeframe.INTRADAY.value: 0.0}
 
         with (
-            patch("src.engine.orchestrator.compute_win_loss_stats",
-                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
             patch("src.engine.orchestrator.update_metrics"),
         ):
             await orch._tick(Timeframe.INTRADAY)
@@ -368,9 +385,11 @@ class TestOrchestratorTick:
 # Tests: _train_models
 # ---------------------------------------------------------------------------
 
+
 class TestOrchestratorTrainModels:
     def _orch_for_train(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         storage.insert_model_metrics = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
@@ -459,9 +478,11 @@ class TestOrchestratorTrainModels:
 # Tests: _sleep_until_next_bar
 # ---------------------------------------------------------------------------
 
+
 class TestSleepUntilNextBar:
     def _make_orch(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
@@ -493,9 +514,11 @@ class TestSleepUntilNextBar:
 # Tests: _midnight_reset_loop
 # ---------------------------------------------------------------------------
 
+
 class TestMidnightResetLoop:
     def _make_orch(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
@@ -514,6 +537,7 @@ class TestMidnightResetLoop:
     async def test_midnight_reset_calls_executor_reset(self):
         """Loop fires reset on executor after sleep."""
         orch = self._make_orch()
+        orch._running = True
         executor = _make_executor()
         executor.reset_daily_equity = AsyncMock(return_value=1000.0)
         orch._executor = executor
@@ -560,6 +584,7 @@ class TestMidnightResetLoop:
     async def test_midnight_reset_exception_retries(self):
         """Non-CancelledError exception → sleep 60s then retry."""
         orch = self._make_orch()
+        orch._running = True
         executor = _make_executor()
         executor.reset_daily_equity = AsyncMock(side_effect=RuntimeError("db down"))
         orch._executor = executor
@@ -582,9 +607,11 @@ class TestMidnightResetLoop:
 # Tests: _position_monitor_loop
 # ---------------------------------------------------------------------------
 
+
 class TestPositionMonitorLoop:
     def _make_orch(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         storage.latest_close = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
@@ -640,6 +667,7 @@ class TestPositionMonitorLoop:
     @pytest.mark.asyncio
     async def test_position_monitor_closes_on_stop_loss(self):
         orch = self._make_orch()
+        orch._running = True
         executor = _make_executor()
         pos = {
             "symbol": "BTC/USDT",
@@ -647,10 +675,12 @@ class TestPositionMonitorLoop:
             "unrealized_pnl_pct": -0.06,  # triggers stop-loss
             "entry_ts": 1_000_000,
         }
-        executor.open_positions_safe = AsyncMock(side_effect=[
-            [pos],   # first snapshot (has position)
-            [pos],   # second snapshot (after mark_to_market)
-        ])
+        executor.open_positions_safe = AsyncMock(
+            side_effect=[
+                [pos],  # first snapshot (has position)
+                [pos],  # second snapshot (after mark_to_market)
+            ]
+        )
         executor.mark_to_market = AsyncMock(return_value=None)
         executor.close_position = AsyncMock(return_value=-60.0)
         orch._executor = executor
@@ -692,7 +722,9 @@ class TestPositionMonitorLoop:
         """Price fetch returns 0 → skip close check for safety."""
         orch = self._make_orch()
         executor = _make_executor()
-        executor.open_positions_safe = AsyncMock(return_value=[{"symbol": "BTC/USDT", "trade_id": "t1"}])
+        executor.open_positions_safe = AsyncMock(
+            return_value=[{"symbol": "BTC/USDT", "trade_id": "t1"}]
+        )
         executor.mark_to_market = AsyncMock()
         orch._executor = executor
         orch._fetcher.fetch_ticker_price = AsyncMock(return_value=0.0)
@@ -724,9 +756,11 @@ class TestPositionMonitorLoop:
 # Tests: _tick — correlation_scalar failure falls back to 1.0
 # ---------------------------------------------------------------------------
 
+
 class TestTickCorrelationFallback:
     def _make_orch(self):
         from src.engine.orchestrator import Orchestrator
+
         storage = _make_storage()
         storage.latest_close = AsyncMock(return_value=None)
         storage.latest_bar_ts = AsyncMock(return_value=None)
@@ -763,10 +797,11 @@ class TestTickCorrelationFallback:
         orch._engines[Timeframe.INTRADAY.value] = engine
 
         with (
-            patch("src.engine.orchestrator.get_portfolio_correlation",
-                  side_effect=RuntimeError("tracker broken")),
-            patch("src.engine.orchestrator.compute_win_loss_stats",
-                  return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.get_portfolio_correlation",
+                side_effect=RuntimeError("tracker broken"),
+            ),
+            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
             patch("src.engine.orchestrator.update_metrics"),
         ):
             await orch._tick(Timeframe.INTRADAY)
@@ -799,8 +834,7 @@ class TestTickCorrelationFallback:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats",
-                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
             patch("src.engine.orchestrator.update_metrics"),
             patch.object(
                 orch._drift_adapter,
@@ -844,8 +878,7 @@ class TestTickCorrelationFallback:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats",
-                  return_value=(0, 0.0, 0.0)),
+            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
             patch("src.engine.orchestrator.update_metrics"),
             patch.object(
                 orch._drift_adapter,

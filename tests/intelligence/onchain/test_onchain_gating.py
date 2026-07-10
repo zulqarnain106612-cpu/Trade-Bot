@@ -4,23 +4,26 @@ OCI-010 — On-chain field gating policy tests.
 Verifies that GATED_FIELDS remain at neutral when no API key is provisioned,
 and become active once a provider with confidence > 0 is present.
 """
+
 from __future__ import annotations
+
 import pytest
-from src.intelligence.onchain.schema import (
-    ONCHAIN_NEUTRAL,
-    GATED_FIELDS,
-    merge_onchain_results,
-    validate_provider_result,
-)
-from src.intelligence.onchain.cryptoquant_provider import CryptoQuantProvider
-from src.intelligence.onchain.coinglass_provider import CoinglassProvider
-from src.intelligence.onchain.dune_provider import DuneProvider
+
 from src.intelligence.onchain.arkham_provider import ArkhamProvider
+from src.intelligence.onchain.coinglass_provider import CoinglassProvider
+from src.intelligence.onchain.cryptoquant_provider import CryptoQuantProvider
+from src.intelligence.onchain.dune_provider import DuneProvider
+from src.intelligence.onchain.schema import (
+    GATED_FIELDS,
+    ONCHAIN_NEUTRAL,
+    merge_onchain_results,
+)
 
 
 class TestGatedFieldsDefinition:
     def test_gated_fields_are_subset_of_all_fields(self):
         from src.intelligence.onchain.schema import ALL_FIELDS
+
         assert GATED_FIELDS.issubset(ALL_FIELDS)
 
     def test_gated_fields_have_neutral_values(self):
@@ -38,7 +41,7 @@ class TestGatedFieldsDefinition:
             "mvrv_z_score",
             "sopr",
         }
-        assert GATED_FIELDS == expected
+        assert expected == GATED_FIELDS
 
 
 class TestGatingViaDisabledProviders:

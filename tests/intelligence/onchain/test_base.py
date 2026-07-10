@@ -1,6 +1,7 @@
 """
 OCI-001: Unit tests — RateLimiter, CircuitBreaker, AsyncHTTPCache.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +20,7 @@ from src.intelligence.onchain.base import (
 # ---------------------------------------------------------------------------
 # RateLimiter
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rate_limiter_allows_within_limit() -> None:
@@ -48,6 +50,7 @@ async def test_rate_limiter_rejects_non_positive_rate() -> None:
 # CircuitBreaker
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_circuit_breaker_opens_after_threshold() -> None:
     cb = CircuitBreaker(failure_threshold=3, cooldown_s=999.0)
@@ -57,12 +60,10 @@ async def test_circuit_breaker_opens_after_threshold() -> None:
 
     for _ in range(3):
         with pytest.raises(RuntimeError):
-            await cb.call(failing())
+            await cb.call(failing)
 
-    coro = failing()
     with pytest.raises(CircuitOpenError):
-        await cb.call(coro)
-    coro.close()
+        await cb.call(failing)
 
 
 @pytest.mark.asyncio
@@ -73,20 +74,18 @@ async def test_circuit_breaker_half_open_on_cooldown_expiry() -> None:
         raise RuntimeError("fail")
 
     with pytest.raises(RuntimeError):
-        await cb.call(failing())
+        await cb.call(failing)
 
-    # Circuit is OPEN — close coroutine to suppress RuntimeWarning
-    coro = failing()
+    # Circuit is OPEN
     with pytest.raises(CircuitOpenError):
-        await cb.call(coro)
-    coro.close()
+        await cb.call(failing)
 
     # Wait for cooldown
     await asyncio.sleep(0.1)
 
     # Now in HALF_OPEN — next call executes (fails again → reopens)
     with pytest.raises(RuntimeError):
-        await cb.call(failing())
+        await cb.call(failing)
 
 
 @pytest.mark.asyncio
@@ -100,21 +99,22 @@ async def test_circuit_breaker_closes_on_success_in_half_open() -> None:
         return "ok"
 
     with pytest.raises(RuntimeError):
-        await cb.call(failing())
+        await cb.call(failing)
 
     await asyncio.sleep(0.1)  # cooldown → HALF_OPEN
 
-    result = await cb.call(succeeding())
+    result = await cb.call(succeeding)
     assert result == "ok"
 
     # Should be CLOSED now — another success works without CircuitOpenError
-    result2 = await cb.call(succeeding())
+    result2 = await cb.call(succeeding)
     assert result2 == "ok"
 
 
 # ---------------------------------------------------------------------------
 # AsyncHTTPCache
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_async_http_cache_hit_miss_expiry() -> None:

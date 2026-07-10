@@ -1,15 +1,17 @@
 """
 OCI-007 — on-chain schema validation and merge tests.
 """
+
 from __future__ import annotations
-import math
+
 import pytest
+
 from src.intelligence.onchain.schema import (
-    ONCHAIN_NEUTRAL,
-    GATED_FIELDS,
     ALL_FIELDS,
-    validate_provider_result,
+    GATED_FIELDS,
+    ONCHAIN_NEUTRAL,
     merge_onchain_results,
+    validate_provider_result,
 )
 
 
@@ -157,8 +159,15 @@ class TestNewSchemaFields:
 
     def test_validate_passes_new_fields(self):
         r = dict(ONCHAIN_NEUTRAL)
-        r.update({"confidence": 0.8, "defi_tvl_7d_change_pct": -3.5,
-                   "mvrv_z_score": 2.1, "sopr": 0.4, "timestamp": 1.0})
+        r.update(
+            {
+                "confidence": 0.8,
+                "defi_tvl_7d_change_pct": -3.5,
+                "mvrv_z_score": 2.1,
+                "sopr": 0.4,
+                "timestamp": 1.0,
+            }
+        )
         out = validate_provider_result(r, "test")
         assert out["defi_tvl_7d_change_pct"] == pytest.approx(-3.5)
         assert out["mvrv_z_score"] == pytest.approx(2.1)

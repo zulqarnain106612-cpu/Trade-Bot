@@ -4,6 +4,7 @@ Tests for src/models/online_trainer.py — TASK-008.
 Covers: warmup gating, blend math, fail-open on bad input,
 accuracy tracking, persistence round-trip, reset.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -13,16 +14,17 @@ import numpy as np
 import pytest
 
 from src.models.online_trainer import (
-    OnlineTrainer,
-    OnlinePrediction,
     _ONLINE_WEIGHT,
     _WARMUP_SAMPLES,
+    OnlinePrediction,
+    OnlineTrainer,
 )
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _random_vec(n: int = 7, seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
@@ -32,7 +34,7 @@ def _random_vec(n: int = 7, seed: int = 0) -> np.ndarray:
 def _warm_up(trainer: OnlineTrainer, n: int = _WARMUP_SAMPLES + 5, n_features: int = 7) -> None:
     """Feed enough samples to both models to pass the warmup threshold."""
     rng = np.random.default_rng(42)
-    for i in range(n):
+    for _ in range(n):
         vec = rng.standard_normal(n_features)
         label = int(rng.integers(0, 2))
         trainer.learn_direction(vec, label=label)
@@ -42,6 +44,7 @@ def _warm_up(trainer: OnlineTrainer, n: int = _WARMUP_SAMPLES + 5, n_features: i
 # ---------------------------------------------------------------------------
 # 1. Pre-warmup: online weight is 0, batch values pass through unchanged
 # ---------------------------------------------------------------------------
+
 
 def test_blend_before_warmup_returns_batch_values():
     trainer = OnlineTrainer()
@@ -66,6 +69,7 @@ def test_direction_from_batch_p_long_before_warmup():
 # 2. Post-warmup: online weight is applied
 # ---------------------------------------------------------------------------
 
+
 def test_blend_after_warmup_applies_online_weight():
     trainer = OnlineTrainer()
     _warm_up(trainer)
@@ -88,6 +92,7 @@ def test_blend_p_long_bounded():
 # 3. Fail-open: bad feature vector falls back to batch values
 # ---------------------------------------------------------------------------
 
+
 def test_blend_fails_open_on_nan_features():
     trainer = OnlineTrainer()
     _warm_up(trainer)
@@ -109,6 +114,7 @@ def test_learn_direction_does_not_raise_on_bad_input():
 # ---------------------------------------------------------------------------
 # 4. Accuracy tracking
 # ---------------------------------------------------------------------------
+
 
 def test_accuracy_report_none_before_10_samples():
     trainer = OnlineTrainer()
@@ -141,6 +147,7 @@ def test_accuracy_report_after_learning():
 # 5. Persistence round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_save_and_load_preserves_sample_count():
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir)
@@ -167,6 +174,7 @@ def test_load_corrupt_file_resets_to_fresh():
 # 6. Reset clears state and deletes files
 # ---------------------------------------------------------------------------
 
+
 def test_reset_clears_sample_count():
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir)
@@ -191,6 +199,7 @@ def test_reset_deletes_persisted_files():
 # ---------------------------------------------------------------------------
 # 7. sample_count increments correctly
 # ---------------------------------------------------------------------------
+
 
 def test_sample_count_increments():
     trainer = OnlineTrainer()

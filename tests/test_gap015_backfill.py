@@ -13,25 +13,23 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.data.storage import StorageBackend
+from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
 from src.features.pipeline import (
     BASE_FEATURE_COLUMNS,
     FEATURE_COLUMNS,
     get_active_feature_columns,
 )
-from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def tmp_db(tmp_path):
@@ -51,6 +49,7 @@ async def _init(storage: StorageBackend) -> StorageBackend:
 # ---------------------------------------------------------------------------
 # Migration v3 / schema tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_migration_creates_table(storage):
@@ -76,7 +75,7 @@ async def test_schema_version_is_3(storage):
     conn = storage._require_conn()
     async with conn.execute("PRAGMA user_version") as cur:
         row = await cur.fetchone()
-    assert int(row[0]) == 3
+    assert int(row[0]) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +88,7 @@ _SAMPLE_FEATURES = {
     "intelligence_whale_buy_sell_ratio": 1.05,
     # rest are None (not yet fetched)
 }
+
 
 @pytest.mark.asyncio
 async def test_store_and_fetch_roundtrip(storage):
@@ -121,12 +121,16 @@ async def test_store_upsert_replaces(storage):
     bar_ts = 1_700_000_001_000
 
     await storage.store_intelligence_features(
-        "BTCUSDT", "1h", bar_ts,
+        "BTCUSDT",
+        "1h",
+        bar_ts,
         {"intelligence_binance_funding_rate_pct": 0.01},
         confidence=0.067,
     )
     await storage.store_intelligence_features(
-        "BTCUSDT", "1h", bar_ts,
+        "BTCUSDT",
+        "1h",
+        bar_ts,
         {"intelligence_binance_funding_rate_pct": 0.05},
         confidence=0.067,
     )
@@ -145,6 +149,7 @@ async def test_fetch_empty_returns_empty_df(storage):
 # ---------------------------------------------------------------------------
 # Coverage tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_coverage_all_null(storage):
@@ -165,7 +170,9 @@ async def test_coverage_partial(storage):
     await storage.initialize()
     for i in range(10):
         await storage.store_intelligence_features(
-            "BTCUSDT", "1h", 1_700_000_000_000 + i * 3_600_000,
+            "BTCUSDT",
+            "1h",
+            1_700_000_000_000 + i * 3_600_000,
             {"intelligence_binance_funding_rate_pct": 0.01 * i},
             confidence=1 / 15,
         )
@@ -179,6 +186,7 @@ async def test_coverage_partial(storage):
 # ---------------------------------------------------------------------------
 # get_active_feature_columns tests
 # ---------------------------------------------------------------------------
+
 
 def test_no_coverage_returns_base():
     cols = get_active_feature_columns(None)
@@ -212,7 +220,7 @@ def test_threshold_boundary():
     # Exactly at threshold → included
     cov = {c: 0.6 for c in INTELLIGENCE_FEATURE_COLUMNS}
     cols = get_active_feature_columns(cov, min_coverage=0.6)
-    assert len(cols) == 22
+    assert len(cols) == 25
 
     # Just below → excluded
     cov_below = {c: 0.5999 for c in INTELLIGENCE_FEATURE_COLUMNS}
@@ -222,12 +230,13 @@ def test_threshold_boundary():
 
 def test_feature_columns_backward_compat():
     """FEATURE_COLUMNS alias still equals BASE_FEATURE_COLUMNS."""
-    assert FEATURE_COLUMNS == list(BASE_FEATURE_COLUMNS)
+    assert list(BASE_FEATURE_COLUMNS) == FEATURE_COLUMNS
 
 
 # ---------------------------------------------------------------------------
 # IntelligenceAggregator historical methods — no-key graceful path
 # ---------------------------------------------------------------------------
+
 
 class _FakeSettings:
     glassnode_api_key = ""
@@ -242,6 +251,7 @@ class _FakeSettings:
 @pytest.fixture
 def aggregator_no_keys():
     from src.intelligence.client import IntelligenceAggregator
+
     return IntelligenceAggregator(_settings=_FakeSettings())
 
 
@@ -274,7 +284,7 @@ async def test_funding_rate_history_no_key_uses_public_binance(aggregator_no_key
         result = await aggregator_no_keys.get_funding_rate_history(since_ts=0, limit=10)
 
     assert len(result) == 2
-    assert abs(result[0]["rate_pct"] - 0.01) < 1e-6   # 0.0001 * 100
+    assert abs(result[0]["rate_pct"] - 0.01) < 1e-6  # 0.0001 * 100
     assert result[0]["ts"] == 1_700_000_000_000
 
 
@@ -282,9 +292,7 @@ async def test_funding_rate_history_no_key_uses_public_binance(aggregator_no_key
 async def test_funding_rate_history_exchange_error_returns_empty(aggregator_no_keys):
     with patch("ccxt.async_support.binance") as mock_cls:
         mock_exchange = AsyncMock()
-        mock_exchange.fetch_funding_rate_history = AsyncMock(
-            side_effect=Exception("network error")
-        )
+        mock_exchange.fetch_funding_rate_history = AsyncMock(side_effect=Exception("network error"))
         mock_exchange.close = AsyncMock()
         mock_cls.return_value = mock_exchange
 
@@ -296,6 +304,7 @@ async def test_funding_rate_history_exchange_error_returns_empty(aggregator_no_k
 # ---------------------------------------------------------------------------
 # Historical methods with Glassnode key — mock HTTP path
 # ---------------------------------------------------------------------------
+
 
 class _FakeSettingsWithKey:
     glassnode_api_key = "test-key-abc"
@@ -310,6 +319,7 @@ class _FakeSettingsWithKey:
 @pytest.fixture
 def aggregator_with_key():
     from src.intelligence.client import IntelligenceAggregator
+
     return IntelligenceAggregator(_settings=_FakeSettingsWithKey())
 
 

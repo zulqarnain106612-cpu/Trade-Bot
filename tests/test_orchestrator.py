@@ -7,12 +7,10 @@ coverage.  Broader orchestrator integration tests require a full async
 fixture chain; these are kept as unit-level tests with minimal mocking
 so they run in <1s and are stable in CI.
 """
+
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +27,7 @@ class TestPortfolioCorrelationTracker:
 
     def _make_tracker(self):
         from src.risk.portfolio_correlation import PortfolioCorrelationTracker
+
         # Real ctor only takes `halflife` (EWM halflife in bars); threshold is
         # passed per-call to correlation_scalar(), not held on the instance.
         return PortfolioCorrelationTracker(halflife=10)
@@ -82,11 +81,13 @@ class TestPortfolioCorrelationTracker:
         t = self._make_tracker()
         rng = np.random.RandomState(99)
         for _ in range(30):
-            t.push_bar_returns({
-                "BTC/USDT": float(rng.normal(0, 0.05)),
-                "ETH/USDT": float(rng.normal(0, 0.05)),
-                "SOL/USDT": float(rng.normal(0, 0.05)),
-            })
+            t.push_bar_returns(
+                {
+                    "BTC/USDT": float(rng.normal(0, 0.05)),
+                    "ETH/USDT": float(rng.normal(0, 0.05)),
+                    "SOL/USDT": float(rng.normal(0, 0.05)),
+                }
+            )
         scalar = t.correlation_scalar("XRP/USDT", open_symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"])
         assert 0.0 <= scalar <= 1.0
 
@@ -94,11 +95,13 @@ class TestPortfolioCorrelationTracker:
         """push_bar_returns accepts multi-symbol batch — no crash, no silent drop."""
         t = self._make_tracker()
         # Should not raise
-        t.push_bar_returns({
-            "BTC/USDT": 0.01,
-            "ETH/USDT": -0.005,
-            "SOL/USDT": 0.003,
-        })
+        t.push_bar_returns(
+            {
+                "BTC/USDT": 0.01,
+                "ETH/USDT": -0.005,
+                "SOL/USDT": 0.003,
+            }
+        )
         # Tracker should have data for all three tracked symbols
         assert set(t.tracked_symbols) == {"BTC/USDT", "ETH/USDT", "SOL/USDT"}
 
@@ -118,7 +121,6 @@ class TestOrchestratorCorrelationState:
 
     def test_initial_state_is_empty_dict(self):
         """_last_close_for_corr must start empty — no stale cross-session data."""
-        from unittest.mock import MagicMock, patch
 
         cfg = MagicMock()
         cfg.primary_symbol = "BTC/USDT"
@@ -127,7 +129,9 @@ class TestOrchestratorCorrelationState:
         cfg.trading_mode = MagicMock()
         cfg.paper_starting_capital_usd = 10_000.0
 
-        with patch("src.engine.orchestrator.get_settings", return_value=MagicMock(risk=MagicMock())):
+        with patch(
+            "src.engine.orchestrator.get_settings", return_value=MagicMock(risk=MagicMock())
+        ):
             from src.engine.orchestrator import Orchestrator
 
             orch = Orchestrator.__new__(Orchestrator)
@@ -193,6 +197,7 @@ class TestCorrelationScalarFailSafe:
         to skip the call entirely (which would mean ignoring future wiring).
         """
         from src.risk.portfolio_correlation import PortfolioCorrelationTracker
+
         t = PortfolioCorrelationTracker(halflife=10)
         # No data pushed, no open positions → must return 1.0 without raising
         result = t.correlation_scalar("BTC/USDT", open_symbols=[])

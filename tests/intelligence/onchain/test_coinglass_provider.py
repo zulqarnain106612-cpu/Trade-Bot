@@ -2,23 +2,28 @@
 OCI-006 — CoinglassProvider unit tests.
 All HTTP calls are mocked; no network required.
 """
+
 from __future__ import annotations
-import pytest
+
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from src.intelligence.onchain.coinglass_provider import (
     CoinglassProvider,
-    _extract_list,
-    _oi_change_pct,
-    _liq_zscore,
-    _heatmap_max,
     _extract_funding,
+    _extract_list,
+    _heatmap_max,
+    _liq_zscore,
     _ls_ratio,
+    _oi_change_pct,
 )
 
 
 # ---------------------------------------------------------------------------
 # _extract_list
 # ---------------------------------------------------------------------------
+
 
 class TestExtractList:
     def test_data_list(self):
@@ -35,6 +40,7 @@ class TestExtractList:
 # ---------------------------------------------------------------------------
 # _oi_change_pct
 # ---------------------------------------------------------------------------
+
 
 class TestOiChangePct:
     def test_insufficient(self):
@@ -60,6 +66,7 @@ class TestOiChangePct:
 # _liq_zscore
 # ---------------------------------------------------------------------------
 
+
 class TestLiqZscore:
     def test_insufficient(self):
         assert _liq_zscore({"data": [{"buyLiquidationUsd": 1}]}) == 0.0
@@ -80,6 +87,7 @@ class TestLiqZscore:
 # _heatmap_max
 # ---------------------------------------------------------------------------
 
+
 class TestHeatmapMax:
     def test_empty(self):
         assert _heatmap_max({"data": []}) == 0.0
@@ -97,6 +105,7 @@ class TestHeatmapMax:
 # _extract_funding
 # ---------------------------------------------------------------------------
 
+
 class TestExtractFunding:
     def test_none_on_empty(self):
         assert _extract_funding({"data": []}) is None
@@ -112,6 +121,7 @@ class TestExtractFunding:
 # ---------------------------------------------------------------------------
 # _ls_ratio
 # ---------------------------------------------------------------------------
+
 
 class TestLsRatio:
     def test_empty(self):
@@ -129,6 +139,7 @@ class TestLsRatio:
 # ---------------------------------------------------------------------------
 # CoinglassProvider — disabled
 # ---------------------------------------------------------------------------
+
 
 class TestCoinglassProviderDisabled:
     def setup_method(self):
@@ -152,6 +163,7 @@ class TestCoinglassProviderDisabled:
 # ---------------------------------------------------------------------------
 # CoinglassProvider — enabled (mocked)
 # ---------------------------------------------------------------------------
+
 
 class TestCoinglassProviderEnabled:
     def _make_provider(self):
@@ -181,7 +193,7 @@ class TestCoinglassProviderEnabled:
             call_count += 1
             return r
 
-        with patch.object(prov, '_get', side_effect=mock_get):
+        with patch.object(prov, "_get", side_effect=mock_get):
             m = await prov.fetch_metrics()
 
         assert m["confidence"] == pytest.approx(1.0)
@@ -208,7 +220,7 @@ class TestCoinglassProviderEnabled:
             call_count += 1
             return r
 
-        with patch.object(prov, '_get', side_effect=mock_get):
+        with patch.object(prov, "_get", side_effect=mock_get):
             m = await prov.fetch_metrics()
 
         assert m["confidence"] < 1.0
@@ -217,6 +229,6 @@ class TestCoinglassProviderEnabled:
     async def test_initialize_warms_cache(self):
         prov = self._make_provider()
         mock_get = AsyncMock(return_value={"data": []})
-        with patch.object(prov, '_get', mock_get):
+        with patch.object(prov, "_get", mock_get):
             await prov.initialize()
         mock_get.assert_called_once()

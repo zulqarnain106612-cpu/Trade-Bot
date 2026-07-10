@@ -4,17 +4,21 @@ OCI-009 — OnChainAwareAggregator integration tests.
 Verifies the full blending pipeline: exchange/macro providers + on-chain
 providers merged into one canonical dict.
 """
+
 from __future__ import annotations
-import asyncio
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from src.intelligence.onchain.schema import ONCHAIN_NEUTRAL
 from src.intelligence.providers.aggregator import OnChainAwareAggregator
-from src.intelligence.onchain.schema import ONCHAIN_NEUTRAL, GATED_FIELDS
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _mock_exchange_provider(exchange_id: str, metrics: dict) -> MagicMock:
     p = MagicMock()
@@ -60,6 +64,7 @@ def _base_exchange_metrics(confidence: float = 0.8) -> dict:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestOnChainAwareAggregatorNoOnChain:
     @pytest.mark.asyncio
     async def test_without_onchain_providers(self):
@@ -72,10 +77,7 @@ class TestOnChainAwareAggregatorNoOnChain:
         )
         # Patch super().fetch_metrics to return known base
         base = _base_exchange_metrics()
-        with patch.object(
-            type(agg).__mro__[1], 'fetch_metrics',
-            new=AsyncMock(return_value=base)
-        ):
+        with patch.object(type(agg).__mro__[1], "fetch_metrics", new=AsyncMock(return_value=base)):
             result = await agg.fetch_metrics()
         assert result["binance_funding_rate_pct"] == pytest.approx(0.01)
 
@@ -98,10 +100,7 @@ class TestOnChainAwareAggregatorBlending:
             onchain_providers=[oc_prov],
         )
         base = _base_exchange_metrics(0.8)
-        with patch.object(
-            type(agg).__mro__[1], 'fetch_metrics',
-            new=AsyncMock(return_value=base)
-        ):
+        with patch.object(type(agg).__mro__[1], "fetch_metrics", new=AsyncMock(return_value=base)):
             result = await agg.fetch_metrics()
 
         # On-chain gated field with confidence > 0 should be blended in
@@ -123,10 +122,7 @@ class TestOnChainAwareAggregatorBlending:
             onchain_providers=[oc_prov],
         )
         base = _base_exchange_metrics(0.8)
-        with patch.object(
-            type(agg).__mro__[1], 'fetch_metrics',
-            new=AsyncMock(return_value=base)
-        ):
+        with patch.object(type(agg).__mro__[1], "fetch_metrics", new=AsyncMock(return_value=base)):
             result = await agg.fetch_metrics()
 
         assert result["exchange_netflow_7d_zscore"] == pytest.approx(0.0)
@@ -144,10 +140,7 @@ class TestOnChainAwareAggregatorBlending:
             onchain_providers=[oc_prov],
         )
         base = _base_exchange_metrics(0.8)
-        with patch.object(
-            type(agg).__mro__[1], 'fetch_metrics',
-            new=AsyncMock(return_value=base)
-        ):
+        with patch.object(type(agg).__mro__[1], "fetch_metrics", new=AsyncMock(return_value=base)):
             result = await agg.fetch_metrics()  # must not raise
 
         assert result["confidence"] == pytest.approx(0.8)
@@ -163,10 +156,7 @@ class TestOnChainAwareAggregatorBlending:
             onchain_providers=[oc_prov],
         )
 
-        with patch.object(
-            type(agg).__mro__[1], 'initialize_all',
-            new=AsyncMock()
-        ):
+        with patch.object(type(agg).__mro__[1], "initialize_all", new=AsyncMock()):
             await agg.initialize_all()
 
         oc_prov.initialize.assert_called_once()
@@ -182,10 +172,7 @@ class TestOnChainAwareAggregatorBlending:
             onchain_providers=[oc_prov],
         )
 
-        with patch.object(
-            type(agg).__mro__[1], 'close_all',
-            new=AsyncMock()
-        ):
+        with patch.object(type(agg).__mro__[1], "close_all", new=AsyncMock()):
             await agg.close_all()
 
         oc_prov.close.assert_called_once()
@@ -213,10 +200,7 @@ class TestOnChainAwareAggregatorBlending:
             onchain_providers=[oc_prov1, oc_prov2],
         )
         base = _base_exchange_metrics(0.8)
-        with patch.object(
-            type(agg).__mro__[1], 'fetch_metrics',
-            new=AsyncMock(return_value=base)
-        ):
+        with patch.object(type(agg).__mro__[1], "fetch_metrics", new=AsyncMock(return_value=base)):
             result = await agg.fetch_metrics()
 
         # Blended on-chain value should be between 1.0 and 2.0

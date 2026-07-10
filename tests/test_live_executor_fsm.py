@@ -79,9 +79,7 @@ class TestOrderManagerMock:
         }
 
         # Simulate: first poll returns pending, second returns filled
-        mock_exchange.fetch_order = AsyncMock(
-            side_effect=[pending_order, filled_order]
-        )
+        mock_exchange.fetch_order = AsyncMock(side_effect=[pending_order, filled_order])
 
         fsm, order = await manager.place_order_with_fsm(
             exchange=mock_exchange,
@@ -175,9 +173,9 @@ class TestFSMStateTransitions:
         fsm = OrderFSM(state)
 
         # Transition: PENDING → FILLING (order confirmed by exchange)
-        fsm.transition(OrderStatus.FILLING, {
-            "exchange_response": {"id": "99001", "status": "open"}
-        })
+        fsm.transition(
+            OrderStatus.FILLING, {"exchange_response": {"id": "99001", "status": "open"}}
+        )
         assert fsm.state.status == OrderStatus.FILLING
         assert fsm.state.first_confirmed_at_ms is not None
 
@@ -194,10 +192,13 @@ class TestFSMStateTransitions:
         assert abs(fsm.state.average_fill_price - expected_vwap) < 0.01
 
         # Transition: FILLING → FILLED (fully filled)
-        fsm.transition(OrderStatus.FILLED, {
-            "filled_qty": 2.0,
-            "average_price": fsm.state.average_fill_price,
-        })
+        fsm.transition(
+            OrderStatus.FILLED,
+            {
+                "filled_qty": 2.0,
+                "average_price": fsm.state.average_fill_price,
+            },
+        )
         assert fsm.state.status == OrderStatus.FILLED
         assert fsm.state.is_terminal()
 
@@ -269,6 +270,7 @@ class TestOrderReconciliation:
 
         # Verify snapshot is JSON-serializable
         import json
+
         json_str = json.dumps(snapshot)
         restored = json.loads(json_str)
         assert restored["order_id"] == "rec001"

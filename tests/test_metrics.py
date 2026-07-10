@@ -1,16 +1,18 @@
 """Tests for src/api/metrics.py — TASK-007 Prometheus endpoint."""
+
 from __future__ import annotations
 
 import pytest
+
 from src.api.metrics import (
-    update_metrics,
-    metrics_output,
-    signal_score,
-    regime_state,
-    kelly_fraction,
     equity_usd,
-    open_positions,
+    kelly_fraction,
+    metrics_output,
     model_accuracy_rolling,
+    open_positions,
+    regime_state,
+    signal_score,
+    update_metrics,
 )
 
 
@@ -63,11 +65,13 @@ class TestUpdateMetrics:
         update_metrics({"signal_score": "bad"})  # type: ignore[arg-type]
 
     def test_regime_probs_labels(self):
-        update_metrics({
-            "prob_ranging": 0.6,
-            "prob_trending": 0.3,
-            "prob_volatile": 0.1,
-        })
+        update_metrics(
+            {
+                "prob_ranging": 0.6,
+                "prob_trending": 0.3,
+                "prob_volatile": 0.1,
+            }
+        )
         raw, _ = metrics_output()
         text = raw.decode()
         parsed = _parse_metrics(text)
@@ -76,17 +80,17 @@ class TestUpdateMetrics:
         assert parsed.get('tradebot_regime_prob{state="volatile"}') == pytest.approx(0.1)
 
     def test_gate_counters_increment(self):
-        from src.api.metrics import gate_pass_total, gate_block_total
+        from src.api.metrics import gate_block_total, gate_pass_total
+
         before_pass = gate_pass_total.labels(gate_name="drawdown")._value.get()
         before_block = gate_block_total.labels(gate_name="regime")._value.get()
-        update_metrics({
-            "gate_results": {"drawdown": True, "regime": False}
-        })
+        update_metrics({"gate_results": {"drawdown": True, "regime": False}})
         assert gate_pass_total.labels(gate_name="drawdown")._value.get() == before_pass + 1
         assert gate_block_total.labels(gate_name="regime")._value.get() == before_block + 1
 
     def test_tick_duration_observed(self):
         from src.api.metrics import tick_duration_seconds
+
         before = tick_duration_seconds._sum.get()
         update_metrics({"tick_duration_seconds": 0.42})
         assert tick_duration_seconds._sum.get() == pytest.approx(before + 0.42)

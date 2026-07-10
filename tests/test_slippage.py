@@ -34,9 +34,7 @@ class TestEstimate:
 
     def test_explicit_spread_overrides_default(self):
         model = SlippageModel()
-        est = model.estimate(
-            "BTC/USDT", qty=1.0, price=100.0, adv_20d=1000.0, spread_bps=7.5
-        )
+        est = model.estimate("BTC/USDT", qty=1.0, price=100.0, adv_20d=1000.0, spread_bps=7.5)
         assert est.spread_bps == pytest.approx(7.5)
 
     def test_impact_follows_sqrt_law(self):
@@ -91,9 +89,7 @@ class TestEstimate:
     def test_negative_spread_raises(self):
         model = SlippageModel()
         with pytest.raises(ValueError):
-            model.estimate(
-                "BTC/USDT", qty=1.0, price=100.0, adv_20d=1000.0, spread_bps=-1.0
-            )
+            model.estimate("BTC/USDT", qty=1.0, price=100.0, adv_20d=1000.0, spread_bps=-1.0)
 
     def test_as_dict_rounds_and_contains_all_fields(self):
         model = SlippageModel()
@@ -140,9 +136,7 @@ class TestVetoIfNegativeEv:
         model = SlippageModel()
         est = model.estimate("BTC/USDT", qty=1.0, price=100.0, adv_20d=1000.0)
         breakeven_edge = est.total_slippage_bps + model._cfg.slippage_veto_margin_bps
-        assert not model.veto_if_negative_ev(
-            expected_edge_bps=breakeven_edge + 0.01, slippage=est
-        )
+        assert not model.veto_if_negative_ev(expected_edge_bps=breakeven_edge + 0.01, slippage=est)
 
     def test_nan_expected_edge_is_vetoed(self):
         model = SlippageModel()
@@ -156,9 +150,7 @@ class TestVetoIfNegativeEv:
         model = SlippageModel(cfg=cfg)
         est = model.estimate("BTC/USDT", qty=1.0, price=100.0, adv_20d=1000.0)
         # edge exactly equal to slippage with zero margin -> net == 0 -> vetoed
-        assert model.veto_if_negative_ev(
-            expected_edge_bps=est.total_slippage_bps, slippage=est
-        )
+        assert model.veto_if_negative_ev(expected_edge_bps=est.total_slippage_bps, slippage=est)
         # one bps above -> not vetoed
         assert not model.veto_if_negative_ev(
             expected_edge_bps=est.total_slippage_bps + 1.0, slippage=est

@@ -117,7 +117,11 @@ class TestKellyFromModelProbsNonFinitePLong:
 
     def test_nan_p_long_returns_zero_fraction(self, cfg):
         raw, adjusted, capped = kelly_from_model_probs(
-            float("nan"), 100.0, 50.0, direction=1, cfg=cfg,
+            float("nan"),
+            100.0,
+            50.0,
+            direction=1,
+            cfg=cfg,
         )
         assert raw == 0.0
         assert adjusted == 0.0
@@ -125,7 +129,11 @@ class TestKellyFromModelProbsNonFinitePLong:
 
     def test_positive_inf_p_long_returns_zero_fraction(self, cfg):
         raw, adjusted, capped = kelly_from_model_probs(
-            float("inf"), 100.0, 50.0, direction=1, cfg=cfg,
+            float("inf"),
+            100.0,
+            50.0,
+            direction=1,
+            cfg=cfg,
         )
         assert raw == 0.0
         assert adjusted == 0.0
@@ -133,7 +141,11 @@ class TestKellyFromModelProbsNonFinitePLong:
 
     def test_negative_inf_p_long_returns_zero_fraction(self, cfg):
         raw, adjusted, capped = kelly_from_model_probs(
-            float("-inf"), 100.0, 50.0, direction=0, cfg=cfg,
+            float("-inf"),
+            100.0,
+            50.0,
+            direction=0,
+            cfg=cfg,
         )
         assert raw == 0.0
         assert adjusted == 0.0
@@ -146,7 +158,11 @@ class TestKellyFromModelProbsNonFiniteWinLossRatio:
     def test_zero_avg_loss_produces_inf_ratio_clamped(self, cfg):
         """avg_loss_usd=0 -> division produces inf, clamped to 1.0 fallback."""
         raw, adjusted, capped = kelly_from_model_probs(
-            0.6, avg_win_usd=100.0, avg_loss_usd=0.0, direction=1, cfg=cfg,
+            0.6,
+            avg_win_usd=100.0,
+            avg_loss_usd=0.0,
+            direction=1,
+            cfg=cfg,
         )
         assert math.isfinite(raw)
         assert math.isfinite(adjusted)
@@ -154,7 +170,11 @@ class TestKellyFromModelProbsNonFiniteWinLossRatio:
     def test_extreme_avg_win_clamped_to_ceiling_ratio(self, cfg):
         """Extreme avg_win/avg_loss ratio clamped at 1000 ceiling."""
         raw, adjusted, capped = kelly_from_model_probs(
-            0.6, avg_win_usd=1e15, avg_loss_usd=1e-10, direction=1, cfg=cfg,
+            0.6,
+            avg_win_usd=1e15,
+            avg_loss_usd=1e-10,
+            direction=1,
+            cfg=cfg,
         )
         assert math.isfinite(raw)
         assert math.isfinite(adjusted)

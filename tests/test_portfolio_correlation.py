@@ -4,25 +4,24 @@ Tests for src/risk/portfolio_correlation.py
 Covers: _EWMSeries, _EWMCov, PortfolioCorrelationTracker, get_portfolio_correlation
 Target: lift coverage from 19% → ≥ 70% on this module
 """
+
 from __future__ import annotations
 
-import math
-import pytest
-
 from src.risk.portfolio_correlation import (
+    _CORRELATION_REDUCTION_THRESHOLD,
+    _EWM_HALFLIFE,
+    _MIN_OBSERVATIONS,
     PortfolioCorrelationTracker,
     _EWMCov,
     _EWMSeries,
     get_portfolio_correlation,
-    _CORRELATION_REDUCTION_THRESHOLD,
-    _MIN_OBSERVATIONS,
-    _EWM_HALFLIFE,
 )
 
 
 # ---------------------------------------------------------------------------
 # _EWMSeries
 # ---------------------------------------------------------------------------
+
 
 class TestEWMSeries:
     def test_initial_state(self):
@@ -65,6 +64,7 @@ class TestEWMSeries:
 # _EWMCov
 # ---------------------------------------------------------------------------
 
+
 class TestEWMCov:
     def test_initial_cov_zero(self):
         c = _EWMCov(halflife=10)
@@ -94,11 +94,13 @@ class TestEWMCov:
 # PortfolioCorrelationTracker — push_bar_returns
 # ---------------------------------------------------------------------------
 
+
 class TestPushBarReturns:
     def _tracker_with_history(self, n: int = 60, corr: float = 1.0) -> PortfolioCorrelationTracker:
         """Return a tracker with n bars of BTC/ETH with given target correlation."""
         t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
         import random
+
         rng = random.Random(42)
         for _ in range(n):
             btc = rng.gauss(0, 0.01)
@@ -146,6 +148,7 @@ class TestPushBarReturns:
 # push_return (sequential API)
 # ---------------------------------------------------------------------------
 
+
 class TestPushReturn:
     def test_push_return_no_crash(self):
         t = PortfolioCorrelationTracker()
@@ -164,6 +167,7 @@ class TestPushReturn:
 # ---------------------------------------------------------------------------
 # correlation()
 # ---------------------------------------------------------------------------
+
 
 class TestCorrelation:
     def test_self_correlation(self):
@@ -203,18 +207,22 @@ class TestCorrelation:
 # avg_correlation_with_open_positions()
 # ---------------------------------------------------------------------------
 
+
 class TestAvgCorrelation:
     def _correlated_tracker(self, n: int = 200) -> PortfolioCorrelationTracker:
         t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
         import random
+
         rng = random.Random(0)
         for _ in range(n):
             btc = rng.gauss(0, 0.01)
-            t.push_bar_returns({
-                "BTC/USDT": btc,
-                "ETH/USDT": btc + rng.gauss(0, 0.0005),
-                "SOL/USDT": rng.gauss(0, 0.01),  # independent
-            })
+            t.push_bar_returns(
+                {
+                    "BTC/USDT": btc,
+                    "ETH/USDT": btc + rng.gauss(0, 0.0005),
+                    "SOL/USDT": rng.gauss(0, 0.01),  # independent
+                }
+            )
         return t
 
     def test_empty_open_positions_returns_zero(self):
@@ -245,6 +253,7 @@ class TestAvgCorrelation:
         """Negative correlations (hedges) should not reduce avg below 0."""
         t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
         import random
+
         rng = random.Random(7)
         for _ in range(200):
             btc = rng.gauss(0, 0.01)
@@ -257,17 +266,21 @@ class TestAvgCorrelation:
 # correlation_scalar()
 # ---------------------------------------------------------------------------
 
+
 class TestCorrelationScalar:
     def _correlated_tracker(self, n: int = 300) -> PortfolioCorrelationTracker:
         t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
         import random
+
         rng = random.Random(1)
         for _ in range(n):
             btc = rng.gauss(0, 0.01)
-            t.push_bar_returns({
-                "BTC/USDT": btc,
-                "ETH/USDT": btc + rng.gauss(0, 0.0002),
-            })
+            t.push_bar_returns(
+                {
+                    "BTC/USDT": btc,
+                    "ETH/USDT": btc + rng.gauss(0, 0.0002),
+                }
+            )
         return t
 
     def test_no_open_positions_scalar_is_one(self):
@@ -294,12 +307,15 @@ class TestCorrelationScalar:
     def test_low_correlation_scalar_is_one(self):
         t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
         import random
+
         rng = random.Random(99)
         for _ in range(300):
-            t.push_bar_returns({
-                "BTC/USDT": rng.gauss(0, 0.01),
-                "GOLD": rng.gauss(0, 0.005),
-            })
+            t.push_bar_returns(
+                {
+                    "BTC/USDT": rng.gauss(0, 0.01),
+                    "GOLD": rng.gauss(0, 0.005),
+                }
+            )
         s = t.correlation_scalar("BTC/USDT", ["GOLD"])
         avg = t.avg_correlation_with_open_positions("BTC/USDT", ["GOLD"])
         if avg <= _CORRELATION_REDUCTION_THRESHOLD:
@@ -315,6 +331,7 @@ class TestCorrelationScalar:
 # ---------------------------------------------------------------------------
 # correlation_matrix()
 # ---------------------------------------------------------------------------
+
 
 class TestCorrelationMatrix:
     def test_empty_tracker_empty_matrix(self):
@@ -346,13 +363,14 @@ class TestCorrelationMatrix:
         for _ in range(40):
             t.push_bar_returns({"BTC/USDT": 0.01, "ETH/USDT": 0.009})
         matrix = t.correlation_matrix()
-        for (a, b) in matrix:
+        for a, b in matrix:
             assert a <= b  # lexicographic canonical order
 
 
 # ---------------------------------------------------------------------------
 # get_portfolio_correlation singleton
 # ---------------------------------------------------------------------------
+
 
 class TestSingleton:
     def test_returns_same_instance(self):

@@ -183,18 +183,18 @@ class TestPaperMinimumDays:
 
 
 def _make_ctx(**overrides) -> RiskGateContext:
-    defaults = dict(
-        daily_pnl_usd=-5.0,
-        starting_equity_usd=1000.0,
-        consecutive_loss_count=1,
-        regime_state=REGIME_TRENDING,
-        notional_usd=40.0,
-        capital_usd=1000.0,
-        trading_mode=TradingMode.PAPER,
-        direction_gate_pass=True,
-        meta_gate_pass=True,
-        paper_trading_days=30,
-    )
+    defaults = {
+        "daily_pnl_usd": -5.0,
+        "starting_equity_usd": 1000.0,
+        "consecutive_loss_count": 1,
+        "regime_state": REGIME_TRENDING,
+        "notional_usd": 40.0,
+        "capital_usd": 1000.0,
+        "trading_mode": TradingMode.PAPER,
+        "direction_gate_pass": True,
+        "meta_gate_pass": True,
+        "paper_trading_days": 30,
+    }
     defaults.update(overrides)
     return RiskGateContext(**defaults)
 

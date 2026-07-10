@@ -18,7 +18,6 @@ All network calls are mocked. No live API calls in tests.
 
 from __future__ import annotations
 
-import math
 import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,14 +26,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def base_feature_vec() -> pd.Series:
     """Minimal 7-feature base vector matching FEATURE_COLUMNS."""
     from src.features.pipeline import FEATURE_COLUMNS
+
     return pd.Series(
         {c: float(i) for i, c in enumerate(FEATURE_COLUMNS)},
         dtype=np.float64,
@@ -45,27 +47,27 @@ def base_feature_vec() -> pd.Series:
 def full_intel_metrics() -> dict[str, float]:
     """Canonical all-real intelligence metrics dict (as aggregator would return)."""
     return {
-        "binance_funding_rate_pct":        0.01,
-        "futures_oi_change_pct":           1.5,
+        "binance_funding_rate_pct": 0.01,
+        "futures_oi_change_pct": 1.5,
         "cross_exchange_basis_spread_bps": 8.0,
-        "whale_buy_sell_ratio":            1.3,
+        "whale_buy_sell_ratio": 1.3,
         "liquidation_pressure_24h_zscore": 0.5,
-        "liquidation_cascade_risk_usd":    500_000.0,
-        "exchange_stress_score":           0.25,
-        "exchange_netflow_7d_zscore":      0.0,   # paid-gated: neutral
-        "exchange_reserve_ratio":          0.5,   # paid-gated: neutral
-        "miner_netflow_signal":            0.0,   # paid-gated: neutral
-        "staking_unlock_risk":             0.0,   # paid-gated: neutral
-        "entity_exchange_imbalance":       0.0,   # paid-gated: neutral
-        "btc_dominance_regime":            0.8,
-        "stablecoin_reserve_ratio":        0.07,
-        "network_activity_score":          0.4,
+        "liquidation_cascade_risk_usd": 500_000.0,
+        "exchange_stress_score": 0.25,
+        "exchange_netflow_7d_zscore": 0.0,  # paid-gated: neutral
+        "exchange_reserve_ratio": 0.5,  # paid-gated: neutral
+        "miner_netflow_signal": 0.0,  # paid-gated: neutral
+        "staking_unlock_risk": 0.0,  # paid-gated: neutral
+        "entity_exchange_imbalance": 0.0,  # paid-gated: neutral
+        "btc_dominance_regime": 0.8,
+        "stablecoin_reserve_ratio": 0.07,
+        "network_activity_score": 0.4,
         # OCI-012 fields
-        "defi_tvl_7d_change_pct":          2.5,
-        "mvrv_z_score":                    0.0,
-        "sopr":                            0.0,
-        "confidence":                      0.75,
-        "timestamp":                       float(int(time.time())),
+        "defi_tvl_7d_change_pct": 2.5,
+        "mvrv_z_score": 0.0,
+        "sopr": 0.0,
+        "confidence": 0.75,
+        "timestamp": float(int(time.time())),
     }
 
 
@@ -73,9 +75,11 @@ def full_intel_metrics() -> dict[str, float]:
 # 1. ABC enforcement
 # ---------------------------------------------------------------------------
 
+
 class TestExchangeIntelligenceProviderABC:
     def test_cannot_instantiate_abstract(self):
         from src.intelligence.providers.base import ExchangeIntelligenceProvider
+
         with pytest.raises(TypeError):
             ExchangeIntelligenceProvider()  # type: ignore[abstract]
 
@@ -84,8 +88,12 @@ class TestExchangeIntelligenceProviderABC:
 
         class Incomplete(ExchangeIntelligenceProvider):
             @property
-            def exchange_id(self): return "test"
-            async def initialize(self): pass
+            def exchange_id(self):
+                return "test"
+
+            async def initialize(self):
+                pass
+
             # Missing close() and fetch_metrics()
 
         with pytest.raises(TypeError):
@@ -96,9 +104,15 @@ class TestExchangeIntelligenceProviderABC:
 
         class Complete(ExchangeIntelligenceProvider):
             @property
-            def exchange_id(self): return "test"
-            async def initialize(self): pass
-            async def close(self): pass
+            def exchange_id(self):
+                return "test"
+
+            async def initialize(self):
+                pass
+
+            async def close(self):
+                pass
+
             async def fetch_metrics(self) -> dict[str, float]:
                 return {"confidence": 1.0, "timestamp": float(int(time.time()))}
 
@@ -109,10 +123,12 @@ class TestExchangeIntelligenceProviderABC:
 # 2. OKXIntelligenceProvider
 # ---------------------------------------------------------------------------
 
+
 class TestOKXIntelligenceProvider:
     @pytest.fixture()
     def provider(self):
         from src.intelligence.providers.okx_provider import OKXIntelligenceProvider
+
         p = OKXIntelligenceProvider(symbol="BTC/USDT", perp_symbol="BTC/USDT:USDT")
         return p
 
@@ -158,7 +174,7 @@ class TestOKXIntelligenceProvider:
         metrics_partial_fail = await provider.fetch_metrics()
 
         provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 0.01, "zscore": 0.3})
-        metrics_full_ok = await provider.fetch_metrics()
+        await provider.fetch_metrics()
         provider._cache.clear()
 
         # Re-run clean
@@ -208,17 +224,25 @@ class TestOKXIntelligenceProvider:
 # 3. CoinGeckoIntelligenceProvider
 # ---------------------------------------------------------------------------
 
+
 class TestCoinGeckoIntelligenceProvider:
     @pytest.fixture()
     def provider(self):
         from src.intelligence.providers.coingecko_provider import CoinGeckoIntelligenceProvider
+
         return CoinGeckoIntelligenceProvider(cache_ttl_s=0)  # ttl=0 disables cache for tests
 
     @pytest.mark.asyncio
     async def test_btc_dominance_zscore_computed(self, provider):
         """After several calls with varying BTC dominance, z-score should be non-zero."""
         mock_data = {
-            "market_cap_percentage": {"btc": 50.0, "usdt": 5.0, "usdc": 2.0, "dai": 0.5, "frax": 0.1},
+            "market_cap_percentage": {
+                "btc": 50.0,
+                "usdt": 5.0,
+                "usdc": 2.0,
+                "dai": 0.5,
+                "frax": 0.1,
+            },
             "total_market_cap": {"usd": 1e12},
         }
 
@@ -240,7 +264,13 @@ class TestCoinGeckoIntelligenceProvider:
     async def test_stablecoin_ratio_bounded(self, provider):
         async def fake_fetch():
             return {
-                "market_cap_percentage": {"btc": 40.0, "usdt": 8.0, "usdc": 4.0, "dai": 1.0, "frax": 0.5},
+                "market_cap_percentage": {
+                    "btc": 40.0,
+                    "usdt": 8.0,
+                    "usdc": 4.0,
+                    "dai": 1.0,
+                    "frax": 0.5,
+                },
                 "total_market_cap": {"usd": 2e12},
             }
 
@@ -266,11 +296,19 @@ class TestCoinGeckoIntelligenceProvider:
     @pytest.mark.asyncio
     async def test_all_intel_fields_present(self, provider):
         from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
+
         async def fake_fetch():
             return {
-                "market_cap_percentage": {"btc": 48.0, "usdt": 6.0, "usdc": 3.0, "dai": 0.5, "frax": 0.2},
+                "market_cap_percentage": {
+                    "btc": 48.0,
+                    "usdt": 6.0,
+                    "usdc": 3.0,
+                    "dai": 0.5,
+                    "frax": 0.2,
+                },
                 "total_market_cap": {"usd": 1.5e12},
             }
+
         provider._fetch_global = fake_fetch
         metrics = await provider.fetch_metrics()
         for col in INTELLIGENCE_FEATURE_COLUMNS:
@@ -282,10 +320,12 @@ class TestCoinGeckoIntelligenceProvider:
 # 4. BlockchainIntelligenceProvider
 # ---------------------------------------------------------------------------
 
+
 class TestBlockchainIntelligenceProvider:
     @pytest.fixture()
     def provider(self):
         from src.intelligence.providers.blockchain_provider import BlockchainIntelligenceProvider
+
         return BlockchainIntelligenceProvider(cache_ttl_s=0)
 
     @pytest.mark.asyncio
@@ -332,15 +372,22 @@ class TestBlockchainIntelligenceProvider:
 # 5. MultiProviderIntelligenceAggregator
 # ---------------------------------------------------------------------------
 
+
 class TestMultiProviderIntelligenceAggregator:
     def _make_exchange_provider(self, exchange_id: str, metrics: dict) -> Any:
         from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
         class MockProvider(ExchangeIntelligenceProvider):
             @property
-            def exchange_id(self): return exchange_id
-            async def initialize(self): pass
-            async def close(self): pass
+            def exchange_id(self):
+                return exchange_id
+
+            async def initialize(self):
+                pass
+
+            async def close(self):
+                pass
+
             async def fetch_metrics(self) -> dict[str, float]:
                 return metrics
 
@@ -348,24 +395,40 @@ class TestMultiProviderIntelligenceAggregator:
 
     @pytest.mark.asyncio
     async def test_all_intel_fields_present_in_merged(self):
-        from src.intelligence.providers.aggregator import MultiProviderIntelligenceAggregator
         from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
+        from src.intelligence.providers.aggregator import MultiProviderIntelligenceAggregator
 
         binance_metrics = {
-            "binance_funding_rate_pct": 0.01, "futures_oi_change_pct": 1.5,
-            "cross_exchange_basis_spread_bps": 8.0, "whale_buy_sell_ratio": 1.3,
-            "liquidation_pressure_24h_zscore": 0.5, "liquidation_cascade_risk_usd": 5e5,
+            "binance_funding_rate_pct": 0.01,
+            "futures_oi_change_pct": 1.5,
+            "cross_exchange_basis_spread_bps": 8.0,
+            "whale_buy_sell_ratio": 1.3,
+            "liquidation_pressure_24h_zscore": 0.5,
+            "liquidation_cascade_risk_usd": 5e5,
             "exchange_stress_score": 0.25,
-            "exchange_netflow_7d_zscore": 0.0, "exchange_reserve_ratio": 0.5,
-            "miner_netflow_signal": 0.0, "staking_unlock_risk": 0.0, "entity_exchange_imbalance": 0.0,
-            "btc_dominance_regime": 0.0, "stablecoin_reserve_ratio": 0.5, "network_activity_score": 0.0,
-            "confidence": 0.75, "timestamp": float(int(time.time())),
+            "exchange_netflow_7d_zscore": 0.0,
+            "exchange_reserve_ratio": 0.5,
+            "miner_netflow_signal": 0.0,
+            "staking_unlock_risk": 0.0,
+            "entity_exchange_imbalance": 0.0,
+            "btc_dominance_regime": 0.0,
+            "stablecoin_reserve_ratio": 0.5,
+            "network_activity_score": 0.0,
+            "defi_tvl_7d_change_pct": 0.0,
+            "mvrv_z_score": 0.0,
+            "sopr": 0.0,
+            "confidence": 0.75,
+            "timestamp": float(int(time.time())),
         }
         macro_metrics = {
             **{k: 0.0 for k in binance_metrics},
-            "whale_buy_sell_ratio": 1.0, "exchange_reserve_ratio": 0.5, "stablecoin_reserve_ratio": 0.5,
-            "btc_dominance_regime": 0.9, "stablecoin_reserve_ratio": 0.08, "network_activity_score": 0.4,
-            "confidence": 0.90, "timestamp": float(int(time.time())),
+            "whale_buy_sell_ratio": 1.0,
+            "exchange_reserve_ratio": 0.5,
+            "btc_dominance_regime": 0.9,
+            "stablecoin_reserve_ratio": 0.08,
+            "network_activity_score": 0.4,
+            "confidence": 0.90,
+            "timestamp": float(int(time.time())),
         }
 
         agg = MultiProviderIntelligenceAggregator(
@@ -388,20 +451,32 @@ class TestMultiProviderIntelligenceAggregator:
 
         def _base(exchange_id, btc_dom, conf):
             return {
-                "binance_funding_rate_pct": 0.0, "futures_oi_change_pct": 0.0,
-                "cross_exchange_basis_spread_bps": 0.0, "whale_buy_sell_ratio": 1.0,
-                "liquidation_pressure_24h_zscore": 0.0, "liquidation_cascade_risk_usd": 0.0,
-                "exchange_stress_score": 0.0, "exchange_netflow_7d_zscore": 0.0,
-                "exchange_reserve_ratio": 0.5, "miner_netflow_signal": 0.0,
-                "staking_unlock_risk": 0.0, "entity_exchange_imbalance": 0.0,
+                "binance_funding_rate_pct": 0.0,
+                "futures_oi_change_pct": 0.0,
+                "cross_exchange_basis_spread_bps": 0.0,
+                "whale_buy_sell_ratio": 1.0,
+                "liquidation_pressure_24h_zscore": 0.0,
+                "liquidation_cascade_risk_usd": 0.0,
+                "exchange_stress_score": 0.0,
+                "exchange_netflow_7d_zscore": 0.0,
+                "exchange_reserve_ratio": 0.5,
+                "miner_netflow_signal": 0.0,
+                "staking_unlock_risk": 0.0,
+                "entity_exchange_imbalance": 0.0,
                 "btc_dominance_regime": btc_dom,
-                "stablecoin_reserve_ratio": 0.5, "network_activity_score": 0.0,
-                "confidence": conf, "timestamp": float(int(time.time())),
+                "stablecoin_reserve_ratio": 0.5,
+                "network_activity_score": 0.0,
+                "confidence": conf,
+                "timestamp": float(int(time.time())),
             }
 
         agg = MultiProviderIntelligenceAggregator(
-            exchange_providers=[self._make_exchange_provider("binance", _base("binance", 0.0, 0.75))],
-            macro_providers=[self._make_exchange_provider("coingecko", _base("coingecko", 1.5, 0.90))],
+            exchange_providers=[
+                self._make_exchange_provider("binance", _base("binance", 0.0, 0.75))
+            ],
+            macro_providers=[
+                self._make_exchange_provider("coingecko", _base("coingecko", 1.5, 0.90))
+            ],
         )
         result = await agg.fetch_metrics()
         # Macro provider's btc_dominance_regime=1.5 must win over exchange neutral=0.0
@@ -414,14 +489,23 @@ class TestMultiProviderIntelligenceAggregator:
 
         def _base(stress, conf):
             return {
-                "binance_funding_rate_pct": 0.01, "futures_oi_change_pct": 1.0,
-                "cross_exchange_basis_spread_bps": 5.0, "whale_buy_sell_ratio": 1.2,
-                "liquidation_pressure_24h_zscore": 0.3, "liquidation_cascade_risk_usd": 1e5,
+                "binance_funding_rate_pct": 0.01,
+                "futures_oi_change_pct": 1.0,
+                "cross_exchange_basis_spread_bps": 5.0,
+                "whale_buy_sell_ratio": 1.2,
+                "liquidation_pressure_24h_zscore": 0.3,
+                "liquidation_cascade_risk_usd": 1e5,
                 "exchange_stress_score": stress,
-                "exchange_netflow_7d_zscore": 0.0, "exchange_reserve_ratio": 0.5,
-                "miner_netflow_signal": 0.0, "staking_unlock_risk": 0.0, "entity_exchange_imbalance": 0.0,
-                "btc_dominance_regime": 0.0, "stablecoin_reserve_ratio": 0.5, "network_activity_score": 0.0,
-                "confidence": conf, "timestamp": float(int(time.time())),
+                "exchange_netflow_7d_zscore": 0.0,
+                "exchange_reserve_ratio": 0.5,
+                "miner_netflow_signal": 0.0,
+                "staking_unlock_risk": 0.0,
+                "entity_exchange_imbalance": 0.0,
+                "btc_dominance_regime": 0.0,
+                "stablecoin_reserve_ratio": 0.5,
+                "network_activity_score": 0.0,
+                "confidence": conf,
+                "timestamp": float(int(time.time())),
             }
 
         agg = MultiProviderIntelligenceAggregator(
@@ -445,14 +529,23 @@ class TestMultiProviderIntelligenceAggregator:
         failing.fetch_metrics = AsyncMock(side_effect=RuntimeError("exploded"))
 
         good_metrics = {
-            "binance_funding_rate_pct": 0.02, "futures_oi_change_pct": 0.5,
-            "cross_exchange_basis_spread_bps": 3.0, "whale_buy_sell_ratio": 1.1,
-            "liquidation_pressure_24h_zscore": 0.1, "liquidation_cascade_risk_usd": 1e4,
+            "binance_funding_rate_pct": 0.02,
+            "futures_oi_change_pct": 0.5,
+            "cross_exchange_basis_spread_bps": 3.0,
+            "whale_buy_sell_ratio": 1.1,
+            "liquidation_pressure_24h_zscore": 0.1,
+            "liquidation_cascade_risk_usd": 1e4,
             "exchange_stress_score": 0.15,
-            "exchange_netflow_7d_zscore": 0.0, "exchange_reserve_ratio": 0.5,
-            "miner_netflow_signal": 0.0, "staking_unlock_risk": 0.0, "entity_exchange_imbalance": 0.0,
-            "btc_dominance_regime": 0.0, "stablecoin_reserve_ratio": 0.5, "network_activity_score": 0.0,
-            "confidence": 0.70, "timestamp": float(int(time.time())),
+            "exchange_netflow_7d_zscore": 0.0,
+            "exchange_reserve_ratio": 0.5,
+            "miner_netflow_signal": 0.0,
+            "staking_unlock_risk": 0.0,
+            "entity_exchange_imbalance": 0.0,
+            "btc_dominance_regime": 0.0,
+            "stablecoin_reserve_ratio": 0.5,
+            "network_activity_score": 0.0,
+            "confidence": 0.70,
+            "timestamp": float(int(time.time())),
         }
         good = self._make_exchange_provider("good", good_metrics)
 
@@ -466,29 +559,39 @@ class TestMultiProviderIntelligenceAggregator:
 
     @pytest.mark.asyncio
     async def test_paid_gated_fields_reduce_confidence(self):
-        """All paid fields at neutral → confidence penalised 5× vs zero paid missing."""
-        from src.intelligence.providers.aggregator import MultiProviderIntelligenceAggregator, _PAID_GATED_FIELDS, _CONFIDENCE_PENALTY_PER_MISSING
+        """All paid fields at neutral → confidence penalised 5x vs zero paid missing."""
+        from src.intelligence.providers.aggregator import (
+            _CONFIDENCE_PENALTY_PER_MISSING,
+            _PAID_GATED_FIELDS,
+            MultiProviderIntelligenceAggregator,
+        )
 
         # Provider with all paid fields at neutral (default GAP-015 state)
         neutral_metrics = {
-            "binance_funding_rate_pct": 0.01, "futures_oi_change_pct": 1.0,
-            "cross_exchange_basis_spread_bps": 5.0, "whale_buy_sell_ratio": 1.2,
-            "liquidation_pressure_24h_zscore": 0.3, "liquidation_cascade_risk_usd": 1e5,
+            "binance_funding_rate_pct": 0.01,
+            "futures_oi_change_pct": 1.0,
+            "cross_exchange_basis_spread_bps": 5.0,
+            "whale_buy_sell_ratio": 1.2,
+            "liquidation_pressure_24h_zscore": 0.3,
+            "liquidation_cascade_risk_usd": 1e5,
             "exchange_stress_score": 0.2,
-            "exchange_netflow_7d_zscore": 0.0,   # neutral
-            "exchange_reserve_ratio": 0.5,         # neutral
-            "miner_netflow_signal": 0.0,           # neutral
-            "staking_unlock_risk": 0.0,            # neutral
-            "entity_exchange_imbalance": 0.0,      # neutral
-            "btc_dominance_regime": 0.0, "stablecoin_reserve_ratio": 0.5, "network_activity_score": 0.0,
-            "confidence": 0.80, "timestamp": float(int(time.time())),
+            "exchange_netflow_7d_zscore": 0.0,  # neutral
+            "exchange_reserve_ratio": 0.5,  # neutral
+            "miner_netflow_signal": 0.0,  # neutral
+            "staking_unlock_risk": 0.0,  # neutral
+            "entity_exchange_imbalance": 0.0,  # neutral
+            "btc_dominance_regime": 0.0,
+            "stablecoin_reserve_ratio": 0.5,
+            "network_activity_score": 0.0,
+            "confidence": 0.80,
+            "timestamp": float(int(time.time())),
         }
         agg = MultiProviderIntelligenceAggregator(
             exchange_providers=[self._make_exchange_provider("binance", neutral_metrics)],
             macro_providers=[],
         )
         result = await agg.fetch_metrics()
-        # Expected: base_conf=0.80, minus 5 paid-missing × 0.05 = 0.55
+        # Expected: base_conf=0.80, minus 5 paid-missing x 0.05 = 0.55
         expected_conf = max(0.0, 0.80 - len(_PAID_GATED_FIELDS) * _CONFIDENCE_PENALTY_PER_MISSING)
         assert result["confidence"] == pytest.approx(expected_conf, abs=1e-6)
 
@@ -497,10 +600,10 @@ class TestMultiProviderIntelligenceAggregator:
 # 6. _inject_intelligence_features
 # ---------------------------------------------------------------------------
 
+
 class TestInjectIntelligenceFeatures:
     def test_finite_values_injected(self, base_feature_vec, full_intel_metrics):
         from src.features.pipeline import _inject_intelligence_features
-        from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
 
         result = _inject_intelligence_features(base_feature_vec, full_intel_metrics)
 
@@ -539,8 +642,7 @@ class TestInjectIntelligenceFeatures:
         assert "intelligence_exchange_stress_score" not in result.index
 
     def test_base_features_preserved(self, base_feature_vec, full_intel_metrics):
-        from src.features.pipeline import _inject_intelligence_features
-        from src.features.pipeline import FEATURE_COLUMNS
+        from src.features.pipeline import FEATURE_COLUMNS, _inject_intelligence_features
 
         result = _inject_intelligence_features(base_feature_vec, full_intel_metrics)
         for col in FEATURE_COLUMNS:
@@ -549,12 +651,14 @@ class TestInjectIntelligenceFeatures:
 
     def test_confidence_included(self, base_feature_vec, full_intel_metrics):
         from src.features.pipeline import _inject_intelligence_features
+
         result = _inject_intelligence_features(base_feature_vec, full_intel_metrics)
         assert "intelligence_confidence" in result.index
         assert result["intelligence_confidence"] == pytest.approx(0.75)
 
     def test_empty_metrics_returns_base_unchanged(self, base_feature_vec):
         from src.features.pipeline import _inject_intelligence_features
+
         result = _inject_intelligence_features(base_feature_vec, {})
         pd.testing.assert_series_equal(result, base_feature_vec)
 
@@ -563,6 +667,7 @@ class TestInjectIntelligenceFeatures:
 # 7. build_inference_features with intelligence_metrics kwarg
 # ---------------------------------------------------------------------------
 
+
 class TestBuildInferenceFeaturesWithIntelligence:
     def _make_bars(self, n: int = 220) -> pd.DataFrame:
         """Minimal OHLCV DataFrame with enough rows for all feature windows (need ≥200)."""
@@ -570,23 +675,25 @@ class TestBuildInferenceFeaturesWithIntelligence:
         close = 30_000.0 + np.cumsum(rng.normal(0, 50, n))
         return pd.DataFrame(
             {
-                "open":   close - rng.uniform(0, 10, n),
-                "high":   close + rng.uniform(5, 20, n),
-                "low":    close - rng.uniform(5, 20, n),
-                "close":  close,
+                "open": close - rng.uniform(0, 10, n),
+                "high": close + rng.uniform(5, 20, n),
+                "low": close - rng.uniform(5, 20, n),
+                "close": close,
                 "volume": rng.uniform(1e6, 5e6, n),
             }
         )
 
     def test_base_features_returned_when_no_intel(self):
-        from src.features.pipeline import build_inference_features, FEATURE_COLUMNS
+        from src.features.pipeline import FEATURE_COLUMNS, build_inference_features
+
         bars = self._make_bars()
         vec = build_inference_features(bars)
         assert vec is not None
         assert set(FEATURE_COLUMNS).issubset(set(vec.index))
 
     def test_intel_features_appended_when_metrics_supplied(self, full_intel_metrics):
-        from src.features.pipeline import build_inference_features, FEATURE_COLUMNS
+        from src.features.pipeline import FEATURE_COLUMNS, build_inference_features
+
         bars = self._make_bars()
         vec = build_inference_features(bars, intelligence_metrics=full_intel_metrics)
         assert vec is not None
@@ -596,7 +703,8 @@ class TestBuildInferenceFeaturesWithIntelligence:
         assert len(intel_cols) > 0
 
     def test_base_only_when_metrics_empty(self):
-        from src.features.pipeline import build_inference_features, FEATURE_COLUMNS
+        from src.features.pipeline import build_inference_features
+
         bars = self._make_bars()
         vec = build_inference_features(bars, intelligence_metrics={})
         assert vec is not None
@@ -605,6 +713,7 @@ class TestBuildInferenceFeaturesWithIntelligence:
 
     def test_nan_intel_fields_not_in_result(self):
         from src.features.pipeline import build_inference_features
+
         bars = self._make_bars()
         metrics_with_nan = {
             "exchange_stress_score": float("nan"),
@@ -618,10 +727,16 @@ class TestBuildInferenceFeaturesWithIntelligence:
 
     def test_fast_path_also_injects_intelligence(self, full_intel_metrics):
         """Fast path (feature_matrix supplied) must also inject intelligence features."""
-        from src.features.pipeline import build_inference_features, build_feature_matrix, FEATURE_COLUMNS
+        from src.features.pipeline import (
+            build_feature_matrix,
+            build_inference_features,
+        )
+
         bars = self._make_bars()
         fm = build_feature_matrix(bars)
-        vec = build_inference_features(bars, feature_matrix=fm, intelligence_metrics=full_intel_metrics)
+        vec = build_inference_features(
+            bars, feature_matrix=fm, intelligence_metrics=full_intel_metrics
+        )
         assert vec is not None
         intel_cols = [c for c in vec.index if c.startswith("intelligence_")]
         assert len(intel_cols) > 0
@@ -631,12 +746,15 @@ class TestBuildInferenceFeaturesWithIntelligence:
 # 8. Singleton integrity
 # ---------------------------------------------------------------------------
 
+
 class TestGetMultiProviderAggregatorSingleton:
     def test_same_instance_on_repeated_calls(self):
         import src.intelligence.providers.aggregator as agg_mod
+
         # Reset singleton for test isolation
         agg_mod._aggregator = None
         from src.intelligence.providers.aggregator import get_multi_provider_aggregator
+
         a1 = get_multi_provider_aggregator()
         a2 = get_multi_provider_aggregator()
         assert a1 is a2
@@ -645,12 +763,9 @@ class TestGetMultiProviderAggregatorSingleton:
 
     def test_aggregator_has_all_four_providers(self):
         import src.intelligence.providers.aggregator as agg_mod
+
         agg_mod._aggregator = None
         from src.intelligence.providers.aggregator import get_multi_provider_aggregator
-        from src.intelligence.providers.binance_provider import BinanceIntelligenceProvider
-        from src.intelligence.providers.okx_provider import OKXIntelligenceProvider
-        from src.intelligence.providers.coingecko_provider import CoinGeckoIntelligenceProvider
-        from src.intelligence.providers.blockchain_provider import BlockchainIntelligenceProvider
 
         agg = get_multi_provider_aggregator()
         ids = {p.exchange_id for p in agg._all_providers}
@@ -678,8 +793,10 @@ class TestGetOnChainAwareAggregatorSingleton:
 
     def test_same_instance_on_repeated_calls(self):
         import src.intelligence.providers.aggregator as agg_mod
+
         agg_mod._onchain_aware_aggregator = None
         from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
+
         mock_settings = MagicMock()
         mock_settings.intelligence = self._mock_intel_cfg()
         with patch("src.config.get_settings", return_value=mock_settings):
@@ -690,8 +807,13 @@ class TestGetOnChainAwareAggregatorSingleton:
 
     def test_aggregator_has_exchange_macro_and_onchain_providers(self):
         import src.intelligence.providers.aggregator as agg_mod
+
         agg_mod._onchain_aware_aggregator = None
-        from src.intelligence.providers.aggregator import OnChainAwareAggregator, get_onchain_aware_aggregator
+        from src.intelligence.providers.aggregator import (
+            OnChainAwareAggregator,
+            get_onchain_aware_aggregator,
+        )
+
         mock_settings = MagicMock()
         mock_settings.intelligence = self._mock_intel_cfg()
         with patch("src.config.get_settings", return_value=mock_settings):
@@ -717,4 +839,5 @@ class TestGetOnChainAwareAggregatorSingleton:
         """signal_engine._get_intel_aggregator must resolve to get_onchain_aware_aggregator."""
         import src.engine.signal_engine as se_mod
         from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
+
         assert se_mod._get_intel_aggregator is get_onchain_aware_aggregator

@@ -1,4 +1,5 @@
 """OCI-003: Tests for DeFiLlamaProvider."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -25,6 +26,7 @@ def _tvl_series(n: int, start: float = 100.0, end: float = 100.0) -> list[dict]:
 # ---------------------------------------------------------------------------
 # _compute_tvl_metrics helper tests
 # ---------------------------------------------------------------------------
+
 
 def test_staking_unlock_risk_large_drop() -> None:
     # Need >10% drop over the 7d window (recent[-8] → recent[-1]).
@@ -67,6 +69,7 @@ def test_tvl_7d_change_too_few_points() -> None:
 # _stablecoin_ratio helper tests
 # ---------------------------------------------------------------------------
 
+
 def test_stablecoin_ratio_usdt_usdc_dominant() -> None:
     data = {
         "peggedAssets": [
@@ -88,6 +91,7 @@ def test_stablecoin_ratio_empty_returns_none() -> None:
 # ---------------------------------------------------------------------------
 # DeFiLlamaProvider integration tests (mocked HTTP)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_no_auth_header_sent() -> None:

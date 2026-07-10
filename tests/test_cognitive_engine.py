@@ -44,33 +44,33 @@ def make_ctx(**overrides) -> SignalContext:
     realistic, internally-consistent numbers. Individual tests override
     only the field(s) needed to exercise a specific branch.
     """
-    base = dict(
-        signal_id="BTCUSDT_1h_1750000000000",
-        symbol="BTC/USDT",
-        timeframe="1h",
-        p_long=0.70,
-        p_bet=0.71,
-        expected_edge_bps=40.0,          # (0.70-0.5)*200 = 40, consistent with p_long
-        regime_state=1,                  # trending — not volatile
-        regime_probs=[0.15, 0.75, 0.10],  # low entropy, dominant=trending
-        hurst_exponent=0.62,             # > HURST_TRENDING_MIN (0.55)
-        current_price=65000.0,
-        atr=300.0,
-        atr_median_20=290.0,             # vol_ratio ~1.03, well under 2.0
-        realized_vol=0.45,               # 45% annualized
-        adv_20d=50_000.0,
-        spread_bps=2.0,
-        capital_usd=100_000.0,
-        daily_pnl_usd=200.0,             # positive day, no drawdown
-        open_positions=0,
-        consecutive_losses=0,
-        funding_rate_8h=0.0,
-        basis_pct=0.0,
-        exchange_name="binance",
-        proposed_qty=0.01,
-        proposed_notional_usd=650.0,     # 0.65% of capital — well under 5% cap
-        kelly_adjusted_fraction=0.0784,  # realistic post-entropy-gate fraction
-    )
+    base = {
+        "signal_id": "BTCUSDT_1h_1750000000000",
+        "symbol": "BTC/USDT",
+        "timeframe": "1h",
+        "p_long": 0.70,
+        "p_bet": 0.71,
+        "expected_edge_bps": 40.0,  # (0.70-0.5)*200 = 40, consistent with p_long
+        "regime_state": 1,  # trending — not volatile
+        "regime_probs": [0.15, 0.75, 0.10],  # low entropy, dominant=trending
+        "hurst_exponent": 0.62,  # > HURST_TRENDING_MIN (0.55)
+        "current_price": 65000.0,
+        "atr": 300.0,
+        "atr_median_20": 290.0,  # vol_ratio ~1.03, well under 2.0
+        "realized_vol": 0.45,  # 45% annualized
+        "adv_20d": 50_000.0,
+        "spread_bps": 2.0,
+        "capital_usd": 100_000.0,
+        "daily_pnl_usd": 200.0,  # positive day, no drawdown
+        "open_positions": 0,
+        "consecutive_losses": 0,
+        "funding_rate_8h": 0.0,
+        "basis_pct": 0.0,
+        "exchange_name": "binance",
+        "proposed_qty": 0.01,
+        "proposed_notional_usd": 650.0,  # 0.65% of capital — well under 5% cap
+        "kelly_adjusted_fraction": 0.0784,  # realistic post-entropy-gate fraction
+    }
     base.update(overrides)
     return SignalContext(**base)
 
@@ -289,17 +289,13 @@ class TestRegimeValidator:
 
     def test_veto_high_entropy(self):
         # Near-uniform posterior -> entropy close to 1.0 -> exceeds 0.90 veto
-        result = self.v.validate(
-            make_ctx(regime_state=0, regime_probs=[0.34, 0.33, 0.33])
-        )
+        result = self.v.validate(make_ctx(regime_state=0, regime_probs=[0.34, 0.33, 0.33]))
         assert result.status == ValidatorStatus.VETO
         assert "entropy" in result.reason.lower()
 
     def test_warn_moderate_entropy(self):
         # entropy in [0.70, 0.90] warn zone, regime_state not volatile
-        result = self.v.validate(
-            make_ctx(regime_state=1, regime_probs=[0.15, 0.72, 0.13])
-        )
+        result = self.v.validate(make_ctx(regime_state=1, regime_probs=[0.15, 0.72, 0.13]))
         assert result.status == ValidatorStatus.WARN
         assert result.metrics["hmm_entropy_normalized"] > 0.70
 
@@ -315,7 +311,9 @@ class TestRegimeValidator:
         result = self.v.validate(make_ctx(regime_state=1, regime_probs=probs))
         raw_e = -sum(p * math.log(p + 1e-12) for p in probs)
         expected_norm_entropy = raw_e / math.log(3)
-        assert abs(result.metrics["hmm_entropy_normalized"] - round(expected_norm_entropy, 4)) < 1e-3
+        assert (
+            abs(result.metrics["hmm_entropy_normalized"] - round(expected_norm_entropy, 4)) < 1e-3
+        )
 
 
 # ─── CognitiveEngine — aggregation and the sizing-fix regression ──────────────
@@ -386,8 +384,8 @@ class TestCognitiveEngineAggregation:
         """
         for edge_bps, vol, kelly_frac in [
             (24.0, 0.45, 0.0784),
-            (80.0, 0.15, 0.02),     # would have produced a huge _base_size()
-            (10.0, 0.90, 0.15),     # would have produced a tiny _base_size()
+            (80.0, 0.15, 0.02),  # would have produced a huge _base_size()
+            (10.0, 0.90, 0.15),  # would have produced a tiny _base_size()
         ]:
             ctx = make_ctx(
                 expected_edge_bps=edge_bps,
@@ -415,7 +413,7 @@ class TestCognitiveEngineAggregation:
         decision = self.engine.evaluate(ctx)
         warn_count = sum(1 for r in decision.results if r.status == ValidatorStatus.WARN)
         assert warn_count >= 1
-        expected = kelly_fraction * (0.70 ** warn_count)
+        expected = kelly_fraction * (0.70**warn_count)
         assert abs(decision.adjusted_size_fraction - expected) < 1e-6
 
     def test_get_cognitive_engine_returns_singleton(self):

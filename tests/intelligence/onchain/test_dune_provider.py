@@ -1,10 +1,9 @@
 """OCI-004: Tests for DuneProvider."""
+
 from __future__ import annotations
 
-import asyncio
 import datetime
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -20,7 +19,7 @@ from src.intelligence.onchain.dune_provider import (
 
 
 def _now_iso() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return datetime.datetime.now(datetime.UTC).isoformat()
 
 
 def _fresh_results(rows: list[dict]) -> dict:
@@ -32,9 +31,7 @@ def _fresh_results(rows: list[dict]) -> dict:
 
 
 def _stale_results(rows: list[dict]) -> dict:
-    old = (
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=2)
-    ).isoformat()
+    old = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=2)).isoformat()
     return {
         "state": "QUERY_STATE_COMPLETED",
         "execution_ended_at": old,
@@ -49,6 +46,7 @@ def _make_provider(key: str = "test-key", ttl: int = 3600) -> DuneProvider:
 # ---------------------------------------------------------------------------
 # Helper unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_results_fresh_yes() -> None:
     r = _fresh_results([{"x": 1}])
@@ -84,12 +82,10 @@ def test_miner_netflow_too_few_returns_zero() -> None:
 def test_mvrv_zscore_raw_passthrough() -> None:
     """mvrv_z_score is passed through raw from Dune row."""
     # Validated via fetch_metrics mock in test_fetch_all_fields below.
-    pass  # tested in integration tests below
+    # tested in integration tests below
 
 
 def test_sopr_normalization() -> None:
-    from src.intelligence.onchain.dune_provider import _EPS
-
     # sopr=1.0 → (1-1)*2=0
     # sopr=1.5 → (0.5)*2=1.0 (clamped)
     # sopr=0.5 → (-0.5)*2=-1.0 (clamped)
@@ -105,6 +101,7 @@ def test_sopr_normalization() -> None:
 # ---------------------------------------------------------------------------
 # DuneProvider integration tests (mocked HTTP)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_no_api_key_returns_neutral_confidence_zero() -> None:
@@ -150,7 +147,6 @@ async def test_executes_when_stale_and_budget_remaining() -> None:
 
     miner_rows = [{"miner_outflow_btc_7d": 100}] * 5
     stale = _stale_results(miner_rows)
-    fresh = _fresh_results(miner_rows)
     get_calls: list[str] = []
 
     async def mock_get(url: str, headers: Any = None, params: Any = None) -> Any:
@@ -160,7 +156,11 @@ async def test_executes_when_stale_and_budget_remaining() -> None:
         if str(DUNE_QUERY_MINER_OUTFLOW) in url:
             return stale
         # Return fresh for other queries so they don't trigger executions
-        return _fresh_results([{"mvrv_z": 1.0}]) if "mvrv" in url.lower() else _fresh_results([{"sopr_7d_ma": 1.0}])
+        return (
+            _fresh_results([{"mvrv_z": 1.0}])
+            if "mvrv" in url.lower()
+            else _fresh_results([{"sopr_7d_ma": 1.0}])
+        )
 
     async def mock_post(url: str, headers: Any = None, json: Any = None) -> Any:
         posts_made.append(url)
@@ -184,7 +184,11 @@ async def test_skips_execution_when_budget_exhausted() -> None:
     async def mock_get(url: str, headers: Any = None, params: Any = None) -> Any:
         if str(DUNE_QUERY_MINER_OUTFLOW) in url:
             return stale
-        return _fresh_results([{"mvrv_z": 0.0}]) if "mvrv" in url.lower() else _fresh_results([{"sopr_7d_ma": 1.0}])
+        return (
+            _fresh_results([{"mvrv_z": 0.0}])
+            if "mvrv" in url.lower()
+            else _fresh_results([{"sopr_7d_ma": 1.0}])
+        )
 
     async def mock_post(url: str, headers: Any = None, json: Any = None) -> Any:
         posts_made.append(url)
@@ -216,6 +220,7 @@ async def test_returns_neutral_on_poll_timeout() -> None:
 
     # Patch poll interval and timeout to be tiny for test speed
     import src.intelligence.onchain.dune_provider as mod
+
     orig_interval = mod._POLL_INTERVAL_S
     orig_timeout = mod._POLL_TIMEOUT_S
     mod._POLL_INTERVAL_S = 0.05
@@ -238,7 +243,11 @@ async def test_stale_cache_used_when_execution_fails() -> None:
     async def mock_get(url: str, headers: Any = None, params: Any = None) -> Any:
         if str(DUNE_QUERY_MINER_OUTFLOW) in url and "execution/" not in url:
             return _stale_results(miner_rows)
-        return _fresh_results([{"mvrv_z": 0.0}]) if "mvrv" in url.lower() else _fresh_results([{"sopr_7d_ma": 1.0}])
+        return (
+            _fresh_results([{"mvrv_z": 0.0}])
+            if "mvrv" in url.lower()
+            else _fresh_results([{"sopr_7d_ma": 1.0}])
+        )
 
     async def mock_post(url: str, headers: Any = None, json: Any = None) -> None:
         return None  # execution POST fails
