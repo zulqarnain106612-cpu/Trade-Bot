@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-10 10:56:43 | Read this before starting any work.
+> Updated: 2026-07-10 18:53:11 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
 **Started**: 2026-07-10 04:35:21
-**Last checkpoint**: 2026-07-10 10:56:43
+**Last checkpoint**: 2026-07-10 18:53:11
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,11 +17,6 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
 
 ## Files to Check
-  - docker-compose.yml
-  - requirements.in
-  - scripts/migrate_sqlite_to_timescale.py
-  - scripts/timescaledb.sh
-  - src/api/main.py
   - src/config.py
   - src/data/fetcher.py
   - src/data/storage.py
@@ -32,6 +27,11 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - src/execution/paper.py
   - tests/test_api_main_coverage.py
   - tests/test_timescale_storage.py
+  - .project-intel/HANDOFF.md
+  - .project-intel/SESSION_STATE.json
+  - .project-intel/TECH_DEBT.md
+  - .python-version
+  - pyproject.toml
 
 ## Session History (last 5)
   [2026-07-10 04:35:21] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
