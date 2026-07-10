@@ -2,7 +2,7 @@
 name = "trade-bot"
 version = "0.1.0"
 description = "Async algorithmic trading bot — XGBoost + HMM + FastAPI"
-requires-python = ">=3.11"  # CI: 3.11 | local dev: 3.14 (only 3.14 available on host — see Debt-008 in TECH_DEBT.md)
+requires-python = ">=3.11"  # CI and local dev both validated on 3.11 (Debt-003/Debt-008 resolved 2026-07-10)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RUFF — single source of truth for lint + format (replaces black/flake8/isort)

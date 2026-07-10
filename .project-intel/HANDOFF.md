@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-10 07:05:56 | Read this before starting any work.
+> Updated: 2026-07-10 10:56:43 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
 **Started**: 2026-07-10 04:35:21
-**Last checkpoint**: 2026-07-10 07:05:56
+**Last checkpoint**: 2026-07-10 10:56:43
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,21 +17,21 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
 
 ## Files to Check
-  - tests/test_risk_gates.py
-  - tests/test_risk_gates_coverage.py
-  - tests/test_risk_quantification.py
-  - tests/test_runtime_monitor_coverage.py
-  - tests/test_signal_debugger_coverage.py
-  - tests/test_signal_engine.py
-  - tests/test_slippage.py
-  - tests/test_storage.py
-  - tests/test_strategies_filters.py
-  - tests/test_trade_auditor.py
-  - requirements-dev.txt
-  - requirements.lock
-  - requirements.txt
-  - .project-intel/HANDOFF.md
-  - .project-intel/SESSION_STATE.json
+  - docker-compose.yml
+  - requirements.in
+  - scripts/migrate_sqlite_to_timescale.py
+  - scripts/timescaledb.sh
+  - src/api/main.py
+  - src/config.py
+  - src/data/fetcher.py
+  - src/data/storage.py
+  - src/data/timescale_storage.py
+  - src/engine/orchestrator.py
+  - src/engine/signal_engine.py
+  - src/execution/live.py
+  - src/execution/paper.py
+  - tests/test_api_main_coverage.py
+  - tests/test_timescale_storage.py
 
 ## Session History (last 5)
   [2026-07-10 04:35:21] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest

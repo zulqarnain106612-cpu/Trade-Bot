@@ -101,6 +101,8 @@ and pins python_version="3.11" in 3 places (pyright/mypy/pytest configs).
 502 tests pass on 3.14.4 — still not blocking, but still genuinely
 unvalidated against the declared minimum. No change to original
 assessment; carrying forward as still OPEN.
+Status: RESOLVED [2026-07-10] — see Debt-008 resolution below; .venv rebuilt on
+Python 3.11.15, full suite validated (1960 passed/1 skipped, 96.22% cov).
 
 ## Debt-006 [2026-06-24] — NEW
 THREE separate, overlapping lint/security-tool orchestration systems are
@@ -177,11 +179,12 @@ stability priorities — works today, but the safety margin between "CI
 green" and "actually safe on the interpreter operators run" is thinner
 than it should be).
 File: .venv (symlink target), .python-version, pyproject.toml
-Status: PARTIALLY RESOLVED [2026-07-05] — python3.11 not available on host (only 3.14).
-Decision: accept 3.14 as local dev interpreter. .python-version updated to 3.14;
-pyproject.toml comment updated to "CI: 3.11 | local dev: 3.14". The 3-minor-version
-gap (CI=3.11, local=3.14) remains a reproducibility risk — install python3.11 via
-deadsnakes PPA if stricter parity is needed: `sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.11`.
+Status: RESOLVED [2026-07-10] — python3.11 (3.11.15) now available via `uv python install`
+(not deadsnakes; host had it in uv's toolchain cache). Ran `uv python pin 3.11` (updated
+.python-version 3.14 -> 3.11), rebuilt `.venv` from scratch on 3.11.15, reinstalled
+requirements.txt + requirements-dev.txt. Full validation on 3.11.15: ruff clean, mypy
+clean (67 files), pytest 1960 passed / 1 skipped, coverage 96.22% (gate 95%). CI and
+local dev now run the same interpreter — no more silent drift.
 
 ## Debt-009 [2026-06-29] — NEW (independent audit session, Claude)
 Repo-wide coverage gate is 60.55% (just above the 60% gate), but this
