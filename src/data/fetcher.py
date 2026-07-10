@@ -35,7 +35,7 @@ from src.config import (
     Timeframe,
     get_settings,
 )
-from src.data.storage import BarRecord, StorageBackend
+from src.data.storage import AnyStorageBackend, BarRecord
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -254,7 +254,7 @@ class MarketDataFetcher:
     Or use open_fetcher() context manager.
     """
 
-    def __init__(self, storage: StorageBackend) -> None:
+    def __init__(self, storage: AnyStorageBackend) -> None:
         self._storage = storage
         self._settings = get_settings()
         self._binance: ccxt.binance | None = None
@@ -730,7 +730,7 @@ def _raw_to_bar_records(
 
 
 class _FetcherContextManager:
-    def __init__(self, storage: StorageBackend) -> None:
+    def __init__(self, storage: AnyStorageBackend) -> None:
         self._fetcher = MarketDataFetcher(storage)
 
     async def __aenter__(self) -> MarketDataFetcher:
@@ -751,7 +751,7 @@ class _FetcherContextManager:
         return False  # do not suppress the original exception
 
 
-def open_fetcher(storage: StorageBackend) -> _FetcherContextManager:
+def open_fetcher(storage: AnyStorageBackend) -> _FetcherContextManager:
     """
     Async context manager for MarketDataFetcher.
 

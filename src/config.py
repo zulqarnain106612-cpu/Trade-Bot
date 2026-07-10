@@ -322,10 +322,17 @@ class FeatureSettings(BaseSettings):
 
 
 class StorageSettings(BaseSettings):
-    """SQLite + file path configuration."""
+    """Storage backend selection + file path configuration."""
 
     model_config = SettingsConfigDict(env_prefix="STORAGE_", env_file=".env", extra="ignore")
 
+    # GAP-006: "sqlite" (embedded, default for tests/dev) or "timescale"
+    # (local TimescaleDB container — see scripts/timescaledb.sh).
+    backend: str = Field(default="sqlite", pattern="^(sqlite|timescale)$")
+    timescale_dsn: str = Field(
+        default="postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot",  # pragma: allowlist secret
+        description="asyncpg DSN for the local TimescaleDB container (localhost-only)",
+    )
     db_path: Path = Field(default=Path("data/trade_bot.db"))
     model_dir: Path = Field(default=Path("models/artifacts"))
     log_dir: Path = Field(default=Path("logs"))

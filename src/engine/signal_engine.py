@@ -35,7 +35,7 @@ from xgboost import XGBClassifier
 
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
-from src.data.storage import StorageBackend
+from src.data.storage import AnyStorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
@@ -142,7 +142,7 @@ class SignalEngine:
         self,
         symbol: str,
         timeframe: Timeframe,
-        storage: StorageBackend,
+        storage: AnyStorageBackend,
         fetcher: MarketDataFetcher,
         detector: RegimeDetector,
         direction_model: XGBClassifier,

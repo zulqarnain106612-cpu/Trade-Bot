@@ -35,7 +35,7 @@ from typing import Final
 import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
-from src.data.storage import EquityRecord, StorageBackend, TradeRecord
+from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
@@ -175,7 +175,7 @@ class PaperExecutor(AbstractExecutor):
 
     def __init__(
         self,
-        storage: StorageBackend,
+        storage: AnyStorageBackend,
         starting_capital: float | None = None,
     ) -> None:
         cfg = get_settings()

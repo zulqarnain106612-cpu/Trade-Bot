@@ -36,7 +36,7 @@ from src.config import (
     runtime_config,
 )
 from src.data.fetcher import MarketDataFetcher
-from src.data.storage import RegimeSnapshotRecord, StorageBackend
+from src.data.storage import AnyStorageBackend, RegimeSnapshotRecord
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
@@ -80,7 +80,7 @@ class Orchestrator:
 
     def __init__(
         self,
-        storage: StorageBackend,
+        storage: AnyStorageBackend,
         fetcher: MarketDataFetcher,
     ) -> None:
         self._storage = storage

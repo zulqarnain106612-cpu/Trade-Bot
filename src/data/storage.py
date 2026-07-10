@@ -23,16 +23,24 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Union
 
 
 if TYPE_CHECKING:
     import pandas as pd
 
+    from src.data.timescale_storage import TimescaleBackend
+
 import aiosqlite
 import structlog
 
 from src.config import get_settings
+
+
+# GAP-006: either storage backend — identical public interface, callers are
+# agnostic. Forward-ref strings keep the asyncpg-backed module a deferred
+# import (only loaded when STORAGE_BACKEND=timescale).
+AnyStorageBackend = Union["StorageBackend", "TimescaleBackend"]
 
 
 # ---------------------------------------------------------------------------
@@ -1572,21 +1580,41 @@ class StorageBackend:
 
 
 # ---------------------------------------------------------------------------
-# Async context manager — preferred lifecycle management
+# Backend factory + async context manager — preferred lifecycle management
 # ---------------------------------------------------------------------------
 
 
-@asynccontextmanager
-async def open_storage(db_path: str | None = None) -> AsyncIterator[StorageBackend]:
+def create_storage_backend(db_path: str | None = None) -> StorageBackend | TimescaleBackend:
     """
-    Async context manager for StorageBackend.
+    GAP-006: construct the storage backend selected by STORAGE_BACKEND
+    ("sqlite" default | "timescale" — local TimescaleDB container, see
+    scripts/timescaledb.sh). Both classes expose an identical public
+    interface; callers never need to know which one they hold.
+
+    db_path applies to the sqlite backend only and forces sqlite when given
+    (used by tests and ad-hoc tooling that point at a specific .db file).
+    """
+    if db_path is None and get_settings().storage.backend == "timescale":
+        # Deferred import: asyncpg is only required when timescale is selected.
+        from src.data.timescale_storage import TimescaleBackend
+
+        return TimescaleBackend()
+    return StorageBackend(db_path=db_path)
+
+
+@asynccontextmanager
+async def open_storage(
+    db_path: str | None = None,
+) -> AsyncIterator[StorageBackend | TimescaleBackend]:
+    """
+    Async context manager for the configured storage backend.
 
     Usage::
 
         async with open_storage() as storage:
             bars = await storage.fetch_bars("BTC/USDT", "15m", since_ts)
     """
-    backend = StorageBackend(db_path=db_path)
+    backend = create_storage_backend(db_path=db_path)
     await backend.initialize()
     try:
         yield backend

@@ -459,7 +459,7 @@ def test_lifespan_full_startup_and_shutdown():
                 {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": "y" * 32},
                 clear=True,
             ),
-            patch("src.api.main.StorageBackend", return_value=fake_storage),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
             patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
             patch("src.api.main.Orchestrator", return_value=fake_orch),
         ):
@@ -496,7 +496,7 @@ def test_lifespan_startup_failure_closes_fetcher():
                 {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": "y" * 32},
                 clear=True,
             ),
-            patch("src.api.main.StorageBackend", return_value=fake_storage),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
             patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
             patch("src.api.main.Orchestrator", return_value=fake_orch),
             pytest.raises(RuntimeError, match="boom"),
@@ -542,7 +542,7 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
             ),
             patch("src.api.main.get_settings", return_value=fake_cfg),
             patch("src.api.main.validate_cors_config"),
-            patch("src.api.main.StorageBackend", return_value=fake_storage),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
             patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
             patch("src.api.main.Orchestrator", return_value=fake_orch),
         ):

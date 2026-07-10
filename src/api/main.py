@@ -53,7 +53,7 @@ from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
-from src.data.storage import StorageBackend
+from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 
@@ -83,7 +83,7 @@ def _validate_operator(v: str) -> str:
 
 
 class AppState:
-    storage: StorageBackend
+    storage: AnyStorageBackend
     orchestrator: Orchestrator
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
@@ -224,7 +224,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "API keys will be transmitted in cleartext."
                 ),
             )
-    _state.storage = StorageBackend()
+    # GAP-006: backend chosen by STORAGE_BACKEND (sqlite | timescale)
+    _state.storage = create_storage_backend()
     await _state.storage.initialize()
 
     async with open_fetcher(_state.storage) as fetcher:

@@ -1,0 +1,35 @@
+# GAP-006: local TimescaleDB for bars/trades/equity storage.
+# Free community image, runs entirely on this machine — no cloud, no cost.
+#
+# Works with either engine:
+#   docker compose up -d        (requires docker group membership)
+#   podman compose up -d        (rootless, no privileges needed)
+# Or use the helper: bash scripts/timescaledb.sh up
+#
+# Credentials are local-dev defaults; the container binds to 127.0.0.1 only,
+# so it is unreachable from the network. Override via STORAGE_TIMESCALE_DSN
+# in .env if you change them.
+services:
+  timescaledb:
+    image: docker.io/timescale/timescaledb:2.17.2-pg17
+    container_name: tradebot-timescaledb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: tradebot
+      POSTGRES_PASSWORD: tradebot-local  # pragma: allowlist secret — localhost-only dev credential
+      POSTGRES_DB: tradebot
+      # Timescale tuning for an 11GB-RAM host sharing with the bot itself
+      TS_TUNE_MEMORY: 2GB
+      TS_TUNE_NUM_CPUS: "2"
+    volumes:
+      - tradebot-timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradebot -d tradebot"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  tradebot-timescale-data:

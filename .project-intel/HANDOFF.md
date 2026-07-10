@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-10 07:05:27 | Read this before starting any work.
+> Updated: 2026-07-10 07:05:56 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
 **Started**: 2026-07-10 04:35:21
-**Last checkpoint**: 2026-07-10 07:05:27
+**Last checkpoint**: 2026-07-10 07:05:56
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -17,8 +17,6 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
 
 ## Files to Check
-  - tests/test_position_sizing.py
-  - tests/test_probabilistic_engine.py
   - tests/test_risk_gates.py
   - tests/test_risk_gates_coverage.py
   - tests/test_risk_quantification.py
@@ -32,6 +30,8 @@ Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent 
   - requirements-dev.txt
   - requirements.lock
   - requirements.txt
+  - .project-intel/HANDOFF.md
+  - .project-intel/SESSION_STATE.json
 
 ## Session History (last 5)
   [2026-07-10 04:35:21] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest

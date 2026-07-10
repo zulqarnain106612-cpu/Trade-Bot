@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-10T07:05:27.448773",
+  "last_updated": "2026-07-10T07:05:56.229136",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -51,10 +51,11 @@
       "[2026-07-10 06:45:16] [24783c9] chore(config): raise coverage gate to 95%, update CLAUDE.md, fix overbroad data/ deny rule",
       "[2026-07-10 06:49:53] [314f458] fix: production bugs in approval flow, slippage, drift recording, ARIMA, circuit breaker",
       "[2026-07-10 07:02:13] [1a5a6d8] test: raise coverage 90.28% -> 96.12%, fix ruff/mypy findings, update for src/ bug fixes",
-      "[2026-07-10 07:05:27] [345cde4] fix(deps): add missing torch to requirements.txt (Debt-003 root cause), patch 2 CVEs"
+      "[2026-07-10 07:05:27] [345cde4] fix(deps): add missing torch to requirements.txt (Debt-003 root cause), patch 2 CVEs",
+      "[2026-07-10 07:05:56] [9fee5db] chore(project-intel): commit pre-existing HANDOFF/SESSION_STATE updates"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-10 07:05:27",
+    "last_checkpoint": "2026-07-10 07:05:56",
     "session_history": [
       {
         "time": "2026-07-09 23:26:48",
@@ -118,8 +119,6 @@
       }
     ],
     "files_touched": [
-      "tests/test_position_sizing.py",
-      "tests/test_probabilistic_engine.py",
       "tests/test_risk_gates.py",
       "tests/test_risk_gates_coverage.py",
       "tests/test_risk_quantification.py",
@@ -132,7 +131,9 @@
       "tests/test_trade_auditor.py",
       "requirements-dev.txt",
       "requirements.lock",
-      "requirements.txt"
+      "requirements.txt",
+      ".project-intel/HANDOFF.md",
+      ".project-intel/SESSION_STATE.json"
     ],
     "current_task": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat",
     "session_started": "2026-07-10 04:35:21",
