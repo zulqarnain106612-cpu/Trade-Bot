@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -41,15 +42,16 @@ class EnsemblePrediction:
     """
     Final ensemble prediction with uncertainty.
     """
-    point_estimate: float                  # Weighted average
-    credible_lower: float                  # 2.5th percentile
-    credible_upper: float                  # 97.5th percentile
-    model_disagreement: float              # Std dev across models
-    aleatoric_uncertainty: float           # Individual model noise
-    epistemic_uncertainty: float           # Model disagreement
-    best_model: str                        # Top-performing model
-    model_weights: dict                    # {"arima": 0.15, ...}
-    individual_predictions: dict           # {"arima": 0.52, "xgboost": 0.48, ...}
+
+    point_estimate: float  # Weighted average
+    credible_lower: float  # 2.5th percentile
+    credible_upper: float  # 97.5th percentile
+    model_disagreement: float  # Std dev across models
+    aleatoric_uncertainty: float  # Individual model noise
+    epistemic_uncertainty: float  # Model disagreement
+    best_model: str  # Top-performing model
+    model_weights: dict  # {"arima": 0.15, ...}
+    individual_predictions: dict  # {"arima": 0.52, "xgboost": 0.48, ...}
 
     @property
     def uncertainty_width(self) -> float:
@@ -84,13 +86,14 @@ class ARIMAPredictor(PredictionModel):
 
     def __init__(self, order: tuple = (1, 1, 1)):
         self.order = order
-        self.model = None
+        self.model: Any = None
         self.rmse = np.inf
 
     def fit(self, timeseries: pd.Series):
         """Fit ARIMA on historical data."""
         try:
             from statsmodels.tsa.arima.model import ARIMA
+
             self.model = ARIMA(timeseries, order=self.order).fit()
             self.rmse = np.sqrt(np.mean(self.model.resid**2))
         except ImportError:
@@ -100,7 +103,11 @@ class ARIMAPredictor(PredictionModel):
         if self.model is None:
             return 0.0
         try:
-            forecast = self.model.forecast(steps=1)[0]
+            # statsmodels forecast() returns a Series whose index continues from
+            # the training series' length (e.g. label 60 for a 60-row fit), not
+            # from 0 — positional .iloc[0] is required, [0] label-indexes and
+            # raises KeyError on virtually every real call.
+            forecast = self.model.forecast(steps=1).iloc[0]
             return float(forecast)
         except Exception as e:
             log.error("arima_prediction_failed", error=str(e))
@@ -124,13 +131,14 @@ class XGBoostPredictor(PredictionModel):
     def __init__(self, max_depth: int = 6, learning_rate: float = 0.1):
         self.max_depth = max_depth
         self.learning_rate = learning_rate
-        self.model = None
+        self.model: Any = None
         self.rmse = np.inf
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
         """Fit XGBoost."""
         try:
             import xgboost as xgb
+
             self.model = xgb.XGBRegressor(
                 max_depth=self.max_depth,
                 learning_rate=self.learning_rate,
@@ -138,7 +146,7 @@ class XGBoostPredictor(PredictionModel):
                 random_state=42,
             )
             self.model.fit(X, y)
-            self.rmse = np.sqrt(np.mean((self.model.predict(X) - y)**2))
+            self.rmse = np.sqrt(np.mean((self.model.predict(X) - y) ** 2))
         except ImportError:
             log.warning("xgboost not installed")
 
@@ -179,7 +187,7 @@ class LSTMPredictor(PredictionModel):
         self.hidden_dim = hidden_dim
         self.lookback = lookback
         self.epochs = epochs
-        self.model = None
+        self.model: Any = None
         self.rmse = np.inf
 
     def fit(self, X: np.ndarray, y: np.ndarray):
@@ -276,7 +284,7 @@ class GaussianProcessPredictor(PredictionModel):
 
     def __init__(self, n_restarts_optimizer: int = 3):
         self.n_restarts_optimizer = n_restarts_optimizer
-        self.model = None
+        self.model: Any = None
         self.rmse = np.inf
         self._feature_cols: list[str] | None = None
 
@@ -368,7 +376,7 @@ class TreeEnsemblePredictor(PredictionModel):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.n_bootstrap = n_bootstrap
-        self.model = None
+        self.model: Any = None
         self._bootstrap_models: list = []
         self.rmse = np.inf
 
@@ -559,10 +567,7 @@ class EnsemblePredictor:
                 individual_uncertainties[name] = 0.5
 
         # Weighted average of predictions
-        ensemble_point = sum(
-            individual_predictions[m] * self.weights[m]
-            for m in self.models
-        )
+        ensemble_point = sum(individual_predictions[m] * self.weights[m] for m in self.models)
 
         # Aleatoric uncertainty: average of individual model uncertainties
         aleatoric = np.mean(list(individual_uncertainties.values()))

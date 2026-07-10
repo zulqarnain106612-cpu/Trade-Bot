@@ -23,7 +23,7 @@ Authority:
 
 from __future__ import annotations
 
-import time
+import contextlib
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +34,7 @@ import numpy as np
 import structlog
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import StandardScaler
+
 
 if TYPE_CHECKING:
     pass
@@ -64,19 +65,22 @@ _META_MODEL_FILE = "online_meta.pkl"
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class OnlinePrediction:
     """Blended prediction from online + batch models."""
-    direction: int          # 1=long, 0=short
-    p_long: float           # blended P(long)
-    p_bet: float            # blended P(bet)
-    online_weight: float    # actual weight applied (0 if not warmed up)
-    online_samples: int     # samples seen by online models
+
+    direction: int  # 1=long, 0=short
+    p_long: float  # blended P(long)
+    p_bet: float  # blended P(bet)
+    online_weight: float  # actual weight applied (0 if not warmed up)
+    online_samples: int  # samples seen by online models
 
 
 @dataclass
 class _OnlineModel:
     """Wraps an SGDClassifier + its scaler and sample counter."""
+
     clf: SGDClassifier
     scaler: StandardScaler
     n_samples: int = 0
@@ -106,6 +110,7 @@ class _OnlineModel:
 # OnlineTrainer
 # ---------------------------------------------------------------------------
 
+
 class OnlineTrainer:
     """
     Incremental online learning layer over the XGBoost batch models.
@@ -115,7 +120,7 @@ class OnlineTrainer:
         ot = OnlineTrainer(model_dir=Path("models/BTC_USDT_15m"))
 
         # Each bar: learn from the just-resolved label
-        ot.learn_direction(feature_vec, label=1)   # 1=long closed profitably
+        ot.learn_direction(feature_vec, label=1)  # 1=long closed profitably
         ot.learn_meta(feature_vec, p_long, label=1)
 
         # At prediction time: blend with batch model outputs
@@ -351,8 +356,6 @@ class OnlineTrainer:
         target = model_dir or self._model_dir
         if target is not None:
             for f in [target / _DIR_MODEL_FILE, target / _META_MODEL_FILE]:
-                try:
+                with contextlib.suppress(OSError):
                     f.unlink(missing_ok=True)
-                except OSError:
-                    pass
         self._log.info("online_trainer.reset")

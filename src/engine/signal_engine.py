@@ -16,7 +16,7 @@ The signal engine owns no state beyond its injected dependencies.
 All state lives in storage or the executor.
 
 Authority:
-  - López de Prado (2018) AFML Ch.3–4 signal construction
+  - López de Prado (2018) AFML Ch.3-4 signal construction
   - Hamilton (1989) regime gate
   - Kelly (1956) position sizing
 """
@@ -27,7 +27,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import pandas as pd
 import structlog
@@ -38,19 +38,14 @@ from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
-from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
-from src.intelligence.providers.aggregator import (
-    get_onchain_aware_aggregator as _get_intel_aggregator,
-)
-from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
-
-
-# Module-level adapter singleton -- stateless, safe to reuse across ticks.
-_PROB_ADAPTER = _ProbAdapter()
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     build_feature_matrix,
     build_inference_features,
+)
+from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
+from src.intelligence.providers.aggregator import (
+    get_onchain_aware_aggregator as _get_intel_aggregator,
 )
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector, RegimePrediction
@@ -67,7 +62,11 @@ from src.risk.gates import (
 from src.risk.kelly import KellyResult, compute_position_size
 from src.risk.slippage import SlippageModel
 from src.strategies.filters import apply_all_strategy_filters
+from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
 
+
+# Module-level adapter singleton -- stateless, safe to reuse across ticks.
+_PROB_ADAPTER = _ProbAdapter()
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -120,7 +119,7 @@ class SignalEngine:
     Usage::
 
         engine = SignalEngine(
-            symbol='BTC/USDT',
+            symbol="BTC/USDT",
             timeframe=Timeframe.INTRADAY,
             storage=storage,
             fetcher=fetcher,
@@ -250,7 +249,7 @@ class SignalEngine:
         if now_ms - last_bar_ts_ms < tf_ms:
             return self._skip("last_bar_not_yet_closed")
 
-        # 3–5. Build feature matrix once — reused for inference vec AND regime history.
+        # 3-5. Build feature matrix once — reused for inference vec AND regime history.
         # SCAN2-007: prior code called build_feature_matrix + build_inference_features
         # separately, running fractional_differentiation + all rolling stats twice per tick.
         # Single call eliminates ~50% of hot-path feature pipeline CPU overhead.
@@ -272,7 +271,7 @@ class SignalEngine:
         _whale_ratio: float | None = None
         _intel_metrics_dict: dict[str, float] = {}
         # Derive perp symbol: 'BTC/USDT' → 'BTC/USDT:USDT'
-        _perp_sym = (self._symbol + ':USDT') if ':' not in self._symbol else self._symbol
+        _perp_sym = (self._symbol + ":USDT") if ":" not in self._symbol else self._symbol
 
         # TASK-010: phase-1 — fetch orderbook + funding rate concurrently.
         # These are independent of the intel aggregator so they always run,
@@ -283,12 +282,12 @@ class SignalEngine:
                 self._fetcher.fetch_funding_rate(_perp_sym),
                 return_exceptions=True,
             )
-            if isinstance(_fr_res, Exception):
+            if isinstance(_fr_res, BaseException):
                 self._log.debug("signal.funding_rate_fetch_failed", error=str(_fr_res))
             else:
                 _live_funding_rate_8h = float(_fr_res)
 
-            if isinstance(_ob_res, Exception):
+            if isinstance(_ob_res, BaseException):
                 raise _ob_res  # fall through to outer except for OFI fallback
 
             ob = _ob_res
@@ -300,7 +299,7 @@ class SignalEngine:
             self._log.debug("signal.ofi_fetch_failed", error=str(exc))
             live_ofi = None
             _exchange_stress = None
-            _whale_ratio     = None
+            _whale_ratio = None
             _intel_metrics_dict = {}
         else:
             # TASK-010: phase-2 — intel aggregator (optional, may degrade gracefully).
@@ -321,12 +320,12 @@ class SignalEngine:
             # Bayesian-posterior estimates (ProbabilisticMetricsAdapter).
             # On any model error the adapter returns None and gates fail open.
             try:
-                _p_inputs        = _PROB_ADAPTER.process(_intel_metrics_dict)
+                _p_inputs = _PROB_ADAPTER.process(_intel_metrics_dict)
                 _exchange_stress = _p_inputs.exchange_stress_score
-                _whale_ratio     = _p_inputs.whale_buy_sell_ratio
+                _whale_ratio = _p_inputs.whale_buy_sell_ratio
             except Exception:
                 _exchange_stress = None
-                _whale_ratio     = None
+                _whale_ratio = None
 
         vec = build_inference_features(
             bars,
@@ -389,7 +388,9 @@ class SignalEngine:
             _entry_price = float(bars["close"].iloc[-1])
             _daily_vol = estimate_daily_vol(bars["close"].to_numpy())
             _win_prob = min(max(p_long if direction == 1 else (1.0 - p_long), 0.01), 0.99)
-            _wl_ratio = (avg_win_usd / avg_loss_usd) if avg_win_usd > 0 and avg_loss_usd > 0 else 1.5
+            _wl_ratio = (
+                (avg_win_usd / avg_loss_usd) if avg_win_usd > 0 and avg_loss_usd > 0 else 1.5
+            )
             _carver_result = recommend_position_notional(
                 capital_usd=capital_usd,
                 price=_entry_price,
@@ -430,19 +431,28 @@ class SignalEngine:
         _p_win = p_long if direction == 1 else (1.0 - p_long)
         _p_loss = 1.0 - _p_win
         _raw_edge_usd = _p_win * avg_win_usd - _p_loss * avg_loss_usd
-        _expected_edge_bps = (_raw_edge_usd / (_entry_price * quantity) * 10_000.0
-                              if quantity > 0.0 and _entry_price > 0.0
-                              else float((p_long - 0.5) * 200))  # fallback: p_long proxy
+        _expected_edge_bps = (
+            _raw_edge_usd / (_entry_price * quantity) * 10_000.0
+            if quantity > 0.0 and _entry_price > 0.0
+            else float((p_long - 0.5) * 200)
+        )  # fallback: p_long proxy
 
         # TASK-009: Build SlippageEstimate using live spread (TASK-010) + ADV-20 from bars.
         _spread_for_slippage = _live_ob_spread_bps if _live_ob_spread_bps is not None else None
-        _adv_20d_for_slip = float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else None
+        _adv_20d_for_slip = (
+            float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else None
+        )
         _slippage_estimate = None
-        if _spread_for_slippage is not None and _adv_20d_for_slip is not None and _adv_20d_for_slip > 0.0:
+        if (
+            _spread_for_slippage is not None
+            and _adv_20d_for_slip is not None
+            and _adv_20d_for_slip > 0.0
+        ):
             try:
                 _slippage_estimate = SlippageModel().estimate(
                     symbol=self._symbol,
                     qty=quantity,
+                    price=_entry_price,
                     adv_20d=_adv_20d_for_slip,
                     spread_bps=_spread_for_slippage,
                 )
@@ -450,18 +460,22 @@ class SignalEngine:
                 self._log.warning("signal.slippage_estimate_failed", error=str(_slip_exc))
 
         # ── Audit closure setup — must precede all early-exit gates ──
-        _prob_ranging  = regime.prob_ranging  if regime else 0.33
+        _prob_ranging = regime.prob_ranging if regime else 0.33
         _prob_trending = regime.prob_trending if regime else 0.33
         _prob_volatile = regime.prob_volatile if regime else 0.34
         _feat_dict = {str(k): float(v) for k, v in vec.items()}
         _p_bet_ref: list[float] = [0.0]  # updated after meta-label prediction
 
-        def _emit_audit(outcome: str, skip: str, kr: KellyResult | None, gr: GateResult | None) -> None:
+        def _emit_audit(
+            outcome: str, skip: str, kr: KellyResult | None, gr: GateResult | None
+        ) -> None:
             latency_ms = (time.monotonic() - _tick_start) * 1000
             rec = AuditRecord(
                 ts_utc=time.time(),
                 symbol=self._symbol,
-                timeframe=self._timeframe.value if hasattr(self._timeframe, "value") else str(self._timeframe),
+                timeframe=self._timeframe.value
+                if hasattr(self._timeframe, "value")
+                else str(self._timeframe),
                 features=_feat_dict,
                 p_long=p_long,
                 p_bet=_p_bet_ref[0],
@@ -510,7 +524,7 @@ class SignalEngine:
             expected_edge_bps=_expected_edge_bps,
             slippage_estimate=_slippage_estimate,
             exchange_stress_score=_exchange_stress,  # GAP-015: None → fail-open
-            whale_buy_sell_ratio=_whale_ratio,       # GAP-015: None → fail-open
+            whale_buy_sell_ratio=_whale_ratio,  # GAP-015: None → fail-open
         )
         gate_result = evaluate_all_gates(gate_ctx)
 
@@ -533,7 +547,7 @@ class SignalEngine:
 
         # 9. Meta-label gate
         meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)
-        _p_bet_ref[0] = p_bet   # make p_bet available to _emit_audit closure
+        _p_bet_ref[0] = p_bet  # make p_bet available to _emit_audit closure
 
         if meta_label == 0:
             _emit_audit("skipped", "meta_label_gate_skip", kelly_result, gate_result)
@@ -566,7 +580,9 @@ class SignalEngine:
         )
 
         if not _filter_result["passes"]:
-            _reason = "strategy_filter:" + ",".join(_filter_result["filters_failed"])
+            _reason = "strategy_filter:" + ",".join(
+                cast("list[str]", _filter_result["filters_failed"])
+            )
             _emit_audit("skipped", _reason, kelly_result, gate_result)
             return SignalResult(
                 tradeable=False,
@@ -587,7 +603,7 @@ class SignalEngine:
         # NO LONGER multiplied onto kelly_result. Regime sizing is the sole domain of
         # detector.py's entropy gate → compute_position_size(). filters.py's regime signal
         # contributes to the pass/fail vote (line above) but not to notional re-scaling.
-        _regime_scalar = float(_filter_result.get("scalar", 1.0))  # logged only
+        _regime_scalar = float(cast("float", _filter_result.get("scalar", 1.0)))  # logged only
 
         self._log.info(
             "signal.tradeable",
@@ -598,66 +614,89 @@ class SignalEngine:
             notional_usd=round(kelly_result.notional_usd, 2),
             kelly_fraction=round(kelly_result.adjusted_fraction, 4),
             regime_scalar_filter_logged_only=round(_regime_scalar, 3),  # GAP-008: not applied
-            correlation_scalar_applied=round(correlation_scalar, 3),  # GAP-005/015: IS applied (see kelly.py)
-            hurst=round(_filter_result["details"].get("hurst", 0.5), 3),
+            correlation_scalar_applied=round(
+                correlation_scalar, 3
+            ),  # GAP-005/015: IS applied (see kelly.py)
+            hurst=round(cast("dict[str, float]", _filter_result["details"]).get("hurst", 0.5), 3),
         )
 
         # ── Cognitive Engine — mandatory evaluation (no bypass) ─────────────
         # All five validators run: Quant, Probability, Risk, Blockchain, Regime.
         # A single VETO kills the trade regardless of all prior gates passing.
-        _hurst = float(_filter_result["details"].get("hurst", 0.5))
-        _adv_20d = float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
+        _hurst = float(cast("dict[str, float]", _filter_result["details"]).get("hurst", 0.5))
+        _adv_20d = (
+            float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
+        )
         _cog_ctx = SignalContext(
-            signal_id             = f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
-            symbol                = self._symbol,
-            timeframe             = self._timeframe.value if hasattr(self._timeframe, "value") else str(self._timeframe),
-            p_long                = p_long,
-            p_bet                 = p_bet,
-            expected_edge_bps     = _expected_edge_bps,  # TASK-009/GAP-011: real edge from avg_win/avg_loss
-            regime_state          = regime_state,
-            regime_probs          = [_prob_ranging, _prob_trending, _prob_volatile],
-            hurst_exponent        = _hurst,
-            current_price         = float(bars["close"].iloc[-1]),
-            atr                   = float(_atr_series.iloc[-1]) if _atr_series is not None else 0.0,
-            atr_median_20         = float(_atr_series.rolling(20).median().iloc[-1]) if _atr_series is not None else 1.0,
-            realized_vol          = float(bars["close"].pct_change().rolling(20).std().iloc[-1] * (252 ** 0.5)) if "close" in bars.columns else 0.01,
-            adv_20d               = _adv_20d,
-            spread_bps            = _live_ob_spread_bps if _live_ob_spread_bps is not None else 2.0,  # TASK-010
-            capital_usd           = capital_usd,
-            daily_pnl_usd         = daily_pnl_usd,
-            open_positions        = 0,
-            consecutive_losses    = consecutive_loss_count,
-            funding_rate_8h       = _live_funding_rate_8h,   # TASK-010: live from fetcher (0.0 for spot)
-            basis_pct             = 0.0,   # spot only; wire basis here for perp trading
-            exchange_name         = "binance",
-            proposed_qty          = kelly_result.quantity,
-            proposed_notional_usd = kelly_result.notional_usd,
-            kelly_adjusted_fraction = kelly_result.adjusted_fraction,
+            signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
+            symbol=self._symbol,
+            timeframe=self._timeframe.value
+            if hasattr(self._timeframe, "value")
+            else str(self._timeframe),
+            p_long=p_long,
+            p_bet=p_bet,
+            expected_edge_bps=_expected_edge_bps,  # TASK-009/GAP-011: real edge from avg_win/avg_loss
+            regime_state=regime_state,
+            regime_probs=[_prob_ranging, _prob_trending, _prob_volatile],
+            hurst_exponent=_hurst,
+            current_price=float(bars["close"].iloc[-1]),
+            atr=float(_atr_series.iloc[-1]) if _atr_series is not None else 0.0,
+            atr_median_20=float(_atr_series.rolling(20).median().iloc[-1])
+            if _atr_series is not None
+            else 1.0,
+            realized_vol=float(bars["close"].pct_change().rolling(20).std().iloc[-1] * (252**0.5))
+            if "close" in bars.columns
+            else 0.01,
+            adv_20d=_adv_20d,
+            spread_bps=_live_ob_spread_bps if _live_ob_spread_bps is not None else 2.0,  # TASK-010
+            capital_usd=capital_usd,
+            daily_pnl_usd=daily_pnl_usd,
+            open_positions=0,
+            consecutive_losses=consecutive_loss_count,
+            funding_rate_8h=_live_funding_rate_8h,  # TASK-010: live from fetcher (0.0 for spot)
+            basis_pct=0.0,  # spot only; wire basis here for perp trading
+            exchange_name="binance",
+            proposed_qty=kelly_result.quantity,
+            proposed_notional_usd=kelly_result.notional_usd,
+            kelly_adjusted_fraction=kelly_result.adjusted_fraction,
         )
         _cog_decision = get_cognitive_engine().evaluate(_cog_ctx)
         if not _cog_decision.passed:
-            _emit_audit("skipped", f"cognitive_veto:{_cog_decision.veto_reason}", kelly_result, gate_result)
+            _emit_audit(
+                "skipped", f"cognitive_veto:{_cog_decision.veto_reason}", kelly_result, gate_result
+            )
             return SignalResult(
-                tradeable   = False,
-                direction   = direction,
-                p_long      = p_long,
-                p_bet       = p_bet,
-                kelly_result= kelly_result,
-                regime      = regime,
-                gate_result = gate_result,
-                skip_reason = f"cognitive_veto:{_cog_decision.veto_reason}",
+                tradeable=False,
+                direction=direction,
+                p_long=p_long,
+                p_bet=p_bet,
+                kelly_result=kelly_result,
+                regime=regime,
+                gate_result=gate_result,
+                skip_reason=f"cognitive_veto:{_cog_decision.veto_reason}",
             )
         # Apply cognitive engine's adjusted size (may be reduced by WARN results)
         if _cog_decision.adjusted_size_fraction < kelly_result.adjusted_fraction:
             from dataclasses import replace as _dc_replace2
+
             kelly_result = _dc_replace2(
                 kelly_result,
-                notional_usd = round(kelly_result.notional_usd * (
-                    _cog_decision.adjusted_size_fraction / max(kelly_result.adjusted_fraction, 1e-9)
-                ), 4),
-                quantity = round(kelly_result.quantity * (
-                    _cog_decision.adjusted_size_fraction / max(kelly_result.adjusted_fraction, 1e-9)
-                ), 8),
+                notional_usd=round(
+                    kelly_result.notional_usd
+                    * (
+                        _cog_decision.adjusted_size_fraction
+                        / max(kelly_result.adjusted_fraction, 1e-9)
+                    ),
+                    4,
+                ),
+                quantity=round(
+                    kelly_result.quantity
+                    * (
+                        _cog_decision.adjusted_size_fraction
+                        / max(kelly_result.adjusted_fraction, 1e-9)
+                    ),
+                    8,
+                ),
             )
         # ─────────────────────────────────────────────────────────────────────
 
@@ -686,9 +725,7 @@ class SignalEngine:
         # M-04: datetime already imported at module level — inline import removed.
         n_bars_needed = _MIN_BARS_FOR_SIGNAL + 200
         tf_seconds = TIMEFRAME_SECONDS.get(self._timeframe, 60)
-        cutoff_ts = int(
-            (datetime.now(tz=UTC).timestamp() - n_bars_needed * tf_seconds) * 1000
-        )
+        cutoff_ts = int((datetime.now(tz=UTC).timestamp() - n_bars_needed * tf_seconds) * 1000)
         records = await self._storage.fetch_bars(
             symbol=self._symbol,
             timeframe=self._timeframe.value,

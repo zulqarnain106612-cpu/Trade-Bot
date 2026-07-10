@@ -8,18 +8,21 @@ Authority:
   Circuit-breaker: Nygard "Release It!" §5 (threshold/cooldown/half-open)
   aiohttp: https://docs.aiohttp.org/en/stable/client.html
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
 from abc import abstractmethod
+from collections.abc import Awaitable, Callable
 from enum import Enum, auto
 from typing import Any
 
 import aiohttp
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
+
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +76,14 @@ class CircuitBreaker:
         self._state = _CBState.CLOSED
         self._opened_at: float = 0.0
 
-    async def call(self, coro: Any) -> Any:
+    async def call(self, coro_factory: Callable[[], Awaitable[Any]]) -> Any:
         if self._state == _CBState.OPEN:
             if time.monotonic() - self._opened_at >= self._cooldown:
                 self._state = _CBState.HALF_OPEN
             else:
                 raise CircuitOpenError("Circuit is OPEN")
         try:
-            result = await coro
+            result = await coro_factory()
             if self._state == _CBState.HALF_OPEN:
                 self._failures = 0
                 self._state = _CBState.CLOSED
@@ -131,6 +134,7 @@ class AsyncHTTPCache:
 # OnChainProvider ABC
 # ---------------------------------------------------------------------------
 
+
 class OnChainProvider(ExchangeIntelligenceProvider):
     """
     Abstract base for on-chain data providers (Arkham, Dune, DeFiLlama, Coinglass).
@@ -180,13 +184,14 @@ class OnChainProvider(ExchangeIntelligenceProvider):
             return cached
         await self._limiter.acquire()
         try:
+
             async def _do() -> dict[str, Any]:
                 session = await self._ensure_session()
                 async with session.get(url, headers=headers, params=params) as resp:
                     resp.raise_for_status()
                     return await resp.json(content_type=None)
 
-            data = await self._breaker.call(_do())
+            data = await self._breaker.call(_do)
             await self._cache.set(cache_key, data)
             return data
         except CircuitOpenError:
@@ -204,13 +209,14 @@ class OnChainProvider(ExchangeIntelligenceProvider):
     ) -> dict[str, Any] | None:
         await self._limiter.acquire()
         try:
+
             async def _do() -> dict[str, Any]:
                 session = await self._ensure_session()
                 async with session.post(url, headers=headers, json=json) as resp:
                     resp.raise_for_status()
                     return await resp.json(content_type=None)
 
-            return await self._breaker.call(_do())
+            return await self._breaker.call(_do)
         except CircuitOpenError:
             logger.warning("%s._post circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None

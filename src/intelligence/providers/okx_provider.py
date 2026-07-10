@@ -43,7 +43,7 @@ from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-# Funding history window: 90 × 8h periods = 30 days
+# Funding history window: 90 x 8h periods = 30 days
 _FR_HISTORY_PERIODS: Final[int] = 90
 # OI hourly bars for 24h delta
 _OI_HISTORY_HOURS: Final[int] = 25
@@ -184,25 +184,29 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
 
         return {
             # FREE: computed from OKX public API
-            "binance_funding_rate_pct":        funding_rate_pct,   # same field; cross-exchange average done by aggregator
-            "futures_oi_change_pct":           oi_change_pct,
+            "binance_funding_rate_pct": funding_rate_pct,  # same field; cross-exchange average done by aggregator
+            "futures_oi_change_pct": oi_change_pct,
             "cross_exchange_basis_spread_bps": basis_bps,
-            "whale_buy_sell_ratio":            whale_ratio,
+            "whale_buy_sell_ratio": whale_ratio,
             "liquidation_pressure_24h_zscore": liquidation_pressure_zscore,
-            "liquidation_cascade_risk_usd":    liquidation_cascade_usd,
-            "exchange_stress_score":           stress_score,
+            "liquidation_cascade_risk_usd": liquidation_cascade_usd,
+            "exchange_stress_score": stress_score,
             # PAID-SOURCE ONLY: neutral defaults
-            "exchange_netflow_7d_zscore":  0.0,
-            "exchange_reserve_ratio":      0.5,
-            "miner_netflow_signal":        0.0,
-            "staking_unlock_risk":         0.0,
-            "entity_exchange_imbalance":   0.0,
-            "btc_dominance_regime":        0.0,
-            "stablecoin_reserve_ratio":    0.5,
-            "network_activity_score":      0.0,
+            "exchange_netflow_7d_zscore": 0.0,
+            "exchange_reserve_ratio": 0.5,
+            "miner_netflow_signal": 0.0,
+            "staking_unlock_risk": 0.0,
+            "entity_exchange_imbalance": 0.0,
+            "btc_dominance_regime": 0.0,
+            "stablecoin_reserve_ratio": 0.5,
+            "network_activity_score": 0.0,
+            # OCI-012: on-chain fields — neutral defaults for exchange provider
+            "defi_tvl_7d_change_pct": 0.0,
+            "mvrv_z_score": 0.0,
+            "sopr": 0.0,
             # Metadata
             "confidence": confidence,
-            "timestamp":  ts,
+            "timestamp": ts,
         }
 
     # ------------------------------------------------------------------
@@ -232,7 +236,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
 
         result = {
             "rate_pct": current * 100.0,
-            "zscore":   zscore,
+            "zscore": zscore,
         }
         self._set_cache(cache_key, result)
         return result
@@ -261,7 +265,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
 
     async def _fetch_basis_data(self) -> float:
         """
-        Compute OKX perp–spot basis in bps.
+        Compute OKX perp-spot basis in bps.
 
         Positive → perp premium (leveraged longs dominate).
         Negative → perp discount (de-risking / short pressure).
@@ -310,10 +314,12 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         try:
             market = self._perp.market(self._perp_symbol)
             inst_id = market["id"]  # e.g. "BTC-USDT-SWAP"
-            raw = await self._perp.publicGetRubikStatContractsLongShortAccountRatio({
-                "instId": inst_id,
-                "period": "1H",
-            })
+            raw = await self._perp.publicGetRubikStatContractsLongShortAccountRatio(
+                {
+                    "instId": inst_id,
+                    "period": "1H",
+                }
+            )
             data = raw.get("data", [])
             if data:
                 # data[0] is most recent: [ts, longShortRatio]

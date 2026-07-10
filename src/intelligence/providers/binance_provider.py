@@ -45,25 +45,27 @@ from typing import Final
 import ccxt.async_support as ccxt
 import structlog
 
+from src.intelligence.providers.base import ExchangeIntelligenceProvider
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # How many funding periods to fetch for z-score baseline (each period = 8h)
-_FR_HISTORY_PERIODS: Final[int] = 90          # 30 days of 8h periods
+_FR_HISTORY_PERIODS: Final[int] = 90  # 30 days of 8h periods
 # OI history window for 24h change (hourly bars)
-_OI_HISTORY_HOURS: Final[int] = 25            # 25 → delta between [0] and [-1]
+_OI_HISTORY_HOURS: Final[int] = 25  # 25 → delta between [0] and [-1]
 # Kline window for taker-flow whale ratio
-_KLINE_LIMIT: Final[int] = 48                 # 48 × 15m = 12h window
+_KLINE_LIMIT: Final[int] = 48  # 48 x 15m = 12h window
 # Stress score weights (must sum to 1.0)
 _W_BASIS: Final[float] = 0.35
 _W_FR_Z: Final[float] = 0.40
 _W_OI: Final[float] = 0.25
 # Confidence penalty per missing paid-source field
 _CONFIDENCE_PENALTY: Final[float] = 0.05
-_MISSING_PAID_FIELDS: Final[int] = 8          # fields that need Glassnode/CQ
+_MISSING_PAID_FIELDS: Final[int] = 8  # fields that need Glassnode/CQ
 
 
-class BinanceIntelligenceProvider:
+class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
     """
     Fetches IntelligenceMetrics-compatible data from Binance public APIs.
 
@@ -88,7 +90,7 @@ class BinanceIntelligenceProvider:
         symbol: str = "BTC/USDT",
         perp_symbol: str = "BTC/USDT:USDT",
         kline_timeframe: str = "15m",
-        cache_ttl_s: int = 300,          # 5-min cache; funding updates every 8h
+        cache_ttl_s: int = 300,  # 5-min cache; funding updates every 8h
     ) -> None:
         self._symbol = symbol
         self._perp_symbol = perp_symbol
@@ -197,7 +199,7 @@ class BinanceIntelligenceProvider:
         # Composite exchange stress score [0, 1]
         stress_score = self._compute_stress_score(basis_bps, funding_zscore, oi_change_pct)
 
-        # Estimated cascade liquidation risk (OI × stress, rough order-of-magnitude)
+        # Estimated cascade liquidation risk (OI x stress, rough order-of-magnitude)
         liquidation_cascade_usd = oi_value_usd * stress_score
 
         # Liquidation pressure z-score proxy: funding rate z-score is the
@@ -208,28 +210,28 @@ class BinanceIntelligenceProvider:
 
         metrics = {
             # ── FREE: computed from Binance public API ─────────────────────
-            "binance_funding_rate_pct":        funding_rate_pct,
-            "futures_oi_change_pct":           oi_change_pct,
+            "binance_funding_rate_pct": funding_rate_pct,
+            "futures_oi_change_pct": oi_change_pct,
             "cross_exchange_basis_spread_bps": basis_bps,
-            "whale_buy_sell_ratio":            whale_ratio,
+            "whale_buy_sell_ratio": whale_ratio,
             "liquidation_pressure_24h_zscore": liquidation_pressure_zscore,
-            "liquidation_cascade_risk_usd":    liquidation_cascade_usd,
-            "exchange_stress_score":           stress_score,
+            "liquidation_cascade_risk_usd": liquidation_cascade_usd,
+            "exchange_stress_score": stress_score,
             # ── PAID-SOURCE ONLY: neutral defaults ─────────────────────────
             # These require Glassnode or CryptoQuant paid tiers.
             # Set to neutral (neither bullish nor bearish) so downstream
             # gates treat them as "no signal" rather than false signal.
-            "exchange_netflow_7d_zscore":  0.0,   # Glassnode exchange/netflow
-            "exchange_reserve_ratio":      0.5,   # Glassnode exchange/reserve
-            "miner_netflow_signal":        0.0,   # Glassnode mining/miner_flow
-            "staking_unlock_risk":         0.0,   # no free equivalent
-            "entity_exchange_imbalance":   0.0,   # Glassnode entities flow
-            "btc_dominance_regime":        0.0,   # CoinGecko (rate-limited)
-            "stablecoin_reserve_ratio":    0.5,   # no real-time free source
-            "network_activity_score":      0.0,   # Glassnode transactions
+            "exchange_netflow_7d_zscore": 0.0,  # Glassnode exchange/netflow
+            "exchange_reserve_ratio": 0.5,  # Glassnode exchange/reserve
+            "miner_netflow_signal": 0.0,  # Glassnode mining/miner_flow
+            "staking_unlock_risk": 0.0,  # no free equivalent
+            "entity_exchange_imbalance": 0.0,  # Glassnode entities flow
+            "btc_dominance_regime": 0.0,  # CoinGecko (rate-limited)
+            "stablecoin_reserve_ratio": 0.5,  # no real-time free source
+            "network_activity_score": 0.0,  # Glassnode transactions
             # ── Metadata ───────────────────────────────────────────────────
             "confidence": confidence,
-            "timestamp":  ts,
+            "timestamp": ts,
         }
 
         self._log.debug(
@@ -277,8 +279,8 @@ class BinanceIntelligenceProvider:
         zscore = (current - mu) / sigma if sigma > 1e-12 else 0.0
 
         result = {
-            "rate_pct": current * 100.0,   # convert to percent
-            "zscore":   zscore,
+            "rate_pct": current * 100.0,  # convert to percent
+            "zscore": zscore,
         }
         self._set_cache(cache_key, result)
         return result
@@ -312,9 +314,9 @@ class BinanceIntelligenceProvider:
 
     async def _fetch_basis_data(self) -> float:
         """
-        Compute perp–spot basis in bps.
+        Compute perp-spot basis in bps.
 
-        basis_bps = (perp_last - spot_last) / spot_last × 10_000
+        basis_bps = (perp_last - spot_last) / spot_last x 10_000
 
         Positive → perp at premium (bullish leverage).
         Negative → perp at discount (bearish/de-risking).
@@ -382,18 +384,18 @@ class BinanceIntelligenceProvider:
         # Fix: call the raw/implicit ccxt method (bypasses normalization)
         # and read the correct index.
         market = self._perp.market(self._perp_symbol)
-        raw = await self._perp.fapiPublicGetKlines({
-            "symbol": market["id"],
-            "interval": self._kline_tf,
-            "limit": _KLINE_LIMIT,
-        })
+        raw = await self._perp.fapiPublicGetKlines(
+            {
+                "symbol": market["id"],
+                "interval": self._kline_tf,
+                "limit": _KLINE_LIMIT,
+            }
+        )
         if not raw:
             return 1.0
 
         total_vol = sum(float(bar[5]) for bar in raw if bar[5] is not None)
-        taker_buy_vol = sum(
-            float(bar[9]) for bar in raw if len(bar) > 9 and bar[9] is not None
-        )
+        taker_buy_vol = sum(float(bar[9]) for bar in raw if len(bar) > 9 and bar[9] is not None)
 
         if total_vol < 1e-9 or taker_buy_vol == 0.0:
             return 1.0
@@ -437,11 +439,7 @@ class BinanceIntelligenceProvider:
         # OI drop: rapid deleveraging (negative OI change) = forced liquidations
         oi_stress = min(max(-oi_change_pct, 0.0) / 5.0, 1.0)
 
-        score = (
-            _W_BASIS * basis_stress
-            + _W_FR_Z * funding_stress
-            + _W_OI * oi_stress
-        )
+        score = _W_BASIS * basis_stress + _W_FR_Z * funding_stress + _W_OI * oi_stress
         return round(min(max(score, 0.0), 1.0), 4)
 
     # ------------------------------------------------------------------

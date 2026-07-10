@@ -11,6 +11,7 @@ Cache TTL: 300s (defillama_cache_ttl_s).
 
 Authority: https://defillama.com/docs/api
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ import time
 from typing import Any
 
 from src.intelligence.onchain.base import OnChainProvider
+
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,7 @@ class DeFiLlamaProvider(OnChainProvider):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _compute_tvl_metrics(data: Any) -> tuple[float, float]:
     """

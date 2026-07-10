@@ -49,44 +49,54 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Neutral value per field (used to detect whether a provider actually populated a field)
 _NEUTRAL: Final[dict[str, float]] = {
-    "binance_funding_rate_pct":        0.0,
-    "futures_oi_change_pct":           0.0,
+    "binance_funding_rate_pct": 0.0,
+    "futures_oi_change_pct": 0.0,
     "cross_exchange_basis_spread_bps": 0.0,
-    "whale_buy_sell_ratio":            1.0,
+    "whale_buy_sell_ratio": 1.0,
     "liquidation_pressure_24h_zscore": 0.0,
-    "liquidation_cascade_risk_usd":    0.0,
-    "exchange_stress_score":           0.0,
-    "exchange_netflow_7d_zscore":      0.0,
-    "exchange_reserve_ratio":          0.5,
-    "miner_netflow_signal":            0.0,
-    "staking_unlock_risk":             0.0,
-    "entity_exchange_imbalance":       0.0,
-    "btc_dominance_regime":            0.0,
-    "stablecoin_reserve_ratio":        0.5,
-    "network_activity_score":          0.0,
+    "liquidation_cascade_risk_usd": 0.0,
+    "exchange_stress_score": 0.0,
+    "exchange_netflow_7d_zscore": 0.0,
+    "exchange_reserve_ratio": 0.5,
+    "miner_netflow_signal": 0.0,
+    "staking_unlock_risk": 0.0,
+    "entity_exchange_imbalance": 0.0,
+    "btc_dominance_regime": 0.0,
+    "stablecoin_reserve_ratio": 0.5,
+    "network_activity_score": 0.0,
+    # OCI-012: on-chain fields; populated by OnchainIntelligenceAggregator when available
+    "defi_tvl_7d_change_pct": 0.0,
+    "mvrv_z_score": 0.0,
+    "sopr": 0.0,
 }
 
 # Fields that, when still at neutral, represent genuinely missing paid-source data
 # and should push final confidence below the exchange-derived floor.
-_PAID_GATED_FIELDS: Final[frozenset[str]] = frozenset({
-    "exchange_netflow_7d_zscore",
-    "exchange_reserve_ratio",
-    "miner_netflow_signal",
-    "staking_unlock_risk",
-    "entity_exchange_imbalance",
-})
+_PAID_GATED_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "exchange_netflow_7d_zscore",
+        "exchange_reserve_ratio",
+        "miner_netflow_signal",
+        "staking_unlock_risk",
+        "entity_exchange_imbalance",
+    }
+)
 
 _CONFIDENCE_PENALTY_PER_MISSING: Final[float] = 0.05
 
 # Fields owned by cross-market providers (not exchange-specific)
-_CROSS_MARKET_FIELDS: Final[frozenset[str]] = frozenset({
-    "btc_dominance_regime",
-    "stablecoin_reserve_ratio",
-    "network_activity_score",
-})
+_CROSS_MARKET_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "btc_dominance_regime",
+        "stablecoin_reserve_ratio",
+        "network_activity_score",
+    }
+)
 
 # Fields that come from exchange providers
-_EXCHANGE_FIELDS: Final[frozenset[str]] = frozenset(_NEUTRAL.keys()) - _CROSS_MARKET_FIELDS - _PAID_GATED_FIELDS
+_EXCHANGE_FIELDS: Final[frozenset[str]] = (
+    frozenset(_NEUTRAL.keys()) - _CROSS_MARKET_FIELDS - _PAID_GATED_FIELDS
+)
 
 
 class MultiProviderIntelligenceAggregator:
@@ -175,7 +185,7 @@ class MultiProviderIntelligenceAggregator:
         macro_results: list[dict[str, float]] = []
 
         for provider, result in zip(self._all_providers, all_results, strict=False):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 self._log.warning(
                     "aggregator.provider_fetch_failed",
                     exchange_id=provider.exchange_id,
@@ -221,8 +231,7 @@ class MultiProviderIntelligenceAggregator:
 
         # Penalise for each paid-gated field still at neutral
         paid_missing = sum(
-            1 for f in _PAID_GATED_FIELDS
-            if _is_neutral(f, merged.get(f, _NEUTRAL[f]))
+            1 for f in _PAID_GATED_FIELDS if _is_neutral(f, merged.get(f, _NEUTRAL[f]))
         )
         final_conf = max(0.0, min(1.0, base_conf - paid_missing * _CONFIDENCE_PENALTY_PER_MISSING))
 
@@ -243,7 +252,7 @@ def _is_neutral(field: str, value: float) -> bool:
     """True if value equals the neutral default for this field."""
     neutral = _NEUTRAL.get(field, 0.0)
     if math.isnan(value):
-        return False   # NaN is not neutral — it's missing
+        return False  # NaN is not neutral — it's missing
     return abs(value - neutral) < 1e-9
 
 
@@ -315,9 +324,9 @@ class OnChainAwareAggregator(MultiProviderIntelligenceAggregator):
 
     def __init__(
         self,
-        exchange_providers: "Sequence[ExchangeIntelligenceProvider]",
-        macro_providers: "Sequence[ExchangeIntelligenceProvider]",
-        onchain_providers: "Sequence[OnChainProvider] | None" = None,
+        exchange_providers: Sequence[ExchangeIntelligenceProvider],
+        macro_providers: Sequence[ExchangeIntelligenceProvider],
+        onchain_providers: Sequence[OnChainProvider] | None = None,
     ) -> None:
         super().__init__(exchange_providers, macro_providers)
         self._onchain_providers: list[OnChainProvider] = list(onchain_providers or [])
@@ -346,9 +355,7 @@ class OnChainAwareAggregator(MultiProviderIntelligenceAggregator):
     async def fetch_metrics(self) -> dict[str, float]:
         """Fetch exchange/macro + on-chain concurrently; merge all into one dict."""
         exchange_macro_task = asyncio.create_task(super().fetch_metrics())
-        onchain_tasks = [
-            asyncio.create_task(p.fetch_metrics()) for p in self._onchain_providers
-        ]
+        onchain_tasks = [asyncio.create_task(p.fetch_metrics()) for p in self._onchain_providers]
 
         base = await exchange_macro_task
         raw_onchain = await asyncio.gather(*onchain_tasks, return_exceptions=True)
@@ -356,7 +363,7 @@ class OnChainAwareAggregator(MultiProviderIntelligenceAggregator):
         # Validate + collect clean on-chain results
         clean_onchain: list[dict[str, float]] = []
         for provider, result in zip(self._onchain_providers, raw_onchain, strict=False):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 self._log.warning(
                     "aggregator.onchain_fetch_failed",
                     exchange_id=provider.exchange_id,
@@ -405,13 +412,13 @@ class OnChainAwareAggregator(MultiProviderIntelligenceAggregator):
 # OCI-008: Singleton factory for OnChainAwareAggregator
 # ---------------------------------------------------------------------------
 
-_onchain_aware_aggregator: "OnChainAwareAggregator | None" = None
+_onchain_aware_aggregator: OnChainAwareAggregator | None = None
 
 
 def get_onchain_aware_aggregator(
     symbol: str = "BTC/USDT",
     perp_symbol: str = "BTC/USDT:USDT",
-) -> "OnChainAwareAggregator":
+) -> OnChainAwareAggregator:
     """
     Return module-level OnChainAwareAggregator singleton.
 

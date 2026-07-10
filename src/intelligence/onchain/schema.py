@@ -13,9 +13,11 @@ Authority:
   CryptoQuant field reference: https://docs.cryptoquant.com
   Coinglass field reference: https://open-api-v3.coinglass.com/api/docs
 """
+
 from __future__ import annotations
 
 from typing import Final
+
 
 # ---------------------------------------------------------------------------
 # Neutral defaults — every provider must return these if data is unavailable
@@ -54,21 +56,25 @@ ONCHAIN_NEUTRAL: Final[dict[str, float]] = {
 }
 
 # Fields that contribute additional MVRV stress (internal; merged by aggregator)
-_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset({
-    "exchange_stress_score_mvrv_contrib",
-})
+_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "exchange_stress_score_mvrv_contrib",
+    }
+)
 
 # Fields that are only populated with paid data sources
-GATED_FIELDS: Final[frozenset[str]] = frozenset({
-    "exchange_netflow_7d_zscore",
-    "exchange_reserve_ratio",
-    "miner_netflow_signal",
-    "staking_unlock_risk",
-    "entity_exchange_imbalance",
-    # Dune Analytics (paid key required)
-    "mvrv_z_score",
-    "sopr",
-})
+GATED_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "exchange_netflow_7d_zscore",
+        "exchange_reserve_ratio",
+        "miner_netflow_signal",
+        "staking_unlock_risk",
+        "entity_exchange_imbalance",
+        # Dune Analytics (paid key required)
+        "mvrv_z_score",
+        "sopr",
+    }
+)
 
 # Required output fields (every provider result must have at least these)
 REQUIRED_FIELDS: Final[frozenset[str]] = frozenset({"confidence", "timestamp"})
@@ -80,6 +86,7 @@ ALL_FIELDS: Final[frozenset[str]] = frozenset(ONCHAIN_NEUTRAL.keys())
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
+
 
 def validate_provider_result(
     result: dict[str, float],
@@ -101,6 +108,7 @@ def validate_provider_result(
     """
     import logging
     import math
+
     log = logging.getLogger(__name__)
 
     out: dict[str, float] = dict(ONCHAIN_NEUTRAL)
@@ -108,7 +116,7 @@ def validate_provider_result(
     for field, value in result.items():
         if field in _INTERNAL_FIELDS:
             continue  # handled separately by aggregator
-        if not isinstance(value, (int, float)):
+        if not isinstance(value, int | float):
             continue
         if math.isnan(value) or math.isinf(value):
             log.warning(
@@ -178,12 +186,10 @@ def merge_onchain_results(
     mvrv_sum = sum(
         r.get("exchange_stress_score_mvrv_contrib", 0.0)
         for r in results
-        if isinstance(r.get("exchange_stress_score_mvrv_contrib"), (int, float))
+        if isinstance(r.get("exchange_stress_score_mvrv_contrib"), int | float)
     )
     if abs(mvrv_sum) > 1e-9:
-        merged["exchange_stress_score"] = min(
-            1.0, merged["exchange_stress_score"] + mvrv_sum
-        )
+        merged["exchange_stress_score"] = min(1.0, merged["exchange_stress_score"] + mvrv_sum)
 
     # Final confidence & timestamp
     n = len(results)

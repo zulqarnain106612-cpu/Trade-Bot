@@ -65,7 +65,7 @@ class PaperPosition:
     direction     : 1 = long, 0 = short
     entry_price   : simulated fill price
     quantity      : asset units held
-    notional_usd  : entry_price × quantity (before fees)
+    notional_usd  : entry_price x quantity (before fees)
     unrealized_pnl: marked-to-market PnL (updated by mark_to_market)
     """
 
@@ -532,7 +532,8 @@ class PaperExecutor(AbstractExecutor):
         """
         cutoff = time.monotonic() - 3600.0
         to_prune = [
-            rid for rid, req in self._approval_queue.items()
+            rid
+            for rid, req in self._approval_queue.items()
             if req.resolved and req.created_at < cutoff
         ]
         for rid in to_prune:
@@ -692,6 +693,7 @@ class PaperExecutor(AbstractExecutor):
                 _slip = SlippageModel().estimate(
                     symbol=symbol,
                     qty=kelly_result.quantity,
+                    price=current_price,
                     adv_20d=adv_20d,
                     spread_bps=spread_bps,
                 )

@@ -22,6 +22,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections import OrderedDict
@@ -474,18 +475,22 @@ class LiveExecutor(AbstractExecutor):
             self._peak_equity = max(self._peak_equity, equity)
             self._drawdown_tracker.update(equity)
             # C-04: capture snapshot values INSIDE the lock before releasing
-            snap_equity     = equity
-            snap_cash       = self._cash
+            snap_equity = equity
+            snap_cash = self._cash
             snap_unrealized = total_unrealized
-            snap_daily_pnl  = self._drawdown_tracker.daily_pnl_usd
-            snap_daily_pct  = self._drawdown_tracker.daily_pnl_pct
-            snap_dd_pct     = self._drawdown_tracker.drawdown_from_peak_pct
-            snap_peak       = self._peak_equity
+            snap_daily_pnl = self._drawdown_tracker.daily_pnl_usd
+            snap_daily_pct = self._drawdown_tracker.daily_pnl_pct
+            snap_dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+            snap_peak = self._peak_equity
 
         await self._snapshot_equity_with_values(
-            equity=snap_equity, cash=snap_cash, unrealized=snap_unrealized,
-            daily_pnl=snap_daily_pnl, daily_pct=snap_daily_pct,
-            dd_pct=snap_dd_pct, peak_equity=snap_peak,
+            equity=snap_equity,
+            cash=snap_cash,
+            unrealized=snap_unrealized,
+            daily_pnl=snap_daily_pnl,
+            daily_pct=snap_daily_pct,
+            dd_pct=snap_dd_pct,
+            peak_equity=snap_peak,
         )
         return total_unrealized
 
@@ -529,7 +534,8 @@ class LiveExecutor(AbstractExecutor):
         """
         cutoff = time.monotonic() - 3600.0
         to_prune = [
-            rid for rid, req in self._approval_queue.items()
+            rid
+            for rid, req in self._approval_queue.items()
             if req.resolved and req.created_at < cutoff
         ]
         for rid in to_prune:
@@ -550,7 +556,8 @@ class LiveExecutor(AbstractExecutor):
         async with self._lock:
             cutoff = time.monotonic() - 3600.0
             to_prune = [
-                rid for rid, req in self._approval_queue.items()
+                rid
+                for rid, req in self._approval_queue.items()
                 if req.resolved and req.created_at < cutoff
             ]
             for rid in to_prune:
@@ -848,6 +855,44 @@ class LiveExecutor(AbstractExecutor):
             # Already logged by OrderManager
             raise
 
+    async def _enqueue_approval(
+        self,
+        symbol: str,
+        timeframe: str,
+        direction: int,
+        kelly_result: KellyResult,
+        regime_state: int,
+        meta_label_prob: float,
+        raw_signal: float,
+    ) -> str:
+        """Create an ApprovalRequest and add to the queue."""
+        req_id = str(uuid.uuid4())
+        req = ApprovalRequest(
+            request_id=req_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            direction=direction,
+            notional_usd=kelly_result.notional_usd,
+            entry_price=0.0,  # filled at execution time
+            quantity=kelly_result.quantity,
+            kelly_fraction=kelly_result.adjusted_fraction,
+            regime_state=regime_state,
+            meta_label_prob=meta_label_prob,
+            raw_signal=raw_signal,
+            created_at=time.monotonic(),
+        )
+        async with self._lock:
+            self._approval_queue[req_id] = req
+
+        self._log.info(
+            "live.approval_queued",
+            request_id=req_id,
+            symbol=symbol,
+            direction=direction,
+            notional_usd=round(kelly_result.notional_usd, 2),
+        )
+        return req_id
+
     async def _await_approval(
         self,
         request_id: str,
@@ -856,7 +901,7 @@ class LiveExecutor(AbstractExecutor):
         """
         Wait for approval resolution using asyncio.Event — zero poll overhead.
 
-        Replaces the 250ms busy-poll loop that acquired self._lock 4×/second,
+        Replaces the 250ms busy-poll loop that acquired self._lock 4x/second,
         starving concurrent mark_to_market and gate evaluation (VUL-024).
         """
         async with self._lock:
@@ -975,10 +1020,8 @@ class LiveExecutor(AbstractExecutor):
             cost = f.get("cost")
             currency = str(f.get("currency", "")).upper()
             if cost is not None and currency in {"USDT", "USDC", "BUSD", "USD", ""}:
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     total += float(cost)
-                except (TypeError, ValueError):
-                    pass
         if total > 0.0:
             return total
         # Fallback: estimate from notional

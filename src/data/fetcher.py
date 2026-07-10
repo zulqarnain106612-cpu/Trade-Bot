@@ -44,11 +44,11 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_MAX_BARS_PER_REQUEST: int = 1000          # ccxt / Binance max per call
-_INITIAL_HISTORY_DAYS: int = 90           # bootstrap lookback window
+_MAX_BARS_PER_REQUEST: int = 1000  # ccxt / Binance max per call
+_INITIAL_HISTORY_DAYS: int = 90  # bootstrap lookback window
 _RETRY_ATTEMPTS: int = 5
-_RETRY_BASE_DELAY_S: float = 1.0          # doubles each attempt (exponential backoff)
-_ORDERBOOK_DEPTH: int = 20                # levels fetched for OFI
+_RETRY_BASE_DELAY_S: float = 1.0  # doubles each attempt (exponential backoff)
+_ORDERBOOK_DEPTH: int = 20  # levels fetched for OFI
 
 
 # ---------------------------------------------------------------------------
@@ -347,9 +347,7 @@ class MarketDataFetcher:
         exchange = self._require_binance()
         tf_str = timeframe.value
         tf_seconds = TIMEFRAME_SECONDS[timeframe]
-        since_ms = int(
-            (datetime.now(tz=UTC).timestamp() - lookback_days * 86400) * 1000
-        )
+        since_ms = int((datetime.now(tz=UTC).timestamp() - lookback_days * 86400) * 1000)
 
         total_written = 0
         fetch_since = since_ms
@@ -361,10 +359,15 @@ class MarketDataFetcher:
         )
 
         while True:
-            raw: list[list[Any]] = await _with_retry(
-                lambda s=fetch_since: exchange.fetch_ohlcv(
+            _fetch_since = fetch_since
+
+            async def _fetch(s: int = _fetch_since) -> list[list[Any]]:
+                return await exchange.fetch_ohlcv(
                     symbol, tf_str, since=s, limit=_MAX_BARS_PER_REQUEST
-                ),
+                )
+
+            raw: list[list[Any]] = await _with_retry(
+                _fetch,
                 label=f"binance.fetch_ohlcv.{symbol}.{tf_str}",
             )
             if not raw:
@@ -434,10 +437,11 @@ class MarketDataFetcher:
         if since_ms >= now_ms:
             return 0  # already current
 
+        async def _fetch(s: int = since_ms) -> list[list[Any]]:
+            return await exchange.fetch_ohlcv(symbol, tf_str, since=s, limit=_MAX_BARS_PER_REQUEST)
+
         raw: list[list[Any]] = await _with_retry(
-            lambda s=since_ms: exchange.fetch_ohlcv(
-                symbol, tf_str, since=s, limit=_MAX_BARS_PER_REQUEST
-            ),
+            _fetch,
             label=f"binance.gap_fill.{symbol}.{tf_str}",
         )
         if not raw:
@@ -551,9 +555,7 @@ class MarketDataFetcher:
         tf_str = timeframe.value
 
         raw: list[list[Any]] = await _with_retry(
-            lambda: exchange.fetch_ohlcv(
-                symbol, tf_str, since=since_ms, limit=limit
-            ),
+            lambda: exchange.fetch_ohlcv(symbol, tf_str, since=since_ms, limit=limit),
             label=f"okx.fetch_ohlcv.{symbol}.{tf_str}",
         )
         return _raw_to_bar_records(symbol, tf_str, raw)

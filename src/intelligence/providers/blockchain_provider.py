@@ -30,10 +30,10 @@ from src.intelligence.providers.base import ExchangeIntelligenceProvider
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BLOCKCHAIN_STATS_URL: Final[str] = "https://blockchain.info/stats?format=json"
-_CACHE_TTL_S: Final[int] = 900          # 15-min cache; on-chain data low-frequency
+_CACHE_TTL_S: Final[int] = 900  # 15-min cache; on-chain data low-frequency
 _CONFIDENCE_PENALTY: Final[float] = 0.05
 # Rolling windows for z-score momentum computation (stored across calls)
-_HASHRATE_WINDOW: Final[int] = 48       # 48 × 15-min = 12h for hash rate momentum
+_HASHRATE_WINDOW: Final[int] = 48  # 48 x 15-min = 12h for hash rate momentum
 _TX_WINDOW: Final[int] = 48
 
 
@@ -122,23 +122,23 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
             # OWNED by this provider
             "network_activity_score": network_score,
             # NOT this provider's domain — neutral passthrough
-            "binance_funding_rate_pct":        0.0,
-            "futures_oi_change_pct":           0.0,
+            "binance_funding_rate_pct": 0.0,
+            "futures_oi_change_pct": 0.0,
             "cross_exchange_basis_spread_bps": 0.0,
-            "whale_buy_sell_ratio":            1.0,
+            "whale_buy_sell_ratio": 1.0,
             "liquidation_pressure_24h_zscore": 0.0,
-            "liquidation_cascade_risk_usd":    0.0,
-            "exchange_stress_score":           0.0,
-            "exchange_netflow_7d_zscore":      0.0,
-            "exchange_reserve_ratio":          0.5,
-            "miner_netflow_signal":            0.0,
-            "staking_unlock_risk":             0.0,
-            "entity_exchange_imbalance":       0.0,
-            "btc_dominance_regime":            0.0,
-            "stablecoin_reserve_ratio":        0.5,
+            "liquidation_cascade_risk_usd": 0.0,
+            "exchange_stress_score": 0.0,
+            "exchange_netflow_7d_zscore": 0.0,
+            "exchange_reserve_ratio": 0.5,
+            "miner_netflow_signal": 0.0,
+            "staking_unlock_risk": 0.0,
+            "entity_exchange_imbalance": 0.0,
+            "btc_dominance_regime": 0.0,
+            "stablecoin_reserve_ratio": 0.5,
             # Metadata
             "confidence": confidence,
-            "timestamp":  ts,
+            "timestamp": ts,
         }
 
     async def _fetch_stats(self) -> dict:
@@ -165,6 +165,7 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
         if len(history) < 4:
             return 0.0
         import statistics as _stats
+
         mu = _stats.mean(history)
         sigma = _stats.stdev(history)
         if sigma < 1e-12:

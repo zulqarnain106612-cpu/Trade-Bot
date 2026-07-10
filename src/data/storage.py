@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -62,8 +63,7 @@ _MIGRATIONS: Final[list[tuple[int, str, str]]] = [
     # brought up by the migration runner).
     (
         1,
-        "initial schema: bars, trades, regime_snapshots, model_metrics, "
-        "equity_curve, audit_log",
+        "initial schema: bars, trades, regime_snapshots, model_metrics, " "equity_curve, audit_log",
         "",  # Empty SQL: tables already exist from _DDL; we just set the version.
     ),
     # Version 2 — add spread_bps column to trades (GAP-008/TASK-009 follow-on)
@@ -127,9 +127,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # DDL — all tables created once on first connection
 # ---------------------------------------------------------------------------
 
-_DDL: Final[
-    str
-] = """
+_DDL: Final[str] = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 -- Gap-006: synchronous=NORMAL is safe with WAL (data durability is preserved;
@@ -139,7 +137,7 @@ PRAGMA foreign_keys=ON;
 -- Ref: https://www.sqlite.org/pragma.html#pragma_synchronous
 PRAGMA synchronous=NORMAL;
 PRAGMA busy_timeout=5000;
--- Gap-006: 64MB page cache (~8192 pages × 8KB). Reduces read I/O for
+-- Gap-006: 64MB page cache (~8192 pages x 8KB). Reduces read I/O for
 -- the bars + trades tables during signal generation ticks.
 PRAGMA cache_size=-65536;
 -- Gap-006: 256MB mmap for sequential scans (bars fetch).
@@ -262,18 +260,15 @@ CREATE INDEX IF NOT EXISTS idx_audit_ts
 # Allowed table names for health_check — prevents f-string injection
 # ---------------------------------------------------------------------------
 
-_ALLOWED_TABLES: Final[frozenset[str]] = frozenset({
-    "bars", "trades", "regime_snapshots", "model_metrics", "equity_curve", "audit_log"
-})
+_ALLOWED_TABLES: Final[frozenset[str]] = frozenset(
+    {"bars", "trades", "regime_snapshots", "model_metrics", "equity_curve", "audit_log"}
+)
 
 # ---------------------------------------------------------------------------
 # Allowed trading pair pattern for symbol validation
 # ---------------------------------------------------------------------------
 
-import re as _re
-
-
-_SYMBOL_RE = _re.compile(r"^[A-Z0-9]{2,10}/[A-Z0-9]{2,10}$")
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,10}/[A-Z0-9]{2,10}$")
 
 # ---------------------------------------------------------------------------
 # Record dataclasses — typed transport objects, no ORM overhead
@@ -662,8 +657,16 @@ class StorageBackend:
         conn = self._require_conn()
         rows = [
             (
-                b.symbol, b.timeframe, b.ts, b.open, b.high, b.low,
-                b.close, b.volume, b.quote_volume, b.taker_buy_vol,
+                b.symbol,
+                b.timeframe,
+                b.ts,
+                b.open,
+                b.high,
+                b.low,
+                b.close,
+                b.volume,
+                b.quote_volume,
+                b.taker_buy_vol,
             )
             for b in bars
         ]
@@ -753,6 +756,7 @@ class StorageBackend:
             source:     "backfill" | "live" | "test".
         """
         from datetime import UTC, datetime as _dt
+
         conn = self._require_conn()
         fetched_at = int(_dt.now(UTC).timestamp() * 1000)
 
@@ -779,7 +783,10 @@ class StorageBackend:
             )
             """,
             (
-                symbol, timeframe, bar_ts, fetched_at,
+                symbol,
+                timeframe,
+                bar_ts,
+                fetched_at,
                 _f("intelligence_exchange_netflow_7d_zscore"),
                 _f("intelligence_whale_buy_sell_ratio"),
                 _f("intelligence_exchange_reserve_ratio"),
@@ -824,6 +831,7 @@ class StorageBackend:
             feature_df = feature_df.join(intel_df, on="ts", how="left")
         """
         import pandas as _pd
+
         conn = self._require_conn()
         async with conn.execute(
             """
@@ -851,31 +859,35 @@ class StorageBackend:
             return _pd.DataFrame()
 
         col_map = {
-            "exchange_netflow_7d_zscore":      "intelligence_exchange_netflow_7d_zscore",
-            "whale_buy_sell_ratio":             "intelligence_whale_buy_sell_ratio",
-            "exchange_reserve_ratio":           "intelligence_exchange_reserve_ratio",
-            "miner_netflow_signal":             "intelligence_miner_netflow_signal",
-            "staking_unlock_risk":              "intelligence_staking_unlock_risk",
-            "entity_exchange_imbalance":        "intelligence_entity_exchange_imbalance",
-            "binance_funding_rate_pct":         "intelligence_binance_funding_rate_pct",
-            "liquidation_pressure_24h_zscore":  "intelligence_liquidation_pressure_24h_zscore",
-            "futures_oi_change_pct":            "intelligence_futures_oi_change_pct",
-            "liquidation_cascade_risk_usd":     "intelligence_liquidation_cascade_risk_usd",
-            "btc_dominance_regime":             "intelligence_btc_dominance_regime",
-            "stablecoin_reserve_ratio":         "intelligence_stablecoin_reserve_ratio",
-            "network_activity_score":           "intelligence_network_activity_score",
-            "exchange_stress_score":            "intelligence_exchange_stress_score",
-            "cross_exchange_basis_spread_bps":  "intelligence_cross_exchange_basis_spread_bps",
+            "exchange_netflow_7d_zscore": "intelligence_exchange_netflow_7d_zscore",
+            "whale_buy_sell_ratio": "intelligence_whale_buy_sell_ratio",
+            "exchange_reserve_ratio": "intelligence_exchange_reserve_ratio",
+            "miner_netflow_signal": "intelligence_miner_netflow_signal",
+            "staking_unlock_risk": "intelligence_staking_unlock_risk",
+            "entity_exchange_imbalance": "intelligence_entity_exchange_imbalance",
+            "binance_funding_rate_pct": "intelligence_binance_funding_rate_pct",
+            "liquidation_pressure_24h_zscore": "intelligence_liquidation_pressure_24h_zscore",
+            "futures_oi_change_pct": "intelligence_futures_oi_change_pct",
+            "liquidation_cascade_risk_usd": "intelligence_liquidation_cascade_risk_usd",
+            "btc_dominance_regime": "intelligence_btc_dominance_regime",
+            "stablecoin_reserve_ratio": "intelligence_stablecoin_reserve_ratio",
+            "network_activity_score": "intelligence_network_activity_score",
+            "exchange_stress_score": "intelligence_exchange_stress_score",
+            "cross_exchange_basis_spread_bps": "intelligence_cross_exchange_basis_spread_bps",
             # OCI-012 new columns
-            "defi_tvl_7d_change_pct":           "intelligence_defi_tvl_7d_change_pct",
-            "mvrv_z_score":                     "intelligence_mvrv_z_score",
-            "sopr":                             "intelligence_sopr",
-            "confidence":                       "intelligence_confidence",
+            "defi_tvl_7d_change_pct": "intelligence_defi_tvl_7d_change_pct",
+            "mvrv_z_score": "intelligence_mvrv_z_score",
+            "sopr": "intelligence_sopr",
+            "confidence": "intelligence_confidence",
         }
 
-        df = _pd.DataFrame(
-            [dict(r) for r in rows],
-        ).rename(columns=col_map).set_index("bar_ts")
+        df = (
+            _pd.DataFrame(
+                [dict(r) for r in rows],
+            )
+            .rename(columns=col_map)
+            .set_index("bar_ts")
+        )
         return df
 
     async def intelligence_feature_coverage(
@@ -892,31 +904,43 @@ class StorageBackend:
         Returns:
             {
                 "total_rows": int,
-                "coverage": {"intelligence_<col>": float, ...}   # 0.0–1.0
+                "coverage": {"intelligence_<col>": float, ...}   # 0.0-1.0
             }
         """
         conn = self._require_conn()
         columns = [
-            "exchange_netflow_7d_zscore", "whale_buy_sell_ratio",
-            "exchange_reserve_ratio", "miner_netflow_signal",
-            "staking_unlock_risk", "entity_exchange_imbalance",
-            "binance_funding_rate_pct", "liquidation_pressure_24h_zscore",
-            "futures_oi_change_pct", "liquidation_cascade_risk_usd",
-            "btc_dominance_regime", "stablecoin_reserve_ratio",
-            "network_activity_score", "exchange_stress_score",
+            "exchange_netflow_7d_zscore",
+            "whale_buy_sell_ratio",
+            "exchange_reserve_ratio",
+            "miner_netflow_signal",
+            "staking_unlock_risk",
+            "entity_exchange_imbalance",
+            "binance_funding_rate_pct",
+            "liquidation_pressure_24h_zscore",
+            "futures_oi_change_pct",
+            "liquidation_cascade_risk_usd",
+            "btc_dominance_regime",
+            "stablecoin_reserve_ratio",
+            "network_activity_score",
+            "exchange_stress_score",
             "cross_exchange_basis_spread_bps",
             # OCI-012 new columns
-            "defi_tvl_7d_change_pct", "mvrv_z_score", "sopr",
+            "defi_tvl_7d_change_pct",
+            "mvrv_z_score",
+            "sopr",
         ]
         count_exprs = ", ".join(
-            f"SUM(CASE WHEN {c} IS NOT NULL THEN 1 ELSE 0 END) AS {c}"
-            for c in columns
+            f"SUM(CASE WHEN {c} IS NOT NULL THEN 1 ELSE 0 END) AS {c}" for c in columns
         )
-        async with conn.execute(
-            f"SELECT COUNT(*) AS total, {count_exprs} "
-            "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
-            (symbol, timeframe),
-        ) as cur:
+        # count_exprs is built only from the hardcoded `columns` list literal
+        # above, never from external/user input.
+        async with (
+            conn.execute(
+                f"SELECT COUNT(*) AS total, {count_exprs} "  # nosec B608
+                "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
+                (symbol, timeframe),
+            ) as cur
+        ):
             row = dict(await cur.fetchone())
 
         total = int(row.get("total") or 0)
@@ -924,10 +948,7 @@ class StorageBackend:
             return {"total_rows": 0, "coverage": {}}
 
         prefix = "intelligence_"
-        coverage = {
-            f"{prefix}{c}": round(float(row.get(c) or 0) / total, 4)
-            for c in columns
-        }
+        coverage = {f"{prefix}{c}": round(float(row.get(c) or 0) / total, 4) for c in columns}
         return {"total_rows": total, "coverage": coverage}
 
     async def latest_bar_ts(self, symbol: str, timeframe: str) -> int | None:
@@ -980,11 +1001,7 @@ class StorageBackend:
         Returns count of deleted rows.
         """
         conn = self._require_conn()
-        cutoff_ms = int(
-            (
-                datetime.now(tz=UTC).timestamp() - keep_days * 86400
-            ) * 1000
-        )
+        cutoff_ms = int((datetime.now(tz=UTC).timestamp() - keep_days * 86400) * 1000)
         async with self._get_lock():
             cursor = await conn.execute(
                 "DELETE FROM bars WHERE symbol=? AND timeframe=? AND ts<?",
@@ -1090,8 +1107,7 @@ class StorageBackend:
             await conn.commit()
         if cursor.rowcount == 0:
             raise ValueError(
-                f"No open trade found with id={trade_id!r} "
-                "(already closed or id not found)"
+                f"No open trade found with id={trade_id!r} " "(already closed or id not found)"
             )
         self._log.info(
             "trade.exit_updated",
@@ -1131,13 +1147,14 @@ class StorageBackend:
         # All filter values flow through ? placeholders only.
         if clauses:
             base_query = (
-                "SELECT id, symbol, timeframe, trading_mode, execution_mode,"
+                "SELECT id, symbol, timeframe, trading_mode, execution_mode,"  # nosec B608 — clauses are hardcoded strings; values use ? placeholders
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
                 " exit_reason, approved_by, raw_signal"
-                " FROM trades WHERE " + " AND ".join(clauses) +
-                " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
+                " FROM trades WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
             )
         else:
             base_query = (
@@ -1210,9 +1227,7 @@ class StorageBackend:
         """
         conn = self._require_conn()
         day_start_ms = int(
-            datetime.now(tz=UTC)
-            .replace(hour=0, minute=0, second=0, microsecond=0)
-            .timestamp()
+            datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
             * 1000
         )
         async with conn.execute(
@@ -1252,9 +1267,7 @@ class StorageBackend:
             )
             await conn.commit()
 
-    async def latest_regime(
-        self, symbol: str, timeframe: str
-    ) -> RegimeSnapshotRecord | None:
+    async def latest_regime(self, symbol: str, timeframe: str) -> RegimeSnapshotRecord | None:
         """Return the most recent regime snapshot or None."""
         conn = self._require_conn()
         async with conn.execute(
@@ -1548,13 +1561,11 @@ class StorageBackend:
         # to the allowlist itself.  The previous guard (table not in _ALLOWED_TABLES)
         # was logically dead — it could never be True since table is drawn from the
         # same set — and has been replaced with this character-level validation.
-        _SAFE_TABLE_RE = _re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+        _SAFE_TABLE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
         for table in _ALLOWED_TABLES:
             if not _SAFE_TABLE_RE.match(table):
-                raise RuntimeError(
-                    f"health_check: table {table!r} contains unsafe characters"
-                )
-            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                raise RuntimeError(f"health_check: table {table!r} contains unsafe characters")
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:  # nosec B608
                 row = await cur.fetchone()
             counts[table] = int(row[0]) if row else 0
         return counts

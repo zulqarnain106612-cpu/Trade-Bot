@@ -32,7 +32,7 @@ class ExchangeIntelligenceProvider(ABC):
 
     fetch_metrics() contract:
       - NEVER raises.  On any error, log a warning and return neutral values.
-      - Always includes keys: "confidence" (float, 0–1) and "timestamp" (int, unix-s).
+      - Always includes keys: "confidence" (float, 0-1) and "timestamp" (int, unix-s).
       - Fields unavailable on this exchange are set to their neutral value:
           0.0 for signed/z-score fields, 0.5 for ratio fields bounded in [0,1].
       - "confidence" must be reduced by _CONFIDENCE_PENALTY for each field

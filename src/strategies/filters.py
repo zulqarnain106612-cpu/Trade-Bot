@@ -6,7 +6,7 @@ Implements research-backed filters from established practitioners:
   1. Trend filter          — Carver (2019) Systematic Trading Ch.3
                              200-bar EWM trend vs price; only trade with trend
   2. Volatility-adjusted momentum — Chan (2013) Algorithmic Trading Ch.4
-                             Risk-adjusted momentum: (μ / σ) rolling window
+                             Risk-adjusted momentum: (μ / sigma) rolling window
   3. Overnight gap filter  — Aronson (2006) ETBA Ch.8
                              Flag excessive overnight gaps as noise
   4. Regime-aware position scaler — López de Prado (2018) AFML Ch.17
@@ -16,7 +16,7 @@ Implements research-backed filters from established practitioners:
   6. Volume-price trend confirm — Granville (1963) OBV / Elder (1993)
                              On-Balance Volume confirms price direction
   7. Volatility regime gate — Schwager (1984) Market Wizards principle
-                             Do not trade when vol is 2× its 20-bar median
+                             Do not trade when vol is 2x its 20-bar median
   8. Multi-timeframe trend alignment — Schwager (1993) The New Market Wizards
                              Short-term signal only taken when intermediate trend agrees
 
@@ -51,18 +51,19 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_EWM_SPAN_TREND: Final[int] = 200        # Carver (2019) — long-term EWM trend
-_MOMENTUM_WINDOW: Final[int] = 20        # Chan (2013) — risk-adj momentum window
-_HURST_MIN_WINDOW: Final[int] = 100      # Peters (1994) — minimum for stable H
+_EWM_SPAN_TREND: Final[int] = 200  # Carver (2019) — long-term EWM trend
+_MOMENTUM_WINDOW: Final[int] = 20  # Chan (2013) — risk-adj momentum window
+_HURST_MIN_WINDOW: Final[int] = 100  # Peters (1994) — minimum for stable H
 _HURST_TRENDING_THRESHOLD: Final[float] = 0.55  # H > 0.55 = trending
-_OBV_CONFIRM_WINDOW: Final[int] = 20     # Elder (1993) — OBV smoothing
-_VOL_EXPLOSION_MULTIPLIER: Final[float] = 2.0   # Schwager — halt when vol 2× median
+_OBV_CONFIRM_WINDOW: Final[int] = 20  # Elder (1993) — OBV smoothing
+_VOL_EXPLOSION_MULTIPLIER: Final[float] = 2.0  # Schwager — halt when vol 2x median
 _VOL_EXPLOSION_LOOKBACK: Final[int] = 20
 
 
 # ---------------------------------------------------------------------------
 # 1. Trend filter — Carver (2019) Systematic Trading Ch.3
 # ---------------------------------------------------------------------------
+
 
 def ewm_trend_signal(close: pd.Series, span: int = _EWM_SPAN_TREND) -> float:
     """
@@ -101,9 +102,9 @@ def trend_filter_passes(close: pd.Series, direction: int, span: int = _EWM_SPAN_
     which statistically have negative expectancy in trending instruments.
     """
     signal = ewm_trend_signal(close, span)
-    if direction == 1:      # long
+    if direction == 1:  # long
         return signal > 0.0
-    else:                   # short
+    else:  # short
         return signal < 0.0
 
 
@@ -111,12 +112,13 @@ def trend_filter_passes(close: pd.Series, direction: int, span: int = _EWM_SPAN_
 # 2. Volatility-adjusted momentum — Chan (2013) Ch.4
 # ---------------------------------------------------------------------------
 
+
 def vol_adjusted_momentum(
     close: pd.Series,
     window: int = _MOMENTUM_WINDOW,
 ) -> float:
     """
-    Chan (2013) Ch.4 risk-adjusted momentum: μ_ret / σ_ret.
+    Chan (2013) Ch.4 risk-adjusted momentum: μ_ret / sigma_ret.
 
     Returns the rolling Sharpe ratio of log returns over `window` bars.
     Positive = bullish momentum, negative = bearish momentum.
@@ -142,6 +144,7 @@ def vol_adjusted_momentum(
 # 3. Overnight gap filter — Aronson (2006) ETBA Ch.8
 # ---------------------------------------------------------------------------
 
+
 def overnight_gap_is_excessive(
     open_price: float,
     prev_close: float,
@@ -150,7 +153,7 @@ def overnight_gap_is_excessive(
 ) -> bool:
     """
     Aronson (2006) Ch.8: reject signals on bars where the open gaps more than
-    2× ATR from the prior close.  Such bars indicate unusual overnight news
+    2x ATR from the prior close.  Such bars indicate unusual overnight news
     events; intraday models trained on normal bars should not trade them.
 
     Returns True when the gap is excessive (signal should be skipped).
@@ -164,6 +167,7 @@ def overnight_gap_is_excessive(
 # ---------------------------------------------------------------------------
 # 4. Regime-aware position scaler — López de Prado (2018) AFML Ch.17
 # ---------------------------------------------------------------------------
+
 
 def regime_position_scalar(
     regime_state: int,
@@ -185,18 +189,20 @@ def regime_position_scalar(
     Returns a float in [0, 1] that multiplies the Kelly notional.
     """
     from src.config import REGIME_RANGING, REGIME_TRENDING, REGIME_VOLATILE
+
     if regime_state == REGIME_VOLATILE or prob_volatile > 0.6:
         return 0.0
     if regime_state == REGIME_TRENDING:
         return float(np.clip(prob_trending, 0.5, 1.0))
     if regime_state == REGIME_RANGING:
         return float(np.clip(prob_ranging * 0.6, 0.2, 0.6))
-    return 0.5   # unknown regime — be conservative
+    return 0.5  # unknown regime — be conservative
 
 
 # ---------------------------------------------------------------------------
 # 5. Hurst exponent — Peters (1994) Fractal Market Hypothesis
 # ---------------------------------------------------------------------------
+
 
 def hurst_exponent(close: pd.Series, min_window: int = _HURST_MIN_WINDOW) -> float:
     """
@@ -224,7 +230,7 @@ def hurst_exponent(close: pd.Series, min_window: int = _HURST_MIN_WINDOW) -> flo
     for lag in [min_window // 4, min_window // 2, min_window, min(n, min_window * 2)]:
         if lag < 10 or lag > n:
             continue
-        chunks = [log_ret[i:i+lag] for i in range(0, n - lag + 1, lag)]
+        chunks = [log_ret[i : i + lag] for i in range(0, n - lag + 1, lag)]
         if not chunks:
             continue
         rs_list = []
@@ -283,6 +289,7 @@ def hurst_filter_passes(close: pd.Series, direction: int) -> bool:
 # 6. On-Balance Volume confirmation — Granville (1963) / Elder (1993)
 # ---------------------------------------------------------------------------
 
+
 def obv_trend_confirms(
     close: pd.Series,
     volume: pd.Series,
@@ -300,7 +307,7 @@ def obv_trend_confirms(
     OBV falling = selling pressure → confirms short.
     """
     if len(close) < window + 2 or len(volume) < window + 2:
-        return True   # insufficient data — don't filter
+        return True  # insufficient data — don't filter
 
     delta = close.diff()
     obv_raw = (np.sign(delta) * volume).fillna(0.0).cumsum()
@@ -316,6 +323,7 @@ def obv_trend_confirms(
 # 7. Volatility explosion gate — Schwager (1984)
 # ---------------------------------------------------------------------------
 
+
 def vol_explosion_blocks(
     atr_series: pd.Series,
     lookback: int = _VOL_EXPLOSION_LOOKBACK,
@@ -325,7 +333,7 @@ def vol_explosion_blocks(
     Schwager (1984) Market Wizards principle: stop trading when volatility
     spikes to an abnormal multiple of its recent median.
 
-    A volatility explosion (current ATR > 2× median ATR) indicates a regime
+    A volatility explosion (current ATR > 2x median ATR) indicates a regime
     break or news event.  Models trained on normal conditions have no edge.
 
     Returns True when the signal should be BLOCKED (vol too high).
@@ -352,6 +360,7 @@ def vol_explosion_blocks(
 # ---------------------------------------------------------------------------
 # 8. Multi-timeframe trend alignment — Schwager (1993)
 # ---------------------------------------------------------------------------
+
 
 def mtf_trend_aligned(
     fast_signal: float,
@@ -381,6 +390,7 @@ def mtf_trend_aligned(
 # Combined filter stack
 # ---------------------------------------------------------------------------
 
+
 def apply_all_strategy_filters(
     close: pd.Series,
     volume: pd.Series,
@@ -399,10 +409,10 @@ def apply_all_strategy_filters(
     Returns::
 
         {
-          "passes": bool,          # True = all filters pass
-          "scalar": float,         # position size scalar [0, 1]
-          "filters_failed": list,  # names of failed filters
-          "details": dict,         # per-filter results
+            "passes": bool,  # True = all filters pass
+            "scalar": float,  # position size scalar [0, 1]
+            "filters_failed": list,  # names of failed filters
+            "details": dict,  # per-filter results
         }
 
     Filters are checked in order; short-circuit on first block.

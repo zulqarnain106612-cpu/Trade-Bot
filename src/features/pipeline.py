@@ -13,7 +13,7 @@ Implements every feature from the signal architecture spec:
   9. Meta-label targets (bet-or-not column)       — AFML Ch.4
 
 Authority sources:
-  - López de Prado (2018) AFML Ch.3–5
+  - López de Prado (2018) AFML Ch.3-5
   - Cont, Kukanov & Stoikov (2014) "The Price Impact of Order Book Events"
   - Chan (2013) Algorithmic Trading — realized vol, ATR momentum
   - Wilder (1978) New Concepts in Technical Trading Systems — ATR
@@ -96,6 +96,7 @@ def get_active_feature_columns(
     import structlog as _sl
 
     from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
+
     _log = _sl.get_logger(__name__)
 
     if not coverage:
@@ -132,15 +133,14 @@ def get_active_feature_columns(
     )
     return active
 
+
 # Label columns
 COL_LABEL: Final[str] = "label"
 COL_META_LABEL: Final[str] = "meta_label"
 COL_RETURN: Final[str] = "log_return"
 
 # Required input OHLCV columns
-_REQ_COLS: Final[frozenset[str]] = frozenset(
-    {"open", "high", "low", "close", "volume"}
-)
+_REQ_COLS: Final[frozenset[str]] = frozenset({"open", "high", "low", "close", "volume"})
 
 
 # ---------------------------------------------------------------------------
@@ -247,9 +247,10 @@ def vwap_deviation_zscore(
     typical_price = (high + low + close) / 3.0
     tp_vol = typical_price * volume
 
-    vwap = tp_vol.rolling(window, min_periods=window).sum() / volume.rolling(
-        window, min_periods=window
-    ).sum()
+    vwap = (
+        tp_vol.rolling(window, min_periods=window).sum()
+        / volume.rolling(window, min_periods=window).sum()
+    )
 
     deviation = (close - vwap) / vwap.replace(0.0, np.nan)
     z = (deviation - deviation.rolling(window, min_periods=window).mean()) / (
@@ -480,13 +481,13 @@ def triple_barrier_labels(
     vols = daily_vol.to_numpy(dtype=np.float64)
     labels = np.full(n, np.nan, dtype=np.float64)
 
-    # VF-015: Replace O(n × max_holding) Python double-loop with a vectorized
+    # VF-015: Replace O(n x max_holding) Python double-loop with a vectorized
     # approach.  For each look-ahead offset k in [1, max_holding]:
     #   - build shifted price arrays (np.roll / slicing)
     #   - compare against per-row upper/lower barriers
     #   - record the FIRST offset at which a barrier is hit
     # Total work: max_holding array passes over n elements — all in NumPy C.
-    # At n=10 000 and max_holding=60 this is ~100× faster than the Python loop.
+    # At n=10 000 and max_holding=60 this is ~100x faster than the Python loop.
 
     valid_mask = ~np.isnan(vols) & (np.abs(vols) >= 1e-10)
     entry_prices = prices.copy()
@@ -637,9 +638,7 @@ def build_feature_matrix(
         cfg.triple_barrier_max_holding_bars + 63,  # 63 = EWMA vol warmup
     )
     if n_input < min_required:
-        raise ValueError(
-            f"bars has {n_input} rows; need at least {min_required} for all windows"
-        )
+        raise ValueError(f"bars has {n_input} rows; need at least {min_required} for all windows")
 
     close = bars["close"].astype(np.float64)
     high = bars["high"].astype(np.float64)
@@ -745,9 +744,7 @@ def build_feature_matrix(
     # Drop rows with NaN in any feature (burn-in) or where label is NaN
     # (tail rows where holding window extends beyond data)
     before = len(feature_df)
-    feature_df = feature_df.dropna(
-        subset=[*FEATURE_COLUMNS, COL_LABEL]
-    )
+    feature_df = feature_df.dropna(subset=[*FEATURE_COLUMNS, COL_LABEL])
     dropped = before - len(feature_df)
 
     # For the primary direction classifier: keep only rows where a definitive
@@ -928,6 +925,7 @@ def build_inference_features(
 # Intelligence feature injection helper (GAP-015)
 # ---------------------------------------------------------------------------
 
+
 def _inject_intelligence_features(
     vec: pd.Series,
     intelligence_metrics: dict[str, float],
@@ -970,6 +968,7 @@ def _inject_intelligence_features(
         except (TypeError, ValueError):
             continue
         import math as _math
+
         if _math.isfinite(fval):
             extras[col] = fval
 
@@ -979,6 +978,7 @@ def _inject_intelligence_features(
         try:
             cval = float(conf)
             import math as _math
+
             if _math.isfinite(cval):
                 extras[COL_INTELLIGENCE_CONFIDENCE] = cval
         except (TypeError, ValueError):
@@ -989,6 +989,7 @@ def _inject_intelligence_features(
 
     import numpy as _np
     import pandas as _pd
+
     extras_series = _pd.Series(extras, dtype=_np.float64)
     result = _pd.concat([vec, extras_series])
 

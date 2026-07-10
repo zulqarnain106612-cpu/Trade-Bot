@@ -18,6 +18,7 @@ Cache: 60s (1-min granularity on most endpoints)
 
 Authority: https://open-api-v3.coinglass.com/api/docs
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,12 +28,13 @@ from typing import Any
 
 from src.intelligence.onchain.base import OnChainProvider
 
+
 logger = logging.getLogger(__name__)
 
 _BASE = "https://open-api-v3.coinglass.com/api"
 _EPS = 1e-9
-_OI_WINDOW = 48          # 1h candles for 48h OI window
-_LIQ_WINDOW = 24         # liquidation candles (1h) for z-score
+_OI_WINDOW = 48  # 1h candles for 48h OI window
+_LIQ_WINDOW = 24  # liquidation candles (1h) for z-score
 _CONFIDENCE_PENALTY = 0.05
 
 _NEUTRAL: dict[str, float] = {
@@ -53,7 +55,7 @@ class CoinglassProvider(OnChainProvider):
 
     _BASE_URL = _BASE
     _CACHE_TTL_S = 60
-    _RATE = 30.0 / 60.0   # 30 req/min expressed as req/s for window_s=1.0
+    _RATE = 30.0 / 60.0  # 30 req/min expressed as req/s for window_s=1.0
 
     def __init__(self, api_key: str, cache_ttl_s: int = 60) -> None:
         super().__init__()
@@ -163,6 +165,7 @@ class CoinglassProvider(OnChainProvider):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_list(data: dict[str, Any]) -> list[Any]:
     """Coinglass v3 wraps rows under data.data or data."""
     if isinstance(data, dict):
@@ -182,9 +185,10 @@ def _oi_change_pct(data: dict[str, Any]) -> float:
     rows = _extract_list(data)
     if len(rows) < 2:
         return 0.0
+
     # Each candle: {o, h, l, c} or {openInterest, ...}
     def _close(row: Any) -> float:
-        if isinstance(row, (list, tuple)) and len(row) >= 4:
+        if isinstance(row, list | tuple) and len(row) >= 4:
             return float(row[3])
         if isinstance(row, dict):
             for k in ("c", "close", "openInterest", "oi"):
@@ -210,7 +214,7 @@ def _liq_zscore(data: dict[str, Any]) -> float:
             buy = float(row.get("buyLiquidationUsd", 0) or 0)
             sell = float(row.get("sellLiquidationUsd", 0) or 0)
             return buy + sell
-        if isinstance(row, (list, tuple)) and len(row) >= 2:
+        if isinstance(row, list | tuple) and len(row) >= 2:
             return float(row[0]) + float(row[1])
         return 0.0
 
@@ -228,7 +232,7 @@ def _heatmap_max(data: dict[str, Any]) -> float:
         return 0.0
     max_val = 0.0
     for row in rows:
-        if isinstance(row, (list, tuple)) and len(row) >= 3:
+        if isinstance(row, list | tuple) and len(row) >= 3:
             max_val = max(max_val, float(row[2]))
         elif isinstance(row, dict):
             v = float(row.get("liquidationUsd", 0) or row.get("value", 0) or 0)

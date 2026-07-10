@@ -18,6 +18,7 @@ Cache: 300s (daily-resolution data — sub-5min refresh has zero value)
 
 Authority: https://docs.cryptoquant.com/api-reference/
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,11 +28,12 @@ from typing import Any
 
 from src.intelligence.onchain.base import OnChainProvider
 
+
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.cryptoquant.com/v1"
 _EPS = 1e-9
-_DAILY_WINDOW = 30          # candles to fetch for z-score baseline
+_DAILY_WINDOW = 30  # candles to fetch for z-score baseline
 _MVRV_STRESS_THRESHOLD = 3.5
 _MVRV_STRESS_ADD = 0.3
 _CONFIDENCE_PENALTY = 0.05
@@ -41,7 +43,7 @@ _NEUTRAL: dict[str, float] = {
     "exchange_netflow_7d_zscore": 0.0,
     "miner_netflow_signal": 0.0,
     "binance_funding_rate_pct": 0.0,
-    "exchange_stress_score_mvrv_contrib": 0.0,   # internal; merged by aggregator
+    "exchange_stress_score_mvrv_contrib": 0.0,  # internal; merged by aggregator
 }
 
 
@@ -54,7 +56,7 @@ class CryptoQuantProvider(OnChainProvider):
 
     _BASE_URL = _BASE
     _CACHE_TTL_S = 300
-    _RATE = 10.0 / 60.0   # 10 req/min expressed as req/s for RateLimiter window_s=1.0
+    _RATE = 10.0 / 60.0  # 10 req/min expressed as req/s for RateLimiter window_s=1.0
 
     def __init__(self, api_key: str, cache_ttl_s: int = 300) -> None:
         super().__init__()
@@ -75,9 +77,11 @@ class CryptoQuantProvider(OnChainProvider):
         if self._disabled:
             return
         # Warm cache: reserve + netflow are most expensive; fetch on init.
-        await self._get(f"{_BASE}/btc/exchange-flows/reserve",
-                        headers=self._auth(),
-                        params={"window": "day", "limit": str(_DAILY_WINDOW)})
+        await self._get(
+            f"{_BASE}/btc/exchange-flows/reserve",
+            headers=self._auth(),
+            params={"window": "day", "limit": str(_DAILY_WINDOW)},
+        )
 
     async def close(self) -> None:
         await super().close()
@@ -98,36 +102,44 @@ class CryptoQuantProvider(OnChainProvider):
         h = self._auth()
 
         # 1. exchange_reserve_ratio
-        reserve_data = await self._get(f"{_BASE}/btc/exchange-flows/reserve",
-                                       headers=h,
-                                       params={"window": "day", "limit": str(_DAILY_WINDOW)})
+        reserve_data = await self._get(
+            f"{_BASE}/btc/exchange-flows/reserve",
+            headers=h,
+            params={"window": "day", "limit": str(_DAILY_WINDOW)},
+        )
         if reserve_data is not None:
             result["exchange_reserve_ratio"] = _reserve_ratio(reserve_data)
         else:
             confidence -= _CONFIDENCE_PENALTY
 
         # 2. exchange_netflow_7d_zscore
-        netflow_data = await self._get(f"{_BASE}/btc/exchange-flows/netflow",
-                                       headers=h,
-                                       params={"window": "day", "limit": str(_DAILY_WINDOW)})
+        netflow_data = await self._get(
+            f"{_BASE}/btc/exchange-flows/netflow",
+            headers=h,
+            params={"window": "day", "limit": str(_DAILY_WINDOW)},
+        )
         if netflow_data is not None:
             result["exchange_netflow_7d_zscore"] = _netflow_zscore(netflow_data)
         else:
             confidence -= _CONFIDENCE_PENALTY
 
         # 3. miner_netflow_signal
-        miner_data = await self._get(f"{_BASE}/btc/miner-flows/netflow",
-                                     headers=h,
-                                     params={"window": "day", "limit": str(_DAILY_WINDOW)})
+        miner_data = await self._get(
+            f"{_BASE}/btc/miner-flows/netflow",
+            headers=h,
+            params={"window": "day", "limit": str(_DAILY_WINDOW)},
+        )
         if miner_data is not None:
             result["miner_netflow_signal"] = _miner_signal(miner_data)
         else:
             confidence -= _CONFIDENCE_PENALTY
 
         # 4. binance_funding_rate_pct (fallback supplement)
-        fr_data = await self._get(f"{_BASE}/btc/derivatives/funding-rates",
-                                  headers=h,
-                                  params={"window": "day", "limit": "7"})
+        fr_data = await self._get(
+            f"{_BASE}/btc/derivatives/funding-rates",
+            headers=h,
+            params={"window": "day", "limit": "7"},
+        )
         if fr_data is not None:
             fr = _extract_binance_funding(fr_data)
             if fr is not None:
@@ -136,9 +148,9 @@ class CryptoQuantProvider(OnChainProvider):
             confidence -= _CONFIDENCE_PENALTY
 
         # 5. MVRV → exchange_stress_score additive contribution
-        mvrv_data = await self._get(f"{_BASE}/btc/market-data/market-cap",
-                                    headers=h,
-                                    params={"window": "day", "limit": "2"})
+        mvrv_data = await self._get(
+            f"{_BASE}/btc/market-data/market-cap", headers=h, params={"window": "day", "limit": "2"}
+        )
         if mvrv_data is not None:
             contrib = _mvrv_stress_contrib(mvrv_data)
             result["exchange_stress_score_mvrv_contrib"] = contrib
@@ -152,6 +164,7 @@ class CryptoQuantProvider(OnChainProvider):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     """CryptoQuant v1 wraps rows under data.result.data or data.result."""
@@ -169,7 +182,7 @@ def _reserve_ratio(data: dict[str, Any]) -> float:
         return 0.5
     latest = rows[-1]
     reserve_usd = float(latest.get("reserve_usd", 0) or 0)
-    # Approximate BTC total supply × price for normalization
+    # Approximate BTC total supply x price for normalization
     btc_supply = 21_000_000.0
     btc_price_approx = float(latest.get("price", 60_000) or 60_000)
     total_cap = btc_supply * btc_price_approx

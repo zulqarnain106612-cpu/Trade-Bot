@@ -6,7 +6,7 @@ Covers cross-market metrics that no single exchange can supply:
   ✅ stablecoin_reserve_ratio    — (USDC+USDT mktcap) / total crypto mktcap
 
 Rate limits (free tier, no key required):
-  - 10–30 req/min sustained (CoinGecko demo tier, shared IP).
+  - 10-30 req/min sustained (CoinGecko demo tier, shared IP).
   - Cache TTL 900s (15 min) keeps well under limit even at 3 engine ticks/min.
 
 Authority:
@@ -29,12 +29,12 @@ from src.intelligence.providers.base import ExchangeIntelligenceProvider
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _COINGECKO_GLOBAL_URL: Final[str] = "https://api.coingecko.com/api/v3/global"
-_CACHE_TTL_S: Final[int] = 900          # 15-min cache; data updates ~1/min but stale is fine
+_CACHE_TTL_S: Final[int] = 900  # 15-min cache; data updates ~1/min but stale is fine
 _STABLECOIN_COINS: Final[tuple[str, ...]] = ("tether", "usd-coin", "dai", "frax", "usdd")
 # BTC dominance z-score window (approximate: stored as last N fetches, 15-min cadence)
-_BTC_DOM_WINDOW: Final[int] = 96        # 96 × 15min = 24h rolling window for z-score
+_BTC_DOM_WINDOW: Final[int] = 96  # 96 x 15min = 24h rolling window for z-score
 _CONFIDENCE_PENALTY: Final[float] = 0.05
-_MISSING_PAID_FIELDS: Final[int] = 0    # all fields here are free
+_MISSING_PAID_FIELDS: Final[int] = 0  # all fields here are free
 
 
 class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
@@ -98,6 +98,7 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
                     self._btc_dom_history = self._btc_dom_history[-_BTC_DOM_WINDOW:]
                 if len(self._btc_dom_history) >= 4:
                     import statistics as _stats
+
                     mu = _stats.mean(self._btc_dom_history)
                     sigma = _stats.stdev(self._btc_dom_history)
                     btc_dominance_zscore = (btc_dom_pct - mu) / sigma if sigma > 1e-9 else 0.0
@@ -122,25 +123,29 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
 
         return {
             # OWNED by this provider (free CoinGecko)
-            "btc_dominance_regime":     btc_dominance_zscore,
+            "btc_dominance_regime": btc_dominance_zscore,
             "stablecoin_reserve_ratio": stablecoin_ratio,
             # NOT this provider's domain — neutral passthrough
-            "binance_funding_rate_pct":        0.0,
-            "futures_oi_change_pct":           0.0,
+            "binance_funding_rate_pct": 0.0,
+            "futures_oi_change_pct": 0.0,
             "cross_exchange_basis_spread_bps": 0.0,
-            "whale_buy_sell_ratio":            1.0,
+            "whale_buy_sell_ratio": 1.0,
             "liquidation_pressure_24h_zscore": 0.0,
-            "liquidation_cascade_risk_usd":    0.0,
-            "exchange_stress_score":           0.0,
-            "exchange_netflow_7d_zscore":      0.0,
-            "exchange_reserve_ratio":          0.5,
-            "miner_netflow_signal":            0.0,
-            "staking_unlock_risk":             0.0,
-            "entity_exchange_imbalance":       0.0,
-            "network_activity_score":          0.0,
+            "liquidation_cascade_risk_usd": 0.0,
+            "exchange_stress_score": 0.0,
+            "exchange_netflow_7d_zscore": 0.0,
+            "exchange_reserve_ratio": 0.5,
+            "miner_netflow_signal": 0.0,
+            "staking_unlock_risk": 0.0,
+            "entity_exchange_imbalance": 0.0,
+            "network_activity_score": 0.0,
+            # OCI-012: on-chain fields — neutral defaults for macro provider
+            "defi_tvl_7d_change_pct": 0.0,
+            "mvrv_z_score": 0.0,
+            "sopr": 0.0,
             # Metadata
             "confidence": confidence,
-            "timestamp":  ts,
+            "timestamp": ts,
         }
 
     async def _fetch_global(self) -> dict:

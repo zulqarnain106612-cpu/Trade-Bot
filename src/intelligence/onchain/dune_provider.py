@@ -13,15 +13,16 @@ Auth: X-Dune-API-Key header.
 
 Authority: https://docs.dune.com/api-reference/executions/endpoint/execute-query
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import math
 import time
-from typing import Any
 
 from src.intelligence.onchain.base import OnChainProvider
+
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ class DuneProvider(OnChainProvider):
         rows3 = await self._get_query_rows(DUNE_QUERY_SOPR)
         if rows3 is not None and rows3:
             sopr_val = float(rows3[-1].get("sopr_7d_ma", 1.0) or 1.0)
-            # Normalize: (sopr - 1) × 2, clamp to [-1, +1]
+            # Normalize: (sopr - 1) x 2, clamp to [-1, +1]
             result["sopr"] = max(-1.0, min(1.0, (sopr_val - 1.0) * 2.0))
         else:
             confidence -= _CONFIDENCE_PENALTY
@@ -179,8 +180,10 @@ class DuneProvider(OnChainProvider):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _today_ordinal() -> int:
     import datetime
+
     return datetime.date.today().toordinal()
 
 
@@ -193,8 +196,9 @@ def _results_fresh(results: dict, ttl_s: int) -> bool:
         return False
     try:
         import datetime
+
         ts = datetime.datetime.fromisoformat(executed_at.replace("Z", "+00:00"))
-        age = (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+        age = (datetime.datetime.now(datetime.UTC) - ts).total_seconds()
         return age < ttl_s
     except Exception:
         return False
@@ -203,11 +207,7 @@ def _results_fresh(results: dict, ttl_s: int) -> bool:
 def _extract_rows(results: dict | None) -> list[dict] | None:
     if results is None:
         return None
-    rows = (
-        results.get("result", {}).get("rows")
-        or results.get("rows")
-        or []
-    )
+    rows = results.get("result", {}).get("rows") or results.get("rows") or []
     return rows if isinstance(rows, list) else None
 
 

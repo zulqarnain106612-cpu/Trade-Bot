@@ -4,7 +4,7 @@ Advanced position sizing — Carver (2019) and López de Prado (2018).
 Implements sizing approaches beyond the base half-Kelly:
 
   1. Carver forecast-scaled sizing — Systematic Trading Ch.4
-     Position size ∝ forecast strength × risk target / volatility
+     Position size ∝ forecast strength x risk target / volatility
   2. Volatility targeting — Carver (2019) Ch.2
      Size to hit a fixed % daily vol target regardless of asset vol
   3. Correlation-aware sizing — López de Prado (2018) AFML Ch.16
@@ -17,7 +17,7 @@ All functions are pure.  No I/O.
 Authority:
   - Carver (2019) Systematic Trading, Chapters 2, 4, 11
   - López de Prado (2018) AFML Chapters 10, 16
-  - Kelly (1956) Bell System Technical Journal 35(4): 917–926
+  - Kelly (1956) Bell System Technical Journal 35(4): 917-926
   - Thorp (2006) The Kelly Criterion in Blackjack, Sports Betting and the
     Stock Market — fractional Kelly derivation
 """
@@ -35,7 +35,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 # Carver (2019) recommended daily vol target as % of capital
-_DEFAULT_DAILY_VOL_TARGET_PCT: Final[float] = 0.25   # 0.25% daily
+_DEFAULT_DAILY_VOL_TARGET_PCT: Final[float] = 0.25  # 0.25% daily
 
 # Carver minimum/maximum forecast scalar (before normalisation)
 _FORECAST_SCALAR_MIN: Final[float] = -20.0
@@ -52,6 +52,7 @@ _MIN_NOTIONAL_USD: Final[float] = 10.0
 # 1. Carver forecast-scaled position size — Systematic Trading Ch.4
 # ---------------------------------------------------------------------------
 
+
 def carver_forecast_position(
     capital_usd: float,
     forecast: float,
@@ -63,8 +64,8 @@ def carver_forecast_position(
     """
     Carver (2019) Ch.4 forecast-scaled position sizing.
 
-    Position = (capital × vol_target_pct) / (forecast_scalar × price × daily_vol_pct)
-                 × forecast
+    Position = (capital x vol_target_pct) / (forecast_scalar x price x daily_vol_pct)
+                 x forecast
 
     Where:
       - forecast         : raw signal in (-20, 20), e.g. from ewm_trend_signal
@@ -89,13 +90,16 @@ def carver_forecast_position(
     if instrument_risk_usd < 1e-9:
         return 0.0
 
-    raw_notional = (vol_risk_usd / instrument_risk_usd) * (abs(clipped_forecast) / forecast_scalar) * price
+    raw_notional = (
+        (vol_risk_usd / instrument_risk_usd) * (abs(clipped_forecast) / forecast_scalar) * price
+    )
     return max(0.0, min(raw_notional, capital_usd * 0.25))  # cap at 25% (Kelly ceiling)
 
 
 # ---------------------------------------------------------------------------
 # 2. Volatility targeting — Carver (2019) Ch.2
 # ---------------------------------------------------------------------------
+
 
 def vol_target_quantity(
     capital_usd: float,
@@ -106,7 +110,7 @@ def vol_target_quantity(
     """
     Carver (2019) Ch.2 volatility targeting.
 
-    Quantity = (capital × vol_target_pct) / (price × daily_vol_pct)
+    Quantity = (capital x vol_target_pct) / (price x daily_vol_pct)
 
     Returns units of the asset to trade so that the position contributes
     exactly `daily_vol_target_pct` of daily volatility to the portfolio.
@@ -132,7 +136,7 @@ def estimate_daily_vol(close: np.ndarray | list[float], window: int = 20) -> flo
     """
     arr = np.asarray(close, dtype=np.float64)
     if len(arr) < 2:
-        return 0.01   # fallback 1%
+        return 0.01  # fallback 1%
     log_ret = np.diff(np.log(arr + 1e-12))
     if len(log_ret) < 2:
         return 0.01
@@ -145,6 +149,7 @@ def estimate_daily_vol(close: np.ndarray | list[float], window: int = 20) -> flo
 # ---------------------------------------------------------------------------
 # 3. Correlation-aware size reduction — AFML Ch.16
 # ---------------------------------------------------------------------------
+
 
 def correlation_adjusted_notional(
     proposed_notional_usd: float,
@@ -166,7 +171,7 @@ def correlation_adjusted_notional(
     """
     if avg_correlation_with_book <= threshold:
         return proposed_notional_usd
-    # Linear reduction from 1× at threshold to 0× at correlation=1
+    # Linear reduction from 1x at threshold to 0x at correlation=1
     reduction = (1.0 - avg_correlation_with_book) / (1.0 - threshold)
     reduction = float(np.clip(reduction, 0.0, 1.0))
     return proposed_notional_usd * reduction
@@ -175,6 +180,7 @@ def correlation_adjusted_notional(
 # ---------------------------------------------------------------------------
 # 4. AFML Ch.10 bet-sizing from model probability
 # ---------------------------------------------------------------------------
+
 
 def afml_bet_size(
     p_long: float,
@@ -207,6 +213,7 @@ def afml_bet_size(
 # ---------------------------------------------------------------------------
 # 5. Thorp fractional Kelly with variance penalty — Thorp (2006)
 # ---------------------------------------------------------------------------
+
 
 def thorp_kelly_with_variance(
     win_prob: float,
@@ -244,6 +251,7 @@ def thorp_kelly_with_variance(
 # Combined sizing recommendation
 # ---------------------------------------------------------------------------
 
+
 def recommend_position_notional(
     capital_usd: float,
     price: float,
@@ -265,13 +273,20 @@ def recommend_position_notional(
     Returns dict with each method's notional and the recommended notional.
     """
     thorp = thorp_kelly_with_variance(
-        win_prob, win_loss_ratio, capital_usd, price,
-        kelly_multiplier, kelly_ceiling,
+        win_prob,
+        win_loss_ratio,
+        capital_usd,
+        price,
+        kelly_multiplier,
+        kelly_ceiling,
         variance_penalty=daily_vol_pct * 2,
     )
     afml = afml_bet_size(p_long, capital_usd, kelly_ceiling)
     carver = carver_forecast_position(
-        capital_usd, forecast, daily_vol_pct, price,
+        capital_usd,
+        forecast,
+        daily_vol_pct,
+        price,
     )
     corr_adj_thorp = correlation_adjusted_notional(thorp, avg_book_correlation)
 

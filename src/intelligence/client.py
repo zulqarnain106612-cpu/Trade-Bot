@@ -25,6 +25,7 @@ log = structlog.get_logger(__name__)
 @dataclass
 class CacheEntry:
     """Single cached metric with TTL."""
+
     value: Any
     fetched_at: datetime
     ttl_seconds: int
@@ -62,12 +63,21 @@ class IntelligenceAggregator:
         _settings=None,  # injected in tests; reads get_settings() if None
     ) -> None:
         from src.config import get_settings
+
         cfg = _settings if _settings is not None else get_settings().intelligence
 
         self.glassnode_key = glassnode_api_key or cfg.glassnode_api_key
         self.cryptoquant_key = cryptoquant_api_key or cfg.cryptoquant_api_key
-        self.cache_ttl_onchain = cache_ttl_onchain_seconds if cache_ttl_onchain_seconds is not None else cfg.cache_ttl_onchain_seconds
-        self.cache_ttl_exchange = cache_ttl_exchange_seconds if cache_ttl_exchange_seconds is not None else cfg.cache_ttl_exchange_seconds
+        self.cache_ttl_onchain = (
+            cache_ttl_onchain_seconds
+            if cache_ttl_onchain_seconds is not None
+            else cfg.cache_ttl_onchain_seconds
+        )
+        self.cache_ttl_exchange = (
+            cache_ttl_exchange_seconds
+            if cache_ttl_exchange_seconds is not None
+            else cfg.cache_ttl_exchange_seconds
+        )
         self._glassnode_base_url = cfg.glassnode_base_url
         self._glassnode_min_interval = cfg.glassnode_rate_limit_seconds
         self._funding_rate_perp_symbol = cfg.funding_rate_perp_symbol
@@ -132,7 +142,7 @@ class IntelligenceAggregator:
         self,
         symbol: str = "BTC",
         min_transaction_usd: float = 1_000_000,
-    ) -> dict[str, float]:
+    ) -> dict[str, float | str | int]:
         """
         Fetch whale transaction activity.
 
@@ -237,7 +247,6 @@ class IntelligenceAggregator:
                 "set it in .env or disable on-chain gates"
             )
 
-
         import httpx
 
         now_ts = int(datetime.now(UTC).timestamp())
@@ -297,7 +306,7 @@ class IntelligenceAggregator:
         self,
         symbol: str,
         min_transaction_usd: float,
-    ) -> dict[str, float]:
+    ) -> dict[str, float | str | int]:
         """
         Estimate whale buy/sell ratio from Glassnode large-transaction volume.
 
@@ -361,11 +370,7 @@ class IntelligenceAggregator:
         buy_vol = recent_avg * ratio / (1.0 + ratio)
         sell_vol = recent_avg / (1.0 + ratio)
 
-        sentiment = (
-            "bullish" if ratio > 1.5
-            else "bearish" if ratio < 0.67
-            else "neutral"
-        )
+        sentiment = "bullish" if ratio > 1.5 else "bearish" if ratio < 0.67 else "neutral"
 
         self._last_glassnode_call = datetime.now(UTC)
         return {
@@ -419,18 +424,14 @@ class IntelligenceAggregator:
             rate_pct = float(funding.get("fundingRate", 0.0)) * 100.0
 
             # fetch_funding_rate_history for an 8h rolling avg
-            history = await exchange.fetch_funding_rate_history(
-                symbol_ccxt, limit=3
-            )
+            history = await exchange.fetch_funding_rate_history(symbol_ccxt, limit=3)
             if history:
                 rates = [float(r.get("fundingRate", 0.0)) * 100.0 for r in history]
                 avg_8h = sum(rates) / len(rates)
             else:
                 avg_8h = rate_pct
 
-            ts = int(
-                funding.get("timestamp") or datetime.now(UTC).timestamp() * 1000
-            ) // 1000
+            ts = int(funding.get("timestamp") or datetime.now(UTC).timestamp() * 1000) // 1000
 
             return {
                 "rate_pct": round(rate_pct, 6),
@@ -455,8 +456,6 @@ class IntelligenceAggregator:
     @property
     def _base_url(self) -> str:
         return self._glassnode_base_url
-
-
 
     # -----------------------------------------------------------------------
     # Historical-range fetch methods (GAP-015 step 2)
@@ -610,9 +609,7 @@ class IntelligenceAggregator:
             prior_avg = sum(prior) / len(prior)
             ratio = vol / max(prior_avg, 1e-9)
             ratio = max(0.1, min(ratio, 10.0))
-            sentiment = (
-                "bullish" if ratio > 1.5 else "bearish" if ratio < 0.67 else "neutral"
-            )
+            sentiment = "bullish" if ratio > 1.5 else "bearish" if ratio < 0.67 else "neutral"
             result.append({"ts": ts, "ratio": round(ratio, 4), "sentiment": sentiment})
 
         return result

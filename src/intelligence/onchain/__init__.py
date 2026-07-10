@@ -9,6 +9,7 @@ OCI-005: CryptoQuantProvider (exchange reserve, netflow z-score, MVRV).
 OCI-006: CoinglassProvider (OI change, liquidation heatmap, L/S ratio).
 OCI-007: Canonical schema + merge helpers.
 """
+
 from src.intelligence.onchain.arkham_provider import ArkhamProvider
 from src.intelligence.onchain.base import (
     AsyncHTTPCache,
@@ -28,6 +29,7 @@ from src.intelligence.onchain.schema import (
     merge_onchain_results,
     validate_provider_result,
 )
+
 
 __all__ = [
     # Providers

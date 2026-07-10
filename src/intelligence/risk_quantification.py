@@ -27,16 +27,16 @@ class RiskMetrics:
     Complete risk assessment (no hidden assumptions).
     """
 
-    value_at_risk_95: float                # 95% VaR (worst 5% loss)
-    conditional_var_95: float              # Expected loss in tail
-    prob_drawdown_20pct: float             # P(DD > 20%)
-    prob_drawdown_50pct: float             # P(ruin, DD > 50%)
-    sharpe_credible_interval: tuple        # Sharpe [lower, upper]
-    max_loss_scenario: dict                # Stress scenario → loss
-    regime_prob: dict                      # {"bull": 0.6, "bear": 0.3, ...}
-    regime_transition_prob: float          # P(regime change 24h)
-    recommendation: str                    # "HALT", "REDUCE", "HOLD", "INCREASE"
-    confidence_in_rec: float               # 0-1
+    value_at_risk_95: float  # 95% VaR (worst 5% loss)
+    conditional_var_95: float  # Expected loss in tail
+    prob_drawdown_20pct: float  # P(DD > 20%)
+    prob_drawdown_50pct: float  # P(ruin, DD > 50%)
+    sharpe_credible_interval: tuple  # Sharpe [lower, upper]
+    max_loss_scenario: dict  # Stress scenario → loss
+    regime_prob: dict  # {"bull": 0.6, "bear": 0.3, ...}
+    regime_transition_prob: float  # P(regime change 24h)
+    recommendation: str  # "HALT", "REDUCE", "HOLD", "INCREASE"
+    confidence_in_rec: float  # 0-1
 
 
 class RiskQuantifier:
@@ -56,7 +56,9 @@ class RiskQuantifier:
         # Level 1: fitted parameters (invalidated when window changes)
         self._t_fit_cache: dict = {
             "fingerprint": None,
-            "df": None, "loc": None, "scale": None,
+            "df": None,
+            "loc": None,
+            "scale": None,
         }
         # Level 2: computed quantiles, keyed by confidence_level.
         # t.ppf() is ~421µs per call even with cached parameters -- the
@@ -138,7 +140,7 @@ class RiskQuantifier:
             "var": var,
             "cvar": cvar,
             "interpretation": f"{confidence_level:.0%} chance loss < {-var:.2%}, "
-                            f"tail loss {-cvar:.2%}",
+            f"tail loss {-cvar:.2%}",
             "method": method,
         }
 
@@ -177,7 +179,10 @@ class RiskQuantifier:
             # before this fix, contagion always returned exactly loss=0.000
             # regardless of the correlation_shock value supplied.
             loss = self._simulate_scenario(current_price, params, current_volatility)
-            results[scenario_name] = {"loss": loss, "severity": "high" if loss < -0.20 else "medium"}
+            results[scenario_name] = {
+                "loss": loss,
+                "severity": "high" if loss < -0.20 else "medium",
+            }
 
         return results
 
@@ -215,17 +220,20 @@ class RiskQuantifier:
         # Use average of empirical + parametric
         prob_ruin = (empirical_prob + gpd_prob) / 2
 
+        percentile_equivalent = (
+            f"1 in {1 / prob_ruin:.0f} days" if prob_ruin > 0 else "no observed ruin risk"
+        )
         return {
             "probability": prob_ruin,
-            "percentile_equivalent": f"1 in {1/prob_ruin:.0f} days",
+            "percentile_equivalent": percentile_equivalent,
             "confidence": "moderate" if len(tail_returns) > 30 else "low",
         }
 
     def uncertainty_decomposition(
         self,
-        predictions: np.ndarray,       # Model predictions
-        targets: np.ndarray,           # Actual values
-        ensemble_members: list | None = None, # Individual model predictions
+        predictions: np.ndarray,  # Model predictions
+        targets: np.ndarray,  # Actual values
+        ensemble_members: list | None = None,  # Individual model predictions
     ) -> dict:
         """
         Decompose total prediction error into components:
@@ -233,14 +241,12 @@ class RiskQuantifier:
         - Epistemic: Reducible (learnable, with more data/better model)
         """
 
-        mse = np.mean((predictions - targets)**2)
+        mse = np.mean((predictions - targets) ** 2)
         rmse = np.sqrt(mse)
 
         if ensemble_members is not None:
             # Aleatoric: Average individual model variance
-            individual_errors = [
-                np.mean((m - targets)**2) for m in ensemble_members
-            ]
+            individual_errors = [np.mean((m - targets) ** 2) for m in ensemble_members]
             aleatoric = np.mean(individual_errors)
 
             # Epistemic: Variance across ensemble predictions
@@ -252,15 +258,17 @@ class RiskQuantifier:
             epistemic = 0.0  # Can't quantify without ensemble
 
         total = aleatoric + epistemic
+        aleatoric_pct = aleatoric / total if total > 0 else 0.5
+        epistemic_pct = epistemic / total if total > 0 else 0.5
 
         return {
             "total_rmse": rmse,
             "aleatoric_rmse": np.sqrt(aleatoric),
             "epistemic_rmse": np.sqrt(epistemic),
-            "aleatoric_pct": aleatoric / total if total > 0 else 0.5,
-            "epistemic_pct": epistemic / total if total > 0 else 0.5,
-            "interpretation": f"{aleatoric/total:.0%} irreducible noise, "
-                            f"{epistemic/total:.0%} model disagreement",
+            "aleatoric_pct": aleatoric_pct,
+            "epistemic_pct": epistemic_pct,
+            "interpretation": f"{aleatoric_pct:.0%} irreducible noise, "
+            f"{epistemic_pct:.0%} model disagreement",
         }
 
     def _monte_carlo_var(
@@ -353,7 +361,9 @@ class RiskQuantifier:
 
         self._t_fit_cache = {
             "fingerprint": fingerprint,
-            "df": df, "loc": loc, "scale": scale,
+            "df": df,
+            "loc": loc,
+            "scale": scale,
         }
         # Invalidate quantile cache: new fit params mean all cached
         # quantiles are stale. Keep the dict object (no realloc) but
@@ -396,7 +406,9 @@ class RiskQuantifier:
             baseline_correlation = 0.30  # typical baseline cross-factor correlation in crypto
             # Amplification grows with how far shock sits above baseline; capped at 5x
             # to avoid an unbounded estimate from a degenerate near-zero baseline.
-            amplification = min(shock / baseline_correlation, 5.0) if baseline_correlation > 0 else 1.0
+            amplification = (
+                min(shock / baseline_correlation, 5.0) if baseline_correlation > 0 else 1.0
+            )
             # A 2-sigma adverse move realized in full (not partially diversified away),
             # scaled by the amplification factor.
             loss += -current_price * current_volatility * 2.0 * amplification

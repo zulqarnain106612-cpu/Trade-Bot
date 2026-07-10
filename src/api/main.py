@@ -29,19 +29,22 @@ import json
 import os
 import re
 import time
-
-
-# H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
-_UUID_RE = re.compile(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
-)
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -55,6 +58,10 @@ from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 
 
+# H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -66,9 +73,7 @@ _OPERATOR_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 def _validate_operator(v: str) -> str:
     if not _OPERATOR_RE.match(v):
-        raise ValueError(
-            "operator must be 1–64 alphanumeric/underscore/hyphen characters"
-        )
+        raise ValueError("operator must be 1-64 alphanumeric/underscore/hyphen characters")
     return v
 
 
@@ -139,14 +144,13 @@ class AppState:
         now = time.monotonic()
         # M-12: prune expired entries before adding a new one
         stale = [
-            k for k, dq in self._endpoint_hits.items()
+            k
+            for k, dq in self._endpoint_hits.items()
             if not dq or (now - dq[-1]) > self._ENDPOINT_WINDOW_S * 2
         ]
         for k in stale:
             del self._endpoint_hits[k]
-        dq = self._endpoint_hits.setdefault(
-            key, collections.deque(maxlen=self._ENDPOINT_LIMIT)
-        )
+        dq = self._endpoint_hits.setdefault(key, collections.deque(maxlen=self._ENDPOINT_LIMIT))
         # Evict timestamps outside the window (O(1) per pop from left)
         while dq and now - dq[0] >= self._ENDPOINT_WINDOW_S:
             dq.popleft()
@@ -190,9 +194,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Fail fast on auth misconfiguration before accepting connections
     api_key = os.environ.get("API_SECRET_KEY", "").strip()
     if not api_key:
-        raise RuntimeError(
-            "API_SECRET_KEY is not set. Set a strong random value in .env."
-        )
+        raise RuntimeError("API_SECRET_KEY is not set. Set a strong random value in .env.")
 
     # H-01: Validate OPERATOR_SECRET at startup — prevents silent unavailability
     # of the /execution-mode endpoint in production.
@@ -280,8 +282,6 @@ app.add_middleware(
 # Auth dependency — sole authentication mechanism for all endpoints
 # ---------------------------------------------------------------------------
 
-from fastapi import Header
-
 
 def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
     """FastAPI dependency — validates X-API-Key header on every request."""
@@ -341,6 +341,7 @@ class SetRiskControlsRequest(BaseModel):
     the frontend toggle just stop_loss_enabled without resending every
     other value.
     """
+
     stop_loss_enabled: bool | None = None
     stop_loss_pct: float | None = Field(default=None, ge=0.1, le=50.0)
     take_profit_enabled: bool | None = None
@@ -381,6 +382,7 @@ async def health() -> dict[str, Any]:
 async def prometheus_metrics() -> Any:
     """Prometheus text format metrics for Grafana scraping — TASK-007."""
     from fastapi.responses import Response
+
     body, content_type = metrics_output()
     return Response(content=body, media_type=content_type)
 
@@ -423,8 +425,7 @@ async def status() -> dict[str, Any]:
         "primary_timeframe": cfg.primary_timeframe.value,
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
-            tf: str(err)[:200]
-            for tf, err in _state.orchestrator._last_retrain_error.items()
+            tf: str(err)[:200] for tf, err in _state.orchestrator._last_retrain_error.items()
         },
         "timestamp": datetime.now(tz=UTC).isoformat(),
     }
@@ -565,7 +566,9 @@ async def resolve_approval(
 ) -> dict[str, Any]:
     """Approve or reject a pending trade."""
     # H-02: pass client IP so rate limit is per-IP, not global
-    _state.check_endpoint_rate_limit("resolve_approval", request.client.host if request.client else "")
+    _state.check_endpoint_rate_limit(
+        "resolve_approval", request.client.host if request.client else ""
+    )
     # SEC-007: verify operator_secret (same second-factor pattern as /execution-mode)
     # The approval endpoint is the human-in-the-loop gate before a live trade executes;
     # without this check any holder of the API key can approve with any operator name,
@@ -853,12 +856,16 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 # Debug / diagnostics endpoints  (Patch C)
 # ---------------------------------------------------------------------------
 
+
 @app.get("/debug/health", dependencies=[Depends(api_key_header)])
 async def debug_health() -> dict[str, Any]:
     """Runtime monitor snapshot — probes, alerts, memory, tick-stall status."""
     from src.diagnostics.runtime_monitor import get_monitor
+
     snap = get_monitor().get_snapshot()
-    return snap.to_dict() if snap else {"overall": "monitor_not_started", "probes": [], "alerts": []}
+    return (
+        snap.to_dict() if snap else {"overall": "monitor_not_started", "probes": [], "alerts": []}
+    )
 
 
 @app.get("/debug/audit", dependencies=[Depends(api_key_header)])
@@ -867,6 +874,7 @@ async def debug_audit(
 ) -> dict[str, Any]:
     """Trade decision audit — last N tick decisions with features, probabilities, gate chain, outcome."""
     from src.diagnostics.trade_auditor import get_auditor
+
     aud = get_auditor()
     return {
         "summary": aud.summary(),
@@ -879,6 +887,7 @@ async def debug_audit(
 async def debug_drift() -> dict[str, Any]:
     """Feature drift (KS test vs training baseline) + model degradation report."""
     from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
+
     drift_records = get_drift_monitor().check_all()
     return {
         "feature_drift": [
@@ -902,6 +911,7 @@ async def debug_drift() -> dict[str, Any]:
 async def debug_selftest() -> dict[str, Any]:
     """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
     from src.diagnostics.signal_debugger import run_pipeline_selftest
+
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_pipeline_selftest)
     return result
@@ -1018,7 +1028,7 @@ async def get_intelligence_coverage() -> dict:
         "symbol": str,
         "timeframe": str,
         "total_rows": int,
-        "coverage": {"intelligence_<col>": float, ...}   # 0.0–1.0
+        "coverage": {"intelligence_<col>": float, ...}   # 0.0-1.0
     }
     """
     if _state.orchestrator is None:
@@ -1030,7 +1040,11 @@ async def get_intelligence_coverage() -> dict:
         # which is already used for symbol/timeframe throughout the rest of this file.
         cfg = get_settings()
         symbol = cfg.primary_symbol
-        timeframe = cfg.primary_timeframe.value if hasattr(cfg.primary_timeframe, "value") else str(cfg.primary_timeframe)
+        timeframe = (
+            cfg.primary_timeframe.value
+            if hasattr(cfg.primary_timeframe, "value")
+            else str(cfg.primary_timeframe)
+        )
         cov = await storage.intelligence_feature_coverage(symbol, timeframe)
         return {"symbol": symbol, "timeframe": timeframe, **cov}
     except Exception as exc:
@@ -1055,13 +1069,34 @@ async def get_intelligence_providers() -> dict:
     """
     try:
         from src.config import get_settings
+
         cfg = get_settings().intelligence
         providers = [
-            {"name": "ArkhamProvider",      "exchange_id": "arkham_intel",   "enabled": bool(cfg.arkham_api_key)},
-            {"name": "DeFiLlamaProvider",   "exchange_id": "defillama",      "enabled": True},  # public API
-            {"name": "DuneProvider",        "exchange_id": "dune_analytics",  "enabled": bool(cfg.dune_api_key)},
-            {"name": "CryptoQuantProvider", "exchange_id": "cryptoquant",    "enabled": bool(cfg.cryptoquant_api_key)},
-            {"name": "CoinglassProvider",   "exchange_id": "coinglass",      "enabled": bool(cfg.coinglass_api_key)},
+            {
+                "name": "ArkhamProvider",
+                "exchange_id": "arkham_intel",
+                "enabled": bool(cfg.arkham_api_key),
+            },
+            {
+                "name": "DeFiLlamaProvider",
+                "exchange_id": "defillama",
+                "enabled": True,
+            },  # public API
+            {
+                "name": "DuneProvider",
+                "exchange_id": "dune_analytics",
+                "enabled": bool(cfg.dune_api_key),
+            },
+            {
+                "name": "CryptoQuantProvider",
+                "exchange_id": "cryptoquant",
+                "enabled": bool(cfg.cryptoquant_api_key),
+            },
+            {
+                "name": "CoinglassProvider",
+                "exchange_id": "coinglass",
+                "enabled": bool(cfg.coinglass_api_key),
+            },
         ]
         return {"providers": providers}
     except Exception as exc:

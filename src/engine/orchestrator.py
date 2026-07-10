@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from typing import Union
+from typing import cast
 
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
@@ -56,11 +57,11 @@ from src.risk.portfolio_correlation import get_portfolio_correlation
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
-_RETRAIN_INTERVAL_TICKS: int = 96  # 96 × 15m = 24 h
+_RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
 _HISTORY_BARS_FOR_TRAIN: int = 2000
 _REGIME_LOOKBACK_BARS: int = 500
 
-AnyExecutor = Union[PaperExecutor, LiveExecutor]
+AnyExecutor = PaperExecutor | LiveExecutor
 
 
 class Orchestrator:
@@ -71,7 +72,7 @@ class Orchestrator:
 
         orch = Orchestrator(storage, fetcher)
         await orch.startup()
-        await orch.run()          # blocks until stop() called
+        await orch.run()  # blocks until stop() called
         await orch.shutdown()
 
     Or use the FastAPI lifespan handler which calls startup/shutdown.
@@ -104,9 +105,7 @@ class Orchestrator:
 
         # Dedicated single-thread executor for CPU-bound training (NEW-002).
         # Isolated from the default pool so training never starves async I/O tasks.
-        self._train_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="training"
-        )
+        self._train_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="training")
 
         self._running: bool = False
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
@@ -154,16 +153,15 @@ class Orchestrator:
         _mon.register_probe("storage", self._storage.health_check)
         for _tf in self._timeframes:
             _tf_val = _tf.value
-            _mon.register_tick_source(
-                _tf_val,
-                lambda _k=_tf_val: self._last_tick_ts.get(_k, 0.0),
-            )
+
+            def _make_ts_getter(k: str = _tf_val) -> Callable[[], float]:
+                return lambda: self._last_tick_ts.get(k, 0.0)
+
+            _mon.register_tick_source(_tf_val, _make_ts_getter())
         await _mon.start()
         _selftest = run_pipeline_selftest()
         if not _selftest["passed"]:
-            raise RuntimeError(
-                f"Pipeline self-test FAILED on startup: {_selftest['error']}"
-            )
+            raise RuntimeError(f"Pipeline self-test FAILED on startup: {_selftest['error']}")
         self._log.info("orchestrator.selftest_passed", rows=_selftest.get("n_rows"))
         # ──────────────────────────────────────────────────────────────────
 
@@ -385,9 +383,7 @@ class Orchestrator:
         # SCAN2-012: fetch_trades returns DESC order (most-recent first). Reverse to
         # chronological order before passing to compute_win_loss_stats so any
         # future time-order-sensitive analysis gets correct sequencing.
-        pnl_history = [
-            t.pnl_usd for t in reversed(recent_trades) if t.pnl_usd is not None
-        ]
+        pnl_history = [t.pnl_usd for t in reversed(recent_trades) if t.pnl_usd is not None]
         _, avg_win, avg_loss = compute_win_loss_stats(pnl_history)
 
         # Paper trading tenure — days since first paper equity record.
@@ -422,8 +418,7 @@ class Orchestrator:
 
             open_positions = await executor.open_positions_safe()
             other_open_symbols = [
-                p["symbol"] for p in open_positions
-                if p.get("symbol") != self._symbol
+                cast("str", p["symbol"]) for p in open_positions if p.get("symbol") != self._symbol
             ]
             correlation_scalar = tracker.correlation_scalar(
                 new_symbol=self._symbol,
@@ -468,22 +463,25 @@ class Orchestrator:
         # TASK-007: push metrics snapshot to Prometheus gauges/counters
         try:
             _executor = getattr(self, "_executor", None)
-            update_metrics({
-                "signal_score":   float(result.p_long - (1.0 - result.p_long)),
-                "regime_state":   result.regime.state if result.regime else 0,
-                "prob_ranging":   result.regime.prob_ranging if result.regime else 0.0,
-                "prob_trending":  result.regime.prob_trending if result.regime else 0.0,
-                "prob_volatile":  result.regime.prob_volatile if result.regime else 0.0,
-                "kelly_fraction": result.kelly_result.adjusted_fraction if result.kelly_result else 0.0,
-                "equity_usd":     _executor.equity_usd if _executor else 0.0,
-                "open_positions": len(_executor.open_positions) if _executor else 0,
-            })
+            update_metrics(
+                {
+                    "signal_score": float(result.p_long - (1.0 - result.p_long)),
+                    "regime_state": result.regime.state if result.regime else 0,
+                    "prob_ranging": result.regime.prob_ranging if result.regime else 0.0,
+                    "prob_trending": result.regime.prob_trending if result.regime else 0.0,
+                    "prob_volatile": result.regime.prob_volatile if result.regime else 0.0,
+                    "kelly_fraction": result.kelly_result.adjusted_fraction
+                    if result.kelly_result
+                    else 0.0,
+                    "equity_usd": _executor.equity_usd if _executor else 0.0,
+                    "open_positions": len(_executor.open_positions) if _executor else 0,
+                }
+            )
         except Exception:
             pass  # metric failure must never affect trade path
 
         # Route to executor if tradeable
         if result.tradeable and result.kelly_result is not None:
-
             # Check Gate 6: Performance drift (GAP-003)
             drift_status = self._drift_adapter.check_drift()
             if drift_status.get("drifted"):
@@ -549,32 +547,6 @@ class Orchestrator:
                 current_price=current_price,
             )
 
-            # Record trade outcome for drift detection (GAP-003)
-            # Called after signal submission; outcome contains entry/exit prices
-            if self._drift_detector and hasattr(outcome, "__dict__"):
-                try:
-                    # Extract P&L and prediction confidence from outcome
-                    pnl = outcome.get("pnl_usd", 0.0) if hasattr(outcome, "get") else getattr(outcome, "pnl_usd", 0.0)
-                    pred_prob = result.p_long or 0.5  # Direction model prediction
-                    actual_dir = 1 if result.direction > 0 else -1
-                    current_equity = await executor.get_current_equity()
-
-                    await self._drift_adapter.record_closed_trade(
-                        trade_id=trade_id,
-                        exit_price=outcome.get("exit_price", 0.0) if hasattr(outcome, "get") else 0.0,
-                        pnl_usd=pnl,
-                        predicted_prob=pred_prob,
-                        actual_direction=actual_dir,
-                        current_equity=current_equity,
-                        starting_equity=self._cfg.starting_capital_usd,
-                    )
-                except Exception as exc:
-                    self._log.warning(
-                        "orchestrator.drift_record_failed",
-                        trade_id=trade_id,
-                        error=str(exc),
-                    )
-
             self._log.info(
                 "orchestrator.signal_submitted",
                 timeframe=tf.value,
@@ -591,6 +563,7 @@ class Orchestrator:
                     self._train_models(tf),
                     name=f"retrain_{tf.value}",
                 )
+
                 # SCAN2-003: log exceptions from the fire-and-forget retrain task;
                 # without this, unhandled exceptions vanish silently until GC.
                 def _retrain_done(t: asyncio.Task, _tf: str = tf.value) -> None:
@@ -606,6 +579,7 @@ class Orchestrator:
                     # to training data arrays held in the task's result/exception.
                     if self._retrain_tasks.get(_tf) is t:
                         del self._retrain_tasks[_tf]
+
                 task.add_done_callback(_retrain_done)
                 self._retrain_tasks[tf.value] = task
             else:
@@ -632,11 +606,15 @@ class Orchestrator:
         # SCAN2-010: compute exact cutoff timestamp instead of since_ts=0 (full table scan).
         # Using the real cutoff makes the query use the (symbol, timeframe, ts) index optimally.
         tf_seconds = {
-            "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400,
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
         }.get(tf.value, 60)
         cutoff_ts = int(
-            (datetime.now(tz=UTC).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
-            * 1000
+            (datetime.now(tz=UTC).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds) * 1000
         )
         records = await self._storage.fetch_bars(
             self._symbol, tf.value, since_ts=cutoff_ts, limit=_HISTORY_BARS_FOR_TRAIN
@@ -786,7 +764,9 @@ class Orchestrator:
                 try:
                     price = await self._fetcher.fetch_ticker_price(self._symbol)
                 except Exception as exc:
-                    self._log.warning("orchestrator.position_monitor_price_fetch_failed", error=str(exc))
+                    self._log.warning(
+                        "orchestrator.position_monitor_price_fetch_failed", error=str(exc)
+                    )
                     continue
                 if price <= 0.0:
                     continue
@@ -803,14 +783,14 @@ class Orchestrator:
                     if pos.get("symbol") != self._symbol:
                         continue
                     exit_reason = check_position_exit(
-                        unrealized_pnl_pct=float(pos["unrealized_pnl_pct"]),
-                        entry_ts_ms=int(pos["entry_ts"]),
+                        unrealized_pnl_pct=cast("float", pos["unrealized_pnl_pct"]),
+                        entry_ts_ms=cast("int", pos["entry_ts"]),
                         now_ts_ms=now_ms,
-                        stop_loss_enabled=bool(controls["stop_loss_enabled"]),
-                        stop_loss_pct=float(controls["stop_loss_pct"]),
-                        take_profit_enabled=bool(controls["take_profit_enabled"]),
-                        take_profit_pct=float(controls["take_profit_pct"]),
-                        max_holding_period_s=float(controls["max_holding_period_s"]),
+                        stop_loss_enabled=cast("bool", controls["stop_loss_enabled"]),
+                        stop_loss_pct=cast("float", controls["stop_loss_pct"]),
+                        take_profit_enabled=cast("bool", controls["take_profit_enabled"]),
+                        take_profit_pct=cast("float", controls["take_profit_pct"]),
+                        max_holding_period_s=cast("float", controls["max_holding_period_s"]),
                     )
                     if exit_reason is None:
                         continue
@@ -829,6 +809,29 @@ class Orchestrator:
                             net_pnl_usd=round(net_pnl, 4),
                             unrealized_pnl_pct_at_close=pos["unrealized_pnl_pct"],
                         )
+
+                        # Record trade outcome for drift detection (GAP-003).
+                        # predicted_prob is not tracked on the position record, so a
+                        # neutral 0.5 is used — drift detection still gets accurate
+                        # PnL/direction/equity signal, just without confidence-weighted
+                        # prediction tracking for auto-closed trades.
+                        if self._drift_detector:
+                            try:
+                                await self._drift_adapter.record_closed_trade(
+                                    trade_id=str(pos["trade_id"]),
+                                    exit_price=price,
+                                    pnl_usd=net_pnl,
+                                    predicted_prob=0.5,
+                                    actual_direction=(1 if pos["direction"] == "long" else -1),
+                                    current_equity=self._executor.equity_usd,
+                                    starting_equity=self._cfg.starting_capital_usd,
+                                )
+                            except Exception as exc:
+                                self._log.warning(
+                                    "orchestrator.drift_record_failed",
+                                    trade_id=pos["trade_id"],
+                                    error=str(exc),
+                                )
                     except KeyError:
                         # Position was already closed by another path (e.g. a manual
                         # close via the API) between the snapshot above and this call --

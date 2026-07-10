@@ -2,13 +2,13 @@
 Kelly position sizing — half-Kelly with hard ceiling.
 
 Kelly (1956) "A New Interpretation of Information Rate", Bell System
-Technical Journal 35(4): 917–926.
+Technical Journal 35(4): 917-926.
 
 Implementation follows AFML Ch.10 (López de Prado 2018):
   - Kelly fraction f* = (p·b - q) / b  where b = win/loss ratio
   - Half-Kelly multiplier = 0.5 (spec)
   - Hard ceiling = 0.25 of capital (spec)
-  - Position size = f × capital / entry_price, quantised to exchange precision
+  - Position size = f x capital / entry_price, quantised to exchange precision
 
 All sizing functions are pure (no I/O, no side effects) so they are
 trivially testable and reusable across paper and live executors.
@@ -32,8 +32,8 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # Constants (from spec — never weakened)
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MULTIPLIER: Final[float] = 0.5   # half-Kelly
-_DEFAULT_CEILING: Final[float] = 0.25    # 25% of capital max
+_DEFAULT_MULTIPLIER: Final[float] = 0.5  # half-Kelly
+_DEFAULT_CEILING: Final[float] = 0.25  # 25% of capital max
 
 
 # ---------------------------------------------------------------------------
@@ -47,12 +47,12 @@ class KellyResult:
     Position sizing outcome for a single trade.
 
     kelly_fraction   : raw Kelly fraction f* before multiplier/ceiling
-    adjusted_fraction: f* × multiplier, capped at ceiling
+    adjusted_fraction: f* x multiplier, capped at ceiling
     capital_usd      : equity used for sizing
     entry_price      : asset entry price
     quantity         : asset units to trade (quantised)
-    notional_usd     : quantity × entry_price
-    is_capped        : True when ceiling binding (raw × mult > ceiling)
+    notional_usd     : quantity x entry_price
+    is_capped        : True when ceiling binding (raw x mult > ceiling)
     """
 
     kelly_fraction: float
@@ -103,13 +103,9 @@ def kelly_fraction(
     ValueError : if inputs are outside valid ranges.
     """
     if not 0.0 < win_probability < 1.0:
-        raise ValueError(
-            f"win_probability must be in (0, 1), got {win_probability}"
-        )
+        raise ValueError(f"win_probability must be in (0, 1), got {win_probability}")
     if win_loss_ratio <= 0.0 or not math.isfinite(win_loss_ratio):
-        raise ValueError(
-            f"win_loss_ratio must be a finite number > 0, got {win_loss_ratio}"
-        )
+        raise ValueError(f"win_loss_ratio must be a finite number > 0, got {win_loss_ratio}")
 
     p = win_probability
     q = 1.0 - p
@@ -143,7 +139,7 @@ def half_kelly_fraction(
     -------
     (raw_fraction, adjusted_fraction, is_capped) where:
       raw_fraction      = f* (Kelly formula output)
-      adjusted_fraction = min(f* × multiplier, ceiling)
+      adjusted_fraction = min(f* x multiplier, ceiling)
       is_capped         = True when ceiling was binding
     """
     if cfg is None:
@@ -336,9 +332,7 @@ def size_position(
         max_position_pct if max_position_pct is not None else cfg.max_position_size_pct
     )
     if not (0.0 <= max_position_pct_resolved <= 100.0):
-        raise ValueError(
-            f"max_position_pct must be in [0, 100], got {max_position_pct_resolved}"
-        )
+        raise ValueError(f"max_position_pct must be in [0, 100], got {max_position_pct_resolved}")
     max_pct = max_position_pct_resolved / 100.0
 
     # Enforce max position size cap on top of Kelly ceiling
@@ -512,28 +506,32 @@ def compute_position_size(
     )
 
     # GAP-015: Carver/AFML/Thorp notional cap — shrink only, never expand.
-    if result is not None and notional_cap_usd is not None and notional_cap_usd > 0.0:
-        if result.notional_usd > notional_cap_usd:
-            # Re-quantise at the capped notional.
-            capped_qty_raw = notional_cap_usd / entry_price
-            decimal_places = int(amount_precision)
-            capped_qty = _floor_to_precision(capped_qty_raw, decimal_places)
-            if capped_qty > 0.0:
-                log.info(
-                    'kelly.carver_cap_applied',
-                    kelly_notional=round(result.notional_usd, 2),
-                    cap_notional=round(notional_cap_usd, 2),
-                    capped_qty=capped_qty,
-                )
-                result = KellyResult(
-                    kelly_fraction=result.kelly_fraction,
-                    adjusted_fraction=result.adjusted_fraction,
-                    capital_usd=result.capital_usd,
-                    entry_price=result.entry_price,
-                    quantity=capped_qty,
-                    notional_usd=round(capped_qty * entry_price, 2),
-                    is_capped=True,
-                )
+    if (
+        result is not None
+        and notional_cap_usd is not None
+        and notional_cap_usd > 0.0
+        and result.notional_usd > notional_cap_usd
+    ):
+        # Re-quantise at the capped notional.
+        capped_qty_raw = notional_cap_usd / entry_price
+        decimal_places = int(amount_precision)
+        capped_qty = _floor_to_precision(capped_qty_raw, decimal_places)
+        if capped_qty > 0.0:
+            log.info(
+                "kelly.carver_cap_applied",
+                kelly_notional=round(result.notional_usd, 2),
+                cap_notional=round(notional_cap_usd, 2),
+                capped_qty=capped_qty,
+            )
+            result = KellyResult(
+                kelly_fraction=result.kelly_fraction,
+                adjusted_fraction=result.adjusted_fraction,
+                capital_usd=result.capital_usd,
+                entry_price=result.entry_price,
+                quantity=capped_qty,
+                notional_usd=round(capped_qty * entry_price, 2),
+                is_capped=True,
+            )
 
     return result
 

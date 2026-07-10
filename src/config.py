@@ -9,7 +9,9 @@ Authority sources:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -179,20 +181,27 @@ class RiskSettings(BaseSettings):
     # state; see RuntimeConfig below for the live, toggleable values.
     stop_loss_enabled_default: bool = Field(default=True)
     stop_loss_pct_default: float = Field(
-        default=2.0, ge=0.1, le=50.0,
+        default=2.0,
+        ge=0.1,
+        le=50.0,
         description="Close position when unrealized loss reaches this pct of notional",
     )
     take_profit_enabled_default: bool = Field(default=True)
     take_profit_pct_default: float = Field(
-        default=4.0, ge=0.1, le=200.0,
+        default=4.0,
+        ge=0.1,
+        le=200.0,
         description="Close position when unrealized gain reaches this pct of notional",
     )
     max_holding_period_s_default: float = Field(
-        default=86400.0, ge=60.0,
+        default=86400.0,
+        ge=60.0,
         description="Force time-based exit after this many seconds in position",
     )
     position_monitor_interval_s: float = Field(
-        default=5.0, ge=1.0, le=300.0,
+        default=5.0,
+        ge=1.0,
+        le=300.0,
         description="How often the orchestrator exit-check loop re-evaluates open positions",
     )
 
@@ -261,7 +270,7 @@ class XGBoostSettings(BaseSettings):
 
 
 # ---------------------------------------------------------------------------
-# Feature engineering constants — AFML Ch.3–5
+# Feature engineering constants — AFML Ch.3-5
 # ---------------------------------------------------------------------------
 
 
@@ -388,9 +397,7 @@ class IntelligenceSettings(BaseSettings):
                                          ccxt (free, already a dependency)
     """
 
-    model_config = SettingsConfigDict(
-        env_prefix="INTELLIGENCE_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="INTELLIGENCE_", env_file=".env", extra="ignore")
 
     glassnode_api_key: str = Field(default="", description="Glassnode API key")
     cryptoquant_api_key: str = Field(default="", description="CryptoQuant API key (optional)")
@@ -399,7 +406,9 @@ class IntelligenceSettings(BaseSettings):
     dune_api_key: str = Field(default="", description="Dune Analytics API key (free tier)")
     coinglass_api_key: str = Field(default="", description="Coinglass API key (free tier)")
     arkham_cache_ttl_s: int = Field(default=60, ge=10, description="Arkham cache TTL seconds")
-    defillama_cache_ttl_s: int = Field(default=300, ge=30, description="DeFiLlama cache TTL seconds")
+    defillama_cache_ttl_s: int = Field(
+        default=300, ge=30, description="DeFiLlama cache TTL seconds"
+    )
     dune_cache_ttl_s: int = Field(default=3600, ge=60, description="Dune cache TTL seconds")
     coinglass_cache_ttl_s: int = Field(default=30, ge=10, description="Coinglass cache TTL seconds")
     glassnode_base_url: str = Field(
@@ -581,8 +590,6 @@ def invalidate_settings_cache() -> None:
 #
 # Because Python properties cannot be async, the interface is explicit
 # async getter/setter methods. Call sites updated accordingly.
-import asyncio as _asyncio
-import threading as _threading
 
 
 class RuntimeConfig:
@@ -601,8 +608,8 @@ class RuntimeConfig:
         # Fix: guard the one-time creation with a threading.Lock (cheap; acquired
         # only once per process lifetime).  After creation, only the asyncio.Lock
         # is used, so the event loop is never blocked in steady state.
-        self._init_guard: _threading.Lock = _threading.Lock()
-        self._lock: _asyncio.Lock | None = None
+        self._init_guard: threading.Lock = threading.Lock()
+        self._lock: asyncio.Lock | None = None
         cfg = get_settings()
         self._execution_mode: ExecutionMode = cfg.execution_mode
 
@@ -616,14 +623,14 @@ class RuntimeConfig:
         self._take_profit_pct: float = cfg.risk.take_profit_pct_default
         self._max_holding_period_s: float = cfg.risk.max_holding_period_s_default
 
-    def _get_lock(self) -> _asyncio.Lock:
+    def _get_lock(self) -> asyncio.Lock:
         # Fast path — already initialised (no locking needed; reads are atomic in CPython).
         if self._lock is not None:
             return self._lock
         # Slow path — first call; guard with threading.Lock to prevent double-init race.
         with self._init_guard:
             if self._lock is None:
-                self._lock = _asyncio.Lock()
+                self._lock = asyncio.Lock()
         return self._lock  # type: ignore[return-value]
 
     async def get_execution_mode(self) -> ExecutionMode:

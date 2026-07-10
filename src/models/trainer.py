@@ -1,7 +1,7 @@
 """
 Model trainer — XGBoost direction classifier + meta-label gate.
 
-Architecture (AFML Ch.3–4, Ch.7):
+Architecture (AFML Ch.3-4, Ch.7):
   1. Direction model   : XGBoostClassifier  → P(long | features, regime)
   2. Meta-label gate   : XGBoostClassifier  → P(bet | direction_prob, features)
   3. Validation        : CPCV (Combinatorial Purged Cross-Validation, AFML Ch.7)
@@ -112,8 +112,7 @@ def _verify_manifest(path: Path) -> bytes:
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
     if not manifest_path.exists():
         raise RuntimeError(
-            f"Model manifest missing for {path}. "
-            "Re-train the model to regenerate the manifest."
+            f"Model manifest missing for {path}. " "Re-train the model to regenerate the manifest."
         )
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")
@@ -268,8 +267,13 @@ def build_cpcv_folds(
         test_end = int(test_idx.max())
 
         train_idx = _build_train_indices(
-            groups, n_splits, test_group_set,
-            test_start, test_end, purge_gap, embargo_size,
+            groups,
+            n_splits,
+            test_group_set,
+            test_start,
+            test_end,
+            purge_gap,
+            embargo_size,
         )
         if train_idx is None or len(train_idx) < 30 or len(test_idx) < 10:
             continue
@@ -462,8 +466,8 @@ class ModelTrainer:
 
     Usage::
 
-        trainer = ModelTrainer('BTC/USDT', '15m')
-        dir_result  = trainer.train_direction(feature_matrix)
+        trainer = ModelTrainer("BTC/USDT", "15m")
+        dir_result = trainer.train_direction(feature_matrix)
         meta_result = trainer.train_meta_label(feature_matrix, dir_result.model)
         trainer.save(dir_result.model, meta_result.model, model_dir)
     """
@@ -562,7 +566,11 @@ class ModelTrainer:
                 n_samples=len(X),
                 action="returning failed TrainingResult — dataset too small for CPCV",
             )
+            # VF-021: no eval_set available here — early_stopping_rounds is always
+            # configured by _build_xgb, and XGBoost requires an eval_set whenever
+            # early stopping is set, so fit() would raise. Disable it explicitly.
             final_model = _build_xgb(self._xgb_cfg, scale_pos_weight=1.0)
+            final_model.set_params(early_stopping_rounds=None)
             final_model.fit(X, y, sample_weight=weights, verbose=False)
             return TrainingResult(
                 model=final_model,
@@ -638,6 +646,7 @@ class ModelTrainer:
                 get_degradation_tracker,
                 get_drift_monitor,
             )
+
             _X_df = fm.features[_active_cols]
             _dm = get_drift_monitor()
             for col in _active_cols:
@@ -740,7 +749,10 @@ class ModelTrainer:
                 n_samples=len(x_meta),
                 action="returning failed TrainingResult — dataset too small for CPCV",
             )
+            # VF-021: no eval_set available here — see matching comment in
+            # train_direction() above.
             final_model = _build_xgb(self._xgb_cfg, scale_pos_weight=1.0)
+            final_model.set_params(early_stopping_rounds=None)
             final_model.fit(x_meta, meta_y, sample_weight=weights, verbose=False)
             return TrainingResult(
                 model=final_model,
@@ -829,7 +841,9 @@ class ModelTrainer:
         # Use model's n_features_in_ to slice the correct columns.
         # Falls back to 7 base features for models trained before GAP-015.
         _n = getattr(model, "n_features_in_", len(BASE_FEATURE_COLUMNS))
-        _pred_cols = list(feature_vec.index[:_n]) if len(feature_vec) >= _n else list(feature_vec.index)
+        _pred_cols = (
+            list(feature_vec.index[:_n]) if len(feature_vec) >= _n else list(feature_vec.index)
+        )
         X = feature_vec.reindex(_pred_cols).to_numpy(dtype=np.float64).reshape(1, -1)
         p_long = float(model.predict_proba(X)[0, 1])
         direction = 1 if p_long >= 0.5 else 0
@@ -1036,17 +1050,20 @@ class ModelTrainer:
                 # VF-021: set early_stopping_rounds=None via set_params is not reliably
                 # honoured across all XGBoost versions; explicitly rebuild without it.
                 from copy import deepcopy as _deepcopy
+
                 model_no_es = _deepcopy(model)
                 model_no_es.set_params(early_stopping_rounds=None)
                 model_no_es.fit(
-                    X[tr], y[tr],
+                    X[tr],
+                    y[tr],
                     sample_weight=weights[tr],
                     verbose=False,
                 )
                 model = model_no_es
             else:
                 model.fit(
-                    X[tr_inner], y[tr_inner],
+                    X[tr_inner],
+                    y[tr_inner],
                     sample_weight=weights[tr_inner],
                     eval_set=[(X[val_inner], y[val_inner])],
                     verbose=False,
