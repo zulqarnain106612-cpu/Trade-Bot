@@ -156,6 +156,36 @@ class TestBayesianWhaleActivityModel:
         result = self.model.estimate_true_ratio(2.0, sample_size=10, prior_mean=1.0)
         assert isinstance(result, ProbabilisticPrediction)
 
+    def test_credible_interval_calibration_over_many_trials(self):
+        """
+        Calibration check (closes a gap flagged across the probabilistic
+        modules: CIs are computed but never validated for coverage): the
+        stated 95% credible interval should contain the true whale ratio in
+        roughly 95% of independent repeated trials, given data genuinely
+        drawn around that true ratio.
+        """
+        from src.intelligence.calibration import coverage_frequency
+
+        rng = np.random.default_rng(seed=7)
+        true_ratio = 2.2
+        sample_size = 200
+        # Noise on the observed ratio must match what the model's own
+        # posterior_std formula (prior_std / sqrt(1 + n/10)) implicitly
+        # assumes about the likelihood, i.e. std ~ prior_std * sqrt(10/n).
+        # Otherwise this is testing an arbitrary external noise model rather
+        # than the model's own internal calibration.
+        observation_std = self.model.prior_std * (10.0 / sample_size) ** 0.5
+        intervals = []
+        true_values = []
+        for _ in range(500):
+            observed = float(rng.normal(true_ratio, observation_std))
+            result = self.model.estimate_true_ratio(observed, sample_size=sample_size)
+            intervals.append((result.lower_credible_interval, result.upper_credible_interval))
+            true_values.append(true_ratio)
+
+        coverage = coverage_frequency(intervals, true_values)
+        assert 0.85 <= coverage <= 1.0
+
     def test_estimate_market_impact_bull(self):
         result = self.model.estimate_market_impact(whale_ratio=2.0, market_regime="bull")
         assert result["causal_effect"] < 0  # Volatility reduction

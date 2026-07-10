@@ -280,10 +280,12 @@ class TestComputeWinLossStats:
         assert al == pytest.approx(5.0)
 
     def test_skewed_win_rate(self):
+        # win_prob is Beta-shrunk toward a 0.5 prior (n_obs=100,
+        # prior_strength=20): posterior = (0.5*20 + 0.7*100)/120.
         wins = [10.0] * 70
         losses = [-5.0] * 30
         wp, aw, al = compute_win_loss_stats(wins + losses)
-        assert wp == pytest.approx(0.7)
+        assert wp == pytest.approx((0.5 * 20 + 0.7 * 100) / 120)
         assert aw == pytest.approx(10.0)
         assert al == pytest.approx(5.0)
 

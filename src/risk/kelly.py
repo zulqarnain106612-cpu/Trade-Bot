@@ -24,6 +24,7 @@ from typing import Final
 import structlog
 
 from src.config import RiskSettings, get_settings
+from src.intelligence.calibration import shrink_probability
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -555,6 +556,12 @@ def compute_win_loss_stats(
     -------
     (win_probability, avg_win_usd, avg_loss_usd)
 
+    win_probability is Beta-shrunk toward a 0.5 prior (see
+    src.intelligence.calibration.shrink_probability) so that a barely-past-
+    the-minimum sample (e.g. 50 trades) doesn't feed Kelly sizing an
+    overconfident point estimate; the shrinkage vanishes as the trade count
+    grows.
+
     If fewer than 50 trades available, returns conservative defaults:
     (0.5, 1.0, 1.0) — equal-probability, equal-payoff assumption.
     """
@@ -567,7 +574,8 @@ def compute_win_loss_stats(
     if not wins or not losses:
         return 0.5, 1.0, 1.0
 
-    win_prob = len(wins) / len(pnl_series)
+    raw_win_prob = len(wins) / len(pnl_series)
+    win_prob, _ = shrink_probability(raw_win_prob, n_obs=len(pnl_series))
     avg_win = sum(wins) / len(wins)
     avg_loss = sum(losses) / len(losses)
 

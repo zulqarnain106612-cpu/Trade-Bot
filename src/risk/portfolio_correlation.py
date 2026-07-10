@@ -37,9 +37,16 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # EWM half-life in bars (30-day at 15-min bars ≈ 2880 bars; use shorter
 # window for responsiveness while keeping enough for stable estimates).
-_EWM_HALFLIFE: Final[int] = 500   # ~5 days of 15-min bars
-_MIN_OBSERVATIONS: Final[int] = 30   # bars needed before reporting correlation
-_CORRELATION_REDUCTION_THRESHOLD: Final[float] = 0.60   # match position_sizing.py
+_EWM_HALFLIFE: Final[int] = 500  # ~5 days of 15-min bars
+_MIN_OBSERVATIONS: Final[int] = 30  # bars needed before reporting correlation
+_CORRELATION_REDUCTION_THRESHOLD: Final[float] = 0.60  # match position_sizing.py
+
+# Shrinkage toward 0 (independence) for correlation estimates near the
+# _MIN_OBSERVATIONS floor: shrunk_r = raw_r * n / (n + _CORRELATION_SHRINKAGE_K).
+# A correlation estimated from 31 bars is noisy and shouldn't drive as large a
+# size reduction as one estimated from thousands of bars; shrinkage vanishes
+# as n grows (e.g. n=500 -> factor ~0.96, n=30 -> factor ~0.6).
+_CORRELATION_SHRINKAGE_K: Final[float] = 20.0
 
 
 class _EWMSeries:
@@ -62,7 +69,7 @@ class _EWMSeries:
         else:
             delta = value - self._mean
             self._mean += self._alpha * delta
-            self._var = (1 - self._alpha) * (self._var + self._alpha * delta ** 2)
+            self._var = (1 - self._alpha) * (self._var + self._alpha * delta**2)
 
     @property
     def std(self) -> float:
@@ -177,7 +184,7 @@ class PortfolioCorrelationTracker:
         # Second pass: update all pairwise covariances
         symbols = list(returns.keys())
         for i, sym_a in enumerate(symbols):
-            for sym_b in symbols[i + 1:]:
+            for sym_b in symbols[i + 1 :]:
                 key = self._cov_key(sym_a, sym_b)
                 if key not in self._covs:
                     self._covs[key] = _EWMCov(self._halflife)
@@ -213,7 +220,13 @@ class PortfolioCorrelationTracker:
 
         r = cov_tracker.cov / denom
         # Clamp to [-1, 1] to guard against floating-point imprecision
-        return max(-1.0, min(1.0, r))
+        r = max(-1.0, min(1.0, r))
+
+        # Shrink toward 0 based on the smaller series' sample size — see
+        # _CORRELATION_SHRINKAGE_K.
+        n_eff = min(s_a.n, s_b.n)
+        shrink_factor = n_eff / (n_eff + _CORRELATION_SHRINKAGE_K)
+        return r * shrink_factor
 
     def avg_correlation_with_open_positions(
         self,
@@ -292,7 +305,7 @@ class PortfolioCorrelationTracker:
         symbols = sorted(self._series.keys())
         result: dict[tuple[str, str], float | None] = {}
         for i, sym_a in enumerate(symbols):
-            for sym_b in symbols[i + 1:]:
+            for sym_b in symbols[i + 1 :]:
                 result[(sym_a, sym_b)] = self.correlation(sym_a, sym_b)
         return result
 

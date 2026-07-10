@@ -584,9 +584,12 @@ class TestComputeWinLossStats:
         # exercised the conservative-default fallback (0.5, 1.0, 1.0)
         # instead of the real computation it claims to test. Scale to
         # 50 trades at the same 6:4 win:loss ratio.
+        #
+        # win_prob is now Beta-shrunk toward a 0.5 prior (n_obs=50,
+        # prior_strength=20): posterior = (0.5*20 + 0.6*50)/70.
         pnl = [10.0] * 30 + [-5.0] * 20
         wp, _aw, _al = compute_win_loss_stats(pnl)
-        assert abs(wp - 0.6) < 1e-9
+        assert wp == pytest.approx((0.5 * 20 + 0.6 * 50) / 70)
 
     def test_correct_averages(self):
         pnl = [10.0] * 30 + [-5.0] * 20
@@ -603,3 +606,16 @@ class TestComputeWinLossStats:
         pnl = [-10.0] * 10
         _wp, _aw, al = compute_win_loss_stats(pnl)
         assert abs(_wp - 0.5) < 1e-9 and abs(al - 1.0) < 1e-9  # falls back (no wins)
+
+    def test_win_prob_shrunk_toward_prior_at_minimum_sample(self):
+        # At the 50-trade minimum, a skewed win rate should be pulled toward
+        # 0.5 rather than trusted at face value.
+        pnl = [10.0] * 45 + [-5.0] * 5  # raw win rate = 0.9
+        wp, _aw, _al = compute_win_loss_stats(pnl)
+        assert 0.5 < wp < 0.9
+
+    def test_win_prob_shrinkage_vanishes_at_large_sample(self):
+        # With a large trade count, shrinkage should have negligible effect.
+        pnl = [10.0] * 900 + [-5.0] * 100  # raw win rate = 0.9
+        wp, _aw, _al = compute_win_loss_stats(pnl)
+        assert wp == pytest.approx(0.9, abs=0.02)

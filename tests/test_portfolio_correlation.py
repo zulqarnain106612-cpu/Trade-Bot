@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from src.risk.portfolio_correlation import (
     _CORRELATION_REDUCTION_THRESHOLD,
+    _CORRELATION_SHRINKAGE_K,
     _EWM_HALFLIFE,
     _MIN_OBSERVATIONS,
     PortfolioCorrelationTracker,
@@ -201,6 +202,47 @@ class TestCorrelation:
         r = t.correlation("STABLE", "VOLATILE")
         # Either None (insufficient variance) or 0.0
         assert r is None or r == 0.0
+
+    def test_correlation_shrunk_near_min_observations(self):
+        """
+        Just past _MIN_OBSERVATIONS, a near-perfectly-correlated pair should
+        report a correlation well below the raw ~1.0 due to sample-size
+        shrinkage (n / (n + _CORRELATION_SHRINKAGE_K)).
+        """
+        t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
+        import random
+
+        rng = random.Random(3)
+        for _ in range(_MIN_OBSERVATIONS + 1):
+            btc = rng.gauss(0, 0.01)
+            t.push_bar_returns({"BTC/USDT": btc, "ETH/USDT": btc})
+
+        r = t.correlation("BTC/USDT", "ETH/USDT")
+        assert r is not None
+        n = _MIN_OBSERVATIONS + 1
+        expected_shrink_factor = n / (n + _CORRELATION_SHRINKAGE_K)
+        assert r <= expected_shrink_factor + 1e-9
+
+    def test_correlation_shrinkage_vanishes_at_large_sample(self):
+        """With thousands of bars, shrinkage should have negligible effect."""
+        t = PortfolioCorrelationTracker(halflife=_EWM_HALFLIFE)
+        import random
+
+        rng = random.Random(3)
+        for _ in range(3000):
+            btc = rng.gauss(0, 0.01)
+            t.push_bar_returns({"BTC/USDT": btc, "ETH/USDT": btc})
+
+        r = t.correlation("BTC/USDT", "ETH/USDT")
+        assert r is not None
+        assert r > 0.99
+
+    def test_self_correlation_not_shrunk(self):
+        """Self-correlation is always exactly 1.0, regardless of sample size."""
+        t = PortfolioCorrelationTracker()
+        for _ in range(_MIN_OBSERVATIONS + 5):
+            t.push_bar_returns({"BTC/USDT": 0.01})
+        assert t.correlation("BTC/USDT", "BTC/USDT") == 1.0
 
 
 # ---------------------------------------------------------------------------

@@ -64,7 +64,12 @@ class TestPortfolioCorrelationTracker:
     def test_perfectly_correlated_reduces_scalar(self):
         """Two symbols with identical returns should yield a scalar well below 1.0."""
         t = self._make_tracker()
-        for i in range(40):  # > _MIN_OBSERVATIONS=30, else tracker fails open at 1.0
+        # Sample-size shrinkage (see _CORRELATION_SHRINKAGE_K in
+        # portfolio_correlation.py) pulls the correlation estimate toward 0
+        # near _MIN_OBSERVATIONS=30, so this uses a much larger sample than
+        # the bare minimum to let the estimate converge to its raw (~1.0)
+        # value before checking the scalar reduction.
+        for i in range(500):
             ret = 0.005 * (i % 3 - 1)  # deterministic, same for both
             t.push_bar_returns({"BTC/USDT": ret, "ETH/USDT": ret})
 

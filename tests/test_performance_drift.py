@@ -3,6 +3,7 @@
 from src.risk.performance_drift import (
     PerformanceBaseline,
     PerformanceDriftDetector,
+    _proportion_drop_significant,
 )
 
 
@@ -97,6 +98,32 @@ class TestSharpeDrift:
         drift = detector.check_drift()
         assert not drift.drifted or drift.metric != "sharpe"
 
+    def test_sharpe_drop_significant_with_consistent_negative_pnl(self):
+        """A consistent, large Sharpe drop should still be caught (t-test significant)."""
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        detector = PerformanceDriftDetector(baseline)
+
+        for i in range(50):
+            detector.record_trade_outcome(
+                pnl_usd=-50.0 + (i % 3) * 5,  # small variance, consistently negative
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10000 - i * 50,
+                starting_equity=10000,
+            )
+
+        drift = detector.check_drift()
+        assert drift.drifted
+        assert drift.metric == "sharpe"
+
 
 class TestAccuracyDrift:
     """Test model accuracy drift detection."""
@@ -159,6 +186,60 @@ class TestLiveMetrics:
         assert metrics["rolling_winrate"] == 1.0
         assert "rolling_sharpe" in metrics
         assert "max_live_drawdown_pct" in metrics
+
+
+class TestSignificanceGatedDrift:
+    """
+    Drift now requires both effect size (pp threshold) AND statistical
+    significance given live sample size -- see _proportion_drop_significant
+    and the Sharpe t-test in performance_drift.py.
+    """
+
+    def test_small_noisy_sample_does_not_trigger_winrate_drift(self):
+        # Baseline win rate 55% (n=30) vs live win rate 11/30 = 36.7%: an
+        # 18.3pp drop, above the 15pp floor, but on samples this small the
+        # two-proportion z-test isn't significant at alpha=0.05, so drift
+        # should not fire on win_rate.
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=30,
+        )
+        detector = PerformanceDriftDetector(baseline)
+
+        outcomes = [True] * 11 + [False] * 19  # 11/30 wins
+        for is_win in outcomes:
+            detector.record_trade_outcome(
+                pnl_usd=100.0 if is_win else -100.0,
+                predicted_prob=0.6,
+                actual_direction=1,
+                current_equity=10000,
+                starting_equity=10000,
+            )
+
+        drift = detector.check_drift()
+        assert not drift.drifted or drift.metric != "win_rate"
+
+    def test_proportion_test_significant_with_large_samples(self):
+        # Same 55% -> 30% drop as the noisy-sample case above, but backed by
+        # a large baseline sample: _proportion_drop_significant should now
+        # say yes (unit-tested directly to avoid interaction with the other
+        # drift checks, which fire in priority order ahead of win_rate).
+        assert _proportion_drop_significant(baseline_p=0.55, baseline_n=400, live_p=0.30, live_n=50)
+
+    def test_proportion_test_not_significant_with_small_samples(self):
+        assert not _proportion_drop_significant(
+            baseline_p=0.55, baseline_n=30, live_p=11 / 30, live_n=30
+        )
+
+    def test_proportion_test_defers_to_pp_floor_on_zero_sample(self):
+        # No meaningful test possible with zero observations -- defers to
+        # the pp-threshold check alone (returns True, i.e. "don't block").
+        assert _proportion_drop_significant(baseline_p=0.55, baseline_n=0, live_p=0.30, live_n=50)
 
 
 class TestModelDegradationTracker:

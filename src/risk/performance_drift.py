@@ -18,6 +18,7 @@ Authority:
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections import deque
 from dataclasses import dataclass, field
@@ -25,21 +26,53 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 import structlog
+from scipy.stats import norm, t as t_dist
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-# Drift thresholds: halt new positions if exceeded
+# Drift thresholds: halt new positions if exceeded.
+# These are now a minimum-effect-size floor, not the sole trigger: drift also
+# requires the drop to be statistically significant given the live sample
+# size (see _proportion_drop_significant / the Sharpe t-test below), so a
+# noisy 30-trade sample doesn't halt trading on a difference that a larger
+# sample would show is within normal variation.
 _DRIFT_SHARPE_DROP_PP: Final[float] = 0.5  # If live Sharpe drops >0.5pp vs training, halt
 _DRIFT_ACCURACY_DROP_PP: Final[float] = 0.10  # >10pp drop in model accuracy
 _DRIFT_WINRATE_DROP_PP: Final[float] = 0.15  # >15pp drop in win rate
 _DRIFT_DRAWDOWN_EXPAND_PP: Final[float] = 0.10  # Max DD expands >10pp vs training max DD
+
+# One-tailed significance level for the drift statistical tests.
+_SIGNIFICANCE_ALPHA: Final[float] = 0.05
 
 # Rolling window for live performance calculation (trades)
 _LIVE_WINDOW_TRADES: Final[int] = 50  # Calculate Sharpe over last 50 trades
 
 # Minimum trades required before drift detection (avoid false alarms early)
 _MIN_LIVE_TRADES: Final[int] = 30
+
+
+def _proportion_drop_significant(
+    baseline_p: float, baseline_n: float, live_p: float, live_n: float
+) -> bool:
+    """
+    One-tailed two-proportion z-test: is live_p significantly below baseline_p?
+
+    Falls back to True (defer to the pp-threshold alone) when either sample
+    size is non-positive or the pooled variance is degenerate, since no
+    meaningful test can be run in that case.
+    """
+    if baseline_n <= 0 or live_n <= 0:
+        return True
+
+    pooled = (baseline_p * baseline_n + live_p * live_n) / (baseline_n + live_n)
+    se = math.sqrt(pooled * (1.0 - pooled) * (1.0 / baseline_n + 1.0 / live_n))
+    if se <= 0.0:
+        return True
+
+    z = (baseline_p - live_p) / se
+    p_value = norm.sf(z)
+    return bool(p_value < _SIGNIFICANCE_ALPHA)
 
 
 @dataclass
@@ -57,6 +90,7 @@ class PerformanceBaseline:
         trades_in_backtest: Total trades in backtest
         set_at_ms: UNIX timestamp when baseline was recorded
     """
+
     train_sharpe: float
     oos_sharpe: float
     train_accuracy: float
@@ -82,6 +116,7 @@ class PerformanceBaseline:
 @dataclass
 class DriftDetected:
     """Drift detection result — what drifted and by how much."""
+
     drifted: bool
     reason: str = ""
     metric: str = ""  # 'sharpe' | 'accuracy' | 'win_rate' | 'drawdown'
@@ -153,7 +188,7 @@ class PerformanceDriftDetector:
         # Record prediction accuracy
         # Model direction: 1 if prob > 0.5 else -1
         model_direction = 1 if predicted_prob > 0.5 else -1
-        is_correct = (model_direction == actual_direction)
+        is_correct = model_direction == actual_direction
         self._live_predictions.append((predicted_prob, 1 if is_correct else 0))
 
         # Update cumulative stats
@@ -220,19 +255,28 @@ class PerformanceDriftDetector:
             return DriftDetected(drifted=False)
 
         std_pnl = statistics.stdev(pnl_list)
+        baseline_sharpe = self._baseline.oos_sharpe
 
         # Sharpe = mean / std (annualization skipped for rolling window)
         if std_pnl > 0:
             live_sharpe = mean_pnl / std_pnl
+            # One-sample t-test: is the observed mean P&L significantly below
+            # the mean implied by the baseline Sharpe at this live P&L std?
+            n = len(pnl_list)
+            expected_mean_pnl = baseline_sharpe * std_pnl
+            se = std_pnl / math.sqrt(n)
+            t_stat = (mean_pnl - expected_mean_pnl) / se
+            p_value = t_dist.cdf(t_stat, df=n - 1)
+            is_significant = p_value < _SIGNIFICANCE_ALPHA
         else:
             # No variance (all same P&L) — assign 0 Sharpe
             # This triggers drift detection if baseline > 0
             live_sharpe = 0.0 if mean_pnl == 0 else (mean_pnl * 10)  # Proxy for zero-variance case
+            is_significant = True  # degenerate variance — no meaningful t-test, defer to pp floor
 
-        baseline_sharpe = self._baseline.oos_sharpe
         drift_pp = baseline_sharpe - live_sharpe
 
-        if drift_pp > _DRIFT_SHARPE_DROP_PP:
+        if drift_pp > _DRIFT_SHARPE_DROP_PP and is_significant:
             return DriftDetected(
                 drifted=True,
                 metric="sharpe",
@@ -258,8 +302,14 @@ class PerformanceDriftDetector:
 
         baseline_accuracy = self._baseline.oos_accuracy
         drift_pp = baseline_accuracy - live_accuracy
+        is_significant = _proportion_drop_significant(
+            baseline_accuracy,
+            self._baseline.trades_in_backtest,
+            live_accuracy,
+            len(self._live_predictions),
+        )
 
-        if drift_pp > _DRIFT_ACCURACY_DROP_PP:
+        if drift_pp > _DRIFT_ACCURACY_DROP_PP and is_significant:
             return DriftDetected(
                 drifted=True,
                 metric="accuracy",
@@ -281,8 +331,14 @@ class PerformanceDriftDetector:
 
         baseline_winrate = self._baseline.train_win_rate
         drift_pp = baseline_winrate - live_winrate
+        is_significant = _proportion_drop_significant(
+            baseline_winrate,
+            self._baseline.trades_in_backtest,
+            live_winrate,
+            len(self._live_wins_window),
+        )
 
-        if drift_pp > _DRIFT_WINRATE_DROP_PP:
+        if drift_pp > _DRIFT_WINRATE_DROP_PP and is_significant:
             return DriftDetected(
                 drifted=True,
                 metric="win_rate",
