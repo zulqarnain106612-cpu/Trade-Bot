@@ -34,9 +34,9 @@
       "Bash(python3 -c \"*\" *)",
       "Bash(cat .env*)",
       "Read(.env*)",
-      "Read(data/**)",
-      "Read(logs/**)",
-      "Read(models/**)",
+      "Read(/data/**)",
+      "Read(/logs/**)",
+      "Read(/models/**)",
       "Read(.venv/**)"
     ]
   }
