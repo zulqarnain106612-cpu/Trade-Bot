@@ -438,6 +438,46 @@ class IntelligenceSettings(BaseSettings):
     )
 
 
+class SelfTuningSettings(BaseSettings):
+    """
+    Self-tuning subsystem kill switch and cadence limits.
+
+    See docs/SELF_TUNING_DESIGN.md. Phase 1 ships with zero parameters
+    registered against the tuning registry, so `enabled` has no live
+    effect yet -- it exists now so the off-by-default posture and the
+    audit/version log paths are fixed before any tuning logic lands.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SELF_TUNING_", env_file=".env", extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description="Master kill switch. Must be explicitly enabled, same pattern as TRADING_MODE=live.",
+    )
+    min_trades_between_attempts: int = Field(
+        default=200,
+        ge=1,
+        description="Minimum closed trades between tuning attempts for the same parameter.",
+    )
+    min_hours_between_attempts: float = Field(
+        default=24.0,
+        ge=1.0,
+        description="Minimum wall-clock hours between tuning attempts for the same parameter.",
+    )
+    probation_trades: int = Field(
+        default=50,
+        ge=1,
+        description="Closed trades to watch after promotion before the watchdog clears probation.",
+    )
+    probation_hours: float = Field(
+        default=72.0,
+        ge=1.0,
+        description="Wall-clock hours to watch after promotion before the watchdog clears probation.",
+    )
+    audit_log_path: Path = Field(default=Path("logs/self_tuning_audit.jsonl"))
+    version_store_path: Path = Field(default=Path("logs/self_tuning_versions.jsonl"))
+
+
 class Settings(BaseSettings):
     """
     Root settings object.  Single source of truth for the entire application.
@@ -489,6 +529,7 @@ class Settings(BaseSettings):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     api: APISettings = Field(default_factory=APISettings)
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
+    self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
 
     # Logging
     log_level: str = Field(default="INFO")
