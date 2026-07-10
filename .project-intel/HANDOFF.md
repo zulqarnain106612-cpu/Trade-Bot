@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-09 19:27:30 | Read this before starting any work.
+> Updated: 2026-07-10 07:05:27 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
-**Task**:    shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build
-**Started**: 2026-07-09 01:31:05
-**Last checkpoint**: 2026-07-09 19:27:30
+**Task**:    shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
+**Started**: 2026-07-10 04:35:21
+**Last checkpoint**: 2026-07-10 07:05:27
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,31 +14,31 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  GAP-006 storage migration decision (TimescaleDB vs QuestDB) or run full test suite to verify 60% coverage gate
+  GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
 
 ## Files to Check
-  - .project-intel/SESSION_STATE.json
-  - src/engine/orchestrator.py
-  - tests/test_orchestrator_coverage.py
-  - src/api/main.py
-  - tests/test_api_and_fsm_coverage.py
-  - tests/test_intelligence_metrics.py
-  - .project-intel/ISSUES.md
-  - Vulner-Fix.md
-  - src/intelligence/client.py
-  - .project-intel/TECH_DEBT.md
+  - tests/test_position_sizing.py
+  - tests/test_probabilistic_engine.py
+  - tests/test_risk_gates.py
+  - tests/test_risk_gates_coverage.py
+  - tests/test_risk_quantification.py
+  - tests/test_runtime_monitor_coverage.py
+  - tests/test_signal_debugger_coverage.py
+  - tests/test_signal_engine.py
+  - tests/test_slippage.py
+  - tests/test_storage.py
+  - tests/test_strategies_filters.py
+  - tests/test_trade_auditor.py
   - requirements-dev.txt
-  - requirements.in
-  - requirements.txt
   - requirements.lock
-  - src/data/storage.py src/intelligence/client.py src/api/main.py requirements.txt requirements.in requirements-dev.txt requirements.lock
+  - requirements.txt
 
 ## Session History (last 5)
-  [2026-07-09 18:32:40] claude — interrupted: shell exited with 5 uncommitted file(s)
-  [2026-07-09 01:31:05] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA
-  [2026-07-07 18:34:44] claude — interrupted: shell exited with 2 uncommitted file(s)
-  [2026-07-07 18:34:39] claude — interrupted: shell exited with 2 uncommitted file(s)
-  [2026-07-07 18:34:30] claude — interrupted: shell session started — GAP-015 follow-on: provision GLASSNO
+  [2026-07-10 04:35:21] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
+  [2026-07-10 00:30:53] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
+  [2026-07-09 23:51:29] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
+  [2026-07-09 23:50:27] claude — interrupted: shell exited with 25 uncommitted file(s)
+  [2026-07-09 23:50:27] claude — interrupted: shell exited with 25 uncommitted file(s)
 
 ## Quick Start for Any Agent
 ```

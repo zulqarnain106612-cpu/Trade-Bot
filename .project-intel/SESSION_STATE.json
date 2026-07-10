@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-09T19:46:13.609071",
+  "last_updated": "2026-07-10T07:05:27.448773",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -33,12 +33,12 @@
   ],
   "next_recommended_task": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are architecture decisions \u2014 no code gaps found in src/.",
   "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 68,
+  "total_sessions": 77,
   "last_commit": "5c9d3b8",
   "last_commit_message": "chore(context): remove dead-weight docs and redundant CLAUDE.md [claude]",
   "last_commit_time": "2026-07-09T19:46:13.710828",
   "coverage_pct": 62,
-  "last_session_start": "2026-07-09T01:31:03.665618",
+  "last_session_start": "2026-07-10T04:35:21.263888",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -48,81 +48,95 @@
     "active_agent": "claude",
     "status": "active",
     "completed_this_session": [
-      "[2026-07-09 18:39:33] [3bf645d] feat(orchestrator): drift-triggered immediate retrain + test; close open-decision [claude]",
-      "[2026-07-09 18:43:32] [7067398] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
-      "[2026-07-09 18:43:33] [e7709c5] feat(api): add /intelligence/coverage and /intelligence/providers endpoints [claude]",
-      "[2026-07-09 18:44:16] [4e0d70f] test(api): intelligence coverage/providers endpoint tests [claude]",
-      "[2026-07-09 18:44:17] [cb1ed00] test(api): intelligence coverage/providers endpoint tests [claude]",
-      "[2026-07-09 18:45:52] [ba0f221] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
-      "[2026-07-09 18:45:53] [182312b] fix(metrics): add OCI-012 fields to to_dict(), fix _TOTAL_METRIC_COUNT 15\u219218 [claude]",
-      "[2026-07-09 18:46:41] [994ea04] fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
-      "[2026-07-09 18:46:41] [81043d9] fix(tests): update confidence threshold 4/15\u21924/18 after OCI-012 [claude]",
-      "[2026-07-09 18:47:05] [04b3582] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
-      "[2026-07-09 18:47:06] [116374b] fix(docs): final stale 15\u219218 count cleanup in storage/metrics docstrings [claude]",
-      "[2026-07-09 19:09:42] [3fced7e] fix(api,storage,intelligence): 3 bugs from static audit [claude]",
-      "[2026-07-09 19:13:54] [38f3f1d] fix(deps,tests): aiohttp/prometheus_client missing from requirements; fix test mock for VF-022 [claude]",
-      "[2026-07-09 19:17:37] [1df42a5] fix(api): guard WS tick against orchestrator=None before startup [claude]",
-      "[2026-07-09 19:17:56] [4bbfbd1] docs(security): log VF-023 WS orchestrator None-deref [claude]",
-      "[2026-07-09 19:23:29] [fffb40c] fix(deps): regenerate requirements.lock with aiohttp+prometheus_client+setuptools pinned [claude]",
-      "[2026-07-09 19:24:04] [967708f] fix(tests): _AppState -> AppState import in coverage test [claude]",
-      "[2026-07-09 19:24:51] [6ad2dfb] fix(api): init orchestrator=None in AppState.__init__ [claude]",
-      "[2026-07-09 19:27:30] Static audit: fixed VF-020 dead guard storage.py, VF-021 cache race intelligence/client.py, VF-022 AttributeError /intelligence/coverage, VF-023 WS None-deref. Fixed deps: aiohttp+prometheus_client added to requirements.in/txt, watchdog removed. AppState.orchestrator=None init fix. requirements.lock regenerated. 244 related tests pass.",
-      "[2026-07-09 19:46:13] [5c9d3b8] chore(context): remove dead-weight docs and redundant CLAUDE.md [claude]"
+      "[2026-07-10 06:45:16] [24783c9] chore(config): raise coverage gate to 95%, update CLAUDE.md, fix overbroad data/ deny rule",
+      "[2026-07-10 06:49:53] [314f458] fix: production bugs in approval flow, slippage, drift recording, ARIMA, circuit breaker",
+      "[2026-07-10 07:02:13] [1a5a6d8] test: raise coverage 90.28% -> 96.12%, fix ruff/mypy findings, update for src/ bug fixes",
+      "[2026-07-10 07:05:27] [345cde4] fix(deps): add missing torch to requirements.txt (Debt-003 root cause), patch 2 CVEs"
     ],
     "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-09 19:46:13",
+    "last_checkpoint": "2026-07-10 07:05:27",
     "session_history": [
       {
-        "time": "2026-07-07 18:34:30",
+        "time": "2026-07-09 23:26:48",
         "agent": "claude",
         "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNO"
+        "summary": "shell exited with 25 uncommitted file(s)"
       },
       {
-        "time": "2026-07-07 18:34:39",
+        "time": "2026-07-09 23:37:00",
         "agent": "claude",
         "status": "interrupted",
-        "summary": "shell exited with 2 uncommitted file(s)"
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
       },
       {
-        "time": "2026-07-07 18:34:44",
+        "time": "2026-07-09 23:37:56",
         "agent": "claude",
         "status": "interrupted",
-        "summary": "shell exited with 2 uncommitted file(s)"
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
       },
       {
-        "time": "2026-07-09 01:31:05",
+        "time": "2026-07-09 23:38:57",
         "agent": "claude",
         "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUA"
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
       },
       {
-        "time": "2026-07-09 18:32:40",
+        "time": "2026-07-09 23:50:27",
         "agent": "claude",
         "status": "interrupted",
-        "summary": "shell exited with 5 uncommitted file(s)"
+        "summary": "shell exited with 25 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-09 23:50:27",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell exited with 25 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-09 23:50:27",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell exited with 25 uncommitted file(s)"
+      },
+      {
+        "time": "2026-07-09 23:51:29",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-10 00:30:53",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-10 04:35:21",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
       }
     ],
     "files_touched": [
-      ".project-intel/GAPS.md.bak",
-      ".project-intel/HANDOFF.md",
-      ".project-intel/INDEX_P1_COMPLETE.md",
-      ".project-intel/MODULE_MAP.json",
-      ".project-intel/MODULE_MAP_SLIM.json",
-      ".project-intel/ONCHAIN_TASKS.md",
-      ".project-intel/ORCHESTRATION_READINESS_SESSION4.md",
-      ".project-intel/P1_IMPLEMENTATION_GUIDE.md",
-      ".project-intel/P2_CRYPTO_INTELLIGENCE_SUMMARY.md",
-      ".project-intel/P2_VS_P2PLUS_COMPARISON.md",
-      ".project-intel/PRE_FLIGHT_DIAGNOSTIC_SESSION4.md",
-      ".project-intel/PROBABILISTIC_LAYER_CALIBRATION_AUDIT.md",
-      ".project-intel/RAW_SCAN.json",
-      "CLAUDE.md",
-      "uv.lock"
+      "tests/test_position_sizing.py",
+      "tests/test_probabilistic_engine.py",
+      "tests/test_risk_gates.py",
+      "tests/test_risk_gates_coverage.py",
+      "tests/test_risk_quantification.py",
+      "tests/test_runtime_monitor_coverage.py",
+      "tests/test_signal_debugger_coverage.py",
+      "tests/test_signal_engine.py",
+      "tests/test_slippage.py",
+      "tests/test_storage.py",
+      "tests/test_strategies_filters.py",
+      "tests/test_trade_auditor.py",
+      "requirements-dev.txt",
+      "requirements.lock",
+      "requirements.txt"
     ],
-    "current_task": "shell session started \u2014 GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build",
-    "session_started": "2026-07-09 01:31:05",
-    "interruption_reason": "shell exited with 5 uncommitted file(s)"
+    "current_task": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat",
+    "session_started": "2026-07-10 04:35:21",
+    "interruption_reason": ""
   },
   "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
   "commit_log": [
