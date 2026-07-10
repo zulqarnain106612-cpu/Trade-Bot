@@ -1,12 +1,12 @@
 # Agent Handoff State
-> Updated: 2026-07-10 23:38:20 | Read this before starting any work.
+> Updated: 2026-07-11 00:18:56 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
 **Status**:  🟢 ACTIVE
 **Task**:    shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
 **Started**: 2026-07-10 23:38:20
-**Last checkpoint**: 2026-07-10 23:38:20
+**Last checkpoint**: 2026-07-11 00:18:56
 
 ## ⚠ ANOTHER AGENT IS ACTIVE
 If claude is no longer running, status is stale.
@@ -14,10 +14,24 @@ Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
 Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
 
 ## Next Step for Incoming Agent
-  shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
+  GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
 
 ## Files to Check
-  (no specific files — start from OPEN_TASKS.md)
+  - tests/test_kelly.py
+  - tests/test_model_trainer_coverage.py
+  - tests/test_orchestrator.py
+  - tests/test_performance_drift.py
+  - tests/test_portfolio_correlation.py
+  - tests/test_probabilistic_engine.py
+  - docs/SELF_TUNING_DESIGN.md
+  - src/config.py
+  - src/tuning/__init__.py
+  - src/tuning/audit.py
+  - src/tuning/registry.py
+  - src/tuning/store.py
+  - tests/test_tuning_audit.py
+  - tests/test_tuning_registry.py
+  - tests/test_tuning_store.py
 
 ## Session History (last 5)
   [2026-07-10 23:38:20] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest

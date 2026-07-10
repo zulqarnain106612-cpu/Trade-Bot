@@ -28,11 +28,13 @@ from typing import Any
 class TuningEventType(str, Enum):
     PROPOSED = "proposed"
     EVALUATED = "evaluated"
+    WOULD_PROMOTE = "would_promote"
     PROMOTED = "promoted"
     REJECTED = "rejected"
     ROLLED_BACK = "rolled_back"
     PAUSED = "paused"
     RESUMED = "resumed"
+    SKIPPED = "skipped"
 
 
 @dataclass(frozen=True)
