@@ -862,20 +862,35 @@ class PaperExecutor(AbstractExecutor):
         return self._cash + sum(p.unrealized_pnl for p in self._positions.values())
 
     async def _snapshot_equity(self) -> None:
-        """Write current equity state to storage (re-reads live state — not lock-safe)."""
-        equity = self._equity_usd()
-        unrealized = sum(p.unrealized_pnl for p in self._positions.values())
-        daily_pnl = self._drawdown_tracker.daily_pnl_usd
-        daily_pct = self._drawdown_tracker.daily_pnl_pct
-        dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
+        """Write current equity state to storage.
+
+        UI-003: re-reads self._positions/self._cash under self._lock before
+        computing the snapshot values -- every call site invokes this only
+        after its own `async with self._lock:` block has already exited
+        (see _open_position_internal, shutdown()), so an `await` between
+        releasing that lock and this call (e.g. storage.insert_trade) could
+        previously let a concurrent close_position/mark_to_market mutate
+        state in between, producing an equity row that doesn't correspond
+        to the state right after the triggering event. Re-acquiring the
+        lock here makes the read atomic with the write-side critical
+        sections, same as the pre-computed _snapshot_equity_with_values path.
+        """
+        async with self._lock:
+            equity = self._equity_usd()
+            unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+            cash = self._cash
+            peak_equity = self._peak_equity
+            daily_pnl = self._drawdown_tracker.daily_pnl_usd
+            daily_pct = self._drawdown_tracker.daily_pnl_pct
+            dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
         await self._snapshot_equity_with_values(
             equity=equity,
-            cash=self._cash,
+            cash=cash,
             unrealized=unrealized,
             daily_pnl=daily_pnl,
             daily_pct=daily_pct,
             dd_pct=dd_pct,
-            peak_equity=self._peak_equity,
+            peak_equity=peak_equity,
         )
 
     async def _snapshot_equity_with_values(

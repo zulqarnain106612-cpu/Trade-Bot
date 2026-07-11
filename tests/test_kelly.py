@@ -11,6 +11,7 @@ from src.risk.kelly import (
     kelly_fraction,
     kelly_from_model_probs,
     size_position,
+    uncertainty_scalar,
 )
 
 
@@ -351,6 +352,110 @@ class TestComputePositionSize:
 
     # ─── GAP-005/GAP-015: correlation_scalar parameter ────────────────────────────
 
+    # ─── UI-004: sample_uncertainty_scalar parameter ──────────────────────────────
+
+    def test_sample_uncertainty_scalar_default_is_noop(self):
+        baseline = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+        )
+        with_one = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=1.0,
+        )
+        assert baseline is not None and with_one is not None
+        assert baseline.quantity == with_one.quantity
+
+    def test_sample_uncertainty_scalar_half_shrinks_position(self):
+        full = compute_position_size(
+            p_long=0.52,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=10.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=1.0,
+        )
+        halved = compute_position_size(
+            p_long=0.52,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=10.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=0.5,
+        )
+        assert full is not None and halved is not None
+        assert halved.adjusted_fraction < full.adjusted_fraction
+        assert abs(halved.adjusted_fraction - full.adjusted_fraction * 0.5) < 1e-6
+
+    def test_sample_uncertainty_scalar_zero_yields_none(self):
+        result = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=0.0,
+        )
+        assert result is None
+
+    def test_sample_uncertainty_scalar_above_one_is_clamped_not_amplified(self):
+        normal = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=1.0,
+        )
+        amplified_attempt = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=5.0,
+        )
+        assert normal is not None and amplified_attempt is not None
+        assert amplified_attempt.quantity == normal.quantity
+
+    def test_sample_uncertainty_scalar_nan_fails_safe_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=float("nan"),
+        )
+        assert result is None
+
+    def test_sample_uncertainty_scalar_negative_clamped_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            sample_uncertainty_scalar=-0.3,
+        )
+        assert result is None
+
     def test_correlation_scalar_default_is_noop(self):
         baseline = compute_position_size(
             p_long=0.75,
@@ -572,10 +677,11 @@ class TestComputePositionSize:
 
 class TestComputeWinLossStats:
     def test_too_few_trades_returns_defaults(self):
-        _wp, _aw, _al = compute_win_loss_stats([10.0, -5.0])
+        _wp, _aw, _al, _std = compute_win_loss_stats([10.0, -5.0])
         assert abs(_wp - 0.5) < 1e-9
         assert abs(_aw - 1.0) < 1e-9
         assert abs(_al - 1.0) < 1e-9
+        assert abs(_std - 0.5) < 1e-9
 
     def test_correct_win_probability(self):
         # VF-031: compute_win_loss_stats requires >=50 trades before
@@ -588,34 +694,66 @@ class TestComputeWinLossStats:
         # win_prob is now Beta-shrunk toward a 0.5 prior (n_obs=50,
         # prior_strength=20): posterior = (0.5*20 + 0.6*50)/70.
         pnl = [10.0] * 30 + [-5.0] * 20
-        wp, _aw, _al = compute_win_loss_stats(pnl)
+        wp, _aw, _al, _std = compute_win_loss_stats(pnl)
         assert wp == pytest.approx((0.5 * 20 + 0.6 * 50) / 70)
 
     def test_correct_averages(self):
         pnl = [10.0] * 30 + [-5.0] * 20
-        wp, aw, al = compute_win_loss_stats(pnl)
+        wp, aw, al, _std = compute_win_loss_stats(pnl)
         assert abs(aw - 10.0) < 1e-9
         assert abs(al - 5.0) < 1e-9
 
     def test_all_wins(self):
         pnl = [10.0] * 10
-        _wp, aw, _al = compute_win_loss_stats(pnl)
+        _wp, aw, _al, _std = compute_win_loss_stats(pnl)
         assert abs(_wp - 0.5) < 1e-9 and abs(aw - 1.0) < 1e-9  # falls back (no losses)
 
     def test_all_losses(self):
         pnl = [-10.0] * 10
-        _wp, _aw, al = compute_win_loss_stats(pnl)
+        _wp, _aw, al, _std = compute_win_loss_stats(pnl)
         assert abs(_wp - 0.5) < 1e-9 and abs(al - 1.0) < 1e-9  # falls back (no wins)
 
     def test_win_prob_shrunk_toward_prior_at_minimum_sample(self):
         # At the 50-trade minimum, a skewed win rate should be pulled toward
         # 0.5 rather than trusted at face value.
         pnl = [10.0] * 45 + [-5.0] * 5  # raw win rate = 0.9
-        wp, _aw, _al = compute_win_loss_stats(pnl)
+        wp, _aw, _al, _std = compute_win_loss_stats(pnl)
         assert 0.5 < wp < 0.9
 
     def test_win_prob_shrinkage_vanishes_at_large_sample(self):
         # With a large trade count, shrinkage should have negligible effect.
         pnl = [10.0] * 900 + [-5.0] * 100  # raw win rate = 0.9
-        wp, _aw, _al = compute_win_loss_stats(pnl)
+        wp, _aw, _al, _std = compute_win_loss_stats(pnl)
         assert wp == pytest.approx(0.9, abs=0.02)
+
+    def test_win_prob_std_shrinks_toward_zero_at_large_sample(self):
+        pnl = [10.0] * 900 + [-5.0] * 100
+        _wp, _aw, _al, std = compute_win_loss_stats(pnl)
+        assert 0.0 < std < 0.1
+
+
+# ─── uncertainty_scalar ────────────────────────────────────────────────────────
+
+
+class TestUncertaintyScalar:
+    def test_zero_std_is_full_confidence_noop(self):
+        assert uncertainty_scalar(0.0) == pytest.approx(1.0)
+
+    def test_max_std_zeroes_out_sizing(self):
+        assert uncertainty_scalar(0.5, k=2.0) == pytest.approx(0.0)
+
+    def test_monotonically_decreasing_in_std(self):
+        low = uncertainty_scalar(0.1)
+        high = uncertainty_scalar(0.3)
+        assert high < low
+
+    def test_negative_std_fails_safe_to_zero(self):
+        assert uncertainty_scalar(-0.1) == 0.0
+
+    def test_nan_fails_safe_to_zero(self):
+        assert uncertainty_scalar(float("nan")) == 0.0
+
+    def test_result_always_in_unit_interval(self):
+        for std in (0.0, 0.05, 0.25, 0.5, 1.0, 10.0):
+            v = uncertainty_scalar(std)
+            assert 0.0 <= v <= 1.0

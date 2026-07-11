@@ -69,6 +69,63 @@ class TestDriftDetector:
         assert not drift.drifted
         assert "Insufficient" in drift.reason
 
+    def test_zero_starting_equity_does_not_raise(self):
+        """UI-008: starting_equity<=0 previously raised ZeroDivisionError
+        inside record_trade_outcome, which propagates uncaught out of
+        check_drift() -- crashing the drift loop instead of failing closed
+        on a bad input."""
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        detector = PerformanceDriftDetector(baseline)
+        detector.record_trade_outcome(
+            pnl_usd=100.0,
+            predicted_prob=0.7,
+            actual_direction=1,
+            current_equity=10000.0,
+            starting_equity=0.0,
+        )  # must not raise
+        detector.record_trade_outcome(
+            pnl_usd=-50.0,
+            predicted_prob=0.6,
+            actual_direction=-1,
+            current_equity=9000.0,
+            starting_equity=-100.0,
+        )  # must not raise
+
+    def test_valid_starting_equity_still_tracks_drawdown_after_invalid_call(self):
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        detector = PerformanceDriftDetector(baseline)
+        detector.record_trade_outcome(
+            pnl_usd=100.0,
+            predicted_prob=0.7,
+            actual_direction=1,
+            current_equity=10000.0,
+            starting_equity=0.0,  # invalid -- discarded
+        )
+        detector.record_trade_outcome(
+            pnl_usd=-500.0,
+            predicted_prob=0.6,
+            actual_direction=-1,
+            current_equity=9500.0,
+            starting_equity=10000.0,  # valid -- drawdown tracked normally
+        )
+        assert detector._max_live_drawdown_pct > 0.0
+
 
 class TestSharpeDrift:
     """Test Sharpe ratio drift detection."""

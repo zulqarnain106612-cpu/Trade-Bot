@@ -29,16 +29,17 @@ import structlog
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-POLL_INTERVAL_S: Final[float] = 30.0        # health probe cadence
-STALL_THRESHOLD_S: Final[float] = 300.0     # tick stall: 5 min silence → alert
-MEMORY_WARN_MB: Final[float] = 512.0        # RSS warn threshold
-MEMORY_CRITICAL_MB: Final[float] = 1024.0   # RSS critical threshold
-MAX_CONSECUTIVE_FAILURES: Final[int] = 3    # auto-escalate after N failures
+POLL_INTERVAL_S: Final[float] = 30.0  # health probe cadence
+STALL_THRESHOLD_S: Final[float] = 300.0  # tick stall: 5 min silence → alert
+MEMORY_WARN_MB: Final[float] = 512.0  # RSS warn threshold
+MEMORY_CRITICAL_MB: Final[float] = 1024.0  # RSS critical threshold
+MAX_CONSECUTIVE_FAILURES: Final[int] = 3  # auto-escalate after N failures
 
 
 # ---------------------------------------------------------------------------
 # Probe result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ProbeResult:
@@ -54,7 +55,7 @@ class ProbeResult:
 class HealthSnapshot:
     ts_utc: float
     probes: list[ProbeResult]
-    overall: str          # "ok" | "degraded" | "critical"
+    overall: str  # "ok" | "degraded" | "critical"
     alerts: list[str]
 
     def to_dict(self) -> dict[str, Any]:
@@ -79,6 +80,7 @@ class HealthSnapshot:
 # ---------------------------------------------------------------------------
 # Monitor
 # ---------------------------------------------------------------------------
+
 
 class RuntimeMonitor:
     """
@@ -196,7 +198,9 @@ class RuntimeMonitor:
 
             self._results[name] = pr
             if not pr.passed:
-                level = "critical" if pr.consecutive_failures >= MAX_CONSECUTIVE_FAILURES else "warning"
+                level = (
+                    "critical" if pr.consecutive_failures >= MAX_CONSECUTIVE_FAILURES else "warning"
+                )
                 getattr(log, level)(
                     f"health_probe.{pr.name}.failed",
                     detail=pr.detail,
@@ -213,7 +217,8 @@ class RuntimeMonitor:
                 pr_name = f"tick_stall_{tf}"
                 if stale_s > STALL_THRESHOLD_S:
                     pr = ProbeResult(
-                        name=pr_name, passed=False,
+                        name=pr_name,
+                        passed=False,
                         value=round(stale_s, 1),
                         detail=f"no_tick_for_{stale_s:.0f}s",
                         consecutive_failures=1,
@@ -253,9 +258,9 @@ class RuntimeMonitor:
 
         # 4. Asyncio task death scan
         dead = [
-            t.get_name() for t in asyncio.all_tasks()
-            if t.done() and not t.cancelled()
-            and t.get_name() not in ("Task-1",)
+            t.get_name()
+            for t in asyncio.all_tasks()
+            if t.done() and not t.cancelled() and t.get_name() not in ("Task-1",)
         ]
         if dead:
             log.error("health_probe.dead_tasks_detected", tasks=dead)
@@ -288,8 +293,12 @@ class RuntimeMonitor:
                 for line in f:
                     if line.startswith("VmRSS:"):
                         return float(line.split()[1]) / 1024.0
-        except Exception:
-            pass
+        except Exception as exc:
+            # UI-013: a 0.0 RSS reading is indistinguishable from "healthy"
+            # to the memory-leak probe that consumes this -- log so a read
+            # failure (permissions, unexpected /proc format) doesn't look
+            # like a clean bill of health.
+            log.debug("runtime_monitor.rss_read_failed", error=str(exc))
         return 0.0
 
 

@@ -203,6 +203,21 @@ class PerformanceDriftDetector:
         if self._live_equity_start == 0:
             self._live_equity_start = starting_equity
 
+        # UI-008: starting_equity <= 0 (bad snapshot / uninitialized caller)
+        # previously raised ZeroDivisionError here, which propagates
+        # uncaught out of check_drift() -- crashing the drift-detection
+        # loop that risk gates depend on, instead of failing closed on a
+        # bad input. Skip this call's drawdown update rather than crash;
+        # the invalid sample is discarded, not silently treated as 0% or
+        # 100% drawdown.
+        if starting_equity <= 0.0:
+            self._log.error(
+                "performance_drift.invalid_starting_equity",
+                starting_equity=starting_equity,
+                current_equity=current_equity,
+            )
+            return
+
         drawdown_pct = (self._live_equity_peak - current_equity) / starting_equity
         if drawdown_pct > self._max_live_drawdown_pct:
             self._max_live_drawdown_pct = drawdown_pct

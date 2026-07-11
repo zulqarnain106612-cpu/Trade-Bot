@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -36,7 +37,7 @@ from src.config import (
     runtime_config,
 )
 from src.data.fetcher import MarketDataFetcher
-from src.data.storage import AnyStorageBackend, RegimeSnapshotRecord
+from src.data.storage import AnyStorageBackend, MissedTradeRecord, RegimeSnapshotRecord
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
@@ -384,7 +385,7 @@ class Orchestrator:
         # chronological order before passing to compute_win_loss_stats so any
         # future time-order-sensitive analysis gets correct sequencing.
         pnl_history = [t.pnl_usd for t in reversed(recent_trades) if t.pnl_usd is not None]
-        _, avg_win, avg_loss = compute_win_loss_stats(pnl_history)
+        _, avg_win, avg_loss, _ = compute_win_loss_stats(pnl_history)
 
         # Paper trading tenure — days since first paper equity record.
         # Passed to the gate stack so check_paper_minimum_days is enforced
@@ -477,8 +478,13 @@ class Orchestrator:
                     "open_positions": len(_executor.open_positions) if _executor else 0,
                 }
             )
-        except Exception:
-            pass  # metric failure must never affect trade path
+        except Exception as exc:
+            # Metric failure must never affect the trade path -- but a silent
+            # `pass` here would hide a real bug (e.g. a typo'd attribute)
+            # indefinitely, since Prometheus scraping gives no feedback loop
+            # back into this process. Log at warning so it's visible without
+            # ever raising into the caller.
+            self._log.warning("orchestrator.metrics_update_failed", error=str(exc))
 
         # Route to executor if tradeable
         if result.tradeable and result.kelly_result is not None:
@@ -554,6 +560,30 @@ class Orchestrator:
                 outcome=outcome,
                 trade_id=trade_id,
             )
+
+            # UI-001: a tradeable signal that didn't open a position (gate
+            # rejection, approval denial/timeout) is a "missed trade" —
+            # log it best-effort so the dashboard can surface it. Never
+            # let a logging failure affect the trade path.
+            if outcome != "opened":
+                try:
+                    await self._storage.insert_missed_trade(
+                        MissedTradeRecord(
+                            id=str(uuid.uuid4()),
+                            symbol=self._symbol,
+                            timeframe=tf.value,
+                            direction=result.direction,
+                            reason=outcome,
+                            kelly_fraction=result.kelly_result.adjusted_fraction,
+                            meta_label_prob=result.p_bet,
+                            raw_signal=result.p_long,
+                            regime_at_entry=result.regime.state if result.regime else 0,
+                            notional_usd=result.kelly_result.notional_usd,
+                            ts=int(time.time() * 1000),
+                        )
+                    )
+                except Exception as exc:
+                    self._log.warning("orchestrator.missed_trade_log_failed", error=str(exc))
 
         # Scheduled retraining on primary timeframe — guard against overlap
         if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:

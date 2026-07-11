@@ -57,6 +57,7 @@ from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.tuning.audit import TuningEventType
+from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
     audit_log as tuning_audit_log,
     parameter_registry as tuning_registry,
@@ -253,9 +254,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
+        # Self-tuning autostart: off by default (SelfTuningSettings.enabled
+        # is the master kill switch — see src/config.py). When an operator
+        # turns it on, this is the "explicit startup step" bootstrap.py's
+        # module docstring requires; it never bypasses shadow_mode or the
+        # promotion gate, both of which stay enforced inside TuningRunner.
+        tuning_scheduler: AutoTuningScheduler | None = None
+        if cfg.self_tuning.enabled:
+            tuning_scheduler = AutoTuningScheduler(
+                storage=_state.storage,
+                settings=cfg,
+                symbol=cfg.primary_symbol,
+                timeframe=cfg.primary_timeframe.value,
+            )
+            tuning_scheduler.start()
+
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
         yield
 
+        if tuning_scheduler is not None:
+            tuning_scheduler.stop()
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
@@ -543,6 +561,43 @@ async def trades(
     }
 
 
+@app.get("/missed-trades", dependencies=[Depends(api_key_header)])
+async def missed_trades(
+    symbol: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> dict[str, Any]:
+    """UI-001: tradeable signals that never opened a position — gate
+    rejection, approval denial/timeout, or a drift block."""
+    cfg = get_settings()
+    req_symbol = symbol or cfg.primary_symbol
+    try:
+        await _state.storage.validate_symbol(req_symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    records = await _state.storage.fetch_missed_trades(symbol=req_symbol, limit=limit)
+    return {
+        "missed_trades": [
+            {
+                "id": m.id,
+                "symbol": m.symbol,
+                "timeframe": m.timeframe,
+                "direction": "long" if m.direction == 1 else "short",
+                "reason": m.reason,
+                "kelly_fraction": round(m.kelly_fraction, 4),
+                "meta_label_prob": round(m.meta_label_prob, 4),
+                "raw_signal": round(m.raw_signal, 4) if m.raw_signal is not None else None,
+                "regime_at_entry": m.regime_at_entry,
+                "notional_usd": round(m.notional_usd, 2),
+                "ts": m.ts,
+            }
+            for m in records
+        ],
+        "total": len(records),
+        "limit": limit,
+    }
+
+
 @app.get("/equity", dependencies=[Depends(api_key_header)])
 async def equity_curve(
     limit: Annotated[int, Query(ge=1, le=10000)] = 1440,
@@ -806,11 +861,24 @@ async def set_risk_controls(body: SetRiskControlsRequest, request: Request) -> d
     return {"risk_controls": new_controls, "operator": body.operator}
 
 
-@app.get("/model-metrics", dependencies=[Depends(api_key_header)])
+@app.get(
+    "/model-metrics",
+    dependencies=[Depends(api_key_header)],
+    responses={400: {"description": "Invalid timeframe value"}},
+)
 async def model_metrics(timeframe: str | None = None) -> dict[str, Any]:
     """Latest OOS metrics for direction and meta-label models."""
     cfg = get_settings()
     tf = timeframe or cfg.primary_timeframe.value
+    # UI-006: same validation as /regime/{timeframe} — an unchecked timeframe
+    # string previously reached storage.latest_model_metrics/live_gate_passes
+    # unvalidated, inconsistent with every other timeframe-taking endpoint.
+    valid_timeframes = {t.value for t in Timeframe}
+    if tf not in valid_timeframes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe {tf!r}. Must be one of: {sorted(valid_timeframes)}",
+        )
     dir_m = await _state.storage.latest_model_metrics("direction", tf)
     meta_m = await _state.storage.latest_model_metrics("meta_label", tf)
 
@@ -1156,7 +1224,11 @@ async def get_order_status(
     try:
         state = await executor.get_order_fsm_state(order_id)
     except Exception as exc:
-        return {"error": str(exc)}
+        # UI-006: log the real exception server-side; never echo raw
+        # exception text back to the (authenticated but untrusted) caller —
+        # it can leak internal state/stack details for no operational benefit.
+        log.warning("api.order_status_lookup_failed", order_id=order_id, error=str(exc))
+        return {"error": "Failed to look up order status."}
     if state is None:
         return {
             "error": (

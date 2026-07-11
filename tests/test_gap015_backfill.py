@@ -70,12 +70,14 @@ async def test_migration_creates_table(storage):
 
 
 @pytest.mark.asyncio
-async def test_schema_version_is_3(storage):
+async def test_schema_version_matches_current(storage):
+    from src.data.storage import _SCHEMA_VERSION
+
     await storage.initialize()
     conn = storage._require_conn()
     async with conn.execute("PRAGMA user_version") as cur:
         row = await cur.fetchone()
-    assert int(row[0]) == 4
+    assert int(row[0]) == _SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------

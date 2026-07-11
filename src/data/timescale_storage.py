@@ -58,6 +58,7 @@ from src.data.storage import (
     _SYMBOL_RE,
     BarRecord,
     EquityRecord,
+    MissedTradeRecord,
     ModelMetricsRecord,
     RegimeSnapshotRecord,
     TradeRecord,
@@ -265,9 +266,28 @@ ALTER TABLE intelligence_features_history
 ALTER TABLE intelligence_features_history
     ADD COLUMN IF NOT EXISTS sopr DOUBLE PRECISION;""",
     ),
+    (
+        5,
+        "ui-001: add missed_trades table for the dashboard's Missed Trades tab",
+        """CREATE TABLE IF NOT EXISTS missed_trades (
+    id              TEXT    PRIMARY KEY,
+    symbol          TEXT    NOT NULL,
+    timeframe       TEXT    NOT NULL,
+    direction       INTEGER NOT NULL,
+    reason          TEXT    NOT NULL,
+    kelly_fraction  DOUBLE PRECISION NOT NULL,
+    meta_label_prob DOUBLE PRECISION NOT NULL,
+    raw_signal      DOUBLE PRECISION,
+    regime_at_entry INTEGER NOT NULL,
+    notional_usd    DOUBLE PRECISION NOT NULL,
+    ts              BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
+    ON missed_trades (ts DESC);""",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 4
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 5
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (
@@ -980,6 +1000,103 @@ class TimescaleBackend:
             prob_trending=row["prob_trending"],
             prob_volatile=row["prob_volatile"],
         )
+
+    async def regime_snapshot_before(
+        self, symbol: str, timeframe: str, ts: int
+    ) -> RegimeSnapshotRecord | None:
+        """Most recent regime snapshot at or before `ts` — used by the
+        self-tuning scheduler to recover posterior entropy at a historical
+        trade's entry time."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT symbol, timeframe, ts, regime_state,
+                       prob_ranging, prob_trending, prob_volatile
+                FROM regime_snapshots
+                WHERE symbol=$1 AND timeframe=$2 AND ts<=$3
+                ORDER BY ts DESC LIMIT 1
+                """,
+                symbol,
+                timeframe,
+                ts,
+            )
+        if row is None:
+            return None
+        return RegimeSnapshotRecord(
+            symbol=row["symbol"],
+            timeframe=row["timeframe"],
+            ts=row["ts"],
+            regime_state=row["regime_state"],
+            prob_ranging=row["prob_ranging"],
+            prob_trending=row["prob_trending"],
+            prob_volatile=row["prob_volatile"],
+        )
+
+    # ------------------------------------------------------------------
+    # Missed trades (UI-001)
+    # ------------------------------------------------------------------
+
+    async def insert_missed_trade(self, record: MissedTradeRecord) -> None:
+        """Best-effort log of a tradeable signal that never opened a position."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO missed_trades (
+                    id, symbol, timeframe, direction, reason,
+                    kelly_fraction, meta_label_prob, raw_signal,
+                    regime_at_entry, notional_usd, ts
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                record.id,
+                record.symbol,
+                record.timeframe,
+                record.direction,
+                record.reason,
+                record.kelly_fraction,
+                record.meta_label_prob,
+                record.raw_signal,
+                record.regime_at_entry,
+                record.notional_usd,
+                record.ts,
+            )
+
+    async def fetch_missed_trades(
+        self, symbol: str | None = None, limit: int = 50
+    ) -> list[MissedTradeRecord]:
+        """Most recent missed trades, newest first."""
+        pool = self._require_pool()
+        base_query = (
+            "SELECT id, symbol, timeframe, direction, reason,"
+            " kelly_fraction, meta_label_prob, raw_signal, regime_at_entry,"
+            " notional_usd, ts FROM missed_trades"
+        )
+        params: list[object] = []
+        if symbol is not None:
+            base_query += " WHERE symbol=$1"
+            params.append(symbol)
+        base_query += f" ORDER BY ts DESC LIMIT ${len(params) + 1}"
+        params.append(limit)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(base_query, *params)
+        return [
+            MissedTradeRecord(
+                id=r["id"],
+                symbol=r["symbol"],
+                timeframe=r["timeframe"],
+                direction=r["direction"],
+                reason=r["reason"],
+                kelly_fraction=r["kelly_fraction"],
+                meta_label_prob=r["meta_label_prob"],
+                raw_signal=r["raw_signal"],
+                regime_at_entry=r["regime_at_entry"],
+                notional_usd=r["notional_usd"],
+                ts=r["ts"],
+            )
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Model metrics

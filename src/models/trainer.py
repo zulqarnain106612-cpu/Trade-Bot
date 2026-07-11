@@ -22,6 +22,7 @@ import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to mo
 import io
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,6 +62,26 @@ MODEL_META_LABEL: Final[str] = "meta_label"
 _DIRECTION_FILENAME: Final[str] = "xgb_direction_{symbol}_{timeframe}.joblib"
 _META_FILENAME: Final[str] = "xgb_meta_{symbol}_{timeframe}.joblib"
 _MANIFEST_SUFFIX: Final[str] = ".sha256"
+
+
+_TIMEFRAME_SAFE_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_timeframe(timeframe: str) -> None:
+    """UI-014: `timeframe` is interpolated directly into a model filename
+    (unlike `symbol`, which gets `.replace('/', '_')`) with no sanitization.
+    Callers throughout this codebase use `timeframe` as a loosely-typed
+    free-form string (not strictly the three-value Timeframe enum -- e.g.
+    "1h" appears in several test fixtures/storage call sites), so this
+    intentionally does NOT enforce the Timeframe enum allowlist; it only
+    rejects path-traversal-shaped input ('/', '\\', '..', empty) before it
+    reaches a path join, as defense-in-depth against a caller that didn't
+    validate its own input."""
+    if not timeframe or not _TIMEFRAME_SAFE_RE.match(timeframe):
+        raise ValueError(
+            f"Invalid timeframe {timeframe!r}: must be a non-empty string of "
+            "letters, digits, '_', or '-' only."
+        )
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -479,6 +500,7 @@ class ModelTrainer:
         xgb_cfg: XGBoostSettings | None = None,
         feature_cfg: FeatureSettings | None = None,
     ) -> None:
+        _validate_timeframe(timeframe)
         cfg = get_settings()
         self._symbol = symbol
         self._timeframe = timeframe
@@ -975,6 +997,7 @@ class ModelTrainer:
         timeframe: str,
     ) -> XGBClassifier:
         """Load a previously saved direction model, verifying SHA-256 integrity."""
+        _validate_timeframe(timeframe)
         path = Path(model_dir) / _DIRECTION_FILENAME.format(
             symbol=symbol.replace("/", "_"), timeframe=timeframe
         )
@@ -990,6 +1013,7 @@ class ModelTrainer:
         timeframe: str,
     ) -> XGBClassifier:
         """Load a previously saved meta-label model, verifying SHA-256 integrity."""
+        _validate_timeframe(timeframe)
         path = Path(model_dir) / _META_FILENAME.format(
             symbol=symbol.replace("/", "_"), timeframe=timeframe
         )

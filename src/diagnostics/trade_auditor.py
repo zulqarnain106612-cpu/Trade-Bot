@@ -29,12 +29,13 @@ import structlog
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-MAX_AUDIT_RECORDS: Final[int] = 2000   # rolling window — FIFO eviction
+MAX_AUDIT_RECORDS: Final[int] = 2000  # rolling window — FIFO eviction
 
 
 # ---------------------------------------------------------------------------
 # Audit record
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class AuditRecord:
@@ -43,7 +44,8 @@ class AuditRecord:
 
     Frozen at decision time — never mutated after creation.
     """
-    ts_utc: float                                # Unix seconds
+
+    ts_utc: float  # Unix seconds
     symbol: str
     timeframe: str
 
@@ -51,9 +53,9 @@ class AuditRecord:
     features: dict[str, float]
 
     # Model outputs
-    p_long: float                                # XGBoost direction P(long)
-    p_bet: float                                 # Meta-label P(bet)
-    direction: int                               # 1=long, 0=short
+    p_long: float  # XGBoost direction P(long)
+    p_bet: float  # Meta-label P(bet)
+    direction: int  # 1=long, 0=short
 
     # Regime (Hamilton 1989)
     regime_state: int | None
@@ -62,7 +64,7 @@ class AuditRecord:
     prob_volatile: float | None
 
     # Risk gate
-    gate_status: str                             # GateStatus.value
+    gate_status: str  # GateStatus.value
     gate_reason: str
     gate_details: dict[str, Any]
 
@@ -73,12 +75,12 @@ class AuditRecord:
     kelly_is_capped: bool | None
 
     # Outcome
-    outcome: str                                 # 'opened'|'queued'|'skipped'|'rejected'
+    outcome: str  # 'opened'|'queued'|'skipped'|'rejected'
     trade_id: str | None
     skip_reason: str
 
     # Diagnostics
-    tick_latency_ms: float = 0.0                 # wall-clock ms for full tick
+    tick_latency_ms: float = 0.0  # wall-clock ms for full tick
     equity_usd_at_decision: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,12 +91,14 @@ class AuditRecord:
 
 def _ts_to_iso(ts: float) -> str:
     from datetime import datetime
+
     return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
 # ---------------------------------------------------------------------------
 # Auditor
 # ---------------------------------------------------------------------------
+
 
 class TradeAuditor:
     """
@@ -107,7 +111,7 @@ class TradeAuditor:
 
     def __init__(self, max_records: int = MAX_AUDIT_RECORDS) -> None:
         self._records: deque[AuditRecord] = deque(maxlen=max_records)
-        self._n_total = 0           # never resets — total ticks seen
+        self._n_total = 0  # never resets — total ticks seen
         self._n_tradeable = 0
         self._n_skipped = 0
 
@@ -211,15 +215,22 @@ class TradeAuditor:
 
         # 1. p_long variance collapse (Tulchinsky 2019 — alpha decay)
         import statistics
+
         try:
             plong_vals = [r.p_long for r in recent]
-            if statistics.stdev(plong_vals) < 0.02:
+            plong_std = statistics.stdev(plong_vals)  # UI-012: was computed twice
+            if plong_std < 0.02:
                 alerts.append(
-                    f"p_long_variance_collapsed: stdev={statistics.stdev(plong_vals):.4f} "
+                    f"p_long_variance_collapsed: stdev={plong_std:.4f} "
                     f"— direction model may be degenerate (AFML Ch.16)"
                 )
-        except statistics.StatisticsError:
-            pass
+        except statistics.StatisticsError as exc:
+            # UI-012: this anomaly check exists specifically to catch a
+            # degenerate/constant model feed -- silently dropping it on
+            # StatisticsError (e.g. <2 distinct values, which is the
+            # degenerate case itself) hid exactly the failure it's meant
+            # to detect.
+            log.debug("trade_auditor.plong_variance_check_failed", error=str(exc))
 
         # 2. Meta-label stuck near 0.5 — no discrimination
         try:
@@ -231,8 +242,8 @@ class TradeAuditor:
                     f"meta_label_not_discriminating: mean={pbet_mean:.3f}, "
                     f"stdev={pbet_std:.4f} — retrain meta-label model (AFML Ch.4)"
                 )
-        except statistics.StatisticsError:
-            pass
+        except statistics.StatisticsError as exc:
+            log.debug("trade_auditor.meta_label_check_failed", error=str(exc))
 
         # 3. Gate always firing same reason → misconfiguration
         gate_counts: dict[str, int] = {}

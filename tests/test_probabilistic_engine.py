@@ -121,6 +121,39 @@ class TestBayesianExchangeStressModel:
         result = self.model.predict_failure_probability(0.0, 0.01, 5.0, 0.5)
         assert 0.0 <= result.confidence <= 1.0
 
+    def test_extreme_negative_funding_widens_interval_not_narrows(self):
+        """UI-011: extremity previously omitted abs() on funding/basis, so a
+        large NEGATIVE funding rate (a real crisis signal, e.g. a short
+        squeeze) reduced `extremity` and therefore INCREASED n_eff --
+        producing an artificially narrower, overconfident interval instead
+        of the wider one the docstring requires for unprecedented inputs."""
+        mild = self.model.predict_failure_probability(
+            netflow_zscore=0.0, funding_rate=0.01, basis_spread=5.0, reserve_ratio=0.5
+        )
+        extreme_negative_funding = self.model.predict_failure_probability(
+            netflow_zscore=0.0, funding_rate=-0.5, basis_spread=5.0, reserve_ratio=0.5
+        )
+        mild_width = mild.upper_credible_interval - mild.lower_credible_interval
+        extreme_width = (
+            extreme_negative_funding.upper_credible_interval
+            - extreme_negative_funding.lower_credible_interval
+        )
+        assert extreme_width > mild_width
+
+    def test_extreme_negative_basis_widens_interval_not_narrows(self):
+        mild = self.model.predict_failure_probability(
+            netflow_zscore=0.0, funding_rate=0.01, basis_spread=5.0, reserve_ratio=0.5
+        )
+        extreme_negative_basis = self.model.predict_failure_probability(
+            netflow_zscore=0.0, funding_rate=0.01, basis_spread=-300.0, reserve_ratio=0.5
+        )
+        mild_width = mild.upper_credible_interval - mild.lower_credible_interval
+        extreme_width = (
+            extreme_negative_basis.upper_credible_interval
+            - extreme_negative_basis.lower_credible_interval
+        )
+        assert extreme_width > mild_width
+
 
 # ---------------------------------------------------------------------------
 # BayesianWhaleActivityModel

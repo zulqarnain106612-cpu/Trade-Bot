@@ -63,9 +63,9 @@ def _synthetic_samples(n: int, seed: int = 0) -> list[TradeSample]:
     return samples
 
 
-def test_run_entropy_threshold_backtest_produces_three_comparisons() -> None:
+def test_run_entropy_threshold_backtest_produces_four_comparisons() -> None:
     samples = _synthetic_samples(300, seed=1)
-    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
     comparisons = run_entropy_threshold_backtest(
         samples,
         champion_threshold=0.5,
@@ -75,7 +75,12 @@ def test_run_entropy_threshold_backtest_produces_three_comparisons() -> None:
         features_cfg=cfg,
     )
     names = {c.metric_name for c in comparisons}
-    assert names == {"oos_sharpe", "max_drawdown_inverted", "win_rate"}
+    assert names == {
+        "oos_sharpe",
+        "max_drawdown_inverted",
+        "win_rate",
+        "probabilistic_sharpe_ratio",
+    }
 
 
 def test_identical_champion_and_challenger_never_significant() -> None:
@@ -83,7 +88,7 @@ def test_identical_champion_and_challenger_never_significant() -> None:
     never produce a significant improvement or regression -- this is the
     harness self-check described in the Phase 4 exit criteria."""
     samples = _synthetic_samples(300, seed=2)
-    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
     comparisons = run_entropy_threshold_backtest(
         samples,
         champion_threshold=0.5,

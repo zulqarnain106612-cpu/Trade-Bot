@@ -286,7 +286,7 @@ class TestComputeWinLossStatsAllWinsOrAllLosses:
     def test_all_wins_returns_defaults(self):
         """No losses in 50+ trade sample -> falls back to defaults."""
         pnl = [10.0] * 60  # all positive, zero losses
-        win_prob, avg_win, avg_loss = compute_win_loss_stats(pnl)
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
         assert win_prob == 0.5
         assert avg_win == 1.0
         assert avg_loss == 1.0
@@ -294,7 +294,7 @@ class TestComputeWinLossStatsAllWinsOrAllLosses:
     def test_all_losses_returns_defaults(self):
         """No wins in 50+ trade sample -> falls back to defaults."""
         pnl = [-10.0] * 60  # all negative, zero wins
-        win_prob, avg_win, avg_loss = compute_win_loss_stats(pnl)
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
         assert win_prob == 0.5
         assert avg_win == 1.0
         assert avg_loss == 1.0
@@ -302,7 +302,7 @@ class TestComputeWinLossStatsAllWinsOrAllLosses:
     def test_mixed_wins_and_losses_computes_real_stats(self):
         """Mixed sample with both wins and losses computes actual stats."""
         pnl = [10.0] * 30 + [-5.0] * 30
-        win_prob, avg_win, avg_loss = compute_win_loss_stats(pnl)
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
         assert win_prob == pytest.approx(0.5)
         assert avg_win == pytest.approx(10.0)
         assert avg_loss == pytest.approx(5.0)

@@ -478,6 +478,145 @@ class TestTradeablePath:
 
 
 # ---------------------------------------------------------------------------
+# UI-015: multi-timeframe trend confirmation (opt-in, off by default)
+# ---------------------------------------------------------------------------
+
+
+def _uptrend_bars(n: int) -> pd.DataFrame:
+    """Strictly rising close series -> ewm_trend_signal > 0."""
+    return _make_bars_with_close(n, np.linspace(100, 200, n))
+
+
+def _downtrend_bars(n: int) -> pd.DataFrame:
+    """Strictly falling close series -> ewm_trend_signal < 0."""
+    return _make_bars_with_close(n, np.linspace(200, 100, n))
+
+
+def _make_bars_with_close(n: int, close: np.ndarray) -> pd.DataFrame:
+    from datetime import UTC, datetime
+
+    from src.config import TIMEFRAME_SECONDS, Timeframe
+
+    now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+    tf_ms = TIMEFRAME_SECONDS.get(Timeframe.INTRADAY, 900) * 1000
+    ts = [now_ms - tf_ms - (n - 1 - i) * tf_ms for i in range(n)]
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": close + 1,
+            "low": close - 1,
+            "close": close,
+            "volume": [1000.0] * n,
+            "quote_volume": [100_000.0] * n,
+            "taker_buy_vol": [500.0] * n,
+        },
+        index=ts,
+    )
+
+
+class TestMtfTrendConfirmation:
+    async def _run(self, monkeypatch, fast_bars, slow_bars, direction, p_long, enabled=True):
+        from src.config import invalidate_settings_cache
+
+        if enabled:
+            monkeypatch.setenv("FEATURE_MTF_CONFIRMATION_ENABLED", "true")
+        else:
+            monkeypatch.delenv("FEATURE_MTF_CONFIRMATION_ENABLED", raising=False)
+        invalidate_settings_cache()
+
+        e = _make_engine(bars=fast_bars)
+
+        async def _fetch_bars(symbol, timeframe, since_ts, limit):
+            return [
+                type("_R", (), {"close": float(c), "ts": i})()
+                for i, c in enumerate(slow_bars["close"])
+            ]
+
+        e._storage.fetch_bars = _fetch_bars
+
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return fast_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch.object(e._trainer, "predict_direction", return_value=(direction, p_long)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            return await e.tick(**_TICK)
+
+    @pytest.mark.asyncio
+    async def test_disabled_by_default_ignores_mtf(self, monkeypatch):
+        """Confirms the feature is truly opt-in: with the env var unset,
+        a long signal against a downtrending 'slow' timeframe must still
+        pass (MTF check never runs)."""
+        r = await self._run(
+            monkeypatch,
+            fast_bars=_uptrend_bars(320),
+            slow_bars=_downtrend_bars(320),
+            direction=1,
+            p_long=0.8,
+            enabled=False,
+        )
+        assert r.tradeable is True
+
+    @pytest.mark.asyncio
+    async def test_enabled_aligned_trend_passes(self, monkeypatch):
+        r = await self._run(
+            monkeypatch,
+            fast_bars=_uptrend_bars(320),
+            slow_bars=_uptrend_bars(320),
+            direction=1,
+            p_long=0.8,
+        )
+        assert r.tradeable is True
+
+    @pytest.mark.asyncio
+    async def test_enabled_misaligned_trend_blocks(self, monkeypatch):
+        r = await self._run(
+            monkeypatch,
+            fast_bars=_uptrend_bars(320),
+            slow_bars=_downtrend_bars(320),
+            direction=1,
+            p_long=0.8,
+        )
+        assert r.tradeable is False
+        assert "mtf_trend_misaligned" in r.skip_reason
+
+    @pytest.mark.asyncio
+    async def test_enabled_but_insufficient_slow_bars_fails_open(self, monkeypatch):
+        """Fewer slow-timeframe bars than the EWM span needed -> the check
+        is skipped (fails open), matching the other professional filters'
+        behavior when their required inputs are unavailable."""
+        r = await self._run(
+            monkeypatch,
+            fast_bars=_uptrend_bars(320),
+            slow_bars=_downtrend_bars(5),  # far below _EWM_SPAN_TREND_MIN
+            direction=1,
+            p_long=0.8,
+        )
+        assert r.tradeable is True
+
+
+# ---------------------------------------------------------------------------
 # model_swap()
 # ---------------------------------------------------------------------------
 

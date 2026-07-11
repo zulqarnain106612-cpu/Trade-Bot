@@ -124,9 +124,32 @@ CREATE INDEX IF NOT EXISTS idx_intel_hist_ts
 ALTER TABLE intelligence_features_history ADD COLUMN mvrv_z_score REAL;
 ALTER TABLE intelligence_features_history ADD COLUMN sopr REAL;""",
     ),
+    # v5 — UI-001: missed_trades table. Records every signal the engine
+    # judged tradeable but that never resulted in an open position (gate
+    # rejection, approval denial/timeout, drift block). Distinct from
+    # `trades`, which only ever holds executed positions.
+    (
+        5,
+        "ui-001: add missed_trades table for the dashboard's Missed Trades tab",
+        """CREATE TABLE IF NOT EXISTS missed_trades (
+    id              TEXT    PRIMARY KEY,
+    symbol          TEXT    NOT NULL,
+    timeframe       TEXT    NOT NULL,
+    direction       INTEGER NOT NULL,
+    reason          TEXT    NOT NULL,
+    kelly_fraction  REAL    NOT NULL,
+    meta_label_prob REAL    NOT NULL,
+    raw_signal      REAL,
+    regime_at_entry INTEGER NOT NULL,
+    notional_usd    REAL    NOT NULL,
+    ts              INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
+    ON missed_trades(ts DESC);""",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 4
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 5
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -396,6 +419,52 @@ class TradeRecord:
         self.exit_reason = exit_reason
         self.approved_by = approved_by
         self.raw_signal = raw_signal
+
+
+class MissedTradeRecord:
+    """A signal the engine judged tradeable that never became an open
+    position — gate rejection, approval denial/timeout, or a drift block.
+    See UI-001 / missed_trades migration (v5)."""
+
+    __slots__ = (
+        "direction",
+        "id",
+        "kelly_fraction",
+        "meta_label_prob",
+        "notional_usd",
+        "raw_signal",
+        "reason",
+        "regime_at_entry",
+        "symbol",
+        "timeframe",
+        "ts",
+    )
+
+    def __init__(
+        self,
+        id: str,
+        symbol: str,
+        timeframe: str,
+        direction: int,
+        reason: str,
+        kelly_fraction: float,
+        meta_label_prob: float,
+        raw_signal: float | None,
+        regime_at_entry: int,
+        notional_usd: float,
+        ts: int,
+    ) -> None:
+        self.id = id
+        self.symbol = symbol
+        self.timeframe = timeframe
+        self.direction = direction
+        self.reason = reason
+        self.kelly_fraction = kelly_fraction
+        self.meta_label_prob = meta_label_prob
+        self.raw_signal = raw_signal
+        self.regime_at_entry = regime_at_entry
+        self.notional_usd = notional_usd
+        self.ts = ts
 
 
 class RegimeSnapshotRecord:
@@ -1300,6 +1369,109 @@ class StorageBackend:
             prob_trending=row["prob_trending"],
             prob_volatile=row["prob_volatile"],
         )
+
+    async def regime_snapshot_before(
+        self, symbol: str, timeframe: str, ts: int
+    ) -> RegimeSnapshotRecord | None:
+        """Most recent regime snapshot at or before `ts` — used by the
+        self-tuning scheduler to recover the posterior entropy that was
+        live at a historical trade's entry time (regime_snapshots is the
+        only place that probability triple is persisted)."""
+        conn = self._require_conn()
+        async with conn.execute(
+            """
+            SELECT symbol, timeframe, ts, regime_state,
+                   prob_ranging, prob_trending, prob_volatile
+            FROM regime_snapshots
+            WHERE symbol=? AND timeframe=? AND ts<=?
+            ORDER BY ts DESC LIMIT 1
+            """,
+            (symbol, timeframe, ts),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return RegimeSnapshotRecord(
+            symbol=row["symbol"],
+            timeframe=row["timeframe"],
+            ts=row["ts"],
+            regime_state=row["regime_state"],
+            prob_ranging=row["prob_ranging"],
+            prob_trending=row["prob_trending"],
+            prob_volatile=row["prob_volatile"],
+        )
+
+    # ------------------------------------------------------------------
+    # Missed trades (UI-001)
+    # ------------------------------------------------------------------
+
+    async def insert_missed_trade(self, record: MissedTradeRecord) -> None:
+        """Best-effort log of a tradeable signal that never opened a
+        position. Never raises into the trading path — callers should
+        wrap this in try/except, matching the metrics-push pattern
+        elsewhere in the orchestrator."""
+        conn = self._require_conn()
+        async with self._get_lock():
+            await conn.execute(
+                """
+                INSERT OR IGNORE INTO missed_trades (
+                    id, symbol, timeframe, direction, reason,
+                    kelly_fraction, meta_label_prob, raw_signal,
+                    regime_at_entry, notional_usd, ts
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    record.id,
+                    record.symbol,
+                    record.timeframe,
+                    record.direction,
+                    record.reason,
+                    record.kelly_fraction,
+                    record.meta_label_prob,
+                    record.raw_signal,
+                    record.regime_at_entry,
+                    record.notional_usd,
+                    record.ts,
+                ),
+            )
+            await conn.commit()
+
+    async def fetch_missed_trades(
+        self, symbol: str | None = None, limit: int = 50
+    ) -> list[MissedTradeRecord]:
+        """Most recent missed trades, newest first."""
+        conn = self._require_conn()
+        clauses: list[str] = []
+        params: list[object] = []
+        if symbol is not None:
+            clauses.append("symbol=?")
+            params.append(symbol)
+        base_query = (
+            "SELECT id, symbol, timeframe, direction, reason,"  # nosec B608 — clauses are hardcoded strings; values use ? placeholders
+            " kelly_fraction, meta_label_prob, raw_signal, regime_at_entry,"
+            " notional_usd, ts FROM missed_trades"
+            + (" WHERE " + " AND ".join(clauses) if clauses else "")
+            + " ORDER BY ts DESC LIMIT ?"
+        )
+        params.append(limit)
+        async with conn.execute(base_query, params) as cur:
+            rows = await cur.fetchall()
+        return [
+            MissedTradeRecord(
+                id=r["id"],
+                symbol=r["symbol"],
+                timeframe=r["timeframe"],
+                direction=r["direction"],
+                reason=r["reason"],
+                kelly_fraction=r["kelly_fraction"],
+                meta_label_prob=r["meta_label_prob"],
+                raw_signal=r["raw_signal"],
+                regime_at_entry=r["regime_at_entry"],
+                notional_usd=r["notional_usd"],
+                ts=r["ts"],
+            )
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Model metrics

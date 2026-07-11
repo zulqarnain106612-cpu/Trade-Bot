@@ -414,6 +414,7 @@ def compute_position_size(
     min_cost: float = 0.0,
     regime_scalar: float = 1.0,
     correlation_scalar: float = 1.0,
+    sample_uncertainty_scalar: float = 1.0,
     notional_cap_usd: float | None = None,
     cfg: RiskSettings | None = None,
 ) -> KellyResult | None:
@@ -457,6 +458,14 @@ def compute_position_size(
                      on the quantity after Kelly sizing, implementing
                      Carver (2019) 'whichever method gives the smaller position'.
                      None = no cap (no-op, backward compatible).
+    sample_uncertainty_scalar : UI-004 — shrink-only scalar in [0, 1] from
+                     src.risk.kelly.uncertainty_scalar(posterior_std), where
+                     posterior_std is compute_win_loss_stats()'s Beta-posterior
+                     std of the win-rate estimate. Discounts Kelly sizing when
+                     the win-rate estimate itself is still uncertain (small
+                     trade history), on top of (not instead of) the existing
+                     probability shrinkage in compute_win_loss_stats. Defaults
+                     to 1.0 (no-op) for backward compatibility.
     cfg            : RiskSettings
 
     Returns
@@ -486,6 +495,16 @@ def compute_position_size(
     else:
         correlation_scalar_clamped = max(0.0, min(1.0, correlation_scalar))
 
+    # UI-004: same fail-safe posture as regime_scalar/correlation_scalar.
+    if not math.isfinite(sample_uncertainty_scalar):
+        log.error(
+            "kelly.invalid_sample_uncertainty_scalar",
+            sample_uncertainty_scalar=sample_uncertainty_scalar,
+        )
+        uncertainty_scalar_clamped = 0.0
+    else:
+        uncertainty_scalar_clamped = max(0.0, min(1.0, sample_uncertainty_scalar))
+
     _raw_frac, adj_frac, _ = kelly_from_model_probs(
         p_long=p_long,
         avg_win_usd=avg_win_usd,
@@ -494,7 +513,9 @@ def compute_position_size(
         cfg=cfg,
     )
 
-    adj_frac = adj_frac * regime_scalar_clamped * correlation_scalar_clamped
+    adj_frac = (
+        adj_frac * regime_scalar_clamped * correlation_scalar_clamped * uncertainty_scalar_clamped
+    )
 
     result = size_position(
         adjusted_fraction=adj_frac,
@@ -542,11 +563,43 @@ def compute_position_size(
 # ---------------------------------------------------------------------------
 
 
+def uncertainty_scalar(posterior_std: float, k: float = 2.0) -> float:
+    """
+    UI-004: shrink-only Kelly discount from win-rate estimation uncertainty.
+
+    Heuristic, not an exact derivation: discounts linearly in the Beta-
+    posterior standard deviation of the win-rate estimate (see
+    src.intelligence.calibration.shrink_probability), reaching 0 (no bet)
+    once `posterior_std >= 1/k` and 1.0 (no discount) as posterior_std -> 0
+    (i.e. as the trade sample grows and the estimate firms up). This is a
+    second, independent line of defense against overbetting on a noisy
+    small-sample win rate -- shrink_probability already pulls the point
+    estimate toward the 0.5 prior; this additionally shrinks the bet size
+    itself while that estimate remains uncertain.
+
+    Parameters
+    ----------
+    posterior_std : Beta-posterior std of the win-rate estimate, in [0, 0.5].
+    k             : sensitivity — higher k discounts more aggressively for
+                    the same posterior_std. Default 2.0 zeroes out sizing
+                    once posterior_std reaches 0.5 (maximum possible, at a
+                    tiny sample with p=0.5).
+
+    Returns
+    -------
+    Scalar in [0, 1].
+    """
+    if not math.isfinite(posterior_std) or posterior_std < 0.0:
+        return 0.0
+    return float(max(0.0, min(1.0, 1.0 - k * posterior_std)))
+
+
 def compute_win_loss_stats(
     pnl_series: list[float],
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, float]:
     """
-    Compute win probability, average win, and average loss from PnL history.
+    Compute win probability, average win, average loss, and the win-rate
+    estimate's uncertainty from PnL history.
 
     Parameters
     ----------
@@ -554,32 +607,36 @@ def compute_win_loss_stats(
 
     Returns
     -------
-    (win_probability, avg_win_usd, avg_loss_usd)
+    (win_probability, avg_win_usd, avg_loss_usd, win_prob_posterior_std)
 
     win_probability is Beta-shrunk toward a 0.5 prior (see
     src.intelligence.calibration.shrink_probability) so that a barely-past-
     the-minimum sample (e.g. 50 trades) doesn't feed Kelly sizing an
     overconfident point estimate; the shrinkage vanishes as the trade count
-    grows.
+    grows. win_prob_posterior_std is that same Beta posterior's standard
+    deviation — feed it to uncertainty_scalar() for an additional Kelly
+    sizing discount while the estimate is still uncertain.
 
     If fewer than 50 trades available, returns conservative defaults:
-    (0.5, 1.0, 1.0) — equal-probability, equal-payoff assumption.
+    (0.5, 1.0, 1.0, 0.5) — equal-probability, equal-payoff assumption, and
+    maximum uncertainty (uncertainty_scalar(0.5) == 0.0, i.e. no bet until
+    a real sample exists).
     """
     if len(pnl_series) < 50:  # NEW-010: raised from 10 — 10-trade window is luck-dominated
-        return 0.5, 1.0, 1.0
+        return 0.5, 1.0, 1.0, 0.5
 
     wins = [p for p in pnl_series if p > 0.0]
     losses = [abs(p) for p in pnl_series if p < 0.0]
 
     if not wins or not losses:
-        return 0.5, 1.0, 1.0
+        return 0.5, 1.0, 1.0, 0.5
 
     raw_win_prob = len(wins) / len(pnl_series)
-    win_prob, _ = shrink_probability(raw_win_prob, n_obs=len(pnl_series))
+    win_prob, win_prob_std = shrink_probability(raw_win_prob, n_obs=len(pnl_series))
     avg_win = sum(wins) / len(wins)
     avg_loss = sum(losses) / len(losses)
 
-    return win_prob, avg_win, avg_loss
+    return win_prob, avg_win, avg_loss, win_prob_std
 
 
 # ---------------------------------------------------------------------------

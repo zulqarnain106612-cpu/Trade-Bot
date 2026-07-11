@@ -276,6 +276,45 @@ def test_trades_route(mock_state):
     assert resp.status_code == 200
 
 
+def test_missed_trades_route(mock_state):
+    client = _get_client()
+    resp = client.get("/missed-trades", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "missed_trades" in body
+    assert body["total"] == len(body["missed_trades"])
+
+
+def test_missed_trades_route_serializes_records(mock_state):
+    record = MagicMock()
+    record.id = "m1"
+    record.symbol = "BTC/USDT"
+    record.timeframe = "15m"
+    record.direction = 1
+    record.reason = "rejected"
+    record.kelly_fraction = 0.05
+    record.meta_label_prob = 0.6
+    record.raw_signal = 0.55
+    record.regime_at_entry = 1
+    record.notional_usd = 500.0
+    record.ts = 2000
+    mock_state.storage.fetch_missed_trades = AsyncMock(return_value=[record])
+
+    client = _get_client()
+    resp = client.get("/missed-trades", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()["missed_trades"]
+    assert body[0]["direction"] == "long"
+    assert body[0]["reason"] == "rejected"
+
+
+def test_missed_trades_route_invalid_symbol(mock_state):
+    mock_state.storage.validate_symbol = AsyncMock(side_effect=ValueError("bad symbol"))
+    client = _get_client()
+    resp = client.get("/missed-trades", params={"symbol": "NOPE"}, headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 400
+
+
 def test_equity_route(mock_state):
     client = _get_client()
     resp = client.get("/equity", headers={"x-api-key": _API_KEY})
@@ -314,6 +353,18 @@ def test_model_metrics_route(mock_state):
     client = _get_client()
     resp = client.get("/model-metrics", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
+
+
+def test_model_metrics_route_invalid_timeframe_returns_400(mock_state):
+    """UI-006: /model-metrics must validate timeframe like /regime/{timeframe}
+    does, instead of passing an arbitrary string through to storage."""
+    client = _get_client()
+    resp = client.get(
+        "/model-metrics",
+        params={"timeframe": "not-a-real-timeframe"},
+        headers={"x-api-key": _API_KEY},
+    )
+    assert resp.status_code == 400
 
 
 def test_debug_health_route(mock_state):
@@ -471,6 +522,104 @@ def test_lifespan_full_startup_and_shutdown():
     fake_orch.shutdown.assert_awaited_once()
 
 
+def test_lifespan_starts_and_stops_tuning_scheduler_when_enabled():
+    """UI-002: SelfTuningSettings.enabled=True is the explicit opt-in that
+    turns on the autostart scheduler for the process lifetime of the app."""
+    import asyncio
+
+    import src.api.main as main_mod
+    from src.config import Settings
+
+    fake_storage = AsyncMock()
+    fake_fetcher = AsyncMock()
+    fake_fetcher.close = AsyncMock()
+    fake_orch = MagicMock()
+    fake_orch.startup = AsyncMock()
+    fake_orch.run = AsyncMock(return_value=None)
+    fake_orch.stop = MagicMock()
+    fake_orch.shutdown = AsyncMock()
+
+    fake_scheduler = MagicMock()
+    fake_scheduler.start = MagicMock()
+    fake_scheduler.stop = MagicMock()
+    fake_scheduler_cls = MagicMock(return_value=fake_scheduler)
+
+    enabled_cfg = Settings(self_tuning={"enabled": True})
+
+    class _FetcherCtx:
+        async def __aenter__(self):
+            return fake_fetcher
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def _run():
+        with (
+            patch.dict(
+                os.environ,
+                {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": "y" * 32},
+                clear=True,
+            ),
+            patch("src.api.main.get_settings", return_value=enabled_cfg),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
+            patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
+            patch("src.api.main.Orchestrator", return_value=fake_orch),
+            patch("src.api.main.AutoTuningScheduler", fake_scheduler_cls),
+        ):
+            async with main_mod.lifespan(main_mod.app):
+                pass
+
+    asyncio.run(_run())
+    fake_scheduler_cls.assert_called_once()
+    fake_scheduler.start.assert_called_once()
+    fake_scheduler.stop.assert_called_once()
+
+
+def test_lifespan_skips_tuning_scheduler_when_disabled():
+    import asyncio
+
+    import src.api.main as main_mod
+    from src.config import Settings
+
+    fake_storage = AsyncMock()
+    fake_fetcher = AsyncMock()
+    fake_fetcher.close = AsyncMock()
+    fake_orch = MagicMock()
+    fake_orch.startup = AsyncMock()
+    fake_orch.run = AsyncMock(return_value=None)
+    fake_orch.stop = MagicMock()
+    fake_orch.shutdown = AsyncMock()
+
+    fake_scheduler_cls = MagicMock()
+    disabled_cfg = Settings(self_tuning={"enabled": False})
+
+    class _FetcherCtx:
+        async def __aenter__(self):
+            return fake_fetcher
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def _run():
+        with (
+            patch.dict(
+                os.environ,
+                {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": "y" * 32},
+                clear=True,
+            ),
+            patch("src.api.main.get_settings", return_value=disabled_cfg),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
+            patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
+            patch("src.api.main.Orchestrator", return_value=fake_orch),
+            patch("src.api.main.AutoTuningScheduler", fake_scheduler_cls),
+        ):
+            async with main_mod.lifespan(main_mod.app):
+                pass
+
+    asyncio.run(_run())
+    fake_scheduler_cls.assert_not_called()
+
+
 def test_lifespan_startup_failure_closes_fetcher():
     import asyncio
 
@@ -525,6 +674,7 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
     fake_cfg.api.host = "0.0.0.0"
     fake_cfg.api.cors_origins = []
     fake_cfg.trading_mode.value = "paper"
+    fake_cfg.self_tuning.enabled = False
 
     class _FetcherCtx:
         async def __aenter__(self):
@@ -749,7 +899,9 @@ def test_order_status_state_none(mock_state):
     assert "not found" in resp.json()["error"]
 
 
-def test_order_status_exception_returns_error(mock_state):
+def test_order_status_exception_returns_generic_error(mock_state):
+    """UI-006: the raw exception text must never reach the client — only a
+    generic message; the real error is logged server-side instead."""
     executor = AsyncMock()
     executor.get_order_fsm_state = AsyncMock(side_effect=RuntimeError("boom"))
     mock_state.orchestrator._executor = executor
@@ -759,7 +911,8 @@ def test_order_status_exception_returns_error(mock_state):
         headers={"x-api-key": _API_KEY},
     )
     assert resp.status_code == 200
-    assert resp.json() == {"error": "boom"}
+    assert "boom" not in resp.text
+    assert resp.json() == {"error": "Failed to look up order status."}
 
 
 # ---------------------------------------------------------------------------

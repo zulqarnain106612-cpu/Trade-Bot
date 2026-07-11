@@ -32,14 +32,14 @@ class ProbabilisticPrediction:
     We output: prediction = 0.75, credible_interval = [0.62, 0.88], confidence = 0.82
     """
 
-    point_estimate: float                      # Expected value (posterior mean)
-    lower_credible_interval: float             # 2.5th percentile
-    upper_credible_interval: float             # 97.5th percentile
+    point_estimate: float  # Expected value (posterior mean)
+    lower_credible_interval: float  # 2.5th percentile
+    upper_credible_interval: float  # 97.5th percentile
     posterior_samples: np.ndarray | None = None  # Full distribution
-    model_uncertainty: float = 0.0             # From ensemble disagreement
-    aleatoric_uncertainty: float = 0.0         # Irreducible noise
-    epistemic_uncertainty: float = 0.0         # Reducible (learnable)
-    confidence: float = 0.0                    # 0-1, how certain are we?
+    model_uncertainty: float = 0.0  # From ensemble disagreement
+    aleatoric_uncertainty: float = 0.0  # Irreducible noise
+    epistemic_uncertainty: float = 0.0  # Reducible (learnable)
+    confidence: float = 0.0  # 0-1, how certain are we?
 
     @property
     def credible_interval_width(self) -> float:
@@ -68,14 +68,14 @@ class RiskAssessment:
     Complete risk picture (no assumptions hidden).
     """
 
-    value_at_risk_95: float                    # 95% VaR (worst 5%)
-    conditional_var_95: float                  # Expected loss in tail
-    probability_of_drawdown_gt_20pct: float    # P(DD > 20%)
-    stress_test_loss: dict                     # {scenario → loss}
-    regime: str                                # "bull", "bear", "neutral"
-    regime_transition_prob_24h: float          # P(regime change)
-    recommendation: str                        # "HALT", "REDUCE", "HOLD", "INCREASE"
-    confidence_in_rec: float                   # 0-1
+    value_at_risk_95: float  # 95% VaR (worst 5%)
+    conditional_var_95: float  # Expected loss in tail
+    probability_of_drawdown_gt_20pct: float  # P(DD > 20%)
+    stress_test_loss: dict  # {scenario → loss}
+    regime: str  # "bull", "bear", "neutral"
+    regime_transition_prob_24h: float  # P(regime change)
+    recommendation: str  # "HALT", "REDUCE", "HOLD", "INCREASE"
+    confidence_in_rec: float  # 0-1
 
 
 class BayesianExchangeStressModel:
@@ -102,9 +102,9 @@ class BayesianExchangeStressModel:
         # E.g., netflow_zscore=-3.0 (extreme outflows) multiplies prob by 10x
         self.indicator_weights = {
             "netflow_zscore": {"slope": -2.0, "intercept": 1.0},  # Stronger = more negative
-            "funding_rate": {"slope": 5.0, "intercept": 0.0},     # Higher rate = riskier
-            "basis_spread": {"slope": 0.01, "intercept": 0.0},    # Wider spread = fragmentation
-            "reserve_ratio": {"slope": -3.0, "intercept": 0.5},   # Lower reserves = riskier
+            "funding_rate": {"slope": 5.0, "intercept": 0.0},  # Higher rate = riskier
+            "basis_spread": {"slope": 0.01, "intercept": 0.0},  # Wider spread = fragmentation
+            "reserve_ratio": {"slope": -3.0, "intercept": 0.5},  # Lower reserves = riskier
         }
 
     def predict_failure_probability(
@@ -176,9 +176,7 @@ class BayesianExchangeStressModel:
             epistemic_uncertainty=(ci_upper - ci_lower) / 2 / 1.96,
         )
 
-    def _compute_logit(
-        self, netflow: float, funding: float, basis: float, reserve: float
-    ) -> float:
+    def _compute_logit(self, netflow: float, funding: float, basis: float, reserve: float) -> float:
         """Logit of failure probability from indicators."""
         logit = np.log(self.prior_probability / (1 - self.prior_probability))
 
@@ -223,7 +221,20 @@ class BayesianExchangeStressModel:
         # How far is this input from the "normal/calibrated" region?
         # Each term normalized by a scale roughly matching observed historical
         # crisis magnitudes (documented in CRYPTO_INTELLIGENCE_INTEGRATION_SPEC.md).
-        extremity = abs(netflow) / 3.0 + funding / 0.15 + (basis / 150.0) + abs(reserve - 0.35) / 0.35
+        # UI-011: funding/basis were not wrapped in abs() here, unlike
+        # netflow/reserve -- a large NEGATIVE funding rate or basis spread
+        # (a real crisis signal, e.g. deeply negative funding during a
+        # short squeeze) reduced `extremity` instead of increasing it,
+        # which (via n_eff = base_n_eff / (1 + extremity)) made n_eff
+        # LARGER -- an artificially narrower, overconfident interval for
+        # exactly the kind of extreme/unprecedented input this function's
+        # docstring says must widen it.
+        extremity = (
+            abs(netflow) / 3.0
+            + abs(funding) / 0.15
+            + abs(basis) / 150.0
+            + abs(reserve - 0.35) / 0.35
+        )
 
         # Baseline effective sample size ~ number of historical crisis/non-crisis
         # episodes the prior was informed by. Floors at 3 (always some irreducible
@@ -272,8 +283,8 @@ class BayesianWhaleActivityModel:
         # Bayesian update: posterior = weighted average of prior + likelihood
         # Weight by sample size (large n → data dominates)
         posterior_mean = (
-            (prior_mean * 10) +  # Prior: effective sample size = 10
-            (observed_ratio * sample_size)
+            (prior_mean * 10)  # Prior: effective sample size = 10
+            + (observed_ratio * sample_size)
         ) / (10 + sample_size)
 
         # Posterior uncertainty decreases with sample size
@@ -313,8 +324,8 @@ class BayesianWhaleActivityModel:
         """
         # Effect sizes calibrated on backtesting (whale trading data)
         regime_effects = {
-            "bull": {"impact": -0.015, "std": 0.008},     # -1.5% vol in bull
-            "bear": {"impact": -0.005, "std": 0.012},     # -0.5% vol in bear (less effective)
+            "bull": {"impact": -0.015, "std": 0.008},  # -1.5% vol in bull
+            "bear": {"impact": -0.005, "std": 0.012},  # -0.5% vol in bear (less effective)
             "neutral": {"impact": -0.012, "std": 0.010},  # -1.2% vol neutral
         }
 
@@ -384,7 +395,11 @@ class BayesianRegimeDetection:
             daily_mean = float(returns_series.mean())
             daily_std = float(returns_series.std(ddof=1))
             standard_error = daily_std / np.sqrt(n_obs) if daily_std > 0 else np.inf
-            t_stat = daily_mean / standard_error if standard_error > 0 and np.isfinite(standard_error) else 0.0
+            t_stat = (
+                daily_mean / standard_error
+                if standard_error > 0 and np.isfinite(standard_error)
+                else 0.0
+            )
         else:
             t_stat = 0.0
 
@@ -407,8 +422,8 @@ class BayesianRegimeDetection:
         # probability mass to all three regimes.
         c1, c2 = -0.55, 0.55
 
-        p_le_bear = expit(c1 - Z)      # P(regime <= bear)
-        p_le_neutral = expit(c2 - Z)   # P(regime <= neutral)
+        p_le_bear = expit(c1 - Z)  # P(regime <= bear)
+        p_le_neutral = expit(c2 - Z)  # P(regime <= neutral)
 
         p_bear = p_le_bear
         p_neutral = max(p_le_neutral - p_le_bear, 0.0)

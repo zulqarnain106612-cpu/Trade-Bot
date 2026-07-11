@@ -932,17 +932,30 @@ class LiveExecutor(AbstractExecutor):
         return self._cash + sum(p.unrealized_pnl for p in self._positions.values())
 
     async def _snapshot_equity(self) -> None:
-        """Write current equity state (re-reads live state — caller must hold lock or accept racy reads)."""
-        equity = self._equity_usd()
-        unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+        """Write current equity state to storage.
+
+        UI-003: re-reads self._positions/self._cash under self._lock so an
+        `await` between a caller's own lock release and this call cannot
+        let a concurrent mark_to_market/close_position mutate state
+        in between and produce an internally-inconsistent equity row --
+        same fix as PaperExecutor._snapshot_equity (execution/paper.py).
+        """
+        async with self._lock:
+            equity = self._equity_usd()
+            unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+            cash = self._cash
+            peak_equity = self._peak_equity
+            daily_pnl = self._drawdown_tracker.daily_pnl_usd
+            daily_pct = self._drawdown_tracker.daily_pnl_pct
+            dd_pct = self._drawdown_tracker.drawdown_from_peak_pct
         await self._snapshot_equity_with_values(
             equity=equity,
-            cash=self._cash,
+            cash=cash,
             unrealized=unrealized,
-            daily_pnl=self._drawdown_tracker.daily_pnl_usd,
-            daily_pct=self._drawdown_tracker.daily_pnl_pct,
-            dd_pct=self._drawdown_tracker.drawdown_from_peak_pct,
-            peak_equity=self._peak_equity,
+            daily_pnl=daily_pnl,
+            daily_pct=daily_pct,
+            dd_pct=dd_pct,
+            peak_equity=peak_equity,
         )
 
     async def _snapshot_equity_with_values(

@@ -726,3 +726,107 @@ class TestSchemaMigrations:
         backend = StorageBackend(db_path)
         with pytest.raises(RuntimeError, match="AHEAD of code"):
             await backend.initialize()
+
+
+class TestMissedTrades:
+    """UI-001: missed_trades table + regime_snapshot_before helper."""
+
+    @pytest.mark.asyncio
+    async def test_insert_and_fetch_missed_trade(self, backend: StorageBackend) -> None:
+        from src.data.storage import MissedTradeRecord
+
+        record = MissedTradeRecord(
+            id="m1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            reason="rejected",
+            kelly_fraction=0.05,
+            meta_label_prob=0.6,
+            raw_signal=0.55,
+            regime_at_entry=1,
+            notional_usd=500.0,
+            ts=2000,
+        )
+        await backend.insert_missed_trade(record)
+
+        fetched = await backend.fetch_missed_trades(symbol="BTC/USDT")
+        assert len(fetched) == 1
+        assert fetched[0].id == "m1"
+        assert fetched[0].reason == "rejected"
+        assert fetched[0].raw_signal == 0.55
+
+    @pytest.mark.asyncio
+    async def test_fetch_missed_trades_filters_by_symbol_and_orders_desc(
+        self, backend: StorageBackend
+    ) -> None:
+        from src.data.storage import MissedTradeRecord
+
+        for i, (sym, ts) in enumerate([("BTC/USDT", 1000), ("BTC/USDT", 3000), ("ETH/USDT", 2000)]):
+            await backend.insert_missed_trade(
+                MissedTradeRecord(
+                    id=f"m{i}",
+                    symbol=sym,
+                    timeframe="15m",
+                    direction=1,
+                    reason="skipped",
+                    kelly_fraction=0.01,
+                    meta_label_prob=0.5,
+                    raw_signal=None,
+                    regime_at_entry=0,
+                    notional_usd=10.0,
+                    ts=ts,
+                )
+            )
+
+        btc_only = await backend.fetch_missed_trades(symbol="BTC/USDT")
+        assert [m.id for m in btc_only] == ["m1", "m0"]  # newest first
+
+        all_symbols = await backend.fetch_missed_trades()
+        assert len(all_symbols) == 3
+
+    @pytest.mark.asyncio
+    async def test_insert_missed_trade_duplicate_id_ignored(self, backend: StorageBackend) -> None:
+        from src.data.storage import MissedTradeRecord
+
+        record = MissedTradeRecord(
+            id="dup",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=0,
+            reason="auto_timeout",
+            kelly_fraction=0.02,
+            meta_label_prob=0.5,
+            raw_signal=None,
+            regime_at_entry=2,
+            notional_usd=20.0,
+            ts=1000,
+        )
+        await backend.insert_missed_trade(record)
+        await backend.insert_missed_trade(record)  # INSERT OR IGNORE — must not raise
+
+        fetched = await backend.fetch_missed_trades(symbol="BTC/USDT")
+        assert len(fetched) == 1
+
+    @pytest.mark.asyncio
+    async def test_regime_snapshot_before(self, backend: StorageBackend) -> None:
+        await backend.upsert_regime_snapshot(make_regime(ts=1000, state=0))
+        await backend.upsert_regime_snapshot(make_regime(ts=2000, state=1))
+        await backend.upsert_regime_snapshot(make_regime(ts=3000, state=2))
+
+        snap = await backend.regime_snapshot_before("BTC/USDT", "15m", 2500)
+        assert snap is not None
+        assert snap.ts == 2000
+        assert snap.regime_state == 1
+
+        exact = await backend.regime_snapshot_before("BTC/USDT", "15m", 2000)
+        assert exact is not None
+        assert exact.ts == 2000
+
+    @pytest.mark.asyncio
+    async def test_regime_snapshot_before_returns_none_when_no_earlier_snapshot(
+        self, backend: StorageBackend
+    ) -> None:
+        await backend.upsert_regime_snapshot(make_regime(ts=5000))
+        snap = await backend.regime_snapshot_before("BTC/USDT", "15m", 1000)
+        assert snap is None

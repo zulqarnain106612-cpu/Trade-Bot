@@ -71,7 +71,11 @@ def _vec(seed: int = 0) -> pd.Series:
 
 _FAST_XGB = XGBoostSettings(n_estimators=10, max_depth=2, early_stopping_rounds=5)
 _FAST_FEATURES = FeatureSettings(
-    cpcv_n_splits=4, cpcv_n_test_splits=1, purge_gap_bars=2, embargo_pct=0.01
+    cpcv_n_splits=4,
+    cpcv_n_test_splits=1,
+    purge_gap_bars=2,
+    embargo_pct=0.01,
+    triple_barrier_max_holding_bars=2,
 )
 
 
@@ -247,34 +251,34 @@ class TestPredictMeta:
 
 
 # ---------------------------------------------------------------------------
-# compute_win_loss_stats (returns win_prob, avg_win, avg_loss)
+# compute_win_loss_stats (returns win_prob, avg_win, avg_loss, win_prob_std)
 # ---------------------------------------------------------------------------
 
 
 class TestComputeWinLossStats:
     def test_fewer_than_50_returns_defaults(self):
-        win_prob, avg_win, avg_loss = compute_win_loss_stats([10.0, -5.0])
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats([10.0, -5.0])
         assert win_prob == pytest.approx(0.5)
         assert avg_win == pytest.approx(1.0)
         assert avg_loss == pytest.approx(1.0)
 
-    def test_returns_three_values(self):
+    def test_returns_four_values(self):
         result = compute_win_loss_stats([1.0] * 25 + [-1.0] * 25)
-        assert len(result) == 3
+        assert len(result) == 4
 
     def test_empty_list_returns_defaults(self):
-        wp, aw, al = compute_win_loss_stats([])
+        wp, aw, al, _std = compute_win_loss_stats([])
         assert wp == pytest.approx(0.5)
 
     def test_all_wins_returns_defaults(self):
         # No losses → safe default
-        wp, aw, al = compute_win_loss_stats([10.0] * 60)
+        wp, aw, al, _std = compute_win_loss_stats([10.0] * 60)
         assert wp == pytest.approx(0.5)
 
     def test_balanced_pnl_correct_stats(self):
         wins = [10.0] * 30
         losses = [-5.0] * 30
-        wp, aw, al = compute_win_loss_stats(wins + losses)
+        wp, aw, al, _std = compute_win_loss_stats(wins + losses)
         assert wp == pytest.approx(0.5)
         assert aw == pytest.approx(10.0)
         assert al == pytest.approx(5.0)
@@ -284,7 +288,7 @@ class TestComputeWinLossStats:
         # prior_strength=20): posterior = (0.5*20 + 0.7*100)/120.
         wins = [10.0] * 70
         losses = [-5.0] * 30
-        wp, aw, al = compute_win_loss_stats(wins + losses)
+        wp, aw, al, _std = compute_win_loss_stats(wins + losses)
         assert wp == pytest.approx((0.5 * 20 + 0.7 * 100) / 120)
         assert aw == pytest.approx(10.0)
         assert al == pytest.approx(5.0)
@@ -682,6 +686,30 @@ class TestSaveLoad:
         with tempfile.TemporaryDirectory() as d:
             with pytest.raises(FileNotFoundError):
                 ModelTrainer.load_meta(d, "ETH/USDT", "1h")
+
+    def test_load_direction_rejects_path_traversal_timeframe(self):
+        """UI-014: timeframe is interpolated directly into a model filename
+        with no sanitization (unlike symbol) -- must reject traversal-shaped
+        input before it reaches a path join."""
+        with tempfile.TemporaryDirectory() as d:
+            with pytest.raises(ValueError, match="Invalid timeframe"):
+                ModelTrainer.load_direction(d, "BTC/USDT", "../../etc/passwd")
+
+    def test_load_meta_rejects_path_traversal_timeframe(self):
+        with tempfile.TemporaryDirectory() as d:
+            with pytest.raises(ValueError, match="Invalid timeframe"):
+                ModelTrainer.load_meta(d, "BTC/USDT", "../../etc/passwd")
+
+    def test_trainer_constructor_rejects_path_traversal_timeframe(self):
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            ModelTrainer("BTC/USDT", "../../etc")
+
+    def test_trainer_constructor_accepts_non_enum_timeframe_string(self):
+        """Confirms the fix does NOT over-tighten to the 3-value Timeframe
+        enum -- "1h" and similar free-form strings remain valid, matching
+        existing usage across this test suite and storage call sites."""
+        trainer = ModelTrainer("BTC/USDT", "1h")
+        assert trainer._timeframe == "1h"
 
 
 # ---------------------------------------------------------------------------

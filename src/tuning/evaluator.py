@@ -23,6 +23,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Final
 
+from scipy import stats as scipy_stats
 from scipy.stats import norm, ttest_ind
 
 
@@ -68,6 +69,74 @@ class EvaluationResult:
             if c.metric_name == metric_name:
                 return c.significant_improvement
         raise KeyError(f"metric {metric_name!r} not in evaluation result")
+
+
+def probabilistic_sharpe_ratio(returns: list[float], benchmark_sr: float = 0.0) -> float:
+    """
+    Bailey & Lopez de Prado (2012) Probabilistic Sharpe Ratio -- the
+    probability that the true (population) Sharpe ratio exceeds
+    `benchmark_sr`, given a finite, possibly skewed/fat-tailed sample.
+
+    A plain Sharpe ratio comparison (as used elsewhere in this module)
+    implicitly assumes i.i.d. normal returns; crypto trade returns are
+    routinely skewed and fat-tailed, which inflates apparent significance
+    under a naive t-test. PSR corrects for this by folding sample
+    skewness and (excess) kurtosis into the standard error of the
+    estimated Sharpe ratio (AFML Ch. 14 / Bailey & Lopez de Prado 2012,
+    "The Sharpe Ratio Efficient Frontier").
+
+    Returns a probability in [0, 1] -- e.g. 0.95 means "95% confident the
+    true Sharpe ratio is above benchmark_sr," not a p-value.
+    """
+    n = len(returns)
+    if n < 2:
+        return 0.5  # no information to distinguish from the benchmark
+
+    stdev = statistics.pstdev(returns)
+    if stdev == 0.0:
+        mean = statistics.mean(returns)
+        return 1.0 if mean > benchmark_sr else 0.0
+
+    mean = statistics.mean(returns)
+    sr = mean / stdev
+    skew = float(scipy_stats.skew(returns, bias=False))
+    excess_kurtosis = float(scipy_stats.kurtosis(returns, fisher=True, bias=False))
+
+    denom = math.sqrt(max(1e-12, 1.0 - skew * sr + (excess_kurtosis / 4.0) * sr**2))
+    z = (sr - benchmark_sr) * math.sqrt(n - 1) / denom
+    return float(norm.cdf(z))
+
+
+def deflated_sharpe_ratio(returns: list[float], n_trials: int, benchmark_sr: float = 0.0) -> float:
+    """
+    Bailey & Lopez de Prado (2014) Deflated Sharpe Ratio -- PSR against a
+    benchmark raised to account for selection bias from having tried
+    `n_trials` independent configurations (the self-tuning loop proposes
+    many challenger values over time; evaluating the best-looking one
+    against a fixed benchmark without this correction systematically
+    overstates significance -- "multiple testing" / backtest overfitting,
+    AFML Ch. 11).
+
+    `n_trials` should be the count of independent PROPOSED attempts on
+    this parameter to date (see TuningAuditLog), not folds within a
+    single backtest.
+    """
+    n_trials = max(1, n_trials)
+    if n_trials == 1:
+        expected_max_sr = benchmark_sr
+    else:
+        # Expected maximum Sharpe ratio across n_trials independent trials
+        # under the null (true SR == benchmark_sr, unit-variance trials),
+        # via the standard extreme-value approximation used in the DSR
+        # derivation.
+        euler_gamma = 0.5772156649015329
+        expected_max_z = (1.0 - euler_gamma) * norm.ppf(
+            1.0 - 1.0 / n_trials
+        ) + euler_gamma * norm.ppf(1.0 - 1.0 / (n_trials * math.e))
+        stdev = statistics.pstdev(returns) if len(returns) > 1 else 0.0
+        expected_max_sr = benchmark_sr + expected_max_z * stdev
+
+    return probabilistic_sharpe_ratio(returns, benchmark_sr=expected_max_sr)
 
 
 class ChallengerEvaluator:

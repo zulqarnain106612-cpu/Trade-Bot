@@ -328,7 +328,9 @@ class TestOrchestratorTick:
         storage = _make_storage()
         orch._storage = storage
 
-        with patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)):
+        with patch(
+            "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+        ):
             await orch._tick(Timeframe.INTRADAY)
 
         assert orch._tick_counts[Timeframe.INTRADAY.value] == 1
@@ -373,12 +375,124 @@ class TestOrchestratorTick:
         orch._last_tick_ts = {Timeframe.INTRADAY.value: 0.0}
 
         with (
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics"),
         ):
             await orch._tick(Timeframe.INTRADAY)
 
         executor.submit_signal.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_tick_logs_missed_trade_when_not_opened(self):
+        """UI-001: any outcome other than 'opened' is logged as a missed trade."""
+        from src.engine.signal_engine import SignalResult
+        from src.regime.detector import RegimePrediction
+        from src.risk.kelly import KellyResult
+
+        orch = _make_orch()
+        executor = _make_executor()
+        executor.submit_signal = AsyncMock(return_value=(None, "rejected"))
+        executor.get_current_equity = AsyncMock(return_value=1000.0)
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+        storage = _make_storage()
+        storage.latest_close = AsyncMock(return_value=None)
+        storage.insert_missed_trade = AsyncMock(return_value=None)
+        orch._storage = storage
+
+        kr = KellyResult(
+            kelly_fraction=0.05,
+            adjusted_fraction=0.05,
+            capital_usd=10000.0,
+            entry_price=42000.0,
+            quantity=0.001,
+            notional_usd=42.0,
+            is_capped=False,
+        )
+        tradeable = SignalResult(
+            tradeable=True,
+            direction=1,
+            p_long=0.75,
+            p_bet=0.7,
+            kelly_result=kr,
+            regime=RegimePrediction(
+                state=1, prob_ranging=0.2, prob_trending=0.7, prob_volatile=0.1
+            ),
+            gate_result=None,
+            skip_reason=None,
+        )
+        mock_engine = MagicMock()
+        mock_engine.tick = AsyncMock(return_value=tradeable)
+        orch._engines = {Timeframe.INTRADAY.value: mock_engine}
+        orch._tick_counts = {Timeframe.INTRADAY.value: 0}
+        orch._last_tick_ts = {Timeframe.INTRADAY.value: 0.0}
+
+        with (
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+            patch("src.engine.orchestrator.update_metrics"),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+
+        storage.insert_missed_trade.assert_called_once()
+        logged = storage.insert_missed_trade.call_args.args[0]
+        assert logged.reason == "rejected"
+        assert logged.regime_at_entry == 1
+
+    @pytest.mark.asyncio
+    async def test_tick_missed_trade_log_failure_does_not_raise(self):
+        """A storage failure while logging a missed trade must never break the trade path."""
+        from src.engine.signal_engine import SignalResult
+        from src.risk.kelly import KellyResult
+
+        orch = _make_orch()
+        executor = _make_executor()
+        executor.submit_signal = AsyncMock(return_value=(None, "skipped"))
+        executor.get_current_equity = AsyncMock(return_value=1000.0)
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+        storage = _make_storage()
+        storage.latest_close = AsyncMock(return_value=None)
+        storage.insert_missed_trade = AsyncMock(side_effect=RuntimeError("db down"))
+        orch._storage = storage
+
+        kr = KellyResult(
+            kelly_fraction=0.05,
+            adjusted_fraction=0.05,
+            capital_usd=10000.0,
+            entry_price=42000.0,
+            quantity=0.001,
+            notional_usd=42.0,
+            is_capped=False,
+        )
+        tradeable = SignalResult(
+            tradeable=True,
+            direction=0,
+            p_long=0.3,
+            p_bet=0.4,
+            kelly_result=kr,
+            regime=None,
+            gate_result=None,
+            skip_reason=None,
+        )
+        mock_engine = MagicMock()
+        mock_engine.tick = AsyncMock(return_value=tradeable)
+        orch._engines = {Timeframe.INTRADAY.value: mock_engine}
+        orch._tick_counts = {Timeframe.INTRADAY.value: 0}
+        orch._last_tick_ts = {Timeframe.INTRADAY.value: 0.0}
+
+        with (
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+            patch("src.engine.orchestrator.update_metrics"),
+        ):
+            await orch._tick(Timeframe.INTRADAY)  # must not raise despite storage failure
+
+        storage.insert_missed_trade.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -801,7 +915,9 @@ class TestTickCorrelationFallback:
                 "src.engine.orchestrator.get_portfolio_correlation",
                 side_effect=RuntimeError("tracker broken"),
             ),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics"),
         ):
             await orch._tick(Timeframe.INTRADAY)
@@ -834,7 +950,9 @@ class TestTickCorrelationFallback:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics"),
             patch.object(
                 orch._drift_adapter,
@@ -878,7 +996,9 @@ class TestTickCorrelationFallback:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics"),
             patch.object(
                 orch._drift_adapter,

@@ -161,8 +161,15 @@ class RiskSettings(BaseSettings):
     # slippage_default_spread_bps : fallback half-spread assumption when the
     #                                live order book is unavailable.
     # slippage_impact_coeff_bps   : impact coefficient applied to
-    #                                sqrt(qty / adv_20d); calibrate per-symbol
-    #                                from realized fills once live data exists.
+    #                                sqrt(qty / adv_20d); this is a live,
+    #                                actively-used constant (src/risk/slippage.py
+    #                                -> gates.py's cost veto), not dormant --
+    #                                src/tuning/bootstrap.py registers it for
+    #                                self-tuning recalibration from realized
+    #                                fills (eval_strategy="realized_fill_error"),
+    #                                but no backtest harness implements that
+    #                                strategy yet (see src/tuning/scheduler.py),
+    #                                so it is not auto-tuned in practice today.
     # slippage_veto_margin_bps    : extra safety margin required on top of
     #                                spread+impact before a signal is allowed
     #                                through gate 0 (never let est. cost == edge).
@@ -312,8 +319,39 @@ class FeatureSettings(BaseSettings):
     # CPCV — AFML Ch.7
     cpcv_n_splits: int = Field(default=10, ge=4)
     cpcv_n_test_splits: int = Field(default=2, ge=1)
-    purge_gap_bars: int = Field(default=5, ge=0)
+    # UI-005: must be >= triple_barrier_max_holding_bars (validated below) —
+    # AFML Ch.7 requires the purge window to span the full label horizon,
+    # since a training sample's triple-barrier label is computed from up to
+    # that many future bars. A purge gap shorter than the label horizon
+    # lets training labels overlap with (leak from) the test fold.
+    purge_gap_bars: int = Field(default=60, ge=0)
     embargo_pct: float = Field(default=0.01, ge=0.0, le=0.5)
+
+    # UI-015: multi-timeframe trend confirmation (Schwager 1993) — see
+    # src.strategies.filters.mtf_trend_aligned. Off by default: enabling
+    # it changes which signals pass the strategy-filter stack (an
+    # additional veto), which is exactly the kind of live-signal-path
+    # behavior change that should be an explicit operator opt-in, not a
+    # default-on change bundled into a bug-fix/enhancement pass.
+    mtf_confirmation_enabled: bool = Field(
+        default=False,
+        description=(
+            "Require the next-higher timeframe's EWM trend to agree with "
+            "the proposed direction (Schwager 1993) before a signal passes "
+            "the strategy filter stack. Off by default -- an operator opt-in."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_purge_gap_covers_label_horizon(self) -> FeatureSettings:
+        if self.purge_gap_bars < self.triple_barrier_max_holding_bars:
+            raise ValueError(
+                f"purge_gap_bars ({self.purge_gap_bars}) must be >= "
+                f"triple_barrier_max_holding_bars ({self.triple_barrier_max_holding_bars}) — "
+                "AFML Ch.7: the purge window must span the full label horizon or "
+                "training labels can leak information from the test fold."
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -442,10 +480,16 @@ class SelfTuningSettings(BaseSettings):
     """
     Self-tuning subsystem kill switch and cadence limits.
 
-    See docs/SELF_TUNING_DESIGN.md. Phase 1 ships with zero parameters
-    registered against the tuning registry, so `enabled` has no live
-    effect yet -- it exists now so the off-by-default posture and the
-    audit/version log paths are fixed before any tuning logic lands.
+    See docs/SELF_TUNING_DESIGN.md. `enabled` is a live master switch:
+    setting it True starts src.tuning.scheduler.AutoTuningScheduler from
+    the API lifespan (src/api/main.py), which registers
+    hmm.entropy_threshold / hmm.entropy_scalar_floor
+    (src/tuning/bootstrap.py) and runs real propose/evaluate/gate cycles
+    against them on a wall-clock interval. `shadow_mode` (below, default
+    True) is what keeps this side-effect-free by default -- an accepted
+    challenger is logged as WOULD_PROMOTE but never written to
+    VersionedConfigStore until an operator explicitly sets
+    SELF_TUNING_SHADOW_MODE=false.
     """
 
     model_config = SettingsConfigDict(env_prefix="SELF_TUNING_", env_file=".env", extra="ignore")

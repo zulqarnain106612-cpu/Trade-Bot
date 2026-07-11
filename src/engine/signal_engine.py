@@ -61,12 +61,22 @@ from src.risk.gates import (
 )
 from src.risk.kelly import KellyResult, compute_position_size
 from src.risk.slippage import SlippageModel
-from src.strategies.filters import apply_all_strategy_filters
+from src.strategies.filters import apply_all_strategy_filters, ewm_trend_signal, mtf_trend_aligned
 from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
 
 
 # Module-level adapter singleton -- stateless, safe to reuse across ticks.
 _PROB_ADAPTER = _ProbAdapter()
+
+# UI-015: next-higher-timeframe pairing for mtf_trend_aligned (Schwager 1993).
+# Timeframe.SWING ("4h") has no higher pair configured, so MTF confirmation
+# is a no-op for it (falls through _MTF_SLOWER_TIMEFRAME.get() -> None).
+_MTF_SLOWER_TIMEFRAME: Final[dict[Timeframe, Timeframe]] = {
+    Timeframe.SCALPING: Timeframe.INTRADAY,  # 1m -> 15m
+    Timeframe.INTRADAY: Timeframe.SWING,  # 15m -> 4h
+}
+_MTF_SLOW_BARS_LIMIT: Final[int] = 250
+_EWM_SPAN_TREND_MIN: Final[int] = 200  # matches filters._EWM_SPAN_TREND default
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -296,7 +306,11 @@ class SignalEngine:
             if mid > 0.0:
                 _live_ob_spread_bps = (ob.spread / mid) * 10_000.0
         except Exception as exc:
-            self._log.debug("signal.ofi_fetch_failed", error=str(exc))
+            # warning, not debug: this degrades order-flow signal quality and
+            # (via the fields cleared below) fails the exchange-stress/whale
+            # gates open -- an operator needs to see this by default, not
+            # only when debug logging happens to be enabled.
+            self._log.warning("signal.ofi_fetch_failed", error=str(exc))
             live_ofi = None
             _exchange_stress = None
             _whale_ratio = None
@@ -313,7 +327,7 @@ class SignalEngine:
                 )
                 _intel_metrics_dict = await _intel_agg.fetch_metrics()
             except Exception as _intel_exc:
-                self._log.debug("signal.intel_fetch_failed", error=str(_intel_exc))
+                self._log.warning("signal.intel_fetch_failed", error=str(_intel_exc))
                 _intel_metrics_dict = {}
 
             # Probabilistic post-processing: replace deterministic scalars with
@@ -594,6 +608,55 @@ class SignalEngine:
                 gate_result=gate_result,
                 skip_reason=_reason,
             )
+
+        # 10b. UI-015: multi-timeframe trend confirmation (Schwager 1993) —
+        # opt-in via FeatureSettings.mtf_confirmation_enabled (default False).
+        # Only take this timeframe's signal when the next-higher timeframe's
+        # trend agrees with the proposed direction.
+        if self._cfg.features.mtf_confirmation_enabled:
+            _slow_tf = _MTF_SLOWER_TIMEFRAME.get(self._timeframe)
+            if _slow_tf is not None:
+                try:
+                    _slow_tf_seconds = TIMEFRAME_SECONDS.get(_slow_tf, 3600)
+                    _slow_cutoff_ts = int(
+                        (datetime.now(tz=UTC).timestamp() - _MTF_SLOW_BARS_LIMIT * _slow_tf_seconds)
+                        * 1000
+                    )
+                    _slow_records = await self._storage.fetch_bars(
+                        symbol=self._symbol,
+                        timeframe=_slow_tf.value,
+                        since_ts=_slow_cutoff_ts,
+                        limit=_MTF_SLOW_BARS_LIMIT,
+                    )
+                    if len(_slow_records) >= _EWM_SPAN_TREND_MIN:
+                        _slow_close = pd.Series(
+                            [r.close for r in _slow_records],
+                            index=[r.ts for r in _slow_records],
+                        ).sort_index()
+                        _fast_signal = ewm_trend_signal(bars["close"])
+                        _slow_signal = ewm_trend_signal(_slow_close)
+                        if not mtf_trend_aligned(_fast_signal, _slow_signal, direction):
+                            _reason = (
+                                f"mtf_trend_misaligned:{self._timeframe.value}_vs_{_slow_tf.value}"
+                            )
+                            _emit_audit("skipped", _reason, kelly_result, gate_result)
+                            return SignalResult(
+                                tradeable=False,
+                                direction=direction,
+                                p_long=p_long,
+                                p_bet=p_bet,
+                                kelly_result=kelly_result,
+                                regime=regime,
+                                gate_result=gate_result,
+                                skip_reason=_reason,
+                            )
+                except Exception as exc:
+                    # Fails open like the other professional filters when
+                    # their required inputs are unavailable (e.g. overnight
+                    # gap filter skips without open_price/prev_close) --
+                    # a data-fetch hiccup on the confirmation timeframe
+                    # must not block an otherwise-valid signal.
+                    self._log.warning("signal.mtf_confirmation_failed", error=str(exc))
 
         # GAP-008 FIX: filters.py returns a "scalar" (AFML Ch.17 probability-based regime
         # confidence). Previously this was applied multiplicatively on top of the entropy-

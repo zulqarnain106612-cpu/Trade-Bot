@@ -77,8 +77,12 @@ def ewm_trend_signal(close: pd.Series, span: int = _EWM_SPAN_TREND) -> float:
     The signal is the difference between a fast EWM and a slow EWM,
     normalised by the rolling standard deviation of close prices.
 
-    Carver's "EWMAC" = fast_ewma - slow_ewma.  We use span=16 vs span=64
-    as the default "EWMAC16" which Carver identifies as robust across markets.
+    Carver's "EWMAC{N}" naming convention is fast_span = N, slow_span = 4N
+    (e.g. EWMAC16 = fast 16 vs slow 64). This function takes `slow_span`
+    as its `span` parameter and derives fast_span = span // 4, so the
+    module default _EWM_SPAN_TREND=200 gives fast=50 vs slow=200
+    ("EWMAC50"), not Carver's example EWMAC16 -- pass span=64 explicitly
+    to reproduce EWMAC16.
     """
     if len(close) < span:
         return 0.0

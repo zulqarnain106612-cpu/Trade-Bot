@@ -483,8 +483,11 @@ class TestRecommendPositionNotional:
         ]
         assert result["recommended"] >= min(10.0, min(method_values))
 
-    def test_recommended_never_below_min_notional(self):
-        """Recommended floor is _MIN_NOTIONAL_USD (10.0)."""
+    def test_no_edge_recommends_zero_not_floored(self):
+        """UI-007: p_long=0.5/forecast=0.0 is a unanimous 'no edge' from every
+        method (each explicitly returns 0.0, not a small positive value) —
+        the _MIN_NOTIONAL_USD floor must never override that veto into a
+        manufactured minimum-size trade."""
         result = recommend_position_notional(
             capital_usd=100.0,
             price=100.0,
@@ -494,6 +497,23 @@ class TestRecommendPositionNotional:
             forecast=0.0,
             daily_vol_pct=0.02,
         )
+        assert result["recommended"] == 0.0
+
+    def test_recommended_floored_to_min_notional_when_real_edge_below_floor(self):
+        """When every method agrees on a real (positive) but sub-exchange-
+        minimum notional, the floor should still apply -- only the
+        no-edge/zero case must bypass it."""
+        result = recommend_position_notional(
+            capital_usd=10000.0,
+            price=100.0,
+            p_long=0.55,
+            win_prob=0.55,
+            win_loss_ratio=1.1,
+            forecast=1.0,
+            daily_vol_pct=0.5,  # heavy variance penalty shrinks thorp toward ~0
+            kelly_ceiling=0.001,  # forces a tiny but positive ceiling
+        )
+        assert result["recommended"] > 0.0
         assert result["recommended"] >= 10.0
 
     def test_high_correlation_reduces_recommendation(self):

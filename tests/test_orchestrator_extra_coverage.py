@@ -257,7 +257,9 @@ class TestTickUncoveredBranches:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
         ):
             await orch._tick(Timeframe.INTRADAY)
 
@@ -279,7 +281,9 @@ class TestTickUncoveredBranches:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
         ):
             await orch._tick(Timeframe.INTRADAY)
 
@@ -315,7 +319,9 @@ class TestTickUncoveredBranches:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics"),
         ):
             await orch._tick(Timeframe.INTRADAY)
@@ -355,7 +361,9 @@ class TestTickUncoveredBranches:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics"),
         ):
             await orch._tick(Timeframe.INTRADAY)
@@ -379,7 +387,9 @@ class TestTickUncoveredBranches:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
         ):
             await orch._tick(Timeframe.INTRADAY)
 
@@ -595,7 +605,9 @@ class TestTickUpdateMetricsFailure:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
             patch("src.engine.orchestrator.update_metrics", side_effect=RuntimeError("prom down")),
         ):
             await orch._tick(Timeframe.INTRADAY)  # must not raise
@@ -785,7 +797,9 @@ class TestTickScheduledRetrain:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
         ):
             await orch._tick(Timeframe.INTRADAY)
             await asyncio.sleep(0)  # let the fire-and-forget task run
@@ -809,7 +823,9 @@ class TestTickScheduledRetrain:
 
         with (
             patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
-            patch("src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0)),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
         ):
             await orch._tick(Timeframe.INTRADAY)
 

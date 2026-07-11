@@ -86,9 +86,7 @@ class OrderManager:
 
         # Confirm the fill
         try:
-            confirmed_order = await self._confirm_order_fill(
-                exchange, order_id, symbol, fsm
-            )
+            confirmed_order = await self._confirm_order_fill(exchange, order_id, symbol, fsm)
             fsm.state.exchange_response = confirmed_order
             return fsm, confirmed_order
         except TimeoutError:
@@ -130,9 +128,7 @@ class OrderManager:
         while True:
             elapsed = asyncio.get_event_loop().time() - start_time
             if elapsed > timeout_s:
-                raise TimeoutError(
-                    f"Order {order_id} confirmation exceeded {timeout_s}s"
-                )
+                raise TimeoutError(f"Order {order_id} confirmation exceeded {timeout_s}s")
 
             if attempt > 0:
                 await asyncio.sleep(_ORDER_CONFIRM_INTERVAL)
@@ -147,11 +143,50 @@ class OrderManager:
                 if status in {"closed", "filled"}:
                     # Order fully filled
                     filled_qty = float(confirmed.get("filled") or confirmed.get("amount", 0))
-                    avg_price = float(
-                        confirmed.get("average")
-                        or confirmed.get("price")
-                        or 0
-                    )
+                    # UI-009: check each field with `is None`, not `or` --
+                    # `confirmed.get("average") or confirmed.get("price")`
+                    # would treat an explicit 0.0 fill price exactly like a
+                    # missing field (0.0 is falsy) and silently fall through
+                    # to the next field / to a 0.0 default. A real fill
+                    # price is never legitimately 0.0, so both "missing" and
+                    # "explicitly zero" must be rejected the same way.
+                    average_field = confirmed.get("average")
+                    price_field = confirmed.get("price")
+                    raw_avg_price = average_field if average_field is not None else price_field
+                    if raw_avg_price is None or float(raw_avg_price) <= 0.0:
+                        # An exchange reporting "filled" with no usable fill
+                        # price is a malformed/untrustworthy response --
+                        # silently defaulting to avg_price=0.0 would corrupt
+                        # PnL/notional accounting (a position recorded as
+                        # "acquired for free") rather than surfacing the
+                        # anomaly. Fail loudly so this gets a manual
+                        # reconciliation, matching the UNTRACKED_POSITION
+                        # critical-log pattern used elsewhere in the live
+                        # path for exchange responses that can't be trusted.
+                        self._log.critical(
+                            "order_manager.filled_order_missing_fill_price",
+                            order_id=order_id,
+                            symbol=symbol,
+                            exchange_response=confirmed,
+                            action="MANUAL_RECONCILIATION_REQUIRED",
+                        )
+                        # Transition to FAILED here (not left to a caller's
+                        # except clause) since ValueError isn't one of the
+                        # exception types place_order_with_fsm's caller
+                        # already catches to perform this transition.
+                        fsm.transition(
+                            OrderStatus.FAILED,
+                            {
+                                "error": "filled order missing fill price",
+                                "exchange_response": confirmed,
+                            },
+                        )
+                        raise ValueError(
+                            f"Order {order_id} reported {status!r} but exchange "
+                            "response has no usable 'average'/'price' field "
+                            "-- cannot safely record a fill price."
+                        )
+                    avg_price = float(raw_avg_price)
                     # BUGFIX (found during audit, 2026-06-25): the FSM may
                     # already be in FILLING if a prior poll iteration saw an
                     # "open"/"pending" exchange status first (see the
@@ -207,9 +242,7 @@ class OrderManager:
                         OrderStatus.CANCELLED,
                         {"exchange_response": confirmed},
                     )
-                    raise ccxt.ExchangeError(
-                        f"Order {order_id} was cancelled on exchange"
-                    )
+                    raise ccxt.ExchangeError(f"Order {order_id} was cancelled on exchange")
 
                 else:
                     # Unknown status

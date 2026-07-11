@@ -26,7 +26,11 @@ import statistics
 from dataclasses import dataclass
 
 from src.config import FeatureSettings, HMMSettings
-from src.tuning.evaluator import ChallengerEvaluator, MetricComparison
+from src.tuning.evaluator import (
+    ChallengerEvaluator,
+    MetricComparison,
+    probabilistic_sharpe_ratio,
+)
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,8 @@ def run_entropy_threshold_backtest(
     challenger_fold_sharpes: list[float] = []
     champion_fold_dd: list[float] = []
     challenger_fold_dd: list[float] = []
+    champion_fold_psr: list[float] = []
+    challenger_fold_psr: list[float] = []
     champion_wins = 0
     challenger_wins = 0
     total_trades = 0
@@ -141,6 +147,11 @@ def run_entropy_threshold_backtest(
         challenger_fold_sharpes.append(_fold_sharpe(challenger_returns))
         champion_fold_dd.append(_max_drawdown_inverted(champion_returns))
         challenger_fold_dd.append(_max_drawdown_inverted(challenger_returns))
+        # Bailey & Lopez de Prado PSR -- confidence the fold's true Sharpe
+        # ratio is positive, correcting for skew/kurtosis of the fold's
+        # return distribution rather than assuming normality (AFML Ch. 14).
+        champion_fold_psr.append(probabilistic_sharpe_ratio(champion_returns))
+        challenger_fold_psr.append(probabilistic_sharpe_ratio(challenger_returns))
 
         champion_wins += sum(1 for r in champion_returns if r > 0)
         challenger_wins += sum(1 for r in challenger_returns if r > 0)
@@ -150,6 +161,9 @@ def run_entropy_threshold_backtest(
     comparisons = [
         evaluator.compare_metric("oos_sharpe", champion_fold_sharpes, challenger_fold_sharpes),
         evaluator.compare_metric("max_drawdown_inverted", champion_fold_dd, challenger_fold_dd),
+        evaluator.compare_metric(
+            "probabilistic_sharpe_ratio", champion_fold_psr, challenger_fold_psr
+        ),
         evaluator.compare_proportion(
             "win_rate",
             champion_p=champion_wins / total_trades if total_trades else 0.0,

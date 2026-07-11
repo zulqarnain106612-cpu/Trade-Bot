@@ -297,7 +297,16 @@ def recommend_position_notional(
         "correlation_adjusted": round(corr_adj_thorp, 2),
     }
 
-    # Conservative minimum — all methods must agree
-    recommended = max(_MIN_NOTIONAL_USD, min(thorp, afml, carver, corr_adj_thorp))
+    # UI-007: the most conservative (minimum) of the four methods, floored
+    # to _MIN_NOTIONAL_USD -- but ONLY when that minimum is itself positive.
+    # thorp/afml/carver each return exactly 0.0 to mean "no edge, do not
+    # trade" (see afml_bet_size, thorp_kelly_with_variance above); flooring
+    # a unanimous 0.0 up to _MIN_NOTIONAL_USD silently overrode that veto
+    # and forced a minimum-size trade even when every method agreed there
+    # was no edge. The floor exists only to avoid recommending a real but
+    # sub-exchange-minimum notional (e.g. $0.03), not to manufacture a
+    # trade out of no edge.
+    raw_min = min(thorp, afml, carver, corr_adj_thorp)
+    recommended = 0.0 if raw_min <= 0.0 else max(_MIN_NOTIONAL_USD, raw_min)
     notionals["recommended"] = round(recommended, 2)
     return notionals

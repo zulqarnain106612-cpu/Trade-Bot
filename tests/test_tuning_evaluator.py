@@ -1,6 +1,13 @@
+import random
+
 import pytest
 
-from src.tuning.evaluator import ChallengerEvaluator, InsufficientSampleError
+from src.tuning.evaluator import (
+    ChallengerEvaluator,
+    InsufficientSampleError,
+    deflated_sharpe_ratio,
+    probabilistic_sharpe_ratio,
+)
 
 
 def test_compare_metric_significant_improvement() -> None:
@@ -102,3 +109,68 @@ def test_evaluation_result_improved_unknown_metric_raises() -> None:
     result = evaluator.evaluate("p", 0.6, [])
     with pytest.raises(KeyError):
         result.improved("does_not_exist")
+
+
+# ---------------------------------------------------------------------------
+# Probabilistic / Deflated Sharpe Ratio (Bailey & Lopez de Prado)
+# ---------------------------------------------------------------------------
+
+
+def test_psr_high_confidence_for_strong_positive_sharpe() -> None:
+    rng = random.Random(1)
+    returns = [rng.gauss(0.02, 0.01) for _ in range(200)]  # SR ~= 2.0
+    psr = probabilistic_sharpe_ratio(returns, benchmark_sr=0.0)
+    assert psr > 0.99
+
+
+def test_psr_low_confidence_for_negative_mean_returns() -> None:
+    rng = random.Random(2)
+    returns = [rng.gauss(-0.02, 0.01) for _ in range(200)]
+    psr = probabilistic_sharpe_ratio(returns, benchmark_sr=0.0)
+    assert psr < 0.01
+
+
+def test_psr_averages_near_half_for_zero_mean_noise() -> None:
+    """PSR(true SR == 0) is, by construction, ~Uniform(0, 1) for any single
+    noise realization -- so a single sample can legitimately land anywhere
+    in (0, 1). Averaged over many independent realizations it must center
+    on 0.5, which is what this checks."""
+    rng = random.Random(3)
+    psr_values = [
+        probabilistic_sharpe_ratio([rng.gauss(0.0, 0.01) for _ in range(60)], benchmark_sr=0.0)
+        for _ in range(300)
+    ]
+    assert 0.4 < (sum(psr_values) / len(psr_values)) < 0.6
+
+
+def test_psr_degenerate_zero_variance_above_benchmark() -> None:
+    assert probabilistic_sharpe_ratio([0.01] * 20, benchmark_sr=0.0) == 1.0
+    assert probabilistic_sharpe_ratio([-0.01] * 20, benchmark_sr=0.0) == 0.0
+
+
+def test_psr_insufficient_samples_returns_no_information() -> None:
+    assert probabilistic_sharpe_ratio([0.01], benchmark_sr=0.0) == 0.5
+    assert probabilistic_sharpe_ratio([], benchmark_sr=0.0) == 0.5
+
+
+def test_dsr_deflates_relative_to_plain_psr_as_trials_increase() -> None:
+    """More independent trials must never make the deflated confidence
+    higher than fewer trials -- otherwise the multiple-testing correction
+    would be backwards."""
+    rng = random.Random(4)
+    returns = [rng.gauss(0.01, 0.01) for _ in range(200)]
+
+    psr_1_trial = deflated_sharpe_ratio(returns, n_trials=1)
+    dsr_10_trials = deflated_sharpe_ratio(returns, n_trials=10)
+    dsr_100_trials = deflated_sharpe_ratio(returns, n_trials=100)
+
+    assert dsr_10_trials <= psr_1_trial
+    assert dsr_100_trials <= dsr_10_trials
+
+
+def test_dsr_with_one_trial_equals_plain_psr() -> None:
+    rng = random.Random(5)
+    returns = [rng.gauss(0.01, 0.01) for _ in range(100)]
+    assert deflated_sharpe_ratio(returns, n_trials=1) == pytest.approx(
+        probabilistic_sharpe_ratio(returns, benchmark_sr=0.0)
+    )

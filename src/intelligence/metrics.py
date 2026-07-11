@@ -33,7 +33,9 @@ class IntelligenceMetrics:
 
     # Exchange flow metrics (6)
     exchange_netflow_7d_zscore: float  # Z-score of netflow vs 30d MA
-    whale_buy_sell_ratio: float  # Large txn buy/sell volume ratio
+    whale_buy_sell_ratio: (
+        float  # Normalized large-txn buy/sell sentiment, -1 (bearish) to +1 (bullish)
+    )
     exchange_reserve_ratio: float  # Coins on exchange / total supply
     miner_netflow_signal: float  # Miner selling pressure (-1 to +1)
     staking_unlock_risk: float  # Upcoming unlock events (0-1 score)
@@ -157,15 +159,19 @@ class IntelligenceAnalyzer:
             missing_metrics += 1
             confidence -= self._missing_data_penalty
 
-        # Whale sentiment: buy/sell ratio
-        whale_ratio = 1.0
+        # Whale sentiment: buy/sell ratio, normalized to [-1, 1]
+        whale_ratio = 0.0
         try:
-            whale_ratio = whale_activity.get("ratio", 1.0)
-            # Clamp and normalize: ratio > 3 = bullish, < 0.33 = bearish
-            np.clip(np.log(whale_ratio + 0.01) / np.log(3), -1, 1)
+            raw_whale_ratio = whale_activity.get("ratio", 1.0)
+            # UI-010: this normalized value was previously computed and
+            # discarded -- the function went on to return the raw,
+            # unbounded raw_whale_ratio instead (e.g. a ratio=50 whale
+            # spike propagated as 50 rather than being clamped to 1).
+            # Clamp and normalize: ratio > 3 = bullish (+1), < 0.33 = bearish (-1).
+            whale_ratio = float(np.clip(np.log(raw_whale_ratio + 0.01) / np.log(3), -1, 1))
         except Exception as e:
             log.warning("whale_ratio_compute_failed", error=str(e))
-            whale_ratio = 1.0
+            whale_ratio = 0.0
             missing_metrics += 1
             confidence -= self._missing_data_penalty
 

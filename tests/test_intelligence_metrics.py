@@ -190,3 +190,24 @@ class TestComputeMetricsConfidenceFix:
         assert not math.isnan(metrics.binance_funding_rate_pct)
         assert not math.isnan(metrics.exchange_stress_score)
         assert metrics.binance_funding_rate_pct == pytest.approx(0.02)
+
+    def test_whale_buy_sell_ratio_is_normalized_not_raw(self):
+        """UI-010: whale_buy_sell_ratio must be the normalized [-1, 1] value
+        (the log/np.clip computation was previously computed and discarded,
+        silently returning the raw unbounded ratio instead)."""
+        analyzer = IntelligenceAnalyzer()
+        # A large raw ratio (50) must clamp to +1.0, not propagate as 50.
+        metrics = analyzer.compute_metrics(
+            exchange_netflow={"netflow": 100.0},
+            whale_activity={"ratio": 50.0},
+            funding_rate={"rate_pct": 0.02},
+        )
+        assert metrics.whale_buy_sell_ratio == pytest.approx(1.0)
+
+        # A tiny raw ratio (near 0, heavy selling) must clamp to -1.0.
+        metrics_bearish = analyzer.compute_metrics(
+            exchange_netflow={"netflow": 100.0},
+            whale_activity={"ratio": 0.001},
+            funding_rate={"rate_pct": 0.02},
+        )
+        assert metrics_bearish.whale_buy_sell_ratio == pytest.approx(-1.0)
