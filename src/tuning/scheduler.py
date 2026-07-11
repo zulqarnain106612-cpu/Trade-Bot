@@ -20,23 +20,33 @@ true. Every safety rail from the original design stays in force:
     regress checks on every attempt.
 
 `hmm.entropy_threshold` / `hmm.entropy_scalar_floor` (Phase 4),
-`risk.slippage_impact_coeff_bps` (Phase 8 item 2), and the five
-`features.*_window` parameters (Phase 8 item 3) each have a working
-backtest harness (run_entropy_threshold_backtest /
-run_slippage_coeff_backtest / run_feature_window_backtest respectively).
-Any other registered parameter with no evaluate_fn is intentionally left
-unscheduled here.
+`risk.slippage_impact_coeff_bps` (Phase 8 item 2), the five
+`features.*_window` parameters (Phase 8 item 3), and the eight
+`xgboost.*` hyperparameters (Phase 8 item 4) each have a working backtest
+harness (run_entropy_threshold_backtest / run_slippage_coeff_backtest /
+run_feature_window_backtest / run_xgboost_hyperparam_backtest
+respectively). Any other registered parameter with no evaluate_fn is
+intentionally left unscheduled here.
 
 The feature-window harness additionally requires a previously trained,
 saved direction model (ModelTrainer.load_direction) -- on a fresh
 deployment with no model trained yet, that parameter group is skipped
 cleanly every cycle (FileNotFoundError is an expected state, not an
 error) until training produces one.
+
+The XGBoost hyperparameter harness is materially more expensive than the
+other three (it fits real models via full CPCV retraining, not a cheap
+vectorised replay) -- per the design doc, it (a) only runs every
+`xgboost_cycle_interval`-th cycle, not every interval tick, and (b) runs
+via `loop.run_in_executor` so a multi-second-to-minutes retrain does not
+block this process's asyncio event loop (the live API/trading loop runs
+on the same loop).
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import math
 
 import pandas as pd
@@ -45,20 +55,25 @@ from xgboost import XGBClassifier
 
 from src.config import Settings
 from src.data.storage import AnyStorageBackend
+from src.features.pipeline import build_feature_matrix
 from src.models.trainer import ModelTrainer
 from src.tuning.backtest_harness import (
+    XGBOOST_INT_FIELDS,
     SlippageFillSample,
     TradeSample,
     run_entropy_threshold_backtest,
     run_feature_window_backtest,
     run_slippage_coeff_backtest,
+    run_xgboost_hyperparam_backtest,
 )
 from src.tuning.bootstrap import (
     FEATURE_WINDOW_FIELDS,
+    XGBOOST_HYPERPARAM_FIELDS,
     register_feature_window_param,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
     register_slippage_impact_coeff,
+    register_xgboost_hyperparam_param,
 )
 from src.tuning.evaluator import MetricComparison
 from src.tuning.proposer import Proposal
@@ -99,12 +114,21 @@ class AutoTuningScheduler:
         symbol: str,
         timeframe: str,
         interval_hours: float = 1.0,
+        xgboost_cycle_interval: int = 24,
     ) -> None:
         self._storage = storage
         self._settings = settings
         self._symbol = symbol
         self._timeframe = timeframe
         self._interval_s = max(60.0, interval_hours * 3600.0)
+        # XGBoost hyperparameter attempts do a full CPCV retrain and are far
+        # more expensive than the other three parameter groups -- only run
+        # them every Nth cycle, not every interval tick. A freshly
+        # constructed scheduler starts at cycle 0 (0 % N == 0 for any N), so
+        # the first cycle -- whether reached via _loop() or a direct
+        # _attempt_all() call in tests -- always attempts them once.
+        self._xgboost_cycle_interval = max(1, xgboost_cycle_interval)
+        self._cycle_count = 0
         self._task: asyncio.Task[None] | None = None
         self._stopped = False
 
@@ -118,6 +142,9 @@ class AutoTuningScheduler:
         for field_name in FEATURE_WINDOW_FIELDS:
             if not parameter_registry.is_registered(f"features.{field_name}"):
                 register_feature_window_param(parameter_registry, field_name, self._settings)
+        for field_name in XGBOOST_HYPERPARAM_FIELDS:
+            if not parameter_registry.is_registered(f"xgboost.{field_name}"):
+                register_xgboost_hyperparam_param(parameter_registry, field_name, self._settings)
         self._task = asyncio.create_task(self._loop(), name="auto_tuning_scheduler")
         log.info(
             "tuning.scheduler_started",
@@ -136,6 +163,7 @@ class AutoTuningScheduler:
                 if await pause_state.is_paused():
                     log.info("tuning.scheduler_paused")
                 else:
+                    self._cycle_count += 1
                     await self._attempt_all()
             except Exception as exc:
                 log.error("tuning.scheduler_attempt_failed", error=str(exc))
@@ -234,16 +262,16 @@ class AutoTuningScheduler:
                     error=str(exc),
                 )
 
-        direction_model = self._load_direction_model()
-        if direction_model is None:
-            log.info("tuning.scheduler_no_direction_model")
+        bars_df = await self._build_feature_bars_df()
+        if bars_df is None or len(bars_df) < _MIN_FEATURE_BARS:
+            log.info(
+                "tuning.scheduler_insufficient_feature_bars",
+                n_bars=0 if bars_df is None else len(bars_df),
+            )
         else:
-            bars_df = await self._build_feature_bars_df()
-            if bars_df is None or len(bars_df) < _MIN_FEATURE_BARS:
-                log.info(
-                    "tuning.scheduler_insufficient_feature_bars",
-                    n_bars=0 if bars_df is None else len(bars_df),
-                )
+            direction_model = self._load_direction_model()
+            if direction_model is None:
+                log.info("tuning.scheduler_no_direction_model")
             else:
                 for field_name in FEATURE_WINDOW_FIELDS:
                     param_name = f"features.{field_name}"
@@ -278,6 +306,72 @@ class AutoTuningScheduler:
                         log.error(
                             "tuning.scheduler_attempt_error", param=param_name, error=str(exc)
                         )
+
+            # XGBoost hyperparameters -- needs only bar history (it trains its
+            # own champion/challenger models from scratch), but is expensive
+            # enough to be throttled to once every `xgboost_cycle_interval`
+            # cycles and run off the event loop via run_in_executor.
+            if self._cycle_count % self._xgboost_cycle_interval != 0:
+                log.info(
+                    "tuning.scheduler_xgboost_cycle_skipped",
+                    cycle=self._cycle_count,
+                    interval=self._xgboost_cycle_interval,
+                )
+            else:
+                try:
+                    xgb_fm = build_feature_matrix(bars_df, cfg=self._settings.features)
+                except ValueError as exc:
+                    log.info("tuning.scheduler_xgboost_feature_matrix_unavailable", error=str(exc))
+                else:
+                    loop = asyncio.get_running_loop()
+                    for field_name in XGBOOST_HYPERPARAM_FIELDS:
+                        param_name = f"xgboost.{field_name}"
+
+                        def evaluate_xgb(
+                            _param: TunableParameter,
+                            proposal: Proposal,
+                            _field_name: str = field_name,
+                        ) -> list[MetricComparison]:
+                            champion_value = proposal.champion_value
+                            challenger_value = proposal.challenger_value
+                            if _field_name in XGBOOST_INT_FIELDS:
+                                champion_value = round(champion_value)
+                                challenger_value = round(challenger_value)
+                            return run_xgboost_hyperparam_backtest(
+                                xgb_fm,
+                                field_name=_field_name,
+                                champion_value=champion_value,
+                                challenger_value=challenger_value,
+                                base_xgb_cfg=self._settings.xgboost,
+                                symbol=self._symbol,
+                                timeframe=self._timeframe,
+                                feature_cfg=self._settings.features,
+                            )
+
+                        try:
+                            result = await loop.run_in_executor(
+                                None,
+                                functools.partial(
+                                    runner.attempt,
+                                    param_name,
+                                    evaluate_xgb,
+                                    primary_metric="oos_sharpe",
+                                ),
+                            )
+                            log.info(
+                                "tuning.scheduler_attempt",
+                                param=param_name,
+                                attempted=result.attempted,
+                                accepted=result.accepted,
+                                promoted=result.promoted,
+                                reasons=result.reasons,
+                            )
+                        except Exception as exc:
+                            log.error(
+                                "tuning.scheduler_attempt_error",
+                                param=param_name,
+                                error=str(exc),
+                            )
 
     def _load_direction_model(self) -> XGBClassifier | None:
         try:

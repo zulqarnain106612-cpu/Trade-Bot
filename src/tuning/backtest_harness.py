@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 
-from src.config import FeatureSettings, HMMSettings
+from src.config import FeatureSettings, HMMSettings, XGBoostSettings
 from src.features.pipeline import (
     COL_ATR_MOMENTUM,
     COL_OFI,
@@ -39,6 +39,7 @@ from src.features.pipeline import (
     COL_VOLUME_ZSCORE,
     COL_VWAP_DEV,
     FEATURE_COLUMNS,
+    FeatureMatrix,
     atr_momentum,
     build_feature_matrix,
     order_flow_imbalance,
@@ -46,7 +47,8 @@ from src.features.pipeline import (
     volume_zscore,
     vwap_deviation_zscore,
 )
-from src.models.trainer import oos_sharpe_and_drawdown
+from src.models.trainer import ModelTrainer, oos_sharpe_and_drawdown
+from src.tuning.bootstrap import XGBOOST_HYPERPARAM_FIELDS
 from src.tuning.evaluator import (
     ChallengerEvaluator,
     MetricComparison,
@@ -458,4 +460,79 @@ def run_feature_window_backtest(
             challenger_p=challenger_wins / total_bars if total_bars else 0.0,
             challenger_n=total_bars,
         ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 item 4 -- XGBoost hyperparameters
+# ---------------------------------------------------------------------------
+
+# Fields whose champion/challenger value must be an integer before being
+# passed to XGBoostSettings.model_copy() -- model_copy() does not
+# re-validate, so a float slipped into an int field would reach
+# XGBClassifier's constructor un-coerced.
+XGBOOST_INT_FIELDS: frozenset[str] = frozenset({"n_estimators", "max_depth", "min_child_weight"})
+
+
+class UnknownXGBHyperparamFieldError(ValueError):
+    """Raised when run_xgboost_hyperparam_backtest is asked to vary an
+    XGBoostSettings field with no bounds/support registered."""
+
+
+def run_xgboost_hyperparam_backtest(
+    fm: FeatureMatrix,
+    field_name: str,
+    champion_value: float,
+    challenger_value: float,
+    base_xgb_cfg: XGBoostSettings,
+    symbol: str,
+    timeframe: str,
+    feature_cfg: FeatureSettings | None = None,
+) -> list[MetricComparison]:
+    """
+    Recalibrate one XGBoost hyperparameter (Phase 8 item 4) via FULL CPCV
+    retraining -- unlike every other harness in this module, this is
+    genuinely expensive (fits len(folds) x 2 real XGBoost models per
+    attempt) and is the reason the design doc ranks this parameter group
+    last, only after cheaper parameters establish the harness pattern is
+    trustworthy. This function is plain synchronous code, same as every
+    other harness here; the CALLER (src/tuning/scheduler.py) is
+    responsible for running it off the asyncio event loop (a thread-pool
+    executor) so a multi-second-to-minutes retrain doesn't stall the
+    live API/trading loop.
+
+    Reuses ModelTrainer.train_direction's existing CPCV harness directly
+    rather than reimplementing fold construction / retraining -- this is
+    the SAME code path that trains the live-deployed model, so unlike
+    items 1-3 (which test a frozen model's sensitivity to a perturbed
+    input), this is a faithful "would a model retrained with this
+    hyperparameter generalize better" comparison.
+    """
+    if field_name not in XGBOOST_HYPERPARAM_FIELDS:
+        raise UnknownXGBHyperparamFieldError(
+            f"no bounds registered for XGBoost field {field_name!r}; "
+            f"supported: {sorted(XGBOOST_HYPERPARAM_FIELDS)}"
+        )
+    if feature_cfg is None:
+        feature_cfg = FeatureSettings()
+
+    champion_cfg = base_xgb_cfg.model_copy(update={field_name: champion_value})
+    challenger_cfg = base_xgb_cfg.model_copy(update={field_name: challenger_value})
+
+    champion_result = ModelTrainer(
+        symbol, timeframe, xgb_cfg=champion_cfg, feature_cfg=feature_cfg
+    ).train_direction(fm)
+    challenger_result = ModelTrainer(
+        symbol, timeframe, xgb_cfg=challenger_cfg, feature_cfg=feature_cfg
+    ).train_direction(fm)
+
+    champion_sharpes = [f.sharpe for f in champion_result.fold_metrics]
+    challenger_sharpes = [f.sharpe for f in challenger_result.fold_metrics]
+    champion_acc = [f.accuracy for f in champion_result.fold_metrics]
+    challenger_acc = [f.accuracy for f in challenger_result.fold_metrics]
+
+    evaluator = ChallengerEvaluator()
+    return [
+        evaluator.compare_metric("oos_sharpe", champion_sharpes, challenger_sharpes),
+        evaluator.compare_metric("accuracy", champion_acc, challenger_acc),
     ]

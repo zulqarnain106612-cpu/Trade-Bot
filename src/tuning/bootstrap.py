@@ -149,3 +149,76 @@ def register_feature_window_param(
     )
     registry.register(param)
     return param
+
+
+# Phase 8 item 4 -- the eight tunable XGBoost hyperparameters, each with its
+# own valid range from XGBoostSettings' own Pydantic field constraints
+# (src/config.py), clamped the same way register_hmm_entropy_threshold
+# clamps to HMMSettings' [0, 1]. Consumed by
+# backtest_harness.run_xgboost_hyperparam_backtest, which does a full CPCV
+# retrain per candidate -- the most expensive parameter group, evaluated
+# last per the design doc's ordering.
+XGBOOST_HYPERPARAM_FIELDS: frozenset[str] = frozenset(
+    {
+        "n_estimators",
+        "max_depth",
+        "learning_rate",
+        "subsample",
+        "colsample_bytree",
+        "min_child_weight",
+        "reg_alpha",
+        "reg_lambda",
+    }
+)
+
+_XGB_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
+    # Fields with a Pydantic upper bound (src/config.py XGBoostSettings) use
+    # it directly. Fields with no upper bound get a generous but finite
+    # safety ceiling (same "arbitrary but reasonable backstop" convention as
+    # register_slippage_impact_coeff's ceiling=2000.0) -- math.inf would let
+    # the proposer's `range_width * step_pct` step computation produce inf
+    # or NaN, which must never reach XGBClassifier's constructor.
+    "n_estimators": (10.0, 2000.0),
+    "max_depth": (1.0, 20.0),
+    "learning_rate": (1e-5, 1.0),
+    "subsample": (0.1, 1.0),
+    "colsample_bytree": (0.1, 1.0),
+    "min_child_weight": (1.0, 100.0),
+    "reg_alpha": (0.0, 100.0),
+    "reg_lambda": (0.0, 100.0),
+}
+
+
+def register_xgboost_hyperparam_param(
+    registry: ParameterRegistry, field_name: str, settings: Settings | None = None
+) -> TunableParameter:
+    """
+    Phase 8 item 4 -- one XGBoostSettings hyperparameter at a time.
+
+    Evaluated by backtest_harness.run_xgboost_hyperparam_backtest, which
+    trains real champion and challenger models via ModelTrainer's own
+    CPCV harness (not a frozen-model sensitivity test like items 1-3) --
+    the most faithful but also the most expensive evaluation in this
+    subsystem.
+    """
+    if field_name not in XGBOOST_HYPERPARAM_FIELDS:
+        raise ValueError(
+            f"{field_name!r} is not a registered XGBoost hyperparameter field; "
+            f"supported: {sorted(XGBOOST_HYPERPARAM_FIELDS)}"
+        )
+    settings = settings or get_settings()
+    current = float(getattr(settings.xgboost, field_name))
+    floor, ceiling = _symmetric_bounds(current)
+    field_floor, field_ceiling = _XGB_FIELD_BOUNDS[field_name]
+    floor = max(field_floor, floor)
+    ceiling = min(field_ceiling, ceiling)
+    param = TunableParameter(
+        name=f"xgboost.{field_name}",
+        description=f"XGBoost hyperparameter {field_name}, recalibrated via full CPCV retraining.",
+        floor=floor,
+        ceiling=ceiling,
+        current=current,
+        eval_strategy="cpcv_full_retrain",
+    )
+    registry.register(param)
+    return param

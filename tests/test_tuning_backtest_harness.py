@@ -5,13 +5,14 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
-from src.config import FeatureSettings
-from src.features.pipeline import FEATURE_COLUMNS
+from src.config import FeatureSettings, XGBoostSettings
+from src.features.pipeline import FEATURE_COLUMNS, build_feature_matrix
 from src.tuning.backtest_harness import (
     InsufficientDataError,
     SlippageFillSample,
     TradeSample,
     UnknownFeatureWindowFieldError,
+    UnknownXGBHyperparamFieldError,
     _fold_sharpe,
     _make_folds,
     _max_drawdown_inverted,
@@ -22,6 +23,7 @@ from src.tuning.backtest_harness import (
     run_entropy_threshold_backtest,
     run_feature_window_backtest,
     run_slippage_coeff_backtest,
+    run_xgboost_hyperparam_backtest,
 )
 
 
@@ -349,3 +351,80 @@ def test_identical_feature_window_never_significant() -> None:
     for c in comparisons:
         assert not c.significant_improvement
         assert not c.significant_regression
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 item 4 -- XGBoost hyperparameters
+# ---------------------------------------------------------------------------
+
+_XGB_CPCV_CFG = FeatureSettings(
+    cpcv_n_splits=10, cpcv_n_test_splits=1, purge_gap_bars=1, triple_barrier_max_holding_bars=1
+)
+_FAST_XGB = XGBoostSettings(n_estimators=10, max_depth=2, early_stopping_rounds=5)
+
+
+@pytest.fixture(scope="module")
+def xgb_feature_matrix():
+    """Built once per module -- build_feature_matrix itself is cheap; this
+    just avoids repeating pipeline logging/work across every test below."""
+    bars = _synthetic_bars(3000, seed=7)
+    return build_feature_matrix(bars, cfg=_XGB_CPCV_CFG)
+
+
+def test_run_xgboost_hyperparam_backtest_unknown_field_raises(xgb_feature_matrix) -> None:
+    with pytest.raises(UnknownXGBHyperparamFieldError):
+        run_xgboost_hyperparam_backtest(
+            xgb_feature_matrix,
+            field_name="not_a_real_field",
+            champion_value=2,
+            challenger_value=3,
+            base_xgb_cfg=_FAST_XGB,
+            symbol="BTC/USDT",
+            timeframe="15m",
+            feature_cfg=_XGB_CPCV_CFG,
+        )
+
+
+def test_run_xgboost_hyperparam_backtest_produces_two_comparisons(xgb_feature_matrix) -> None:
+    comparisons = run_xgboost_hyperparam_backtest(
+        xgb_feature_matrix,
+        field_name="max_depth",
+        champion_value=2,
+        challenger_value=3,
+        base_xgb_cfg=_FAST_XGB,
+        symbol="BTC/USDT",
+        timeframe="15m",
+        feature_cfg=_XGB_CPCV_CFG,
+    )
+    names = {c.metric_name for c in comparisons}
+    assert names == {"oos_sharpe", "accuracy"}
+
+
+def test_identical_xgboost_hyperparam_never_significant(xgb_feature_matrix) -> None:
+    comparisons = run_xgboost_hyperparam_backtest(
+        xgb_feature_matrix,
+        field_name="max_depth",
+        champion_value=2,
+        challenger_value=2,
+        base_xgb_cfg=_FAST_XGB,
+        symbol="BTC/USDT",
+        timeframe="15m",
+        feature_cfg=_XGB_CPCV_CFG,
+    )
+    for c in comparisons:
+        assert not c.significant_improvement
+        assert not c.significant_regression
+
+
+def test_run_xgboost_hyperparam_backtest_runs_for_reg_alpha(xgb_feature_matrix) -> None:
+    comparisons = run_xgboost_hyperparam_backtest(
+        xgb_feature_matrix,
+        field_name="reg_alpha",
+        champion_value=0.1,
+        challenger_value=0.12,
+        base_xgb_cfg=_FAST_XGB,
+        symbol="BTC/USDT",
+        timeframe="15m",
+        feature_cfg=_XGB_CPCV_CFG,
+    )
+    assert len(comparisons) == 2

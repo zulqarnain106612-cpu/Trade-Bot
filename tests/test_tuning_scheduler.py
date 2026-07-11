@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from xgboost import XGBClassifier
 
-from src.config import StorageSettings, get_settings
+from src.config import FeatureSettings, StorageSettings, XGBoostSettings, get_settings
 from src.models.trainer import ModelTrainer
 from src.tuning.scheduler import AutoTuningScheduler, _shannon_entropy
 from src.tuning.state import parameter_registry, pause_state, runner
@@ -150,6 +150,7 @@ class TestAutoTuningSchedulerAttempts:
                 assert parameter_registry.is_registered("hmm.entropy_threshold")
                 assert parameter_registry.is_registered("hmm.entropy_scalar_floor")
                 assert parameter_registry.is_registered("risk.slippage_impact_coeff_bps")
+                assert parameter_registry.is_registered("xgboost.max_depth")
             finally:
                 scheduler.stop()
 
@@ -384,6 +385,11 @@ class TestFeatureWindowAttempt:
         ]
         storage = _FakeStorage([], {}, bars=bars)
         scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        # This test targets the feature-window path specifically; skip the
+        # (default-settings, slow) xgboost block by advancing past cycle 0 --
+        # see TestXGBoostHyperparamAttempt for dedicated xgboost coverage
+        # with fast XGBoostSettings.
+        scheduler._cycle_count = 1
 
         async def _run():
             scheduler.start()
@@ -412,4 +418,70 @@ class TestFeatureWindowAttempt:
 
         asyncio.run(_run())  # must not raise
         after = len(runner._audit_log.read_for_param("features.atr_window"))
+        assert after == before
+
+
+_FAST_XGB = XGBoostSettings(n_estimators=10, max_depth=2, early_stopping_rounds=5)
+_FAST_CPCV_FEATURES = FeatureSettings(
+    cpcv_n_splits=10, cpcv_n_test_splits=1, purge_gap_bars=1, triple_barrier_max_holding_bars=1
+)
+
+
+class TestXGBoostHyperparamAttempt:
+    def test_attempt_all_runs_xgboost_attempts_on_cycle_zero(self, tmp_path) -> None:
+        settings = get_settings().model_copy(
+            update={
+                "storage": StorageSettings(model_dir=tmp_path),
+                "xgboost": _FAST_XGB,
+                "features": _FAST_CPCV_FEATURES,
+            }
+        )
+        prices = _make_price_series(3000, seed=9)
+        bars = [
+            make_bar(ts=900_000 * (i + 1), close=prices[i], volume=20.0 + (i % 7))
+            for i in range(3000)
+        ]
+        storage = _FakeStorage([], {}, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        assert scheduler._cycle_count == 0  # freshly constructed -> always attempts once
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        assert runner._audit_log.read_for_param("xgboost.max_depth")
+
+    def test_attempt_all_skips_xgboost_when_not_on_cycle(self, tmp_path) -> None:
+        settings = get_settings().model_copy(
+            update={
+                "storage": StorageSettings(model_dir=tmp_path),
+                "xgboost": _FAST_XGB,
+                "features": _FAST_CPCV_FEATURES,
+            }
+        )
+        prices = _make_price_series(3000, seed=10)
+        bars = [
+            make_bar(ts=900_000 * (i + 1), close=prices[i], volume=20.0 + (i % 7))
+            for i in range(3000)
+        ]
+        storage = _FakeStorage([], {}, bars=bars)
+        scheduler = AutoTuningScheduler(
+            storage, settings, "BTC/USDT", "15m", xgboost_cycle_interval=5
+        )  # type: ignore[arg-type]
+        scheduler._cycle_count = 2  # 2 % 5 != 0 -> xgboost should be skipped this cycle
+        before = len(runner._audit_log.read_for_param("xgboost.max_depth"))
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        after = len(runner._audit_log.read_for_param("xgboost.max_depth"))
         assert after == before

@@ -3,10 +3,12 @@ import pytest
 from src.config import Settings, invalidate_settings_cache
 from src.tuning.bootstrap import (
     FEATURE_WINDOW_FIELDS,
+    XGBOOST_HYPERPARAM_FIELDS,
     register_feature_window_param,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
     register_slippage_impact_coeff,
+    register_xgboost_hyperparam_param,
 )
 from src.tuning.registry import DuplicateParameterError, ParameterRegistry
 
@@ -93,3 +95,36 @@ def test_register_all_feature_window_params_does_not_collide() -> None:
     for field_name in FEATURE_WINDOW_FIELDS:
         register_feature_window_param(registry, field_name, settings)
     assert len(registry.list_all()) == len(FEATURE_WINDOW_FIELDS)
+
+
+@pytest.mark.parametrize("field_name", sorted(XGBOOST_HYPERPARAM_FIELDS))
+def test_register_xgboost_hyperparam_param(field_name: str) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_xgboost_hyperparam_param(registry, field_name, settings)
+    assert param.current == getattr(settings.xgboost, field_name)
+    assert param.name == f"xgboost.{field_name}"
+    assert registry.is_registered(f"xgboost.{field_name}")
+    assert param.floor <= param.current <= param.ceiling
+
+
+def test_register_xgboost_hyperparam_param_unknown_field_raises() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    with pytest.raises(ValueError, match="not a registered XGBoost hyperparameter field"):
+        register_xgboost_hyperparam_param(registry, "not_a_real_field", settings)
+
+
+def test_register_all_xgboost_hyperparam_params_does_not_collide() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    for field_name in XGBOOST_HYPERPARAM_FIELDS:
+        register_xgboost_hyperparam_param(registry, field_name, settings)
+    assert len(registry.list_all()) == len(XGBOOST_HYPERPARAM_FIELDS)
+
+
+def test_register_xgboost_max_depth_bounds_clamped_to_valid_range() -> None:
+    registry = ParameterRegistry()
+    settings = Settings(xgboost={"max_depth": 19})
+    param = register_xgboost_hyperparam_param(registry, "max_depth", settings)
+    assert param.ceiling <= 20.0

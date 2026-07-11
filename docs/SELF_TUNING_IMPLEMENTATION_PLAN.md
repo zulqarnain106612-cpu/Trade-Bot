@@ -16,7 +16,7 @@ the system safe to stop at if priorities change.
 | 5 | `PostPromotionWatchdog` (auto-rollback on live drift) | done | `095d81f` |
 | 6 | Operator API surface (`/self-tuning/*`) | done | `095d81f` |
 | 7 | Enable live promotion (paper mode) for one parameter | **blocked on operator decision** | — |
-| 8 | Expand whitelist, one parameter at a time: (1) `hmm.entropy_scalar_floor` done, (2) `risk.slippage_impact_coeff_bps` done, (3) feature-window params done, (4) XGBoost hyperparams not started | partial | `72b6282` (scheduler + item 1), `566d02b` (item 2), this session (item 3) |
+| 8 | Expand whitelist, one parameter at a time: (1) `hmm.entropy_scalar_floor` done, (2) `risk.slippage_impact_coeff_bps` done, (3) feature-window params done, (4) XGBoost hyperparams done | ✅ done | `72b6282` (scheduler + item 1), `566d02b` (item 2), `1afdc8a` (item 3), this session (item 4) |
 
 An `AutoTuningScheduler` (`src/tuning/scheduler.py`) runs the daily/hourly
 propose→evaluate→gate loop automatically for every parameter with a working
@@ -179,10 +179,31 @@ lowest-risk first:
    implementation). Skips cleanly when no model has been trained yet
    (`FileNotFoundError` is an expected state on a fresh deployment).
    See "Phase 8 item 3 — detailed scope" below for the full design.
-4. Not started — XGBoost hyperparameters (highest cost — requires retraining per candidate; do this last, and only after the harness's compute cost is understood from cheaper parameters).
+4. Done — the eight `xgboost.*` hyperparameters (`n_estimators`, `max_depth`,
+   `learning_rate`, `subsample`, `colsample_bytree`, `min_child_weight`,
+   `reg_alpha`, `reg_lambda`): `src/tuning/backtest_harness.py::run_xgboost_hyperparam_backtest`
+   reuses `ModelTrainer.train_direction`'s existing CPCV harness directly
+   — champion and challenger `XGBoostSettings` variants are each fully
+   retrained via real CPCV (not a frozen-model sensitivity test like
+   items 1-3), so this is a faithful "would a retrained model generalize
+   better" comparison. This is the most expensive parameter group (real
+   `XGBClassifier.fit()` calls, not vectorised replay), so:
+     - It only runs every `xgboost_cycle_interval`-th scheduler cycle
+       (default 24), not every interval tick.
+     - It runs via `loop.run_in_executor` so a multi-second-to-minutes
+       retrain doesn't block the asyncio event loop the live API/trading
+       loop shares.
+     - `n_estimators` / `max_depth` / `min_child_weight` are int fields;
+       the scheduler rounds proposal values before `XGBoostSettings.model_copy()`,
+       which does not re-validate. Bounds use each field's own Pydantic
+       constraint where one exists (e.g. `max_depth` clamped to [1, 20]),
+       or a finite safety ceiling for fields with no upper bound — never
+       `math.inf`, which would let the proposer's step computation
+       produce inf/NaN.
 
 Never added: anything in `EXCLUDED_PARAMS` (`src/tuning/registry.py`) —
-this list is not revisited by this plan under any phase.
+this list is not revisited by this plan under any phase. Phase 8 is now
+complete; the only remaining item in this plan is Phase 7 (see below).
 
 **Bug found and fixed while wiring item 3 into the scheduler:**
 `AutoTuningScheduler._attempt_all()` previously `return`ed immediately
