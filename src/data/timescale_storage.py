@@ -1033,6 +1033,49 @@ class TimescaleBackend:
             prob_volatile=row["prob_volatile"],
         )
 
+    async def bars_before(
+        self, symbol: str, timeframe: str, ts: int, limit: int = 21
+    ) -> list[BarRecord]:
+        """Most recent `limit` bars at or before `ts`, ascending order --
+        used by the self-tuning scheduler to reconstruct the reference
+        price and ADV-20d that were live at a historical trade's entry
+        time (see Phase 8 slippage-coefficient recalibration)."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT symbol, timeframe, ts, open, high, low, close,
+                       volume, quote_volume, taker_buy_vol
+                FROM (
+                    SELECT symbol, timeframe, ts, open, high, low, close,
+                           volume, quote_volume, taker_buy_vol
+                    FROM bars
+                    WHERE symbol=$1 AND timeframe=$2 AND ts<=$3
+                    ORDER BY ts DESC LIMIT $4
+                ) sub
+                ORDER BY ts ASC
+                """,
+                symbol,
+                timeframe,
+                ts,
+                limit,
+            )
+        return [
+            BarRecord(
+                symbol=r["symbol"],
+                timeframe=r["timeframe"],
+                ts=r["ts"],
+                open=r["open"],
+                high=r["high"],
+                low=r["low"],
+                close=r["close"],
+                volume=r["volume"],
+                quote_volume=r["quote_volume"],
+                taker_buy_vol=r["taker_buy_vol"],
+            )
+            for r in rows
+        ]
+
     # ------------------------------------------------------------------
     # Missed trades (UI-001)
     # ------------------------------------------------------------------

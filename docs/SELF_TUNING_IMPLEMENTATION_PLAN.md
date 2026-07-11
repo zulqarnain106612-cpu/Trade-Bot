@@ -9,16 +9,24 @@ the system safe to stop at if priorities change.
 
 | Phase | Scope | State | Commit |
 |---|---|---|---|
-| 1 | Registry, versioned store, audit log, kill switch | ✅ done | `852b739` |
-| 2 | Proposer, evaluator, gate, shadow-mode runner | ✅ done | `6bdce77` |
-| 3 | CPCV backtest harness → real metric samples | not started | — |
-| 4 | Register `hmm.entropy_threshold`, shadow-mode soak | not started | — |
-| 5 | `PostPromotionWatchdog` (auto-rollback on live drift) | not started | — |
-| 6 | Operator API surface (`/self-tuning/*`) | not started | — |
-| 7 | Enable live promotion (paper mode) for one parameter | not started | — |
-| 8 | Expand whitelist, one parameter at a time | not started | — |
+| 1 | Registry, versioned store, audit log, kill switch | done | `852b739` |
+| 2 | Proposer, evaluator, gate, shadow-mode runner | done | `6bdce77` |
+| 3 | CPCV backtest harness → real metric samples | done | `095d81f` |
+| 4 | Register `hmm.entropy_threshold`, shadow-mode soak | done | `095d81f` |
+| 5 | `PostPromotionWatchdog` (auto-rollback on live drift) | done | `095d81f` |
+| 6 | Operator API surface (`/self-tuning/*`) | done | `095d81f` |
+| 7 | Enable live promotion (paper mode) for one parameter | **blocked on operator decision** | — |
+| 8 | Expand whitelist, one parameter at a time: (1) `hmm.entropy_scalar_floor` done, (2) `risk.slippage_impact_coeff_bps` done, (3) feature-window params not started, (4) XGBoost hyperparams not started | partial | `72b6282` (scheduler + item 1), this session (item 2) |
 
-Nothing past Phase 2 is implemented. Everything below is the plan for 3–8.
+An `AutoTuningScheduler` (`src/tuning/scheduler.py`) runs the daily/hourly
+propose→evaluate→gate loop automatically for every parameter with a working
+backtest harness, satisfying Phase 4's "wire a scheduled call" requirement
+beyond the originally-planned manual-only script. Phase 7 is the one item
+that cannot be "implemented" further by code alone: it requires an operator
+to actually set `SELF_TUNING_ENABLED=true` and `SELF_TUNING_SHADOW_MODE=false`
+against real paper-trading data and watch a probation cycle complete — a
+production decision, not a coding task. See "Phase 7 preconditions" below
+for what's already true and what still needs a human call.
 
 ---
 
@@ -145,13 +153,41 @@ never batch-enabling multiple parameters simultaneously (design doc §7:
 "isolates which change caused which effect"). Suggested order, cheapest/
 lowest-risk first:
 
-1. `hmm.entropy_scalar_floor` (paired with entropy_threshold, same eval cost)
-2. `risk.slippage_impact_coeff_bps` (already flagged as a TODO recalibration target in `config.py`)
-3. `features.*_window` params (one at a time — vwap, ofi, atr, sharpe, volume)
-4. XGBoost hyperparameters (highest cost — requires retraining per candidate; do this last, and only after the harness's compute cost is understood from cheaper parameters)
+1. Done — `hmm.entropy_scalar_floor` (paired with entropy_threshold, same eval cost):
+   registered by `src/tuning/bootstrap.py::register_hmm_entropy_scalar_floor`,
+   scheduled by `AutoTuningScheduler`.
+2. Done — `risk.slippage_impact_coeff_bps` (was flagged as a TODO recalibration
+   target in `config.py`): `src/tuning/backtest_harness.py::run_slippage_coeff_backtest`
+   recalibrates the Almgren-Chriss impact coefficient against realized fill
+   cost. For each historical trade, `SlippageFillSample.fill_price` (the
+   trade's recorded entry price) is compared against `reference_price` (the
+   close of the most recent bar at/before entry, via the new `bars_before()`
+   storage method — no separate arrival-price capture exists on the
+   live/paper path today, so this is a proxy, not a live tick). Two
+   CPCV-folded metrics gate promotion: `slippage_prediction_accuracy`
+   (negative mean absolute error, primary) and `slippage_prediction_bias`
+   (negative absolute mean signed error — systematic over/under-estimation,
+   distinct from raw magnitude). Wired into `AutoTuningScheduler` alongside
+   the entropy parameters.
+3. Not started — `features.*_window` params (one at a time — vwap, ofi, atr, sharpe, volume).
+4. Not started — XGBoost hyperparameters (highest cost — requires retraining per candidate; do this last, and only after the harness's compute cost is understood from cheaper parameters).
 
 Never added: anything in `EXCLUDED_PARAMS` (`src/tuning/registry.py`) —
 this list is not revisited by this plan under any phase.
+
+## Phase 7 preconditions (status)
+
+- Phase 4 shadow soak: harness code is in place and scheduler-driven; the
+  exit criterion itself ("4 consecutive weekly attempts... reviewed by a
+  human") requires real paper-trading history and a human review pass —
+  not satisfiable by a code change.
+- Phase 5 watchdog: wired and unit-tested (`src/tuning/watchdog.py`,
+  `tests/test_tuning_watchdog.py`).
+- Phase 6 API surface: `/self-tuning/status`, `/pause`, `/resume`,
+  `/rollback/{param}` all live in `src/api/main.py`.
+- `SELF_TUNING_ENABLED=true` + `SELF_TUNING_SHADOW_MODE=false`: still unset
+  by design — this is the explicit operator ceremony the design doc
+  requires, deliberately not made easier by this plan.
 
 ---
 

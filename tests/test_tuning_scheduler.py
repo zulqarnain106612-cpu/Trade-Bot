@@ -52,12 +52,36 @@ def make_trade(trade_id, entry_ts, exit_ts, entry_price=100.0, exit_price=105.0,
     )
 
 
-class _FakeStorage:
-    """Minimal in-memory stand-in for fetch_trades / regime_snapshot_before."""
+def make_bar(ts, close=100.0, volume=10.0):
+    from src.data.storage import BarRecord
 
-    def __init__(self, trades: list[Any], entropy_by_ts: dict[int, float]) -> None:
+    return BarRecord(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        ts=ts,
+        open=close - 1,
+        high=close + 1,
+        low=close - 2,
+        close=close,
+        volume=volume,
+        quote_volume=volume * close,
+        taker_buy_vol=volume / 2,
+    )
+
+
+class _FakeStorage:
+    """Minimal in-memory stand-in for fetch_trades / regime_snapshot_before /
+    bars_before."""
+
+    def __init__(
+        self,
+        trades: list[Any],
+        entropy_by_ts: dict[int, float],
+        bars: list[Any] | None = None,
+    ) -> None:
         self._trades = trades
         self._entropy_by_ts = entropy_by_ts
+        self._bars = bars or []
 
     async def fetch_trades(self, **kwargs) -> list[Any]:
         return self._trades
@@ -80,6 +104,10 @@ class _FakeStorage:
             prob_trending=entropy / 2,
             prob_volatile=entropy / 2,
         )
+
+    async def bars_before(self, symbol: str, timeframe: str, ts: int, limit: int = 21):
+        matching = sorted((b for b in self._bars if b.ts <= ts), key=lambda b: b.ts)
+        return matching[-limit:]
 
 
 class TestShannonEntropy:
@@ -112,6 +140,7 @@ class TestAutoTuningSchedulerAttempts:
             try:
                 assert parameter_registry.is_registered("hmm.entropy_threshold")
                 assert parameter_registry.is_registered("hmm.entropy_scalar_floor")
+                assert parameter_registry.is_registered("risk.slippage_impact_coeff_bps")
             finally:
                 scheduler.stop()
 
@@ -182,3 +211,62 @@ class TestAutoTuningSchedulerAttempts:
         samples = asyncio.run(_run())
         assert len(samples) == 1
         assert samples[0].raw_return == pytest.approx(0.05, abs=1e-6)
+
+
+class TestBuildSlippageSamples:
+    def test_skips_trades_without_bar_history(self) -> None:
+        settings = get_settings()
+        trades = [make_trade("no_bars", entry_ts=1000, exit_ts=1500)]
+        storage = _FakeStorage(trades, {}, bars=[])
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        samples = asyncio.run(scheduler._build_slippage_samples())
+        assert samples == []
+
+    def test_builds_sample_from_bar_history(self) -> None:
+        settings = get_settings()
+        trades = [make_trade("t1", entry_ts=1000, exit_ts=1500, entry_price=101.0, direction=1)]
+        bars = [make_bar(ts=t, close=100.0, volume=20.0) for t in (700, 800, 900, 1000)]
+        storage = _FakeStorage(trades, {}, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        samples = asyncio.run(scheduler._build_slippage_samples())
+        assert len(samples) == 1
+        sample = samples[0]
+        assert sample.reference_price == pytest.approx(100.0)
+        assert sample.fill_price == pytest.approx(101.0)
+        assert sample.adv_20d == pytest.approx(20.0)
+        assert sample.direction == 1
+
+    def test_skips_trades_with_non_positive_price_or_qty(self) -> None:
+        settings = get_settings()
+        trades = [make_trade("t1", entry_ts=1000, exit_ts=1500, entry_price=0.0)]
+        bars = [make_bar(ts=1000)]
+        storage = _FakeStorage(trades, {}, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        samples = asyncio.run(scheduler._build_slippage_samples())
+        assert samples == []
+
+
+class TestAutoTuningSchedulerSlippageAttempt:
+    def test_attempt_all_runs_slippage_attempt_with_sufficient_samples(self) -> None:
+        settings = get_settings()
+        trades = [
+            make_trade(f"t{i}", entry_ts=1000 * i, exit_ts=1000 * i + 500, entry_price=100.0 + i)
+            for i in range(1, 40)
+        ]
+        entropy_by_ts = {1000 * i: 0.1 + (i % 5) * 0.05 for i in range(1, 40)}
+        bars = [make_bar(ts=1000 * i, close=100.0, volume=20.0) for i in range(1, 40)]
+        storage = _FakeStorage(trades, entropy_by_ts, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        assert runner._audit_log.read_for_param("risk.slippage_impact_coeff_bps")

@@ -5,12 +5,16 @@ import pytest
 from src.config import FeatureSettings
 from src.tuning.backtest_harness import (
     InsufficientDataError,
+    SlippageFillSample,
     TradeSample,
     _fold_sharpe,
     _make_folds,
     _max_drawdown_inverted,
     _position_scalar,
+    _predicted_slippage_bps,
+    _realized_slippage_bps,
     run_entropy_threshold_backtest,
+    run_slippage_coeff_backtest,
 )
 
 
@@ -111,3 +115,98 @@ def test_lower_floor_can_only_shrink_or_equal_scaled_returns() -> None:
     champion_scalar = _position_scalar(entropy, threshold=0.5, floor=0.6)
     challenger_scalar = _position_scalar(entropy, threshold=0.5, floor=0.3)
     assert challenger_scalar <= champion_scalar
+
+
+def test_realized_slippage_bps_long_and_short_sign() -> None:
+    long_sample = SlippageFillSample(
+        reference_price=100.0, fill_price=100.5, qty=1.0, adv_20d=10.0, spread_bps=2.0, direction=1
+    )
+    short_sample = SlippageFillSample(
+        reference_price=100.0,
+        fill_price=100.5,
+        qty=1.0,
+        adv_20d=10.0,
+        spread_bps=2.0,
+        direction=-1,
+    )
+    # Long fills above reference -> positive (costly) slippage.
+    assert _realized_slippage_bps(long_sample) == pytest.approx(50.0)
+    # Same fill/reference, but short -> the move is favorable, not costly.
+    assert _realized_slippage_bps(short_sample) == pytest.approx(-50.0)
+
+
+def test_predicted_slippage_bps_matches_almgren_chriss_formula() -> None:
+    sample = SlippageFillSample(
+        reference_price=100.0, fill_price=100.0, qty=4.0, adv_20d=16.0, spread_bps=2.0, direction=1
+    )
+    # participation = 4/16 = 0.25, sqrt(0.25) = 0.5
+    assert _predicted_slippage_bps(sample, impact_coeff_bps=10.0) == pytest.approx(2.0 + 5.0)
+
+
+def test_predicted_slippage_bps_zero_adv_is_spread_only() -> None:
+    sample = SlippageFillSample(
+        reference_price=100.0, fill_price=100.0, qty=1.0, adv_20d=0.0, spread_bps=2.0, direction=1
+    )
+    assert _predicted_slippage_bps(sample, impact_coeff_bps=10.0) == pytest.approx(2.0)
+
+
+def _synthetic_slippage_samples(
+    n: int, true_impact_coeff: float, seed: int = 0
+) -> list[SlippageFillSample]:
+    rng = random.Random(seed)
+    samples = []
+    for _ in range(n):
+        qty = rng.uniform(0.5, 5.0)
+        adv_20d = rng.uniform(50.0, 200.0)
+        direction = rng.choice([1, -1])
+        reference_price = 100.0
+        participation = qty / adv_20d
+        true_slippage_bps = 2.0 + true_impact_coeff * participation**0.5 + rng.gauss(0.0, 0.5)
+        sign = 1.0 if direction == 1 else -1.0
+        fill_price = reference_price * (1.0 + sign * true_slippage_bps / 10_000.0)
+        samples.append(
+            SlippageFillSample(
+                reference_price=reference_price,
+                fill_price=fill_price,
+                qty=qty,
+                adv_20d=adv_20d,
+                spread_bps=2.0,
+                direction=direction,
+            )
+        )
+    return samples
+
+
+def test_run_slippage_coeff_backtest_produces_two_comparisons() -> None:
+    samples = _synthetic_slippage_samples(300, true_impact_coeff=10.0, seed=1)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
+    comparisons = run_slippage_coeff_backtest(
+        samples, champion_coeff=8.0, challenger_coeff=12.0, features_cfg=cfg
+    )
+    names = {c.metric_name for c in comparisons}
+    assert names == {"slippage_prediction_accuracy", "slippage_prediction_bias"}
+
+
+def test_slippage_coeff_closer_to_truth_scores_higher_accuracy() -> None:
+    """A challenger coefficient closer to the true generating coefficient
+    must produce a less-negative (better) mean prediction-accuracy score
+    than a champion far from the truth."""
+    samples = _synthetic_slippage_samples(300, true_impact_coeff=10.0, seed=3)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
+    comparisons = run_slippage_coeff_backtest(
+        samples, champion_coeff=2.0, challenger_coeff=10.0, features_cfg=cfg
+    )
+    accuracy = next(c for c in comparisons if c.metric_name == "slippage_prediction_accuracy")
+    assert accuracy.challenger_mean > accuracy.champion_mean
+    assert accuracy.significant_improvement
+
+
+def test_identical_slippage_coeff_never_significant() -> None:
+    samples = _synthetic_slippage_samples(300, true_impact_coeff=10.0, seed=4)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
+    comparisons = run_slippage_coeff_backtest(
+        samples, champion_coeff=10.0, challenger_coeff=10.0, features_cfg=cfg
+    )
+    for c in comparisons:
+        assert not c.significant_improvement
+        assert not c.significant_regression

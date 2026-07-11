@@ -19,10 +19,11 @@ true. Every safety rail from the original design stays in force:
   - TuningRunner still enforces the per-parameter cooldown + gate + never-
     regress checks on every attempt.
 
-Only `hmm.entropy_threshold` / `hmm.entropy_scalar_floor` have a working
-backtest harness (run_entropy_threshold_backtest); other registered
-parameters (e.g. risk.slippage_impact_coeff_bps) have no evaluate_fn yet
-and are intentionally left unscheduled here.
+`hmm.entropy_threshold` / `hmm.entropy_scalar_floor` (Phase 4) and
+`risk.slippage_impact_coeff_bps` (Phase 8 item 2) each have a working
+backtest harness (run_entropy_threshold_backtest /
+run_slippage_coeff_backtest respectively). Any other registered parameter
+with no evaluate_fn is intentionally left unscheduled here.
 """
 
 from __future__ import annotations
@@ -34,10 +35,16 @@ import structlog
 
 from src.config import Settings
 from src.data.storage import AnyStorageBackend
-from src.tuning.backtest_harness import TradeSample, run_entropy_threshold_backtest
+from src.tuning.backtest_harness import (
+    SlippageFillSample,
+    TradeSample,
+    run_entropy_threshold_backtest,
+    run_slippage_coeff_backtest,
+)
 from src.tuning.bootstrap import (
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
+    register_slippage_impact_coeff,
 )
 from src.tuning.evaluator import MetricComparison
 from src.tuning.proposer import Proposal
@@ -90,6 +97,8 @@ class AutoTuningScheduler:
             register_hmm_entropy_threshold(parameter_registry, self._settings)
         if not parameter_registry.is_registered("hmm.entropy_scalar_floor"):
             register_hmm_entropy_scalar_floor(parameter_registry, self._settings)
+        if not parameter_registry.is_registered("risk.slippage_impact_coeff_bps"):
+            register_slippage_impact_coeff(parameter_registry, self._settings)
         self._task = asyncio.create_task(self._loop(), name="auto_tuning_scheduler")
         log.info(
             "tuning.scheduler_started",
@@ -162,6 +171,80 @@ class AutoTuningScheduler:
                 )
             except Exception as exc:
                 log.error("tuning.scheduler_attempt_error", param=param_name, error=str(exc))
+
+        slippage_samples = await self._build_slippage_samples()
+        if len(slippage_samples) < _MIN_SAMPLES:
+            log.info(
+                "tuning.scheduler_insufficient_slippage_samples", n_samples=len(slippage_samples)
+            )
+        else:
+
+            def evaluate_slippage(
+                _param: TunableParameter, proposal: Proposal
+            ) -> list[MetricComparison]:
+                return run_slippage_coeff_backtest(
+                    slippage_samples,
+                    champion_coeff=proposal.champion_value,
+                    challenger_coeff=proposal.challenger_value,
+                    features_cfg=self._settings.features,
+                )
+
+            try:
+                result = runner.attempt(
+                    "risk.slippage_impact_coeff_bps",
+                    evaluate_slippage,
+                    primary_metric="slippage_prediction_accuracy",
+                )
+                log.info(
+                    "tuning.scheduler_attempt",
+                    param="risk.slippage_impact_coeff_bps",
+                    attempted=result.attempted,
+                    accepted=result.accepted,
+                    promoted=result.promoted,
+                    reasons=result.reasons,
+                )
+            except Exception as exc:
+                log.error(
+                    "tuning.scheduler_attempt_error",
+                    param="risk.slippage_impact_coeff_bps",
+                    error=str(exc),
+                )
+
+    async def _build_slippage_samples(self) -> list[SlippageFillSample]:
+        trades = await self._storage.fetch_trades(
+            symbol=self._symbol,
+            trading_mode=self._settings.trading_mode.value,
+            limit=1000,
+        )
+        spread_bps = self._settings.risk.slippage_default_spread_bps
+        samples: list[SlippageFillSample] = []
+        for t in trades:
+            if t.entry_price <= 0.0 or t.quantity <= 0.0:
+                continue
+            bars = await self._storage.bars_before(
+                self._symbol, self._timeframe, t.entry_ts, limit=21
+            )
+            if not bars:
+                continue
+            reference_price = bars[-1].close
+            if reference_price <= 0.0:
+                continue
+            history = bars[:-1] if len(bars) > 1 else bars
+            adv_20d = sum(b.volume for b in history) / len(history)
+            if adv_20d <= 0.0:
+                continue
+            samples.append(
+                SlippageFillSample(
+                    reference_price=reference_price,
+                    fill_price=t.entry_price,
+                    qty=t.quantity,
+                    adv_20d=adv_20d,
+                    spread_bps=spread_bps,
+                    direction=t.direction,
+                )
+            )
+        samples.reverse()
+        return samples
 
     async def _build_trade_samples(self) -> list[TradeSample]:
         trades = await self._storage.fetch_trades(

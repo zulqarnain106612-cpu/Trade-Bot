@@ -22,6 +22,7 @@ here, only a deterministic re-scaling of realized returns).
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass
 
@@ -190,3 +191,98 @@ def default_hmm_cfg_for(threshold: float, floor: float) -> HMMSettings:
     entropy fields overridden, e.g. for logging/audit evidence."""
     base = HMMSettings()
     return base.model_copy(update={"entropy_threshold": threshold, "entropy_scalar_floor": floor})
+
+
+@dataclass(frozen=True)
+class SlippageFillSample:
+    """One historical filled trade, enriched with the reference price and
+    ADV-20d that were live at signal time.
+
+    `reference_price` is the close of the most recent bar at/before the
+    trade's entry timestamp (a proxy for the pre-order decision price --
+    no separate arrival-price capture exists on the live/paper execution
+    path today, see docs/SELF_TUNING_IMPLEMENTATION_PLAN.md Phase 8 item 2).
+    `fill_price` is the trade's recorded entry_price. `spread_bps` is the
+    configured default spread assumption (no historical order-book spread
+    is persisted, so champion and challenger share the same spread input
+    and only the impact-coefficient term is being recalibrated).
+    """
+
+    reference_price: float
+    fill_price: float
+    qty: float
+    adv_20d: float
+    spread_bps: float
+    direction: int
+
+
+def _realized_slippage_bps(sample: SlippageFillSample) -> float:
+    sign = 1.0 if sample.direction == 1 else -1.0
+    return (sample.fill_price - sample.reference_price) / sample.reference_price * 10_000.0 * sign
+
+
+def _predicted_slippage_bps(sample: SlippageFillSample, impact_coeff_bps: float) -> float:
+    participation = sample.qty / sample.adv_20d if sample.adv_20d > 0.0 else 0.0
+    return sample.spread_bps + impact_coeff_bps * math.sqrt(max(0.0, participation))
+
+
+def run_slippage_coeff_backtest(
+    samples: list[SlippageFillSample],
+    champion_coeff: float,
+    challenger_coeff: float,
+    features_cfg: FeatureSettings | None = None,
+) -> list[MetricComparison]:
+    """
+    Recalibrate `risk.slippage_impact_coeff_bps` (Phase 8 item 2) against
+    realized fill cost: for each fold, compare how far the champion vs.
+    challenger coefficient's predicted total slippage (spread + Almgren-
+    Chriss impact) falls from the realized (fill_price vs. reference_price)
+    slippage actually observed.
+
+    Two metrics, both "higher is better" after negation per
+    src.tuning.evaluator's convention:
+      - slippage_prediction_accuracy: -mean(|predicted - realized|) per fold
+        (overall calibration error magnitude).
+      - slippage_prediction_bias: -|mean(predicted - realized)| per fold
+        (systematic over/under-estimation, distinct from raw magnitude --
+        a coefficient can have low bias but high variance or vice versa).
+    """
+    if features_cfg is None:
+        features_cfg = FeatureSettings()
+
+    folds = _make_folds(len(samples), features_cfg.cpcv_n_splits, features_cfg.purge_gap_bars)
+
+    champion_neg_mae: list[float] = []
+    challenger_neg_mae: list[float] = []
+    champion_neg_bias: list[float] = []
+    challenger_neg_bias: list[float] = []
+
+    for start, end in folds:
+        fold_samples = samples[start:end]
+        if not fold_samples:
+            continue
+
+        realized = [_realized_slippage_bps(s) for s in fold_samples]
+        champion_errors = [
+            _predicted_slippage_bps(s, champion_coeff) - r
+            for s, r in zip(fold_samples, realized, strict=True)
+        ]
+        challenger_errors = [
+            _predicted_slippage_bps(s, challenger_coeff) - r
+            for s, r in zip(fold_samples, realized, strict=True)
+        ]
+
+        champion_neg_mae.append(-statistics.mean(abs(e) for e in champion_errors))
+        challenger_neg_mae.append(-statistics.mean(abs(e) for e in challenger_errors))
+        champion_neg_bias.append(-abs(statistics.mean(champion_errors)))
+        challenger_neg_bias.append(-abs(statistics.mean(challenger_errors)))
+
+    evaluator = ChallengerEvaluator()
+    return [
+        evaluator.compare_metric(
+            "slippage_prediction_accuracy", champion_neg_mae, challenger_neg_mae
+        ),
+        evaluator.compare_metric(
+            "slippage_prediction_bias", champion_neg_bias, challenger_neg_bias
+        ),
+    ]

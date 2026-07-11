@@ -238,6 +238,26 @@ class TestBars:
         assert rows == []
 
     @pytest.mark.asyncio
+    async def test_bars_before_returns_ascending_up_to_ts(self, backend):
+        await backend.upsert_bars(
+            [make_bar(ts=t, close=float(t)) for t in (1000, 2000, 3000, 4000)]
+        )
+        rows = await backend.bars_before("BTC/USDT", "15m", ts=3000, limit=21)
+        assert [r.ts for r in rows] == [1000, 2000, 3000]
+
+    @pytest.mark.asyncio
+    async def test_bars_before_respects_limit(self, backend):
+        await backend.upsert_bars([make_bar(ts=t) for t in range(10)])
+        rows = await backend.bars_before("BTC/USDT", "15m", ts=9, limit=3)
+        assert [r.ts for r in rows] == [7, 8, 9]
+
+    @pytest.mark.asyncio
+    async def test_bars_before_empty_when_no_bar_at_or_before_ts(self, backend):
+        await backend.upsert_bars([make_bar(ts=5000)])
+        rows = await backend.bars_before("BTC/USDT", "15m", ts=1000, limit=21)
+        assert rows == []
+
+    @pytest.mark.asyncio
     async def test_latest_bar_ts_returns_max(self, backend):
         await backend.upsert_bars([make_bar(ts=1000), make_bar(ts=5000)])
         ts = await backend.latest_bar_ts("BTC/USDT", "15m")
