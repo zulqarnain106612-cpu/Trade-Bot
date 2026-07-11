@@ -98,6 +98,9 @@ jobs:
             --cov-report=term-missing \
             --junitxml=test-results.xml
 
+      - name: Per-file coverage floors (Risk-004 / GAP-020)
+        run: python3 scripts/check_coverage_floors.py
+
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4

@@ -21,6 +21,7 @@ Integration:
 
     Or via Makefile / scripts/autofix.sh after the standard test run.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +29,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
 
 # ---------------------------------------------------------------------------
 # Floor definitions — per GAP-020 recommendation.
@@ -53,7 +55,13 @@ COVERAGE_FLOORS: dict[str, int] = {
 
 
 def _export_coverage_json(coverage_file: Path, out_file: Path) -> bool:
-    """Run ``coverage json`` and write JSON report to *out_file*."""
+    """Run ``coverage json`` and write JSON report to *out_file*.
+
+    ``coverage json`` applies the ``[tool.coverage.report] fail_under``
+    threshold and exits 2 when total coverage is below it -- even though it
+    still writes the JSON report first. Treat that as success (the report we
+    need exists); only a missing report is a real failure.
+    """
     result = subprocess.run(
         [
             sys.executable,
@@ -68,7 +76,7 @@ def _export_coverage_json(coverage_file: Path, out_file: Path) -> bool:
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
+    if not out_file.exists():
         print(f"[check_coverage_floors] coverage json failed:\n{result.stderr}", file=sys.stderr)
         return False
     return True
@@ -123,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         # Find matching file (exact or suffix match).
         match_key: str | None = None
         for key in normalised:
-            if key == pattern or key.endswith("/" + pattern) or key.endswith(pattern):
+            if key == pattern or key.endswith(("/" + pattern, pattern)):
                 match_key = key
                 break
 
@@ -139,15 +147,10 @@ def main(argv: list[str] | None = None) -> int:
 
         status = "OK  " if actual_pct >= min_pct else "FAIL"
         marker = "✓" if status == "OK  " else "✗"
-        print(
-            f"  [{status}] {marker} {pattern:<55} {actual_pct:5.1f}% "
-            f"(floor={min_pct}%)"
-        )
+        print(f"  [{status}] {marker} {pattern:<55} {actual_pct:5.1f}% " f"(floor={min_pct}%)")
 
         if actual_pct < min_pct:
-            violations.append(
-                f"{pattern}: {actual_pct:.1f}% < required {min_pct}%"
-            )
+            violations.append(f"{pattern}: {actual_pct:.1f}% < required {min_pct}%")
 
     print()
     if violations:
@@ -156,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  • {v}")
         return 1
 
-    print(f"[check_coverage_floors] PASSED — all {len(COVERAGE_FLOORS)} safety-critical floors met.")
+    print(
+        f"[check_coverage_floors] PASSED — all {len(COVERAGE_FLOORS)} safety-critical floors met."
+    )
     return 0
 
 
