@@ -400,7 +400,7 @@ class TrainingResult:
 # ---------------------------------------------------------------------------
 
 
-def _oos_sharpe_and_drawdown(
+def oos_sharpe_and_drawdown(
     y_pred: np.ndarray,
     log_returns: np.ndarray,
 ) -> tuple[float, float]:
@@ -607,7 +607,7 @@ class ModelTrainer:
                 elapsed_s=round(elapsed, 2),
             )
 
-        oos_sharpe, max_dd = _oos_sharpe_and_drawdown(
+        oos_sharpe, max_dd = oos_sharpe_and_drawdown(
             np.concatenate(all_oos_pred), np.concatenate(all_oos_ret)
         )
 
@@ -789,7 +789,7 @@ class ModelTrainer:
                 elapsed_s=round(elapsed, 2),
             )
 
-        oos_sharpe, max_dd = _oos_sharpe_and_drawdown(
+        oos_sharpe, max_dd = oos_sharpe_and_drawdown(
             np.concatenate(all_oos_pred), np.concatenate(all_oos_ret)
         )
 
@@ -1100,7 +1100,7 @@ class ModelTrainer:
             prec = float(precision_score(y_true, y_pred, zero_division=0))
             rec = float(recall_score(y_true, y_pred, zero_division=0))
             f1 = float(f1_score(y_true, y_pred, zero_division=0))
-            fold_sharpe, _ = _oos_sharpe_and_drawdown(y_pred, log_ret[te])
+            fold_sharpe, _ = oos_sharpe_and_drawdown(y_pred, log_ret[te])
 
             fold_metrics.append(
                 FoldMetrics(

@@ -585,45 +585,45 @@ class TestComputeSampleWeights:
 
 
 # ---------------------------------------------------------------------------
-# _oos_sharpe_and_drawdown
+# oos_sharpe_and_drawdown
 # ---------------------------------------------------------------------------
 
 
 class TestOosSharpeAndDrawdown:
     def test_positive_sharpe_on_good_predictions(self):
-        from src.models.trainer import _oos_sharpe_and_drawdown
+        from src.models.trainer import oos_sharpe_and_drawdown
 
         # Need variable returns (not all identical) to get non-zero sigma
         rng = np.random.default_rng(42)
         returns = np.abs(rng.standard_normal(50)) * 0.01 + 0.005  # all positive
         y_pred = np.ones(50, dtype=int)  # all long → all positive strategy returns
-        sharpe, dd = _oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert sharpe > 0
         assert 0.0 <= dd <= 100.0
 
     def test_degenerate_sigma_returns_zero_sharpe(self):
-        from src.models.trainer import _oos_sharpe_and_drawdown
+        from src.models.trainer import oos_sharpe_and_drawdown
 
         returns = np.array([0.01])
         y_pred = np.array([1])
-        sharpe, dd = _oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert sharpe == 0.0  # sigma=0 → fallback
 
     def test_nan_returns_zero_sharpe(self):
-        from src.models.trainer import _oos_sharpe_and_drawdown
+        from src.models.trainer import oos_sharpe_and_drawdown
 
         returns = np.array([np.nan, np.nan])
         y_pred = np.array([1, 0])
-        sharpe, dd = _oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert np.isfinite(sharpe)
 
     def test_max_drawdown_capped_at_100(self):
-        from src.models.trainer import _oos_sharpe_and_drawdown
+        from src.models.trainer import oos_sharpe_and_drawdown
 
         # Empty finite dd array → 100.0
         returns = np.array([np.nan])
         y_pred = np.array([1])
-        _, dd = _oos_sharpe_and_drawdown(y_pred, returns)
+        _, dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert dd == 100.0
 
 

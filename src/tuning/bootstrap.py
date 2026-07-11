@@ -100,3 +100,52 @@ def register_slippage_impact_coeff(
     )
     registry.register(param)
     return param
+
+
+# Phase 8 item 3 -- the five rolling-window feature parameters, all with the
+# same `ge=2` Pydantic floor (src/config.py FeatureSettings) and all consumed
+# by backtest_harness.run_feature_window_backtest.
+FEATURE_WINDOW_FIELDS: frozenset[str] = frozenset(
+    {
+        "vwap_window",
+        "ofi_window",
+        "atr_window",
+        "sharpe_window",
+        "volume_zscore_window",
+    }
+)
+
+_FEATURE_WINDOW_MIN_VALUE = 2.0  # matches FeatureSettings' `ge=2` on each field
+
+
+def register_feature_window_param(
+    registry: ParameterRegistry, field_name: str, settings: Settings | None = None
+) -> TunableParameter:
+    """
+    Phase 8 item 3 -- one FeatureSettings rolling-window field at a time.
+
+    Evaluated by backtest_harness.run_feature_window_backtest against the
+    currently deployed, FROZEN direction model's OOS predictive quality --
+    NOT full retraining (see docs/SELF_TUNING_IMPLEMENTATION_PLAN.md Phase
+    8 item 3, risk 1: this tests the frozen model's sensitivity to a
+    perturbed input, not whether a retrained model would be better).
+    """
+    if field_name not in FEATURE_WINDOW_FIELDS:
+        raise ValueError(
+            f"{field_name!r} is not a registered feature-window field; "
+            f"supported: {sorted(FEATURE_WINDOW_FIELDS)}"
+        )
+    settings = settings or get_settings()
+    current = float(getattr(settings.features, field_name))
+    floor, ceiling = _symmetric_bounds(current)
+    floor = max(_FEATURE_WINDOW_MIN_VALUE, floor)
+    param = TunableParameter(
+        name=f"features.{field_name}",
+        description=f"Rolling window (bars) for the {field_name} feature.",
+        floor=floor,
+        ceiling=ceiling,
+        current=current,
+        eval_strategy="frozen_model_oos_sharpe",
+    )
+    registry.register(param)
+    return param

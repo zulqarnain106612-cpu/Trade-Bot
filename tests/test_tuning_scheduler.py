@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from typing import Any
 
+import numpy as np
 import pytest
+from xgboost import XGBClassifier
 
-from src.config import get_settings
+from src.config import StorageSettings, get_settings
+from src.models.trainer import ModelTrainer
 from src.tuning.scheduler import AutoTuningScheduler, _shannon_entropy
 from src.tuning.state import parameter_registry, pause_state, runner
 
@@ -109,6 +113,11 @@ class _FakeStorage:
         matching = sorted((b for b in self._bars if b.ts <= ts), key=lambda b: b.ts)
         return matching[-limit:]
 
+    async def latest_bar_ts(self, symbol: str, timeframe: str) -> int | None:
+        if not self._bars:
+            return None
+        return max(b.ts for b in self._bars)
+
 
 class TestShannonEntropy:
     def test_zero_entropy_when_one_state_certain(self) -> None:
@@ -160,6 +169,35 @@ class TestAutoTuningSchedulerAttempts:
                 scheduler.stop()
 
         asyncio.run(_run())
+
+    def test_insufficient_entropy_samples_does_not_skip_slippage_attempt(self) -> None:
+        """Regression: entropy and slippage draw on independent trade data
+        and must not be gated behind each other's sample-sufficiency check."""
+        settings = get_settings()
+        trades = [
+            make_trade(f"t{i}", entry_ts=1000 * i, exit_ts=1000 * i + 500, entry_price=100.0 + i)
+            for i in range(
+                1, 40
+            )  # enough for slippage, but no regime snapshots -> 0 entropy samples
+        ]
+        bars = [make_bar(ts=1000 * i, close=100.0, volume=20.0) for i in range(1, 40)]
+        storage = _FakeStorage(trades, {}, bars=bars)  # empty entropy_by_ts -> 0 entropy samples
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        # runner._audit_log is a process-wide singleton shared across the whole
+        # test session -- compare counts rather than asserting absolute
+        # presence/absence, which would be flaky under cross-test pollution.
+        before = len(runner._audit_log.read_for_param("risk.slippage_impact_coeff_bps"))
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        after = len(runner._audit_log.read_for_param("risk.slippage_impact_coeff_bps"))
+        assert after > before
 
     def test_attempt_all_runs_with_sufficient_samples(self) -> None:
         settings = get_settings()
@@ -270,3 +308,108 @@ class TestAutoTuningSchedulerSlippageAttempt:
 
         asyncio.run(_run())
         assert runner._audit_log.read_for_param("risk.slippage_impact_coeff_bps")
+
+
+def _make_price_series(n: int, seed: int = 0) -> list[float]:
+    rng = random.Random(seed)
+    price = 100.0
+    prices = []
+    for _ in range(n):
+        price *= 1.0 + rng.gauss(0.0002, 0.01)
+        prices.append(price)
+    return prices
+
+
+def _fitted_direction_model(seed: int = 0) -> XGBClassifier:
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((300, 7))
+    y = (X[:, 0] > 0).astype(int)
+    model = XGBClassifier(n_estimators=3, max_depth=2, verbosity=0)
+    model.fit(X, y)
+    return model
+
+
+def _fitted_meta_model(seed: int = 1) -> XGBClassifier:
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((300, 9))
+    y = (X[:, 0] > 0).astype(int)
+    model = XGBClassifier(n_estimators=3, max_depth=2, verbosity=0)
+    model.fit(X, y)
+    return model
+
+
+class TestFeatureWindowAttempt:
+    def test_load_direction_model_returns_none_when_absent(self, tmp_path) -> None:
+        settings = get_settings().model_copy(
+            update={"storage": StorageSettings(model_dir=tmp_path)}
+        )
+        scheduler = AutoTuningScheduler(_FakeStorage([], {}), settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        assert scheduler._load_direction_model() is None
+
+    def test_load_direction_model_returns_model_when_present(self, tmp_path) -> None:
+        settings = get_settings().model_copy(
+            update={"storage": StorageSettings(model_dir=tmp_path)}
+        )
+        trainer = ModelTrainer(symbol="BTC/USDT", timeframe="15m")
+        trainer.save(_fitted_direction_model(), _fitted_meta_model(), tmp_path, version="v1")
+        scheduler = AutoTuningScheduler(_FakeStorage([], {}), settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        assert scheduler._load_direction_model() is not None
+
+    def test_build_feature_bars_df_none_when_no_bars(self) -> None:
+        settings = get_settings()
+        scheduler = AutoTuningScheduler(_FakeStorage([], {}), settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        assert asyncio.run(scheduler._build_feature_bars_df()) is None
+
+    def test_build_feature_bars_df_returns_ascending_frame(self) -> None:
+        settings = get_settings()
+        bars = [make_bar(ts=900_000 * i, close=100.0 + i, volume=20.0) for i in range(1, 30)]
+        storage = _FakeStorage([], {}, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        df = asyncio.run(scheduler._build_feature_bars_df())
+        assert df is not None
+        assert list(df.index) == sorted(df.index)
+        assert len(df) == 29
+
+    def test_attempt_all_runs_feature_window_attempts_with_trained_model(self, tmp_path) -> None:
+        settings = get_settings().model_copy(
+            update={"storage": StorageSettings(model_dir=tmp_path)}
+        )
+        trainer = ModelTrainer(symbol="BTC/USDT", timeframe="15m")
+        trainer.save(_fitted_direction_model(), _fitted_meta_model(), tmp_path, version="v1")
+
+        prices = _make_price_series(1500)
+        bars = [
+            make_bar(ts=900_000 * (i + 1), close=prices[i], volume=20.0 + (i % 7))
+            for i in range(1500)
+        ]
+        storage = _FakeStorage([], {}, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        assert runner._audit_log.read_for_param("features.atr_window")
+
+    def test_attempt_all_skips_feature_window_when_no_model_trained(self, tmp_path) -> None:
+        settings = get_settings().model_copy(
+            update={"storage": StorageSettings(model_dir=tmp_path)}
+        )
+        storage = _FakeStorage([], {}, bars=[])
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        before = len(runner._audit_log.read_for_param("features.atr_window"))
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())  # must not raise
+        after = len(runner._audit_log.read_for_param("features.atr_window"))
+        assert after == before

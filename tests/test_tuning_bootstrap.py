@@ -2,6 +2,8 @@ import pytest
 
 from src.config import Settings, invalidate_settings_cache
 from src.tuning.bootstrap import (
+    FEATURE_WINDOW_FIELDS,
+    register_feature_window_param,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
     register_slippage_impact_coeff,
@@ -65,3 +67,29 @@ def test_registering_all_three_does_not_collide() -> None:
     register_hmm_entropy_scalar_floor(registry, settings)
     register_slippage_impact_coeff(registry, settings)
     assert len(registry.list_all()) == 3
+
+
+@pytest.mark.parametrize("field_name", sorted(FEATURE_WINDOW_FIELDS))
+def test_register_feature_window_param(field_name: str) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_feature_window_param(registry, field_name, settings)
+    assert param.current == getattr(settings.features, field_name)
+    assert param.name == f"features.{field_name}"
+    assert registry.is_registered(f"features.{field_name}")
+    assert param.floor >= 2.0
+
+
+def test_register_feature_window_param_unknown_field_raises() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    with pytest.raises(ValueError, match="not a registered feature-window field"):
+        register_feature_window_param(registry, "not_a_real_field", settings)
+
+
+def test_register_all_feature_window_params_does_not_collide() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    for field_name in FEATURE_WINDOW_FIELDS:
+        register_feature_window_param(registry, field_name, settings)
+    assert len(registry.list_all()) == len(FEATURE_WINDOW_FIELDS)

@@ -24,9 +24,29 @@ from __future__ import annotations
 
 import math
 import statistics
+from collections.abc import Callable
 from dataclasses import dataclass
 
+import numpy as np
+import pandas as pd
+from xgboost import XGBClassifier
+
 from src.config import FeatureSettings, HMMSettings
+from src.features.pipeline import (
+    COL_ATR_MOMENTUM,
+    COL_OFI,
+    COL_ROLLING_SHARPE,
+    COL_VOLUME_ZSCORE,
+    COL_VWAP_DEV,
+    FEATURE_COLUMNS,
+    atr_momentum,
+    build_feature_matrix,
+    order_flow_imbalance,
+    rolling_sharpe,
+    volume_zscore,
+    vwap_deviation_zscore,
+)
+from src.models.trainer import oos_sharpe_and_drawdown
 from src.tuning.evaluator import (
     ChallengerEvaluator,
     MetricComparison,
@@ -284,5 +304,158 @@ def run_slippage_coeff_backtest(
         ),
         evaluator.compare_metric(
             "slippage_prediction_bias", champion_neg_bias, challenger_neg_bias
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 item 3 -- feature-window parameters
+# ---------------------------------------------------------------------------
+
+# Each of the five tunable rolling-window parameters maps to the target
+# feature column it produces and the pure pipeline function that recomputes
+# it from raw OHLCV at an arbitrary window -- confirmed independent of the
+# other six base feature columns (src/features/pipeline.py), so swapping
+# one column doesn't require recomputing the rest.
+_FEATURE_WINDOW_RECOMPUTERS: dict[str, tuple[str, Callable[[pd.DataFrame, int], pd.Series]]] = {
+    "vwap_window": (
+        COL_VWAP_DEV,
+        lambda bars, window: vwap_deviation_zscore(
+            bars["high"], bars["low"], bars["close"], bars["volume"], window=window
+        ),
+    ),
+    "ofi_window": (
+        COL_OFI,
+        lambda bars, window: order_flow_imbalance(bars["close"], bars["volume"], window=window),
+    ),
+    "atr_window": (
+        COL_ATR_MOMENTUM,
+        lambda bars, window: atr_momentum(bars["high"], bars["low"], bars["close"], window=window),
+    ),
+    "sharpe_window": (
+        COL_ROLLING_SHARPE,
+        lambda bars, window: rolling_sharpe(bars["close"], window=window),
+    ),
+    "volume_zscore_window": (
+        COL_VOLUME_ZSCORE,
+        lambda bars, window: volume_zscore(bars["volume"], window=window),
+    ),
+}
+
+
+class UnknownFeatureWindowFieldError(ValueError):
+    """Raised when run_feature_window_backtest is asked to vary a
+    FeatureSettings field with no registered recompute function."""
+
+
+def _predict_direction_batch(model: XGBClassifier, features: pd.DataFrame) -> np.ndarray:
+    """
+    Vectorised counterpart of ModelTrainer.predict_direction's schema
+    slicing (GAP-015 backward compatibility): use model.n_features_in_ to
+    select the correct leading columns rather than assuming a fixed
+    7-column schema. `model.predict()` applies the same 0.5 threshold
+    trainer.py's own CPCV fold evaluation (_run_cpcv) uses -- not a
+    hand-rolled predict_proba threshold.
+    """
+    n = getattr(model, "n_features_in_", features.shape[1])
+    cols = list(features.columns[:n]) if features.shape[1] >= n else list(features.columns)
+    arr = features.reindex(columns=cols).to_numpy(dtype=np.float64)
+    return model.predict(arr)
+
+
+def run_feature_window_backtest(
+    bars: pd.DataFrame,
+    field_name: str,
+    champion_window: int,
+    challenger_window: int,
+    direction_model: XGBClassifier,
+    features_cfg: FeatureSettings | None = None,
+) -> list[MetricComparison]:
+    """
+    Recalibrate one of the five rolling-window feature parameters (Phase 8
+    item 3) against the currently deployed, FROZEN direction model's
+    out-of-sample predictive quality -- this does NOT retrain. It measures
+    the frozen model's sensitivity to a perturbed input feature, a
+    materially weaker claim than "a model retrained with this window would
+    generalize better" (docs/SELF_TUNING_IMPLEMENTATION_PLAN.md Phase 8
+    item 3, risk 1) -- acceptable because the ±20% symmetric-bound
+    convention (src/tuning/bootstrap.py) keeps challengers close to the
+    window the model was actually trained on.
+
+    Builds the baseline 7-column feature matrix once at production
+    settings, then recomputes ONLY `field_name`'s column at the champion
+    and challenger window sizes and swaps it in. Scores both variants with
+    the same frozen model and folds oos_sharpe_and_drawdown's single-bar-
+    ahead strategy return -- the same simplification
+    ModelTrainer._run_cpcv's own OOS Sharpe already uses (no meta-label
+    gate, no triple-barrier P&L simulation).
+    """
+    if field_name not in _FEATURE_WINDOW_RECOMPUTERS:
+        raise UnknownFeatureWindowFieldError(
+            f"no recompute function registered for {field_name!r}; "
+            f"supported: {sorted(_FEATURE_WINDOW_RECOMPUTERS)}"
+        )
+    if features_cfg is None:
+        features_cfg = FeatureSettings()
+
+    column, recompute = _FEATURE_WINDOW_RECOMPUTERS[field_name]
+
+    baseline = build_feature_matrix(bars, cfg=features_cfg)
+    idx = baseline.features.index
+
+    champion_col = recompute(bars, champion_window).reindex(idx)
+    challenger_col = recompute(bars, challenger_window).reindex(idx)
+
+    champion_features = baseline.features.copy()
+    champion_features[column] = champion_col
+    challenger_features = baseline.features.copy()
+    challenger_features[column] = challenger_col
+
+    # A larger window has a longer warmup NaN prefix than the baseline's
+    # production-window default -- align both variants to rows valid under
+    # BOTH before folding, so champion and challenger see identical bars.
+    valid = champion_features[column].notna() & challenger_features[column].notna()
+    champion_features = champion_features.loc[valid, FEATURE_COLUMNS]
+    challenger_features = challenger_features.loc[valid, FEATURE_COLUMNS]
+    log_ret = baseline.log_returns.reindex(idx).loc[valid].to_numpy(dtype=np.float64)
+
+    champion_pred = _predict_direction_batch(direction_model, champion_features)
+    challenger_pred = _predict_direction_batch(direction_model, challenger_features)
+
+    folds = _make_folds(len(log_ret), features_cfg.cpcv_n_splits, features_cfg.purge_gap_bars)
+
+    champion_fold_sharpes: list[float] = []
+    challenger_fold_sharpes: list[float] = []
+    champion_wins = 0
+    challenger_wins = 0
+    total_bars = 0
+
+    for start, end in folds:
+        fold_ret = log_ret[start:end]
+        if len(fold_ret) == 0:
+            continue
+        fold_champion_pred = champion_pred[start:end]
+        fold_challenger_pred = challenger_pred[start:end]
+
+        champion_sharpe, _ = oos_sharpe_and_drawdown(fold_champion_pred, fold_ret)
+        challenger_sharpe, _ = oos_sharpe_and_drawdown(fold_challenger_pred, fold_ret)
+        champion_fold_sharpes.append(champion_sharpe)
+        challenger_fold_sharpes.append(challenger_sharpe)
+
+        champion_dir = np.where(fold_champion_pred == 1, 1.0, -1.0)
+        challenger_dir = np.where(fold_challenger_pred == 1, 1.0, -1.0)
+        champion_wins += int(np.sum(champion_dir * fold_ret > 0))
+        challenger_wins += int(np.sum(challenger_dir * fold_ret > 0))
+        total_bars += len(fold_ret)
+
+    evaluator = ChallengerEvaluator()
+    return [
+        evaluator.compare_metric("oos_sharpe", champion_fold_sharpes, challenger_fold_sharpes),
+        evaluator.compare_proportion(
+            "win_rate",
+            champion_p=champion_wins / total_bars if total_bars else 0.0,
+            champion_n=total_bars,
+            challenger_p=challenger_wins / total_bars if total_bars else 0.0,
+            challenger_n=total_bars,
         ),
     ]

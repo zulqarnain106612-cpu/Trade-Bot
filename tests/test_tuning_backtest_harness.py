@@ -1,19 +1,26 @@
 import random
 
+import numpy as np
+import pandas as pd
 import pytest
+from xgboost import XGBClassifier
 
 from src.config import FeatureSettings
+from src.features.pipeline import FEATURE_COLUMNS
 from src.tuning.backtest_harness import (
     InsufficientDataError,
     SlippageFillSample,
     TradeSample,
+    UnknownFeatureWindowFieldError,
     _fold_sharpe,
     _make_folds,
     _max_drawdown_inverted,
     _position_scalar,
+    _predict_direction_batch,
     _predicted_slippage_bps,
     _realized_slippage_bps,
     run_entropy_threshold_backtest,
+    run_feature_window_backtest,
     run_slippage_coeff_backtest,
 )
 
@@ -206,6 +213,138 @@ def test_identical_slippage_coeff_never_significant() -> None:
     cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
     comparisons = run_slippage_coeff_backtest(
         samples, champion_coeff=10.0, challenger_coeff=10.0, features_cfg=cfg
+    )
+    for c in comparisons:
+        assert not c.significant_improvement
+        assert not c.significant_regression
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 item 3 -- feature-window parameters
+# ---------------------------------------------------------------------------
+
+_FEATURE_WINDOW_CFG = FeatureSettings(
+    cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1
+)
+
+
+def _synthetic_bars(n: int = 1000, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    returns = rng.normal(0.0002, 0.01, n)
+    close = 100.0 * np.cumprod(1.0 + returns)
+    high = close * (1.0 + np.abs(rng.normal(0.0, 0.002, n)))
+    low = close * (1.0 - np.abs(rng.normal(0.0, 0.002, n)))
+    open_ = np.concatenate(([close[0]], close[:-1]))
+    volume = rng.uniform(50.0, 150.0, n)
+    idx = (np.arange(n) * 900_000).astype(np.int64)  # 15m bars, Unix-ms
+    return pd.DataFrame(
+        {"open": open_, "high": high, "low": low, "close": close, "volume": volume}, index=idx
+    )
+
+
+def _fitted_direction_model(seed: int = 0) -> XGBClassifier:
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((300, len(FEATURE_COLUMNS)))
+    y = (X[:, 0] > 0).astype(int)
+    model = XGBClassifier(n_estimators=3, max_depth=2, verbosity=0)
+    model.fit(X, y)
+    return model
+
+
+def test_predict_direction_batch_matches_model_predict() -> None:
+    model = _fitted_direction_model()
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame(rng.standard_normal((20, len(FEATURE_COLUMNS))), columns=FEATURE_COLUMNS)
+    pred = _predict_direction_batch(model, X)
+    expected = model.predict(X.to_numpy(dtype=np.float64))
+    assert np.array_equal(pred, expected)
+
+
+def test_predict_direction_batch_slices_extra_columns() -> None:
+    """Mirrors ModelTrainer.predict_direction's n_features_in_-based
+    slicing -- a wider feature frame than the model expects is truncated,
+    not rejected."""
+    model = _fitted_direction_model()
+    rng = np.random.default_rng(2)
+    cols = [*FEATURE_COLUMNS, "extra_intel_col"]
+    X = pd.DataFrame(rng.standard_normal((20, len(cols))), columns=cols)
+    pred = _predict_direction_batch(model, X)
+    expected = model.predict(X[FEATURE_COLUMNS].to_numpy(dtype=np.float64))
+    assert np.array_equal(pred, expected)
+
+
+def test_run_feature_window_backtest_unknown_field_raises() -> None:
+    bars = _synthetic_bars(1000)
+    model = _fitted_direction_model()
+    with pytest.raises(UnknownFeatureWindowFieldError):
+        run_feature_window_backtest(
+            bars,
+            field_name="not_a_real_field",
+            champion_window=14,
+            challenger_window=17,
+            direction_model=model,
+            features_cfg=_FEATURE_WINDOW_CFG,
+        )
+
+
+def test_run_feature_window_backtest_defaults_features_cfg() -> None:
+    """features_cfg=None should load a valid default FeatureSettings, same
+    as run_entropy_threshold_backtest / run_slippage_coeff_backtest."""
+    bars = _synthetic_bars(1500)
+    model = _fitted_direction_model()
+    comparisons = run_feature_window_backtest(
+        bars,
+        field_name="atr_window",
+        champion_window=14,
+        challenger_window=17,
+        direction_model=model,
+    )
+    assert {c.metric_name for c in comparisons} == {"oos_sharpe", "win_rate"}
+
+
+def test_run_feature_window_backtest_produces_two_comparisons() -> None:
+    bars = _synthetic_bars(1000)
+    model = _fitted_direction_model()
+    comparisons = run_feature_window_backtest(
+        bars,
+        field_name="atr_window",
+        champion_window=14,
+        challenger_window=17,
+        direction_model=model,
+        features_cfg=_FEATURE_WINDOW_CFG,
+    )
+    names = {c.metric_name for c in comparisons}
+    assert names == {"oos_sharpe", "win_rate"}
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["vwap_window", "ofi_window", "atr_window", "sharpe_window", "volume_zscore_window"],
+)
+def test_run_feature_window_backtest_runs_for_every_field(field_name: str) -> None:
+    bars = _synthetic_bars(1000)
+    model = _fitted_direction_model()
+    comparisons = run_feature_window_backtest(
+        bars,
+        field_name=field_name,
+        champion_window=20,
+        challenger_window=24,
+        direction_model=model,
+        features_cfg=_FEATURE_WINDOW_CFG,
+    )
+    assert len(comparisons) == 2
+
+
+def test_identical_feature_window_never_significant() -> None:
+    bars = _synthetic_bars(1000)
+    model = _fitted_direction_model()
+    comparisons = run_feature_window_backtest(
+        bars,
+        field_name="atr_window",
+        champion_window=14,
+        challenger_window=14,
+        direction_model=model,
+        features_cfg=_FEATURE_WINDOW_CFG,
     )
     for c in comparisons:
         assert not c.significant_improvement

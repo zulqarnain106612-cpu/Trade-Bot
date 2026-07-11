@@ -16,7 +16,7 @@ the system safe to stop at if priorities change.
 | 5 | `PostPromotionWatchdog` (auto-rollback on live drift) | done | `095d81f` |
 | 6 | Operator API surface (`/self-tuning/*`) | done | `095d81f` |
 | 7 | Enable live promotion (paper mode) for one parameter | **blocked on operator decision** | — |
-| 8 | Expand whitelist, one parameter at a time: (1) `hmm.entropy_scalar_floor` done, (2) `risk.slippage_impact_coeff_bps` done, (3) feature-window params not started, (4) XGBoost hyperparams not started | partial | `72b6282` (scheduler + item 1), this session (item 2) |
+| 8 | Expand whitelist, one parameter at a time: (1) `hmm.entropy_scalar_floor` done, (2) `risk.slippage_impact_coeff_bps` done, (3) feature-window params done, (4) XGBoost hyperparams not started | partial | `72b6282` (scheduler + item 1), `566d02b` (item 2), this session (item 3) |
 
 An `AutoTuningScheduler` (`src/tuning/scheduler.py`) runs the daily/hourly
 propose→evaluate→gate loop automatically for every parameter with a working
@@ -169,13 +169,30 @@ lowest-risk first:
    (negative absolute mean signed error — systematic over/under-estimation,
    distinct from raw magnitude). Wired into `AutoTuningScheduler` alongside
    the entropy parameters.
-3. Scoped, not implemented — `features.*_window` params (one at a time —
-   vwap, ofi, atr, sharpe, volume). See "Phase 8 item 3 — detailed scope"
-   below.
+3. Done — `features.*_window` params (vwap, ofi, atr, sharpe, volume,
+   one at a time): `src/tuning/backtest_harness.py::run_feature_window_backtest`.
+   Scored against the currently deployed FROZEN direction model (loaded
+   via `ModelTrainer.load_direction`, resolved the same way
+   `orchestrator.py` does via `StorageSettings.model_dir`) — this is
+   sensitivity-to-input testing, not "would a retrained model do
+   better" (see risk 1 below, unresolved by design, not by this
+   implementation). Skips cleanly when no model has been trained yet
+   (`FileNotFoundError` is an expected state on a fresh deployment).
+   See "Phase 8 item 3 — detailed scope" below for the full design.
 4. Not started — XGBoost hyperparameters (highest cost — requires retraining per candidate; do this last, and only after the harness's compute cost is understood from cheaper parameters).
 
 Never added: anything in `EXCLUDED_PARAMS` (`src/tuning/registry.py`) —
 this list is not revisited by this plan under any phase.
+
+**Bug found and fixed while wiring item 3 into the scheduler:**
+`AutoTuningScheduler._attempt_all()` previously `return`ed immediately
+whenever entropy's trade-sample count was insufficient, which silently
+skipped the slippage AND feature-window attempts too on every cycle a
+deployment had too few closed trades — even though feature-window tuning
+only needs bar history, not trade history. Fixed by giving each of the
+three parameter groups its own independent guard (see
+`src/tuning/scheduler.py::_attempt_all`); regression test:
+`tests/test_tuning_scheduler.py::TestAutoTuningSchedulerAttempts::test_insufficient_entropy_samples_does_not_skip_slippage_attempt`.
 
 ### Phase 8 item 3 — detailed scope (features.*_window params)
 
