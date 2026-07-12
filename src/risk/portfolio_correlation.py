@@ -78,6 +78,10 @@ class _EWMSeries:
         return math.sqrt(self._var)
 
     @property
+    def mean(self) -> float:
+        return self._mean if self._mean is not None else 0.0
+
+    @property
     def n(self) -> int:
         return self._n
 
@@ -153,20 +157,15 @@ class PortfolioCorrelationTracker:
             key = self._cov_key(symbol, other)
             if key not in self._covs:
                 self._covs[key] = _EWMCov(self._halflife)
-            # Get the last return for the other symbol — we only update when
-            # both series received a value this bar.  Since push_return is
-            # called sequentially per bar, the last .update() to other_series
-            # gives us the correct paired value.
-            # NOTE: This is a simplification — for production use, buffer
-            # returns and update covariances once per bar after all symbols
-            # have reported.  For now this is correct when push_return is
-            # called for all symbols before the covariance is read.
-            self._covs[key]
-            # We reconstruct other's last value from its EWM mean — this is
-            # approximate.  A production implementation would buffer last values.
-            # However, for the purpose of computing an approximate correlation
-            # scalar, this level of precision is sufficient.
-            # (Exact version would require storing last_ret per symbol.)
+            # NOTE: push_return() only sees one symbol's return at a time, so
+            # it cannot pair true same-bar returns like push_bar_returns()
+            # does. As an approximation, pair this bar's return against the
+            # other symbol's current EWM mean (its expected return) rather
+            # than leaving the covariance tracker permanently un-updated —
+            # the previous code looked up self._covs[key] and discarded the
+            # result, so push_return() never actually recorded any
+            # covariance and correlation() always saw cov=0.
+            self._covs[key].update(ret, self._series[other].mean)
 
     def push_bar_returns(self, returns: dict[str, float]) -> None:
         """

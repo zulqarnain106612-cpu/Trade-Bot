@@ -337,7 +337,8 @@ class SignalEngine:
                 _p_inputs = _PROB_ADAPTER.process(_intel_metrics_dict)
                 _exchange_stress = _p_inputs.exchange_stress_score
                 _whale_ratio = _p_inputs.whale_buy_sell_ratio
-            except Exception:
+            except Exception as _prob_exc:
+                self._log.warning("signal.probabilistic_adapter_failed", error=str(_prob_exc))
                 _exchange_stress = None
                 _whale_ratio = None
 

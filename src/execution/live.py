@@ -725,18 +725,64 @@ class LiveExecutor(AbstractExecutor):
             async with self._lock:
                 # Reconcile: replace the estimated reserve with actual cost
                 self._cash += notional_estimate + fee_estimate  # undo estimate
-                if self._cash < notional + entry_fee:
-                    self._log.critical(
-                        "live.post_reconcile_cash_insufficient_UNTRACKED_POSITION",
+                cash_insufficient = self._cash < notional + entry_fee
+                if not cash_insufficient:
+                    self._cash -= notional + entry_fee
+
+            if cash_insufficient:
+                self._log.critical(
+                    "live.post_reconcile_cash_insufficient_UNTRACKED_POSITION",
+                    exchange_order_id=exchange_order_id,
+                    symbol=symbol,
+                    side=side,
+                    actual_price=actual_price,
+                    filled_qty=filled_qty,
+                    action="order filled but position not recorded — attempting emergency flatten",
+                )
+                # The exchange already filled this order; leaving it untracked
+                # means real, unhedged exposure with no internal record. Rather
+                # than abandon it, immediately submit an opposite-side market
+                # order to flatten the position before returning.
+                flatten_side = "sell" if side == "buy" else "buy"
+                try:
+                    flatten_order = await self._place_market_order(symbol, flatten_side, filled_qty)
+                    flatten_price = float(
+                        flatten_order.get("average") or flatten_order.get("price") or actual_price
+                    )
+                    flatten_fee = self._extract_fee(flatten_order, flatten_price, filled_qty)
+                    # self._cash was already reset to its pre-trade value above
+                    # (the estimate was undone and never re-debited). The real
+                    # cash effect of entering then immediately flattening is the
+                    # signed price move between the two fills (relative to the
+                    # entry side) minus both legs' fees — without applying it,
+                    # the internal ledger would silently drift away from the
+                    # true exchange balance every time this path fires, letting
+                    # future trades size against phantom cash.
+                    signed_pnl = (flatten_price - actual_price) * filled_qty
+                    if side == "sell":
+                        signed_pnl = -signed_pnl
+                    cash_adjustment = signed_pnl - entry_fee - flatten_fee
+                    async with self._lock:
+                        self._cash += cash_adjustment
+                    self._log.error(
+                        "live.untracked_position_flattened",
                         exchange_order_id=exchange_order_id,
                         symbol=symbol,
-                        side=side,
-                        actual_price=actual_price,
+                        flatten_side=flatten_side,
                         filled_qty=filled_qty,
-                        action="MANUAL_CLOSE_REQUIRED — order filled but position NOT recorded",
+                        cash_adjustment=round(cash_adjustment, 4),
                     )
-                    return None
-                self._cash -= notional + entry_fee
+                except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
+                    self._log.critical(
+                        "live.untracked_position_flatten_failed",
+                        exchange_order_id=exchange_order_id,
+                        symbol=symbol,
+                        error=str(exc),
+                        action="MANUAL_CLOSE_REQUIRED",
+                    )
+                return None
+
+            async with self._lock:
                 pos = LivePosition(
                     trade_id=trade_id,
                     exchange_order_id=exchange_order_id,

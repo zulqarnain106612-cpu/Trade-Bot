@@ -116,6 +116,27 @@ class OrderBookSnapshot:
         return (bv - av) / total
 
 
+def _parse_book_side(raw_side: list[Any]) -> list[list[float]]:
+    """Parse one side (bids/asks) of a raw ccxt order book response.
+
+    Exchange responses are not schema-validated by ccxt; malformed rows
+    (wrong arity, non-numeric, or non-positive price) are dropped instead
+    of raising, so one bad row doesn't corrupt/crash the whole snapshot.
+    """
+    parsed: list[list[float]] = []
+    for entry in raw_side:
+        try:
+            if len(entry) != 2:
+                continue
+            price, qty = float(entry[0]), float(entry[1])
+        except (TypeError, ValueError, KeyError, IndexError):
+            continue
+        if price <= 0.0 or qty < 0.0:
+            continue
+        parsed.append([price, qty])
+    return parsed
+
+
 # ---------------------------------------------------------------------------
 # Exchange factory helpers
 # ---------------------------------------------------------------------------
@@ -198,7 +219,7 @@ async def _with_retry(
                     error=str(exc),
                 )
                 raise
-            wait = delay * 2
+            wait = min(delay * 2, 60.0)
             log.warning(
                 "fetch.rate_limited",
                 label=label,
@@ -494,8 +515,8 @@ class MarketDataFetcher:
         )
 
         ts_ms = raw.get("timestamp") or int(datetime.now(tz=UTC).timestamp() * 1000)
-        bids: list[list[float]] = [[float(p), float(q)] for p, q in raw.get("bids", [])]
-        asks: list[list[float]] = [[float(p), float(q)] for p, q in raw.get("asks", [])]
+        bids = _parse_book_side(raw.get("bids", []))
+        asks = _parse_book_side(raw.get("asks", []))
 
         return OrderBookSnapshot(
             symbol=symbol,

@@ -200,7 +200,11 @@ def _results_fresh(results: dict, ttl_s: int) -> bool:
         ts = datetime.datetime.fromisoformat(executed_at.replace("Z", "+00:00"))
         age = (datetime.datetime.now(datetime.UTC) - ts).total_seconds()
         return age < ttl_s
-    except Exception:
+    except Exception as exc:
+        # Fail closed (treat as stale, forcing a refetch) but log so a
+        # persistently malformed timestamp field is visible to operators
+        # instead of silently masquerading as "not fresh" forever.
+        logger.warning("dune.results_fresh_check_failed error=%s", str(exc))
         return False
 
 

@@ -11,6 +11,7 @@ so importing this module never silently makes a parameter tunable.
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from src.config import get_settings
 from src.tuning.audit import TuningAuditLog
@@ -62,11 +63,20 @@ class _PauseState:
 
     def __init__(self) -> None:
         self._paused = False
+        # VF-004 pattern (see RuntimeConfig in src/config.py): lazy asyncio.Lock
+        # creation without a guard lets two coroutines both see self._lock is
+        # None and create separate locks, silently breaking mutual exclusion.
+        # Guard the one-time creation with a threading.Lock (cheap; acquired
+        # only once per process lifetime).
+        self._init_guard: threading.Lock = threading.Lock()
         self._lock: asyncio.Lock | None = None
 
     def _get_lock(self) -> asyncio.Lock:
-        if self._lock is None:
-            self._lock = asyncio.Lock()
+        if self._lock is not None:
+            return self._lock
+        with self._init_guard:
+            if self._lock is None:
+                self._lock = asyncio.Lock()
         return self._lock
 
     async def is_paused(self) -> bool:
