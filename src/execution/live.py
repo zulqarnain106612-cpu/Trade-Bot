@@ -25,7 +25,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import ccxt.async_support as ccxt
@@ -37,6 +37,7 @@ from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -383,7 +384,7 @@ class LiveExecutor(AbstractExecutor):
         filled_qty = float(order.get("filled") or pos.quantity)
         exchange_fee = self._extract_fee(order, actual_exit_price, filled_qty)
 
-        exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
 
         if pos.direction == 1:
             gross_pnl = (actual_exit_price - pos.entry_price) * filled_qty
@@ -474,7 +475,7 @@ class LiveExecutor(AbstractExecutor):
             req.resolved = True
             req.approved = approved
             req.operator = operator
-            req._event.set()  # noqa: SLF001 — wake _await_approval immediately
+            req._event.set()
         self._log.info(
             "live.approval_resolved",
             request_id=request_id,
@@ -662,7 +663,7 @@ class LiveExecutor(AbstractExecutor):
                 return None
 
             notional = actual_price * filled_qty
-            entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            entry_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
             trade_id = str(uuid.uuid4())
 
             async with self._lock:
@@ -883,8 +884,8 @@ class LiveExecutor(AbstractExecutor):
             return False, ""
 
         try:
-            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)  # noqa: SLF001
-        except asyncio.TimeoutError:
+            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)
+        except TimeoutError:
             async with self._lock:
                 timed_out = self._approval_queue.pop(request_id, None)
                 if timed_out is not None:
@@ -934,7 +935,7 @@ class LiveExecutor(AbstractExecutor):
         record is internally consistent and cannot race with mark_to_market().
         """
         record = EquityRecord(
-            ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+            ts=int(datetime.now(tz=UTC).timestamp() * 1000),
             trading_mode=TradingMode.LIVE.value,
             equity_usd=round(equity, 8),
             cash_usd=round(cash, 8),

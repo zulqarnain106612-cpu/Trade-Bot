@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Final
+from datetime import UTC, datetime
+from typing import Any, Final
 
 import aiosqlite
 import structlog
 
-from src.config import TradingMode, get_settings
+from src.config import get_settings
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -166,6 +168,8 @@ _ALLOWED_TABLES: Final[frozenset[str]] = frozenset({
 # ---------------------------------------------------------------------------
 
 import re as _re  # noqa: E402
+
+
 _SYMBOL_RE = _re.compile(r"^[A-Z0-9]{2,10}/[A-Z0-9]{2,10}$")
 
 # ---------------------------------------------------------------------------
@@ -177,16 +181,16 @@ class BarRecord:
     """Single OHLCV bar as returned by storage queries."""
 
     __slots__ = (
-        "symbol",
-        "timeframe",
-        "ts",
-        "open",
+        "close",
         "high",
         "low",
-        "close",
-        "volume",
+        "open",
         "quote_volume",
+        "symbol",
         "taker_buy_vol",
+        "timeframe",
+        "ts",
+        "volume",
     )
 
     def __init__(
@@ -218,27 +222,27 @@ class TradeRecord:
     """Full trade audit record."""
 
     __slots__ = (
+        "approved_by",
+        "direction",
+        "entry_price",
+        "entry_ts",
+        "execution_mode",
+        "exit_price",
+        "exit_reason",
+        "exit_ts",
+        "fee_usd",
         "id",
+        "kelly_fraction",
+        "meta_label_prob",
+        "notional_usd",
+        "pnl_pct",
+        "pnl_usd",
+        "quantity",
+        "raw_signal",
+        "regime_at_entry",
         "symbol",
         "timeframe",
         "trading_mode",
-        "execution_mode",
-        "direction",
-        "entry_price",
-        "exit_price",
-        "quantity",
-        "notional_usd",
-        "entry_ts",
-        "exit_ts",
-        "pnl_usd",
-        "pnl_pct",
-        "fee_usd",
-        "kelly_fraction",
-        "regime_at_entry",
-        "meta_label_prob",
-        "exit_reason",
-        "approved_by",
-        "raw_signal",
     )
 
     def __init__(
@@ -292,13 +296,13 @@ class RegimeSnapshotRecord:
     """HMM regime state at a single bar."""
 
     __slots__ = (
-        "symbol",
-        "timeframe",
-        "ts",
-        "regime_state",
         "prob_ranging",
         "prob_trending",
         "prob_volatile",
+        "regime_state",
+        "symbol",
+        "timeframe",
+        "ts",
     )
 
     def __init__(
@@ -324,17 +328,17 @@ class ModelMetricsRecord:
     """CPCV OOS metrics snapshot for a trained model version."""
 
     __slots__ = (
-        "model_name",
-        "timeframe",
-        "version",
-        "oos_sharpe",
-        "max_drawdown",
-        "n_trades",
         "accuracy",
-        "precision_score",
-        "recall_score",
         "f1_score",
         "live_gate_pass",
+        "max_drawdown",
+        "model_name",
+        "n_trades",
+        "oos_sharpe",
+        "precision_score",
+        "recall_score",
+        "timeframe",
+        "version",
     )
 
     def __init__(
@@ -368,15 +372,15 @@ class EquityRecord:
     """Point-in-time equity snapshot."""
 
     __slots__ = (
-        "ts",
-        "trading_mode",
-        "equity_usd",
         "cash_usd",
-        "unrealized_pnl",
-        "daily_pnl_usd",
         "daily_pnl_pct",
-        "peak_equity_usd",
+        "daily_pnl_usd",
         "drawdown_pct",
+        "equity_usd",
+        "peak_equity_usd",
+        "trading_mode",
+        "ts",
+        "unrealized_pnl",
     )
 
     def __init__(
@@ -591,7 +595,7 @@ class StorageBackend:
         conn = self._require_conn()
         cutoff_ms = int(
             (
-                datetime.now(tz=timezone.utc).timestamp() - keep_days * 86400
+                datetime.now(tz=UTC).timestamp() - keep_days * 86400
             ) * 1000
         )
         async with self._lock:
@@ -803,7 +807,7 @@ class StorageBackend:
         """
         conn = self._require_conn()
         day_start_ms = int(
-            datetime.now(tz=timezone.utc)
+            datetime.now(tz=UTC)
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .timestamp()
             * 1000
@@ -1126,7 +1130,7 @@ class StorageBackend:
         for table in _ALLOWED_TABLES:
             if table not in _ALLOWED_TABLES:
                 raise ValueError(f"Unexpected table name: {table!r}")
-            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:  # noqa: S608
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
                 row = await cur.fetchone()
             counts[table] = int(row[0]) if row else 0
         # db_path intentionally omitted — leaks internal filesystem layout

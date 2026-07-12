@@ -29,23 +29,29 @@ import json
 import os
 import re
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, Annotated, AsyncIterator, cast
+from datetime import UTC, datetime
+from typing import Annotated, Any, cast
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.config import ExecutionMode, Timeframe, get_settings, invalidate_settings_cache, runtime_config
-from src.data.fetcher import open_fetcher
-from src.data.storage import StorageBackend
-from src.execution.live import LiveExecutor
-from src.execution.base import AbstractExecutor
-from src.engine.orchestrator import Orchestrator
 from src.api.auth import verify_api_key, verify_ws_key
 from src.api.middleware import validate_cors_config
+from src.config import (
+    ExecutionMode,
+    Timeframe,
+    get_settings,
+    runtime_config,
+)
+from src.data.fetcher import open_fetcher
+from src.data.storage import StorageBackend
+from src.engine.orchestrator import Orchestrator
+from src.execution.base import AbstractExecutor
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -220,7 +226,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             orch_task.cancel()
         await _state.orchestrator.shutdown()
         await _state.storage.close()
@@ -310,14 +316,14 @@ async def health() -> dict[str, Any]:
         "storage": counts,
         "trading_mode": get_settings().trading_mode.value,
         "execution_mode": (await runtime_config.get_execution_mode()).value,
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
     }
 
 
 @app.get("/status", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
     cfg = get_settings()
 
     equity_usd = executor.equity_usd if executor else 0.0
@@ -349,8 +355,8 @@ async def status() -> dict[str, Any]:
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
         # SCAN2-003: surface last retrain errors so operators know when models are stale
-        "last_retrain_errors": dict(_state.orchestrator._last_retrain_error),  # noqa: SLF001
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "last_retrain_errors": dict(_state.orchestrator._last_retrain_error),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
     }
 
 
@@ -463,7 +469,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
 @app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         return {"approvals": []}
     return {"approvals": executor.pending_approvals()}
@@ -483,7 +489,7 @@ async def resolve_approval(
 ) -> dict[str, Any]:
     """Approve or reject a pending trade."""
     _state.check_endpoint_rate_limit("resolve_approval")
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
 
@@ -622,7 +628,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             await asyncio.sleep(heartbeat)
 
-            executor = cast(AbstractExecutor, _state.orchestrator._executor)  # noqa: SLF001
+            executor = cast(AbstractExecutor, _state.orchestrator._executor)
             if executor is None:
                 continue
 
@@ -636,7 +642,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 "pending_approvals": await executor.pending_approvals_safe(),
                 "trading_mode": get_settings().trading_mode.value,
                 "execution_mode": (await runtime_config.get_execution_mode()).value,
-                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "timestamp": datetime.now(tz=UTC).isoformat(),
             }
 
             snap = await _state.storage.latest_regime(

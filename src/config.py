@@ -9,6 +9,7 @@ Authority sources:
 
 from __future__ import annotations
 
+import asyncio as _asyncio
 import os
 from enum import Enum
 from functools import lru_cache
@@ -78,7 +79,7 @@ class BinanceSettings(BaseSettings):
     rate_limit_per_minute: int = Field(default=1200, ge=1)
 
     @model_validator(mode="after")
-    def resolve_urls(self) -> "BinanceSettings":
+    def resolve_urls(self) -> BinanceSettings:
         if not self.testnet:
             self.base_url = "https://api.binance.com"
             self.ws_url = "wss://stream.binance.com:9443/ws"
@@ -367,7 +368,7 @@ class Settings(BaseSettings):
         return upper
 
     @model_validator(mode="after")
-    def enforce_live_gate(self) -> "Settings":
+    def enforce_live_gate(self) -> Settings:
         """
         Prevent live trading from being enabled purely via code path.
         Requires the environment variable TRADING_MODE=live to be explicitly set.
@@ -381,7 +382,7 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_primary_timeframe_in_active(self) -> "Settings":
+    def validate_primary_timeframe_in_active(self) -> Settings:
         if self.primary_timeframe not in self.active_timeframes:
             raise ValueError(
                 f"primary_timeframe {self.primary_timeframe!r} must be in active_timeframes"
@@ -457,7 +458,6 @@ def invalidate_settings_cache() -> None:
 #
 # Because Python properties cannot be async, the interface is explicit
 # async getter/setter methods. Call sites updated accordingly.
-import asyncio as _asyncio
 
 
 class RuntimeConfig:

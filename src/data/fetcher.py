@@ -18,7 +18,7 @@ Authority sources:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import ccxt.async_support as ccxt
@@ -34,6 +34,7 @@ from src.config import (
     get_settings,
 )
 from src.data.storage import BarRecord, StorageBackend
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -60,7 +61,7 @@ class OrderBookSnapshot:
     bids / asks: list of [price, quantity] pairs, sorted best-first.
     """
 
-    __slots__ = ("symbol", "ts_ms", "bids", "asks")
+    __slots__ = ("asks", "bids", "symbol", "ts_ms")
 
     def __init__(
         self,
@@ -316,7 +317,7 @@ class MarketDataFetcher:
         tf_str = timeframe.value
         tf_seconds = TIMEFRAME_SECONDS[timeframe]
         since_ms = int(
-            (datetime.now(tz=timezone.utc).timestamp() - lookback_days * 86400) * 1000
+            (datetime.now(tz=UTC).timestamp() - lookback_days * 86400) * 1000
         )
 
         total_written = 0
@@ -398,7 +399,7 @@ class MarketDataFetcher:
             return await self.bootstrap_history(symbol, timeframe)
 
         since_ms = latest_ts + tf_seconds * 1000
-        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
         if since_ms >= now_ms:
             return 0  # already current
 
@@ -450,7 +451,7 @@ class MarketDataFetcher:
             label=label,
         )
 
-        ts_ms = raw.get("timestamp") or int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        ts_ms = raw.get("timestamp") or int(datetime.now(tz=UTC).timestamp() * 1000)
         bids: list[list[float]] = [[float(p), float(q)] for p, q in raw.get("bids", [])]
         asks: list[list[float]] = [[float(p), float(q)] for p, q in raw.get("asks", [])]
 
@@ -650,7 +651,7 @@ class _FetcherContextManager:
         # exception in the traceback. Log at WARNING level and let original propagate.
         try:
             await self._fetcher.close()
-        except Exception as close_exc:  # noqa: BLE001
+        except Exception as close_exc:
             log.warning(
                 "fetcher.context_manager_close_error",
                 error=str(close_exc),

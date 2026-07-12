@@ -30,6 +30,7 @@ import structlog
 
 from src.config import FeatureSettings, get_settings
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -636,7 +637,7 @@ def build_feature_matrix(
     # (tail rows where holding window extends beyond data)
     before = len(feature_df)
     feature_df = feature_df.dropna(
-        subset=FEATURE_COLUMNS + [COL_LABEL]
+        subset=[*FEATURE_COLUMNS, COL_LABEL]
     )
     dropped = before - len(feature_df)
 

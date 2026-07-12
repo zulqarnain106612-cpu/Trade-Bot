@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import pandas as pd
@@ -36,10 +36,11 @@ from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settin
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import StorageBackend
 from src.features.pipeline import (
-    build_inference_features,
-    build_feature_matrix,
     FEATURE_COLUMNS,
+    build_feature_matrix,
+    build_inference_features,
 )
+from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.risk.gates import (
     GateResult,
@@ -47,7 +48,7 @@ from src.risk.gates import (
     evaluate_all_gates,
 )
 from src.risk.kelly import KellyResult, compute_position_size
-from src.models.trainer import ModelTrainer
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -355,12 +356,11 @@ class SignalEngine:
         # VUL-SIGNAL-001: since_ts=0 caused a full table scan on every tick.
         # Compute a real cutoff aligned to the bars we actually need so the
         # (symbol, timeframe, ts ASC) index is used efficiently.
-        from datetime import datetime, timezone
 
         n_bars_needed = _MIN_BARS_FOR_SIGNAL + 200
         tf_seconds = TIMEFRAME_SECONDS.get(self._timeframe, 60)
         cutoff_ts = int(
-            (datetime.now(tz=timezone.utc).timestamp() - n_bars_needed * tf_seconds) * 1000
+            (datetime.now(tz=UTC).timestamp() - n_bars_needed * tf_seconds) * 1000
         )
         records = await self._storage.fetch_bars(
             symbol=self._symbol,

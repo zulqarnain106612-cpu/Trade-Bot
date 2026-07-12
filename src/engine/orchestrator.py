@@ -19,8 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-from typing import Union
+from datetime import UTC, datetime
 
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
@@ -33,13 +32,14 @@ from src.config import (
 )
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import RegimeSnapshotRecord, StorageBackend
-from src.execution.paper import PaperExecutor
-from src.execution.live import LiveExecutor
 from src.engine.signal_engine import SignalEngine, SignalResult
+from src.execution.live import LiveExecutor
+from src.execution.paper import PaperExecutor
 from src.features.pipeline import build_feature_matrix
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.kelly import compute_win_loss_stats
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -48,7 +48,7 @@ _RETRAIN_INTERVAL_TICKS: int = 96  # 96 × 15m = 24 h
 _HISTORY_BARS_FOR_TRAIN: int = 2000
 _REGIME_LOOKBACK_BARS: int = 500
 
-AnyExecutor = Union[PaperExecutor, LiveExecutor]
+AnyExecutor = PaperExecutor | LiveExecutor
 
 
 class Orchestrator:
@@ -138,7 +138,7 @@ class Orchestrator:
         results = await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
 
         # Fail loudly on bootstrap errors — never silently continue with no data (fix #15)
-        for tf, result in zip(self._timeframes, results):
+        for tf, result in zip(self._timeframes, results, strict=True):
             if isinstance(result, BaseException):
                 self._log.critical(
                     "orchestrator.bootstrap_failed",
@@ -264,7 +264,7 @@ class Orchestrator:
 
     async def _sleep_until_next_bar(self, tf_seconds: int) -> None:
         """Sleep until the next bar boundary (UTC aligned)."""
-        now = datetime.now(tz=timezone.utc).timestamp()
+        now = datetime.now(tz=UTC).timestamp()
         next_bar = (int(now / tf_seconds) + 1) * tf_seconds
         sleep_s = max(0.1, next_bar - now)
         await asyncio.sleep(sleep_s)
@@ -322,7 +322,7 @@ class Orchestrator:
         if self._cfg.trading_mode.value == "live":
             earliest = await self._storage.earliest_equity_ts(TradingMode.PAPER.value)
             if earliest is not None:
-                age_s = datetime.now(tz=timezone.utc).timestamp() - (earliest / 1000.0)
+                age_s = datetime.now(tz=UTC).timestamp() - (earliest / 1000.0)
                 paper_trading_days = int(age_s / 86400)
 
         # Run signal engine
@@ -436,7 +436,7 @@ class Orchestrator:
             "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400,
         }.get(tf.value, 60)
         cutoff_ts = int(
-            (datetime.now(tz=timezone.utc).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
+            (datetime.now(tz=UTC).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
             * 1000
         )
         records = await self._storage.fetch_bars(
@@ -481,7 +481,7 @@ class Orchestrator:
         # XGBoost training — CPU bound
         trainer = ModelTrainer(self._symbol, tf.value)
         self._trainers[tf.value] = trainer
-        version = datetime.now(tz=timezone.utc).isoformat()
+        version = datetime.now(tz=UTC).isoformat()
 
         try:
             dir_result = await loop.run_in_executor(
@@ -529,7 +529,7 @@ class Orchestrator:
         """Reset daily equity tracker at UTC midnight."""
         while self._running:
             try:
-                now = datetime.now(tz=timezone.utc)
+                now = datetime.now(tz=UTC)
                 # Seconds until next midnight
                 next_midnight = (
                     now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() + 86400

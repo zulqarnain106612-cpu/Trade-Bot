@@ -44,6 +44,7 @@ from src.config import (
     get_settings,
 )
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -213,7 +214,7 @@ class RegimeDetector:
         self,
         features: pd.DataFrame,
         lengths: list[int] | None = None,
-    ) -> "RegimeDetector":
+    ) -> RegimeDetector:
         """
         Fit GaussianHMM on a feature DataFrame.
 
@@ -498,7 +499,7 @@ class RegimeDetector:
         model_dir: str | Path,
         symbol: str,
         timeframe: str,
-    ) -> "RegimeDetector":
+    ) -> RegimeDetector:
         """
         Restore a previously saved RegimeDetector from disk.
 

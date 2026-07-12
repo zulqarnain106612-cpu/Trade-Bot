@@ -29,7 +29,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 import structlog
@@ -39,6 +39,7 @@ from src.data.storage import EquityRecord, StorageBackend, TradeRecord
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -380,7 +381,7 @@ class PaperExecutor(AbstractExecutor):
                 raise KeyError(f"No open paper position with trade_id={trade_id!r}")
 
             pos = self._positions.pop(trade_id)
-            exit_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
 
             if pos.direction == 1:  # long
                 gross_pnl = (exit_price - pos.entry_price) * pos.quantity
@@ -494,7 +495,7 @@ class PaperExecutor(AbstractExecutor):
             req.resolved = True
             req.approved = approved
             req.operator = operator
-            req._event.set()  # noqa: SLF001
+            req._event.set()
 
         self._log.info(
             "paper.approval_resolved",
@@ -652,7 +653,7 @@ class PaperExecutor(AbstractExecutor):
                 return None
 
             trade_id = str(uuid.uuid4())
-            entry_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            entry_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
             self._cash -= notional + entry_fee
 
             pos = PaperPosition(
@@ -768,8 +769,8 @@ class PaperExecutor(AbstractExecutor):
             return False, ""
 
         try:
-            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)  # noqa: SLF001
-        except asyncio.TimeoutError:
+            await asyncio.wait_for(req._event.wait(), timeout=timeout_s)
+        except TimeoutError:
             async with self._lock:
                 timed_out = self._approval_queue.pop(request_id, None)
                 if timed_out is not None:
@@ -827,7 +828,7 @@ class PaperExecutor(AbstractExecutor):
         is internally consistent and cannot race with concurrent mark_to_market.
         """
         record = EquityRecord(
-            ts=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+            ts=int(datetime.now(tz=UTC).timestamp() * 1000),
             trading_mode=TradingMode.PAPER.value,
             equity_usd=round(equity, 8),
             cash_usd=round(cash, 8),

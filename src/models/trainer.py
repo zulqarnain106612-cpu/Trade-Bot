@@ -17,13 +17,13 @@ Authority:
 
 from __future__ import annotations
 
+import hashlib
+import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
-import hashlib
-import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
-import json
 
 import joblib
 import numpy as np
@@ -37,13 +37,14 @@ from sklearn.metrics import (
 )
 from xgboost import XGBClassifier
 
-from src.config import XGBoostSettings, FeatureSettings, get_settings
+from src.config import FeatureSettings, XGBoostSettings, get_settings
 from src.data.storage import ModelMetricsRecord
 from src.features.pipeline import (
     FEATURE_COLUMNS,
     FeatureMatrix,
     meta_labels,
 )
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 

@@ -31,6 +31,7 @@ from src.config import (
     get_settings,
 )
 
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
@@ -68,7 +69,7 @@ class GateResult:
     details: dict[str, object]
 
     @classmethod
-    def pass_gate(cls, details: dict[str, object] | None = None) -> "GateResult":
+    def pass_gate(cls, details: dict[str, object] | None = None) -> GateResult:
         return cls(
             status=GateStatus.PASS,
             passed=True,
@@ -82,7 +83,7 @@ class GateResult:
         status: GateStatus,
         reason: str,
         details: dict[str, object] | None = None,
-    ) -> "GateResult":
+    ) -> GateResult:
         return cls(
             status=status,
             passed=False,
@@ -457,7 +458,7 @@ def evaluate_all_gates(
                 "risk.gate.blocked",
                 status=result.status.value,
                 reason=result.reason,
-                **{k: v for k, v in result.details.items()},
+                **result.details,
             )
             return result
 
