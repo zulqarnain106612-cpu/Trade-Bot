@@ -35,9 +35,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # DDL — all tables created once on first connection
 # ---------------------------------------------------------------------------
 
-_DDL: Final[
-    str
-] = """
+_DDL: Final[str] = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 PRAGMA synchronous=FULL;
@@ -159,9 +157,9 @@ CREATE INDEX IF NOT EXISTS idx_audit_ts
 # Allowed table names for health_check — prevents f-string injection
 # ---------------------------------------------------------------------------
 
-_ALLOWED_TABLES: Final[frozenset[str]] = frozenset({
-    "bars", "trades", "regime_snapshots", "model_metrics", "equity_curve", "audit_log"
-})
+_ALLOWED_TABLES: Final[frozenset[str]] = frozenset(
+    {"bars", "trades", "regime_snapshots", "model_metrics", "equity_curve", "audit_log"}
+)
 
 # ---------------------------------------------------------------------------
 # Allowed trading pair pattern for symbol validation
@@ -502,8 +500,16 @@ class StorageBackend:
         conn = self._require_conn()
         rows = [
             (
-                b.symbol, b.timeframe, b.ts, b.open, b.high, b.low,
-                b.close, b.volume, b.quote_volume, b.taker_buy_vol,
+                b.symbol,
+                b.timeframe,
+                b.ts,
+                b.open,
+                b.high,
+                b.low,
+                b.close,
+                b.volume,
+                b.quote_volume,
+                b.taker_buy_vol,
             )
             for b in bars
         ]
@@ -593,11 +599,7 @@ class StorageBackend:
         Returns count of deleted rows.
         """
         conn = self._require_conn()
-        cutoff_ms = int(
-            (
-                datetime.now(tz=UTC).timestamp() - keep_days * 86400
-            ) * 1000
-        )
+        cutoff_ms = int((datetime.now(tz=UTC).timestamp() - keep_days * 86400) * 1000)
         async with self._lock:
             cursor = await conn.execute(
                 "DELETE FROM bars WHERE symbol=? AND timeframe=? AND ts<?",
@@ -698,8 +700,7 @@ class StorageBackend:
             await conn.commit()
         if cursor.rowcount == 0:
             raise ValueError(
-                f"No open trade found with id={trade_id!r} "
-                "(already closed or id not found)"
+                f"No open trade found with id={trade_id!r} " "(already closed or id not found)"
             )
         self._log.info(
             "trade.exit_updated",
@@ -807,9 +808,7 @@ class StorageBackend:
         """
         conn = self._require_conn()
         day_start_ms = int(
-            datetime.now(tz=UTC)
-            .replace(hour=0, minute=0, second=0, microsecond=0)
-            .timestamp()
+            datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
             * 1000
         )
         async with conn.execute(
@@ -849,9 +848,7 @@ class StorageBackend:
             )
             await conn.commit()
 
-    async def latest_regime(
-        self, symbol: str, timeframe: str
-    ) -> RegimeSnapshotRecord | None:
+    async def latest_regime(self, symbol: str, timeframe: str) -> RegimeSnapshotRecord | None:
         """Return the most recent regime snapshot or None."""
         conn = self._require_conn()
         async with conn.execute(

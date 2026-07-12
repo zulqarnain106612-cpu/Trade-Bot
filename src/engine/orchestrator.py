@@ -59,7 +59,7 @@ class Orchestrator:
 
         orch = Orchestrator(storage, fetcher)
         await orch.startup()
-        await orch.run()          # blocks until stop() called
+        await orch.run()  # blocks until stop() called
         await orch.shutdown()
 
     Or use the FastAPI lifespan handler which calls startup/shutdown.
@@ -88,9 +88,7 @@ class Orchestrator:
 
         # Dedicated single-thread executor for CPU-bound training (NEW-002).
         # Isolated from the default pool so training never starves async I/O tasks.
-        self._train_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="training"
-        )
+        self._train_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="training")
 
         self._running: bool = False
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
@@ -310,9 +308,7 @@ class Orchestrator:
         # SCAN2-012: fetch_trades returns DESC order (most-recent first). Reverse to
         # chronological order before passing to compute_win_loss_stats so any
         # future time-order-sensitive analysis gets correct sequencing.
-        pnl_history = [
-            t.pnl_usd for t in reversed(recent_trades) if t.pnl_usd is not None
-        ]
+        pnl_history = [t.pnl_usd for t in reversed(recent_trades) if t.pnl_usd is not None]
         _, avg_win, avg_loss = compute_win_loss_stats(pnl_history)
 
         # Paper trading tenure — days since first paper equity record.
@@ -396,6 +392,7 @@ class Orchestrator:
                     self._train_models(tf),
                     name=f"retrain_{tf.value}",
                 )
+
                 # SCAN2-003: log exceptions from the fire-and-forget retrain task;
                 # without this, unhandled exceptions vanish silently until GC.
                 def _retrain_done(t: asyncio.Task, _tf: str = tf.value) -> None:
@@ -407,6 +404,7 @@ class Orchestrator:
                             timeframe=_tf,
                             error=err,
                         )
+
                 task.add_done_callback(_retrain_done)
                 self._retrain_tasks[tf.value] = task
             else:
@@ -433,11 +431,15 @@ class Orchestrator:
         # SCAN2-010: compute exact cutoff timestamp instead of since_ts=0 (full table scan).
         # Using the real cutoff makes the query use the (symbol, timeframe, ts) index optimally.
         tf_seconds = {
-            "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400,
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
         }.get(tf.value, 60)
         cutoff_ts = int(
-            (datetime.now(tz=UTC).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds)
-            * 1000
+            (datetime.now(tz=UTC).timestamp() - _HISTORY_BARS_FOR_TRAIN * tf_seconds) * 1000
         )
         records = await self._storage.fetch_bars(
             self._symbol, tf.value, since_ts=cutoff_ts, limit=_HISTORY_BARS_FOR_TRAIN

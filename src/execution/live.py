@@ -492,7 +492,8 @@ class LiveExecutor(AbstractExecutor):
         # use the async variant below.
         cutoff = time.monotonic() - 3600.0
         to_prune = [
-            rid for rid, req in self._approval_queue.items()
+            rid
+            for rid, req in self._approval_queue.items()
             if req.resolved and req.created_at < cutoff
         ]
         for rid in to_prune:
@@ -509,7 +510,8 @@ class LiveExecutor(AbstractExecutor):
         async with self._lock:
             cutoff = time.monotonic() - 3600.0
             to_prune = [
-                rid for rid, req in self._approval_queue.items()
+                rid
+                for rid, req in self._approval_queue.items()
                 if req.resolved and req.created_at < cutoff
             ]
             for rid in to_prune:
@@ -769,19 +771,27 @@ class LiveExecutor(AbstractExecutor):
             except (ccxt.NetworkError, ccxt.RequestTimeout):
                 # Transient — retry
                 continue
-            except (ccxt.BadSymbol, ccxt.InsufficientFunds, ccxt.InvalidOrder,
-                    ccxt.AuthenticationError) as exc:
+            except (
+                ccxt.BadSymbol,
+                ccxt.InsufficientFunds,
+                ccxt.InvalidOrder,
+                ccxt.AuthenticationError,
+            ) as exc:
                 # SCAN3-009: permanent errors will not resolve on retry — raise immediately
                 self._log.error(
                     "live.order_confirm_permanent_error",
-                    order_id=order_id, symbol=symbol, error=str(exc),
+                    order_id=order_id,
+                    symbol=symbol,
+                    error=str(exc),
                 )
                 raise
             except ccxt.ExchangeError:
                 # Unclassified — log and retry
                 self._log.warning(
                     "live.order_confirm_exchange_error",
-                    order_id=order_id, symbol=symbol, attempt=attempt,
+                    order_id=order_id,
+                    symbol=symbol,
+                    attempt=attempt,
                 )
                 continue
 

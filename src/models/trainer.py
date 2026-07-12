@@ -77,8 +77,7 @@ def _verify_manifest(path: Path) -> None:
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
     if not manifest_path.exists():
         raise RuntimeError(
-            f"Model manifest missing for {path}. "
-            "Re-train the model to regenerate the manifest."
+            f"Model manifest missing for {path}. " "Re-train the model to regenerate the manifest."
         )
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")
@@ -214,8 +213,13 @@ def build_cpcv_folds(
         test_end = int(test_idx.max())
 
         train_idx = _build_train_indices(
-            groups, n_splits, test_group_set,
-            test_start, test_end, purge_gap, embargo_size,
+            groups,
+            n_splits,
+            test_group_set,
+            test_start,
+            test_end,
+            purge_gap,
+            embargo_size,
         )
         if train_idx is None or len(train_idx) < 30 or len(test_idx) < 10:
             continue
@@ -393,8 +397,8 @@ class ModelTrainer:
 
     Usage::
 
-        trainer = ModelTrainer('BTC/USDT', '15m')
-        dir_result  = trainer.train_direction(feature_matrix)
+        trainer = ModelTrainer("BTC/USDT", "15m")
+        dir_result = trainer.train_direction(feature_matrix)
         meta_result = trainer.train_meta_label(feature_matrix, dir_result.model)
         trainer.save(dir_result.model, meta_result.model, model_dir)
     """
@@ -824,13 +828,15 @@ class ModelTrainer:
                 # Not enough for eval set — disable early stopping for this fold
                 model.set_params(early_stopping_rounds=None)
                 model.fit(
-                    X[tr], y[tr],
+                    X[tr],
+                    y[tr],
                     sample_weight=weights[tr],
                     verbose=False,
                 )
             else:
                 model.fit(
-                    X[tr_inner], y[tr_inner],
+                    X[tr_inner],
+                    y[tr_inner],
                     sample_weight=weights[tr_inner],
                     eval_set=[(X[val_inner], y[val_inner])],
                     verbose=False,

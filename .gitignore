@@ -5,6 +5,7 @@
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 
 # Virtual environment
 .venv/
@@ -37,7 +38,6 @@ run_detail.json
 check_wf.py
 check_imports.py
 diagnostics_output.txt
-extract_resolved.py
 gates_full.txt
 pattern_output.txt
 pipeline_full.txt

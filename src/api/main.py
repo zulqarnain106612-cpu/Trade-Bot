@@ -64,9 +64,7 @@ _OPERATOR_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 def _validate_operator(v: str) -> str:
     if not _OPERATOR_RE.match(v):
-        raise ValueError(
-            "operator must be 1–64 alphanumeric/underscore/hyphen characters"
-        )
+        raise ValueError("operator must be 1–64 alphanumeric/underscore/hyphen characters")
     return v
 
 
@@ -178,9 +176,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Fail fast on auth misconfiguration before accepting connections
     api_key = os.environ.get("API_SECRET_KEY", "").strip()
     if not api_key:
-        raise RuntimeError(
-            "API_SECRET_KEY is not set. Set a strong random value in .env."
-        )
+        raise RuntimeError("API_SECRET_KEY is not set. Set a strong random value in .env.")
 
     cfg = get_settings()
 

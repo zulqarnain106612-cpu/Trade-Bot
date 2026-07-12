@@ -62,9 +62,7 @@ COL_META_LABEL: Final[str] = "meta_label"
 COL_RETURN: Final[str] = "log_return"
 
 # Required input OHLCV columns
-_REQ_COLS: Final[frozenset[str]] = frozenset(
-    {"open", "high", "low", "close", "volume"}
-)
+_REQ_COLS: Final[frozenset[str]] = frozenset({"open", "high", "low", "close", "volume"})
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +169,10 @@ def vwap_deviation_zscore(
     typical_price = (high + low + close) / 3.0
     tp_vol = typical_price * volume
 
-    vwap = tp_vol.rolling(window, min_periods=window).sum() / volume.rolling(
-        window, min_periods=window
-    ).sum()
+    vwap = (
+        tp_vol.rolling(window, min_periods=window).sum()
+        / volume.rolling(window, min_periods=window).sum()
+    )
 
     deviation = (close - vwap) / vwap.replace(0.0, np.nan)
     z = (deviation - deviation.rolling(window, min_periods=window).mean()) / (
@@ -541,9 +540,7 @@ def build_feature_matrix(
         cfg.triple_barrier_max_holding_bars + 63,  # 63 = EWMA vol warmup
     )
     if n_input < min_required:
-        raise ValueError(
-            f"bars has {n_input} rows; need at least {min_required} for all windows"
-        )
+        raise ValueError(f"bars has {n_input} rows; need at least {min_required} for all windows")
 
     close = bars["close"].astype(np.float64)
     high = bars["high"].astype(np.float64)
@@ -636,9 +633,7 @@ def build_feature_matrix(
     # Drop rows with NaN in any feature (burn-in) or where label is NaN
     # (tail rows where holding window extends beyond data)
     before = len(feature_df)
-    feature_df = feature_df.dropna(
-        subset=[*FEATURE_COLUMNS, COL_LABEL]
-    )
+    feature_df = feature_df.dropna(subset=[*FEATURE_COLUMNS, COL_LABEL])
     dropped = before - len(feature_df)
 
     # For the primary direction classifier: keep only rows where a definitive

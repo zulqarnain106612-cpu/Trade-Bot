@@ -1,4 +1,6 @@
-import json, sys
+import json
+import sys
+
 
 try:
     with open("resolved.json") as f:
@@ -8,10 +10,7 @@ except Exception as e:
     open("requirements-resolved.txt", "w").close()
     sys.exit(0)
 
-pkgs = [
-    f"{p['metadata']['name']}=={p['metadata']['version']}"
-    for p in data.get("install", [])
-]
+pkgs = [f"{p['metadata']['name']}=={p['metadata']['version']}" for p in data.get("install", [])]
 
 with open("requirements-resolved.txt", "w") as f:
     f.write("\n".join(pkgs))

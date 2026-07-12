@@ -101,7 +101,7 @@ class SignalEngine:
     Usage::
 
         engine = SignalEngine(
-            symbol='BTC/USDT',
+            symbol="BTC/USDT",
             timeframe=Timeframe.INTRADAY,
             storage=storage,
             fetcher=fetcher,
@@ -359,9 +359,7 @@ class SignalEngine:
 
         n_bars_needed = _MIN_BARS_FOR_SIGNAL + 200
         tf_seconds = TIMEFRAME_SECONDS.get(self._timeframe, 60)
-        cutoff_ts = int(
-            (datetime.now(tz=UTC).timestamp() - n_bars_needed * tf_seconds) * 1000
-        )
+        cutoff_ts = int((datetime.now(tz=UTC).timestamp() - n_bars_needed * tf_seconds) * 1000)
         records = await self._storage.fetch_bars(
             symbol=self._symbol,
             timeframe=self._timeframe.value,

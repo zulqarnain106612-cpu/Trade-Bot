@@ -72,11 +72,10 @@ def _write_manifest(path: Path) -> None:
 
 def _verify_manifest(path: Path) -> None:
     import hmac as _hmac
+
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
     if not manifest_path.exists():
-        raise RuntimeError(
-            f"HMM model manifest missing for {path}. Re-train to regenerate."
-        )
+        raise RuntimeError(f"HMM model manifest missing for {path}. Re-train to regenerate.")
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -174,9 +173,9 @@ class RegimeDetector:
     Lifecycle::
 
         detector = RegimeDetector()
-        detector.fit(feature_df)           # train on historical features
+        detector.fit(feature_df)  # train on historical features
         pred = detector.predict_current(feature_df.iloc[-lookback:])
-        detector.save(model_dir)           # persist
+        detector.save(model_dir)  # persist
         detector.load(model_dir, symbol, timeframe)  # restore
 
     Parameters
@@ -250,10 +249,7 @@ class RegimeDetector:
         cfg = self._cfg
         n = len(obs_df)
         if n < cfg.n_components * 20:
-            raise ValueError(
-                f"HMM fit: need at least {cfg.n_components * 20} rows, "
-                f"got {n}"
-            )
+            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, " f"got {n}")
 
         # Scale to zero-mean unit-variance — HMM diagonal / full covariance
         # is sensitive to feature magnitude differences
@@ -512,9 +508,7 @@ class RegimeDetector:
             timeframe=timeframe,
         )
         if not path.exists():
-            raise FileNotFoundError(
-                f"No saved HMM model at {path} — call fit() first."
-            )
+            raise FileNotFoundError(f"No saved HMM model at {path} — call fit() first.")
         _verify_manifest(path)
         payload: dict = joblib.load(path)
         detector = cls(
@@ -605,15 +599,11 @@ class RegimeDetector:
 
     def _require_fitted(self) -> None:
         if not self._fitted or self._model is None or self._scaler is None:
-            raise RuntimeError(
-                "RegimeDetector is not fitted — call fit() or load() first."
-            )
+            raise RuntimeError("RegimeDetector is not fitted — call fit() or load() first.")
 
     def _transform(self, features: pd.DataFrame) -> np.ndarray:
         """Scale observation DataFrame using the fitted StandardScaler."""
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
-            raise ValueError(
-                "Observation matrix contains NaN — drop NaN rows before inference."
-            )
+            raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
         return self._scaler.transform(obs.to_numpy(dtype=np.float64))  # type: ignore[union-attr]
