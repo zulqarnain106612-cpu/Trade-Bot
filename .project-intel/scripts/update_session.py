@@ -67,7 +67,9 @@ def main():
     if args.note:
         state["session_note"] = args.note
 
-    state_file.write_text(json.dumps(state, indent=2))
+    tmp_file = state_file.with_suffix(".json.tmp")
+    tmp_file.write_text(json.dumps(state, indent=2))
+    tmp_file.replace(state_file)
     print("✓ SESSION_STATE.json updated")
 
     # ── Append to DECISION_LOG.md ──────────────────────────────────────────
