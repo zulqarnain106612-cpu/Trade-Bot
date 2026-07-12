@@ -6,7 +6,9 @@ diagnostics
 engine
 execution
 features
+intelligence
 models
 regime
 risk
 strategies
+tuning
