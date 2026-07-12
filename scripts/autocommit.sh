@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # scripts/autocommit.sh — manual human commit helper (NO PUSH)
 # ============================================================
-# For Claude-controlled commits use: scripts/claude-commit.sh
 # This script is for YOUR manual use from VSCode task or terminal.
 # PUSH IS DISABLED — push manually when you are ready: git push
 #
