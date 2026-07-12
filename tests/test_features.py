@@ -344,13 +344,17 @@ class TestBuildFeatureMatrix:
         fm = build_feature_matrix(synthetic_bars)
         assert fm.labels.isin([0, 1]).all()
 
-    def test_meta_binary(self, synthetic_bars):
+    def test_meta_not_precomputed(self, synthetic_bars):
+        # SCAN2-011: meta labels must not be derived from realized labels here
+        # (that would make the primary signal trivially agree with itself).
+        # ModelTrainer.train_meta_label() populates this after the direction
+        # model is fitted.
         fm = build_feature_matrix(synthetic_bars)
-        assert fm.meta.isin([0, 1]).all()
+        assert fm.meta is None
 
     def test_lengths_aligned(self, synthetic_bars):
         fm = build_feature_matrix(synthetic_bars)
-        assert len(fm.features) == len(fm.labels) == len(fm.meta)
+        assert len(fm.features) == len(fm.labels)
 
     def test_dropped_rows_positive(self, synthetic_bars):
         fm = build_feature_matrix(synthetic_bars)

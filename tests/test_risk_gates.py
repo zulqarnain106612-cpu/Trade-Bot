@@ -218,7 +218,13 @@ class TestEvaluateAllGates:
         assert evaluate_all_gates(ctx).status == GateStatus.HALT_POSITION_SIZE
 
     def test_live_gate_blocks(self):
-        ctx = _make_ctx(trading_mode=TradingMode.LIVE, direction_gate_pass=False)
+        # Gate order checks paper-minimum-days before the model gate, so the
+        # paper-days requirement must already be satisfied to isolate this check.
+        ctx = _make_ctx(
+            trading_mode=TradingMode.LIVE,
+            direction_gate_pass=False,
+            paper_trading_days=30,
+        )
         assert evaluate_all_gates(ctx).status == GateStatus.HALT_LIVE_GATE
 
     def test_gate_result_is_frozen(self):

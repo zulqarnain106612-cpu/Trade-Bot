@@ -237,12 +237,14 @@ class TestComputeWinLossStats:
         assert abs(_al - 1.0) < 1e-9
 
     def test_correct_win_probability(self):
-        pnl = [10.0] * 6 + [-5.0] * 4
+        # NEW-010: minimum window raised to 50 trades — need >=50 to exercise
+        # the real computation instead of the conservative-default branch.
+        pnl = [10.0] * 30 + [-5.0] * 20
         wp, _aw, _al = compute_win_loss_stats(pnl)
         assert abs(wp - 0.6) < 1e-9
 
     def test_correct_averages(self):
-        pnl = [10.0] * 6 + [-5.0] * 4
+        pnl = [10.0] * 30 + [-5.0] * 20
         wp, aw, al = compute_win_loss_stats(pnl)
         assert abs(aw - 10.0) < 1e-9
         assert abs(al - 5.0) < 1e-9
