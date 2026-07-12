@@ -114,6 +114,7 @@ tick_duration_seconds = Histogram(
 
 # ── Public update API ─────────────────────────────────────────────────────────
 
+
 def update_metrics(snapshot: dict[str, Any]) -> None:
     """
     Update all gauges/counters from an orchestrator tick snapshot.
@@ -173,6 +174,7 @@ def update_metrics(snapshot: dict[str, Any]) -> None:
     except Exception:
         # Metric update failure must never propagate to trade path
         import structlog
+
         structlog.get_logger(__name__).warning(
             "metrics.update_failed", snapshot_keys=list(snapshot.keys())
         )

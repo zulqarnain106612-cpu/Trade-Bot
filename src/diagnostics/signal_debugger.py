@@ -52,6 +52,7 @@ META_LABEL_THRESHOLD: Final[float] = 0.65
 # Feature drift detector
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FeatureDriftRecord:
     feature: str
@@ -158,12 +159,13 @@ class FeatureDriftMonitor:
 # Model degradation tracker
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PredictionRecord:
     ts: float
     p_long: float
     p_bet: float
-    actual_direction: int | None = None   # filled in after bar closes
+    actual_direction: int | None = None  # filled in after bar closes
 
 
 class ModelDegradationTracker:
@@ -229,7 +231,8 @@ class ModelDegradationTracker:
         if len(resolved) < 20:
             return None
         correct = sum(
-            1 for r in resolved
+            1
+            for r in resolved
             if (r.p_long >= 0.5 and r.actual_direction == 1)
             or (r.p_long < 0.5 and r.actual_direction == 0)
         )
@@ -244,7 +247,9 @@ class ModelDegradationTracker:
         rolling_sharpe = self.rolling_sharpe()
         report: dict[str, Any] = {
             "live_accuracy": round(live_acc, 4) if live_acc is not None else None,
-            "train_accuracy": round(self._train_accuracy, 4) if self._train_accuracy is not None else None,
+            "train_accuracy": round(self._train_accuracy, 4)
+            if self._train_accuracy is not None
+            else None,
             "rolling_sharpe": round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
             "degraded": False,
             "drop": None,
@@ -255,11 +260,15 @@ class ModelDegradationTracker:
             drop = self._train_accuracy - live_acc
             report["drop"] = round(drop, 4)
             accuracy_degraded = drop > ACCURACY_DROP_THRESHOLD
-            sharpe_degraded = rolling_sharpe is not None and rolling_sharpe < ROLLING_SHARPE_THRESHOLD
+            sharpe_degraded = (
+                rolling_sharpe is not None and rolling_sharpe < ROLLING_SHARPE_THRESHOLD
+            )
             accuracy_below_floor = live_acc < ROLLING_ACCURACY_THRESHOLD
             report["degraded"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
             report["tighten_meta_label_threshold"] = accuracy_below_floor or sharpe_degraded
-            report["retrain_recommended"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
+            report["retrain_recommended"] = (
+                accuracy_degraded or sharpe_degraded or accuracy_below_floor
+            )
             if report["degraded"]:
                 log.warning(
                     "signal_debugger.model_degradation",
@@ -276,6 +285,7 @@ class ModelDegradationTracker:
 # Pipeline self-test
 # ---------------------------------------------------------------------------
 
+
 def run_pipeline_selftest() -> dict[str, Any]:
     """
     Synthetic round-trip test of the full feature pipeline.
@@ -289,16 +299,19 @@ def run_pipeline_selftest() -> dict[str, Any]:
     result: dict[str, Any] = {"passed": False, "error": None, "n_features": 0, "n_rows": 0}
     try:
         from src.features.pipeline import FEATURE_COLUMNS, build_feature_matrix
+
         rng = np.random.default_rng(42)
         n = 800
         close = 30000.0 + np.cumsum(rng.standard_normal(n) * 50)
-        df = __import__("pandas").DataFrame({
-            "open": close * 0.999,
-            "high": close + np.abs(rng.standard_normal(n) * 30),
-            "low": close - np.abs(rng.standard_normal(n) * 30),
-            "close": close,
-            "volume": np.abs(rng.standard_normal(n) * 100 + 500),
-        })
+        df = __import__("pandas").DataFrame(
+            {
+                "open": close * 0.999,
+                "high": close + np.abs(rng.standard_normal(n) * 30),
+                "low": close - np.abs(rng.standard_normal(n) * 30),
+                "close": close,
+                "volume": np.abs(rng.standard_normal(n) * 100 + 500),
+            }
+        )
         fm = build_feature_matrix(df)
         assert fm.features is not None, "feature matrix is None"
         assert len(fm.features) > 0, "feature matrix empty"
@@ -323,18 +336,19 @@ _degradation_tracker: ModelDegradationTracker | None = None
 # Gap-003 fix: Label-shift detector (feature→return relationship change)
 # ---------------------------------------------------------------------------
 
-LABEL_SHIFT_WINDOW: Final[int] = 100   # rolling trade count for win-rate
+LABEL_SHIFT_WINDOW: Final[int] = 100  # rolling trade count for win-rate
 LABEL_SHIFT_MIN_TRADES: Final[int] = 30  # minimum trades before triggering
-LABEL_SHIFT_THRESHOLD: Final[float] = 0.15   # win-rate drop vs baseline
+LABEL_SHIFT_THRESHOLD: Final[float] = 0.15  # win-rate drop vs baseline
 
 
 @dataclass
 class LabelShiftRecord:
     """Rolling win-rate vs training-time baseline."""
+
     baseline_win_rate: float
     live_win_rate: float
     n_trades: int
-    win_rate_drop: float       # baseline - live (positive = degradation)
+    win_rate_drop: float  # baseline - live (positive = degradation)
     drifted: bool
 
 
@@ -407,7 +421,6 @@ _label_shift_detector: LabelShiftDetector = LabelShiftDetector()
 def get_label_shift_detector() -> LabelShiftDetector:
     """Module-level singleton for the label-shift detector."""
     return _label_shift_detector
-
 
 
 def get_drift_monitor() -> FeatureDriftMonitor:
