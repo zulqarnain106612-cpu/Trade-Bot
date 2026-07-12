@@ -28,7 +28,8 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from src.config import FeatureSettings, get_settings
+from src.config import FeatureSettings
+from src.tuning.live_overrides import effective_feature_settings
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -618,7 +619,7 @@ def build_feature_matrix(
                   min_required rows for the widest rolling window.
     """
     if cfg is None:
-        cfg = get_settings().features
+        cfg = effective_feature_settings()
 
     missing = _REQ_COLS - set(bars.columns)
     if missing:
@@ -845,7 +846,7 @@ def build_inference_features(
             vec = _inject_intelligence_features(vec, intelligence_metrics)
         return vec
     if cfg is None:
-        cfg = get_settings().features
+        cfg = effective_feature_settings()
 
     missing = _REQ_COLS - set(history.columns)
     if missing:

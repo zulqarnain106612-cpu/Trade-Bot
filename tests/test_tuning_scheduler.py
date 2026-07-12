@@ -234,6 +234,155 @@ class TestAutoTuningSchedulerAttempts:
 
         asyncio.run(_run())  # must not raise, and must not call _attempt_all while paused
 
+    def test_loop_increments_cycle_count_after_attempt_not_before(self) -> None:
+        """Off-by-one regression: _loop() must attempt BEFORE incrementing
+        _cycle_count. A freshly constructed scheduler starts at cycle 0, and
+        _attempt_all()'s own XGBoost throttle gate (cycle_count % interval
+        != 0 -> skip) depends on still seeing 0 on the true first
+        invocation -- incrementing first would make the real first cycle
+        look like cycle 1 and silently skip XGBoost tuning until cycle 24."""
+        settings = get_settings()
+        storage = _FakeStorage([], {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m", interval_hours=1.0)  # type: ignore[arg-type]
+
+        seen_cycle_counts: list[int] = []
+        original_attempt_all = scheduler._attempt_all
+
+        async def _spy_attempt_all() -> None:
+            seen_cycle_counts.append(scheduler._cycle_count)
+            await original_attempt_all()
+
+        scheduler._attempt_all = _spy_attempt_all  # type: ignore[method-assign]
+
+        async def _run():
+            scheduler.start()
+            await asyncio.sleep(0.05)
+            scheduler.stop()
+            await asyncio.sleep(0.05)
+
+        asyncio.run(_run())
+        assert seen_cycle_counts == [0]
+        assert scheduler._cycle_count == 1
+
+    def test_attempt_all_uses_registry_champion_not_stale_settings(self, monkeypatch) -> None:
+        """Regression (Finding 1): once hmm.entropy_scalar_floor has been
+        promoted, hmm.entropy_threshold's OWN evaluation must hold the
+        promoted floor constant -- not the raw startup Settings snapshot --
+        or the loop keeps proposing challengers against a champion the
+        runner already moved past."""
+        import src.tuning.scheduler as scheduler_module
+
+        settings = get_settings()
+        trades = [
+            make_trade(f"t{i}", entry_ts=1000 * i, exit_ts=1000 * i + 500) for i in range(1, 40)
+        ]
+        entropy_by_ts = {1000 * i: 0.1 + (i % 5) * 0.05 for i in range(1, 40)}
+        storage = _FakeStorage(trades, entropy_by_ts)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        captured_floors: list[float] = []
+        original = scheduler_module.run_entropy_threshold_backtest
+
+        def _spy(*args, **kwargs):
+            captured_floors.append(kwargs["champion_floor"])
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(scheduler_module, "run_entropy_threshold_backtest", _spy)
+        # runner is a process-wide singleton (src/tuning/state.py) shared
+        # across the whole test session: `enabled` defaults False (kill
+        # switch), and a prior test's PROPOSED audit entry for this same
+        # param name can leave the real cooldown active within the same
+        # session. Neither is what this test is about, so bypass both --
+        # this test only cares about which champion_floor value evaluate()
+        # is built with.
+        monkeypatch.setattr(runner._settings, "enabled", True)
+        monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+
+        async def _run():
+            scheduler.start()
+            try:
+                parameter_registry.update_current("hmm.entropy_scalar_floor", 0.42)
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        assert captured_floors  # sanity: the spy actually intercepted calls
+        assert all(f == pytest.approx(0.42) for f in captured_floors)
+        assert settings.hmm.entropy_scalar_floor == 0.5  # the stale value that must NOT appear
+
+    def test_attempt_all_intra_cycle_promotion_visible_within_same_cycle(self, monkeypatch) -> None:
+        """Tighter regression than the cross-cycle test above: a promotion
+        made by the hmm.entropy_threshold iteration must be visible to the
+        hmm.entropy_scalar_floor iteration's evaluate() closure in the SAME
+        _attempt_all() call -- not just on a later cycle. Catches capturing
+        champion_threshold/champion_floor once before the `for param_name in
+        (...)` loop instead of fresh inside each evaluate() call."""
+        import src.tuning.scheduler as scheduler_module
+        from src.tuning.proposer import Proposal
+        from src.tuning.runner import AttemptResult
+
+        settings = get_settings()
+        trades = [
+            make_trade(f"t{i}", entry_ts=1000 * i, exit_ts=1000 * i + 500) for i in range(1, 40)
+        ]
+        entropy_by_ts = {1000 * i: 0.1 + (i % 5) * 0.05 for i in range(1, 40)}
+        storage = _FakeStorage(trades, entropy_by_ts)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        captured_thresholds: list[float] = []
+        original_backtest = scheduler_module.run_entropy_threshold_backtest
+
+        def _spy_backtest(*args, **kwargs):
+            captured_thresholds.append(kwargs["champion_threshold"])
+            return original_backtest(*args, **kwargs)
+
+        monkeypatch.setattr(scheduler_module, "run_entropy_threshold_backtest", _spy_backtest)
+
+        def _fake_attempt(param_name, evaluate_fn, primary_metric):
+            # Bypasses the real proposer/gate entirely -- this test isolates
+            # ONLY the evaluate() closure's registry-read timing, not
+            # promotion logic (already covered by tests/test_tuning_runner.py).
+            if param_name == "hmm.entropy_threshold":
+                # Simulate this iteration promoting a new champion, exactly
+                # as TuningRunner.attempt() would via registry.update_current
+                # on an accepted live promotion.
+                parameter_registry.update_current("hmm.entropy_threshold", 0.58)
+            param = parameter_registry.get(param_name)
+            proposal = Proposal(
+                param_name=param_name,
+                champion_value=param.current,
+                challenger_value=param.current,
+                step_pct=0.1,
+            )
+            evaluate_fn(param, proposal)
+            return AttemptResult(
+                param_name=param_name,
+                attempted=True,
+                accepted=False,
+                promoted=False,
+                reasons=(),
+                challenger_value=param.current,
+            )
+
+        monkeypatch.setattr(runner, "attempt", _fake_attempt)
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        # Two evaluate() calls happen: hmm.entropy_threshold's own (which
+        # passes proposal.champion_value == pre-promotion 0.5, not the
+        # captured champion_threshold var) and hmm.entropy_scalar_floor's
+        # (which DOES use the captured champion_threshold var). Only the
+        # second is a meaningful assertion here.
+        assert len(captured_thresholds) == 2
+        assert captured_thresholds[-1] == pytest.approx(0.58)
+
     def test_build_trade_samples_skips_trades_without_regime_or_exit(self) -> None:
         settings = get_settings()
         trades = [

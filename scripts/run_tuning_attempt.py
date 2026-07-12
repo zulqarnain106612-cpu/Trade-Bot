@@ -108,21 +108,21 @@ def _register_param(param_name: str, settings: Settings) -> None:
     if parameter_registry.is_registered(param_name):
         return
     if param_name == "hmm.entropy_threshold":
-        register_hmm_entropy_threshold(parameter_registry, settings)
+        register_hmm_entropy_threshold(parameter_registry, settings, version_store)
     elif param_name == "hmm.entropy_scalar_floor":
-        register_hmm_entropy_scalar_floor(parameter_registry, settings)
+        register_hmm_entropy_scalar_floor(parameter_registry, settings, version_store)
     elif param_name == "risk.slippage_impact_coeff_bps":
-        register_slippage_impact_coeff(parameter_registry, settings)
+        register_slippage_impact_coeff(parameter_registry, settings, version_store)
     elif param_name.startswith("features."):
         field_name = param_name.removeprefix("features.")
         if field_name not in FEATURE_WINDOW_FIELDS:
             raise ValueError(f"unknown feature-window field: {field_name!r}")
-        register_feature_window_param(parameter_registry, field_name, settings)
+        register_feature_window_param(parameter_registry, field_name, settings, version_store)
     elif param_name.startswith("xgboost."):
         field_name = param_name.removeprefix("xgboost.")
         if field_name not in XGBOOST_HYPERPARAM_FIELDS:
             raise ValueError(f"unknown XGBoost hyperparameter field: {field_name!r}")
-        register_xgboost_hyperparam_param(parameter_registry, field_name, settings)
+        register_xgboost_hyperparam_param(parameter_registry, field_name, settings, version_store)
     else:
         raise ValueError(f"no bootstrap registrar for {param_name!r}")
 
@@ -168,8 +168,24 @@ def main() -> int:
             print("--trades is required for hmm.* parameters", file=sys.stderr)
             return 2
         samples = _load_trade_samples(args.trades)
-        champion_threshold = settings.hmm.entropy_threshold
-        champion_floor = settings.hmm.entropy_scalar_floor
+        # This script registers only the ONE requested --param per
+        # invocation, so the companion hmm.* value is never guaranteed to
+        # be in parameter_registry -- read the durable version_store
+        # directly (populated regardless of this invocation's registration)
+        # instead, falling back to the raw .env default when nothing has
+        # been promoted yet. Without this, the "held constant" companion
+        # value in this single-parameter evaluation would silently ignore
+        # any prior promotion of that companion parameter.
+        champion_threshold = (
+            version_store.current("hmm.entropy_threshold").value
+            if version_store.has_versions("hmm.entropy_threshold")
+            else settings.hmm.entropy_threshold
+        )
+        champion_floor = (
+            version_store.current("hmm.entropy_scalar_floor").value
+            if version_store.has_versions("hmm.entropy_scalar_floor")
+            else settings.hmm.entropy_scalar_floor
+        )
 
         def evaluate(param: TunableParameter, proposal: Proposal) -> list[MetricComparison]:
             # Evaluates the ACTUAL proposed challenger value, produced by the

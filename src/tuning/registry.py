@@ -14,7 +14,7 @@ open up Kelly sizing or drawdown halts to self-tuning.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 # Parameters that must NEVER be self-tunable, per SELF_TUNING_DESIGN.md §3.
@@ -133,6 +133,29 @@ class ParameterRegistry:
     def is_registered(self, name: str) -> bool:
         with self._lock:
             return name in self._params
+
+    def update_current(self, name: str, value: float) -> TunableParameter:
+        """
+        Advance a registered parameter's champion value after a live
+        promotion (TuningRunner.attempt(), non-shadow-mode path only).
+
+        Without this, TunableParameter.current is frozen at registration
+        time forever, so (a) subsequent proposals keep centering on the
+        original startup default instead of the newly promoted value, and
+        (b) live consumers reading through the registry (see
+        src/tuning/live_overrides.py) never observe a promotion. Re-runs
+        TunableParameter.__post_init__'s floor/ceiling validation via
+        dataclasses.replace, so an out-of-bounds value still raises
+        InvalidBoundsError instead of silently corrupting the champion.
+        """
+        with self._lock:
+            try:
+                existing = self._params[name]
+            except KeyError as exc:
+                raise UnknownParameterError(name) from exc
+            updated = replace(existing, current=value)
+            self._params[name] = updated
+            return updated
 
     def unregister(self, name: str) -> None:
         """Test/admin helper -- not exposed over the live API."""

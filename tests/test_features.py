@@ -368,6 +368,32 @@ class TestBuildFeatureMatrix:
         with pytest.raises(ValueError):
             build_feature_matrix(synthetic_bars.iloc[:5])
 
+    def test_no_cfg_picks_up_promoted_window(self, synthetic_bars):
+        """Self-tuning live-wiring regression: once features.atr_window is
+        registered (see src/tuning/live_overrides.py), the no-cfg default
+        must use the registry value, not the raw .env setting. Registering
+        a window far larger than the fixture's 800 bars makes the effect
+        observable: only the OVERRIDDEN value can push min_required past
+        the available row count."""
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        parameter_registry._params.clear()
+        try:
+            parameter_registry.register(
+                TunableParameter(
+                    name="features.atr_window",
+                    description="test",
+                    floor=2.0,
+                    ceiling=5000.0,
+                    current=5000.0,
+                    eval_strategy="test",
+                )
+            )
+            with pytest.raises(ValueError, match="need at least"):
+                build_feature_matrix(synthetic_bars)
+        finally:
+            parameter_registry._params.clear()
+
     def test_ofi_snapshot_override(self, synthetic_bars):
         ofi_series = pd.Series(0.42, index=synthetic_bars.index)
         fm = build_feature_matrix(synthetic_bars, ofi_snapshots=ofi_series)

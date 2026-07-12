@@ -146,6 +146,52 @@ class TestModelTrainerInit:
         t = ModelTrainer(symbol="BTC/USDT", timeframe="15m", xgb_cfg=cfg)
         assert t._xgb_cfg is cfg
 
+    def test_no_explicit_cfg_picks_up_promoted_xgboost_hyperparam(self):
+        """Self-tuning live-wiring regression: once xgboost.max_depth is
+        registered (see src/tuning/live_overrides.py), ModelTrainer's
+        no-explicit-cfg default must use the registry value, not the raw
+        .env setting."""
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        parameter_registry._params.clear()
+        try:
+            parameter_registry.register(
+                TunableParameter(
+                    name="xgboost.max_depth",
+                    description="test",
+                    floor=1.0,
+                    ceiling=20.0,
+                    current=17.0,
+                    eval_strategy="test",
+                )
+            )
+            t = ModelTrainer(symbol="BTC/USDT", timeframe="15m")  # no xgb_cfg -> override
+            assert t._xgb_cfg.max_depth == 17
+        finally:
+            parameter_registry._params.clear()
+
+    def test_no_explicit_cfg_picks_up_promoted_feature_window(self):
+        """Same as above for the FeatureSettings side of ModelTrainer's
+        default resolution."""
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        parameter_registry._params.clear()
+        try:
+            parameter_registry.register(
+                TunableParameter(
+                    name="features.atr_window",
+                    description="test",
+                    floor=2.0,
+                    ceiling=100.0,
+                    current=33.0,
+                    eval_strategy="test",
+                )
+            )
+            t = ModelTrainer(symbol="BTC/USDT", timeframe="15m")  # no feature_cfg -> override
+            assert t._feature_cfg.atr_window == 33
+        finally:
+            parameter_registry._params.clear()
+
 
 # ---------------------------------------------------------------------------
 # predict_direction

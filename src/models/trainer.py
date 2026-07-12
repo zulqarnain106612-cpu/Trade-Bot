@@ -48,6 +48,7 @@ from src.features.pipeline import (
     get_active_feature_columns,
     meta_labels,
 )
+from src.tuning.live_overrides import effective_feature_settings, effective_xgboost_settings
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -504,8 +505,8 @@ class ModelTrainer:
         cfg = get_settings()
         self._symbol = symbol
         self._timeframe = timeframe
-        self._xgb_cfg: XGBoostSettings = xgb_cfg or cfg.xgboost
-        self._feature_cfg: FeatureSettings = feature_cfg or cfg.features
+        self._xgb_cfg: XGBoostSettings = xgb_cfg or effective_xgboost_settings(cfg.xgboost)
+        self._feature_cfg: FeatureSettings = feature_cfg or effective_feature_settings(cfg.features)
         self._risk_cfg = cfg.risk
         self._log = log.bind(
             component="trainer",

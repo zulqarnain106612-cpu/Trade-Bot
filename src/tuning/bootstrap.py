@@ -13,12 +13,19 @@ Bounds are +/-20% of the operator's configured default, per the design
 doc's "user sets the ceiling, bot proposes within it" invariant -- the
 20% window is deliberately narrow; it can be widened later by an
 operator re-registering with different bounds, never by the bot itself.
+
+Passing `store=` (src/tuning/state.py's version_store) resumes `current`
+from the last promoted value on record, so a process restart doesn't
+reset the tuning loop back to the raw .env default -- but bounds always
+stay anchored to that fresh .env default, never to the resumed value
+(see _resume_current).
 """
 
 from __future__ import annotations
 
 from src.config import Settings, get_settings
 from src.tuning.registry import ParameterRegistry, TunableParameter
+from src.tuning.store import VersionedConfigStore
 
 
 _DEFAULT_BOUND_WINDOW_PCT = 0.20
@@ -31,16 +38,49 @@ def _symmetric_bounds(
     return current - span, current + span
 
 
+def _resume_current(
+    param_name: str,
+    default: float,
+    floor: float,
+    ceiling: float,
+    store: VersionedConfigStore | None,
+) -> float:
+    """
+    If `store` already holds a promoted value for `param_name` within
+    [floor, ceiling], resume from it instead of the raw operator default --
+    so a process restart doesn't silently forget every prior promotion and
+    reset the tuning loop back to its Phase-4/8 starting point (see
+    src/tuning/live_overrides.py). Otherwise returns `default` unchanged
+    (an explicit bounds/None check, not `resumed or default` -- a
+    legitimately promoted value of 0.0 must not be discarded as falsy).
+
+    Bounds are deliberately NOT recomputed from the resumed value -- they
+    stay anchored to the operator's current .env-configured default (per
+    this module's docstring: "user sets the ceiling, bot proposes within
+    it"). A promoted value outside that window (e.g. the operator lowered
+    the .env default since the last promotion) is discarded in favor of
+    the fresh operator default, rather than silently operating outside the
+    bounds the operator currently intends.
+    """
+    if store is None or not store.has_versions(param_name):
+        return default
+    promoted = store.current(param_name).value
+    return promoted if floor <= promoted <= ceiling else default
+
+
 def register_hmm_entropy_threshold(
-    registry: ParameterRegistry, settings: Settings | None = None
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
 ) -> TunableParameter:
     """Phase 4 -- the first (and, until Phase 8, only) live-eligible parameter."""
     settings = settings or get_settings()
-    current = settings.hmm.entropy_threshold
-    floor, ceiling = _symmetric_bounds(current)
+    default = settings.hmm.entropy_threshold
+    floor, ceiling = _symmetric_bounds(default)
     # Clamp to the HMMSettings field's own validation range [0, 1].
     floor = max(0.0, floor)
     ceiling = min(1.0, ceiling)
+    current = _resume_current("hmm.entropy_threshold", default, floor, ceiling, store)
     param = TunableParameter(
         name="hmm.entropy_threshold",
         description="Regime posterior entropy gate above which position size scales down.",
@@ -54,15 +94,18 @@ def register_hmm_entropy_threshold(
 
 
 def register_hmm_entropy_scalar_floor(
-    registry: ParameterRegistry, settings: Settings | None = None
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
 ) -> TunableParameter:
     """Phase 8 -- paired with entropy_threshold, same eval cost (both consumed
     by the same backtest_harness.run_entropy_threshold_backtest call)."""
     settings = settings or get_settings()
-    current = settings.hmm.entropy_scalar_floor
-    floor, ceiling = _symmetric_bounds(current)
+    default = settings.hmm.entropy_scalar_floor
+    floor, ceiling = _symmetric_bounds(default)
     floor = max(0.0, floor)
     ceiling = min(1.0, ceiling)
+    current = _resume_current("hmm.entropy_scalar_floor", default, floor, ceiling, store)
     param = TunableParameter(
         name="hmm.entropy_scalar_floor",
         description="Minimum position-size scalar at maximum regime-posterior entropy.",
@@ -76,7 +119,9 @@ def register_hmm_entropy_scalar_floor(
 
 
 def register_slippage_impact_coeff(
-    registry: ParameterRegistry, settings: Settings | None = None
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
 ) -> TunableParameter:
     """
     Phase 8 -- RiskSettings.slippage_impact_coeff_bps is already flagged in
@@ -86,10 +131,11 @@ def register_slippage_impact_coeff(
     never touching the excluded hard-limit parameters).
     """
     settings = settings or get_settings()
-    current = settings.risk.slippage_impact_coeff_bps
-    floor, ceiling = _symmetric_bounds(current)
+    default = settings.risk.slippage_impact_coeff_bps
+    floor, ceiling = _symmetric_bounds(default)
     floor = max(0.0, floor)
     ceiling = min(2000.0, ceiling)
+    current = _resume_current("risk.slippage_impact_coeff_bps", default, floor, ceiling, store)
     param = TunableParameter(
         name="risk.slippage_impact_coeff_bps",
         description="Almgren-Chriss market-impact coefficient, recalibrated from realized fills.",
@@ -119,7 +165,10 @@ _FEATURE_WINDOW_MIN_VALUE = 2.0  # matches FeatureSettings' `ge=2` on each field
 
 
 def register_feature_window_param(
-    registry: ParameterRegistry, field_name: str, settings: Settings | None = None
+    registry: ParameterRegistry,
+    field_name: str,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
 ) -> TunableParameter:
     """
     Phase 8 item 3 -- one FeatureSettings rolling-window field at a time.
@@ -136,11 +185,13 @@ def register_feature_window_param(
             f"supported: {sorted(FEATURE_WINDOW_FIELDS)}"
         )
     settings = settings or get_settings()
-    current = float(getattr(settings.features, field_name))
-    floor, ceiling = _symmetric_bounds(current)
+    default = float(getattr(settings.features, field_name))
+    floor, ceiling = _symmetric_bounds(default)
     floor = max(_FEATURE_WINDOW_MIN_VALUE, floor)
+    param_name = f"features.{field_name}"
+    current = _resume_current(param_name, default, floor, ceiling, store)
     param = TunableParameter(
-        name=f"features.{field_name}",
+        name=param_name,
         description=f"Rolling window (bars) for the {field_name} feature.",
         floor=floor,
         ceiling=ceiling,
@@ -190,7 +241,10 @@ _XGB_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
 
 
 def register_xgboost_hyperparam_param(
-    registry: ParameterRegistry, field_name: str, settings: Settings | None = None
+    registry: ParameterRegistry,
+    field_name: str,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
 ) -> TunableParameter:
     """
     Phase 8 item 4 -- one XGBoostSettings hyperparameter at a time.
@@ -207,13 +261,15 @@ def register_xgboost_hyperparam_param(
             f"supported: {sorted(XGBOOST_HYPERPARAM_FIELDS)}"
         )
     settings = settings or get_settings()
-    current = float(getattr(settings.xgboost, field_name))
-    floor, ceiling = _symmetric_bounds(current)
+    default = float(getattr(settings.xgboost, field_name))
+    floor, ceiling = _symmetric_bounds(default)
     field_floor, field_ceiling = _XGB_FIELD_BOUNDS[field_name]
     floor = max(field_floor, floor)
     ceiling = min(field_ceiling, ceiling)
+    param_name = f"xgboost.{field_name}"
+    current = _resume_current(param_name, default, floor, ceiling, store)
     param = TunableParameter(
-        name=f"xgboost.{field_name}",
+        name=param_name,
         description=f"XGBoost hyperparameter {field_name}, recalibrated via full CPCV retraining.",
         floor=floor,
         ceiling=ceiling,

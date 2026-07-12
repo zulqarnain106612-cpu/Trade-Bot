@@ -109,7 +109,7 @@ def test_shadow_mode_never_promotes_even_on_accept(tmp_path: Path) -> None:
 
 
 def test_live_mode_promotes_on_accept(tmp_path: Path) -> None:
-    runner, _, store, audit = build_runner(tmp_path, shadow_mode=False)
+    runner, registry, store, audit = build_runner(tmp_path, shadow_mode=False)
     result = runner.attempt(
         "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
     )
@@ -117,6 +117,27 @@ def test_live_mode_promotes_on_accept(tmp_path: Path) -> None:
     assert store.has_versions("hmm.entropy_threshold")
     events = [e.event_type for e in audit.read_all()]
     assert TuningEventType.PROMOTED in events
+    # The whole point of Finding 1's fix: a live promotion must advance the
+    # registry's champion value too, not just the durable audit store --
+    # otherwise src/tuning/live_overrides.py never sees it and the promotion
+    # has zero effect on live trading.
+    assert registry.get("hmm.entropy_threshold").current == result.challenger_value
+
+
+def test_shadow_mode_does_not_advance_registry_champion(tmp_path: Path) -> None:
+    runner, registry, _, _ = build_runner(tmp_path, shadow_mode=True)
+    runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
+    )
+    assert registry.get("hmm.entropy_threshold").current == 0.5  # unchanged from make_param()
+
+
+def test_rejected_challenger_does_not_advance_registry_champion(tmp_path: Path) -> None:
+    runner, registry, _, _ = build_runner(tmp_path, shadow_mode=False)
+    runner.attempt(
+        "hmm.entropy_threshold", eval_fn_returning(regressing_comparisons()), "oos_sharpe"
+    )
+    assert registry.get("hmm.entropy_threshold").current == 0.5  # unchanged from make_param()
 
 
 def test_regression_is_rejected_and_never_promoted(tmp_path: Path) -> None:

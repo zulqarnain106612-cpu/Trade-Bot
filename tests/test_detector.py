@@ -229,6 +229,36 @@ class TestPositionScalar:
         # entropy <= threshold (1.0 <= 1.0) -> full scalar, span-zero branch not hit
         assert pred.position_scalar(cfg) == 1.0
 
+    def test_no_cfg_picks_up_self_tuning_promoted_threshold(self):
+        """Self-tuning live-wiring regression: once hmm.entropy_threshold is
+        registered (see src/tuning/live_overrides.py), the no-cfg default
+        path must reflect its registry value, not the raw .env setting --
+        otherwise a live promotion has zero effect on position sizing."""
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        parameter_registry._params.clear()
+        try:
+            parameter_registry.register(
+                TunableParameter(
+                    name="hmm.entropy_threshold",
+                    description="test",
+                    floor=0.0,
+                    ceiling=1.0,
+                    current=0.2,  # far below the entropy=0.9 sample below
+                    eval_strategy="test",
+                )
+            )
+            pred = RegimePrediction(
+                state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=0.9
+            )
+            scalar = pred.position_scalar()  # no cfg -> must pick up the override
+            # entropy (0.9) is well above the overridden threshold (0.2), so the
+            # scalar must have decayed below 1.0 -- the raw .env default
+            # (threshold=0.5) would give a different (higher) result.
+            assert scalar < 1.0
+        finally:
+            parameter_registry._params.clear()
+
 
 # ─── RegimeDetector — fit / predict / persistence (integration-style) ─────────
 

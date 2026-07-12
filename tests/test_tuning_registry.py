@@ -95,3 +95,38 @@ def test_registry_starts_empty_singleton() -> None:
 
     # Phase 1 ships with zero live parameters registered against the singleton.
     assert parameter_registry.list_all() == []
+
+
+def test_update_current_advances_champion_value() -> None:
+    registry = ParameterRegistry()
+    registry.register(make_param())
+    updated = registry.update_current("hmm.entropy_threshold", 0.6)
+    assert updated.current == 0.6
+    # get() must return the SAME advanced value, not the stale original --
+    # this is the seam TuningRunner.attempt() and src/tuning/live_overrides.py
+    # depend on to see a promotion at all.
+    assert registry.get("hmm.entropy_threshold").current == 0.6
+
+
+def test_update_current_preserves_other_fields() -> None:
+    registry = ParameterRegistry()
+    registry.register(make_param())
+    updated = registry.update_current("hmm.entropy_threshold", 0.6)
+    assert updated.floor == 0.3
+    assert updated.ceiling == 0.7
+    assert updated.eval_strategy == "cpcv_oos_sharpe"
+
+
+def test_update_current_unknown_parameter_raises() -> None:
+    registry = ParameterRegistry()
+    with pytest.raises(UnknownParameterError):
+        registry.update_current("does.not.exist", 0.5)
+
+
+def test_update_current_out_of_bounds_raises_and_leaves_champion_unchanged() -> None:
+    registry = ParameterRegistry()
+    registry.register(make_param(floor=0.3, ceiling=0.7, current=0.5))
+    with pytest.raises(InvalidBoundsError):
+        registry.update_current("hmm.entropy_threshold", 0.9)
+    # A rejected update must not corrupt the previously valid champion.
+    assert registry.get("hmm.entropy_threshold").current == 0.5

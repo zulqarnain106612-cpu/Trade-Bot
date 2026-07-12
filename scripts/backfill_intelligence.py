@@ -33,10 +33,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -53,6 +55,7 @@ log = logging.getLogger("backfill_intelligence")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_dt(s: str) -> datetime:
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
@@ -64,10 +67,18 @@ def _parse_dt(s: str) -> datetime:
 
 def _timeframe_to_ms(tf: str) -> int:
     mapping = {
-        "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000,
-        "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000,
-        "4h": 14_400_000, "6h": 21_600_000, "8h": 28_800_800,
-        "12h": 43_200_000, "1d": 86_400_000,
+        "1m": 60_000,
+        "3m": 180_000,
+        "5m": 300_000,
+        "15m": 900_000,
+        "30m": 1_800_000,
+        "1h": 3_600_000,
+        "2h": 7_200_000,
+        "4h": 14_400_000,
+        "6h": 21_600_000,
+        "8h": 28_800_800,
+        "12h": 43_200_000,
+        "1d": 86_400_000,
     }
     if tf not in mapping:
         raise ValueError(f"Unsupported timeframe: {tf!r}. Supported: {sorted(mapping)}")
@@ -79,25 +90,25 @@ def _timeframe_to_ms(tf: str) -> int:
 # (mirrors src/data/storage.py fetch_intelligence_features rename map)
 # ---------------------------------------------------------------------------
 _OCI_TO_STORAGE: dict[str, str] = {
-    "exchange_reserve_ratio":          "intelligence_exchange_reserve_ratio",
-    "exchange_netflow_7d_zscore":      "intelligence_exchange_netflow_7d_zscore",
-    "miner_netflow_signal":            "intelligence_miner_netflow_signal",
-    "futures_oi_change_pct":           "intelligence_futures_oi_change_pct",
-    "binance_funding_rate_pct":        "intelligence_binance_funding_rate_pct",
+    "exchange_reserve_ratio": "intelligence_exchange_reserve_ratio",
+    "exchange_netflow_7d_zscore": "intelligence_exchange_netflow_7d_zscore",
+    "miner_netflow_signal": "intelligence_miner_netflow_signal",
+    "futures_oi_change_pct": "intelligence_futures_oi_change_pct",
+    "binance_funding_rate_pct": "intelligence_binance_funding_rate_pct",
     "liquidation_pressure_24h_zscore": "intelligence_liquidation_pressure_24h_zscore",
-    "liquidation_cascade_risk_usd":    "intelligence_liquidation_cascade_risk_usd",
-    "whale_buy_sell_ratio":            "intelligence_whale_buy_sell_ratio",
-    "exchange_stress_score":           "intelligence_exchange_stress_score",
-    "staking_unlock_risk":             "intelligence_staking_unlock_risk",
-    "entity_exchange_imbalance":       "intelligence_entity_exchange_imbalance",
-    "btc_dominance_regime":            "intelligence_btc_dominance_regime",
-    "stablecoin_reserve_ratio":        "intelligence_stablecoin_reserve_ratio",
-    "network_activity_score":          "intelligence_network_activity_score",
+    "liquidation_cascade_risk_usd": "intelligence_liquidation_cascade_risk_usd",
+    "whale_buy_sell_ratio": "intelligence_whale_buy_sell_ratio",
+    "exchange_stress_score": "intelligence_exchange_stress_score",
+    "staking_unlock_risk": "intelligence_staking_unlock_risk",
+    "entity_exchange_imbalance": "intelligence_entity_exchange_imbalance",
+    "btc_dominance_regime": "intelligence_btc_dominance_regime",
+    "stablecoin_reserve_ratio": "intelligence_stablecoin_reserve_ratio",
+    "network_activity_score": "intelligence_network_activity_score",
     "cross_exchange_basis_spread_bps": "intelligence_cross_exchange_basis_spread_bps",
     # OCI-012 new fields
-    "defi_tvl_7d_change_pct":          "intelligence_defi_tvl_7d_change_pct",
-    "mvrv_z_score":                    "intelligence_mvrv_z_score",
-    "sopr":                            "intelligence_sopr",
+    "defi_tvl_7d_change_pct": "intelligence_defi_tvl_7d_change_pct",
+    "mvrv_z_score": "intelligence_mvrv_z_score",
+    "sopr": "intelligence_sopr",
 }
 
 # Neutral/default values for columns when OCI returns neutral (skip storing as real signal)
@@ -111,6 +122,7 @@ _NEUTRAL_THRESHOLDS: dict[str, float] = {
 def _is_neutral(field: str, value: float) -> bool:
     """Return True if value is at the OCI neutral default (not real data)."""
     import math
+
     if math.isnan(value) or math.isinf(value):
         return True
     neutral = _NEUTRAL_THRESHOLDS.get(field, 0.0)
@@ -120,6 +132,7 @@ def _is_neutral(field: str, value: float) -> bool:
 # ---------------------------------------------------------------------------
 # Core backfill logic
 # ---------------------------------------------------------------------------
+
 
 async def _backfill(args: argparse.Namespace) -> int:
     """Return exit code."""
@@ -145,7 +158,10 @@ async def _backfill(args: argparse.Namespace) -> int:
 
     log.info(
         "Backfill range: %s → %s  symbol=%s timeframe=%s",
-        since_dt.isoformat(), until_dt.isoformat(), args.symbol, args.timeframe,
+        since_dt.isoformat(),
+        until_dt.isoformat(),
+        args.symbol,
+        args.timeframe,
     )
 
     # ---- fetch bars in range ----
@@ -179,10 +195,8 @@ async def _backfill(args: argparse.Namespace) -> int:
         await storage.close()
         return 1
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await aggregator.close_all()
-        except Exception:
-            pass
 
     oci_confidence = raw_metrics.get("confidence", 0.0)
     log.info("OCI snapshot confidence: %.3f", oci_confidence)
@@ -213,7 +227,9 @@ async def _backfill(args: argparse.Namespace) -> int:
     snapshot_confidence = round(non_null_count / _TOTAL_COLS, 4)
     log.info(
         "Snapshot non-NULL fields: %d / %d  confidence=%.3f",
-        non_null_count, _TOTAL_COLS, snapshot_confidence,
+        non_null_count,
+        _TOTAL_COLS,
+        snapshot_confidence,
     )
 
     # ---- iterate bars and write ----
@@ -257,7 +273,9 @@ async def _backfill(args: argparse.Namespace) -> int:
     if low_cols:
         log.warning(
             "%d column(s) below min_coverage=%.0f%%: %s",
-            len(low_cols), args.min_coverage * 100, low_cols,
+            len(low_cols),
+            args.min_coverage * 100,
+            low_cols,
         )
         log.warning(
             "Low-coverage columns will be excluded from training until real data "
@@ -272,6 +290,7 @@ async def _backfill(args: argparse.Namespace) -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
@@ -282,20 +301,28 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--symbol", default="BTC/USDT", help="Asset symbol (e.g. BTC/USDT)")
     p.add_argument("--timeframe", default="1h", help="Bar timeframe (e.g. 1h, 4h, 1d)")
-    p.add_argument("--since", type=_parse_dt, default=None,
-                   help="Start date (YYYY-MM-DD). Default: 2023-01-01")
-    p.add_argument("--until", type=_parse_dt, default=None,
-                   help="End date (YYYY-MM-DD). Default: now")
-    p.add_argument("--db-path", default="data/trade_bot.db",
-                   help="Path to SQLite database file")
-    p.add_argument("--batch-size", type=int, default=200,
-                   help="Progress log interval (bars per log line)")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Preview only — no writes to DB")
-    p.add_argument("--min-coverage", type=float, default=0.6,
-                   help="Minimum non-NULL fraction per column (exit 2 if any below)")
-    p.add_argument("--overwrite", action="store_true",
-                   help="Overwrite existing rows (default: INSERT OR REPLACE)")
+    p.add_argument(
+        "--since", type=_parse_dt, default=None, help="Start date (YYYY-MM-DD). Default: 2023-01-01"
+    )
+    p.add_argument(
+        "--until", type=_parse_dt, default=None, help="End date (YYYY-MM-DD). Default: now"
+    )
+    p.add_argument("--db-path", default="data/trade_bot.db", help="Path to SQLite database file")
+    p.add_argument(
+        "--batch-size", type=int, default=200, help="Progress log interval (bars per log line)"
+    )
+    p.add_argument("--dry-run", action="store_true", help="Preview only — no writes to DB")
+    p.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.6,
+        help="Minimum non-NULL fraction per column (exit 2 if any below)",
+    )
+    p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing rows (default: INSERT OR REPLACE)",
+    )
     return p
 
 

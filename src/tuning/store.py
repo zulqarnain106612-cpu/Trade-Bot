@@ -8,9 +8,16 @@ records are never edited or deleted. This gives a full audit trail for
 free and makes rollback a pure "read the previous record" operation, not
 a destructive undo.
 
-Phase 1: pure plumbing. Nothing calls promote()/rollback() from the live
-trading path yet -- that wiring is a Phase 2+ concern once a real
-challenger-evaluation pipeline exists.
+This store is the durable record; it is not read directly by the live
+trading path. TuningRunner.attempt() also advances the in-memory
+ParameterRegistry champion value on promotion, and
+src/tuning/live_overrides.py reads that registry to overlay promoted
+values onto the Settings the live regime/risk/features/model code
+consumes -- see that module for the actual live wiring. This store's role
+is durability and audit history: bootstrap.py's register_* functions seed
+a fresh registry entry from the latest record here (when one exists,
+within operator-anchored bounds) so a process restart resumes from the
+last promotion instead of the original .env default.
 """
 
 from __future__ import annotations

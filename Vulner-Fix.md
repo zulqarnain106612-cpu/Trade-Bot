@@ -334,3 +334,175 @@
   Client receives no tick during startup but stays connected and resumes automatically once
   orchestrator is initialized.
 - **Verified:** `python3 -m py_compile src/api/main.py` → OK
+
+### [VF-024] — 2026-07-11 — src/execution/order_manager.py filled order with no fill price
+- **Severity:** CRITICAL (live trading — PnL/notional corruption)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/execution/order_manager.py` — `_confirm_order_fill()`
+- **Status:** Applied
+- **Summary:** `confirmed.get("average") or confirmed.get("price") or 0` silently recorded
+  `avg_price=0.0` when an exchange reported an order as `filled`/`closed` but omitted both fill
+  price fields (or returned them as exactly `0.0`, which is falsy and fell through the same
+  `or` chain). A `0.0` fill price is recorded as "position acquired for free," corrupting
+  PnL/notional accounting for that trade with no visible error.
+- **Fix:** Check `average`/`price` individually with `is None` (not `or`), and treat both
+  "missing" and "explicitly <= 0.0" as invalid. On an invalid fill price, log `critical` with
+  `action="MANUAL_RECONCILIATION_REQUIRED"`, transition the order FSM to `FAILED`, and raise
+  `ValueError` instead of silently continuing.
+- **Verified:** `uv run pytest tests/test_order_manager.py -q` → 4 passed; full suite 2150 passed,
+  coverage 96.17%.
+
+### [VF-025] — 2026-07-11 — src/config.py FeatureSettings purge_gap_bars shorter than label horizon
+- **Severity:** HIGH (model validity — AFML Ch.7 data leakage)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/config.py` — `FeatureSettings`
+- **Status:** Applied
+- **Summary:** `purge_gap_bars` defaulted to `5` while `triple_barrier_max_holding_bars`
+  (the label horizon) defaulted to `60`. A training sample within 6-59 bars of the test-fold
+  boundary would have its triple-barrier label computed using bars that fall inside the
+  nominal test window — leaking test-period price information into training labels, silently
+  inflating backtest/CPCV performance metrics.
+- **Fix:** Changed `purge_gap_bars` default to `60` (matches the label horizon) and added
+  `validate_purge_gap_covers_label_horizon` (`@model_validator(mode="after")`) that raises
+  `ValueError` at config-load time if `purge_gap_bars < triple_barrier_max_holding_bars`.
+- **Verified:** `uv run pytest tests/test_config_feature_settings.py tests/test_tuning_backtest_harness.py tests/test_model_trainer_coverage.py -q` → all passed; full suite green.
+
+### [VF-026] — 2026-07-11 — src/strategies/position_sizing.py recommend_position_notional overrides unanimous no-edge veto
+- **Severity:** HIGH (risk — forces a trade sizing methods unanimously vetoed)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/strategies/position_sizing.py` — `recommend_position_notional()`
+- **Status:** Applied
+- **Summary:** `max(_MIN_NOTIONAL_USD, min(thorp, afml, carver, corr_adj_thorp))` floored the
+  recommended notional to `$10` even when every sizing method returned exactly `0.0` (their
+  explicit "no edge, do not trade" signal). A unanimous veto from all four methods was silently
+  overridden into a manufactured minimum-size trade.
+- **Fix:** `recommended = 0.0 if raw_min <= 0.0 else max(_MIN_NOTIONAL_USD, raw_min)` — the
+  floor now only applies when the methods agree on a real, positive (if sub-minimum) edge.
+- **Verified:** `uv run pytest tests/test_position_sizing.py -q` → 61 passed (2 new regression
+  tests added); full suite green.
+
+### [VF-027] — 2026-07-11 — src/execution/paper.py / live.py _snapshot_equity lock-ordering race
+- **Severity:** MEDIUM (concurrency — inconsistent equity_curve rows)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/execution/paper.py`, `src/execution/live.py` — `_snapshot_equity()`
+- **Status:** Applied
+- **Summary:** `_snapshot_equity()` re-read `self._positions`/`self._cash` without holding
+  `self._lock`, after the caller's own lock block had already released it (with an `await
+  storage.insert_trade(...)` in between). A concurrent `mark_to_market`/`close_position` could
+  mutate state in that window, producing an equity_curve row inconsistent with the triggering
+  event.
+- **Fix:** Wrapped the state reads in `async with self._lock:` in both executors. Verified no
+  deadlock: every call site invokes `_snapshot_equity()` only after its own lock block has
+  already exited (confirmed via indentation/structure review of both files).
+- **Verified:** `uv run pytest tests/test_paper_executor.py tests/test_live_executor_coverage.py tests/test_live_additional_coverage.py tests/test_live_executor_fsm.py -q` → 138 passed.
+
+### [VF-028] — 2026-07-11 — src/risk/performance_drift.py division by zero on invalid starting_equity
+- **Severity:** MEDIUM (availability — crashes the drift-detection loop)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/risk/performance_drift.py` — `PerformanceDriftDetector.record_trade_outcome()`
+- **Status:** Applied
+- **Summary:** `drawdown_pct = (self._live_equity_peak - current_equity) / starting_equity` had
+  no guard for `starting_equity <= 0`, raising `ZeroDivisionError` uncaught out of
+  `check_drift()` — crashing the risk-gate-adjacent drift loop instead of failing closed on bad
+  input data.
+- **Fix:** Added a guard: `starting_equity <= 0.0` logs `error` and returns early, discarding
+  only that call's drawdown update (all other state — pnl window, win/loss counters,
+  predictions — was already recorded earlier in the same call).
+- **Verified:** `uv run pytest tests/test_performance_drift.py tests/test_drift_integration_coverage.py -q` → 23 passed (2 new regression tests added).
+
+### [VF-029] — 2026-07-11 — src/intelligence/metrics.py whale_buy_sell_ratio normalization discarded
+- **Severity:** MEDIUM (signal correctness — unbounded value feeds trading decisions)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/intelligence/metrics.py` — `IntelligenceMetricsCalculator.compute_metrics()`
+- **Status:** Applied
+- **Summary:** `np.clip(np.log(whale_ratio + 0.01) / np.log(3), -1, 1)` was computed and its
+  result discarded (not assigned); the function returned the raw, unbounded `whale_ratio`
+  instead (e.g. `ratio=50` propagated as `50` rather than clamping to `1.0`).
+- **Fix:** Assigned the clipped/normalized value to `whale_ratio` and used it as
+  `whale_buy_sell_ratio`. Updated the field docstring and the neutral-fallback default
+  (`1.0` raw → `0.0` normalized).
+- **Verified:** `uv run pytest tests/test_intelligence_metrics.py -q` → 24 passed (1 new
+  regression test added).
+
+### [VF-030] — 2026-07-11 — src/intelligence/probabilistic.py asymmetric abs() in extremity score
+- **Severity:** MEDIUM (risk — overconfident credible intervals on crisis signals)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/intelligence/probabilistic.py` — `BayesianExchangeStressModel._compute_credible_interval()`
+- **Status:** Applied
+- **Summary:** `extremity = abs(netflow)/3.0 + funding/0.15 + (basis/150.0) + abs(reserve-0.35)/0.35`
+  omitted `abs()` on `funding` and `basis`. A large **negative** funding rate or basis spread
+  (a real crisis signal, e.g. a short squeeze) reduced `extremity` instead of increasing it,
+  which — via `n_eff = base_n_eff / (1 + extremity)` — increased `n_eff` and produced an
+  artificially narrower, overconfident interval for exactly the kind of unprecedented input
+  this function's docstring says must widen it.
+- **Fix:** Wrapped `funding` and `basis` in `abs()`, matching `netflow`/`reserve`.
+- **Verified:** `uv run pytest tests/test_probabilistic_engine.py -q` → 25 passed (2 new
+  regression tests confirming extreme negative funding/basis widen, not narrow, the interval).
+
+### [VF-031] — 2026-07-11 — src/models/trainer.py timeframe path-traversal into model filename
+- **Severity:** MEDIUM (defense-in-depth — no confirmed live HTTP-reachable path)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/models/trainer.py` — `ModelTrainer.__init__`, `save()`, `load_direction()`, `load_meta()`
+- **Status:** Applied
+- **Summary:** `timeframe` was interpolated directly into a model filename via
+  `_DIRECTION_FILENAME.format(timeframe=timeframe)` with no sanitization (unlike `symbol`,
+  which gets `.replace("/", "_")`). A `timeframe` value containing `../` could traverse outside
+  `model_dir`.
+- **Fix:** Added `_validate_timeframe()` — rejects empty strings and anything outside
+  `[A-Za-z0-9_-]+`, called from `__init__`, `load_direction`, and `load_meta`. Deliberately
+  does NOT restrict to the 3-value `Timeframe` enum, since `timeframe` is used as a loosely
+  typed free-form string elsewhere in the codebase (e.g. `"1h"` in existing test fixtures).
+- **Verified:** `uv run pytest tests/test_model_trainer_coverage.py -q` → 80 passed (4 new
+  regression tests, including one confirming non-enum strings like `"1h"` remain valid).
+
+### [VF-032] — 2026-07-11 — src/api/main.py /model-metrics missing timeframe validation + raw exception leak
+- **Severity:** LOW (info disclosure / input validation gap; auth already required)
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `src/api/main.py` — `model_metrics()`, `get_order_status()`
+- **Status:** Applied
+- **Summary:** (a) `/model-metrics?timeframe=` passed an unvalidated string straight to
+  `storage.latest_model_metrics`/`live_gate_passes`, unlike `/regime/{timeframe}` which
+  validates against the `Timeframe` enum. (b) `/orders/{order_id}/status` returned
+  `{"error": str(exc)}` on any lookup failure, echoing raw exception text (potential internal
+  state leak) to an authenticated-but-untrusted caller.
+- **Fix:** (a) Added the same `Timeframe` enum validation as `/regime/{timeframe}`, returning
+  400 on an invalid value. (b) Logs the real exception server-side at `warning` and returns a
+  generic `{"error": "Failed to look up order status."}` to the client.
+- **Verified:** `uv run pytest tests/test_api_main_coverage.py -q` → 71 passed (3 new regression
+  tests).
+
+### [VF-033] — 2026-07-11 — Silent exception swallowing (multiple, LOW severity, batched)
+- **Severity:** LOW
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **Status:** Applied
+- **Summary:** Several `except Exception: pass`/debug-only-log patterns hid real bugs
+  indefinitely with no operator-visible signal:
+  - `src/engine/orchestrator.py` — Prometheus metrics push failure was a bare `pass`.
+  - `src/engine/signal_engine.py` — OFI/intel-aggregator fetch failures logged at `debug`
+    (invisible by default), silently degrading order-flow signal quality and failing the
+    exchange-stress/whale gates open.
+  - `src/diagnostics/trade_auditor.py` — `except statistics.StatisticsError: pass` in the
+    anomaly-scan checks that exist specifically to detect a degenerate/constant model feed.
+  - `src/diagnostics/runtime_monitor.py` — `_rss_mb()` swallowed all exceptions and returned
+    `0.0`, indistinguishable from "healthy" to the memory-leak probe consuming it.
+- **Fix:** Each now logs at `warning` (orchestrator, signal_engine) or `debug` with a
+  descriptive event name (trade_auditor, runtime_monitor) instead of silently discarding the
+  exception. No behavior change to the trade path — logging only.
+- **Verified:** `uv run pytest tests/ -q` → 2150 passed, 1 skipped, coverage 96.17%.
+
+### [VF-034] — 2026-07-11 — frontend/src/App.jsx overlapping poll requests + missing client-side threshold bounds
+- **Severity:** LOW
+- **Tool:** Claude manual audit (Loop-1 bug scan)
+- **File:** `frontend/src/App.jsx`
+- **Status:** Applied
+- **Summary:** (a) `fetchData`/`fetchRiskControls` `setInterval` polls had no in-flight guard —
+  a slow response could let a second poll fire before the first resolved, letting an
+  out-of-order response overwrite newer state. (b) `saveThreshold()` sent `parseFloat()` output
+  directly to `/risk-controls` with no client-side range check (the `<input min/max>` HTML
+  attributes are advisory only); the backend's Pydantic bounds are the real enforcement, but a
+  bad value round-tripped as an unexplained 422 with no inline feedback.
+- **Fix:** (a) Added a per-effect `inFlight` boolean guard around both poll functions. (b) Added
+  `THRESHOLD_BOUNDS` mirroring `SetRiskControlsRequest`'s Pydantic `ge`/`le` values in
+  `src/api/main.py`, with an inline `alert()` on violation before the fetch is attempted.
+- **Verified:** Manual review (no frontend test harness in this repo); backend test suite
+  unaffected, full suite green.

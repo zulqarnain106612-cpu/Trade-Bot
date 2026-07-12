@@ -46,7 +46,6 @@ show_lines.py
 show_pattern.py
 tmp_out.txt
 temp_python_check.txt
-127]
 
 # Project intel — track all except raw scan data
 .project-intel/RAW_SCAN.json
@@ -83,8 +82,11 @@ htmlcov/
 # Debt-002: pytest-cov artifact
 .coverage
 coverage.xml
+coverage.json
+cov_debug_out*.json
 htmlcov/
 
 # Intel daemon runtime files (never track)
 .project-intel/daemon.pid
 .project-intel/rag.db-journal
+.claude/review-queue.log

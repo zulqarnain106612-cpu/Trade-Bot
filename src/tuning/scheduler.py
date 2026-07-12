@@ -78,7 +78,7 @@ from src.tuning.bootstrap import (
 from src.tuning.evaluator import MetricComparison
 from src.tuning.proposer import Proposal
 from src.tuning.registry import TunableParameter
-from src.tuning.state import parameter_registry, pause_state, runner
+from src.tuning.state import parameter_registry, pause_state, runner, version_store
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -134,17 +134,21 @@ class AutoTuningScheduler:
 
     def start(self) -> None:
         if not parameter_registry.is_registered("hmm.entropy_threshold"):
-            register_hmm_entropy_threshold(parameter_registry, self._settings)
+            register_hmm_entropy_threshold(parameter_registry, self._settings, version_store)
         if not parameter_registry.is_registered("hmm.entropy_scalar_floor"):
-            register_hmm_entropy_scalar_floor(parameter_registry, self._settings)
+            register_hmm_entropy_scalar_floor(parameter_registry, self._settings, version_store)
         if not parameter_registry.is_registered("risk.slippage_impact_coeff_bps"):
-            register_slippage_impact_coeff(parameter_registry, self._settings)
+            register_slippage_impact_coeff(parameter_registry, self._settings, version_store)
         for field_name in FEATURE_WINDOW_FIELDS:
             if not parameter_registry.is_registered(f"features.{field_name}"):
-                register_feature_window_param(parameter_registry, field_name, self._settings)
+                register_feature_window_param(
+                    parameter_registry, field_name, self._settings, version_store
+                )
         for field_name in XGBOOST_HYPERPARAM_FIELDS:
             if not parameter_registry.is_registered(f"xgboost.{field_name}"):
-                register_xgboost_hyperparam_param(parameter_registry, field_name, self._settings)
+                register_xgboost_hyperparam_param(
+                    parameter_registry, field_name, self._settings, version_store
+                )
         self._task = asyncio.create_task(self._loop(), name="auto_tuning_scheduler")
         log.info(
             "tuning.scheduler_started",
@@ -163,8 +167,15 @@ class AutoTuningScheduler:
                 if await pause_state.is_paused():
                     log.info("tuning.scheduler_paused")
                 else:
-                    self._cycle_count += 1
+                    # Attempt BEFORE incrementing -- _attempt_all() reads
+                    # self._cycle_count for the XGBoost throttle gate, and a
+                    # freshly constructed scheduler starts at cycle 0 (0 % N
+                    # == 0 for any N), so this must still be 0 on the first
+                    # real invocation for that first-cycle attempt to fire,
+                    # matching _attempt_all()'s own doc comment and the
+                    # direct-_attempt_all() test path.
                     await self._attempt_all()
+                    self._cycle_count += 1
             except Exception as exc:
                 log.error("tuning.scheduler_attempt_failed", error=str(exc))
             try:
@@ -183,9 +194,6 @@ class AutoTuningScheduler:
         if len(samples) < _MIN_SAMPLES:
             log.info("tuning.scheduler_insufficient_samples", n_samples=len(samples))
         else:
-            champion_threshold = self._settings.hmm.entropy_threshold
-            champion_floor = self._settings.hmm.entropy_scalar_floor
-
             for param_name in ("hmm.entropy_threshold", "hmm.entropy_scalar_floor"):
 
                 def evaluate(
@@ -193,6 +201,17 @@ class AutoTuningScheduler:
                     proposal: Proposal,
                     _param_name: str = param_name,
                 ) -> list[MetricComparison]:
+                    # Read the registry's current champion value fresh on
+                    # EVERY call, not once before the loop -- if the
+                    # hmm.entropy_threshold iteration above already promoted
+                    # a challenger (registry.update_current) within this
+                    # same _attempt_all() cycle, the hmm.entropy_scalar_floor
+                    # iteration's "held constant" companion value must
+                    # reflect that promotion too, not a value captured
+                    # before this cycle even started (see
+                    # src/tuning/live_overrides.py).
+                    champion_threshold = parameter_registry.get("hmm.entropy_threshold").current
+                    champion_floor = parameter_registry.get("hmm.entropy_scalar_floor").current
                     if _param_name == "hmm.entropy_threshold":
                         return run_entropy_threshold_backtest(
                             samples,

@@ -37,7 +37,8 @@ from typing import Final
 
 import structlog
 
-from src.config import RiskSettings, get_settings
+from src.config import RiskSettings
+from src.tuning.live_overrides import effective_risk_settings
 
 
 DEFAULT_SLIPPAGE_SPREAD_BPS: Final[float] = 2.0
@@ -113,7 +114,7 @@ class SlippageModel:
     """
 
     def __init__(self, cfg: RiskSettings | None = None) -> None:
-        self._cfg = cfg or get_settings().risk
+        self._cfg = cfg or effective_risk_settings()
 
     def estimate(
         self,
@@ -155,11 +156,7 @@ class SlippageModel:
         if not math.isfinite(adv_20d) or adv_20d <= 0.0:
             raise ValueError(f"adv_20d must be a finite value > 0, got {adv_20d}")
 
-        spread = (
-            spread_bps
-            if spread_bps is not None
-            else self._cfg.slippage_default_spread_bps
-        )
+        spread = spread_bps if spread_bps is not None else self._cfg.slippage_default_spread_bps
         if not math.isfinite(spread) or spread < 0.0:
             raise ValueError(f"spread_bps must be a finite value >= 0, got {spread}")
 

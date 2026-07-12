@@ -5,6 +5,7 @@ import runpy
 import sys
 from pathlib import Path
 
+
 root = Path(__file__).resolve().parent.parent
 script = root / ".project-intel" / "scripts" / "smart_read.py"
 if not script.exists():

@@ -155,3 +155,29 @@ class TestVetoIfNegativeEv:
         assert not model.veto_if_negative_ev(
             expected_edge_bps=est.total_slippage_bps + 1.0, slippage=est
         )
+
+
+class TestSelfTuningLiveOverride:
+    def test_no_cfg_picks_up_promoted_slippage_coeff(self):
+        """Self-tuning live-wiring regression: once
+        risk.slippage_impact_coeff_bps is registered (see
+        src/tuning/live_overrides.py), the no-cfg SlippageModel default must
+        use the registry value, not the raw .env setting."""
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        parameter_registry._params.clear()
+        try:
+            parameter_registry.register(
+                TunableParameter(
+                    name="risk.slippage_impact_coeff_bps",
+                    description="test",
+                    floor=0.0,
+                    ceiling=2000.0,
+                    current=999.0,
+                    eval_strategy="test",
+                )
+            )
+            model = SlippageModel()  # no cfg -> must pick up the override
+            assert model._cfg.slippage_impact_coeff_bps == 999.0
+        finally:
+            parameter_registry._params.clear()

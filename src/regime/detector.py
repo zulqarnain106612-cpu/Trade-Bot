@@ -41,8 +41,8 @@ from src.config import (
     REGIME_TRENDING,
     REGIME_VOLATILE,
     HMMSettings,
-    get_settings,
 )
+from src.tuning.live_overrides import effective_hmm_settings
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -72,11 +72,10 @@ def _write_manifest(path: Path) -> None:
 
 def _verify_manifest(path: Path) -> None:
     import hmac as _hmac
+
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
     if not manifest_path.exists():
-        raise RuntimeError(
-            f"HMM model manifest missing for {path}. Re-train to regenerate."
-        )
+        raise RuntimeError(f"HMM model manifest missing for {path}. Re-train to regenerate.")
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -141,7 +140,7 @@ class RegimePrediction:
         change at the boundary.
         """
         if cfg is None:
-            cfg = get_settings().hmm
+            cfg = effective_hmm_settings()
         threshold = cfg.entropy_threshold
         floor = cfg.entropy_scalar_floor
         if self.entropy <= threshold:
@@ -211,9 +210,9 @@ class RegimeDetector:
     Lifecycle::
 
         detector = RegimeDetector()
-        detector.fit(feature_df)           # train on historical features
+        detector.fit(feature_df)  # train on historical features
         pred = detector.predict_current(feature_df.iloc[-lookback:])
-        detector.save(model_dir)           # persist
+        detector.save(model_dir)  # persist
         detector.load(model_dir, symbol, timeframe)  # restore
 
     Parameters
@@ -231,7 +230,7 @@ class RegimeDetector:
     ) -> None:
         self._symbol = symbol
         self._timeframe = timeframe
-        self._cfg: HMMSettings = cfg or get_settings().hmm
+        self._cfg: HMMSettings = cfg or effective_hmm_settings()
         self._model: GaussianHMM | None = None
         self._scaler: StandardScaler | None = None
         self._state_map: dict[int, int] = {}  # raw HMM index → canonical
@@ -306,10 +305,7 @@ class RegimeDetector:
 
         n = len(obs_df)
         if n < cfg.n_components * 20:
-            raise ValueError(
-                f"HMM fit: need at least {cfg.n_components * 20} rows, "
-                f"got {n}"
-            )
+            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, " f"got {n}")
 
         # Scale to zero-mean unit-variance — HMM diagonal / full covariance
         # is sensitive to feature magnitude differences
@@ -378,9 +374,9 @@ class RegimeDetector:
         self._fitted = True
 
         # H-07: SHA-256 replaces MD5 — more collision-resistant; 16 hex chars = 64 bits
-        self._train_hash = hashlib.sha256(
-            obs_df.to_numpy(dtype=np.float64).tobytes()
-        ).hexdigest()[:16]
+        self._train_hash = hashlib.sha256(obs_df.to_numpy(dtype=np.float64).tobytes()).hexdigest()[
+            :16
+        ]
 
         self._log.info(
             "hmm.fitted",
@@ -599,9 +595,7 @@ class RegimeDetector:
             timeframe=timeframe,
         )
         if not path.exists():
-            raise FileNotFoundError(
-                f"No saved HMM model at {path} — call fit() first."
-            )
+            raise FileNotFoundError(f"No saved HMM model at {path} — call fit() first.")
         _verify_manifest(path)
         payload: dict = joblib.load(path)
         detector = cls(
@@ -695,15 +689,11 @@ class RegimeDetector:
 
     def _require_fitted(self) -> None:
         if not self._fitted or self._model is None or self._scaler is None:
-            raise RuntimeError(
-                "RegimeDetector is not fitted — call fit() or load() first."
-            )
+            raise RuntimeError("RegimeDetector is not fitted — call fit() or load() first.")
 
     def _transform(self, features: pd.DataFrame) -> np.ndarray:
         """Scale observation DataFrame using the fitted StandardScaler."""
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
-            raise ValueError(
-                "Observation matrix contains NaN — drop NaN rows before inference."
-            )
+            raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
         return self._scaler.transform(obs.to_numpy(dtype=np.float64))  # type: ignore[union-attr]

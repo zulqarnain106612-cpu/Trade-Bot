@@ -11,6 +11,7 @@ from src.tuning.bootstrap import (
     register_xgboost_hyperparam_param,
 )
 from src.tuning.registry import DuplicateParameterError, ParameterRegistry
+from src.tuning.store import VersionedConfigStore
 
 
 @pytest.fixture(autouse=True)
@@ -128,3 +129,85 @@ def test_register_xgboost_max_depth_bounds_clamped_to_valid_range() -> None:
     settings = Settings(xgboost={"max_depth": 19})
     param = register_xgboost_hyperparam_param(registry, "max_depth", settings)
     assert param.ceiling <= 20.0
+
+
+# ---------------------------------------------------------------------------
+# store= resume-from-prior-promotion behavior
+# ---------------------------------------------------------------------------
+
+
+def test_register_hmm_entropy_threshold_resumes_from_promoted_store_value(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    promoted = settings.hmm.entropy_threshold * 1.05  # inside the +/-20% window
+    store.promote("hmm.entropy_threshold", promoted, evidence={})
+    param = register_hmm_entropy_threshold(registry, settings, store)
+    assert param.current == pytest.approx(promoted)
+    # Bounds stay anchored to the operator's .env default, NOT to the
+    # resumed value -- re-deriving them from `promoted` would let the bot
+    # walk its own window across repeated promotions.
+    default_floor, default_ceiling = param.floor, param.ceiling
+    unstored_param = register_hmm_entropy_threshold(ParameterRegistry(), settings)
+    assert (default_floor, default_ceiling) == (unstored_param.floor, unstored_param.ceiling)
+
+
+def test_register_hmm_entropy_threshold_ignores_out_of_bounds_promoted_value(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    # Promote a value far outside the +/-20% window anchored to the current
+    # operator default (simulating the operator having lowered the .env
+    # default since that promotion) -- must fall back to the fresh default,
+    # not silently operate outside the operator's current intended bounds.
+    store.promote("hmm.entropy_threshold", 0.99, evidence={})
+    param = register_hmm_entropy_threshold(registry, settings, store)
+    assert param.current == settings.hmm.entropy_threshold
+
+
+def test_register_hmm_entropy_threshold_no_store_versions_uses_default(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")  # empty -- no promotions yet
+    param = register_hmm_entropy_threshold(registry, settings, store)
+    assert param.current == settings.hmm.entropy_threshold
+
+
+def test_register_hmm_entropy_threshold_store_none_uses_default() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_hmm_entropy_threshold(registry, settings, store=None)
+    assert param.current == settings.hmm.entropy_threshold
+
+
+def test_register_feature_window_param_resumes_from_promoted_store_value(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    default = settings.features.atr_window
+    promoted = default + 1
+    store.promote("features.atr_window", float(promoted), evidence={})
+    param = register_feature_window_param(registry, "atr_window", settings, store)
+    assert param.current == pytest.approx(float(promoted))
+
+
+def test_register_xgboost_hyperparam_param_resumes_from_promoted_store_value(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    default = settings.xgboost.reg_alpha
+    promoted = default + 0.01
+    store.promote("xgboost.reg_alpha", promoted, evidence={})
+    param = register_xgboost_hyperparam_param(registry, "reg_alpha", settings, store)
+    assert param.current == pytest.approx(promoted)
+
+
+def test_register_slippage_impact_coeff_resumes_from_promoted_store_value(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    default = settings.risk.slippage_impact_coeff_bps
+    promoted = default * 1.05
+    store.promote("risk.slippage_impact_coeff_bps", promoted, evidence={})
+    param = register_slippage_impact_coeff(registry, settings, store)
+    assert param.current == pytest.approx(promoted)

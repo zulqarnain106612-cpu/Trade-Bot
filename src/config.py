@@ -164,12 +164,14 @@ class RiskSettings(BaseSettings):
     #                                sqrt(qty / adv_20d); this is a live,
     #                                actively-used constant (src/risk/slippage.py
     #                                -> gates.py's cost veto), not dormant --
-    #                                src/tuning/bootstrap.py registers it for
-    #                                self-tuning recalibration from realized
-    #                                fills (eval_strategy="realized_fill_error"),
-    #                                but no backtest harness implements that
-    #                                strategy yet (see src/tuning/scheduler.py),
-    #                                so it is not auto-tuned in practice today.
+    #                                src/tuning/bootstrap.py registers it and
+    #                                src/tuning/backtest_harness.py's
+    #                                run_slippage_coeff_backtest recalibrates it
+    #                                from realized fill cost; the scheduler
+    #                                (src/tuning/scheduler.py) runs this
+    #                                recalibration automatically when
+    #                                SELF_TUNING_ENABLED=true, still gated by
+    #                                shadow_mode like every other parameter.
     # slippage_veto_margin_bps    : extra safety margin required on top of
     #                                spread+impact before a signal is allowed
     #                                through gate 0 (never let est. cost == edge).

@@ -5,12 +5,18 @@ audit log together into one attempt cycle.
 Design: docs/SELF_TUNING_DESIGN.md §2 (architecture) and §7 (rollout plan,
 step 2: "running in shadow mode only -- proposals logged, never promoted").
 
-`shadow_mode=True` (the only mode wired up for now) makes this runner
-behaviorally inert with respect to real trading: a challenger can clear
-every gate check and it will still only be recorded as WOULD_PROMOTE in
-the audit log, never written to VersionedConfigStore. Flipping to live
-promotion is a separate, explicit configuration step for a later phase
-(see rollout plan step 3), not a flag flip here.
+`shadow_mode=True` (the default) makes this runner behaviorally inert
+with respect to real trading: a challenger can clear every gate check and
+it will still only be recorded as WOULD_PROMOTE in the audit log, never
+written to VersionedConfigStore. Flipping to live promotion
+(`SELF_TUNING_SHADOW_MODE=false`) is a separate, explicit operator
+configuration step (see rollout plan step 3), not a flag flip here.
+
+When shadow_mode is False and a challenger is promoted, this runner also
+advances the parameter's live champion value in ParameterRegistry
+(registry.update_current) -- see src/tuning/live_overrides.py, which is
+the seam that surfaces that updated value to the live regime/risk/
+features/model code paths.
 """
 
 from __future__ import annotations
@@ -188,6 +194,7 @@ class TuningRunner:
             evidence={"reasons": list(decision.reasons)},
             promoted_by="bot",
         )
+        self._registry.update_current(param_name, proposal.challenger_value)
         self._audit_log.record(
             param_name,
             TuningEventType.PROMOTED,

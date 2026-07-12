@@ -17,6 +17,7 @@ callers must not treat this as equivalent to Glassnode/CryptoQuant coverage.
 Run: python3 scripts/extract_tagpack_seeds.py <path-to-cloned-tagpacks-repo>
 Output: src/intelligence/onchain/seed_addresses.json
 """
+
 from __future__ import annotations
 
 import json
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
+
 
 try:
     _YAML_LOADER = yaml.CSafeLoader  # libyaml C loader -- much faster
