@@ -25,8 +25,14 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-git config user.email "zulqarnain106612@gmail.com"
-git config user.name  "zulqarnain106612-cpu"
+git config --get user.email >/dev/null || git config user.email "zulqarnain106612@gmail.com"
+git config --get user.name  >/dev/null || git config user.name  "zulqarnain106612-cpu"
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [[ "$BRANCH" == "main" ]]; then
+  echo "Blocked: commit directly on 'main' is not allowed. Create a branch first." >&2
+  exit 1
+fi
 
 git add -A
 
@@ -43,10 +49,14 @@ fi
 
 # ruff autofix before commit
 if command -v ruff &>/dev/null; then
-  ruff check src/ tests/ --fix --quiet || true
-  ruff format src/ tests/ --quiet || true
+  ruff check src/ tests/ --fix --quiet
+  ruff format src/ tests/ --quiet
   git add -A
 fi
+
+echo "Running gate: mypy + pytest (coverage >= 95%)..."
+uv run mypy src/
+uv run pytest tests/ -x -q --cov=src --cov-fail-under=95
 
 if [[ -z "$CUSTOM_MSG" ]]; then
   CHANGED_FILES=$(git diff --cached --name-only | head -5 | tr '\n' ' ')
