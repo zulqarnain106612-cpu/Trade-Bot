@@ -25,6 +25,11 @@ dist/
 # OS
 .DS_Store
 
+# Test coverage
+.coverage
+coverage.xml
+htmlcov/
+
 # CI/CD run artifacts — never committed
 check_runs.json
 ci_jobs.json
