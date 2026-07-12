@@ -90,3 +90,9 @@ htmlcov/
 .project-intel/daemon.pid
 .project-intel/rag.db-journal
 .claude/review-queue.log
+
+# Auto-rewritten by .git/hooks/post-commit after every commit (handoff.py
+# checkpoint) — never converges to a clean tree if tracked. Runtime session
+# state, not source, same category as daemon.pid/rag.db above.
+.project-intel/HANDOFF.md
+.project-intel/SESSION_STATE.json
