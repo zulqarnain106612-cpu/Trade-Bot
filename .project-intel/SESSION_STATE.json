@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-07-11T00:34:01.217002",
+  "last_updated": "2026-07-12T17:18:21.588834",
   "implementation_status": {
     "core_pipeline": "complete",
     "risk_gates": "complete",
@@ -22,23 +22,22 @@
     "gap_008_double_regime_scalar": "complete",
     "gap_011_paper_slippage": "complete",
     "debt_005_test_coverage": "complete",
-    "onchain_intelligence": "complete \u2014 OCI-001..012. Free provider stack: Arkham/DefiLlama/Dune/CryptoQuant/Coinglass wired via get_onchain_aware_aggregator."
+    "onchain_intelligence": "complete \u2014 OCI-001..012. Free provider stack: Arkham/DefiLlama/Dune/CryptoQuant/Coinglass wired via get_onchain_aware_aggregator.",
+    "gap_006_timescale_storage": "implementation complete \u2014 src/data/timescale_storage.py (1439 lines), 94/94 tests passing (tests/test_timescale_storage.py), wired via STORAGE_BACKEND env var factory in src/data/storage.py:~1801. Remaining item is OPS ONLY: provision a TimescaleDB instance and flip STORAGE_BACKEND=timescale when ready \u2014 not a build decision."
   },
   "current_focus": "completed by claude \u2014 Handoff system built \u2014 3-agent protocol (claude/copilot/amazonq) with stale sess",
   "last_file_modified": "src/regime/detector.py, src/risk/kelly.py, src/config.py, src/risk/cognitive_engine.py, src/engine/signal_engine.py, tests/test_detector.py (new), tests/test_cognitive_engine.py (new), tests/test_kell",
   "open_decisions": [
-    "Choose TimescaleDB vs QuestDB for storage migration (GAP-006)",
-    "Calibrate slippage_impact_coeff_bps from real fills once live/paper data exists (currently a config ",
-    "Debt-003: .venv runs Python 3.14.4 but pyproject.toml/pyright/mypy pin 3.11 \u2014 never validated agains"
+    "GAP-006 activation [OPS, NOT BUILD]: flip STORAGE_BACKEND=timescale once a TimescaleDB instance is provisioned. Code side is done."
   ],
-  "next_recommended_task": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are architecture decisions \u2014 no code gaps found in src/.",
-  "project_health": "CLEAN \u2014 daemon running (venv python fixed), 51 source files syntax OK, all critical imports OK, SESSION_STATE synced with GAPS.md ground truth",
-  "total_sessions": 78,
+  "next_recommended_task": "Commit the 17 in-flight Phase 8 self-tuning files (config.py, tuning/*, regime/detector.py, risk/slippage.py, scripts/run_tuning_attempt.py) \u2014 tests are green, coverage gate passes, nothing is blocking this.",
+  "project_health": "CLEAN \u2014 verified 2026-07-12: 2244 passed/1 skipped, coverage 96.10% (gate 95%, PASSED). Prior stuck pytest process (PID 1270458, hung since 2026-07-11 in futex_do_wait on a storage test) was corrupting the shared .coverage file and was killed before this run.",
+  "total_sessions": 82,
   "last_commit": "5c9d3b8",
   "last_commit_message": "chore(context): remove dead-weight docs and redundant CLAUDE.md [claude]",
   "last_commit_time": "2026-07-09T19:46:13.710828",
-  "coverage_pct": 62,
-  "last_session_start": "2026-07-10T23:38:19.889858",
+  "coverage_pct": 96.1,
+  "last_session_start": "2026-07-12T12:32:42.413769",
   "session_status": "active",
   "context_primer_ready": true,
   "context_primer_rebuilt": "2026-06-29T09:22:38.251845",
@@ -46,47 +45,11 @@
   "last_extraction_trigger": "startup",
   "handoff": {
     "active_agent": "claude",
-    "status": "active",
-    "completed_this_session": [
-      "[2026-07-10 23:52:16] [d3191b7] docs(behavior-control): add config/intelligence reference; add calibration module",
-      "[2026-07-11 00:05:52] [54161bb] docs(self-tuning): design bot-controlled parameter adaptation with never-regress guarantee",
-      "[2026-07-11 00:18:56] [852b739] feat(self-tuning): Phase 1 plumbing \u2014 registry, versioned store, audit log, kill switch",
-      "[2026-07-11 00:28:28] [6bdce77] feat(self-tuning): Phase 2 \u2014 proposer, evaluator, gate, shadow-mode runner",
-      "[2026-07-11 00:34:01] [3256885] docs(self-tuning): add complete implementation plan through Phase 8"
-    ],
-    "next_step": "GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite",
-    "last_checkpoint": "2026-07-11 00:34:01",
+    "status": "interrupted",
+    "completed_this_session": [],
+    "next_step": "Commit the 17 in-flight Phase 8 self-tuning files (config.py, tuning/*, regime/detector.py, risk/slippage.py, scripts/run_tuning_attempt.py) \u2014 tests are green, coverage gate passes, nothing is blocking this.",
+    "last_checkpoint": "2026-07-12 16:34:47",
     "session_history": [
-      {
-        "time": "2026-07-09 23:37:00",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
-      },
-      {
-        "time": "2026-07-09 23:37:56",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
-      },
-      {
-        "time": "2026-07-09 23:38:57",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
-      },
-      {
-        "time": "2026-07-09 23:50:27",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell exited with 25 uncommitted file(s)"
-      },
-      {
-        "time": "2026-07-09 23:50:27",
-        "agent": "claude",
-        "status": "interrupted",
-        "summary": "shell exited with 25 uncommitted file(s)"
-      },
       {
         "time": "2026-07-09 23:50:27",
         "agent": "claude",
@@ -116,27 +79,41 @@
         "agent": "claude",
         "status": "interrupted",
         "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-11 02:04:38",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-11 06:43:06",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-12 12:09:14",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-12 12:32:42",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs Quest"
+      },
+      {
+        "time": "2026-07-12 16:34:47",
+        "agent": "claude",
+        "status": "interrupted",
+        "summary": "shell exited with 47 uncommitted file(s)"
       }
     ],
-    "files_touched": [
-      "src/tuning/store.py",
-      "tests/test_tuning_audit.py",
-      "tests/test_tuning_registry.py",
-      "tests/test_tuning_store.py",
-      ".project-intel/HANDOFF.md",
-      ".project-intel/SESSION_STATE.json",
-      "src/tuning/evaluator.py",
-      "src/tuning/gate.py",
-      "src/tuning/proposer.py",
-      "src/tuning/runner.py",
-      "tests/test_tuning_evaluator.py",
-      "tests/test_tuning_gate.py",
-      "tests/test_tuning_proposer.py",
-      "tests/test_tuning_runner.py",
-      "docs/SELF_TUNING_IMPLEMENTATION_PLAN.md"
-    ],
+    "files_touched": [],
     "current_task": "shell session started \u2014 GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat",
-    "session_started": "2026-07-10 23:38:20",
+    "session_started": "2026-07-12 12:32:42",
     "interruption_reason": ""
   },
   "next_step": "GAP-015 follow-on: provision GLASSNODE_API_KEY/CRYPTOQUANT_API_KEY (see DECISION_LOG.md), then build historical intelligence-feature backfill per the recorded 6-step plan",
@@ -237,5 +214,7 @@
       "time": "2026-07-09T19:46:13.710782",
       "author": "Claude"
     }
-  ]
+  ],
+  "last_session_completed": [],
+  "last_files_modified": []
 }

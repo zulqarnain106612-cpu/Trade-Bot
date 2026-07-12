@@ -71,7 +71,7 @@ def main():
     if last_cp:
         lines.append(f"  cp: {last_cp}")
 
-    lines += [f"HEALTH: {health[:100]}", f"COVER: {coverage}% gate=60%", "GIT:"]
+    lines += [f"HEALTH: {health[:100]}", f"COVER: {coverage}% gate=95%", "GIT:"]
     for l in status.splitlines():
         lines.append(f"  {l}")
     for l in commits.splitlines():

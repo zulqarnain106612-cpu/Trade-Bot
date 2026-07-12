@@ -1,0 +1,318 @@
+{
+  "src/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/api/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/api/auth.py": {
+    "purpose": "API authentication \u2014 API key validation for REST and WebSocket.",
+    "functions": []
+  },
+  "src/api/main.py": {
+    "purpose": "FastAPI dashboard API.",
+    "functions": []
+  },
+  "src/api/metrics.py": {
+    "purpose": "Prometheus metrics for Trade Bot \u2014 TASK-007.",
+    "functions": []
+  },
+  "src/api/middleware.py": {
+    "purpose": "CORS validation middleware \u2014 prevents wildcard + credentials misconfiguration",
+    "functions": []
+  },
+  "src/config.py": {
+    "purpose": "Production configuration for the algorithmic trading bot.",
+    "functions": []
+  },
+  "src/data/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/data/fetcher.py": {
+    "purpose": "Async market data fetcher \u2014 Binance (primary) + OKX (secondary).",
+    "functions": []
+  },
+  "src/data/storage.py": {
+    "purpose": "Async SQLite storage layer \u2014 aiosqlite, WAL mode, typed queries.",
+    "functions": []
+  },
+  "src/data/timescale_storage.py": {
+    "purpose": "GAP-006: Async TimescaleDB storage backend \u2014 asyncpg pool, hypertables, typed queries.",
+    "functions": []
+  },
+  "src/diagnostics/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/diagnostics/runtime_monitor.py": {
+    "purpose": "Runtime Monitor \u2014 continuous async health diagnostics (alert-only, no auto-restart).",
+    "functions": []
+  },
+  "src/diagnostics/signal_debugger.py": {
+    "purpose": "Signal Debugger \u2014 feature drift detection, model degradation scanner,",
+    "functions": []
+  },
+  "src/diagnostics/trade_auditor.py": {
+    "purpose": "Trade Auditor \u2014 captures every signal decision with full diagnostic context.",
+    "functions": []
+  },
+  "src/engine/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/engine/orchestrator.py": {
+    "purpose": "Orchestrator \u2014 top-level async event loop coordinating all subsystems.",
+    "functions": []
+  },
+  "src/engine/signal_engine.py": {
+    "purpose": "Signal engine \u2014 per-timeframe signal computation pipeline.",
+    "functions": []
+  },
+  "src/execution/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/execution/base.py": {
+    "purpose": "Abstract base class for trade executors (VUL-038).",
+    "functions": []
+  },
+  "src/execution/live.py": {
+    "purpose": "Live trading executor \u2014 real money order placement via ccxt.",
+    "functions": []
+  },
+  "src/execution/live_fsm_integration.py": {
+    "purpose": "Live Executor FSM Integration \u2014 refactored order placement with OrderFSM.",
+    "functions": []
+  },
+  "src/execution/order_fsm.py": {
+    "purpose": "Order Finite State Machine \u2014 formalized order lifecycle with state transitions.",
+    "functions": []
+  },
+  "src/execution/order_manager.py": {
+    "purpose": "Order Manager \u2014 FSM-based order lifecycle management for live executor.",
+    "functions": []
+  },
+  "src/execution/paper.py": {
+    "purpose": "Paper trading executor.",
+    "functions": []
+  },
+  "src/features/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/features/intelligence_features.py": {
+    "purpose": "Intelligence-augmented features.",
+    "functions": []
+  },
+  "src/features/pipeline.py": {
+    "purpose": "Feature engineering pipeline.",
+    "functions": []
+  },
+  "src/intelligence/__init__.py": {
+    "purpose": "Crypto intelligence layer \u2014 on-chain metrics, exchange flows, whale tracking.",
+    "functions": []
+  },
+  "src/intelligence/calibration.py": {
+    "purpose": "Shared calibration and Bayesian-shrinkage primitives.",
+    "functions": []
+  },
+  "src/intelligence/causal_inference.py": {
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.",
+    "functions": []
+  },
+  "src/intelligence/client.py": {
+    "purpose": "Multi-provider intelligence client aggregator.",
+    "functions": []
+  },
+  "src/intelligence/ensemble_predictor.py": {
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.",
+    "functions": []
+  },
+  "src/intelligence/metrics.py": {
+    "purpose": "Intelligence metrics computation layer.",
+    "functions": []
+  },
+  "src/intelligence/onchain/__init__.py": {
+    "purpose": "On-chain intelligence providers.",
+    "functions": []
+  },
+  "src/intelligence/onchain/arkham_provider.py": {
+    "purpose": "Arkham Intel provider \u2014 OCI-002.",
+    "functions": []
+  },
+  "src/intelligence/onchain/base.py": {
+    "purpose": "On-chain provider foundation: RateLimiter, CircuitBreaker, AsyncHTTPCache, OnChainProvider",
+    "functions": []
+  },
+  "src/intelligence/onchain/coinglass_provider.py": {
+    "purpose": "Coinglass provider \u2014 OCI-006.",
+    "functions": []
+  },
+  "src/intelligence/onchain/cryptoquant_provider.py": {
+    "purpose": "CryptoQuant provider \u2014 OCI-005.",
+    "functions": []
+  },
+  "src/intelligence/onchain/defillama_provider.py": {
+    "purpose": "DeFiLlama provider \u2014 OCI-003.",
+    "functions": []
+  },
+  "src/intelligence/onchain/dune_provider.py": {
+    "purpose": "Dune Analytics provider \u2014 OCI-004.",
+    "functions": []
+  },
+  "src/intelligence/onchain/schema.py": {
+    "purpose": "OCI-007 \u2014 Canonical on-chain metrics schema.",
+    "functions": []
+  },
+  "src/intelligence/probabilistic.py": {
+    "purpose": "Probabilistic inference engine for crypto intelligence.",
+    "functions": []
+  },
+  "src/intelligence/probabilistic_adapter.py": {
+    "purpose": "ProbabilisticMetricsAdapter",
+    "functions": []
+  },
+  "src/intelligence/providers/__init__.py": {
+    "purpose": "Crypto intelligence providers.",
+    "functions": []
+  },
+  "src/intelligence/providers/aggregator.py": {
+    "purpose": "Multi-provider intelligence aggregator.",
+    "functions": []
+  },
+  "src/intelligence/providers/base.py": {
+    "purpose": "Abstract base for exchange intelligence providers.",
+    "functions": []
+  },
+  "src/intelligence/providers/binance_provider.py": {
+    "purpose": "Binance public REST provider for intelligence metrics.",
+    "functions": []
+  },
+  "src/intelligence/providers/blockchain_provider.py": {
+    "purpose": "Blockchain.info free public REST provider for network activity metrics.",
+    "functions": []
+  },
+  "src/intelligence/providers/coingecko_provider.py": {
+    "purpose": "CoinGecko free public REST provider for macro intelligence metrics.",
+    "functions": []
+  },
+  "src/intelligence/providers/okx_provider.py": {
+    "purpose": "OKX public REST provider for intelligence metrics.",
+    "functions": []
+  },
+  "src/intelligence/risk_quantification.py": {
+    "purpose": "EXPERIMENTAL \u2014 NOT wired into live signal path.",
+    "functions": []
+  },
+  "src/regime/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/regime/detector.py": {
+    "purpose": "GaussianHMM regime detector \u2014 Hamilton (1989) 3-state switching model.",
+    "functions": []
+  },
+  "src/risk/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/risk/cognitive_engine.py": {
+    "purpose": "Cognitive Engine \u2014 Mandatory Runtime Decision Layer",
+    "functions": []
+  },
+  "src/risk/drift_integration.py": {
+    "purpose": "Drift Detector Integration \u2014 hooks for orchestrator to record trade outcomes.",
+    "functions": []
+  },
+  "src/risk/gates.py": {
+    "purpose": "Risk gate engine \u2014 hard limits that block new positions.",
+    "functions": []
+  },
+  "src/risk/kelly.py": {
+    "purpose": "Kelly position sizing \u2014 half-Kelly with hard ceiling.",
+    "functions": []
+  },
+  "src/risk/performance_drift.py": {
+    "purpose": "Performance Drift Trigger \u2014 detects model decay in live trading.",
+    "functions": []
+  },
+  "src/risk/portfolio_correlation.py": {
+    "purpose": "Portfolio Correlation Layer \u2014 Gap-005.",
+    "functions": []
+  },
+  "src/risk/slippage.py": {
+    "purpose": "Slippage and market-impact model \u2014 Almgren-Chriss square-root impact.",
+    "functions": []
+  },
+  "src/strategies/__init__.py": {
+    "purpose": "__init__ module",
+    "functions": []
+  },
+  "src/strategies/filters.py": {
+    "purpose": "Professional strategy filters and signal enrichment.",
+    "functions": []
+  },
+  "src/strategies/position_sizing.py": {
+    "purpose": "Advanced position sizing \u2014 Carver (2019) and L\u00f3pez de Prado (2018).",
+    "functions": []
+  },
+  "src/tuning/__init__.py": {
+    "purpose": "Self-tuning subsystem \u2014 see docs/SELF_TUNING_DESIGN.md.",
+    "functions": []
+  },
+  "src/tuning/audit.py": {
+    "purpose": "Immutable audit trail for self-tuning attempts.",
+    "functions": []
+  },
+  "src/tuning/backtest_harness.py": {
+    "purpose": "Backtest harness \u2014 produces real MetricComparison samples for the",
+    "functions": []
+  },
+  "src/tuning/bootstrap.py": {
+    "purpose": "Explicit parameter registration for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/evaluator.py": {
+    "purpose": "Champion-vs-challenger statistical evaluator for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/gate.py": {
+    "purpose": "Promotion gate for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/live_overrides.py": {
+    "purpose": "Live-value overlay for self-tuned parameters.",
+    "functions": []
+  },
+  "src/tuning/proposer.py": {
+    "purpose": "Candidate-value proposer for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/registry.py": {
+    "purpose": "Parameter registry for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/runner.py": {
+    "purpose": "Shadow-mode tuning runner -- ties proposer + evaluator + gate + store +",
+    "functions": []
+  },
+  "src/tuning/scheduler.py": {
+    "purpose": "Auto-tuning scheduler -- the \"explicit startup step\" referenced by",
+    "functions": []
+  },
+  "src/tuning/state.py": {
+    "purpose": "Process-wide singletons for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/store.py": {
+    "purpose": "Versioned, append-only config store for the self-tuning subsystem.",
+    "functions": []
+  },
+  "src/tuning/watchdog.py": {
+    "purpose": "Post-promotion watchdog -- auto-rollback on live drift.",
+    "functions": []
+  }
+}

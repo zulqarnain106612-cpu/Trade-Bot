@@ -1,43 +1,110 @@
 {
   "permissions": {
     "allow": [
-      "Bash(uv run *)",
+      "Agent",
+      "Bash(bash scripts/*)",
+      "Bash(cat *)",
+      "Bash(chmod +x *)",
+      "Bash(cp *)",
+      "Bash(diff *)",
+      "Bash(docker compose *)",
+      "Bash(docker-compose *)",
+      "Bash(find *)",
+      "Bash(gh pr *)",
+      "Bash(gh secret list)",
       "Bash(git *)",
       "Bash(grep *)",
-      "Bash(sed *)",
-      "Bash(find *)",
       "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(bash scripts/*)",
-      "Bash(python3 .project-intel/scripts/resume.py *)",
-      "Read(**)",
-      "Edit(**)",
-      "Write(src/**)",
-      "Write(tests/**)",
-      "Write(.project-intel/**)",
-      "Write(scripts/**)",
-      "Bash(rm -rf .venv_temp)",
-      "Bash(rm -rf .mypy_cache)",
-      "Bash(rm -rf .coverage_floors_tmp.json)",
+      "Bash(jq *)",
+      "Bash(ls *)",
+      "Bash(mkdir -p *)",
+      "Bash(mv *)",
+      "Bash(python3 .project-intel/scripts/*.py *)",
       "Bash(rm -rf .ai)",
       "Bash(rm -rf .amazonq)",
       "Bash(rm -rf .continue)",
-      "Bash(rm -rf .trunk)",
+      "Bash(rm -rf .coverage_floors_tmp.json)",
       "Bash(rm -rf .github/copilot)",
+      "Bash(rm -rf .mypy_cache)",
+      "Bash(rm -rf .trunk)",
+      "Bash(rm -rf .venv_temp)",
       "Bash(rm -rf TOOL_VERSIONS.md)",
-      "Bash(rm -rf deploy_diagnostics.sh)",
       "Bash(rm -rf assets)",
-      "Bash(rm -rf frontend/node_modules)"
+      "Bash(rm -rf deploy_diagnostics.sh)",
+      "Bash(rm -rf frontend/node_modules)",
+      "Bash(sed *)",
+      "Bash(tail *)",
+      "Bash(touch *)",
+      "Bash(uv add*)",
+      "Bash(uv lock*)",
+      "Bash(uv pip *)",
+      "Bash(uv python*)",
+      "Bash(uv remove*)",
+      "Bash(uv run *)",
+      "Bash(uv sync*)",
+      "Bash(uv venv*)",
+      "Bash(wc *)",
+      "Edit(**)",
+      "Monitor",
+      "Read(**)",
+      "Write(.claude/agents/**)",
+      "Write(.claude/review-queue.log)",
+      "Write(.github/workflows/*.yml.draft)",
+      "Write(.project-intel/**)",
+      "Write(docs/**)",
+      "Write(scripts/**)",
+      "Write(src/**)",
+      "Write(tests/**)"
     ],
     "deny": [
+      "Bash(*EXECUTION_MODE=*)",
+      "Bash(*TRADING_MODE=live*)",
+      "Bash(*execution-mode*AUTOMATIC*)",
+      "Bash(*execution-mode*RESTRICTED*)",
+      "Bash(cat .env*)",
+      "Bash(curl *execution-mode*)",
+      "Bash(git push --force*)",
       "Bash(pip *)",
       "Bash(python3 -c \"*\" *)",
-      "Bash(cat .env*)",
+      "Bash(rm -rf src/execution/*)",
+      "Bash(rm -rf src/risk/*)",
       "Read(.env*)",
+      "Read(.venv/**)",
       "Read(/data/**)",
       "Read(/logs/**)",
       "Read(/models/**)",
-      "Read(.venv/**)"
+      "Write(.env*)"
+    ],
+    "ask": [
+      "Edit(.claude/hooks/**)",
+      "Edit(.claude/settings*.json)",
+      "Edit(.github/workflows/**)",
+      "Write(.claude/hooks/**)",
+      "Write(.claude/settings*.json)",
+      "Write(.github/workflows/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/log-edit.sh" }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/log-edit.sh" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/stop-review.sh" }
+        ]
+      }
     ]
   }
 }

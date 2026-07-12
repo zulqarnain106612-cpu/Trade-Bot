@@ -6,6 +6,7 @@ these exact same CLIs under the hood.
 
 Always overwrites DIAGNOSTICS.md — re-run after every save to refresh.
 """
+
 from __future__ import annotations
 
 import json
@@ -96,9 +97,7 @@ def _eslint(root: Path) -> list[str]:
         return []
     if shutil.which("npx") is None:
         return ["- eslint: NOT AVAILABLE — npx not on PATH"]
-    code, out, err = _run(
-        ["npx", "--no-install", "eslint", "src", "--format=json"], frontend
-    )
+    code, out, err = _run(["npx", "--no-install", "eslint", "src", "--format=json"], frontend)
     if code == 127 or "could not determine executable" in err.lower():
         return ["- eslint: NOT INSTALLED in frontend/ — `npm install eslint` to enable"]
     try:
@@ -118,18 +117,23 @@ def _eslint(root: Path) -> list[str]:
         for m in r["messages"]:
             sev = "error" if m.get("severity") == 2 else "warning"
             rule = m.get("ruleId") or "syntax"
-            lines.append(f"  - `{rel}:{m.get('line')}:{m.get('column')}` [{sev}] ({rule}) {m.get('message')}")
+            lines.append(
+                f"  - `{rel}:{m.get('line')}:{m.get('column')}` [{sev}] ({rule}) {m.get('message')}"
+            )
     return lines
 
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
-    out: list[str] = ["# DIAGNOSTICS.md", "",
-                       "- Auto-generated from ruff / pyright / eslint CLIs.",
-                       "- Mirrors VS Code Problems panel — same engines under the hood.",
-                       "- Re-run `python3 scripts/export_diagnostics.py` after edits to refresh.",
-                       "- Claude: treat every line below as a real, current issue to fix.",
-                       ""]
+    out: list[str] = [
+        "# DIAGNOSTICS.md",
+        "",
+        "- Auto-generated from ruff / pyright / eslint CLIs.",
+        "- Mirrors VS Code Problems panel — same engines under the hood.",
+        "- Re-run `python3 scripts/export_diagnostics.py` after edits to refresh.",
+        "- Claude: treat every line below as a real, current issue to fix.",
+        "",
+    ]
 
     out.append("## Python — ruff")
     out.extend(_ruff(root))
@@ -146,7 +150,7 @@ def main() -> None:
         out.append("")
 
     content = "\n".join(out)
-    (root / "DIAGNOSTICS.md").write_text(content, encoding="utf-8")
+    (root / ".project-intel" / "DIAGNOSTICS.md").write_text(content, encoding="utf-8")
     print(f"WRITTEN: {root / 'DIAGNOSTICS.md'} ({len(content)} bytes)")
 
 

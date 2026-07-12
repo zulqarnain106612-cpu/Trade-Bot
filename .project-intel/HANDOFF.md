@@ -1,60 +1,51 @@
 # Agent Handoff State
-> Updated: 2026-07-11 00:34:01 | Read this before starting any work.
+> Updated: 2026-07-12 16:34:47 | Read this before starting any work.
 
 ## Current Status
 **Agent**:   claude
-**Status**:  🟢 ACTIVE
+**Status**:  🔴 INTERRUPTED — resume required
 **Task**:    shell session started — GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismat
-**Started**: 2026-07-10 23:38:20
-**Last checkpoint**: 2026-07-11 00:34:01
+**Started**: 2026-07-12 12:32:42
+**Last checkpoint**: 2026-07-12 16:34:47
 
-## ⚠ ANOTHER AGENT IS ACTIVE
-If claude is no longer running, status is stale.
-Check: `git log --oneline -3` — if no recent commits, agent likely crashed.
-Safe to take over: run `python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'resume'`
+## ⚠ INTERRUPTION — Resume from here
+**Reason**: shell exited with 47 uncommitted file(s)
+
+### What was completed before interruption:
+
+### Exact resume point:
+  Debt-003 (Claude-actionable): pin .venv to Python 3.11 (`uv python pin 3.11 && uv sync`), rerun full
+
+### Files modified (may have uncommitted changes):
+
+### Action required:
+  1. Run `git status` — check for uncommitted changes
+  2. Run `git diff` — review what was partially done
+  3. Read the files listed above — continue from next_step above
+  4. Do NOT restart from scratch — work is partially done
 
 ## Next Step for Incoming Agent
-  GAP-006 storage migration decision (TimescaleDB vs QuestDB) or Debt-003 Python 3.14/3.11 venv mismatch. Both are archite
+  Debt-003 (Claude-actionable): pin .venv to Python 3.11 (`uv python pin 3.11 && uv sync`), rerun full
 
 ## Files to Check
-  - src/tuning/store.py
-  - tests/test_tuning_audit.py
-  - tests/test_tuning_registry.py
-  - tests/test_tuning_store.py
-  - .project-intel/HANDOFF.md
-  - .project-intel/SESSION_STATE.json
-  - src/tuning/evaluator.py
-  - src/tuning/gate.py
-  - src/tuning/proposer.py
-  - src/tuning/runner.py
-  - tests/test_tuning_evaluator.py
-  - tests/test_tuning_gate.py
-  - tests/test_tuning_proposer.py
-  - tests/test_tuning_runner.py
-  - docs/SELF_TUNING_IMPLEMENTATION_PLAN.md
+  (no specific files — start from OPEN_TASKS.md)
 
 ## Session History (last 5)
-  [2026-07-10 23:38:20] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
-  [2026-07-10 04:35:21] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
-  [2026-07-10 00:30:53] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
-  [2026-07-09 23:51:29] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
-  [2026-07-09 23:50:27] claude — interrupted: shell exited with 25 uncommitted file(s)
+  [2026-07-12 16:34:47] claude — interrupted: shell exited with 47 uncommitted file(s)
+  [2026-07-12 12:32:42] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
+  [2026-07-12 12:09:14] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
+  [2026-07-11 06:43:06] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
+  [2026-07-11 02:04:38] claude — interrupted: shell session started — GAP-006 storage migration decision (TimescaleDB vs Quest
 
 ## Quick Start for Any Agent
 ```
-# 1. Read context (mandatory):
-cat .project-intel/CONTEXT_PRIMER.md
-cat .project-intel/HANDOFF.md          ← you are here
-cat .project-intel/SESSION_STATE.json
+# 1. Get context (single command, do NOT cat files directly):
+python3 .project-intel/scripts/resume.py .
 
-# 2. Check uncommitted work:
-git status --short
-git diff --stat
-
-# 3. Register yourself:
+# 2. Register yourself:
 python3 .project-intel/scripts/handoff.py start --agent YOUR_AGENT --task 'describe task'
 
-# 4. Checkpoint as you work (every meaningful step):
+# 3. Checkpoint as you work (every meaningful step):
 python3 .project-intel/scripts/handoff.py checkpoint --agent YOUR_AGENT \
   --completed 'what you just did' --next 'exact next action' --files 'src/x.py'
 ```

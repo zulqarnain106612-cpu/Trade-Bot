@@ -23,14 +23,14 @@ Your Project
 
 ## 1. Arkham Intel API — Wallet & Entity Intelligence
 
-**Official Docs:** https://intel.arkm.com/api/docs  
-**API Reference:** https://docs.intel.arkm.com  
-**LLM-Friendly Docs:** https://intel.arkm.com/llms.txt  
-**Request Access:** https://intel.arkm.com/api  
-**Support:** api@arkm.com  
-**Base URL:** `https://api.arkm.com`  
-**Auth:** `API-Key` header required on all requests  
-**Rate Limit (Basic tier):** 20 requests/second  
+**Official Docs:** https://intel.arkm.com/api/docs
+**API Reference:** https://docs.intel.arkm.com
+**LLM-Friendly Docs:** https://intel.arkm.com/llms.txt
+**Request Access:** https://intel.arkm.com/api
+**Support:** api@arkm.com
+**Base URL:** `https://api.arkm.com`
+**Auth:** `API-Key` header required on all requests
+**Rate Limit (Basic tier):** 20 requests/second
 
 ### What Arkham Replaces from Glassnode
 | Glassnode Feature | Arkham Equivalent |
@@ -99,7 +99,7 @@ Supported in 2026: Bitcoin, Ethereum, Solana, BNB Chain, Avalanche, Tron, Arbitr
 ```python
 import requests
 
-ARKHAM_API_KEY = "your_api_key_here"
+ARKHAM_API_KEY = "your_api_key_here"  # pragma: allowlist secret
 BASE_URL = "https://api.arkm.com"
 
 headers = {"API-Key": ARKHAM_API_KEY}
@@ -124,12 +124,12 @@ outflows = get_fund_flows("binance", "out")
 
 ## 2. DeFiLlama API — TVL, Protocol & DeFi Data
 
-**Official Docs:** https://api-docs.defillama.com  
-**Official Python SDK:** https://pypi.org/project/defillama-sdk (by DefiLlama/0xngmi)  
-**GitHub SDK:** https://github.com/DefiLlama/defillama-sdk  
-**Base URL (Free):** `https://api.llama.fi`  
-**Auth:** None required for free tier  
-**Rate Limit:** No enforced limit for normal traffic  
+**Official Docs:** https://api-docs.defillama.com
+**Official Python SDK:** https://pypi.org/project/defillama-sdk (by DefiLlama/0xngmi)
+**GitHub SDK:** https://github.com/DefiLlama/defillama-sdk
+**Base URL (Free):** `https://api.llama.fi`
+**Auth:** None required for free tier
+**Rate Limit:** No enforced limit for normal traffic
 
 ### What DeFiLlama Replaces from Glassnode
 | Glassnode Feature | DeFiLlama Equivalent |
@@ -233,11 +233,11 @@ except ApiError as exc:
 
 ## 3. Dune Analytics API — Custom On-Chain SQL Queries
 
-**Official Docs:** https://docs.dune.com/api-reference/overview/introduction  
-**Dashboard:** https://dune.com  
-**Base URL:** `https://api.dune.com/api/v1`  
-**Auth:** `X-Dune-API-Key` header  
-**Free Tier:** Available — limited query executions per month  
+**Official Docs:** https://docs.dune.com/api-reference/overview/introduction
+**Dashboard:** https://dune.com
+**Base URL:** `https://api.dune.com/api/v1`
+**Auth:** `X-Dune-API-Key` header
+**Free Tier:** Available — limited query executions per month
 
 ### What Dune Replaces from Glassnode
 | Glassnode Feature | Dune Equivalent |
@@ -274,7 +274,7 @@ X-Dune-API-Key: YOUR_API_KEY
 import requests
 import time
 
-DUNE_API_KEY = "your_dune_api_key"
+DUNE_API_KEY = "your_dune_api_key"  # pragma: allowlist secret
 BASE_URL = "https://api.dune.com/api/v1"
 headers = {"X-Dune-API-Key": DUNE_API_KEY}
 
@@ -314,9 +314,9 @@ Search on dune.com for:
 
 ## 4. CryptoQuant — Exchange Flows & BTC Signals
 
-**Platform:** https://cryptoquant.com  
-**Free Tier:** Available (limited metrics, daily resolution)  
-**Paid starts:** $29/month (Basic)  
+**Platform:** https://cryptoquant.com
+**Free Tier:** Available (limited metrics, daily resolution)
+**Paid starts:** $29/month (Basic)
 
 ### What CryptoQuant Replaces from Glassnode
 | Glassnode Feature | CryptoQuant Equivalent |
@@ -336,10 +336,10 @@ Search on dune.com for:
 
 ## 5. Coinglass — Derivatives & Liquidation Data
 
-**Official API Docs:** https://docs.coinglass.com  
-**Base URL:** `https://open-api.coinglass.com/public/v2`  
-**Auth:** `coinglassSecret` header  
-**Free Tier:** Available with API key (register at coinglass.com)  
+**Official API Docs:** https://docs.coinglass.com
+**Base URL:** `https://open-api.coinglass.com/public/v2`
+**Auth:** `coinglassSecret` header
+**Free Tier:** Available with API key (register at coinglass.com)
 
 ### What Coinglass Replaces from Glassnode
 | Glassnode Feature | Coinglass Equivalent |

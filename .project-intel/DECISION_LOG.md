@@ -160,3 +160,7 @@ regression-guard both fixes. Full suite re-run: 777 passed / 1 skipped /
 1 pre-existing unrelated failure (TestTask010FundingRateWiring -- flaky
 live-network test, confirmed failing identically before this session via
 git stash comparison).
+
+## ADR-008: ADR-CORRECTION: GAP-006 (TimescaleDB storage) was already fully implemented and tested (94/94 passing) as of an earlier session, but SESSION_STATE.json/HANDOFF.md were never updated to reflect this — causing 5+ subsequent sessions to re-treat it as an open build decision. Verified 2026-07-12 by running tests/test_timescale_storage.py directly. Remaining step is ops-only (provision TimescaleDB, set STORAGE_BACKEND=timescale).
+**Date**: 2026-07-12
+**Session note**: See SESSION_STATE.json
