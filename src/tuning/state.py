@@ -14,8 +14,9 @@ import asyncio
 
 from src.config import get_settings
 from src.tuning.audit import TuningAuditLog
+from src.tuning.bayesian_proposer import BayesianProposer
 from src.tuning.gate import PromotionGate
-from src.tuning.proposer import TuningProposer
+from src.tuning.proposer import Proposer, TuningProposer
 from src.tuning.registry import parameter_registry
 from src.tuning.runner import TuningRunner
 from src.tuning.store import VersionedConfigStore
@@ -26,7 +27,15 @@ _settings = get_settings().self_tuning
 
 audit_log: TuningAuditLog = TuningAuditLog(_settings.audit_log_path)
 version_store: VersionedConfigStore = VersionedConfigStore(_settings.version_store_path)
-proposer: TuningProposer = TuningProposer()
+
+# proposer_strategy picks the search strategy only -- gate/evaluator/watchdog
+# safety machinery downstream is identical either way (see bayesian_proposer.py).
+proposer: Proposer
+if _settings.proposer_strategy == "bayesian":
+    proposer = BayesianProposer(audit_log)
+else:
+    proposer = TuningProposer(step_pct=_settings.proposer_step_pct)
+
 gate: PromotionGate = PromotionGate()
 
 # Phase 7: shadow_mode is driven by SelfTuningSettings.shadow_mode (default

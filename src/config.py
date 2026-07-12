@@ -15,7 +15,7 @@ import threading
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -522,6 +522,24 @@ class SelfTuningSettings(BaseSettings):
     )
     audit_log_path: Path = Field(default=Path("logs/self_tuning_audit.jsonl"))
     version_store_path: Path = Field(default=Path("logs/self_tuning_versions.jsonl"))
+    proposer_strategy: Literal["random_walk", "bayesian"] = Field(
+        default="random_walk",
+        description=(
+            "Which src/tuning/proposer.py strategy TuningRunner uses to pick "
+            "challenger values. 'random_walk' (default) is the original "
+            "memoryless bounded-step proposer. 'bayesian' uses "
+            "src/tuning/bayesian_proposer.py (Optuna TPE) to condition each "
+            "proposal on this parameter's own audit-log evaluation history. "
+            "Purely a search-strategy choice -- gate/evaluator/watchdog "
+            "safety machinery is identical either way."
+        ),
+    )
+    proposer_step_pct: float = Field(
+        default=0.1,
+        gt=0.0,
+        le=1.0,
+        description="random_walk only: max step size as a fraction of [floor, ceiling].",
+    )
     shadow_mode: bool = Field(
         default=True,
         description=(

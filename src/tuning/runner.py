@@ -29,7 +29,7 @@ from src.config import SelfTuningSettings
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.evaluator import EvaluationResult, MetricComparison
 from src.tuning.gate import GateDecision, PromotionGate
-from src.tuning.proposer import Proposal, TuningProposer
+from src.tuning.proposer import Proposal, Proposer
 from src.tuning.registry import ParameterRegistry, TunableParameter
 from src.tuning.store import VersionedConfigStore
 
@@ -58,7 +58,7 @@ class TuningRunner:
         store: VersionedConfigStore,
         audit_log: TuningAuditLog,
         settings: SelfTuningSettings,
-        proposer: TuningProposer,
+        proposer: Proposer,
         gate: PromotionGate,
         shadow_mode: bool = True,
     ) -> None:
@@ -125,7 +125,7 @@ class TuningRunner:
             )
 
         param = self._registry.get(param_name)
-        proposal = self._proposer.propose(param)
+        proposal = self._proposer.propose(param, primary_metric)
         self._audit_log.record(
             param_name,
             TuningEventType.PROPOSED,

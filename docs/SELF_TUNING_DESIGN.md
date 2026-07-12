@@ -54,9 +54,13 @@ self-tuning, full stop — it stays user/Claude-only.
                      └────────────┬─────────────┘
                                   │
    closed trades ──► ┌────────────▼─────────────┐
-   drift signals ──► │      TuningProposer        │  proposes ONE candidate
+   drift signals ──► │  Proposer (protocol)       │  proposes ONE candidate
    regime stats  ──► │  (src/tuning/proposer.py)  │  value within bounds,
-                     └────────────┬─────────────┘  using existing stats
+                     │  random_walk (default) or  │  using existing stats
+                     │  bayesian (Optuna TPE,      │  (or audit-log history,
+                     │  src/tuning/bayesian_       │  for the bayesian
+                     │  proposer.py)               │  strategy)
+                     └────────────┬─────────────┘
                                   │ (candidate, param, rationale)
                      ┌────────────▼─────────────┐
                      │   ChallengerEvaluator      │  backtest/CPCV replay
