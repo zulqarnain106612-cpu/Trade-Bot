@@ -119,14 +119,18 @@ def add_intelligence_features(
     result[COL_STAKING_UNLOCK_RISK] = intelligence_metrics.staking_unlock_risk
     result[COL_ENTITY_EXCHANGE_IMBALANCE] = intelligence_metrics.entity_exchange_imbalance
     result[COL_BINANCE_FUNDING_RATE_PCT] = intelligence_metrics.binance_funding_rate_pct
-    result[COL_LIQUIDATION_PRESSURE_24H_ZSCORE] = intelligence_metrics.liquidation_pressure_24h_zscore
+    result[COL_LIQUIDATION_PRESSURE_24H_ZSCORE] = (
+        intelligence_metrics.liquidation_pressure_24h_zscore
+    )
     result[COL_FUTURES_OI_CHANGE_PCT] = intelligence_metrics.futures_oi_change_pct
     result[COL_LIQUIDATION_CASCADE_RISK_USD] = intelligence_metrics.liquidation_cascade_risk_usd
     result[COL_BTC_DOMINANCE_REGIME] = intelligence_metrics.btc_dominance_regime
     result[COL_STABLECOIN_RESERVE_RATIO] = intelligence_metrics.stablecoin_reserve_ratio
     result[COL_NETWORK_ACTIVITY_SCORE] = intelligence_metrics.network_activity_score
     result[COL_EXCHANGE_STRESS_SCORE] = intelligence_metrics.exchange_stress_score
-    result[COL_CROSS_EXCHANGE_BASIS_SPREAD_BPS] = intelligence_metrics.cross_exchange_basis_spread_bps
+    result[COL_CROSS_EXCHANGE_BASIS_SPREAD_BPS] = (
+        intelligence_metrics.cross_exchange_basis_spread_bps
+    )
     # OCI-012 fields
     result[COL_DEFI_TVL_7D_CHANGE_PCT] = intelligence_metrics.defi_tvl_7d_change_pct
     result[COL_MVRV_Z_SCORE] = intelligence_metrics.mvrv_z_score
@@ -151,9 +155,9 @@ class IntelligenceFeatureMatrix:
     Combines original 9 features + 18 intelligence features = 27 total.
     """
 
-    X: pd.DataFrame                      # Shape (n_samples, 27)
+    X: pd.DataFrame  # Shape (n_samples, 27)
     y_direction: pd.Series | None = None  # Direction labels (if training)
-    y_meta: pd.Series | None = None       # Meta-labels (if training)
+    y_meta: pd.Series | None = None  # Meta-labels (if training)
     intelligence_metrics: IntelligenceMetrics | None = None
 
     @property

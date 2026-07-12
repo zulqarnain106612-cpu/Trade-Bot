@@ -878,6 +878,7 @@ def check_whale_activity(
 # close_position() when this returns a reason.
 # ---------------------------------------------------------------------------
 
+
 def check_position_exit(
     unrealized_pnl_pct: float,
     entry_ts_ms: int,

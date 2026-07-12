@@ -38,12 +38,13 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 class OrderStatus(Enum):
     """Order lifecycle states."""
-    PENDING = "pending"        # Submitted, awaiting confirmation
-    FILLING = "filling"        # Confirmed by exchange, possibly partial
-    FILLED = "filled"          # Fully filled, terminal
-    CANCELLED = "cancelled"    # User/system cancelled, terminal
-    TIMEOUT = "timeout"        # Exceeded max wait time, terminal
-    FAILED = "failed"          # Permanent error, terminal
+
+    PENDING = "pending"  # Submitted, awaiting confirmation
+    FILLING = "filling"  # Confirmed by exchange, possibly partial
+    FILLED = "filled"  # Fully filled, terminal
+    CANCELLED = "cancelled"  # User/system cancelled, terminal
+    TIMEOUT = "timeout"  # Exceeded max wait time, terminal
+    FAILED = "failed"  # Permanent error, terminal
 
 
 class OrderFSMError(Exception):
@@ -71,6 +72,7 @@ class OrderFSMState:
         retry_count: Total retry attempts
         exchange_response: Last raw order dict from exchange (for reconciliation)
     """
+
     order_id: str
     symbol: str
     side: str  # 'buy' | 'sell'
@@ -81,7 +83,9 @@ class OrderFSMState:
     average_fill_price: float | None = None
     created_at_ms: int = field(default_factory=lambda: int(datetime.now(tz=UTC).timestamp() * 1000))
     first_confirmed_at_ms: int | None = None
-    last_updated_ms: int = field(default_factory=lambda: int(datetime.now(tz=UTC).timestamp() * 1000))
+    last_updated_ms: int = field(
+        default_factory=lambda: int(datetime.now(tz=UTC).timestamp() * 1000)
+    )
     last_error: str = ""
     retry_count: int = 0
     exchange_response: dict[str, Any] = field(default_factory=dict)
@@ -142,11 +146,17 @@ class OrderFSM:
     # Valid transitions: current_status -> list of valid next statuses
     _VALID_TRANSITIONS: Final[dict[OrderStatus, set[OrderStatus]]] = {
         OrderStatus.PENDING: {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED},
-        OrderStatus.FILLING: {OrderStatus.FILLING, OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.TIMEOUT, OrderStatus.FAILED},  # FILLING self-transition = partial fill aggregation
-        OrderStatus.FILLED: set(),      # Terminal
-        OrderStatus.CANCELLED: set(),   # Terminal
-        OrderStatus.TIMEOUT: set(),     # Terminal
-        OrderStatus.FAILED: set(),      # Terminal
+        OrderStatus.FILLING: {
+            OrderStatus.FILLING,
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.TIMEOUT,
+            OrderStatus.FAILED,
+        },  # FILLING self-transition = partial fill aggregation
+        OrderStatus.FILLED: set(),  # Terminal
+        OrderStatus.CANCELLED: set(),  # Terminal
+        OrderStatus.TIMEOUT: set(),  # Terminal
+        OrderStatus.FAILED: set(),  # Terminal
     }
 
     def __init__(self, state: OrderFSMState):

@@ -60,8 +60,9 @@ class ProbabilisticGateInputs:
     the existing gate fail-open logic (``if exchange_stress_score is None:
     return GateResult.pass_gate()``) handles correctly without changes.
     """
-    exchange_stress_score: float | None    # Bayesian P(exchange failure)
-    whale_buy_sell_ratio: float | None     # Bayesian estimate of true ratio
+
+    exchange_stress_score: float | None  # Bayesian P(exchange failure)
+    whale_buy_sell_ratio: float | None  # Bayesian estimate of true ratio
     # Metadata — not consumed by gates but useful for logging/monitoring.
     exchange_stress_confidence: float = 0.0
     whale_ratio_confidence: float = 0.0

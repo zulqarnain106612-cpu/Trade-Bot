@@ -29,16 +29,16 @@ class CausalEffect:
     Causal effect with confidence intervals and sensitivity analysis.
     """
 
-    total_effect: float                        # Total causal effect
-    direct_effect: float                       # Direct path (not through mediators)
-    indirect_effect: float                     # Through mediators
-    effect_ci_lower: float                     # 2.5th percentile
-    effect_ci_upper: float                     # 97.5th percentile
-    confounding_bias: float                    # Amount of spurious correlation
-    sample_size: int                           # Data points used
-    assumptions: list                          # Causal assumptions
-    is_robust: bool                            # Passes sensitivity check?
-    interpretation: str                        # English description
+    total_effect: float  # Total causal effect
+    direct_effect: float  # Direct path (not through mediators)
+    indirect_effect: float  # Through mediators
+    effect_ci_lower: float  # 2.5th percentile
+    effect_ci_upper: float  # 97.5th percentile
+    confounding_bias: float  # Amount of spurious correlation
+    sample_size: int  # Data points used
+    assumptions: list  # Causal assumptions
+    is_robust: bool  # Passes sensitivity check?
+    interpretation: str  # English description
 
 
 class CausalDAG:
@@ -59,15 +59,12 @@ class CausalDAG:
             "whale_selling": ["order_flow", "price_pressure"],
             "whale_buying": ["order_flow", "price_support"],
             "exchange_outflow": ["selling_pressure"],  # Whales leaving exchange
-
             # Liquidations cause cascades
             "liquidation_volume": ["selling_cascade", "volatility_spike"],
             "funding_rate": ["leverage_unwinding"],
-
             # Market regime affects everything
             "btc_dominance": ["correlation_matrix", "regime"],
             "network_activity": ["investor_sentiment"],
-
             # Macro causes micro
             "fed_policy": ["crypto_inflow", "sentiment"],
             "macro_crisis": ["risk_off", "deleveraging"],
@@ -107,8 +104,8 @@ class CausalInferenceEngine:
 
     def estimate_treatment_effect(
         self,
-        treatment_data: np.ndarray,      # E.g., whale_selling_volume
-        outcome_data: np.ndarray,        # E.g., volatility_next_4h
+        treatment_data: np.ndarray,  # E.g., whale_selling_volume
+        outcome_data: np.ndarray,  # E.g., volatility_next_4h
         confounders: np.ndarray | None = None,  # Market regime, etc.
         instrument_data: np.ndarray | None = None,  # Genuine instrument, NOT a stand-in
     ) -> CausalEffect:
@@ -150,17 +147,13 @@ class CausalInferenceEngine:
 
         # Primary method: backdoor adjustment (confounder-adjusted regression).
         # This IS the causal effect estimate when no real instrument exists.
-        true_effect = self._backdoor_adjustment(
-            treatment_data, outcome_data, confounders
-        )
+        true_effect = self._backdoor_adjustment(treatment_data, outcome_data, confounders)
 
         # Optional cross-check: only run if caller provides a genuine
         # instrument. Reported for robustness comparison; does NOT silently
         # alter the primary estimate above.
         if instrument_data is not None:
-            self._instrumental_variable(
-                treatment_data, outcome_data, instrument_data
-            )
+            self._instrumental_variable(treatment_data, outcome_data, instrument_data)
 
         # Estimate confounding bias: how much the naive (unadjusted)
         # correlation differs from the properly adjusted estimate. This is
@@ -175,9 +168,7 @@ class CausalInferenceEngine:
         # estimate it accompanies. (Previously this bootstrapped the raw
         # correlation instead, producing a CI that did not even contain
         # the reported point estimate -- caught by the same stress test.)
-        ci_lower, ci_upper = self._bootstrap_ci(
-            treatment_data, outcome_data, confounders
-        )
+        ci_lower, ci_upper = self._bootstrap_ci(treatment_data, outcome_data, confounders)
 
         return CausalEffect(
             total_effect=true_effect,
@@ -204,9 +195,7 @@ class CausalInferenceEngine:
             # against the synthetic test: true effect 0.000, naive corr
             # 0.849, correctly adjusted to -0.005 with tight CI -- this
             # SHOULD read as robust, and now does.
-            is_robust=(
-                (ci_upper - ci_lower) / (abs(naive_correlation) + 0.10)
-            ) < 0.5,
+            is_robust=((ci_upper - ci_lower) / (abs(naive_correlation) + 0.10)) < 0.5,
             interpretation=(
                 f"Treatment causes {true_effect:.3f} change in outcome "
                 f"(backdoor-adjusted; naive correlation was {naive_correlation:.3f})"
@@ -284,8 +273,8 @@ class CausalInferenceEngine:
                 "Effect varies by market condition"
                 if not excluded_strata
                 else f"Effect varies by market condition "
-                     f"({len(excluded_strata)} stratum/strata excluded for insufficient/degenerate data: "
-                     f"{excluded_strata})"
+                f"({len(excluded_strata)} stratum/strata excluded for insufficient/degenerate data: "
+                f"{excluded_strata})"
             ),
         }
 
@@ -297,7 +286,7 @@ class CausalInferenceEngine:
     def counterfactual_prediction(
         self,
         current_state: dict,  # {"whale_ratio": 2.0, "regime": "bull", ...}
-        intervention: dict,   # {"reduce_position": 0.5} -- multiplier on position_size, in [0, 1]
+        intervention: dict,  # {"reduce_position": 0.5} -- multiplier on position_size, in [0, 1]
     ) -> dict:
         """
         Predict outcome under counterfactual intervention.
@@ -375,6 +364,7 @@ class CausalInferenceEngine:
         """Estimate effect adjusting for confounders (regression)."""
         try:
             from sklearn.linear_model import LinearRegression
+
             X = np.hstack([treatment.reshape(-1, 1), confounders])
             model = LinearRegression().fit(X, outcome)
             return float(model.coef_[0])  # Treatment coefficient
@@ -422,9 +412,7 @@ class CausalInferenceEngine:
 
         return float(stage2.coef_[0])
 
-    def _bootstrap_ci(
-        self, treatment: np.ndarray, outcome: np.ndarray, confounders: np.ndarray
-    ):
+    def _bootstrap_ci(self, treatment: np.ndarray, outcome: np.ndarray, confounders: np.ndarray):
         """
         Confidence interval via bootstrap -- resamples and RECOMPUTES the
         same backdoor-adjustment estimator used for the point estimate on
@@ -443,9 +431,7 @@ class CausalInferenceEngine:
 
         for _ in range(200):  # 200 bootstrap resamples
             idx = np.random.choice(len(treatment), n, replace=True)
-            boot_effect = self._backdoor_adjustment(
-                treatment[idx], outcome[idx], confounders[idx]
-            )
+            boot_effect = self._backdoor_adjustment(treatment[idx], outcome[idx], confounders[idx])
             bootstrap_effects.append(boot_effect)
 
         ci_lower = float(np.percentile(bootstrap_effects, 2.5))
