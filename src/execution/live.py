@@ -669,16 +669,21 @@ class LiveExecutor(AbstractExecutor):
             trade_id = str(uuid.uuid4())
 
             async with self._lock:
-                # Reconcile: replace the estimated reserve with actual cost
+                # Reconcile: replace the estimated reserve with actual cost.
+                # The order is already filled on the exchange at this point — the
+                # position and its cost are real regardless of our cash bookkeeping,
+                # so we must never skip recording it here (that would silently
+                # orphan a live position with no stop-loss or equity tracking).
+                # A negative result only means our fee/slippage estimate was off;
+                # log it loudly so it can be investigated, but keep the trade.
                 self._cash += notional_estimate + fee_estimate  # undo estimate
-                if self._cash < notional + entry_fee:
-                    self._log.warning(
-                        "live.insufficient_cash_post_reconcile",
+                self._cash -= notional + entry_fee
+                if self._cash < 0.0:
+                    self._log.critical(
+                        "live.cash_reconcile_negative",
                         cash=round(self._cash, 2),
                         needed=round(notional + entry_fee, 2),
                     )
-                    return None
-                self._cash -= notional + entry_fee
                 pos = LivePosition(
                     trade_id=trade_id,
                     exchange_order_id=exchange_order_id,

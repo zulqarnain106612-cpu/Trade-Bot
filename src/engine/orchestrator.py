@@ -78,6 +78,11 @@ class Orchestrator:
         self._primary_tf = self._cfg.primary_timeframe
 
         self._executor: AnyExecutor | None = None
+        # Dedicated paper executor for non-primary timeframes when trading_mode=LIVE.
+        # Spec: only primary_timeframe (intraday) trades real money; scalping and
+        # swing streams are paper-only regardless of the global trading mode.
+        # None when trading_mode=PAPER, since self._executor already covers everyone.
+        self._non_primary_executor: PaperExecutor | None = None
         self._engines: dict[str, SignalEngine] = {}
         self._detectors: dict[str, RegimeDetector] = {}
         self._trainers: dict[str, ModelTrainer] = {}
@@ -116,6 +121,14 @@ class Orchestrator:
                 self._fetcher,
                 starting_capital=self._cfg.starting_capital_usd,
             )
+            # Non-primary timeframes (scalping, swing) never trade real money,
+            # even when trading_mode=LIVE — give them their own paper executor.
+            if any(tf != self._primary_tf for tf in self._timeframes):
+                self._non_primary_executor = PaperExecutor(
+                    self._storage,
+                    starting_capital=self._cfg.starting_capital_usd,
+                )
+                await self._non_primary_executor.initialize()
         else:
             self._executor = PaperExecutor(
                 self._storage,
@@ -225,6 +238,8 @@ class Orchestrator:
         """Flush state, close all subsystems, and shut down training executor."""
         if self._executor is not None:
             await self._executor.shutdown()
+        if self._non_primary_executor is not None:
+            await self._non_primary_executor.shutdown()
         # Shut down training thread pool cleanly — wait for any in-flight training job
         self._train_executor.shutdown(wait=True)
         self._log.info("orchestrator.shutdown_complete")
@@ -271,13 +286,25 @@ class Orchestrator:
     # Tick — one bar cycle for a single timeframe
     # ------------------------------------------------------------------
 
+    def _executor_for(self, tf: Timeframe) -> AnyExecutor | None:
+        """
+        Route a timeframe to its executor.
+
+        Only primary_timeframe ever reaches self._executor when it's a
+        LiveExecutor; every other timeframe is forced to paper regardless of
+        the global trading_mode (spec: scalping/swing are paper-only).
+        """
+        if tf != self._primary_tf and self._non_primary_executor is not None:
+            return self._non_primary_executor
+        return self._executor
+
     async def _tick(self, tf: Timeframe) -> None:
         """Execute one signal cycle for the given timeframe."""
         engine = self._engines.get(tf.value)
         if engine is None:
             return
 
-        executor = self._executor
+        executor = self._executor_for(tf)
         if executor is None:
             return
 
@@ -546,6 +573,8 @@ class Orchestrator:
                         "orchestrator.daily_reset",
                         equity_usd=equity,
                     )
+                if self._non_primary_executor is not None:
+                    await self._non_primary_executor.reset_daily_equity()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
