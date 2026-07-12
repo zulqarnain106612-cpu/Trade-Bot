@@ -18,9 +18,6 @@ __pycache__/
 # Node
 node_modules/
 
-# Project-intel — large, stale, superseded by CLAUDE.md
-.project-intel/
-
 # Secrets — never read
 .env
 
