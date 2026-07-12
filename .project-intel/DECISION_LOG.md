@@ -164,3 +164,7 @@ git stash comparison).
 ## ADR-008: ADR-CORRECTION: GAP-006 (TimescaleDB storage) was already fully implemented and tested (94/94 passing) as of an earlier session, but SESSION_STATE.json/HANDOFF.md were never updated to reflect this — causing 5+ subsequent sessions to re-treat it as an open build decision. Verified 2026-07-12 by running tests/test_timescale_storage.py directly. Remaining step is ops-only (provision TimescaleDB, set STORAGE_BACKEND=timescale).
 **Date**: 2026-07-12
 **Session note**: See SESSION_STATE.json
+
+## ADR-009: Deployment scope for paper-trading phase: run API on loopback (127.0.0.1, no TLS) and keep frontend as the existing Electron desktop app — deferring public TLS/reverse-proxy/cloud hosting until after 30-day paper trading validates the strategy and per-live-mode ops/cost decisions are made by the operator. [NEEDS HUMAN] to pick real hosting target (VPS vs new cloud VM) and confirm whether frontend should ever become a hosted web app vs staying desktop-only, before step 6 (live $100-500 MANUAL mode) — surfaced once, not re-blocking each session.
+**Date**: 2026-07-12
+**Session note**: See SESSION_STATE.json
