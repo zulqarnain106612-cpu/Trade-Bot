@@ -39,7 +39,7 @@ jobs:
             -e ".[dev]" \
             --quiet 2>/dev/null || true
 
-          python3 extract_resolved.py
+          python3 scripts/extract_resolved.py
 
       - name: Audit resolved packages
         shell: bash
