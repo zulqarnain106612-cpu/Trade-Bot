@@ -44,6 +44,9 @@ on:
         required: false
         type: number
         default: 30
+  push:
+    paths:
+      - '.github/mutation-trigger.json'
 
 env:
   PYTHON_VERSION: "3.11"
@@ -63,6 +66,25 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
+      - name: Resolve inputs (workflow_dispatch inputs or .github/mutation-trigger.json for push)
+        run: |
+          set -e
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            python3 - <<'PY' >> $GITHUB_ENV
+import json
+j=json.load(open('.github/mutation-trigger.json'))
+print(f"MODULE_PATH={j['module_path']}")
+print(f"TEST_FILES={j['test_files']}")
+print(f"SHARD_COUNT={j['shard_count']}")
+print(f"PER_MUTANT_TIMEOUT_SECONDS={j['per_mutant_timeout_seconds']}")
+PY
+          else
+            echo "MODULE_PATH=${{ inputs.module_path }}" >> $GITHUB_ENV
+            echo "TEST_FILES=${{ inputs.test_files }}" >> $GITHUB_ENV
+            echo "SHARD_COUNT=${{ inputs.shard_count }}" >> $GITHUB_ENV
+            echo "PER_MUTANT_TIMEOUT_SECONDS=${{ inputs.per_mutant_timeout_seconds }}" >> $GITHUB_ENV
+          fi
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -77,10 +99,10 @@ jobs:
         run: |
           cat > cosmic-ray.toml <<EOF
           [cosmic-ray]
-          module-path = "${{ inputs.module_path }}"
-          timeout = ${{ inputs.per_mutant_timeout_seconds }}
+          module-path = "${{ env.MODULE_PATH }}"
+          timeout = ${{ env.PER_MUTANT_TIMEOUT_SECONDS }}
           excluded-modules = []
-          test-command = "python -m pytest -x -q -p no:cacheprovider --no-cov ${{ inputs.test_files }}"
+          test-command = "python -m pytest -x -q -p no:cacheprovider --no-cov ${{ env.TEST_FILES }}"
 
           [cosmic-ray.distributor]
           name = "local"
@@ -95,7 +117,7 @@ jobs:
         run: |
           python3 -c "
           import json
-          n = int('${{ inputs.shard_count }}')
+          n = int('${{ env.SHARD_COUNT }}')
           print('shard_matrix=' + json.dumps(list(range(n))))
           " >> "$GITHUB_OUTPUT"
 
@@ -138,11 +160,11 @@ jobs:
         with:
           name: mutation-session
 
-      - name: Run shard ${{ matrix.shard }}/${{ inputs.shard_count }}
+      - name: Run shard ${{ matrix.shard }}/${{ env.SHARD_COUNT }}
         run: |
           python scripts/mutation_shard_runner.py \
             cosmic-ray.toml session.sqlite \
-            ${{ matrix.shard }} ${{ inputs.shard_count }}
+            ${{ matrix.shard }} ${{ env.SHARD_COUNT }}
 
       - name: Upload shard result
         uses: actions/upload-artifact@v4
@@ -184,7 +206,7 @@ jobs:
           shard_dbs=$(find shards -name session.sqlite)
           python scripts/mutation_aggregate.py master/session.sqlite $shard_dbs | tee mutation-report.txt
           {
-            echo "## Mutation testing report — ${{ inputs.module_path }}"
+            echo "## Mutation testing report — ${{ env.MODULE_PATH }}"
             echo '```'
             cat mutation-report.txt
             echo '```'
