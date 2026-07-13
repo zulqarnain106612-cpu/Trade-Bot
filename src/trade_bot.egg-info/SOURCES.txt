@@ -94,7 +94,6 @@ tests/test_calibration.py
 tests/test_causal_inference.py
 tests/test_cognitive_engine.py
 tests/test_config_feature_settings.py
-tests/test_context_builder.py
 tests/test_coverage_boost.py
 tests/test_coverage_boost2.py
 tests/test_coverage_boost3.py
@@ -142,7 +141,6 @@ tests/test_self_tuning_settings.py
 tests/test_signal_debugger_coverage.py
 tests/test_signal_engine.py
 tests/test_slippage.py
-tests/test_smart_read.py
 tests/test_storage.py
 tests/test_strategies_filters.py
 tests/test_timescale_storage.py
