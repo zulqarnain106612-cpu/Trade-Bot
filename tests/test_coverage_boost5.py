@@ -42,7 +42,11 @@ class TestBinanceProvider:
     @pytest.mark.asyncio
     async def test_initialize_and_close(self):
         p = BinanceIntelligenceProvider()
-        await p.initialize()
+        with (
+            patch.object(p._spot, "load_markets", new=AsyncMock(return_value={})),
+            patch.object(p._perp, "load_markets", new=AsyncMock(return_value={})),
+        ):
+            await p.initialize()
         await p.close()
 
     @pytest.mark.asyncio
