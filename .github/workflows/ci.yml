@@ -42,9 +42,12 @@ jobs:
             pip install --require-hashes -r requirements.lock
           else
             pip install -e ".[dev]"
-            pip install -r requirements-dev.txt
             echo "WARNING: requirements.lock not found — install is unhashed. Run pip-compile --generate-hashes to create it."
           fi
+          # requirements.lock is compiled from requirements.in (prod deps only);
+          # dev tools (detect-secrets, ruff, mypy, pytest-cov) live in
+          # requirements-dev.txt and are installed unhashed on top.
+          pip install -r requirements-dev.txt
 
       - name: Secret scanning — fail on unaudited baseline entries
         # VUL-019: All entries in .secrets.baseline must be audited (is_verified != null).
