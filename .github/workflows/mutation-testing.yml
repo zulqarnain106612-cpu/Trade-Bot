@@ -45,6 +45,7 @@ on:
         type: number
         default: 30
   push:
+    branches: ["main"]
     paths:
       - '.github/mutation-trigger.json'
 
@@ -58,6 +59,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       shard_matrix: ${{ steps.matrix.outputs.shard_matrix }}
+      module_path: ${{ steps.resolve.outputs.module_path }}
+      test_files: ${{ steps.resolve.outputs.test_files }}
+      shard_count: ${{ steps.resolve.outputs.shard_count }}
+      per_mutant_timeout_seconds: ${{ steps.resolve.outputs.per_mutant_timeout_seconds }}
     steps:
       - uses: actions/checkout@v4
 
@@ -66,24 +71,20 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
+      # Resolves the four run parameters from either workflow_dispatch inputs
+      # or .github/mutation-trigger.json (for the push trigger), then exposes
+      # them two ways: $GITHUB_ENV for steps later in *this* job (prepare),
+      # and $GITHUB_OUTPUT (via the job-level `outputs:` above) for the
+      # mutate/aggregate jobs — $GITHUB_ENV alone does NOT cross job
+      # boundaries, each job runs on its own fresh runner.
       - name: Resolve inputs (workflow_dispatch inputs or .github/mutation-trigger.json for push)
-        run: |
-          set -e
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            python3 - <<'PY' >> $GITHUB_ENV
-import json
-j=json.load(open('.github/mutation-trigger.json'))
-print(f"MODULE_PATH={j['module_path']}")
-print(f"TEST_FILES={j['test_files']}")
-print(f"SHARD_COUNT={j['shard_count']}")
-print(f"PER_MUTANT_TIMEOUT_SECONDS={j['per_mutant_timeout_seconds']}")
-PY
-          else
-            echo "MODULE_PATH=${{ inputs.module_path }}" >> $GITHUB_ENV
-            echo "TEST_FILES=${{ inputs.test_files }}" >> $GITHUB_ENV
-            echo "SHARD_COUNT=${{ inputs.shard_count }}" >> $GITHUB_ENV
-            echo "PER_MUTANT_TIMEOUT_SECONDS=${{ inputs.per_mutant_timeout_seconds }}" >> $GITHUB_ENV
-          fi
+        id: resolve
+        env:
+          INPUT_MODULE_PATH: ${{ inputs.module_path }}
+          INPUT_TEST_FILES: ${{ inputs.test_files }}
+          INPUT_SHARD_COUNT: ${{ inputs.shard_count }}
+          INPUT_PER_MUTANT_TIMEOUT_SECONDS: ${{ inputs.per_mutant_timeout_seconds }}
+        run: python3 scripts/mutation_resolve_inputs.py
 
       - name: Install dependencies
         run: |
@@ -160,11 +161,11 @@ PY
         with:
           name: mutation-session
 
-      - name: Run shard ${{ matrix.shard }}/${{ env.SHARD_COUNT }}
+      - name: Run shard ${{ matrix.shard }}/${{ needs.prepare.outputs.shard_count }}
         run: |
           python scripts/mutation_shard_runner.py \
             cosmic-ray.toml session.sqlite \
-            ${{ matrix.shard }} ${{ env.SHARD_COUNT }}
+            ${{ matrix.shard }} ${{ needs.prepare.outputs.shard_count }}
 
       - name: Upload shard result
         uses: actions/upload-artifact@v4
@@ -206,7 +207,7 @@ PY
           shard_dbs=$(find shards -name session.sqlite)
           python scripts/mutation_aggregate.py master/session.sqlite $shard_dbs | tee mutation-report.txt
           {
-            echo "## Mutation testing report — ${{ env.MODULE_PATH }}"
+            echo "## Mutation testing report — ${{ needs.prepare.outputs.module_path }}"
             echo '```'
             cat mutation-report.txt
             echo '```'
