@@ -24,6 +24,9 @@ def main() -> None:
         for shard_path in shard_paths:
             with use_db(shard_path, mode=WorkDB.Mode.open) as shard_db:
                 for job_id, result in shard_db.results:
+                    assert (
+                        result is not None
+                    ), f"shard {shard_path} yielded null result for {job_id}"
                     master.set_result(job_id, result)
                     merged += 1
 
