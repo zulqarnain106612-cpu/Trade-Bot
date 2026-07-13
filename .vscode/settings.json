@@ -252,5 +252,6 @@
     "https://static.trunk.io/pub/trunk-yaml-schema.json": "file:///home/fujitsu/Projects/Trade-Bot-main/.trunk/trunk.yaml"
 },
 "snyk.advanced.organization": "93a840a3-4866-4f81-bb0a-c5651baa370b",
-"snyk.advanced.autoSelectOrganization": true
+"snyk.advanced.autoSelectOrganization": true,
+"claudeCode.useTerminal": true
 }
