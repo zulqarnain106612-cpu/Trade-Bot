@@ -19,7 +19,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
-from typing import Final
 
 import structlog
 
@@ -28,14 +27,6 @@ from src.intelligence.calibration import shrink_probability
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# Constants (from spec — never weakened)
-# ---------------------------------------------------------------------------
-
-_DEFAULT_MULTIPLIER: Final[float] = 0.5  # half-Kelly
-_DEFAULT_CEILING: Final[float] = 0.25  # 25% of capital max
-
 
 # ---------------------------------------------------------------------------
 # Result dataclass

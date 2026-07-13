@@ -306,3 +306,180 @@ class TestComputeWinLossStatsAllWinsOrAllLosses:
         assert win_prob == pytest.approx(0.5)
         assert avg_win == pytest.approx(10.0)
         assert avg_loss == pytest.approx(5.0)
+
+
+# ─── Mutation-testing-derived gap fixes (cosmic-ray survivor kills) ─────────
+#
+# These close real financial-correctness gaps a mutation-testing pass found:
+# assertions loose enough (inequalities, integer-clean fixtures) that a wrong
+# arithmetic operator or an off-by-one boundary still passed. See
+# docs/ROADMAP_NEXT_STEPS_20260712.md P4.11.
+
+
+class TestComputeWinLossStatsMutationGaps:
+    def test_sample_size_boundary_49_falls_back_50_computes(self):
+        """< 50 must use defaults; >= 50 must compute real stats (NEW-010)."""
+        pnl_49 = [10.0] * 30 + [-5.0] * 19  # 49 trades, skewed win rate
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl_49)
+        assert win_prob == 0.5 and avg_win == 1.0 and avg_loss == 1.0
+
+        pnl_50 = [10.0] * 30 + [-5.0] * 20  # 50 trades
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl_50)
+        assert avg_win == pytest.approx(10.0)
+        assert avg_loss == pytest.approx(5.0)
+
+    def test_zero_pnl_trade_excluded_from_both_wins_and_losses(self):
+        """A breakeven trade (pnl == 0.0) must count as neither a win nor a loss."""
+        pnl = [10.0] * 30 + [-5.0] * 19 + [0.0]  # 50 trades total, one breakeven
+        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
+        # averages must be computed from exactly 30 wins / 19 losses, not 31/20
+        assert avg_win == pytest.approx(10.0)
+        assert avg_loss == pytest.approx(5.0)
+
+    def test_averages_use_true_division_not_floor(self):
+        """sum(wins)/len(wins) must be exact float division, not floor division."""
+        # 31 winning trades summing to a value not evenly divisible by 31
+        wins = [10.0] * 30 + [11.0]
+        losses = [-5.0] * 20 + [-6.0]
+        pnl = wins + losses  # 52 trades
+        _win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
+        expected_avg_win = sum(wins) / len(wins)
+        expected_avg_loss = sum(abs(v) for v in losses) / len(losses)
+        assert avg_win == pytest.approx(expected_avg_win)
+        assert avg_loss == pytest.approx(expected_avg_loss)
+        # floor division would truncate these non-integer results — assert it didn't
+        assert abs(avg_win - int(avg_win)) > 1e-9
+        assert abs(avg_loss - int(avg_loss)) > 1e-9
+
+
+class TestKellyFractionBoundaryGaps:
+    def test_win_probability_boundary_zero_and_one_rejected(self):
+        from src.risk.kelly import kelly_fraction
+
+        with pytest.raises(ValueError):
+            kelly_fraction(0.0, 2.0)
+        with pytest.raises(ValueError):
+            kelly_fraction(1.0, 2.0)
+
+    def test_win_probability_out_of_range_rejected(self):
+        """Negative or >1 win_probability must raise regardless of which side
+        of the `0.0 < wp < 1.0` chained comparison is evaluated first."""
+        from src.risk.kelly import kelly_fraction
+
+        with pytest.raises(ValueError):
+            kelly_fraction(-0.5, 2.0)
+        with pytest.raises(ValueError):
+            kelly_fraction(1.5, 2.0)
+
+
+class TestHalfKellyCappedBoundaryGap:
+    def test_adjusted_exactly_equal_to_ceiling_is_not_flagged_as_capped(self, cfg):
+        """is_capped must be strict (adjusted > cap), not >=, at the exact boundary."""
+        # Choose win_probability/win_loss_ratio/multiplier so raw*mult == ceiling exactly.
+        ceiling = 0.2
+        multiplier = 0.5
+        # kelly_fraction(0.6, 2.0) = (0.6*2 - 0.4)/2 = 0.4; * 0.5 = 0.2 == ceiling
+        raw, adjusted, is_capped = half_kelly_fraction(
+            win_probability=0.6,
+            win_loss_ratio=2.0,
+            multiplier=multiplier,
+            ceiling=ceiling,
+            cfg=cfg,
+        )
+        assert adjusted == pytest.approx(ceiling)
+        assert is_capped is False
+
+
+class TestSizePositionMutationGaps:
+    def test_notional_equals_quantity_times_entry_price_exactly(self, cfg):
+        result = size_position(
+            adjusted_fraction=0.1,
+            capital_usd=10_000.0,
+            entry_price=37.0,
+            cfg=cfg,
+        )
+        assert result is not None
+        assert result.notional_usd == pytest.approx(result.quantity * 37.0)
+
+    def test_min_amount_boundary_exact_equal_is_not_rejected(self, cfg):
+        """quantity == min_amount must pass (check is strict '<', not '<=')."""
+        result = size_position(
+            adjusted_fraction=0.1,
+            capital_usd=10_000.0,
+            entry_price=100.0,
+            max_position_pct=100.0,  # bypass the 5% default cap for predictable math
+            min_amount=10.0,  # exactly the resulting quantity below
+            cfg=cfg,
+        )
+        assert result is not None
+        assert result.quantity == pytest.approx(10.0)
+
+    def test_min_cost_boundary_exact_equal_is_not_rejected(self, cfg):
+        """notional == min_cost must pass (check is strict '<', not '<=')."""
+        result = size_position(
+            adjusted_fraction=0.1,
+            capital_usd=10_000.0,
+            entry_price=100.0,
+            max_position_pct=100.0,  # bypass the 5% default cap for predictable math
+            min_cost=1000.0,  # exactly the resulting notional below
+            cfg=cfg,
+        )
+        assert result is not None
+        assert result.notional_usd == pytest.approx(1000.0)
+
+
+class TestComputePositionSizeMutationGaps:
+    def test_notional_cap_boundary_exact_equal_is_not_capped(self, cfg):
+        """result.notional_usd == notional_cap_usd must NOT trigger capping
+        (check is strict '>', not '>=')."""
+        uncapped = compute_position_size(
+            p_long=0.9,
+            direction=1,
+            capital_usd=100_000.0,
+            entry_price=50.0,
+            avg_win_usd=100.0,
+            avg_loss_usd=50.0,
+            cfg=cfg,
+        )
+        assert uncapped is not None
+        result = compute_position_size(
+            p_long=0.9,
+            direction=1,
+            capital_usd=100_000.0,
+            entry_price=50.0,
+            avg_win_usd=100.0,
+            avg_loss_usd=50.0,
+            notional_cap_usd=uncapped.notional_usd,
+            cfg=cfg,
+        )
+        assert result is not None
+        # The notional-cap re-quantisation branch must not fire at the exact
+        # boundary — quantity/notional must be untouched from the uncapped result.
+        assert result.notional_usd == pytest.approx(uncapped.notional_usd)
+        assert result.quantity == pytest.approx(uncapped.quantity)
+
+    def test_capped_notional_equals_capped_quantity_times_entry_price(self, cfg):
+        uncapped = compute_position_size(
+            p_long=0.9,
+            direction=1,
+            capital_usd=100_000.0,
+            entry_price=50.0,
+            avg_win_usd=100.0,
+            avg_loss_usd=50.0,
+            cfg=cfg,
+        )
+        assert uncapped is not None
+        cap = uncapped.notional_usd * 0.5
+        result = compute_position_size(
+            p_long=0.9,
+            direction=1,
+            capital_usd=100_000.0,
+            entry_price=50.0,
+            avg_win_usd=100.0,
+            avg_loss_usd=50.0,
+            notional_cap_usd=cap,
+            cfg=cfg,
+        )
+        assert result is not None
+        assert result.is_capped is True
+        assert result.notional_usd == pytest.approx(round(result.quantity * 50.0, 2))
