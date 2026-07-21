@@ -468,6 +468,8 @@ async def prometheus_metrics() -> Any:
 @app.get("/status", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
+    from src.diagnostics.signal_debugger import get_degradation_tracker
+
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     cfg = get_settings()
 
@@ -497,6 +499,7 @@ async def status() -> dict[str, Any]:
         "open_positions": positions,
         "pending_approvals": approvals,
         "regime": regime_dict,
+        "predictions": get_degradation_tracker(cfg.primary_timeframe.value).prediction_stats(),
         "trading_mode": cfg.trading_mode.value,
         "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
@@ -1166,7 +1169,9 @@ async def debug_drift() -> dict[str, Any]:
             for r in drift_records
         ],
         "drifted_features": [r.feature for r in drift_records if r.drifted],
-        "model_degradation": get_degradation_tracker().check_degradation(),
+        "model_degradation": get_degradation_tracker(
+            get_settings().primary_timeframe.value
+        ).check_degradation(),
     }
 
 

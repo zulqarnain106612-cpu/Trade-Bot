@@ -679,7 +679,7 @@ class ModelTrainer:
             for col in _active_cols:
                 if col in _X_df.columns:
                     _dm.set_baseline(col, _X_df[col].dropna().tolist())
-            get_degradation_tracker().set_training_metrics(
+            get_degradation_tracker(self._timeframe).set_training_metrics(
                 accuracy=float(mean_acc),
                 f1=float(mean_f1),
             )

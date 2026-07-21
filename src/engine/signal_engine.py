@@ -273,6 +273,23 @@ class SignalEngine:
         if now_ms - last_bar_ts_ms < tf_ms:
             return self._skip("last_bar_not_yet_closed")
 
+        # Resolve the previous tick's prediction now that a new bar has
+        # closed — realized direction is the move between the last two
+        # closed bars. Without this, ModelDegradationTracker.resolve_last()
+        # is never invoked in production, leaving resolved_predictions/
+        # accuracy (exposed via /status and the dashboard) permanently
+        # null/dead despite record_prediction() firing every tick.
+        # Tracker is keyed per-timeframe: Orchestrator runs one SignalEngine
+        # per active_timeframe concurrently against the same primary_symbol,
+        # and a shared global tracker let one timeframe's prediction get
+        # resolved against another timeframe's just-closed bar.
+        _tf_key = (
+            self._timeframe.value if hasattr(self._timeframe, "value") else str(self._timeframe)
+        )
+        if len(bars) >= 2:
+            _actual_direction = 1 if bars["close"].iloc[-1] > bars["close"].iloc[-2] else 0
+            get_degradation_tracker(_tf_key).resolve_last(_actual_direction)
+
         # 3-5. Build feature matrix once — reused for inference vec AND regime history.
         # SCAN2-007: prior code called build_feature_matrix + build_inference_features
         # separately, running fractional_differentiation + all rolling stats twice per tick.
@@ -559,7 +576,7 @@ class SignalEngine:
                 equity_usd_at_decision=capital_usd,
             )
             get_auditor().record(rec)
-            get_degradation_tracker().record_prediction(p_long, _p_bet_ref[0])
+            get_degradation_tracker(_tf_key).record_prediction(p_long, _p_bet_ref[0])
 
         # 8. Risk gate stack
         slippage_gate_result = check_slippage_veto(
