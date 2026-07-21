@@ -285,9 +285,18 @@ ALTER TABLE intelligence_features_history
 CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
     ON missed_trades (ts DESC);""",
     ),
+    # v6 — parity with storage._MIGRATIONS v6: ensemble blend backtest
+    # harness (src/tuning/backtest_harness.py run_ensemble_blend_backtest).
+    (
+        6,
+        "add ensemble_point_estimate/ensemble_blend_weight to trades for the "
+        "ensemble-blend self-tuning harness",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_point_estimate DOUBLE PRECISION;\n"
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_blend_weight DOUBLE PRECISION;",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 5
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 6
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (
@@ -753,10 +762,11 @@ class TimescaleBackend:
                         direction, entry_price, exit_price, quantity, notional_usd,
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
-                        exit_reason, approved_by, raw_signal
+                        exit_reason, approved_by, raw_signal,
+                        ensemble_point_estimate, ensemble_blend_weight
                     ) VALUES (
                         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
                     )
                     """,
                     trade.id,
@@ -780,6 +790,8 @@ class TimescaleBackend:
                     trade.exit_reason,
                     trade.approved_by,
                     trade.raw_signal,
+                    trade.ensemble_point_estimate,
+                    trade.ensemble_blend_weight,
                 )
         except asyncpg.UniqueViolationError as exc:
             raise ValueError(f"Trade id={trade.id!r} already exists") from exc
@@ -831,6 +843,24 @@ class TimescaleBackend:
             exit_reason=exit_reason,
         )
 
+    async def update_trade_ensemble_fields(
+        self,
+        trade_id: str,
+        ensemble_point_estimate: float | None,
+        ensemble_blend_weight: float | None,
+    ) -> None:
+        """Parity with StorageBackend.update_trade_ensemble_fields — see
+        its docstring for why this is a separate patch from insert_trade."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE trades SET ensemble_point_estimate=$1, "
+                "ensemble_blend_weight=$2 WHERE id=$3",
+                ensemble_point_estimate,
+                ensemble_blend_weight,
+                trade_id,
+            )
+
     async def fetch_trades(
         self,
         symbol: str | None = None,
@@ -865,7 +895,8 @@ class TimescaleBackend:
             " direction, entry_price, exit_price, quantity, notional_usd,"
             " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
             " kelly_fraction, regime_at_entry, meta_label_prob,"
-            " exit_reason, approved_by, raw_signal"
+            " exit_reason, approved_by, raw_signal,"
+            " ensemble_point_estimate, ensemble_blend_weight"
             f" FROM trades{where}"
             f" ORDER BY entry_ts DESC LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         )
@@ -894,6 +925,8 @@ class TimescaleBackend:
                 exit_reason=r["exit_reason"],
                 approved_by=r["approved_by"],
                 raw_signal=r["raw_signal"],
+                ensemble_point_estimate=r["ensemble_point_estimate"],
+                ensemble_blend_weight=r["ensemble_blend_weight"],
             )
             for r in rows
         ]

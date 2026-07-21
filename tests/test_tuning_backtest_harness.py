@@ -6,13 +6,16 @@ import pytest
 from xgboost import XGBClassifier
 
 from src.config import FeatureSettings, XGBoostSettings
+from src.data.storage import TradeRecord
 from src.features.pipeline import FEATURE_COLUMNS, build_feature_matrix
 from src.tuning.backtest_harness import (
+    EnsembleBlendSample,
     InsufficientDataError,
     SlippageFillSample,
     TradeSample,
     UnknownFeatureWindowFieldError,
     UnknownXGBHyperparamFieldError,
+    _blended_p_long,
     _fold_sharpe,
     _make_folds,
     _max_drawdown_inverted,
@@ -20,6 +23,8 @@ from src.tuning.backtest_harness import (
     _predict_direction_batch,
     _predicted_slippage_bps,
     _realized_slippage_bps,
+    ensemble_blend_samples_from_trades,
+    run_ensemble_blend_backtest,
     run_entropy_threshold_backtest,
     run_feature_window_backtest,
     run_slippage_coeff_backtest,
@@ -219,6 +224,188 @@ def test_identical_slippage_coeff_never_significant() -> None:
     for c in comparisons:
         assert not c.significant_improvement
         assert not c.significant_regression
+
+
+# ---------------------------------------------------------------------------
+# risk.ensemble_blend_weight -- EnsemblePredictor blend recalibration
+# ---------------------------------------------------------------------------
+
+
+def _make_ensemble_trade(
+    raw_p_long: float,
+    ensemble_point_estimate: float,
+    blend_weight: float,
+    direction: int,
+    entry_price: float = 100.0,
+    exit_price: float | None = 101.0,
+) -> TradeRecord:
+    """Build a closed TradeRecord as if signal_engine.py's blend had already
+    been applied -- raw_signal carries the POST-blend p_long, matching what
+    orchestrator.py/storage.py actually persist."""
+    blended_p_long = (1.0 - blend_weight) * raw_p_long + blend_weight * ensemble_point_estimate
+    return TradeRecord(
+        id="t1",
+        symbol="BTC/USDT",
+        timeframe="15m",
+        trading_mode="paper",
+        execution_mode="paper",
+        direction=direction,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        quantity=1.0,
+        notional_usd=entry_price,
+        entry_ts=1000,
+        exit_ts=2000,
+        pnl_usd=None,
+        pnl_pct=None,
+        fee_usd=0.1,
+        kelly_fraction=0.1,
+        regime_at_entry=1,
+        meta_label_prob=0.6,
+        exit_reason="profit_target",
+        approved_by="auto",
+        raw_signal=blended_p_long,
+        ensemble_point_estimate=ensemble_point_estimate,
+        ensemble_blend_weight=blend_weight,
+    )
+
+
+def test_blended_p_long_matches_signal_engine_formula() -> None:
+    sample = EnsembleBlendSample(
+        raw_p_long=0.6, ensemble_point_estimate=0.8, direction=1, raw_return=0.01
+    )
+    assert _blended_p_long(sample, 0.0) == pytest.approx(0.6)
+    assert _blended_p_long(sample, 1.0) == pytest.approx(0.8)
+    assert _blended_p_long(sample, 0.5) == pytest.approx(0.7)
+
+
+def test_ensemble_blend_samples_from_trades_reconstructs_raw_p_long() -> None:
+    trade = _make_ensemble_trade(
+        raw_p_long=0.65, ensemble_point_estimate=0.55, blend_weight=0.4, direction=1
+    )
+    samples = ensemble_blend_samples_from_trades([trade])
+    assert len(samples) == 1
+    assert samples[0].raw_p_long == pytest.approx(0.65)
+    assert samples[0].ensemble_point_estimate == pytest.approx(0.55)
+    assert samples[0].direction == 1
+    assert samples[0].raw_return == pytest.approx(0.01)
+
+
+def test_ensemble_blend_samples_from_trades_skips_open_trades() -> None:
+    trade = _make_ensemble_trade(
+        raw_p_long=0.65, ensemble_point_estimate=0.55, blend_weight=0.4, direction=1,
+        exit_price=None,
+    )
+    assert ensemble_blend_samples_from_trades([trade]) == []
+
+
+def test_ensemble_blend_samples_from_trades_skips_unblended_trades() -> None:
+    trade = TradeRecord(
+        id="t1",
+        symbol="BTC/USDT",
+        timeframe="15m",
+        trading_mode="paper",
+        execution_mode="paper",
+        direction=1,
+        entry_price=100.0,
+        exit_price=101.0,
+        quantity=1.0,
+        notional_usd=100.0,
+        entry_ts=1000,
+        exit_ts=2000,
+        pnl_usd=None,
+        pnl_pct=None,
+        fee_usd=0.1,
+        kelly_fraction=0.1,
+        regime_at_entry=1,
+        meta_label_prob=0.6,
+        exit_reason="profit_target",
+        approved_by="auto",
+        raw_signal=0.6,
+        ensemble_point_estimate=None,
+        ensemble_blend_weight=None,
+    )
+    assert ensemble_blend_samples_from_trades([trade]) == []
+
+
+@pytest.mark.parametrize("degenerate_weight", [0.0, 1.0])
+def test_ensemble_blend_samples_from_trades_skips_degenerate_weights(
+    degenerate_weight: float,
+) -> None:
+    trade = _make_ensemble_trade(
+        raw_p_long=0.65,
+        ensemble_point_estimate=0.55,
+        blend_weight=degenerate_weight,
+        direction=1,
+    )
+    assert ensemble_blend_samples_from_trades([trade]) == []
+
+
+def _synthetic_ensemble_samples(
+    n: int, true_weight: float, seed: int = 0
+) -> list[EnsembleBlendSample]:
+    """Trades whose realized win/loss is generated from a TRUE blend weight
+    -- lets tests assert a challenger closer to true_weight scores higher
+    prediction accuracy, mirroring the slippage-coeff harness's tests."""
+    rng = random.Random(seed)
+    samples = []
+    for _ in range(n):
+        raw_p_long = rng.uniform(0.2, 0.8)
+        ensemble_point_estimate = rng.uniform(0.2, 0.8)
+        direction = rng.choice([0, 1])
+        true_p_long = (1.0 - true_weight) * raw_p_long + true_weight * ensemble_point_estimate
+        true_p_win = true_p_long if direction == 1 else (1.0 - true_p_long)
+        won = rng.random() < true_p_win
+        raw_return = abs(rng.gauss(0.01, 0.005)) * (1 if won else -1)
+        samples.append(
+            EnsembleBlendSample(
+                raw_p_long=raw_p_long,
+                ensemble_point_estimate=ensemble_point_estimate,
+                direction=direction,
+                raw_return=raw_return,
+            )
+        )
+    return samples
+
+
+def test_run_ensemble_blend_backtest_produces_two_comparisons() -> None:
+    samples = _synthetic_ensemble_samples(300, true_weight=0.5, seed=1)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
+    comparisons = run_ensemble_blend_backtest(
+        samples, champion_weight=0.2, challenger_weight=0.8, features_cfg=cfg
+    )
+    names = {c.metric_name for c in comparisons}
+    assert names == {"ensemble_prediction_accuracy", "oos_sharpe"}
+
+
+def test_ensemble_blend_weight_closer_to_truth_scores_higher_accuracy() -> None:
+    samples = _synthetic_ensemble_samples(400, true_weight=0.9, seed=2)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
+    comparisons = run_ensemble_blend_backtest(
+        samples, champion_weight=0.1, challenger_weight=0.9, features_cfg=cfg
+    )
+    accuracy = next(c for c in comparisons if c.metric_name == "ensemble_prediction_accuracy")
+    assert accuracy.challenger_mean > accuracy.champion_mean
+    assert accuracy.significant_improvement
+
+
+def test_identical_ensemble_blend_weight_never_significant() -> None:
+    samples = _synthetic_ensemble_samples(300, true_weight=0.5, seed=3)
+    cfg = FeatureSettings(cpcv_n_splits=10, purge_gap_bars=1, triple_barrier_max_holding_bars=1)
+    comparisons = run_ensemble_blend_backtest(
+        samples, champion_weight=0.5, challenger_weight=0.5, features_cfg=cfg
+    )
+    for c in comparisons:
+        assert not c.significant_improvement
+        assert not c.significant_regression
+
+
+def test_run_ensemble_blend_backtest_defaults_features_cfg() -> None:
+    """features_cfg=None should load a valid default FeatureSettings, same
+    as run_entropy_threshold_backtest / run_slippage_coeff_backtest."""
+    samples = _synthetic_ensemble_samples(1000, true_weight=0.5, seed=4)
+    comparisons = run_ensemble_blend_backtest(samples, champion_weight=0.3, challenger_weight=0.6)
+    assert len(comparisons) == 2
 
 
 # ---------------------------------------------------------------------------

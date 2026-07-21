@@ -118,6 +118,49 @@ def register_hmm_entropy_scalar_floor(
     return param
 
 
+def register_ensemble_blend_weight(
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
+) -> TunableParameter:
+    """
+    RiskSettings.ensemble_blend_weight -- how much of EnsemblePredictor's
+    point_estimate (src/intelligence/ensemble_predictor.py) gets blended
+    into XGBoost's p_long (src/engine/signal_engine.py).
+
+    Unlike every other register_* function here, bounds are NOT
+    _symmetric_bounds(default) -- the default is 0.0 (ensemble blending
+    off, see RiskSettings.ensemble_blend_weight docstring) and a +/-20%
+    window around 0.0 is a zero-width window, which would make this
+    parameter untunable from a fresh install. Bounds are instead the
+    field's own full valid Pydantic range [0.0, 1.0], matching the
+    "user sets the ceiling" invariant via the field's ge/le constraints
+    themselves rather than via an operator-configured default.
+
+    Evaluated by backtest_harness.run_ensemble_blend_backtest against
+    realized OOS trade outcomes where both p_long and the ensemble's
+    point_estimate were logged at signal time (AuditRecord / the
+    trades.ensemble_point_estimate column -- see
+    src/data/storage.py's update_trade_ensemble_fields).
+    """
+    settings = settings or get_settings()
+    default = settings.risk.ensemble_blend_weight
+    floor, ceiling = 0.0, 1.0
+    current = _resume_current("risk.ensemble_blend_weight", default, floor, ceiling, store)
+    param = TunableParameter(
+        name="risk.ensemble_blend_weight",
+        description=(
+            "Blend weight for EnsemblePredictor's point_estimate into XGBoost's p_long."
+        ),
+        floor=floor,
+        ceiling=ceiling,
+        current=current,
+        eval_strategy="ensemble_prediction_accuracy",
+    )
+    registry.register(param)
+    return param
+
+
 def register_slippage_impact_coeff(
     registry: ParameterRegistry,
     settings: Settings | None = None,

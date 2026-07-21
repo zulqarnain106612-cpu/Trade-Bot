@@ -214,6 +214,20 @@ class RiskSettings(BaseSettings):
         description="How often the orchestrator exit-check loop re-evaluates open positions",
     )
 
+    # ensemble_blend_weight : weight given to EnsemblePredictor's
+    # point_estimate (src/intelligence/ensemble_predictor.py) when blending
+    # into XGBoost's p_long (0.0 = ensemble ignored entirely, 1.0 = ensemble
+    # fully replaces the XGBoost prediction). Defaults to 0.0 — the ensemble
+    # remains EXPERIMENTAL (see ensemble_predictor.py module docstring) and
+    # must be explicitly opted into by an operator via
+    # RISK_ENSEMBLE_BLEND_WEIGHT, or promoted by the self-tuning subsystem
+    # (src/tuning/bootstrap.py's register_ensemble_blend_weight(), gated by
+    # shadow_mode like every other self-tuned parameter). Bounds are the
+    # field's own full valid range rather than the usual +/-20%-of-default
+    # window (src/tuning/bootstrap.py._symmetric_bounds) — a 0.0 default
+    # produces a zero-width window under that formula.
+    ensemble_blend_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+
 
 # ---------------------------------------------------------------------------
 # Model hyper-parameters

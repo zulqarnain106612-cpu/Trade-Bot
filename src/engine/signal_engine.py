@@ -43,6 +43,7 @@ from src.features.pipeline import (
     build_feature_matrix,
     build_inference_features,
 )
+from src.intelligence.ensemble_predictor import EnsemblePredictor
 from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
 from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
@@ -112,6 +113,11 @@ class SignalResult:
     regime: RegimePrediction | None
     gate_result: GateResult | None
     skip_reason: str
+    # RiskSettings.ensemble_blend_weight — None when no ensemble predictor is
+    # injected or the configured blend weight is 0.0 for this tick.
+    ensemble_point_estimate: float | None = None
+    ensemble_uncertainty: float | None = None
+    ensemble_blend_weight: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +164,7 @@ class SignalEngine:
         direction_model: XGBClassifier,
         meta_model: XGBClassifier,
         trainer: ModelTrainer,
+        ensemble_predictor: EnsemblePredictor | None = None,
     ) -> None:
         self._symbol = symbol
         self._timeframe = timeframe
@@ -167,6 +174,13 @@ class SignalEngine:
         self._direction_model = direction_model
         self._meta_model = meta_model
         self._trainer = trainer
+        # RiskSettings.ensemble_blend_weight — optional, pre-fit predictor
+        # (fit() is expensive: statsmodels/xgboost/torch/sklearn-GP training
+        # across 5 members; it must never run inside a signal tick). None by
+        # default so ensemble blending is strictly opt-in, matching
+        # ensemble_predictor.py's EXPERIMENTAL status until an operator both
+        # injects a fitted predictor AND sets a nonzero blend weight.
+        self._ensemble_predictor = ensemble_predictor
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         self._log = log.bind(
@@ -385,6 +399,33 @@ class SignalEngine:
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
+        # RiskSettings.ensemble_blend_weight — blend EnsemblePredictor's
+        # point_estimate into XGBoost's p_long, then re-derive direction from
+        # the blended probability (same >=0.5 convention as
+        # ModelTrainer.predict_direction). No-op (both stay None) unless an
+        # ensemble predictor was injected AND the operator/self-tuner set a
+        # nonzero blend weight — see __init__ docstring on why fit() must
+        # never run here.
+        _ensemble_blend_weight = self._cfg.risk.ensemble_blend_weight
+        ensemble_point_estimate: float | None = None
+        ensemble_uncertainty: float | None = None
+        if self._ensemble_predictor is not None and _ensemble_blend_weight > 0.0:
+            try:
+                _ens_features = pd.DataFrame([vec])
+                _ens_pred = self._ensemble_predictor.predict(_ens_features)
+                ensemble_point_estimate = min(max(_ens_pred.point_estimate, 0.0), 1.0)
+                ensemble_uncertainty = (
+                    _ens_pred.aleatoric_uncertainty + _ens_pred.epistemic_uncertainty
+                )
+                p_long = (
+                    1.0 - _ensemble_blend_weight
+                ) * p_long + _ensemble_blend_weight * ensemble_point_estimate
+                direction = 1 if p_long >= 0.5 else 0
+            except Exception as exc:
+                self._log.warning("signal.ensemble_blend_failed", error=str(exc))
+                ensemble_point_estimate = None
+                ensemble_uncertainty = None
+
         # GAP-002: HMM posterior entropy gate — scale position size down when
         # the regime classification is uncertain (near-uniform posterior).
         # No fitted regime (regime is None) is already routed to
@@ -511,6 +552,11 @@ class SignalEngine:
                 skip_reason=skip,
                 tick_latency_ms=round(latency_ms, 2),
                 equity_usd_at_decision=capital_usd,
+                ensemble_point_estimate=ensemble_point_estimate,
+                ensemble_uncertainty=ensemble_uncertainty,
+                ensemble_blend_weight=(
+                    _ensemble_blend_weight if ensemble_point_estimate is not None else None
+                ),
             )
             get_auditor().record(rec)
             get_degradation_tracker().record_prediction(p_long, _p_bet_ref[0])
@@ -682,6 +728,12 @@ class SignalEngine:
                 correlation_scalar, 3
             ),  # GAP-005/015: IS applied (see kelly.py)
             hurst=round(cast("dict[str, float]", _filter_result["details"]).get("hurst", 0.5), 3),
+            ensemble_point_estimate=(
+                round(ensemble_point_estimate, 4) if ensemble_point_estimate is not None else None
+            ),
+            ensemble_blend_weight=(
+                round(_ensemble_blend_weight, 4) if ensemble_point_estimate is not None else None
+            ),
         )
 
         # ── Cognitive Engine — mandatory evaluation (no bypass) ─────────────
@@ -775,6 +827,11 @@ class SignalEngine:
             regime=regime,
             gate_result=gate_result,
             skip_reason="",
+            ensemble_point_estimate=ensemble_point_estimate,
+            ensemble_uncertainty=ensemble_uncertainty,
+            ensemble_blend_weight=(
+                _ensemble_blend_weight if ensemble_point_estimate is not None else None
+            ),
         )
 
     # ------------------------------------------------------------------
