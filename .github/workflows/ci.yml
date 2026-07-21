@@ -22,6 +22,24 @@ jobs:
     outputs:
       result: ${{ job.status }}
 
+    # GAP-006: mirrors scripts/timescaledb.sh (same image/user/db/port) so
+    # tests/test_timescale_storage.py runs instead of skipping ~88 tests,
+    # which otherwise drags total coverage under the 95% fail-under gate.
+    services:
+      timescaledb:
+        image: timescale/timescaledb:2.17.2-pg17
+        env:
+          POSTGRES_USER: tradebot
+          POSTGRES_PASSWORD: tradebot-local
+          POSTGRES_DB: tradebot
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U tradebot -d tradebot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     steps:
       - uses: actions/checkout@v4
         with:
