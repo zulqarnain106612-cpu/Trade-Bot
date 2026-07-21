@@ -1,8 +1,14 @@
 """
-EXPERIMENTAL — NOT wired into live signal path.
-Blocked on API key provisioning (see DECISION_LOG.md GAP-015).
-
 Ensemble prediction framework.
+
+Wired into the live signal path (src/engine/signal_engine.py): trained
+alongside the direction/meta-label models in the orchestrator's regular
+retrain cycle (ModelTrainer.train_ensemble), persisted via save()/load(),
+and blended into p_long at inference time. No external API keys are
+required — every member fits on OHLCV-derived features and the same
+log-return series already computed by src/features/pipeline.py, so this
+carries no additional network/data dependency beyond what direction/meta
+training already needs.
 
 Reduce model risk by combining diverse prediction techniques.
 Output: Point forecast + credible interval + uncertainty decomposition.
@@ -25,16 +31,68 @@ Rasmussen & Williams (2006) Gaussian Processes for Machine Learning.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Final
 
+import joblib
 import numpy as np
 import pandas as pd
 import structlog
 
 
 log = structlog.get_logger(__name__)
+
+try:
+    import torch
+    import torch.nn as nn
+
+    class _LSTMNet(nn.Module):  # type: ignore[misc]
+        """
+        Module-level (not nested in LSTMPredictor.fit()) so instances are
+        picklable — joblib/pickle cannot serialize a class defined inside a
+        function, which previously made EnsemblePredictor.save() raise
+        PicklingError whenever the LSTM member had been fit.
+        """
+
+        def __init__(self, hidden_dim: int) -> None:
+            super().__init__()
+            self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_dim, batch_first=True)
+            self.head = nn.Linear(hidden_dim, 1)
+
+        def forward(self, x):
+            out, _ = self.lstm(x)
+            return self.head(out[:, -1, :])
+
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
+
+_MODEL_FILENAME: Final[str] = "ensemble_{symbol}_{timeframe}.joblib"
+_MANIFEST_SUFFIX: Final[str] = ".sha256"
+
+
+def _write_manifest(path: Path) -> None:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    path.with_suffix(_MANIFEST_SUFFIX).write_text(json.dumps({"file": path.name, "sha256": digest}))
+
+
+def _verify_manifest(path: Path) -> None:
+    manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
+    if not manifest_path.exists():
+        raise RuntimeError(f"Ensemble model manifest missing for {path}. Re-train to regenerate.")
+    manifest = json.loads(manifest_path.read_text())
+    expected = manifest.get("sha256", "")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not hmac.compare_digest(actual.encode(), expected.encode()):
+        raise RuntimeError(
+            f"Ensemble model integrity check FAILED for {path}. "
+            "File may be tampered. Re-train to replace."
+        )
 
 
 @dataclass
@@ -192,21 +250,11 @@ class LSTMPredictor(PredictionModel):
 
     def fit(self, X: np.ndarray, y: np.ndarray):
         """Fit LSTM (requires torch). X shape: (n_samples, lookback, 1)."""
+        if not _TORCH_AVAILABLE:
+            log.warning("torch not installed, LSTM disabled")
+            return
         try:
-            import torch
-            import torch.nn as nn
-
             torch.manual_seed(42)
-
-            class _LSTMNet(nn.Module):
-                def __init__(self, hidden_dim: int):
-                    super().__init__()
-                    self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_dim, batch_first=True)
-                    self.head = nn.Linear(hidden_dim, 1)
-
-                def forward(self, x):
-                    out, _ = self.lstm(x)
-                    return self.head(out[:, -1, :])
 
             net = _LSTMNet(self.hidden_dim)
             X_t = torch.tensor(np.asarray(X), dtype=torch.float32)
@@ -233,17 +281,13 @@ class LSTMPredictor(PredictionModel):
                 fitted = net(X_t).numpy().flatten()
             self.rmse = float(np.sqrt(np.mean((fitted - np.asarray(y)) ** 2)))
             self.model = net
-        except ImportError:
-            log.warning("torch not installed, LSTM disabled")
         except Exception as e:
             log.error("lstm_fit_failed", error=str(e))
 
     def predict(self, features: pd.DataFrame) -> float:
-        if self.model is None:
+        if self.model is None or not _TORCH_AVAILABLE:
             return 0.0
         try:
-            import torch
-
             # Reshape for LSTM (assumes timeseries input — same contract
             # as the original implementation: caller supplies `lookback`
             # raw sequential values).
@@ -282,8 +326,17 @@ class GaussianProcessPredictor(PredictionModel):
     scale — without it, GPs tend to overfit illiquid/noisy bars.
     """
 
-    def __init__(self, n_restarts_optimizer: int = 3):
+    def __init__(self, n_restarts_optimizer: int = 3, max_train_samples: int = 500):
         self.n_restarts_optimizer = n_restarts_optimizer
+        # Exact GP inference (sklearn.gaussian_process, no sparse/inducing-
+        # point approximation) inverts an n x n covariance matrix — O(n^3)
+        # time, O(n^2) memory. This trainer's live retrain cycle passes
+        # ~1800 rows (orchestrator._HISTORY_BARS_FOR_TRAIN=2000 bars minus
+        # feature burn-in): 1800^3 ops made a single fit take many minutes,
+        # impractical for a periodic retrain job. Cap to the most recent
+        # `max_train_samples` rows — recency is also more relevant than
+        # older history for a non-stationary financial series.
+        self.max_train_samples = max_train_samples
         self.model: Any = None
         self.rmse = np.inf
         self._feature_cols: list[str] | None = None
@@ -301,6 +354,10 @@ class GaussianProcessPredictor(PredictionModel):
                 # _update_weights() correctly zero-weights this model.
                 log.warning("gp_insufficient_data", have=len(X), need_at_least=5)
                 return
+
+            if len(X) > self.max_train_samples:
+                X = X.iloc[-self.max_train_samples :]
+                y = y.iloc[-self.max_train_samples :]
 
             self._feature_cols = list(X.columns)
             kernel = ConstantKernel(1.0) * Matern(length_scale=1.0, nu=1.5) + WhiteKernel(
@@ -470,6 +527,11 @@ class EnsemblePredictor:
         # fallback for the equal-weighting behavior before any model has
         # a finite RMSE.
         self.weights: dict[str, float] = {}
+        # Tabular feature column order used at fit() time — inference must
+        # supply features in this exact order (XGBoost/GP/TreeEnsemble are
+        # column-order-sensitive; a mismatch silently mispredicts rather
+        # than raising). Set by fit(); None until then.
+        self._feature_cols: list[str] | None = None
         self._update_weights()
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -496,6 +558,7 @@ class EnsemblePredictor:
         .weights right after .fit()).
         """
         log.info("ensemble_fitting", num_models=len(self.models))
+        self._feature_cols = list(X.columns)
 
         for name, model in self.models.items():
             try:
@@ -544,6 +607,23 @@ class EnsemblePredictor:
         X_seq = np.array([values[i : i + lookback] for i in range(n - lookback)])
         y_seq = values[lookback:]
         return X_seq.reshape(-1, lookback, 1), y_seq
+
+    def predict_row(self, features: dict[str, float] | pd.Series) -> EnsemblePrediction:
+        """
+        Convenience wrapper for live single-row inference.
+
+        Builds a 1-row DataFrame with columns in the exact order recorded
+        at fit() time, so column-order-sensitive members (XGBoost, GP,
+        TreeEnsemble) never silently mispredict on a mismatched order.
+
+        Raises
+        ------
+        RuntimeError : if called before fit() (no recorded column order).
+        """
+        if self._feature_cols is None:
+            raise RuntimeError("EnsemblePredictor.predict_row() called before fit()")
+        row = {col: float(features[col]) for col in self._feature_cols}
+        return self.predict(pd.DataFrame([row], columns=self._feature_cols))
 
     def predict(self, features: pd.DataFrame) -> EnsemblePrediction:
         """
@@ -656,3 +736,50 @@ class EnsemblePredictor:
             )
         else:
             self.weights = {name: w / total for name, w in inverse_rmse.items()}
+
+    # ------------------------------------------------------------------
+    # Persistence — mirrors src/regime/detector.py's save/load pattern
+    # (joblib + a SHA-256 sidecar manifest verified on load).
+    # ------------------------------------------------------------------
+
+    def save(self, model_dir: str | Path, symbol: str, timeframe: str) -> Path:
+        """Serialize the fitted ensemble to disk via joblib."""
+        path = Path(model_dir) / _MODEL_FILENAME.format(
+            symbol=symbol.replace("/", "_"),
+            timeframe=timeframe,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "models": self.models,
+            "weights": self.weights,
+            "feature_cols": self._feature_cols,
+            "symbol": symbol,
+            "timeframe": timeframe,
+        }
+        joblib.dump(payload, path, compress=3)
+        _write_manifest(path)
+        log.info("ensemble.saved", path=str(path))
+        return path
+
+    @classmethod
+    def load(cls, model_dir: str | Path, symbol: str, timeframe: str) -> EnsemblePredictor:
+        """
+        Restore a previously saved EnsemblePredictor from disk.
+
+        Raises
+        ------
+        FileNotFoundError : if no saved ensemble exists for symbol/timeframe.
+        """
+        path = Path(model_dir) / _MODEL_FILENAME.format(
+            symbol=symbol.replace("/", "_"),
+            timeframe=timeframe,
+        )
+        if not path.exists():
+            raise FileNotFoundError(f"No saved ensemble model at {path} — call fit() first.")
+        _verify_manifest(path)
+        payload: dict = joblib.load(path)
+        instance = cls()
+        instance.models = payload["models"]
+        instance.weights = payload["weights"]
+        instance._feature_cols = payload["feature_cols"]
+        return instance

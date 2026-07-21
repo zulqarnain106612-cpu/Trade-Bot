@@ -279,6 +279,7 @@ def get_multi_provider_aggregator(
         from src.intelligence.providers.blockchain_provider import (
             get_blockchain_intelligence_provider,
         )
+        from src.intelligence.providers.bybit_provider import get_bybit_intelligence_provider
         from src.intelligence.providers.coingecko_provider import (
             get_coingecko_intelligence_provider,
         )
@@ -288,6 +289,7 @@ def get_multi_provider_aggregator(
             exchange_providers=[
                 get_binance_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
                 get_okx_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
+                get_bybit_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
             ],
             macro_providers=[
                 get_coingecko_intelligence_provider(),
@@ -439,6 +441,7 @@ def get_onchain_aware_aggregator(
         from src.intelligence.providers.blockchain_provider import (
             get_blockchain_intelligence_provider,
         )
+        from src.intelligence.providers.bybit_provider import get_bybit_intelligence_provider
         from src.intelligence.providers.coingecko_provider import (
             get_coingecko_intelligence_provider,
         )
@@ -450,6 +453,7 @@ def get_onchain_aware_aggregator(
             exchange_providers=[
                 get_binance_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
                 get_okx_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
+                get_bybit_intelligence_provider(symbol=symbol, perp_symbol=perp_symbol),
             ],
             macro_providers=[
                 get_coingecko_intelligence_provider(),

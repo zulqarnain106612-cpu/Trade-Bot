@@ -203,6 +203,18 @@ class TestCorrelation:
         # Either None (insufficient variance) or 0.0
         assert r is None or r == 0.0
 
+    def test_correlation_none_when_symbols_never_pushed_together(self):
+        """Each symbol individually has enough observations, but they were
+        never in the same push_bar_returns() call together -- no covariance
+        tracker key exists for the pair, so correlation() must return None
+        rather than KeyError."""
+        t = PortfolioCorrelationTracker(halflife=10)
+        for i in range(_MIN_OBSERVATIONS + 5):
+            t.push_bar_returns({"ALONE_A": 0.01 * (i % 3 - 1)})
+        for i in range(_MIN_OBSERVATIONS + 5):
+            t.push_bar_returns({"ALONE_B": 0.02 * (i % 3 - 1)})
+        assert t.correlation("ALONE_A", "ALONE_B") is None
+
     def test_correlation_shrunk_near_min_observations(self):
         """
         Just past _MIN_OBSERVATIONS, a near-perfectly-correlated pair should

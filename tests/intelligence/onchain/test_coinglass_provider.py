@@ -36,6 +36,12 @@ class TestExtractList:
         result = _extract_list({"data": {"rows": [1, 2, 3]}})
         assert result == [1, 2, 3]
 
+    def test_inner_neither_list_nor_dict(self):
+        assert _extract_list({"data": "not-a-list-or-dict"}) == []
+
+    def test_data_not_a_dict(self):
+        assert _extract_list([1, 2, 3]) == []  # type: ignore[arg-type]
+
 
 # ---------------------------------------------------------------------------
 # _oi_change_pct
@@ -61,6 +67,23 @@ class TestOiChangePct:
         r = _oi_change_pct({"data": rows})
         assert r > 0
 
+    def test_close_falls_through_to_second_known_key(self):
+        # No "c" key -- _close()'s key loop must continue past the first
+        # candidate to find "close".
+        rows = [{"close": float(i + 100)} for i in range(48)]
+        r = _oi_change_pct({"data": rows})
+        assert isinstance(r, float)
+
+    def test_close_returns_zero_when_no_known_key(self):
+        rows = [{"unrelated": 1.0} for _ in range(48)]
+        assert _oi_change_pct({"data": rows}) == 0.0
+
+    def test_past_value_near_zero_returns_zero(self):
+        # past_24h index = max(0, len(rows) - 24) = 24 for a 48-row window.
+        rows = [{"c": float(i + 100)} for i in range(48)]
+        rows[24] = {"c": 0.0}
+        assert _oi_change_pct({"data": rows}) == 0.0
+
 
 # ---------------------------------------------------------------------------
 # _liq_zscore
@@ -82,6 +105,15 @@ class TestLiqZscore:
         r = _liq_zscore({"data": rows})
         assert r == pytest.approx(0.0, abs=1e-6)
 
+    def test_list_row_format(self):
+        rows = [[100.0, 50.0]] * 24
+        r = _liq_zscore({"data": rows})
+        assert r == pytest.approx(0.0, abs=1e-6)
+
+    def test_unrecognized_row_type_totals_zero(self):
+        rows = [None] * 24  # neither dict nor list/tuple -> _total() falls through to 0.0
+        assert _liq_zscore({"data": rows}) == pytest.approx(0.0, abs=1e-6)
+
 
 # ---------------------------------------------------------------------------
 # _heatmap_max
@@ -100,6 +132,10 @@ class TestHeatmapMax:
         rows = [{"liquidationUsd": 3e6}, {"liquidationUsd": 9e6}]
         assert _heatmap_max({"data": rows}) == pytest.approx(9e6)
 
+    def test_unrecognized_row_type_skipped(self):
+        rows = [None, {"liquidationUsd": 5e6}]
+        assert _heatmap_max({"data": rows}) == pytest.approx(5e6)
+
 
 # ---------------------------------------------------------------------------
 # _extract_funding
@@ -117,6 +153,9 @@ class TestExtractFunding:
         row = {"exchangeList": [{"fundingRate": 0.01}, {"fundingRate": 0.03}]}
         assert _extract_funding({"data": [row]}) == pytest.approx(0.02)
 
+    def test_none_when_no_known_field_or_exchange_list(self):
+        assert _extract_funding({"data": [{"unrelated": 1.0}]}) is None
+
 
 # ---------------------------------------------------------------------------
 # _ls_ratio
@@ -133,6 +172,10 @@ class TestLsRatio:
 
     def test_zero_short(self):
         r = _ls_ratio({"data": [{"longRatio": 60.0, "shortRatio": 0.0}]})
+        assert r == pytest.approx(1.0)
+
+    def test_non_dict_row_returns_default(self):
+        r = _ls_ratio({"data": [123]})
         assert r == pytest.approx(1.0)
 
 
@@ -158,6 +201,10 @@ class TestCoinglassProviderDisabled:
 
     def test_exchange_id(self):
         assert self.prov.exchange_id == "coinglass"
+
+    @pytest.mark.asyncio
+    async def test_close_delegates_to_base(self):
+        await self.prov.close()  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +271,59 @@ class TestCoinglassProviderEnabled:
             m = await prov.fetch_metrics()
 
         assert m["confidence"] < 1.0
+
+    @pytest.mark.asyncio
+    async def test_all_fetches_fail_confidence_floors_at_zero(self):
+        """Every field's own None branch (liq/heatmap/funding/ls, not just
+        OI) must independently subtract from confidence."""
+        prov = self._make_provider()
+
+        async def mock_get(url, **kwargs):
+            return None
+
+        with patch.object(prov, "_get", side_effect=mock_get):
+            m = await prov.fetch_metrics()
+
+        # 5 fields, each -0.05 penalty on a None fetch -> 1.0 - 0.25 = 0.75.
+        assert m["confidence"] == pytest.approx(0.75)
+        assert m["futures_oi_change_pct"] == 0.0
+        assert m["liquidation_pressure_24h_zscore"] == 0.0
+        assert m["liquidation_cascade_risk_usd"] == 0.0
+        assert m["binance_funding_rate_pct"] == 0.0
+        assert m["whale_buy_sell_ratio"] == pytest.approx(1.0)
+
+    @pytest.mark.asyncio
+    async def test_funding_data_present_but_unparseable_keeps_neutral(self):
+        """fr_data is not None (so confidence isn't penalised for that
+        field) but _extract_funding() can't find a usable field -> the
+        `if fr is not None:` guard must leave the neutral default in place."""
+        prov = self._make_provider()
+        oi_rows = [{"c": float(i + 100)} for i in range(48)]
+        liq_rows = [{"buyLiquidationUsd": 1e6, "sellLiquidationUsd": 5e5}] * 24
+        heatmap_rows = [[30000, 100, 5e7]]
+        fr_rows = [{"unrelated": 1.0}]  # present, but no known funding field
+        ls_rows = [{"longRatio": 55.0, "shortRatio": 45.0}]
+
+        responses = [
+            {"data": oi_rows},
+            {"data": liq_rows},
+            {"data": heatmap_rows},
+            {"data": fr_rows},
+            {"data": ls_rows},
+        ]
+        call_count = 0
+
+        async def mock_get(url, **kwargs):
+            nonlocal call_count
+            r = responses[call_count % len(responses)]
+            call_count += 1
+            return r
+
+        with patch.object(prov, "_get", side_effect=mock_get):
+            m = await prov.fetch_metrics()
+
+        assert m["confidence"] == pytest.approx(1.0)  # fr_data was not None -> no penalty
+        assert m["binance_funding_rate_pct"] == 0.0  # but neutral default kept
 
     @pytest.mark.asyncio
     async def test_initialize_warms_cache(self):

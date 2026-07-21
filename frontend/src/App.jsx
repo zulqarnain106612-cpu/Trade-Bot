@@ -535,6 +535,7 @@ export default function App() {
   const [tab, setTab] = useState('positions');
   const [startingCapital, setStartingCapital] = useState(null);
   const [riskControls, setRiskControls] = useState(null);
+  const [predictionStats, setPredictionStats] = useState(null);
   const wsRef = useRef(null);
 
   // WebSocket — API key passed as query param (WS headers not reliably supported in browsers)
@@ -635,6 +636,30 @@ export default function App() {
     }
     fetchRiskControls();
     const id = setInterval(fetchRiskControls, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  // REST: prediction throughput/accuracy — polled fast (5s, matches WS
+  // heartbeat) since it's a live activity indicator, not historical data.
+  useEffect(() => {
+    let inFlight = false;
+    async function fetchPredictionStats() {
+      if (inFlight) return; // UI-016: same overlapping-request guard as fetchData
+      inFlight = true;
+      try {
+        const res = await apiFetch('/status');
+        if (res.ok) {
+          const body = await res.json();
+          setPredictionStats(body.predictions || null);
+        }
+      } catch (_) {
+        // swallow — next poll retries
+      } finally {
+        inFlight = false;
+      }
+    }
+    fetchPredictionStats();
+    const id = setInterval(fetchPredictionStats, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -776,6 +801,25 @@ export default function App() {
             <div className="text-xs text-claude-muted mb-2 uppercase tracking-wide">Regime</div>
             <RegimeBadge regime={regime} />
           </div>
+          <StatCard
+            label="Prediction Frequency"
+            value={`${fmt(predictionStats?.predictions_per_sec, 2)}/s`}
+            sub={`${predictionStats?.total_predictions ?? 0} total predictions`}
+          />
+          <StatCard
+            label="1-Bar Directional Accuracy"
+            value={
+              predictionStats?.accuracy != null ? `${fmt(predictionStats.accuracy * 100, 1)}%` : '—'
+            }
+            sub={`${predictionStats?.correct_predictions ?? 0} correct / ${predictionStats?.resolved_predictions ?? 0} resolved`}
+            color={
+              predictionStats?.accuracy != null
+                ? predictionStats.accuracy >= 0.5
+                  ? 'text-green-400'
+                  : 'text-red-400'
+                : 'text-claude-cream'
+            }
+          />
         </div>
 
         {/* Equity Chart */}

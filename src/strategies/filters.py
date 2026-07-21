@@ -19,6 +19,9 @@ Implements research-backed filters from established practitioners:
                              Do not trade when vol is 2x its 20-bar median
   8. Multi-timeframe trend alignment — Schwager (1993) The New Market Wizards
                              Short-term signal only taken when intermediate trend agrees
+  9. ADX/DMI trend-strength filter — Wilder (1978) New Concepts Ch.4
+                             Directional Movement Index; only trade when ADX
+                             confirms a strong, directionally-aligned trend
 
 All functions are pure (no I/O), accept pandas Series/DataFrames,
 return bool or float scalars, and are fully testable.
@@ -32,7 +35,7 @@ Authority:
   - Elder (1993) Trading for a Living — Triple Screen / OBV confirmation
   - Granville (1963) Granville's New Key to Stock Market Profits — OBV
   - Schwager (1984/1993) Market Wizards — practitioner risk rules
-  - Wilder (1978) New Concepts in Technical Trading Systems — ATR
+  - Wilder (1978) New Concepts in Technical Trading Systems — ATR, ADX/DMI
 """
 
 from __future__ import annotations
@@ -58,6 +61,8 @@ _HURST_TRENDING_THRESHOLD: Final[float] = 0.55  # H > 0.55 = trending
 _OBV_CONFIRM_WINDOW: Final[int] = 20  # Elder (1993) — OBV smoothing
 _VOL_EXPLOSION_MULTIPLIER: Final[float] = 2.0  # Schwager — halt when vol 2x median
 _VOL_EXPLOSION_LOOKBACK: Final[int] = 20
+_ADX_PERIOD: Final[int] = 14  # Wilder (1978) — standard DMI/ADX smoothing period
+_ADX_TRENDING_THRESHOLD: Final[float] = 25.0  # Wilder: ADX > 25 = trending market
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +396,114 @@ def mtf_trend_aligned(
 
 
 # ---------------------------------------------------------------------------
+# 9. ADX/DMI trend-strength filter — Wilder (1978) New Concepts Ch.4
+# ---------------------------------------------------------------------------
+
+
+def adx_dmi(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    period: int = _ADX_PERIOD,
+) -> tuple[float, float, float]:
+    """
+    Wilder (1978) Ch.4 Directional Movement Index / Average Directional Index.
+
+    Returns (adx, plus_di, minus_di) as of the latest bar:
+      adx      : trend strength in [0, 100], regardless of direction.
+                 ADX > 25 = trending market (Wilder's own threshold).
+      plus_di  : +DI, upward directional strength in [0, 100].
+      minus_di : -DI, downward directional strength in [0, 100].
+
+    Uses Wilder's smoothing (equivalent to an EMA with alpha = 1/period),
+    the same recursive technique used for ATR in this codebase.
+
+    Returns (0.0, 0.0, 0.0) when there is insufficient data — callers treat
+    this as "no trend confirmation available" and should fail open.
+    """
+    n = len(close)
+    if n < period * 2 + 1 or len(high) < n or len(low) < n:
+        return 0.0, 0.0, 0.0
+
+    up_move = high.diff()
+    down_move = -low.diff()
+
+    plus_dm = pd.Series(
+        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0), index=close.index
+    )
+    minus_dm = pd.Series(
+        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0), index=close.index
+    )
+
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [
+            (high - low).abs(),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+
+    # Wilder's smoothing: alpha = 1/period (not the standard EMA alpha = 2/(period+1))
+    alpha = 1.0 / period
+    smoothed_tr = tr.ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+    smoothed_plus_dm = plus_dm.ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+    smoothed_minus_dm = minus_dm.ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+
+    if smoothed_tr.iloc[-1] < 1e-12 or pd.isna(smoothed_tr.iloc[-1]):
+        return 0.0, 0.0, 0.0
+
+    plus_di = 100.0 * (smoothed_plus_dm / smoothed_tr)
+    minus_di = 100.0 * (smoothed_minus_dm / smoothed_tr)
+
+    di_sum = plus_di + minus_di
+    dx = 100.0 * (plus_di - minus_di).abs() / di_sum.where(di_sum > 1e-12, 1e-12)
+    adx_series = dx.ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+
+    adx_val = float(adx_series.iloc[-1])
+    plus_di_val = float(plus_di.iloc[-1])
+    minus_di_val = float(minus_di.iloc[-1])
+
+    if any(math.isnan(v) for v in (adx_val, plus_di_val, minus_di_val)):
+        return 0.0, 0.0, 0.0
+
+    return adx_val, plus_di_val, minus_di_val
+
+
+def adx_filter_passes(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    direction: int,
+    period: int = _ADX_PERIOD,
+    threshold: float = _ADX_TRENDING_THRESHOLD,
+) -> bool:
+    """
+    Wilder (1978) Ch.4: only take a trade when ADX confirms a strong trend
+    AND the dominant directional indicator agrees with the proposed direction.
+
+    Wilder: "When ADX is below 25, avoid trend-following strategies... when
+    +DI crosses above -DI [or vice versa] with ADX rising above 25, a
+    tradeable trend is underway."
+
+    Fails open (returns True) when there is insufficient data — this filter
+    is a confirmation, not a hard data requirement.
+    """
+    adx_val, plus_di, minus_di = adx_dmi(high, low, close, period)
+    if adx_val <= 0.0 and plus_di <= 0.0 and minus_di <= 0.0:
+        return True  # insufficient data — don't filter
+
+    if adx_val < threshold:
+        return False
+
+    if direction == 1:  # long
+        return plus_di > minus_di
+    else:  # short
+        return minus_di > plus_di
+
+
+# ---------------------------------------------------------------------------
 # Combined filter stack
 # ---------------------------------------------------------------------------
 
@@ -406,6 +519,8 @@ def apply_all_strategy_filters(
     prob_volatile: float,
     open_price: float | None = None,
     prev_close: float | None = None,
+    high: pd.Series | None = None,
+    low: pd.Series | None = None,
 ) -> dict[str, object]:
     """
     Run the full professional filter stack and return a verdict dict.
@@ -462,6 +577,15 @@ def apply_all_strategy_filters(
     # 7. Regime position scalar (López de Prado AFML Ch.17)
     scalar = regime_position_scalar(regime_state, prob_trending, prob_ranging, prob_volatile)
     details["regime_scalar"] = round(scalar, 3)
+
+    # 8. ADX/DMI trend-strength filter (Wilder 1978)
+    if high is not None and low is not None:
+        adx_val, plus_di, minus_di = adx_dmi(high, low, close)
+        details["adx"] = round(adx_val, 2)
+        details["plus_di"] = round(plus_di, 2)
+        details["minus_di"] = round(minus_di, 2)
+        if not adx_filter_passes(high, low, close, direction) and not failed:
+            failed.append("adx_weak_or_misaligned")
 
     passes = len(failed) == 0
 

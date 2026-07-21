@@ -833,6 +833,70 @@ class TestTickScheduledRetrain:
         assert orch._retrain_tasks[Timeframe.INTRADAY.value] is prior
         prior.cancel()
 
+    @pytest.mark.asyncio
+    async def test_scheduled_retrain_done_callback_skips_del_when_task_already_replaced(self):
+        orch, executor = self._make_orch_at_interval()
+        result = _make_skip_result()
+        mock_engine = MagicMock()
+        mock_engine.tick = AsyncMock(return_value=result)
+        orch._engines = {Timeframe.INTRADAY.value: mock_engine}
+
+        async def _fast_train(tf):
+            return None
+
+        orch._train_models = _fast_train
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            original_task = orch._retrain_tasks[Timeframe.INTRADAY.value]
+            decoy = asyncio.get_event_loop().create_future()
+            orch._retrain_tasks[Timeframe.INTRADAY.value] = decoy  # type: ignore[assignment]
+            await original_task
+
+        assert orch._retrain_tasks[Timeframe.INTRADAY.value] is decoy
+        decoy.cancel()
+
+    @pytest.mark.asyncio
+    async def test_scheduled_retrain_failure_records_last_error(self):
+        """SCAN2-003: an exception from the periodic (non-drift) retrain task
+        must be logged/recorded via its done-callback, not vanish silently."""
+        orch, executor = self._make_orch_at_interval()
+        result = _make_skip_result()
+        mock_engine = MagicMock()
+        mock_engine.tick = AsyncMock(return_value=result)
+        orch._engines = {Timeframe.INTRADAY.value: mock_engine}
+
+        async def _failing_train(tf):
+            raise RuntimeError("scheduled retrain blew up")
+
+        orch._train_models = _failing_train
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        assert "scheduled retrain blew up" in orch._last_retrain_error[Timeframe.INTRADAY.value]
+        assert Timeframe.INTRADAY.value not in orch._retrain_tasks
+
 
 # ---------------------------------------------------------------------------
 # _train_models() — feature build ValueError, HMM exception, hot-swap
@@ -939,7 +1003,55 @@ class TestTrainModelsRemainingBranches:
         ):
             await orch._train_models(Timeframe.INTRADAY)
 
-        existing_engine.swap_models.assert_awaited_once_with(new_dir, new_meta, detector)
+        existing_engine.swap_models.assert_awaited_once_with(
+            new_dir, new_meta, detector, ensemble=trainer.train_ensemble.return_value
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensemble_train_exception_falls_back_to_none_and_still_swaps(self):
+        """train_ensemble()/save_ensemble() failing must not block the
+        direction/meta models -- which already trained/saved successfully --
+        from being hot-swapped in with ensemble=None."""
+        orch = self._orch_for_train()
+        existing_engine = AsyncMock()
+        existing_engine.swap_models = AsyncMock(return_value=None)
+        orch._engines[Timeframe.INTRADAY.value] = existing_engine
+
+        fm = MagicMock()
+        fm.features = MagicMock()
+        dir_result = MagicMock()
+        dir_result.oos_sharpe = 1.5
+        dir_result.live_gate_pass = True
+        dir_result.model = MagicMock()
+        dir_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        meta_result = MagicMock()
+        meta_result.oos_sharpe = 1.2
+        meta_result.live_gate_pass = True
+        meta_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        trainer = MagicMock()
+        trainer.train_direction = MagicMock(return_value=dir_result)
+        trainer.train_meta_label = MagicMock(return_value=meta_result)
+        trainer.train_ensemble = MagicMock(side_effect=RuntimeError("ensemble blew up"))
+        trainer.save = MagicMock()
+        detector = MagicMock()
+        detector.fit = MagicMock()
+        detector.save = MagicMock()
+
+        new_dir = MagicMock()
+        new_meta = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.build_feature_matrix", return_value=fm),
+            patch("src.engine.orchestrator.ModelTrainer", return_value=trainer),
+            patch("src.engine.orchestrator.RegimeDetector", return_value=detector),
+            patch("src.engine.orchestrator.ModelTrainer.load_direction", return_value=new_dir),
+            patch("src.engine.orchestrator.ModelTrainer.load_meta", return_value=new_meta),
+        ):
+            await orch._train_models(Timeframe.INTRADAY)  # must not raise
+
+        existing_engine.swap_models.assert_awaited_once_with(
+            new_dir, new_meta, detector, ensemble=None
+        )
 
 
 # ---------------------------------------------------------------------------

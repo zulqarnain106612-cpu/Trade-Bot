@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,11 +16,96 @@ from src.data.fetcher import (
     OrderBookSnapshot,
     _build_binance,
     _build_okx,
+    _parse_book_side,
     _raw_to_bar_records,
     _with_retry,
     open_fetcher,
 )
 from src.data.storage import BarRecord
+
+
+# ---------------------------------------------------------------------------
+# OrderBookSnapshot
+# ---------------------------------------------------------------------------
+
+
+class TestOrderBookSnapshot:
+    def _snap(self, bids=None, asks=None) -> OrderBookSnapshot:
+        return OrderBookSnapshot(
+            symbol="BTC/USDT",
+            ts_ms=1_700_000_000_000,
+            bids=bids if bids is not None else [[100.0, 1.0], [99.0, 2.0]],
+            asks=asks if asks is not None else [[101.0, 1.5], [102.0, 2.5]],
+        )
+
+    def test_bid_price_best_bid(self):
+        assert self._snap().bid_price == 100.0
+
+    def test_bid_price_empty_bids_returns_zero(self):
+        assert self._snap(bids=[]).bid_price == 0.0
+
+    def test_ask_price_best_ask(self):
+        assert self._snap().ask_price == 101.0
+
+    def test_ask_price_empty_asks_returns_zero(self):
+        assert self._snap(asks=[]).ask_price == 0.0
+
+    def test_mid_price(self):
+        assert self._snap().mid_price == pytest.approx(100.5)
+
+    def test_spread(self):
+        assert self._snap().spread == pytest.approx(1.0)
+
+    def test_bid_volume_sums_top_levels(self):
+        assert self._snap().bid_volume(levels=2) == pytest.approx(3.0)
+
+    def test_bid_volume_respects_level_limit(self):
+        assert self._snap().bid_volume(levels=1) == pytest.approx(1.0)
+
+    def test_ask_volume_sums_top_levels(self):
+        assert self._snap().ask_volume(levels=2) == pytest.approx(4.0)
+
+    def test_order_flow_imbalance_positive_when_bid_heavy(self):
+        snap = self._snap(bids=[[100.0, 10.0]], asks=[[101.0, 1.0]])
+        assert snap.order_flow_imbalance() > 0.0
+
+    def test_order_flow_imbalance_negative_when_ask_heavy(self):
+        snap = self._snap(bids=[[100.0, 1.0]], asks=[[101.0, 10.0]])
+        assert snap.order_flow_imbalance() < 0.0
+
+    def test_order_flow_imbalance_zero_when_book_empty(self):
+        snap = self._snap(bids=[], asks=[])
+        assert snap.order_flow_imbalance() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _parse_book_side
+# ---------------------------------------------------------------------------
+
+
+class TestParseBookSide:
+    def test_parses_valid_rows(self):
+        result = _parse_book_side([[100.0, 1.0], [99.5, 2.0]])
+        assert result == [[100.0, 1.0], [99.5, 2.0]]
+
+    def test_drops_wrong_arity_rows(self):
+        result = _parse_book_side([[100.0, 1.0, 5.0], [99.5, 2.0]])
+        assert result == [[99.5, 2.0]]
+
+    def test_drops_non_numeric_rows(self):
+        result = _parse_book_side([["bad", "row"], [99.5, 2.0]])
+        assert result == [[99.5, 2.0]]
+
+    def test_drops_non_positive_price(self):
+        result = _parse_book_side([[0.0, 1.0], [-5.0, 1.0], [10.0, 1.0]])
+        assert result == [[10.0, 1.0]]
+
+    def test_drops_negative_quantity(self):
+        result = _parse_book_side([[10.0, -1.0], [10.0, 1.0]])
+        assert result == [[10.0, 1.0]]
+
+    def test_empty_input_returns_empty(self):
+        assert _parse_book_side([]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +370,32 @@ async def test_get_sem_idempotent():
 
 
 @pytest.mark.asyncio
+async def test_get_sem_double_checked_lock_race_reuses_winner():
+    """VF-012: if a second caller acquires the guard lock after a first
+    caller already set _gap_fill_sem, the inner `if self._gap_fill_sem is
+    None` re-check must skip creating a second Semaphore and reuse the
+    winner -- simulated here with a lock stand-in that sets the sentinel
+    from inside __enter__, exactly as a genuinely concurrent second thread
+    would (threading.Lock is a C type and can't be monkeypatched directly)."""
+    f = _make_fetcher()
+    winner = asyncio.Semaphore(1)
+    real_lock = threading.Lock()
+
+    class _RacingLock:
+        def __enter__(self):
+            real_lock.__enter__()
+            f._gap_fill_sem = winner  # another "thread" wins the race first
+            return self
+
+        def __exit__(self, *exc_info):
+            return real_lock.__exit__(*exc_info)
+
+    f._sem_init_guard = _RacingLock()  # type: ignore[assignment]
+    sem = f._get_sem()
+    assert sem is winner
+
+
+@pytest.mark.asyncio
 async def test_close_without_initialize():
     f = _make_fetcher()
     await f.close()  # should not raise
@@ -381,6 +493,30 @@ async def test_bootstrap_history_stops_below_max_bars():
 
     count = await f.bootstrap_history("BTC/USDT", Timeframe.INTRADAY, lookback_days=1)
     assert count == 3
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_history_paginates_on_full_page():
+    """A full page (== _MAX_BARS_PER_REQUEST) must trigger another fetch
+    instead of stopping -- exercises the pagination continue branch."""
+    from src.data.fetcher import _MAX_BARS_PER_REQUEST
+
+    storage = _make_storage()
+    storage.upsert_bars = AsyncMock(return_value=1)
+    f = MarketDataFetcher(storage)
+
+    full_page = [
+        [int(datetime.now(UTC).timestamp() * 1000) - i * 3600_000, 1.0, 2.0, 0.5, 1.5, 1.0]
+        for i in range(_MAX_BARS_PER_REQUEST)
+    ]
+    mock_exchange = MagicMock()
+    mock_exchange.fetch_ohlcv = AsyncMock(side_effect=[full_page, []])
+    f._binance = mock_exchange
+
+    with patch("asyncio.sleep", new=AsyncMock(return_value=None)):
+        count = await f.bootstrap_history("BTC/USDT", Timeframe.INTRADAY, lookback_days=1)
+    assert count == 1
+    assert mock_exchange.fetch_ohlcv.await_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -766,3 +902,25 @@ async def test_open_fetcher_context_manager():
         async with open_fetcher(storage) as f:
             assert isinstance(f, MarketDataFetcher)
         mock_binance.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_open_fetcher_swallows_close_error_and_does_not_suppress_original():
+    """SCAN2-013: a secondary error from close() during __aexit__ must be
+    logged, not raised in place of the original exception -- and the
+    original exception must still propagate (return False)."""
+    storage = _make_storage()
+    mock_binance = MagicMock()
+    mock_binance.load_markets = AsyncMock(return_value={})
+    mock_binance.close = AsyncMock(side_effect=RuntimeError("close failed"))
+    mock_okx = MagicMock()
+    mock_okx.load_markets = AsyncMock(return_value={})
+    mock_okx.close = AsyncMock(side_effect=RuntimeError("close failed"))
+
+    with (
+        patch("src.data.fetcher._build_binance", return_value=mock_binance),
+        patch("src.data.fetcher._build_okx", return_value=mock_okx),
+        pytest.raises(ValueError, match="original error"),
+    ):
+        async with open_fetcher(storage):
+            raise ValueError("original error")

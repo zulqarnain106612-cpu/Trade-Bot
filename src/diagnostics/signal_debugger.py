@@ -183,6 +183,9 @@ class ModelDegradationTracker:
         self._trade_pnls: deque[float] = deque(maxlen=window)
         self._train_accuracy: float | None = None
         self._train_f1: float | None = None
+        self._total_count: int = 0
+        self._correct_count: int = 0
+        self._resolved_count: int = 0
 
     def set_training_metrics(self, accuracy: float, f1: float) -> None:
         """Call after each model training run with OOS metrics."""
@@ -197,16 +200,57 @@ class ModelDegradationTracker:
     def record_prediction(self, p_long: float, p_bet: float) -> None:
         """Record a live prediction (actual direction filled in later)."""
         self._preds.append(PredictionRecord(ts=time.monotonic(), p_long=p_long, p_bet=p_bet))
+        self._total_count += 1
 
     def resolve_last(self, actual_direction: int) -> None:
         """
         Fill in the actual outcome for the most recent unresolved prediction.
         Call after the bar closes and price moved.
+
+        NOTE: `actual_direction` here is expected to be a naive 1-bar-ahead
+        close-over-close direction, NOT the model's triple-barrier training
+        label (which is path-dependent over `max_holding` bars with
+        volatility-scaled barriers — see `triple_barrier_labels()` in
+        src/features/pipeline.py). live_accuracy()/check_degradation()
+        therefore measure short-horizon directional accuracy, a distinct
+        and generally lower-signal metric than the model's true OOS
+        triple-barrier accuracy reported by set_training_metrics(). Do not
+        treat `degraded`/`retrain_recommended` as equivalent to a real
+        triple-barrier OOS comparison -- they are a coarser, faster-to-compute
+        proxy for operator awareness only (not wired into any live gating).
         """
         for rec in reversed(list(self._preds)):
             if rec.actual_direction is None:
                 rec.actual_direction = actual_direction
+                self._resolved_count += 1
+                correct = (rec.p_long >= 0.5 and actual_direction == 1) or (
+                    rec.p_long < 0.5 and actual_direction == 0
+                )
+                if correct:
+                    self._correct_count += 1
                 return
+
+    def prediction_stats(self, rate_window_s: float = 10.0) -> dict[str, Any]:
+        """
+        Prediction throughput and accuracy snapshot for dashboards.
+
+        Rate is measured over a trailing `rate_window_s` window (not lifetime
+        average) so it reflects current tick cadence rather than a stale
+        long-run figure. `accuracy` is 1-bar-ahead directional accuracy (see
+        resolve_last() docstring) -- not the model's triple-barrier OOS
+        accuracy from set_training_metrics().
+        """
+        now = time.monotonic()
+        recent = sum(1 for r in self._preds if now - r.ts <= rate_window_s)
+        return {
+            "predictions_per_sec": round(recent / rate_window_s, 3),
+            "total_predictions": self._total_count,
+            "correct_predictions": self._correct_count,
+            "resolved_predictions": self._resolved_count,
+            "accuracy": round(self._correct_count / self._resolved_count, 4)
+            if self._resolved_count > 0
+            else None,
+        }
 
     def record_trade_result(self, pnl_usd: float) -> None:
         """Append realized trade PnL for rolling Sharpe tracking."""
@@ -329,7 +373,14 @@ def run_pipeline_selftest() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _drift_monitor: FeatureDriftMonitor | None = None
-_degradation_tracker: ModelDegradationTracker | None = None
+# Keyed by timeframe: a single global tracker corrupted resolve_last()
+# matching once multiple timeframe loops (Orchestrator._timeframe_loop)
+# tick concurrently against the same symbol -- a prediction made by one
+# timeframe's engine could get resolved with another timeframe's just-closed
+# bar direction. Scoping per timeframe (this repo runs one primary_symbol
+# with several active_timeframes, never multiple symbols concurrently)
+# keeps each engine's predictions/resolutions isolated.
+_degradation_trackers: dict[str, ModelDegradationTracker] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -430,8 +481,7 @@ def get_drift_monitor() -> FeatureDriftMonitor:
     return _drift_monitor
 
 
-def get_degradation_tracker() -> ModelDegradationTracker:
-    global _degradation_tracker
-    if _degradation_tracker is None:
-        _degradation_tracker = ModelDegradationTracker()
-    return _degradation_tracker
+def get_degradation_tracker(timeframe: str = "default") -> ModelDegradationTracker:
+    if timeframe not in _degradation_trackers:
+        _degradation_trackers[timeframe] = ModelDegradationTracker()
+    return _degradation_trackers[timeframe]

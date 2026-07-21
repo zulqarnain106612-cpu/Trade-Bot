@@ -254,6 +254,81 @@ class TestSubmitSignalAutomatic:
         assert executor.cash_usd < starting_cash
 
 
+class TestOpenPositionInternalSlippage:
+    """GAP-011: _open_position_internal's slippage-adjusted fill price --
+    submit_signal() never passes adv_20d/spread_bps (they default to
+    0.0/2.0, which skip the branch entirely), so this must call the
+    private method directly."""
+
+    @pytest.mark.asyncio
+    async def test_long_fill_price_adjusted_upward_by_slippage(self, executor):
+        kelly = make_kelly(notional=500.0, price=100.0)
+        trade_id = await executor._open_position_internal(
+            "BTC/USDT",
+            "15m",
+            direction=1,
+            kelly_result=kelly,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            current_price=100.0,
+            approved_by="auto",
+            adv_20d=1_000_000.0,
+            spread_bps=5.0,
+        )
+        assert trade_id is not None
+        pos = executor._positions[trade_id]
+        assert pos.entry_price >= 100.0  # long fills at or above mid due to slippage
+
+    @pytest.mark.asyncio
+    async def test_short_fill_price_adjusted_downward_by_slippage(self, executor):
+        kelly = make_kelly(notional=500.0, price=100.0)
+        trade_id = await executor._open_position_internal(
+            "BTC/USDT",
+            "15m",
+            direction=0,
+            kelly_result=kelly,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            current_price=100.0,
+            approved_by="auto",
+            adv_20d=1_000_000.0,
+            spread_bps=5.0,
+        )
+        assert trade_id is not None
+        pos = executor._positions[trade_id]
+        assert pos.entry_price <= 100.0  # short fills at or below mid due to slippage
+
+    @pytest.mark.asyncio
+    async def test_slippage_estimate_failure_falls_back_to_current_price(
+        self, executor, monkeypatch
+    ):
+        from src.execution import paper as paper_mod
+
+        def _boom(self, **kwargs):
+            raise RuntimeError("slippage model blew up")
+
+        monkeypatch.setattr(paper_mod.SlippageModel, "estimate", _boom)
+        kelly = make_kelly(notional=500.0, price=100.0)
+        trade_id = await executor._open_position_internal(
+            "BTC/USDT",
+            "15m",
+            direction=1,
+            kelly_result=kelly,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            current_price=100.0,
+            approved_by="auto",
+            adv_20d=1_000_000.0,
+            spread_bps=5.0,
+        )
+        assert trade_id is not None  # must not raise despite the slippage model failing
+        pos = executor._positions[trade_id]
+        assert pos.entry_price == pytest.approx(100.0)  # unadjusted fallback
+
+
 class TestSubmitSignalRestricted:
     """RESTRICTED mode — auto below limit, approval above."""
 
@@ -485,9 +560,124 @@ class TestApprovalQueueManagement:
         assert executor.pending_approvals() == []
 
     @pytest.mark.asyncio
+    async def test_pending_approvals_prunes_old_resolved_entries(self, executor):
+        """H-05: resolved entries older than 1 hour must be pruned from the
+        queue entirely, not just filtered out of the returned list."""
+        import time as _time
+
+        from src.execution.paper import ApprovalRequest
+
+        old_resolved = ApprovalRequest(
+            request_id="old-resolved",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            notional_usd=100.0,
+            entry_price=100.0,
+            quantity=1.0,
+            kelly_fraction=0.1,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            created_at=_time.monotonic() - 7200.0,  # 2 hours ago
+            resolved=True,
+        )
+        executor._approval_queue["old-resolved"] = old_resolved
+
+        result = executor.pending_approvals()
+        assert result == []
+        assert "old-resolved" not in executor._approval_queue
+
+    @pytest.mark.asyncio
     async def test_pending_approvals_safe(self, executor):
         result = await executor.pending_approvals_safe()
         assert result == []
+
+
+class TestAwaitApprovalDirect:
+    """_await_approval()'s own branches, exercised directly rather than
+    through the full submit_signal()/resolve_approval() round trip."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_request_id_returns_false(self, executor):
+        approved, operator = await executor._await_approval("no-such-id", timeout_s=1.0)
+        assert approved is False
+        assert operator == ""
+
+    @pytest.mark.asyncio
+    async def test_timeout_but_already_popped_by_concurrent_resolve(self, executor, monkeypatch):
+        """Race: the request times out via asyncio.wait_for, but by the time
+        the timeout handler re-acquires the lock, a concurrent resolve()
+        already popped it from the queue -- `timed_out is not None` must be
+        False, and _await_approval must still return the no-approval tuple
+        rather than crashing on a None."""
+        from src.execution.paper import ApprovalRequest
+
+        req = ApprovalRequest(
+            request_id="race-1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            notional_usd=100.0,
+            entry_price=100.0,
+            quantity=1.0,
+            kelly_fraction=0.1,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            created_at=0.0,
+        )
+        async with executor._lock:
+            executor._approval_queue["race-1"] = req
+
+        async def _raise_timeout(coro, *args, **kwargs):
+            coro.close()  # avoid an "never awaited" warning for the discarded wait()
+            # By the time the timeout handler runs, the request has already
+            # been popped by a (simulated) concurrent resolve().
+            async with executor._lock:
+                executor._approval_queue.pop("race-1", None)
+            raise TimeoutError
+
+        monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+        approved, operator = await executor._await_approval("race-1", timeout_s=1.0)
+        assert approved is False
+        assert operator == "auto_timeout"
+        assert "race-1" not in executor._approval_queue
+
+    @pytest.mark.asyncio
+    async def test_resolved_but_already_popped_returns_false(self, executor, monkeypatch):
+        """Race on the success path: the approval event fires, but by the
+        time _await_approval re-acquires the lock to pop its own result,
+        the entry is already gone -- `resolved is None` must return the
+        no-approval tuple, not raise on a None attribute access."""
+        from src.execution.paper import ApprovalRequest
+
+        req = ApprovalRequest(
+            request_id="race-2",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            notional_usd=100.0,
+            entry_price=100.0,
+            quantity=1.0,
+            kelly_fraction=0.1,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            created_at=0.0,
+        )
+        async with executor._lock:
+            executor._approval_queue["race-2"] = req
+
+        async def _resolve_immediately(coro, *args, **kwargs):
+            coro.close()
+            async with executor._lock:
+                executor._approval_queue.pop("race-2", None)  # already resolved+removed elsewhere
+
+        monkeypatch.setattr("asyncio.wait_for", _resolve_immediately)
+        approved, operator = await executor._await_approval("race-2", timeout_s=1.0)
+        assert approved is False
+        assert operator == ""
 
 
 class TestApprovalTimeout:

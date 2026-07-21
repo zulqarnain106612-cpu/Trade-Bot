@@ -221,6 +221,225 @@ class TestOKXIntelligenceProvider:
 
 
 # ---------------------------------------------------------------------------
+# 2b. BybitIntelligenceProvider
+# ---------------------------------------------------------------------------
+
+
+class TestBybitIntelligenceProvider:
+    @pytest.fixture()
+    def provider(self):
+        from src.intelligence.providers.bybit_provider import BybitIntelligenceProvider
+
+        p = BybitIntelligenceProvider(symbol="BTC/USDT", perp_symbol="BTC/USDT:USDT")
+        return p
+
+    @pytest.mark.asyncio
+    async def test_fetch_metrics_returns_all_keys(self, provider):
+        """All 15 IntelligenceMetrics fields + confidence + timestamp must be present."""
+        from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
+
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 0.01, "zscore": 0.5})
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": 2.0, "value_usd": 1e9})
+        provider._fetch_basis_data = AsyncMock(return_value=12.5)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.4)
+
+        metrics = await provider.fetch_metrics()
+
+        for col in INTELLIGENCE_FEATURE_COLUMNS:
+            raw_key = col.removeprefix("intelligence_")
+            assert raw_key in metrics, f"Missing key: {raw_key}"
+        assert "confidence" in metrics
+        assert "timestamp" in metrics
+
+    @pytest.mark.asyncio
+    async def test_fetch_metrics_never_raises_on_error(self, provider):
+        """Any internal exception must not propagate — degrade gracefully."""
+        provider._fetch_funding_data = AsyncMock(side_effect=Exception("network down"))
+        provider._fetch_oi_data = AsyncMock(side_effect=RuntimeError("timeout"))
+        provider._fetch_basis_data = AsyncMock(side_effect=ValueError("bad data"))
+        provider._fetch_whale_taker_ratio = AsyncMock(side_effect=Exception("rate limit"))
+
+        metrics = await provider.fetch_metrics()  # must not raise
+        assert isinstance(metrics, dict)
+        assert 0.0 <= metrics["confidence"] <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_confidence_reduced_on_partial_failure(self, provider):
+        provider._fetch_funding_data = AsyncMock(side_effect=Exception("fail"))
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": 0.0, "value_usd": 0.0})
+        provider._fetch_basis_data = AsyncMock(return_value=0.0)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.0)
+
+        metrics_partial_fail = await provider.fetch_metrics()
+
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 0.01, "zscore": 0.3})
+        await provider.fetch_metrics()
+        provider._cache.clear()
+
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 0.01, "zscore": 0.3})
+        metrics_ok = await provider.fetch_metrics()
+
+        assert metrics_partial_fail["confidence"] < metrics_ok["confidence"]
+
+    def test_exchange_id(self, provider):
+        assert provider.exchange_id == "bybit"
+
+    @pytest.mark.asyncio
+    async def test_stress_score_bounded(self, provider):
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 1.0, "zscore": 5.0})
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": -20.0, "value_usd": 1e10})
+        provider._fetch_basis_data = AsyncMock(return_value=200.0)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.0)
+
+        metrics = await provider.fetch_metrics()
+        assert 0.0 <= metrics["exchange_stress_score"] <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_caching_prevents_duplicate_calls(self, provider):
+        call_count = 0
+
+        async def counting_network_fetch(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return [{"fundingRate": 0.0001}, {"fundingRate": 0.0001}]
+
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = counting_network_fetch
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": 0.0, "value_usd": 0.0})
+        provider._fetch_basis_data = AsyncMock(return_value=0.0)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.0)
+        provider._cache_ttl = 300
+
+        await provider.fetch_metrics()
+        await provider.fetch_metrics()
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_from_taker_trades(self, provider):
+        """_fetch_whale_taker_ratio derives buy/sell ratio from ccxt fetch_trades()."""
+        provider._perp = AsyncMock()
+        provider._perp.fetch_trades = AsyncMock(
+            return_value=[
+                {"side": "buy", "amount": 3.0},
+                {"side": "buy", "amount": 2.0},
+                {"side": "sell", "amount": 1.0},
+            ]
+        )
+        ratio = await provider._fetch_whale_taker_ratio()
+        assert ratio == pytest.approx(5.0)
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_no_trades_returns_neutral(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_trades = AsyncMock(return_value=[])
+        ratio = await provider._fetch_whale_taker_ratio()
+        assert ratio == 1.0
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_all_buys_capped_at_ten(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_trades = AsyncMock(return_value=[{"side": "buy", "amount": 100.0}])
+        ratio = await provider._fetch_whale_taker_ratio()
+        assert ratio == 10.0
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_uses_cache(self, provider):
+        provider._set_cache(f"whale:{provider._perp_symbol}", 3.5)
+        ratio = await provider._fetch_whale_taker_ratio()
+        assert ratio == 3.5
+
+    def test_get_cache_expired(self, provider):
+        provider._cache_ttl = 1
+        provider._cache["k"] = (time.time() - 10.0, "value")
+        assert provider._get_cache("k") is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_funding_data_empty_history(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = AsyncMock(return_value=[])
+        result = await provider._fetch_funding_data()
+        assert result == {"rate_pct": 0.0, "zscore": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_fetch_funding_data_single_rate_no_zscore(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = AsyncMock(
+            return_value=[{"fundingRate": 0.0001}]
+        )
+        result = await provider._fetch_funding_data()
+        assert result["rate_pct"] == pytest.approx(0.0001)
+        assert result["zscore"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fetch_oi_data_empty_history(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_open_interest_history = AsyncMock(return_value=[])
+        result = await provider._fetch_oi_data()
+        assert result == {"change_pct": 0.0, "value_usd": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_fetch_oi_data_uses_cache(self, provider):
+        cached = {"change_pct": 0.03, "value_usd": 1_000_000.0}
+        provider._set_cache(f"oi:{provider._perp_symbol}", cached)
+        result = await provider._fetch_oi_data()
+        assert result == cached
+
+    @pytest.mark.asyncio
+    async def test_fetch_oi_data_computes_change_pct(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_open_interest_history = AsyncMock(
+            return_value=[
+                {"openInterestAmount": 1000.0, "openInterestValue": 5_000_000.0},
+                {"openInterestAmount": 1100.0, "openInterestValue": 5_500_000.0},
+            ]
+        )
+        result = await provider._fetch_oi_data()
+        assert result["change_pct"] == pytest.approx(10.0)
+        assert result["value_usd"] == pytest.approx(5_500_000.0)
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_uses_cache(self, provider):
+        provider._set_cache(f"basis:{provider._symbol}", 12.5)
+        result = await provider._fetch_basis_data()
+        assert result == 12.5
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_missing_prices_returns_zero(self, provider):
+        provider._spot = AsyncMock()
+        provider._perp = AsyncMock()
+        provider._spot.fetch_ticker = AsyncMock(return_value={"last": None, "close": None})
+        provider._perp.fetch_ticker = AsyncMock(return_value={"last": 30_000.0})
+        result = await provider._fetch_basis_data()
+        assert result == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_computes_bps(self, provider):
+        provider._spot = AsyncMock()
+        provider._perp = AsyncMock()
+        provider._spot.fetch_ticker = AsyncMock(return_value={"last": 30_000.0})
+        provider._perp.fetch_ticker = AsyncMock(return_value={"last": 30_030.0})
+        result = await provider._fetch_basis_data()
+        assert result == pytest.approx(10.0)
+
+    @pytest.mark.asyncio
+    async def test_initialize_and_close(self, provider):
+        """Real ccxt.bybit market load, mirroring the OKX lifecycle test."""
+        await provider.initialize()
+        await provider.close()
+
+    def test_singleton(self):
+        import src.intelligence.providers.bybit_provider as mod
+
+        mod._provider = None
+        from src.intelligence.providers.bybit_provider import get_bybit_intelligence_provider
+
+        p1 = get_bybit_intelligence_provider()
+        p2 = get_bybit_intelligence_provider()
+        assert p1 is p2
+        mod._provider = None
+
+
+# ---------------------------------------------------------------------------
 # 3. CoinGeckoIntelligenceProvider
 # ---------------------------------------------------------------------------
 
@@ -259,6 +478,24 @@ class TestCoinGeckoIntelligenceProvider:
         assert "btc_dominance_regime" in metrics
         # z-score of outlier should be > 0
         assert metrics["btc_dominance_regime"] > 0.0
+
+    @pytest.mark.asyncio
+    async def test_btc_dominance_history_truncated_to_window(self, provider):
+        from src.intelligence.providers.coingecko_provider import _BTC_DOM_WINDOW
+
+        mock_data = {
+            "market_cap_percentage": {"btc": 50.0},
+            "total_market_cap": {"usd": 1e12},
+        }
+
+        async def fake_fetch():
+            return mock_data
+
+        provider._fetch_global = fake_fetch
+        provider._btc_dom_history = [45.0] * _BTC_DOM_WINDOW  # already at cap
+
+        await provider.fetch_metrics()
+        assert len(provider._btc_dom_history) == _BTC_DOM_WINDOW
 
     @pytest.mark.asyncio
     async def test_stablecoin_ratio_bounded(self, provider):
@@ -392,6 +629,159 @@ class TestMultiProviderIntelligenceAggregator:
                 return metrics
 
         return MockProvider()
+
+    def test_is_neutral_nan_is_not_neutral(self):
+        from src.intelligence.providers.aggregator import _is_neutral
+
+        assert _is_neutral("futures_oi_change_pct", float("nan")) is False
+
+    @pytest.mark.asyncio
+    async def test_initialize_all_logs_and_continues_on_partial_failure(self):
+        from src.intelligence.providers.aggregator import MultiProviderIntelligenceAggregator
+
+        good = self._make_exchange_provider("binance", {})
+        bad = self._make_exchange_provider("okx", {})
+        bad.initialize = AsyncMock(side_effect=RuntimeError("init blew up"))
+
+        agg = MultiProviderIntelligenceAggregator(
+            exchange_providers=[good, bad],
+            macro_providers=[],
+        )
+        await agg.initialize_all()  # must not raise despite bad's failure
+
+    def _make_onchain_provider(self, exchange_id: str, metrics: dict) -> Any:
+        from src.intelligence.onchain.base import OnChainProvider
+
+        class MockOnChainProvider(OnChainProvider):
+            @property
+            def exchange_id(self):
+                return exchange_id
+
+            async def initialize(self):
+                pass
+
+            async def close(self):
+                pass
+
+            async def fetch_metrics(self) -> dict[str, float]:
+                return metrics
+
+        return MockOnChainProvider.__new__(MockOnChainProvider)  # bypass __init__ (needs no HTTP)
+
+    @pytest.mark.asyncio
+    async def test_onchain_aware_initialize_all_logs_on_partial_failure(self):
+        from src.intelligence.providers.aggregator import OnChainAwareAggregator
+
+        good_exchange = self._make_exchange_provider("binance", {})
+        good_onchain = self._make_onchain_provider("defillama", {})
+        bad_onchain = self._make_onchain_provider("arkham_intel", {})
+        bad_onchain.initialize = AsyncMock(side_effect=RuntimeError("onchain init blew up"))
+
+        agg = OnChainAwareAggregator(
+            exchange_providers=[good_exchange],
+            macro_providers=[],
+            onchain_providers=[good_onchain, bad_onchain],
+        )
+        await agg.initialize_all()  # must not raise despite one provider failing
+
+    @pytest.mark.asyncio
+    async def test_onchain_aware_close_all_closes_onchain_providers_too(self):
+        from src.intelligence.providers.aggregator import OnChainAwareAggregator
+
+        exchange = self._make_exchange_provider("binance", {})
+        exchange.close = AsyncMock()
+        onchain = self._make_onchain_provider("arkham_intel", {})
+        onchain.close = AsyncMock()
+
+        agg = OnChainAwareAggregator(
+            exchange_providers=[exchange],
+            macro_providers=[],
+            onchain_providers=[onchain],
+        )
+        await agg.close_all()
+        exchange.close.assert_awaited_once()
+        onchain.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_onchain_aware_fetch_metrics_logs_and_skips_failed_provider(self):
+        from src.intelligence.providers.aggregator import OnChainAwareAggregator
+
+        onchain = self._make_onchain_provider("arkham_intel", {})
+        onchain.fetch_metrics = AsyncMock(side_effect=RuntimeError("onchain fetch blew up"))
+
+        agg = OnChainAwareAggregator(
+            exchange_providers=[self._make_exchange_provider("binance", {})],
+            macro_providers=[],
+            onchain_providers=[onchain],
+        )
+        merged = await agg.fetch_metrics()  # must not raise; falls back to base only
+        assert isinstance(merged, dict)
+
+    @pytest.mark.asyncio
+    async def test_onchain_aware_fetch_metrics_overwrites_neutral_base_value(self):
+        """base has no real value for a field (still at its neutral default)
+        -- the on-chain value must simply overwrite it, not weighted-blend."""
+        from src.intelligence.providers.aggregator import OnChainAwareAggregator
+
+        onchain_metrics = {
+            "futures_oi_change_pct": 4.0,
+            "confidence": 0.6,
+            "timestamp": float(int(time.time())),
+        }
+        agg = OnChainAwareAggregator(
+            exchange_providers=[self._make_exchange_provider("binance", {})],
+            macro_providers=[],
+            onchain_providers=[self._make_onchain_provider("arkham_intel", onchain_metrics)],
+        )
+        merged = await agg.fetch_metrics()
+        assert merged["futures_oi_change_pct"] == pytest.approx(4.0)
+
+    @pytest.mark.asyncio
+    async def test_onchain_aware_fetch_metrics_blends_confident_values(self):
+        """When both base (exchange/macro) and on-chain results are
+        non-neutral with positive confidence, the merge must be a genuine
+        confidence-weighted average, not just an overwrite."""
+        from src.intelligence.providers.aggregator import OnChainAwareAggregator
+
+        exchange_metrics = {
+            "futures_oi_change_pct": 2.0,
+            "confidence": 0.8,
+            "timestamp": float(int(time.time())),
+        }
+        onchain_metrics = {
+            "futures_oi_change_pct": 4.0,
+            "confidence": 0.6,
+            "timestamp": float(int(time.time())),
+        }
+
+        agg = OnChainAwareAggregator(
+            exchange_providers=[self._make_exchange_provider("binance", exchange_metrics)],
+            macro_providers=[],
+            onchain_providers=[self._make_onchain_provider("arkham_intel", onchain_metrics)],
+        )
+        merged = await agg.fetch_metrics()
+        # Confidence-weighted blend of base (2.0) and on-chain (4.0) -- base's
+        # own confidence is itself recomputed by the exchange-merge step
+        # (penalised for paid-gated fields), not a raw passthrough of 0.8, so
+        # this asserts genuine blending occurred rather than an exact formula.
+        assert 2.0 < merged["futures_oi_change_pct"] < 4.0
+
+    @pytest.mark.asyncio
+    async def test_close_all_closes_every_provider(self):
+        from src.intelligence.providers.aggregator import MultiProviderIntelligenceAggregator
+
+        p1 = self._make_exchange_provider("binance", {})
+        p2 = self._make_exchange_provider("okx", {})
+        p1.close = AsyncMock()
+        p2.close = AsyncMock()
+
+        agg = MultiProviderIntelligenceAggregator(
+            exchange_providers=[p1, p2],
+            macro_providers=[],
+        )
+        await agg.close_all()
+        p1.close.assert_awaited_once()
+        p2.close.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_all_intel_fields_present_in_merged(self):
@@ -662,6 +1052,31 @@ class TestInjectIntelligenceFeatures:
         result = _inject_intelligence_features(base_feature_vec, {})
         pd.testing.assert_series_equal(result, base_feature_vec)
 
+    def test_non_numeric_field_value_skipped(self, base_feature_vec):
+        """A field that can't convert to float (e.g. a malformed provider
+        response) must be dropped, not raise."""
+        from src.features.pipeline import _inject_intelligence_features
+
+        metrics = {"exchange_stress_score": "not-a-number", "confidence": 0.7}
+        result = _inject_intelligence_features(base_feature_vec, metrics)
+        assert "intelligence_exchange_stress_score" not in result.index
+
+    def test_infinite_confidence_not_injected(self, base_feature_vec):
+        from src.features.pipeline import _inject_intelligence_features
+
+        metrics = {"exchange_stress_score": 0.5, "confidence": float("inf")}
+        result = _inject_intelligence_features(base_feature_vec, metrics)
+        assert "intelligence_confidence" not in result.index
+        assert "intelligence_exchange_stress_score" in result.index
+
+    def test_non_numeric_confidence_skipped(self, base_feature_vec):
+        from src.features.pipeline import _inject_intelligence_features
+
+        metrics = {"exchange_stress_score": 0.5, "confidence": "not-a-number"}
+        result = _inject_intelligence_features(base_feature_vec, metrics)
+        assert "intelligence_confidence" not in result.index
+        assert "intelligence_exchange_stress_score" in result.index
+
 
 # ---------------------------------------------------------------------------
 # 7. build_inference_features with intelligence_metrics kwarg
@@ -761,7 +1176,7 @@ class TestGetMultiProviderAggregatorSingleton:
         # cleanup
         agg_mod._aggregator = None
 
-    def test_aggregator_has_all_four_providers(self):
+    def test_aggregator_has_all_five_providers(self):
         import src.intelligence.providers.aggregator as agg_mod
 
         agg_mod._aggregator = None
@@ -771,6 +1186,7 @@ class TestGetMultiProviderAggregatorSingleton:
         ids = {p.exchange_id for p in agg._all_providers}
         assert "binance" in ids
         assert "okx" in ids
+        assert "bybit" in ids
         assert "coingecko" in ids
         assert "blockchain_info" in ids
         agg_mod._aggregator = None
@@ -823,6 +1239,7 @@ class TestGetOnChainAwareAggregatorSingleton:
         base_ids = {p.exchange_id for p in agg._all_providers}
         assert "binance" in base_ids
         assert "okx" in base_ids
+        assert "bybit" in base_ids
         assert "coingecko" in base_ids
         assert "blockchain_info" in base_ids
         # On-chain providers
