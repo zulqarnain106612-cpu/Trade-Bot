@@ -240,6 +240,19 @@ class Orchestrator:
                 self._log.warning("orchestrator.models_not_found", timeframe=tf.value)
                 continue
 
+            # Ensemble is additive and optional -- a missing/failed load must not
+            # block bringing up the direction/meta-driven engine (same fail-open
+            # contract as the retrain path in _train_models()).
+            try:
+                ensemble = ModelTrainer.load_ensemble(model_dir, self._symbol, tf.value)
+            except FileNotFoundError:
+                ensemble = None
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.ensemble_load_failed", timeframe=tf.value, error=str(exc)
+                )
+                ensemble = None
+
             self._engines[tf.value] = SignalEngine(
                 symbol=self._symbol,
                 timeframe=tf,
@@ -249,6 +262,7 @@ class Orchestrator:
                 direction_model=direction_model,
                 meta_model=meta_model,
                 trainer=trainer,
+                ensemble=ensemble,
             )
 
         self._log.info(
@@ -699,6 +713,26 @@ class Orchestrator:
             )
             trainer.save(dir_result.model, meta_result.model, self._cfg.storage.model_dir, version)
 
+            # Diversified prediction ensemble (ARIMA/XGBoost/LSTM/GP/TreeEnsemble) --
+            # additive to direction/meta training, never blocks it. A failure here
+            # (e.g. an optional dependency missing) must not prevent the direction/
+            # meta models -- which just trained and saved successfully above -- from
+            # being hot-swapped in below.
+            ensemble = None
+            try:
+                ensemble = await loop.run_in_executor(
+                    self._train_executor, trainer.train_ensemble, fm
+                )
+                await loop.run_in_executor(
+                    self._train_executor,
+                    trainer.save_ensemble,
+                    ensemble,
+                    self._cfg.storage.model_dir,
+                )
+            except Exception as exc:
+                self._log.error("orchestrator.ensemble_train_failed", error=str(exc))
+                ensemble = None
+
             # Persist metrics to storage
             await self._storage.insert_model_metrics(
                 dir_result.to_metrics_record("direction", tf.value, version)
@@ -715,7 +749,9 @@ class Orchestrator:
                 new_meta = ModelTrainer.load_meta(
                     self._cfg.storage.model_dir, self._symbol, tf.value
                 )
-                await self._engines[tf.value].swap_models(new_dir, new_meta, detector)
+                await self._engines[tf.value].swap_models(
+                    new_dir, new_meta, detector, ensemble=ensemble
+                )
 
             self._log.info(
                 "orchestrator.training_complete",

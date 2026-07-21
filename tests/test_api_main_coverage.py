@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import os
 import time
@@ -702,6 +703,102 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
     asyncio.run(_run())
 
 
+def test_lifespan_no_insecure_bind_warning_when_tls_configured(monkeypatch):
+    """Non-loopback host + HTTPS_CERT set -> the insecure-bind critical log
+    must be skipped (has_tls=True branch)."""
+    import asyncio
+
+    import src.api.main as main_mod
+
+    fake_storage = AsyncMock()
+    fake_fetcher = AsyncMock()
+    fake_orch = MagicMock()
+    fake_orch.startup = AsyncMock()
+    fake_orch.run = AsyncMock(return_value=None)
+    fake_orch.stop = MagicMock()
+    fake_orch.shutdown = AsyncMock()
+
+    fake_cfg = MagicMock()
+    fake_cfg.api.host = "0.0.0.0"
+    fake_cfg.api.cors_origins = []
+    fake_cfg.trading_mode.value = "paper"
+    fake_cfg.self_tuning.enabled = False
+
+    class _FetcherCtx:
+        async def __aenter__(self):
+            return fake_fetcher
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def _run():
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "API_SECRET_KEY": _API_KEY,
+                    "OPERATOR_SECRET": "y" * 32,
+                    "HTTPS_CERT": "/etc/tls/cert.pem",
+                },
+                clear=True,
+            ),
+            patch("src.api.main.get_settings", return_value=fake_cfg),
+            patch("src.api.main.validate_cors_config"),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
+            patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
+            patch("src.api.main.Orchestrator", return_value=fake_orch),
+            patch("src.api.main.log") as mock_log,
+        ):
+            async with main_mod.lifespan(main_mod.app):
+                pass
+            mock_log.critical.assert_not_called()
+
+    asyncio.run(_run())
+
+
+def test_lifespan_startup_failure_and_fetcher_close_also_fails():
+    """SCAN2-013 counterpart in main.py's lifespan: when startup() fails AND
+    the subsequent fetcher.close() also raises, the secondary close error
+    must be logged (not replace the original exception) and the original
+    startup exception must still propagate."""
+    import asyncio
+
+    import src.api.main as main_mod
+
+    fake_storage = AsyncMock()
+    fake_fetcher = AsyncMock()
+    fake_fetcher.close = AsyncMock(side_effect=RuntimeError("close also failed"))
+    fake_orch = MagicMock()
+    fake_orch.startup = AsyncMock(side_effect=RuntimeError("boom"))
+
+    class _FetcherCtx:
+        async def __aenter__(self):
+            return fake_fetcher
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def _run():
+        with (
+            patch.dict(
+                os.environ,
+                {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": "y" * 32},
+                clear=True,
+            ),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
+            patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
+            patch("src.api.main.Orchestrator", return_value=fake_orch),
+            pytest.raises(
+                RuntimeError, match="boom"
+            ),  # original exception, not "close also failed"
+        ):
+            async with main_mod.lifespan(main_mod.app):
+                pass
+
+    asyncio.run(_run())
+    fake_fetcher.close.assert_awaited_once()
+
+
 # ---------------------------------------------------------------------------
 # /approvals — executor is None branch (line 556)
 # ---------------------------------------------------------------------------
@@ -833,6 +930,132 @@ def test_websocket_full_tick_cycle(mock_state):
             # coverage is that the handler body executed at least once.
             pass
     assert verify_ws_key is not None  # sanity: import didn't fail
+
+
+def _fake_ws():
+    ws = AsyncMock()
+    ws.client = "test-client"
+    return ws
+
+
+async def _run_ws_endpoint_iterations(mock_state, n_sleeps, orchestrator=None, executor=None):
+    """Drive websocket_endpoint() directly with a controlled fake sleep that
+    stops the `while True` loop after n_sleeps iterations by raising
+    WebSocketDisconnect on the (n_sleeps+1)th call -- avoids the real
+    TestClient WS transport's timing flakiness entirely."""
+    from starlette.websockets import WebSocketDisconnect
+
+    import src.api.main as main_mod
+
+    mock_state.orchestrator = orchestrator
+    ws = _fake_ws()
+    call_count = 0
+
+    async def _fake_sleep(_s):
+        nonlocal call_count
+        call_count += 1
+        if call_count > n_sleeps:
+            raise WebSocketDisconnect
+
+    async def _allow_ws(_ws):
+        return None
+
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
+    ):
+        await main_mod.websocket_endpoint(ws)
+    return ws
+
+
+def test_websocket_orchestrator_none_skips_tick(mock_state):
+    """orchestrator is None (server still starting) -> heartbeat loop must
+    `continue` rather than crash on None._executor."""
+    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=None))
+    ws.send_text.assert_not_called()
+
+
+def test_websocket_executor_none_skips_tick(mock_state):
+    """orchestrator exists but has no executor yet -> same skip-tick contract."""
+    fake_orch = MagicMock()
+    fake_orch._executor = None
+    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=fake_orch))
+    ws.send_text.assert_not_called()
+
+
+def test_websocket_tick_includes_regime_snapshot(mock_state):
+    """When storage.latest_regime() returns a snapshot, the tick payload
+    must include a "regime" block built from it."""
+    from starlette.websockets import WebSocketDisconnect
+
+    import src.api.main as main_mod
+
+    snap = MagicMock()
+    snap.regime_state = 1
+    snap.prob_ranging = 0.1
+    snap.prob_trending = 0.8
+    snap.prob_volatile = 0.1
+    mock_state.storage.latest_regime = AsyncMock(return_value=snap)
+
+    ws = _fake_ws()
+    call_count = 0
+
+    async def _fake_sleep(_s):
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise WebSocketDisconnect
+
+    async def _allow_ws(_ws):
+        return None
+
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
+    ):
+        asyncio.run(main_mod.websocket_endpoint(ws))
+
+    sent = ws.send_text.call_args.args[0]
+    assert '"regime"' in sent
+    assert '"trending"' in sent
+
+
+def test_websocket_generic_exception_logged_not_raised(mock_state):
+    """Any non-WebSocketDisconnect exception inside the loop must be caught
+    and logged, not propagate out of the handler."""
+    import src.api.main as main_mod
+
+    fake_orch = MagicMock()
+    fake_executor = AsyncMock()
+    fake_executor.equity_usd = 1000.0
+    fake_executor.cash_usd = 500.0
+    fake_executor.open_positions_safe = AsyncMock(return_value=[])
+    fake_executor.pending_approvals_safe = AsyncMock(return_value=[])
+    fake_orch._executor = fake_executor
+    mock_state.orchestrator = fake_orch
+    mock_state.storage.latest_regime = AsyncMock(side_effect=RuntimeError("db exploded"))
+
+    ws = _fake_ws()
+
+    async def _allow_ws(_ws):
+        return None
+
+    async def _one_sleep_then_ok(_s):
+        return None
+
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        patch("asyncio.sleep", side_effect=_one_sleep_then_ok),
+    ):
+        # storage.latest_regime raising propagates out of the try body ->
+        # caught by `except Exception` -> handler returns normally.
+        asyncio.run(main_mod.websocket_endpoint(ws))
 
 
 def test_websocket_capacity_rejected(mock_state):

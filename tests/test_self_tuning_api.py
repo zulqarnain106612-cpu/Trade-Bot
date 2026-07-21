@@ -92,6 +92,20 @@ class TestSelfTuningStatus:
         resp = client.get("/self-tuning/status")
         assert resp.status_code == 200
 
+    def test_status_includes_current_version_when_promoted(self, api_client) -> None:
+        client, _storage, api_main = api_client
+        _register_test_param(api_main)
+        api_main.tuning_version_store.promote(
+            "hmm.entropy_threshold", 0.55, evidence={}, promoted_by="alice"
+        )
+        resp = client.get("/self-tuning/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        param = next(p for p in body["parameters"] if p["name"] == "hmm.entropy_threshold")
+        assert param["current_version"] is not None
+        assert param["current_version"]["value"] == pytest.approx(0.55)
+        assert param["current_version"]["promoted_by"] == "alice"
+
 
 class TestSelfTuningPauseResume:
     def test_pause_requires_operator_secret(self, api_client) -> None:
@@ -100,6 +114,17 @@ class TestSelfTuningPauseResume:
             "/self-tuning/pause", json={"operator": "alice", "operator_secret": _WRONG_SECRET}
         )
         assert resp.status_code == 401
+
+    def test_pause_returns_503_when_operator_secret_not_configured(self, api_client) -> None:
+        client, _storage, _main = api_client
+        del os.environ["OPERATOR_SECRET"]
+        try:
+            resp = client.post(
+                "/self-tuning/pause", json={"operator": "alice", "operator_secret": _TEST_SECRET}
+            )
+        finally:
+            os.environ["OPERATOR_SECRET"] = _TEST_SECRET
+        assert resp.status_code == 503
 
     def test_pause_then_resume_round_trip(self, api_client) -> None:
         client, _storage, api_main = api_client

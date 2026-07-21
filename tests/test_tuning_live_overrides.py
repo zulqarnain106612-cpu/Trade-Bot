@@ -72,6 +72,20 @@ class TestRiskOverlay:
         result = effective_risk_settings(base)
         assert result.slippage_impact_coeff_bps == 15.5
 
+    def test_ensemble_blend_weight_overlaid(self) -> None:
+        base = RiskSettings(ensemble_blend_weight=0.15)
+        _register("risk.ensemble_blend_weight", 0.25)
+        result = effective_risk_settings(base)
+        assert result.ensemble_blend_weight == 0.25
+
+    def test_both_risk_fields_overlaid_independently(self) -> None:
+        base = RiskSettings(slippage_impact_coeff_bps=10.0, ensemble_blend_weight=0.15)
+        _register("risk.slippage_impact_coeff_bps", 15.5)
+        _register("risk.ensemble_blend_weight", 0.3)
+        result = effective_risk_settings(base)
+        assert result.slippage_impact_coeff_bps == 15.5
+        assert result.ensemble_blend_weight == 0.3
+
     def test_excluded_risk_fields_never_touched(self) -> None:
         """EXCLUDED_PARAMS (Kelly sizing, drawdown halts, ...) can never be
         registered at all (registry.py enforces this), so there is no code

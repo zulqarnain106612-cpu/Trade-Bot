@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from src.config import RuntimeConfig, get_settings
+from src.config import ExecutionMode, RuntimeConfig, get_settings
 from src.risk.gates import check_position_exit
 
 
@@ -194,6 +194,56 @@ class TestRuntimeConfigRiskControls:
         assert after["stop_loss_enabled"] == before["stop_loss_enabled"]
         assert after["take_profit_enabled"] == before["take_profit_enabled"]
         assert after["max_holding_period_s"] == before["max_holding_period_s"]
+
+    def test_get_lock_double_checked_race_reuses_winner(self) -> None:
+        """VF-004-style guard: if a second caller acquires the init guard
+        after a first caller already set self._lock, the inner re-check
+        must skip creating a second asyncio.Lock and reuse the winner."""
+        import threading
+
+        rc = RuntimeConfig()
+        winner = asyncio.Lock()
+        real_lock = threading.Lock()
+
+        class _RacingLock:
+            def __enter__(self):
+                real_lock.__enter__()
+                rc._lock = winner  # another "thread" wins the race first
+                return self
+
+            def __exit__(self, *exc_info):
+                return real_lock.__exit__(*exc_info)
+
+        rc._init_guard = _RacingLock()  # type: ignore[assignment]
+        lock = rc._get_lock()
+        assert lock is winner
+
+    def test_execution_mode_get_and_set_round_trip(self) -> None:
+        async def _run() -> ExecutionMode:
+            rc = RuntimeConfig()
+            await rc.set_execution_mode(ExecutionMode.MANUAL)
+            return await rc.get_execution_mode()
+
+        result = asyncio.run(_run())
+        assert result == ExecutionMode.MANUAL
+
+    def test_update_all_fields_at_once(self) -> None:
+        async def _run() -> dict[str, Any]:
+            rc = RuntimeConfig()
+            return await rc.set_risk_controls(
+                stop_loss_enabled=False,
+                stop_loss_pct=4.0,
+                take_profit_enabled=False,
+                take_profit_pct=6.0,
+                max_holding_period_s=3600.0,
+            )
+
+        after = asyncio.run(_run())
+        assert after["stop_loss_enabled"] is False
+        assert after["stop_loss_pct"] == 4.0
+        assert after["take_profit_enabled"] is False
+        assert after["take_profit_pct"] == 6.0
+        assert after["max_holding_period_s"] == 3600.0
 
     def test_toggle_disable_then_enable(self) -> None:
         async def _run() -> tuple[bool, bool]:

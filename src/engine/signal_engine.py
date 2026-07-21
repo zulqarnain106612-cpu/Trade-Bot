@@ -24,6 +24,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -43,6 +44,7 @@ from src.features.pipeline import (
     build_feature_matrix,
     build_inference_features,
 )
+from src.intelligence.ensemble_predictor import EnsemblePredictor
 from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter as _ProbAdapter
 from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
@@ -63,6 +65,7 @@ from src.risk.kelly import KellyResult, compute_position_size
 from src.risk.slippage import SlippageModel
 from src.strategies.filters import apply_all_strategy_filters, ewm_trend_signal, mtf_trend_aligned
 from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
+from src.tuning.live_overrides import effective_risk_settings
 
 
 # Module-level adapter singleton -- stateless, safe to reuse across ticks.
@@ -158,6 +161,7 @@ class SignalEngine:
         direction_model: XGBClassifier,
         meta_model: XGBClassifier,
         trainer: ModelTrainer,
+        ensemble: EnsemblePredictor | None = None,
     ) -> None:
         self._symbol = symbol
         self._timeframe = timeframe
@@ -167,6 +171,11 @@ class SignalEngine:
         self._direction_model = direction_model
         self._meta_model = meta_model
         self._trainer = trainer
+        # Diversified prediction ensemble (ARIMA/XGBoost/LSTM/GP/TreeEnsemble),
+        # trained by ModelTrainer.train_ensemble() alongside direction/meta.
+        # None until the orchestrator's first retrain cycle produces one --
+        # blending fails open to XGBoost-only p_long until then (see tick()).
+        self._ensemble = ensemble
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         self._log = log.bind(
@@ -184,18 +193,23 @@ class SignalEngine:
         direction_model: Any,
         meta_model: Any,
         detector: Any,
+        ensemble: Any = None,
     ) -> None:
         """
-        Atomically replace all three model objects under the model lock.
+        Atomically replace all model objects under the model lock.
 
         Prevents a tick from reading a mismatched (v2 direction, v1 meta) pair
-        during a concurrent hot-swap.
+        during a concurrent hot-swap. `ensemble` defaults to None so existing
+        callers that don't yet train/pass one are unaffected — a tick with no
+        ensemble simply falls back to XGBoost-only p_long (see tick()).
         """
         async with self._model_lock:
             self._direction_model = direction_model
             self._meta_model = meta_model
             self._detector = detector
-        self._log.info("signal_engine.models_swapped")
+            if ensemble is not None:
+                self._ensemble = ensemble
+        self._log.info("signal_engine.models_swapped", ensemble_swapped=ensemble is not None)
 
     # ------------------------------------------------------------------
     # Main tick — called by orchestrator on every bar close
@@ -368,6 +382,7 @@ class SignalEngine:
             direction_model = self._direction_model
             meta_model = self._meta_model
             detector = self._detector
+            ensemble = self._ensemble
 
         regime: RegimePrediction | None = None
         if history_df is not None and detector.is_fitted():
@@ -384,6 +399,37 @@ class SignalEngine:
         # NEW-017: REGIME_VOLATILE imported at module level — no per-tick import overhead
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
+
+        # Ensemble blend (src/intelligence/ensemble_predictor.py) — conservative
+        # by default (RiskSettings.ensemble_blend_weight, self-tunable via
+        # risk.ensemble_blend_weight). Fails open to XGBoost-only p_long/direction
+        # on any error or when no ensemble has been trained yet (ensemble is None
+        # until the orchestrator's first retrain cycle produces and hot-swaps one).
+        _ensemble_blend_weight = effective_risk_settings(self._cfg.risk).ensemble_blend_weight
+        _ensemble_point_estimate: float | None = None
+        if ensemble is not None and _ensemble_blend_weight > 0.0:
+            try:
+                _ens_pred = ensemble.predict_row(vec)
+                _ensemble_point_estimate = _ens_pred.point_estimate
+                _total_uncertainty = math.sqrt(
+                    _ens_pred.aleatoric_uncertainty**2 + _ens_pred.epistemic_uncertainty**2
+                )
+                # tanh of the ensemble's own signal-to-noise ratio: bounded in
+                # (0, 1), symmetric around p=0.5, self-normalising against the
+                # ensemble's own uncertainty rather than an arbitrary scale
+                # constant. point_estimate is on the same log-return scale
+                # fm.log_returns already uses elsewhere in this trainer.
+                _z = _ensemble_point_estimate / max(_total_uncertainty, 1e-9)
+                _p_ensemble_long = 0.5 * (1.0 + math.tanh(_z))
+                p_long = (
+                    1.0 - _ensemble_blend_weight
+                ) * p_long + _ensemble_blend_weight * _p_ensemble_long
+                # Re-derive direction from the blended p_long — predict_direction's
+                # own threshold rule (p_long >= 0.5 -> long), so a large enough
+                # ensemble disagreement can flip direction, not just scale size.
+                direction = 1 if p_long >= 0.5 else 0
+            except Exception as exc:
+                self._log.warning("signal.ensemble_blend_failed", error=str(exc))
 
         # GAP-002: HMM posterior entropy gate — scale position size down when
         # the regime classification is uncertain (near-uniform posterior).
@@ -592,6 +638,8 @@ class SignalEngine:
             prob_volatile=_prob_volatile,
             open_price=float(bars["open"].iloc[-1]) if "open" in bars.columns else None,
             prev_close=float(bars["close"].iloc[-2]) if len(bars) >= 2 else None,
+            high=bars["high"] if "high" in bars.columns else None,
+            low=bars["low"] if "low" in bars.columns else None,
         )
 
         if not _filter_result["passes"]:
@@ -682,6 +730,10 @@ class SignalEngine:
                 correlation_scalar, 3
             ),  # GAP-005/015: IS applied (see kelly.py)
             hurst=round(cast("dict[str, float]", _filter_result["details"]).get("hurst", 0.5), 3),
+            ensemble_point_estimate=(
+                round(_ensemble_point_estimate, 6) if _ensemble_point_estimate is not None else None
+            ),
+            ensemble_blend_weight=_ensemble_blend_weight,
         )
 
         # ── Cognitive Engine — mandatory evaluation (no bypass) ─────────────

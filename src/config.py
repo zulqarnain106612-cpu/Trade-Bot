@@ -179,6 +179,18 @@ class RiskSettings(BaseSettings):
     slippage_impact_coeff_bps: float = Field(default=10.0, ge=0.0, le=2000.0)
     slippage_veto_margin_bps: float = Field(default=1.0, ge=0.0, le=500.0)
 
+    # ensemble_blend_weight -- how much of the XGBoost direction model's
+    # p_long gets replaced by the diversified prediction ensemble's own
+    # implied probability (src/intelligence/ensemble_predictor.py, wired in
+    # via src/engine/signal_engine.py). 0.0 = ensemble has no effect
+    # (XGBoost-only, today's behavior); 1.0 = ensemble fully replaces
+    # XGBoost. Deliberately conservative by default -- the ensemble is a
+    # newly-wired live component and this weight is registered as a
+    # self-tuning parameter (src/tuning/bootstrap.py) so it can only move
+    # via the same propose/evaluate/gate/shadow-mode machinery every other
+    # tunable parameter goes through, never a direct edit to this default.
+    ensemble_blend_weight: float = Field(default=0.15, ge=0.0, le=1.0)
+
     # GAP-013 -- automated position-exit controls (stop-loss / take-profit /
     # time-based exit). These are STARTUP DEFAULTS ONLY, loaded once into
     # RuntimeConfig at process start. Unlike the hard limits above, the

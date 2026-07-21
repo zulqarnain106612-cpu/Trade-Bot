@@ -99,7 +99,15 @@ class OrderManager:
             )
             raise
         except ccxt.ExchangeError as exc:
-            fsm.transition(OrderStatus.FAILED, {"error": str(exc)})
+            # _confirm_order_fill already transitions permanent-error cases
+            # (BadSymbol/InsufficientFunds/InvalidOrder/AuthenticationError)
+            # to FAILED itself before re-raising -- transitioning again here
+            # unconditionally would hit "Cannot transition from terminal
+            # state failed to failed" and mask the real ExchangeError with a
+            # confusing OrderFSMError instead. Only transition if the FSM
+            # hasn't already reached a terminal state.
+            if not fsm.state.is_terminal():
+                fsm.transition(OrderStatus.FAILED, {"error": str(exc)})
             raise
 
     async def _confirm_order_fill(
@@ -136,6 +144,13 @@ class OrderManager:
             attempt += 1
             fsm.increment_retry()
 
+            # Cancellation is a definitive terminal outcome, not an exchange
+            # error to classify as transient/permanent -- it must bypass this
+            # loop's own except clauses below, or a raise from the "cancelled"
+            # branch (below) gets caught by this same try's generic
+            # `except ccxt.ExchangeError` handler and silently retried until
+            # timeout instead of failing immediately.
+            cancelled_error: ccxt.ExchangeError | None = None
             try:
                 confirmed = await exchange.fetch_order(order_id, symbol)
                 status = confirmed.get("status", "").lower()
@@ -238,11 +253,28 @@ class OrderManager:
                     continue
 
                 elif status == "cancelled":
+                    # The FSM only allows CANCELLED from FILLING (not
+                    # directly from PENDING) -- a realistic outcome for a
+                    # market order rejected/cancelled instantly (no
+                    # liquidity, self-trade prevention, IOC-style rejection)
+                    # can report "cancelled" on the very first poll while
+                    # still PENDING. Mirror the same PENDING-guard the
+                    # "filled" and "open"/"pending" branches above already
+                    # use, or this raises an unhandled OrderFSMError instead
+                    # of properly recording the cancellation.
+                    if fsm.state.status == OrderStatus.PENDING:
+                        fsm.transition(
+                            OrderStatus.FILLING,
+                            {"exchange_response": confirmed},
+                        )
                     fsm.transition(
                         OrderStatus.CANCELLED,
                         {"exchange_response": confirmed},
                     )
-                    raise ccxt.ExchangeError(f"Order {order_id} was cancelled on exchange")
+                    # Do not raise here -- see cancelled_error comment above.
+                    cancelled_error = ccxt.ExchangeError(
+                        f"Order {order_id} was cancelled on exchange"
+                    )
 
                 else:
                     # Unknown status
@@ -287,3 +319,6 @@ class OrderManager:
                     attempt=attempt,
                 )
                 continue
+
+            if cancelled_error is not None:
+                raise cancelled_error

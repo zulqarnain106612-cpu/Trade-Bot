@@ -88,7 +88,12 @@ def _fitted_detector() -> MagicMock:
 
 
 def _make_engine(
-    bars=None, raise_gap_fill=False, direction_model=None, meta_model=None, detector=None
+    bars=None,
+    raise_gap_fill=False,
+    direction_model=None,
+    meta_model=None,
+    detector=None,
+    ensemble=None,
 ) -> SignalEngine:
     storage = AsyncMock()
     storage.fetch_bars.return_value = bars if bars is not None else _make_bars()
@@ -118,6 +123,7 @@ def _make_engine(
         direction_model=direction_model or _fitted_xgb(),
         meta_model=meta_model or _fitted_xgb(),
         trainer=trainer,
+        ensemble=ensemble,
     )
 
 
@@ -478,6 +484,228 @@ class TestTradeablePath:
 
 
 # ---------------------------------------------------------------------------
+# Ensemble blend (src/intelligence/ensemble_predictor.py wired into p_long)
+# ---------------------------------------------------------------------------
+
+
+def _mock_ensemble_prediction(point_estimate: float, uncertainty: float = 0.01):
+    from src.intelligence.ensemble_predictor import EnsemblePrediction
+
+    return EnsemblePrediction(
+        point_estimate=point_estimate,
+        credible_lower=point_estimate - 1.96 * uncertainty,
+        credible_upper=point_estimate + 1.96 * uncertainty,
+        model_disagreement=uncertainty,
+        aleatoric_uncertainty=uncertainty,
+        epistemic_uncertainty=0.0,
+        best_model="xgboost",
+        model_weights={"xgboost": 1.0},
+        individual_predictions={"xgboost": point_estimate},
+    )
+
+
+class TestEnsembleBlend:
+    @pytest.mark.asyncio
+    async def test_no_ensemble_leaves_p_long_unchanged(self):
+        """self._ensemble is None (default, before any retrain cycle has
+        produced one) -> XGBoost-only p_long/direction, unchanged."""
+        e = _make_engine(ensemble=None)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+        e._load_bars = lambda: _make_bars(n=320)  # type: ignore[method-assign,assignment]
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        assert r.p_long == pytest.approx(0.8)
+        assert r.direction == 1
+
+    @pytest.mark.asyncio
+    async def test_zero_blend_weight_skips_ensemble_even_when_present(self):
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.return_value = _mock_ensemble_prediction(1.0)  # extreme bullish
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = MagicMock(ensemble_blend_weight=0.0)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.55)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        assert r.p_long == pytest.approx(0.55)  # untouched -- weight 0 short-circuits the block
+        mock_ensemble.predict_row.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bullish_ensemble_pulls_p_long_up(self):
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.return_value = _mock_ensemble_prediction(0.5, uncertainty=0.01)
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = MagicMock(ensemble_blend_weight=0.5)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.55)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        # Strongly bullish, low-uncertainty ensemble pulls the 50/50-weighted
+        # blend well above the raw XGBoost p_long=0.55.
+        assert r.p_long > 0.55
+        assert r.direction == 1
+        mock_ensemble.predict_row.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bearish_ensemble_can_flip_direction(self):
+        """A confident-enough bearish ensemble blended at high enough weight
+        must flip the re-derived direction, not just shrink position size."""
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.return_value = _mock_ensemble_prediction(-0.5, uncertainty=0.01)
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = MagicMock(ensemble_blend_weight=0.9)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.55)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        assert r.p_long < 0.5
+        assert r.direction == 0
+
+    @pytest.mark.asyncio
+    async def test_ensemble_exception_fails_open_to_xgboost_only(self):
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.side_effect = RuntimeError("boom")
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = MagicMock(ensemble_blend_weight=0.5)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)  # must not raise despite the ensemble erroring
+
+        assert r.p_long == pytest.approx(0.8)  # unchanged -- fails open
+        assert r.tradeable is True
+
+
+# ---------------------------------------------------------------------------
 # UI-015: multi-timeframe trend confirmation (opt-in, off by default)
 # ---------------------------------------------------------------------------
 
@@ -630,6 +858,23 @@ class TestModelSwap:
         assert e._direction_model is new_dm
         assert e._meta_model is new_mm
         assert e._detector is new_det
+
+    @pytest.mark.asyncio
+    async def test_swap_with_ensemble_replaces_it(self):
+        e = _make_engine()
+        new_ensemble = MagicMock()
+        await e.swap_models(_fitted_xgb(), _fitted_xgb(), _fitted_detector(), ensemble=new_ensemble)
+        assert e._ensemble is new_ensemble
+
+    @pytest.mark.asyncio
+    async def test_swap_without_ensemble_leaves_existing_one_untouched(self):
+        """ensemble=None (the default) must not clobber a previously-swapped
+        ensemble -- e.g. an orchestrator retrain that only touches direction/
+        meta (ensemble train failed) must not silently drop a working one."""
+        existing_ensemble = MagicMock()
+        e = _make_engine(ensemble=existing_ensemble)
+        await e.swap_models(_fitted_xgb(), _fitted_xgb(), _fitted_detector())
+        assert e._ensemble is existing_ensemble
 
     @pytest.mark.asyncio
     async def test_concurrent_swap_and_tick_no_crash(self):
