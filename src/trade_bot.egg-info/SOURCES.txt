@@ -51,6 +51,7 @@ src/intelligence/providers/aggregator.py
 src/intelligence/providers/base.py
 src/intelligence/providers/binance_provider.py
 src/intelligence/providers/blockchain_provider.py
+src/intelligence/providers/bybit_provider.py
 src/intelligence/providers/coingecko_provider.py
 src/intelligence/providers/okx_provider.py
 src/models/__init__.py
@@ -93,6 +94,7 @@ tests/test_api_main_coverage.py
 tests/test_calibration.py
 tests/test_causal_inference.py
 tests/test_cognitive_engine.py
+tests/test_config.py
 tests/test_config_feature_settings.py
 tests/test_coverage_boost.py
 tests/test_coverage_boost2.py
