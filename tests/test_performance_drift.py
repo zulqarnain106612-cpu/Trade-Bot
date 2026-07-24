@@ -26,6 +26,22 @@ class TestPerformanceBaseline:
         assert baseline.trades_in_backtest == 500
 
 
+class TestPerformanceBaselineToDict:
+    def test_to_dict_includes_all_fields(self):
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        d = baseline.to_dict()
+        assert d["train_sharpe"] == 2.0
+        assert d["oos_accuracy"] == 0.58
+
+
 class TestDriftDetector:
     """Test drift detection across metrics."""
 
@@ -185,6 +201,34 @@ class TestSharpeDrift:
 class TestAccuracyDrift:
     """Test model accuracy drift detection."""
 
+    def test_accuracy_drop_significant_flags_drift(self):
+        """Model consistently predicting the wrong direction, while pnl and
+        win-rate stay healthy (so sharpe/winrate don't fire first), must be
+        caught by the accuracy-drift check specifically."""
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.90,
+            oos_accuracy=0.90,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        detector = PerformanceDriftDetector(baseline)
+
+        for i in range(50):
+            detector.record_trade_outcome(
+                pnl_usd=50.0 + (i % 3) * 2,  # positive, low-variance -> healthy sharpe
+                predicted_prob=0.7,  # model says long
+                actual_direction=-1,  # always actually short -> 0% live accuracy
+                current_equity=10000 + i * 50,
+                starting_equity=10000,
+            )
+
+        drift = detector.check_drift()
+        assert drift.drifted
+        assert drift.metric == "accuracy"
+
     def test_accuracy_above_threshold_no_drift(self):
         """Accuracy drop <10pp → no drift."""
         baseline = PerformanceBaseline(
@@ -244,6 +288,42 @@ class TestLiveMetrics:
         assert "rolling_sharpe" in metrics
         assert "max_live_drawdown_pct" in metrics
 
+    def test_get_live_metrics_with_no_trades_yet(self):
+        """An empty PnL window must not crash statistics.stdev (which
+        requires >=2 samples) -- rolling_sharpe stays 0.0."""
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        detector = PerformanceDriftDetector(baseline)
+        metrics = detector.get_live_metrics()
+        assert metrics["total_live_trades"] == 0
+        assert metrics["rolling_sharpe"] == 0.0
+
+    def test_winrate_drift_check_insufficient_window_directly(self):
+        """_check_winrate_drift()'s own <20-sample guard, exercised directly
+        since check_drift()'s outer _MIN_LIVE_TRADES=30 gate means every
+        rolling window (win/loss, pnl, predictions) is already >=30 deep by
+        the time check_drift() would call it -- this branch is otherwise
+        unreachable through the public check_drift() path."""
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        detector = PerformanceDriftDetector(baseline)
+        result = detector._check_winrate_drift()
+        assert result.drifted is False
+
 
 class TestSignificanceGatedDrift:
     """
@@ -297,6 +377,11 @@ class TestSignificanceGatedDrift:
         # No meaningful test possible with zero observations -- defers to
         # the pp-threshold check alone (returns True, i.e. "don't block").
         assert _proportion_drop_significant(baseline_p=0.55, baseline_n=0, live_p=0.30, live_n=50)
+
+    def test_proportion_test_defers_on_degenerate_pooled_variance(self):
+        # pooled proportion of exactly 0.0 (both arms 0%) makes se=0 --
+        # no meaningful z-test possible, defers to True.
+        assert _proportion_drop_significant(baseline_p=0.0, baseline_n=30, live_p=0.0, live_n=30)
 
 
 class TestModelDegradationTracker:

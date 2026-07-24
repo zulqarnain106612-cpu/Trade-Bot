@@ -69,6 +69,7 @@ from src.tuning.backtest_harness import (
 from src.tuning.bootstrap import (
     FEATURE_WINDOW_FIELDS,
     XGBOOST_HYPERPARAM_FIELDS,
+    register_ensemble_blend_weight,
     register_feature_window_param,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
@@ -139,6 +140,12 @@ class AutoTuningScheduler:
             register_hmm_entropy_scalar_floor(parameter_registry, self._settings, version_store)
         if not parameter_registry.is_registered("risk.slippage_impact_coeff_bps"):
             register_slippage_impact_coeff(parameter_registry, self._settings, version_store)
+        # Registered but not yet auto-scheduled below (no evaluate_fn / backtest
+        # harness exists for it) -- see register_ensemble_blend_weight()'s own
+        # docstring for why, and the module docstring's "intentionally left
+        # unscheduled" note.
+        if not parameter_registry.is_registered("risk.ensemble_blend_weight"):
+            register_ensemble_blend_weight(parameter_registry, self._settings, version_store)
         for field_name in FEATURE_WINDOW_FIELDS:
             if not parameter_registry.is_registered(f"features.{field_name}"):
                 register_feature_window_param(

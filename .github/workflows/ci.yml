@@ -22,9 +22,9 @@ jobs:
     outputs:
       result: ${{ job.status }}
 
-    # GAP-006: matches scripts/timescaledb.sh's local dev container so
-    # tests/test_timescale_storage.py's 94 tests run in CI instead of
-    # skipping (they self-skip when the DSN is unreachable).
+    # GAP-006: mirrors scripts/timescaledb.sh (same image/user/db/port) so
+    # tests/test_timescale_storage.py runs instead of skipping ~88 tests,
+    # which otherwise drags total coverage under the 95% fail-under gate.
     services:
       timescaledb:
         image: timescale/timescaledb:2.17.2-pg17

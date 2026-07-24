@@ -26,7 +26,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import joblib
 import numpy as np
@@ -49,6 +49,10 @@ from src.features.pipeline import (
     meta_labels,
 )
 from src.tuning.live_overrides import effective_feature_settings, effective_xgboost_settings
+
+
+if TYPE_CHECKING:
+    from src.intelligence.ensemble_predictor import EnsemblePredictor
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -675,7 +679,7 @@ class ModelTrainer:
             for col in _active_cols:
                 if col in _X_df.columns:
                     _dm.set_baseline(col, _X_df[col].dropna().tolist())
-            get_degradation_tracker().set_training_metrics(
+            get_degradation_tracker(self._timeframe).set_training_metrics(
                 accuracy=float(mean_acc),
                 f1=float(mean_f1),
             )
@@ -686,6 +690,62 @@ class ModelTrainer:
             )
 
         return result
+
+    # ------------------------------------------------------------------
+    # Ensemble predictor (ARIMA/XGBoost/LSTM/GP/TreeEnsemble)
+    # ------------------------------------------------------------------
+
+    def train_ensemble(self, fm: FeatureMatrix) -> EnsemblePredictor:
+        """
+        Fit the diversified prediction ensemble (src/intelligence/ensemble_predictor.py)
+        alongside the direction/meta-label models.
+
+        Target: fm.log_returns — the same per-bar log-return series already
+        used for CPCV sample weighting and oos_sharpe_and_drawdown() in this
+        module, so the ensemble's regression target matches the convention
+        this trainer already establishes rather than introducing a second,
+        differently-defined "return" semantic.
+
+        Feature columns: the same coverage-gated active column set used by
+        train_direction(), so signal_engine.py can build one feature row
+        and feed it to both the XGBoost direction model and the ensemble.
+        """
+        from src.intelligence.ensemble_predictor import EnsemblePredictor
+
+        _active_cols = get_active_feature_columns(
+            coverage=getattr(fm, "intelligence_coverage", None),
+            min_coverage=0.6,
+        )
+        _active_cols = [c for c in _active_cols if c in fm.features.columns]
+
+        X = fm.features[_active_cols]
+        y = fm.log_returns
+
+        self._log.info("trainer.ensemble.start", n_samples=len(X), n_features=len(_active_cols))
+        ensemble = EnsemblePredictor()
+        ensemble.fit(X, y)
+        self._log.info("trainer.ensemble.done", weights=ensemble.weights)
+        return ensemble
+
+    def save_ensemble(
+        self,
+        ensemble: EnsemblePredictor,
+        model_dir: str | Path,
+    ) -> Path:
+        """Persist a fitted EnsemblePredictor for this trainer's symbol/timeframe."""
+        return ensemble.save(model_dir, self._symbol, self._timeframe)
+
+    @staticmethod
+    def load_ensemble(
+        model_dir: str | Path,
+        symbol: str,
+        timeframe: str,
+    ) -> EnsemblePredictor:
+        """Load a previously saved EnsemblePredictor, verifying SHA-256 integrity."""
+        from src.intelligence.ensemble_predictor import EnsemblePredictor
+
+        _validate_timeframe(timeframe)
+        return EnsemblePredictor.load(model_dir, symbol, timeframe)
 
     # ------------------------------------------------------------------
     # Meta-label model

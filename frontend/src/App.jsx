@@ -1,68 +1,72 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine
-} from "recharts";
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from 'recharts';
 
-const _RAW_API  = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const API_KEY   = import.meta.env.VITE_API_KEY || "";
+const _RAW_API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 // Build-time config sanity check: rejects malformed/non-http(s) VITE_API_URL values (operator misconfiguration guard — does NOT block internal IPs).
 const _ALLOWED_API_RE = /^https?:\/\/[a-zA-Z0-9._-]+(:\d+)?$/;
 if (!_ALLOWED_API_RE.test(_RAW_API)) {
   throw new Error(`VITE_API_URL "${_RAW_API}" is not an allowed origin.`);
 }
-const API    = _RAW_API.replace(/\/$/, ""); // strip trailing slash
-const WS_URL = API.replace(/^http/, "ws") + "/ws";
+const API = _RAW_API.replace(/\/$/, ''); // strip trailing slash
+const WS_URL = API.replace(/^http/, 'ws') + '/ws';
 
 // Attach API key to every fetch — server requires X-Api-Key on all endpoints
 function apiFetch(path, opts = {}) {
-  if (typeof path !== "string" || !path.startsWith("/")) {
+  if (typeof path !== 'string' || !path.startsWith('/')) {
     throw new Error(`apiFetch: path must be a string starting with "/", got: ${path}`);
   }
   return fetch(`${API}${path}`, {
     ...opts,
     headers: {
       ...(opts.headers || {}),
-      "x-api-key": API_KEY,
+      'x-api-key': API_KEY,
     },
   });
 }
 
-const REGIME_COLOR = { 0: "#22c55e", 1: "#da7756", 2: "#ef4444" };
-const REGIME_NAME  = { 0: "RANGING",  1: "TRENDING", 2: "VOLATILE" };
-const MODE_COLORS  = {
-  automatic:  "bg-green-600",
-  restricted: "bg-yellow-600",
-  manual:     "bg-red-600",
+const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
+const REGIME_NAME = { 0: 'RANGING', 1: 'TRENDING', 2: 'VOLATILE' };
+const MODE_COLORS = {
+  automatic: 'bg-green-600',
+  restricted: 'bg-yellow-600',
+  manual: 'bg-red-600',
 };
 
 function fmt(n, d = 2) {
-  if (n == null) return "—";
+  if (n == null) return '—';
   return Number(n).toFixed(d);
 }
 
 function tsToTime(ts) {
-  if (!ts) return "—";
+  if (!ts) return '—';
   return new Date(ts).toLocaleTimeString();
 }
 
 // ─── Regime Badge ────────────────────────────────────────────────────────────
 function RegimeBadge({ regime }) {
   if (!regime) return <span className="text-claude-muted text-xs">No regime data</span>;
-  const col = REGIME_COLOR[regime.state] || "#94a3b8";
-  const name = REGIME_NAME[regime.state] || "UNKNOWN";
+  const col = REGIME_COLOR[regime.state] || '#94a3b8';
+  const name = REGIME_NAME[regime.state] || 'UNKNOWN';
   return (
     <div className="flex items-center gap-2">
-      <span
-        className="inline-block w-3 h-3 rounded-full"
-        style={{ background: col }}
-      />
+      <span className="inline-block w-3 h-3 rounded-full" style={{ background: col }} />
       <span className="font-mono font-bold text-sm" style={{ color: col }}>
         {name}
       </span>
       <span className="text-xs text-claude-muted">
-        R:{fmt(regime.prob_ranging, 3)} T:{fmt(regime.prob_trending, 3)} V:{fmt(regime.prob_volatile, 3)}
+        R:{fmt(regime.prob_ranging, 3)} T:{fmt(regime.prob_trending, 3)} V:
+        {fmt(regime.prob_volatile, 3)}
       </span>
     </div>
   );
@@ -70,15 +74,15 @@ function RegimeBadge({ regime }) {
 
 // ─── Execution Mode Switcher ─────────────────────────────────────────────────
 function ModeSwitcher({ current, onSwitch }) {
-  const modes = ["automatic", "restricted", "manual"];
+  const modes = ['automatic', 'restricted', 'manual'];
   return (
     <div className="flex gap-1">
-      {modes.map(m => (
+      {modes.map((m) => (
         <button
           key={m}
           onClick={() => onSwitch(m)}
           className={`px-3 py-1 rounded text-xs font-bold uppercase transition-all
-            ${current === m ? MODE_COLORS[m] + " text-white" : "bg-claude-surface3 text-claude-text/80 hover:bg-claude-surface2"}`}
+            ${current === m ? MODE_COLORS[m] + ' text-white' : 'bg-claude-surface3 text-claude-text/80 hover:bg-claude-surface2'}`}
         >
           {m}
         </button>
@@ -101,11 +105,11 @@ function ToggleSwitch({ checked, onChange, label }) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors
-          ${checked ? "bg-green-600" : "bg-claude-surface3"}`}
+          ${checked ? 'bg-green-600' : 'bg-claude-surface3'}`}
       >
         <span
           className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform
-            ${checked ? "translate-x-5" : "translate-x-1"}`}
+            ${checked ? 'translate-x-5' : 'translate-x-1'}`}
         />
       </button>
     </label>
@@ -117,15 +121,15 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
   // request on every keystroke — only on blur / explicit "Save" click.
   // Toggles, by contrast, apply immediately on click (matches ModeSwitcher's
   // immediate-apply behavior for mode changes).
-  const [slDraft, setSlDraft] = useState("");
-  const [tpDraft, setTpDraft] = useState("");
-  const [holdDraft, setHoldDraft] = useState("");
+  const [slDraft, setSlDraft] = useState('');
+  const [tpDraft, setTpDraft] = useState('');
+  const [holdDraft, setHoldDraft] = useState('');
 
   useEffect(() => {
     if (riskControls) {
-      setSlDraft(String(riskControls.stop_loss_pct ?? ""));
-      setTpDraft(String(riskControls.take_profit_pct ?? ""));
-      setHoldDraft(String(riskControls.max_holding_period_s ?? ""));
+      setSlDraft(String(riskControls.stop_loss_pct ?? ''));
+      setTpDraft(String(riskControls.take_profit_pct ?? ''));
+      setHoldDraft(String(riskControls.max_holding_period_s ?? ''));
     }
   }, [riskControls]);
 
@@ -148,7 +152,9 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
     if (Number.isNaN(n)) return;
     const [min, max] = THRESHOLD_BOUNDS[field] || [-Infinity, Infinity];
     if (n < min || n > max) {
-      alert(`${field.replace(/_/g, " ")} must be between ${min} and ${max === Infinity ? "∞" : max}.`);
+      alert(
+        `${field.replace(/_/g, ' ')} must be between ${min} and ${max === Infinity ? '∞' : max}.`
+      );
       return;
     }
     onUpdate({ [field]: n });
@@ -159,7 +165,7 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
       <div className="space-y-3">
         <ToggleSwitch
           checked={riskControls.stop_loss_enabled}
-          onChange={v => onUpdate({ stop_loss_enabled: v })}
+          onChange={(v) => onUpdate({ stop_loss_enabled: v })}
           label="Stop-loss enabled"
         />
         <div className="flex items-center gap-2">
@@ -170,8 +176,8 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
             min="0.1"
             max="50"
             value={slDraft}
-            onChange={e => setSlDraft(e.target.value)}
-            onBlur={() => saveThreshold("stop_loss_pct", slDraft)}
+            onChange={(e) => setSlDraft(e.target.value)}
+            onBlur={() => saveThreshold('stop_loss_pct', slDraft)}
             className="bg-claude-surface3 text-white px-2 py-1 rounded w-24 text-right"
           />
         </div>
@@ -180,7 +186,7 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
       <div className="space-y-3">
         <ToggleSwitch
           checked={riskControls.take_profit_enabled}
-          onChange={v => onUpdate({ take_profit_enabled: v })}
+          onChange={(v) => onUpdate({ take_profit_enabled: v })}
           label="Take-profit enabled"
         />
         <div className="flex items-center gap-2">
@@ -191,8 +197,8 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
             min="0.1"
             max="200"
             value={tpDraft}
-            onChange={e => setTpDraft(e.target.value)}
-            onBlur={() => saveThreshold("take_profit_pct", tpDraft)}
+            onChange={(e) => setTpDraft(e.target.value)}
+            onBlur={() => saveThreshold('take_profit_pct', tpDraft)}
             className="bg-claude-surface3 text-white px-2 py-1 rounded w-24 text-right"
           />
         </div>
@@ -206,8 +212,8 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
             step="60"
             min="60"
             value={holdDraft}
-            onChange={e => setHoldDraft(e.target.value)}
-            onBlur={() => saveThreshold("max_holding_period_s", holdDraft)}
+            onChange={(e) => setHoldDraft(e.target.value)}
+            onBlur={() => saveThreshold('max_holding_period_s', holdDraft)}
             className="bg-claude-surface3 text-white px-2 py-1 rounded w-32 text-right"
           />
           <span className="text-claude-faint text-xs">
@@ -222,9 +228,13 @@ function RiskControlsPanel({ riskControls, onUpdate }) {
 // ─── Equity Chart ────────────────────────────────────────────────────────────
 function EquityChart({ curve, startingCapital }) {
   if (!curve || curve.length === 0)
-    return <div className="flex items-center justify-center h-48 text-claude-faint text-sm">No equity data yet</div>;
+    return (
+      <div className="flex items-center justify-center h-48 text-claude-faint text-sm">
+        No equity data yet
+      </div>
+    );
 
-  const data = curve.map(p => ({
+  const data = curve.map((p) => ({
     t: new Date(p.ts).toLocaleTimeString(),
     equity: p.equity_usd,
     dd: p.drawdown_pct,
@@ -234,18 +244,25 @@ function EquityChart({ curve, startingCapital }) {
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-        <XAxis dataKey="t" tick={{ fontSize: 10, fill: "#9ca3af" }} interval="preserveStartEnd" />
+        <XAxis dataKey="t" tick={{ fontSize: 10, fill: '#9ca3af' }} interval="preserveStartEnd" />
         <YAxis
-          tick={{ fontSize: 10, fill: "#9ca3af" }}
-          domain={["auto", "auto"]}
-          tickFormatter={v => `$${fmt(v, 0)}`}
+          tick={{ fontSize: 10, fill: '#9ca3af' }}
+          domain={['auto', 'auto']}
+          tickFormatter={(v) => `$${fmt(v, 0)}`}
         />
         <Tooltip
-          contentStyle={{ background: "#1f2937", border: "1px solid #374151", fontSize: 11 }}
-          formatter={(v, n) => [n === "equity" ? `$${fmt(v)}` : `${fmt(v, 3)}%`, n]}
+          contentStyle={{ background: '#1f2937', border: '1px solid #374151', fontSize: 11 }}
+          formatter={(v, n) => [n === 'equity' ? `$${fmt(v)}` : `${fmt(v, 3)}%`, n]}
         />
         <ReferenceLine y={startingCapital} stroke="#6b7280" strokeDasharray="4 2" />
-        <Line type="monotone" dataKey="equity" stroke="#da7756" dot={false} strokeWidth={2} name="equity" />
+        <Line
+          type="monotone"
+          dataKey="equity"
+          stroke="#da7756"
+          dot={false}
+          strokeWidth={2}
+          name="equity"
+        />
       </LineChart>
     </ResponsiveContainer>
   );
@@ -260,19 +277,36 @@ function PositionsTable({ positions }) {
     <table className="w-full text-xs">
       <thead>
         <tr className="text-claude-muted border-b border-claude-border">
-          {["Symbol","TF","Dir","Entry","Current","Qty","Notional","Unreal PnL","Regime"].map(h => (
-            <th key={h} className="py-1 px-2 text-left font-medium">{h}</th>
+          {[
+            'Symbol',
+            'TF',
+            'Dir',
+            'Entry',
+            'Current',
+            'Qty',
+            'Notional',
+            'Unreal PnL',
+            'Regime',
+          ].map((h) => (
+            <th key={h} className="py-1 px-2 text-left font-medium">
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
       <tbody>
-        {positions.map(p => {
-          const pnlColor = p.unrealized_pnl >= 0 ? "text-green-400" : "text-red-400";
+        {positions.map((p) => {
+          const pnlColor = p.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400';
           return (
-            <tr key={p.trade_id} className="border-b border-claude-border hover:bg-claude-surface2/60">
+            <tr
+              key={p.trade_id}
+              className="border-b border-claude-border hover:bg-claude-surface2/60"
+            >
               <td className="py-1 px-2 font-mono">{p.symbol}</td>
               <td className="py-1 px-2">{p.timeframe}</td>
-              <td className={`py-1 px-2 font-bold ${p.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+              <td
+                className={`py-1 px-2 font-bold ${p.direction === 'long' ? 'text-green-400' : 'text-red-400'}`}
+              >
                 {p.direction.toUpperCase()}
               </td>
               <td className="py-1 px-2 font-mono">${fmt(p.entry_price, 2)}</td>
@@ -297,7 +331,7 @@ function PositionsTable({ positions }) {
 
 // ─── Approval Queue ───────────────────────────────────────────────────────────
 function ApprovalQueue({ approvals, onResolve }) {
-  const [operator, setOperator] = useState("operator");
+  const [operator, setOperator] = useState('operator');
   if (!approvals || approvals.length === 0)
     return <p className="text-claude-faint text-sm py-2 text-center">No pending approvals</p>;
 
@@ -307,23 +341,28 @@ function ApprovalQueue({ approvals, onResolve }) {
         <span className="text-xs text-claude-muted">Operator ID:</span>
         <input
           value={operator}
-          onChange={e => setOperator(e.target.value)}
+          onChange={(e) => setOperator(e.target.value)}
           className="bg-claude-surface3 text-white text-xs px-2 py-1 rounded w-32"
         />
       </div>
-      {approvals.map(req => (
-        <div key={req.request_id}
-          className="bg-claude-surface border border-claude-border rounded p-3 flex items-center justify-between gap-4">
+      {approvals.map((req) => (
+        <div
+          key={req.request_id}
+          className="bg-claude-surface border border-claude-border rounded p-3 flex items-center justify-between gap-4"
+        >
           <div className="flex-1 text-xs space-y-0.5">
             <div className="flex gap-4">
-              <span className={`font-bold ${req.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+              <span
+                className={`font-bold ${req.direction === 'long' ? 'text-green-400' : 'text-red-400'}`}
+              >
                 {req.direction?.toUpperCase()} {req.symbol}
               </span>
               <span className="text-claude-muted">{req.timeframe}</span>
               <span className="font-mono">${fmt(req.notional_usd)}</span>
             </div>
             <div className="text-claude-muted">
-              Kelly: {fmt(req.kelly_fraction, 4)} | Meta: {fmt(req.meta_label_prob, 3)} | Signal: {fmt(req.raw_signal, 3)}
+              Kelly: {fmt(req.kelly_fraction, 4)} | Meta: {fmt(req.meta_label_prob, 3)} | Signal:{' '}
+              {fmt(req.raw_signal, 3)}
             </div>
           </div>
           <div className="flex gap-2">
@@ -355,31 +394,50 @@ function TradeHistory({ trades }) {
     <table className="w-full text-xs">
       <thead>
         <tr className="text-claude-muted border-b border-claude-border">
-          {["Time","Symbol","TF","Dir","Entry","Exit","PnL","PnL%","Reason","Kelly","Regime"].map(h => (
-            <th key={h} className="py-1 px-2 text-left font-medium">{h}</th>
+          {[
+            'Time',
+            'Symbol',
+            'TF',
+            'Dir',
+            'Entry',
+            'Exit',
+            'PnL',
+            'PnL%',
+            'Reason',
+            'Kelly',
+            'Regime',
+          ].map((h) => (
+            <th key={h} className="py-1 px-2 text-left font-medium">
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
       <tbody>
-        {trades.map(t => {
-          const pnlColor = t.pnl_usd == null ? "" : t.pnl_usd >= 0 ? "text-green-400" : "text-red-400";
+        {trades.map((t) => {
+          const pnlColor =
+            t.pnl_usd == null ? '' : t.pnl_usd >= 0 ? 'text-green-400' : 'text-red-400';
           return (
             <tr key={t.id} className="border-b border-claude-border hover:bg-claude-surface2/60">
               <td className="py-1 px-2">{tsToTime(t.entry_ts)}</td>
               <td className="py-1 px-2 font-mono">{t.symbol}</td>
               <td className="py-1 px-2">{t.timeframe}</td>
-              <td className={`py-1 px-2 font-bold ${t.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+              <td
+                className={`py-1 px-2 font-bold ${t.direction === 'long' ? 'text-green-400' : 'text-red-400'}`}
+              >
                 {t.direction?.toUpperCase()}
               </td>
               <td className="py-1 px-2 font-mono">${fmt(t.entry_price, 2)}</td>
-              <td className="py-1 px-2 font-mono">{t.exit_price ? `$${fmt(t.exit_price, 2)}` : "open"}</td>
+              <td className="py-1 px-2 font-mono">
+                {t.exit_price ? `$${fmt(t.exit_price, 2)}` : 'open'}
+              </td>
               <td className={`py-1 px-2 font-mono font-bold ${pnlColor}`}>
-                {t.pnl_usd != null ? `$${fmt(t.pnl_usd, 4)}` : "—"}
+                {t.pnl_usd != null ? `$${fmt(t.pnl_usd, 4)}` : '—'}
               </td>
               <td className={`py-1 px-2 font-mono ${pnlColor}`}>
-                {t.pnl_pct != null ? `${fmt(t.pnl_pct, 3)}%` : "—"}
+                {t.pnl_pct != null ? `${fmt(t.pnl_pct, 3)}%` : '—'}
               </td>
-              <td className="py-1 px-2 text-claude-muted">{t.exit_reason || "—"}</td>
+              <td className="py-1 px-2 text-claude-muted">{t.exit_reason || '—'}</td>
               <td className="py-1 px-2 font-mono">{fmt(t.kelly_fraction, 4)}</td>
               <td className="py-1 px-2" style={{ color: REGIME_COLOR[t.regime_at_entry] }}>
                 {REGIME_NAME[t.regime_at_entry]}
@@ -394,10 +452,10 @@ function TradeHistory({ trades }) {
 
 // ─── Missed Trades (UI-001) ──────────────────────────────────────────────────
 const MISSED_REASON_LABEL = {
-  rejected: "Rejected",
-  skipped: "Approval Timeout",
-  queued: "Queued",
-  auto_timeout: "Auto Timeout",
+  rejected: 'Rejected',
+  skipped: 'Approval Timeout',
+  queued: 'Queued',
+  auto_timeout: 'Auto Timeout',
 };
 
 function MissedTradesTable({ missedTrades }) {
@@ -408,18 +466,33 @@ function MissedTradesTable({ missedTrades }) {
     <table className="w-full text-xs">
       <thead>
         <tr className="text-claude-muted border-b border-claude-border">
-          {["Time","Symbol","TF","Dir","Reason","Notional","Kelly","Meta","Signal","Regime"].map(h => (
-            <th key={h} className="py-1 px-2 text-left font-medium">{h}</th>
+          {[
+            'Time',
+            'Symbol',
+            'TF',
+            'Dir',
+            'Reason',
+            'Notional',
+            'Kelly',
+            'Meta',
+            'Signal',
+            'Regime',
+          ].map((h) => (
+            <th key={h} className="py-1 px-2 text-left font-medium">
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
       <tbody>
-        {missedTrades.map(m => (
+        {missedTrades.map((m) => (
           <tr key={m.id} className="border-b border-claude-border hover:bg-claude-surface2/60">
             <td className="py-1 px-2">{tsToTime(m.ts)}</td>
             <td className="py-1 px-2 font-mono">{m.symbol}</td>
             <td className="py-1 px-2">{m.timeframe}</td>
-            <td className={`py-1 px-2 font-bold ${m.direction === "long" ? "text-green-400" : "text-red-400"}`}>
+            <td
+              className={`py-1 px-2 font-bold ${m.direction === 'long' ? 'text-green-400' : 'text-red-400'}`}
+            >
               {m.direction?.toUpperCase()}
             </td>
             <td className="py-1 px-2">
@@ -446,7 +519,7 @@ function StatCard({ label, value, sub, color }) {
   return (
     <div className="bg-claude-surface rounded-lg p-4 border border-claude-border shadow-claude hover:border-claude-orange/40 transition-colors">
       <div className="text-xs text-claude-muted mb-1 uppercase tracking-wide">{label}</div>
-      <div className={`text-2xl font-bold font-mono ${color || "text-claude-cream"}`}>{value}</div>
+      <div className={`text-2xl font-bold font-mono ${color || 'text-claude-cream'}`}>{value}</div>
       {sub && <div className="text-xs text-claude-faint mt-0.5">{sub}</div>}
     </div>
   );
@@ -454,14 +527,15 @@ function StatCard({ label, value, sub, color }) {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [tick, setTick]                     = useState(null);
-  const [curve, setCurve]                   = useState([]);
-  const [trades, setTrades]                 = useState([]);
-  const [missedTrades, setMissedTrades]     = useState([]);
-  const [connected, setConnected]           = useState(false);
-  const [tab, setTab]                       = useState("positions");
+  const [tick, setTick] = useState(null);
+  const [curve, setCurve] = useState([]);
+  const [trades, setTrades] = useState([]);
+  const [missedTrades, setMissedTrades] = useState([]);
+  const [connected, setConnected] = useState(false);
+  const [tab, setTab] = useState('positions');
   const [startingCapital, setStartingCapital] = useState(null);
-  const [riskControls, setRiskControls]     = useState(null);
+  const [riskControls, setRiskControls] = useState(null);
+  const [predictionStats, setPredictionStats] = useState(null);
   const wsRef = useRef(null);
 
   // WebSocket — API key passed as query param (WS headers not reliably supported in browsers)
@@ -475,10 +549,10 @@ export default function App() {
         setConnected(true);
       };
 
-      ws.onmessage = e => {
+      ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
-          if (msg.type === "tick") setTick(msg);
+          if (msg.type === 'tick') setTick(msg);
         } catch (_) {}
       };
 
@@ -505,10 +579,10 @@ export default function App() {
       inFlight = true;
       try {
         const [eqRes, trRes, mtRes, stRes] = await Promise.all([
-          apiFetch("/equity?limit=288"),
-          apiFetch("/trades?limit=50"),
-          apiFetch("/missed-trades?limit=50"),
-          apiFetch("/status"),
+          apiFetch('/equity?limit=288'),
+          apiFetch('/trades?limit=50'),
+          apiFetch('/missed-trades?limit=50'),
+          apiFetch('/status'),
         ]);
         if (eqRes.ok) {
           const eq = await eqRes.json();
@@ -549,7 +623,7 @@ export default function App() {
       if (inFlight) return; // UI-016: same overlapping-request guard as fetchData
       inFlight = true;
       try {
-        const res = await apiFetch("/risk-controls");
+        const res = await apiFetch('/risk-controls');
         if (res.ok) {
           const body = await res.json();
           setRiskControls(body.risk_controls || null);
@@ -565,29 +639,56 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // operatorId & operatorSecret stored in state — set once, reused for all actions
-  const [operatorId, setOperatorId]         = useState("operator");
-  const [operatorSecret, setOperatorSecret] = useState("");
-
-  const switchMode = useCallback(async mode => {
-    if (!operatorSecret) {
-      alert("Enter the operator secret before switching modes.");
-      return;
+  // REST: prediction throughput/accuracy — polled fast (5s, matches WS
+  // heartbeat) since it's a live activity indicator, not historical data.
+  useEffect(() => {
+    let inFlight = false;
+    async function fetchPredictionStats() {
+      if (inFlight) return; // UI-016: same overlapping-request guard as fetchData
+      inFlight = true;
+      try {
+        const res = await apiFetch('/status');
+        if (res.ok) {
+          const body = await res.json();
+          setPredictionStats(body.predictions || null);
+        }
+      } catch (_) {
+        // swallow — next poll retries
+      } finally {
+        inFlight = false;
+      }
     }
-    try {
-      await apiFetch("/execution-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, operator: operatorId, operator_secret: operatorSecret }),
-      });
-    } catch (_) {}
-  }, [operatorId, operatorSecret]);
+    fetchPredictionStats();
+    const id = setInterval(fetchPredictionStats, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // operatorId & operatorSecret stored in state — set once, reused for all actions
+  const [operatorId, setOperatorId] = useState('operator');
+  const [operatorSecret, setOperatorSecret] = useState('');
+
+  const switchMode = useCallback(
+    async (mode) => {
+      if (!operatorSecret) {
+        alert('Enter the operator secret before switching modes.');
+        return;
+      }
+      try {
+        await apiFetch('/execution-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, operator: operatorId, operator_secret: operatorSecret }),
+        });
+      } catch (_) {}
+    },
+    [operatorId, operatorSecret]
+  );
 
   const resolveApproval = useCallback(async (id, approved, operator) => {
     try {
       await apiFetch(`/approvals/${id}/resolve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved, operator }),
       });
     } catch (_) {}
@@ -597,40 +698,43 @@ export default function App() {
   // field(s) being changed; undefined fields are omitted from the request
   // body entirely (not sent as null) so the backend's partial-update
   // semantics apply correctly — see SetRiskControlsRequest in main.py.
-  const updateRiskControls = useCallback(async (changes) => {
-    if (!operatorSecret) {
-      alert("Enter the operator secret before changing risk controls.");
-      return;
-    }
-    try {
-      const res = await apiFetch("/risk-controls", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...changes,
-          operator: operatorId,
-          operator_secret: operatorSecret,
-        }),
-      });
-      if (res.ok) {
-        const body = await res.json();
-        setRiskControls(body.risk_controls || null);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(`Risk control update failed: ${err.detail || res.status}`);
+  const updateRiskControls = useCallback(
+    async (changes) => {
+      if (!operatorSecret) {
+        alert('Enter the operator secret before changing risk controls.');
+        return;
       }
-    } catch (_) {}
-  }, [operatorId, operatorSecret]);
+      try {
+        const res = await apiFetch('/risk-controls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...changes,
+            operator: operatorId,
+            operator_secret: operatorSecret,
+          }),
+        });
+        if (res.ok) {
+          const body = await res.json();
+          setRiskControls(body.risk_controls || null);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(`Risk control update failed: ${err.detail || res.status}`);
+        }
+      } catch (_) {}
+    },
+    [operatorId, operatorSecret]
+  );
 
-  const equity      = tick?.equity_usd ?? 0;
-  const cash        = tick?.cash_usd ?? 0;
-  const capital     = startingCapital ?? tick?.equity_usd ?? 0;  // fallback until loaded
-  const pnl         = capital > 0 ? equity - capital : 0;
-  const pnlPct      = capital > 0 ? (pnl / capital) * 100 : 0;
-  const positions   = tick?.positions ?? [];
-  const approvals   = tick?.pending_approvals ?? [];
-  const regime      = tick?.regime ?? null;
-  const mode        = tick?.execution_mode ?? "manual";
+  const equity = tick?.equity_usd ?? 0;
+  const cash = tick?.cash_usd ?? 0;
+  const capital = startingCapital ?? tick?.equity_usd ?? 0; // fallback until loaded
+  const pnl = capital > 0 ? equity - capital : 0;
+  const pnlPct = capital > 0 ? (pnl / capital) * 100 : 0;
+  const positions = tick?.positions ?? [];
+  const approvals = tick?.pending_approvals ?? [];
+  const regime = tick?.regime ?? null;
+  const mode = tick?.execution_mode ?? 'manual';
 
   // Desktop tray badge (Electron only) — mirrors the pending-approvals
   // count so the count is visible without the window in focus.
@@ -644,28 +748,32 @@ export default function App() {
       <header className="glass sticky top-0 z-10 border-b border-claude-border px-6 py-3 flex items-center justify-between flex-wrap gap-2 shadow-claude">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold tracking-tight flex items-center gap-2">
-            <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-claude-orange text-black text-sm font-black shadow-glow">*</span>
+            <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-claude-orange text-black text-sm font-black shadow-glow">
+              *
+            </span>
             <span className="text-claude-cream">Trade Bot</span>
           </h1>
-          <span className={`text-xs px-2 py-0.5 rounded font-bold ${connected ? "bg-green-900/60 text-green-400" : "bg-red-900/60 text-red-400"} ${connected ? "" : "claude-pulse"}`}>
-            {connected ? "● LIVE" : "● DISCONNECTED"}
+          <span
+            className={`text-xs px-2 py-0.5 rounded font-bold ${connected ? 'bg-green-900/60 text-green-400' : 'bg-red-900/60 text-red-400'} ${connected ? '' : 'claude-pulse'}`}
+          >
+            {connected ? '● LIVE' : '● DISCONNECTED'}
           </span>
           <span className="text-xs text-claude-muted uppercase tracking-wide">
-            {tick?.trading_mode?.toUpperCase() || "PAPER"}
+            {tick?.trading_mode?.toUpperCase() || 'PAPER'}
           </span>
         </div>
         {/* Operator identity + secret — required for mode switching */}
         <div className="flex items-center gap-2 text-xs">
           <input
             value={operatorId}
-            onChange={e => setOperatorId(e.target.value)}
+            onChange={(e) => setOperatorId(e.target.value)}
             placeholder="Operator ID"
             className="bg-claude-surface3 text-white px-2 py-1 rounded w-28"
           />
           <input
             type="password"
             value={operatorSecret}
-            onChange={e => setOperatorSecret(e.target.value)}
+            onChange={(e) => setOperatorSecret(e.target.value)}
             placeholder="Operator Secret"
             className="bg-claude-surface3 text-white px-2 py-1 rounded w-36"
           />
@@ -676,19 +784,42 @@ export default function App() {
       <main className="px-6 py-4 space-y-4 claude-fade-in">
         {/* Stat cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Equity" value={`$${fmt(equity)}`}
-            sub={`Cash: $${fmt(cash)}`} />
-          <StatCard label="Total PnL"
-            value={`${pnl >= 0 ? "+" : ""}$${fmt(pnl)}`}
-            sub={`${pnl >= 0 ? "+" : ""}${fmt(pnlPct, 2)}%`}
-            color={pnl >= 0 ? "text-green-400" : "text-red-400"} />
-          <StatCard label="Open Positions" value={positions.length}
-            sub={`${approvals.length} pending approval${approvals.length !== 1 ? "s" : ""}`}
-            color={approvals.length > 0 ? "text-yellow-400" : "text-claude-cream"} />
+          <StatCard label="Equity" value={`$${fmt(equity)}`} sub={`Cash: $${fmt(cash)}`} />
+          <StatCard
+            label="Total PnL"
+            value={`${pnl >= 0 ? '+' : ''}$${fmt(pnl)}`}
+            sub={`${pnl >= 0 ? '+' : ''}${fmt(pnlPct, 2)}%`}
+            color={pnl >= 0 ? 'text-green-400' : 'text-red-400'}
+          />
+          <StatCard
+            label="Open Positions"
+            value={positions.length}
+            sub={`${approvals.length} pending approval${approvals.length !== 1 ? 's' : ''}`}
+            color={approvals.length > 0 ? 'text-yellow-400' : 'text-claude-cream'}
+          />
           <div className="bg-claude-surface rounded-lg p-4 border border-claude-border shadow-claude">
             <div className="text-xs text-claude-muted mb-2 uppercase tracking-wide">Regime</div>
             <RegimeBadge regime={regime} />
           </div>
+          <StatCard
+            label="Prediction Frequency"
+            value={`${fmt(predictionStats?.predictions_per_sec, 2)}/s`}
+            sub={`${predictionStats?.total_predictions ?? 0} total predictions`}
+          />
+          <StatCard
+            label="1-Bar Directional Accuracy"
+            value={
+              predictionStats?.accuracy != null ? `${fmt(predictionStats.accuracy * 100, 1)}%` : '—'
+            }
+            sub={`${predictionStats?.correct_predictions ?? 0} correct / ${predictionStats?.resolved_predictions ?? 0} resolved`}
+            color={
+              predictionStats?.accuracy != null
+                ? predictionStats.accuracy >= 0.5
+                  ? 'text-green-400'
+                  : 'text-red-400'
+                : 'text-claude-cream'
+            }
+          />
         </div>
 
         {/* Equity Chart */}
@@ -703,19 +834,21 @@ export default function App() {
         <div className="bg-claude-surface rounded-lg border border-claude-border shadow-claude">
           <div className="flex border-b border-claude-border">
             {[
-              { id: "positions", label: "Positions",     badge: positions.length },
-              { id: "approvals", label: "Approvals",     badge: approvals.length },
-              { id: "trades",    label: "Trades",        badge: null },
-              { id: "missed",    label: "Missed Trades", badge: missedTrades.length },
-              { id: "risk",      label: "Risk Controls", badge: null },
+              { id: 'positions', label: 'Positions', badge: positions.length },
+              { id: 'approvals', label: 'Approvals', badge: approvals.length },
+              { id: 'trades', label: 'Trades', badge: null },
+              { id: 'missed', label: 'Missed Trades', badge: missedTrades.length },
+              { id: 'risk', label: 'Risk Controls', badge: null },
             ].map(({ id, label, badge }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
                 className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-colors
-                  ${tab === id
-                    ? "border-claude-orange text-claude-orange"
-                    : "border-transparent text-claude-muted hover:text-white"}`}
+                  ${
+                    tab === id
+                      ? 'border-claude-orange text-claude-orange'
+                      : 'border-transparent text-claude-muted hover:text-white'
+                  }`}
               >
                 {label}
                 {badge > 0 && (
@@ -727,13 +860,13 @@ export default function App() {
             ))}
           </div>
           <div className="p-4 overflow-x-auto">
-            {tab === "positions" && <PositionsTable positions={positions} />}
-            {tab === "approvals" && (
+            {tab === 'positions' && <PositionsTable positions={positions} />}
+            {tab === 'approvals' && (
               <ApprovalQueue approvals={approvals} onResolve={resolveApproval} />
             )}
-            {tab === "trades" && <TradeHistory trades={trades} />}
-            {tab === "missed" && <MissedTradesTable missedTrades={missedTrades} />}
-            {tab === "risk" && (
+            {tab === 'trades' && <TradeHistory trades={trades} />}
+            {tab === 'missed' && <MissedTradesTable missedTrades={missedTrades} />}
+            {tab === 'risk' && (
               <RiskControlsPanel riskControls={riskControls} onUpdate={updateRiskControls} />
             )}
           </div>

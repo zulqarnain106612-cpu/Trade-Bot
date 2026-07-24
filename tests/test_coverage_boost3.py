@@ -246,9 +246,11 @@ class TestOKXProvider:
         with (
             patch.object(p._spot, "load_markets", new=AsyncMock(return_value={})),
             patch.object(p._perp, "load_markets", new=AsyncMock(return_value={})),
+            patch.object(p._spot, "close", new=AsyncMock()),
+            patch.object(p._perp, "close", new=AsyncMock()),
         ):
             await p.initialize()
-        await p.close()
+            await p.close()
 
     @pytest.mark.asyncio
     async def test_fetch_metrics_success(self):

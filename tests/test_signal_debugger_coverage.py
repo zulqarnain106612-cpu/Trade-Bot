@@ -218,6 +218,34 @@ class TestModelDegradationTracker:
         assert report["train_accuracy"] is None
         assert report["degraded"] is False
 
+    def test_prediction_stats_empty(self):
+        stats = self.tracker.prediction_stats()
+        assert stats["predictions_per_sec"] == 0.0
+        assert stats["total_predictions"] == 0
+        assert stats["correct_predictions"] == 0
+        assert stats["resolved_predictions"] == 0
+        assert stats["accuracy"] is None
+
+    def test_prediction_stats_counts_and_rate(self):
+        for _ in range(5):
+            self.tracker.record_prediction(0.7, 0.6)
+        stats = self.tracker.prediction_stats(rate_window_s=10.0)
+        assert stats["total_predictions"] == 5
+        assert stats["predictions_per_sec"] == 0.5  # 5 preds / 10s window
+
+    def test_prediction_stats_accuracy_matches_correct_ratio(self):
+        for _ in range(3):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(1)  # correct
+        for _ in range(2):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(0)  # incorrect
+        stats = self.tracker.prediction_stats()
+        assert stats["total_predictions"] == 5
+        assert stats["resolved_predictions"] == 5
+        assert stats["correct_predictions"] == 3
+        assert stats["accuracy"] == 0.6
+
     def test_check_degradation_no_degradation(self):
         self.tracker.set_training_metrics(0.65, 0.63)
         rng = np.random.default_rng(42)
@@ -327,6 +355,17 @@ def test_get_degradation_tracker_singleton():
     t2 = get_degradation_tracker()
     assert t1 is t2
     assert isinstance(t1, ModelDegradationTracker)
+
+
+def test_get_degradation_tracker_scoped_per_timeframe():
+    """Concurrent per-timeframe SignalEngine loops must not share a tracker,
+    or resolve_last() on one timeframe can resolve a prediction recorded by
+    another timeframe's engine."""
+    t_15m = get_degradation_tracker("15m")
+    t_1h = get_degradation_tracker("1h")
+    assert t_15m is not t_1h
+    t_15m_again = get_degradation_tracker("15m")
+    assert t_15m is t_15m_again
 
 
 def test_get_label_shift_detector_singleton():

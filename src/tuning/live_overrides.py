@@ -81,16 +81,18 @@ def effective_hmm_settings(base: HMMSettings | None = None) -> HMMSettings:
 
 
 def effective_risk_settings(base: RiskSettings | None = None) -> RiskSettings:
-    """RiskSettings with risk.slippage_impact_coeff_bps overlaid from the
-    registry when self-tuning has promoted a value. All other RiskSettings
-    fields (Kelly sizing, drawdown halts, ...) are permanently excluded
-    from self-tuning (see registry.EXCLUDED_PARAMS) and are never
-    overlaid here."""
+    """RiskSettings with risk.slippage_impact_coeff_bps and
+    risk.ensemble_blend_weight overlaid from the registry when self-tuning
+    has promoted a value. All other RiskSettings fields (Kelly sizing,
+    drawdown halts, ...) are permanently excluded from self-tuning (see
+    registry.EXCLUDED_PARAMS) and are never overlaid here."""
     base = base or get_settings().risk
-    value = _current_override("risk.slippage_impact_coeff_bps")
-    if value is None:
-        return base
-    return base.model_copy(update={"slippage_impact_coeff_bps": value})
+    overrides: dict[str, float] = {}
+    for field_name in ("slippage_impact_coeff_bps", "ensemble_blend_weight"):
+        value = _current_override(f"risk.{field_name}")
+        if value is not None:
+            overrides[field_name] = value
+    return base.model_copy(update=overrides) if overrides else base
 
 
 def effective_feature_settings(base: FeatureSettings | None = None) -> FeatureSettings:

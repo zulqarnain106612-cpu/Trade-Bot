@@ -212,6 +212,17 @@ class TestPositionScalar:
             scalar = pred.position_scalar(self.cfg)
             assert 0.5 - 1e-9 <= scalar <= 1.0 + 1e-9
 
+    def test_zero_span_degenerate_threshold_returns_floor(self):
+        """threshold == 1.0 -> span = 1.0 - threshold = 0.0; the entropy > 1.0
+        edge case (not reachable via a normal [0,1]-normalized entropy but
+        not runtime-validated on the dataclass either) must return floor
+        rather than divide by zero."""
+        cfg = HMMSettings(entropy_threshold=1.0, entropy_scalar_floor=0.5)
+        pred = RegimePrediction(
+            state=1, prob_ranging=0.3, prob_trending=0.4, prob_volatile=0.3, entropy=1.01
+        )
+        assert pred.position_scalar(cfg) == 0.5
+
     def test_uses_global_settings_when_cfg_not_passed(self):
         # No cfg arg -> falls back to get_settings().hmm; just confirm no crash
         # and a sane bounded result using defaults (threshold=0.5, floor=0.5).
@@ -300,17 +311,87 @@ class TestRegimeDetectorFit:
             fitted_detector.fit(synthetic_features)
 
     def test_n_init_zero_raises_value_error(self, synthetic_features):
-        cfg = HMMSettings(n_iter=50)
-        detector = RegimeDetector(symbol="BTC/USDT", timeframe="1h", cfg=cfg)
-        object.__setattr__(cfg, "n_init", 0) if hasattr(cfg, "__dict__") else None
-        # n_init isn't a declared HMMSettings field; simulate via getattr override
-        # by monkeypatching the cfg instance directly.
-        try:
-            cfg.n_init = 0  # type: ignore[attr-defined]
-        except Exception:
-            pytest.skip("HMMSettings does not allow dynamic attribute assignment")
+        """n_init isn't a declared HMMSettings field (pydantic forbids
+        assigning undeclared attributes to a real HMMSettings instance) --
+        detector.fit() reads it via getattr(cfg, "n_init", 5), so a plain
+        duck-typed stand-in exposing the same attributes fit() actually
+        touches is the correct way to exercise this branch."""
+        from types import SimpleNamespace
+
+        cfg = SimpleNamespace(
+            n_components=3,
+            covariance_type="full",
+            n_iter=50,
+            tol=1e-4,
+            random_state=42,
+            entropy_threshold=0.5,
+            entropy_scalar_floor=0.5,
+            n_init=0,
+        )
+        detector = RegimeDetector(symbol="BTC/USDT", timeframe="1h", cfg=cfg)  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="HMM_N_INIT"):
             detector.fit(synthetic_features)
+
+    def test_score_exception_skips_candidate(self, synthetic_features, monkeypatch):
+        """A candidate whose .score() raises must be skipped (not crash the
+        whole multi-init loop) -- the remaining candidates still compete."""
+        from hmmlearn.hmm import GaussianHMM
+
+        cfg = HMMSettings(n_iter=20, n_components=3)
+        detector = RegimeDetector(symbol="BTC/USDT", timeframe="1h", cfg=cfg)
+
+        call_count = 0
+        real_score = GaussianHMM.score
+
+        def _flaky_score(self, X, lengths=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("scoring blew up")
+            return real_score(self, X, lengths=lengths)
+
+        monkeypatch.setattr(GaussianHMM, "score", _flaky_score)
+        detector.fit(synthetic_features)  # must not raise despite the first candidate failing
+        assert detector.is_fitted()
+        assert call_count >= 2
+
+    def test_all_candidates_fail_scoring_raises(self, synthetic_features, monkeypatch):
+        from hmmlearn.hmm import GaussianHMM
+
+        cfg = HMMSettings(n_iter=20, n_components=3)
+        detector = RegimeDetector(symbol="BTC/USDT", timeframe="1h", cfg=cfg)
+
+        def _always_fails(self, X, lengths=None):
+            raise RuntimeError("scoring blew up")
+
+        monkeypatch.setattr(GaussianHMM, "score", _always_fails)
+        with pytest.raises(RuntimeError, match="all candidate fits failed"):
+            detector.fit(synthetic_features)
+
+    def test_non_convergent_fit_sets_convergence_failed_flag(self, synthetic_features, monkeypatch):
+        """VUL-025: a best model that did not converge must set
+        _convergence_failed=True so predict_current() defaults to VOLATILE."""
+        from hmmlearn.hmm import GaussianHMM
+
+        cfg = HMMSettings(n_iter=10, n_components=3)  # minimum allowed n_iter
+        detector = RegimeDetector(symbol="BTC/USDT", timeframe="1h", cfg=cfg)
+
+        from types import SimpleNamespace
+
+        real_fit = GaussianHMM.fit
+
+        def _fit_but_force_non_convergent(self, X, lengths=None):
+            result = real_fit(self, X, lengths=lengths)
+            # ConvergenceMonitor.converged is a read-only computed property;
+            # replace the whole monitor_ with a stand-in exposing converged=False,
+            # since detector.py only ever reads best_model.monitor_.converged.
+            self.monitor_ = SimpleNamespace(converged=False, iter=self.monitor_.iter)
+            return result
+
+        monkeypatch.setattr(GaussianHMM, "fit", _fit_but_force_non_convergent)
+        detector.fit(synthetic_features)
+        assert detector.is_fitted()
+        assert detector._convergence_failed is True
 
 
 class TestRegimeDetectorPredict:
@@ -359,6 +440,16 @@ class TestRegimeDetectorPredict:
         with pytest.raises(ValueError, match="NaN"):
             fitted_detector.predict_sequence(df)
 
+    def test_predict_current_missing_columns_raises(self, fitted_detector, synthetic_features):
+        df = synthetic_features.drop(columns=["frac_diff"])
+        with pytest.raises(ValueError, match="missing columns"):
+            fitted_detector.predict_current(df)
+
+    def test_predict_current_insufficient_rows_raises(self, fitted_detector, synthetic_features):
+        tiny = synthetic_features.iloc[:2]  # fewer than n_components * 5
+        with pytest.raises(ValueError, match="need at least"):
+            fitted_detector.predict_current(tiny)
+
     def test_non_convergent_model_defaults_to_volatile_with_zero_entropy(self, synthetic_features):
         detector = RegimeDetector(symbol="BTC/USDT", timeframe="1h")
         detector.fit(synthetic_features)
@@ -397,6 +488,21 @@ class TestRegimeDetectorPersistence:
             with pytest.raises(RuntimeError, match="not fitted"):
                 detector.save(tmpdir)
 
+    def test_load_missing_manifest_raises(self, fitted_detector):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = fitted_detector.save(tmpdir)
+            path.with_suffix(".sha256").unlink()
+            with pytest.raises(RuntimeError, match="manifest missing"):
+                RegimeDetector.load(tmpdir, symbol="BTC/USDT", timeframe="1h")
+
+    def test_load_tampered_file_raises(self, fitted_detector):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = fitted_detector.save(tmpdir)
+            with path.open("ab") as f:
+                f.write(b"tampered-bytes")
+            with pytest.raises(RuntimeError, match="integrity check FAILED"):
+                RegimeDetector.load(tmpdir, symbol="BTC/USDT", timeframe="1h")
+
 
 class TestRegimeStatistics:
     def test_regime_statistics_returns_expected_shape(self, fitted_detector, synthetic_features):
@@ -410,3 +516,20 @@ class TestRegimeStatistics:
             "mean_rolling_sharpe",
         }
         assert stats["count"].sum() == len(synthetic_features)
+
+    def test_regime_statistics_empty_regime_reports_nan_means(
+        self, fitted_detector, synthetic_features, monkeypatch
+    ):
+        """A regime state that never appears in predict_sequence()'s output
+        must still get a row (count=0, pct=0.0, NaN means) rather than being
+        silently omitted."""
+        n = len(synthetic_features)
+        # Every bar classified as trending -> ranging/volatile rows are empty.
+        monkeypatch.setattr(
+            fitted_detector, "predict_sequence", lambda features: np.full(n, REGIME_TRENDING)
+        )
+        stats = fitted_detector.regime_statistics(synthetic_features)
+        assert stats.loc["ranging", "count"] == 0
+        assert stats.loc["ranging", "pct"] == 0.0
+        assert math.isnan(stats.loc["ranging", "mean_vol_ratio"])
+        assert stats.loc["trending", "count"] == n

@@ -167,6 +167,20 @@ class TestKellyFromModelProbsNonFiniteWinLossRatio:
         assert math.isfinite(raw)
         assert math.isfinite(adjusted)
 
+    def test_overflowing_ratio_falls_back_to_neutral_then_clamped(self, cfg):
+        """VF-028: avg_win_usd / avg_loss_usd overflowing float64 to inf
+        must be caught and reset to 1.0 (neutral) before the ceiling clamp,
+        not silently propagate inf into the Kelly formula."""
+        raw, adjusted, capped = kelly_from_model_probs(
+            0.6,
+            avg_win_usd=1e300,
+            avg_loss_usd=1e-300,  # 1e300/1e-300 overflows float64 to inf
+            direction=1,
+            cfg=cfg,
+        )
+        assert math.isfinite(raw)
+        assert math.isfinite(adjusted)
+
     def test_extreme_avg_win_clamped_to_ceiling_ratio(self, cfg):
         """Extreme avg_win/avg_loss ratio clamped at 1000 ceiling."""
         raw, adjusted, capped = kelly_from_model_probs(
