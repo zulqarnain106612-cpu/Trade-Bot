@@ -62,8 +62,9 @@ jobs:
             pip install -e ".[dev]"
             echo "WARNING: requirements.lock not found — install is unhashed. Run pip-compile --generate-hashes to create it."
           fi
-          # requirements-dev.txt (lint/type/secret-scan tooling) isn't pinned in
-          # requirements.lock, so install it unconditionally.
+          # requirements.lock is compiled from requirements.in (prod deps only);
+          # dev tools (detect-secrets, ruff, mypy, pytest-cov) live in
+          # requirements-dev.txt and are installed unhashed on top.
           pip install -r requirements-dev.txt
 
       - name: Secret scanning — fail on unaudited baseline entries
@@ -104,6 +105,7 @@ jobs:
         id: pytest
         env:
           TRADING_MODE: paper
+          STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot  # pragma: allowlist secret
           BINANCE_API_KEY: dummy
           BINANCE_API_SECRET: dummy
           OKX_API_KEY: dummy
