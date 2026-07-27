@@ -306,7 +306,7 @@ class RegimeDetector:
 
         n = len(obs_df)
         if n < cfg.n_components * 20:
-            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, " f"got {n}")
+            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, got {n}")
 
         # Scale to zero-mean unit-variance — HMM diagonal / full covariance
         # is sensitive to feature magnitude differences

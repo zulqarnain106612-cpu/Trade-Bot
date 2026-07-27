@@ -436,7 +436,7 @@ class TestSubmitSignalManual:
             await executor.resolve_approval(req_id, approved=True, operator="carol")
 
         approve_task = asyncio.create_task(approve_soon())
-        trade_id, outcome = await executor.submit_signal(
+        _trade_id, outcome = await executor.submit_signal(
             "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
         )
         await approve_task

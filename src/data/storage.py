@@ -71,7 +71,7 @@ _MIGRATIONS: Final[list[tuple[int, str, str]]] = [
     # brought up by the migration runner).
     (
         1,
-        "initial schema: bars, trades, regime_snapshots, model_metrics, " "equity_curve, audit_log",
+        "initial schema: bars, trades, regime_snapshots, model_metrics, equity_curve, audit_log",
         "",  # Empty SQL: tables already exist from _DDL; we just set the version.
     ),
     # Version 2 — add spread_bps column to trades (GAP-008/TASK-009 follow-on)
@@ -1203,7 +1203,7 @@ class StorageBackend:
             await conn.commit()
         if cursor.rowcount == 0:
             raise ValueError(
-                f"No open trade found with id={trade_id!r} " "(already closed or id not found)"
+                f"No open trade found with id={trade_id!r} (already closed or id not found)"
             )
         self._log.info(
             "trade.exit_updated",

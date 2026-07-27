@@ -768,7 +768,7 @@ class TestComputeWinLossStats:
 
     def test_correct_averages(self):
         pnl = [10.0] * 30 + [-5.0] * 20
-        wp, aw, al, _std = compute_win_loss_stats(pnl)
+        _wp, aw, al, _std = compute_win_loss_stats(pnl)
         assert abs(aw - 10.0) < 1e-9
         assert abs(al - 5.0) < 1e-9
 

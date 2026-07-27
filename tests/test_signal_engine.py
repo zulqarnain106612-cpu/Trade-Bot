@@ -1007,9 +1007,9 @@ class TestTask010FundingRateWiring:
 
         assert len(captured) == 1, "CognitiveEngine.evaluate must be called exactly once"
         ctx = captured[0]
-        assert (
-            abs(ctx.funding_rate_8h - 0.0003) < 1e-9
-        ), f"Expected funding_rate_8h=0.0003, got {ctx.funding_rate_8h}"
+        assert abs(ctx.funding_rate_8h - 0.0003) < 1e-9, (
+            f"Expected funding_rate_8h=0.0003, got {ctx.funding_rate_8h}"
+        )
         # spread_bps: ob.spread/ob.mid_price*10_000 = 0.1/105.0*10_000 ≈ 9.52 bps
         assert ctx.spread_bps > 0.0, "spread_bps must be positive when orderbook is live"
 

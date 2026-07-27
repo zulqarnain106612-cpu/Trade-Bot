@@ -125,8 +125,8 @@ def get_active_feature_columns(
     if excluded:
         _log.warning(
             "get_active_feature_columns_excluded",
-            excluded=[(c, f"{f*100:.1f}%") for c, f in excluded],
-            threshold=f"{min_coverage*100:.0f}%",
+            excluded=[(c, f"{f * 100:.1f}%") for c, f in excluded],
+            threshold=f"{min_coverage * 100:.0f}%",
         )
 
     active = list(BASE_FEATURE_COLUMNS) + included

@@ -138,7 +138,7 @@ def _verify_manifest(path: Path) -> bytes:
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
     if not manifest_path.exists():
         raise RuntimeError(
-            f"Model manifest missing for {path}. " "Re-train the model to regenerate the manifest."
+            f"Model manifest missing for {path}. Re-train the model to regenerate the manifest."
         )
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")

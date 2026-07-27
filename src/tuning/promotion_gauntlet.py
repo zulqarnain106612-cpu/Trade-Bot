@@ -64,8 +64,7 @@ def evaluate_gauntlet(
         )
     if observation.realized_sharpe < criteria.min_sharpe:
         failed.append(
-            f"realized_sharpe {observation.realized_sharpe:.3f} < min_sharpe "
-            f"{criteria.min_sharpe}"
+            f"realized_sharpe {observation.realized_sharpe:.3f} < min_sharpe {criteria.min_sharpe}"
         )
     if observation.realized_max_drawdown_pct > criteria.max_drawdown_pct:
         failed.append(

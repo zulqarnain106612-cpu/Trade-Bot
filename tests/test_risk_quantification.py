@@ -202,7 +202,7 @@ class TestPrivateMethods:
 
     def test_fit_student_t_small_sample(self):
         returns = np.array([0.01, -0.01, 0.02])
-        df, loc, scale = self.rq._fit_student_t(returns)
+        df, _loc, _scale = self.rq._fit_student_t(returns)
         assert df == 5.0  # fallback for n < 10
 
     def test_fit_student_t_large_sample(self):

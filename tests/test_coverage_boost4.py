@@ -153,7 +153,7 @@ class TestTreeEnsemblePredictor:
         p = TreeEnsemblePredictor(n_estimators=5, n_bootstrap=0)
         X, y = _make_X(), _make_y()
         p.fit(X, y)
-        point, unc = p.predict_with_uncertainty(X.head(1))
+        point, _unc = p.predict_with_uncertainty(X.head(1))
         assert isinstance(point, float)
 
     def test_get_metrics(self):

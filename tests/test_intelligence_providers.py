@@ -829,7 +829,7 @@ class TestMultiProviderIntelligenceAggregator:
             "timestamp": float(int(time.time())),
         }
         macro_metrics = {
-            **{k: 0.0 for k in binance_metrics},
+            **dict.fromkeys(binance_metrics, 0.0),
             "whale_buy_sell_ratio": 1.0,
             "exchange_reserve_ratio": 0.5,
             "btc_dominance_regime": 0.9,

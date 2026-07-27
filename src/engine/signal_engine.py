@@ -882,7 +882,7 @@ class SignalEngine:
         )
         _garch_vol = _garch_vol_early  # already extracted above for Kelly sizing
         _cog_ctx = SignalContext(
-            signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
+            signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic() * 1000)}",
             symbol=self._symbol,
             timeframe=self._timeframe.value
             if hasattr(self._timeframe, "value")
