@@ -190,3 +190,32 @@ auto-clears), not an oversight.
 
 **Validation**: pushed to CI (`ci.yml`) for pytest/ruff/mypy/coverage —
 not run locally per repo policy.
+
+## v10 strategy decay CUSUM — wired into per-strategy kill-switch
+
+Second live-wiring step from the v3-v10 backlog:
+`src/risk/strategy_decay.py`'s `CusumDecayDetector` was standalone with no
+call site. Wired it into `StrategyKillSwitchManager`
+(`src/risk/strategy_kill_switch.py`):
+- Each registered strategy now gets a `CusumDecayDetector` seeded from
+  the same `PerformanceBaseline.oos_sharpe` the drift detector uses.
+- `evaluate()` feeds it via a new `PerformanceDriftDetector.
+  current_rolling_sharpe()` public accessor (extracted from the existing
+  private `_check_sharpe_drift()` math — no duplicated logic, no
+  behavior change to the existing drift check).
+- New `is_structurally_decayed(strategy_id)` — observability-only, never
+  disables a strategy itself. Per the module's own docstring: a
+  CUSUM-confirmed break should route to v6's promotion gauntlet for full
+  re-evaluation before any re-enable, distinct from v2's single-window
+  drift halt.
+
+**Deliberately not done in this pass**: no automatic gauntlet routing —
+`is_structurally_decayed()` is exposed as a signal for a human/ops
+process or a future orchestrator hook to consume, not auto-wired to
+`promotion_gauntlet.py` yet. Auto-routing a live strategy through
+re-evaluation is itself a decision with blast radius (which strategies
+feed which allocator) flagged in the v9/v10 entries above as its own
+follow-up.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.

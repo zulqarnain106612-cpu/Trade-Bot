@@ -639,7 +639,7 @@ class SignalEngine:
         # returning False regardless of subsequent equity recovery.
         self._capital_floor.update_equity(capital_usd)
         gate_ctx = RiskGateContext(
-            capital_preservation_halted=self._capital_floor.is_halted(),
+            capital_preservation_halted=self._capital_floor.is_halted,
             daily_pnl_usd=daily_pnl_usd,
             starting_equity_usd=starting_equity_usd,
             consecutive_loss_count=consecutive_loss_count,

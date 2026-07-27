@@ -198,6 +198,48 @@ class TestSharpeDrift:
         assert drift.metric == "sharpe"
 
 
+class TestCurrentRollingSharpe:
+    """current_rolling_sharpe() — public accessor used by strategy_kill_switch's CUSUM feed."""
+
+    def _detector(self) -> PerformanceDriftDetector:
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        return PerformanceDriftDetector(baseline)
+
+    def test_none_before_minimum_window(self):
+        detector = self._detector()
+        assert detector.current_rolling_sharpe() is None
+        detector.record_trade_outcome(
+            pnl_usd=10.0,
+            predicted_prob=0.6,
+            actual_direction=1,
+            current_equity=10010.0,
+            starting_equity=10000.0,
+        )
+        assert detector.current_rolling_sharpe() is None
+
+    def test_matches_manual_sharpe_once_window_fills(self):
+        detector = self._detector()
+        for i in range(30):
+            detector.record_trade_outcome(
+                pnl_usd=150.0 + (i % 3) * 50,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10000 + i * 150,
+                starting_equity=10000,
+            )
+        rolling_sharpe = detector.current_rolling_sharpe()
+        assert rolling_sharpe is not None
+        assert rolling_sharpe > 0
+
+
 class TestAccuracyDrift:
     """Test model accuracy drift detection."""
 

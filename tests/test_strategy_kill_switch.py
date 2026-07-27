@@ -118,6 +118,35 @@ def test_evaluate_does_not_reenable_once_disabled() -> None:
     assert not mgr.is_enabled("strat_a")
 
 
+def test_is_structurally_decayed_false_before_enough_history() -> None:
+    mgr = StrategyKillSwitchManager()
+    mgr.register_strategy("strat_a", _baseline())
+    mgr.evaluate("strat_a")
+    assert not mgr.is_structurally_decayed("strat_a")
+
+
+def test_is_structurally_decayed_true_after_sustained_underperformance() -> None:
+    mgr = StrategyKillSwitchManager()
+    mgr.register_strategy("strat_a", _baseline(oos_sharpe=3.0))
+
+    for _ in range(40):
+        mgr.record_trade_outcome(
+            "strat_a",
+            pnl_usd=-10.0,
+            predicted_prob=0.4,
+            actual_direction=1,
+            current_equity=9000.0,
+            starting_equity=10000.0,
+        )
+        mgr.evaluate("strat_a")
+
+    # Sustained underperformance vs. baseline trips both the memoryless v2
+    # drift check (single-window) and the CUSUM decay detector (accumulated
+    # evidence) — CUSUM is additionally exposed so a caller can distinguish
+    # "confirmed structural decay, route to gauntlet" from a one-off dip.
+    assert mgr.is_structurally_decayed("strat_a")
+
+
 def test_get_strategy_kill_switch_manager_singleton() -> None:
     m1 = get_strategy_kill_switch_manager()
     m2 = get_strategy_kill_switch_manager()

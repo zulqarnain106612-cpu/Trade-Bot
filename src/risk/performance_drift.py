@@ -257,6 +257,26 @@ class PerformanceDriftDetector:
 
         return DriftDetected(drifted=False, reason="All metrics within drift thresholds")
 
+    def current_rolling_sharpe(self) -> float | None:
+        """
+        Public read-only accessor for the same rolling live Sharpe
+        _check_sharpe_drift() computes internally, exposed for callers
+        (e.g. strategy_kill_switch.py's CUSUM decay feed) that need the
+        raw statistic rather than a pass/fail drift verdict. Returns None
+        when there isn't yet enough live history (mirrors
+        _check_sharpe_drift's own minimum-window guard).
+        """
+        if len(self._live_pnl_window) < 20:
+            return None
+        pnl_list = list(self._live_pnl_window)
+        if len(pnl_list) < 2:
+            return None
+        mean_pnl = statistics.mean(pnl_list)
+        std_pnl = statistics.stdev(pnl_list)
+        if std_pnl > 0:
+            return mean_pnl / std_pnl
+        return 0.0 if mean_pnl == 0 else mean_pnl * 10
+
     def _check_sharpe_drift(self) -> DriftDetected:
         """Check if rolling Sharpe has dropped >0.5pp vs training OOS Sharpe."""
         if len(self._live_pnl_window) < 20:

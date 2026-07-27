@@ -28,6 +28,7 @@ from src.risk.performance_drift import (
     PerformanceBaseline,
     PerformanceDriftDetector,
 )
+from src.risk.strategy_decay import CusumDecayDetector
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -39,6 +40,7 @@ class StrategyRuntimeState:
 
     strategy_id: str
     detector: PerformanceDriftDetector
+    decay_detector: CusumDecayDetector
     enabled: bool = True
     disabled_reason: str = ""
     disabled_at_ms: int = 0
@@ -60,6 +62,12 @@ class StrategyKillSwitchManager:
         self._states[strategy_id] = StrategyRuntimeState(
             strategy_id=strategy_id,
             detector=PerformanceDriftDetector(baseline),
+            # v10 CUSUM decay detector (src/risk/strategy_decay.py) — same
+            # oos_sharpe baseline as the drift detector above, but
+            # accumulates evidence over time rather than reacting to a
+            # single window, so it flags persistent structural decay
+            # distinctly from this class's transient drift-triggered halts.
+            decay_detector=CusumDecayDetector(baseline_mean=baseline.oos_sharpe),
         )
         log.info("strategy_kill_switch.registered", strategy_id=strategy_id)
 
@@ -91,6 +99,25 @@ class StrategyKillSwitchManager:
         """
         state = self._require_state(strategy_id)
         drift = state.detector.check_drift()
+
+        # v10: feed the same rolling Sharpe the drift check just used into
+        # the CUSUM decay detector. current_rolling_sharpe() returns None
+        # before the minimum live-trade window fills, matching check_drift's
+        # own guard — nothing to accumulate yet in that case.
+        rolling_sharpe = state.detector.current_rolling_sharpe()
+        if rolling_sharpe is not None:
+            state.decay_detector.update(rolling_sharpe)
+            if state.decay_detector.is_decayed:
+                log.warning(
+                    "strategy_kill_switch.structural_decay_flagged",
+                    strategy_id=strategy_id,
+                    cusum_statistic=round(state.decay_detector.cusum_statistic, 4),
+                    reason=(
+                        "CUSUM-confirmed structural decay — route to promotion "
+                        "gauntlet re-evaluation before any re-enable"
+                    ),
+                )
+
         if drift.drifted and state.enabled:
             state.enabled = False
             state.disabled_reason = drift.reason
@@ -121,6 +148,16 @@ class StrategyKillSwitchManager:
 
     def disabled_reason(self, strategy_id: str) -> str:
         return self._require_state(strategy_id).disabled_reason
+
+    def is_structurally_decayed(self, strategy_id: str) -> bool:
+        """
+        True once the CUSUM detector confirms persistent structural decay
+        (v10) — distinct from is_enabled()/disabled_reason(), which track
+        v2's transient drift-triggered halts. This flag never disables the
+        strategy itself; callers route a decayed strategy to the v6
+        promotion gauntlet for full re-evaluation.
+        """
+        return self._require_state(strategy_id).decay_detector.is_decayed
 
     def _require_state(self, strategy_id: str) -> StrategyRuntimeState:
         state = self._states.get(strategy_id)

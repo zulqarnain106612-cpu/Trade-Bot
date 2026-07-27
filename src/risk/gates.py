@@ -195,7 +195,7 @@ def check_capital_preservation_floor(halted: bool) -> GateResult:
 
     Parameters
     ----------
-    halted : current CapitalPreservationFloor.is_halted() value
+    halted : current CapitalPreservationFloor.is_halted value
 
     Returns
     -------
