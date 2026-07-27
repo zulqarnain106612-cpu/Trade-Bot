@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import random
 
 import pytest
 
-from src.regime.changepoint import BayesianOnlineChangepointDetector
+from src.regime.changepoint import BayesianOnlineChangepointDetector, _logsumexp
 
 
 def test_rejects_invalid_hazard_rate() -> None:
@@ -14,6 +15,22 @@ def test_rejects_invalid_hazard_rate() -> None:
         BayesianOnlineChangepointDetector(hazard_rate=0.0)
     with pytest.raises(ValueError, match="hazard_rate"):
         BayesianOnlineChangepointDetector(hazard_rate=1.0)
+
+
+class TestLogsumexp:
+    def test_empty_list_returns_negative_infinity(self) -> None:
+        assert _logsumexp([]) == float("-inf")
+
+    def test_all_negative_infinity_returns_negative_infinity(self) -> None:
+        assert _logsumexp([float("-inf"), float("-inf")]) == float("-inf")
+
+    def test_matches_naive_sum_for_typical_values(self) -> None:
+        values = [-1.0, -2.0, -0.5]
+        expected = math.log(sum(math.exp(v) for v in values))
+        assert _logsumexp(values) == pytest.approx(expected)
+
+    def test_single_value_returns_itself(self) -> None:
+        assert _logsumexp([-3.2]) == pytest.approx(-3.2)
 
 
 def test_stable_stream_keeps_changepoint_probability_low() -> None:

@@ -2,14 +2,44 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
+import pytest
 
-from src.tuning.factor_search import FactorCandidate, evaluate_factor_candidates
+from src.tuning.factor_search import FactorCandidate, _norm_ppf, evaluate_factor_candidates
 
 
 def test_empty_candidates_returns_empty() -> None:
     assert evaluate_factor_candidates([], pd.Series([0.1, 0.2])) == []
+
+
+class TestNormPpf:
+    def test_rejects_p_outside_open_unit_interval(self) -> None:
+        for bad_p in (0.0, 1.0, -0.1, 1.1):
+            with pytest.raises(ValueError, match="must be in"):
+                _norm_ppf(bad_p)
+
+    def test_median_is_zero(self) -> None:
+        assert _norm_ppf(0.5) == pytest.approx(0.0, abs=1e-6)
+
+    def test_lower_tail_matches_known_quantile(self) -> None:
+        # P(Z <= -1.959964) ~= 0.025 -- standard normal 97.5% two-sided quantile
+        assert _norm_ppf(0.025) == pytest.approx(-1.959964, abs=1e-4)
+
+    def test_upper_tail_matches_known_quantile(self) -> None:
+        assert _norm_ppf(0.975) == pytest.approx(1.959964, abs=1e-4)
+
+    def test_symmetric_around_median(self) -> None:
+        for p in (0.001, 0.02425, 0.1, 0.4, 0.6, 0.9, 0.97575, 0.999):
+            assert _norm_ppf(p) == pytest.approx(-_norm_ppf(1 - p), abs=1e-3)
+
+    def test_monotonically_increasing(self) -> None:
+        ps = [0.001, 0.01, 0.02425, 0.1, 0.5, 0.9, 0.97575, 0.99, 0.999]
+        values = [_norm_ppf(p) for p in ps]
+        assert values == sorted(values)
+        assert not any(math.isnan(v) for v in values)
 
 
 def test_strong_signal_passes_correction() -> None:

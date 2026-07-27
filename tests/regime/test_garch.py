@@ -30,6 +30,21 @@ def _synthetic_garch_returns(n: int = 600, seed: int = 7) -> pd.Series:
     return pd.Series(eps / 100.0, index=idx)
 
 
+def test_unconditional_variance_is_nan_at_unit_root() -> None:
+    """persistence (alpha+beta) >= 1 is a non-stationary process -- the
+    long-run variance is undefined, not just large, so unconditional_variance
+    must return nan rather than a huge or negative number."""
+    params = Garch11Params(omega=0.05, alpha=0.5, beta=0.5, scale=1.0)
+    assert params.persistence == pytest.approx(1.0)
+    assert np.isnan(params.unconditional_variance)
+
+
+def test_unconditional_variance_finite_when_stationary() -> None:
+    params = Garch11Params(omega=0.05, alpha=0.10, beta=0.85, scale=1.0)
+    assert params.persistence < 1.0
+    assert params.unconditional_variance == pytest.approx(0.05 / (1.0 - 0.95))
+
+
 def test_fit_garch11_recovers_plausible_params() -> None:
     returns = _synthetic_garch_returns()
     params = fit_garch11(returns)

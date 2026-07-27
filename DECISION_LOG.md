@@ -256,3 +256,29 @@ follow-up work, not scope creep here.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## Coverage gap closures — GARCH stationarity edge case + norm_ppf tail branches
+
+Two small, targeted test additions closing previously-uncovered lines
+flagged in CI's coverage report (all files already above the 95% global
+floor and all per-file floors; these close genuine untested branches,
+not floor violations):
+
+- `src/regime/garch.py`'s `Garch11Params.unconditional_variance`: added
+  coverage for the non-stationary (persistence >= 1) nan-return branch,
+  which was previously only reachable in theory, never exercised.
+- `src/tuning/factor_search.py`'s `_norm_ppf` (Acklam's rational inverse
+  normal CDF approximation): had zero direct unit tests despite being a
+  from-scratch numerical approximation with three branches (lower tail,
+  central region, upper tail) plus an input-validation raise. Added
+  direct tests for the invalid-input raise, both tail branches, symmetry,
+  and monotonicity — previously only indirectly exercised through
+  evaluate_factor_candidates() with inputs that happened to stay in the
+  central branch.
+- `src/regime/changepoint.py`'s `_logsumexp` (log-sum-exp trick used by
+  the BOCPD run-length posterior): added direct tests for the
+  empty-list and all-`-inf` guard clauses (both previously untested),
+  plus a sanity check against the naive `log(sum(exp(v)))` formula.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
