@@ -6,5 +6,5 @@ mypy>=1.11  # required by CLAUDE.md validation gate (uv run mypy src/) — was r
 black>=24.10.0
 isort>=5.13.0
 detect-secrets>=1.4
-pip-tools>=7.4
+pip-tools>=7.5.3
 # watchdog removed — never imported in src/ (was dead dependency in both req files)
