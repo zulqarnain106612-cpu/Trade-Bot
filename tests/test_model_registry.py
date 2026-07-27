@@ -32,6 +32,18 @@ def test_record_prediction_on_unregistered_shadow_raises() -> None:
         registry.record_shadow_prediction("unknown", 0.6, 1)
 
 
+def test_record_live_prediction_on_unregistered_shadow_raises() -> None:
+    registry = ModelRegistry()
+    with pytest.raises(KeyError):
+        registry.record_live_prediction_for_comparison("unknown", 0.6, 1)
+
+
+def test_evaluate_shadow_on_unregistered_shadow_raises() -> None:
+    registry = ModelRegistry()
+    with pytest.raises(KeyError):
+        registry.evaluate_shadow("unknown")
+
+
 def test_evaluate_shadow_insufficient_data() -> None:
     registry = ModelRegistry(min_evaluations=50)
     registry.register_shadow("xgb_v2")
