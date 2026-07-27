@@ -26,7 +26,7 @@ Authority:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import structlog
@@ -48,7 +48,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class GateStatus(str, Enum):
+class GateStatus(StrEnum):
     """Outcome of a risk gate evaluation."""
 
     PASS = "pass"

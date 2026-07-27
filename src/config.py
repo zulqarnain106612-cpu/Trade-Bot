@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Final, Literal
@@ -26,14 +26,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # ---------------------------------------------------------------------------
 
 
-class TradingMode(str, Enum):
+class TradingMode(StrEnum):
     """Paper vs live gate — requires TRADING_MODE=live in .env to unlock live."""
 
     PAPER = "paper"
     LIVE = "live"
 
 
-class ExecutionMode(str, Enum):
+class ExecutionMode(StrEnum):
     """
     Dashboard-switchable execution approval model.
 
@@ -48,7 +48,7 @@ class ExecutionMode(str, Enum):
     MANUAL = "manual"
 
 
-class Timeframe(str, Enum):
+class Timeframe(StrEnum):
     """Three concurrent timeframe streams — all run in paper simultaneously."""
 
     SCALPING = "1m"

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 import numpy as np
@@ -46,7 +46,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # ── Result types ──────────────────────────────────────────────────────────────
 
 
-class ValidatorStatus(str, Enum):
+class ValidatorStatus(StrEnum):
     PASS = "pass"
     VETO = "veto"
     WARN = "warn"  # passes but logged as warning
@@ -496,8 +496,8 @@ class BlockchainValidator:
                 return ValidatorResult(
                     self.NAME,
                     ValidatorStatus.VETO,
-                    f"Funding rate {ctx.funding_rate_8h*100:.4f}% per 8h unfavorable "
-                    f"for {direction} position (threshold ±{self.FUNDING_VETO_THRESHOLD*100:.3f}%)",
+                    f"Funding rate {ctx.funding_rate_8h * 100:.4f}% per 8h unfavorable "
+                    f"for {direction} position (threshold ±{self.FUNDING_VETO_THRESHOLD * 100:.3f}%)",
                     {**metrics, "funding_rate_8h": ctx.funding_rate_8h, "direction": direction},
                 )
         metrics["funding_rate_8h"] = ctx.funding_rate_8h
@@ -508,7 +508,7 @@ class BlockchainValidator:
                 self.NAME,
                 ValidatorStatus.VETO,
                 f"Basis divergence {ctx.basis_pct:.3f}% > "
-                f"{self.BASIS_VETO_THRESHOLD*100:.2f}% threshold — "
+                f"{self.BASIS_VETO_THRESHOLD * 100:.2f}% threshold — "
                 f"spot/perp pricing inconsistent",
                 {**metrics, "basis_pct": ctx.basis_pct},
             )
@@ -527,7 +527,7 @@ class BlockchainValidator:
             return ValidatorResult(
                 self.NAME,
                 ValidatorStatus.WARN,
-                f"Participation rate {participation*100:.4f}% of ADV — "
+                f"Participation rate {participation * 100:.4f}% of ADV — "
                 f"market impact will be material; slippage model active",
                 metrics,
             )
@@ -535,8 +535,8 @@ class BlockchainValidator:
         return ValidatorResult(
             self.NAME,
             ValidatorStatus.PASS,
-            f"exchange=ok funding={ctx.funding_rate_8h*100:.4f}%/8h "
-            f"basis={ctx.basis_pct:.3f}% participation={participation*100:.5f}%",
+            f"exchange=ok funding={ctx.funding_rate_8h * 100:.4f}%/8h "
+            f"basis={ctx.basis_pct:.3f}% participation={participation * 100:.5f}%",
             metrics,
         )
 
@@ -566,8 +566,7 @@ class RegimeValidator:
             return ValidatorResult(
                 self.NAME,
                 ValidatorStatus.VETO,
-                f"Regime state = volatile (state {ctx.regime_state}) — "
-                f"no new positions allowed",
+                f"Regime state = volatile (state {ctx.regime_state}) — no new positions allowed",
                 {"regime_state": ctx.regime_state},
             )
 

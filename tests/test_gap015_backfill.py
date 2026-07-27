@@ -202,7 +202,7 @@ def test_empty_coverage_returns_base():
 
 
 def test_full_coverage_returns_25():
-    full = {c: 1.0 for c in INTELLIGENCE_FEATURE_COLUMNS}
+    full = dict.fromkeys(INTELLIGENCE_FEATURE_COLUMNS, 1.0)
     cols = get_active_feature_columns(full, min_coverage=0.6)
     assert len(cols) == 7 + 18  # 7 base + 18 intel (OCI-012)
     assert cols[:7] == list(BASE_FEATURE_COLUMNS)
@@ -220,12 +220,12 @@ def test_partial_coverage_excludes_low_cols():
 
 def test_threshold_boundary():
     # Exactly at threshold → included
-    cov = {c: 0.6 for c in INTELLIGENCE_FEATURE_COLUMNS}
+    cov = dict.fromkeys(INTELLIGENCE_FEATURE_COLUMNS, 0.6)
     cols = get_active_feature_columns(cov, min_coverage=0.6)
     assert len(cols) == 25
 
     # Just below → excluded
-    cov_below = {c: 0.5999 for c in INTELLIGENCE_FEATURE_COLUMNS}
+    cov_below = dict.fromkeys(INTELLIGENCE_FEATURE_COLUMNS, 0.5999)
     cols_below = get_active_feature_columns(cov_below, min_coverage=0.6)
     assert len(cols_below) == 7
 

@@ -161,7 +161,7 @@ class TestSelfTuningRollback:
         assert resp.status_code == 401
 
     def test_rollback_with_no_history_returns_404(self, api_client) -> None:
-        client, _storage, api_main = api_client
+        client, _storage, _api_main = api_client
         resp = client.post(
             "/self-tuning/rollback/does.not.exist",
             json={"operator": "alice", "operator_secret": _TEST_SECRET},

@@ -237,7 +237,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_with_dir_meta_metrics_not_none(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
 
         # dir_metrics and meta_metrics are both not None
         dir_metrics = MagicMock()
@@ -265,7 +265,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_with_latest_close_updates_correlation(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
         # Set previous close so bar_return is computed
         orch._last_close_for_corr[Timeframe.INTRADAY.value] = (999_000, 40_000.0)
         orch._storage.latest_close = AsyncMock(return_value=(1_000_000, 41_000.0))
@@ -291,7 +291,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_with_regime_not_none_persists_snapshot(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
 
         regime = MagicMock()
         regime.state = 1
@@ -373,7 +373,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_live_mode_checks_paper_equity(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
         orch._cfg.trading_mode = TradingMode.LIVE
         orch._storage.earliest_equity_ts = AsyncMock(return_value=1_700_000_000_000)
 
@@ -437,7 +437,7 @@ def _startup_common_patches(executor):
 class TestStartupLiveModeAndDriftDetector:
     @pytest.mark.asyncio
     async def test_startup_live_mode_creates_live_executor(self):
-        orch, storage, fetcher = _make_orch_cfg(trading_mode=TradingMode.LIVE)
+        orch, _storage, _fetcher = _make_orch_cfg(trading_mode=TradingMode.LIVE)
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
         with (
@@ -453,7 +453,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_drift_detector_initialized_on_success(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -483,7 +483,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_drift_detector_init_failure_continues(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -510,7 +510,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_engine_skip_when_detector_or_trainer_missing(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -530,7 +530,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_engine_skip_on_filenotfound(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -778,7 +778,7 @@ class TestTickScheduledRetrain:
 
     @pytest.mark.asyncio
     async def test_scheduled_retrain_fires_at_interval(self):
-        orch, executor = self._make_orch_at_interval()
+        orch, _executor = self._make_orch_at_interval()
         result = _make_skip_result()
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=result)
@@ -810,7 +810,7 @@ class TestTickScheduledRetrain:
     async def test_scheduled_retrain_skipped_when_already_running(self):
         prior = asyncio.get_event_loop().create_future()
         prior.done = MagicMock(return_value=False)  # simulate a still-running task
-        orch, executor = self._make_orch_at_interval(prior_task=prior)
+        orch, _executor = self._make_orch_at_interval(prior_task=prior)
 
         result = _make_skip_result()
         mock_engine = MagicMock()
@@ -835,7 +835,7 @@ class TestTickScheduledRetrain:
 
     @pytest.mark.asyncio
     async def test_scheduled_retrain_done_callback_skips_del_when_task_already_replaced(self):
-        orch, executor = self._make_orch_at_interval()
+        orch, _executor = self._make_orch_at_interval()
         result = _make_skip_result()
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=result)
@@ -869,7 +869,7 @@ class TestTickScheduledRetrain:
     async def test_scheduled_retrain_failure_records_last_error(self):
         """SCAN2-003: an exception from the periodic (non-drift) retrain task
         must be logged/recorded via its done-callback, not vanish silently."""
-        orch, executor = self._make_orch_at_interval()
+        orch, _executor = self._make_orch_at_interval()
         result = _make_skip_result()
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=result)

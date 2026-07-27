@@ -836,7 +836,7 @@ class SignalEngine:
             float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
         )
         _cog_ctx = SignalContext(
-            signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
+            signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic() * 1000)}",
             symbol=self._symbol,
             timeframe=self._timeframe.value
             if hasattr(self._timeframe, "value")

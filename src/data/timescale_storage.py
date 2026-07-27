@@ -218,7 +218,7 @@ _HYPERTABLE_SQL: Final[tuple[str, ...]] = (
 _PG_MIGRATIONS: Final[list[tuple[int, str, str]]] = [
     (
         1,
-        "initial schema: bars, trades, regime_snapshots, model_metrics, " "equity_curve, audit_log",
+        "initial schema: bars, trades, regime_snapshots, model_metrics, equity_curve, audit_log",
         "",  # Tables already exist from _PG_DDL; version marker only.
     ),
     (
