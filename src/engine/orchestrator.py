@@ -38,6 +38,7 @@ from src.config import (
 )
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend, MissedTradeRecord, RegimeSnapshotRecord
+from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
@@ -53,6 +54,7 @@ from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.risk.portfolio_correlation import get_portfolio_correlation
+from src.strategies.signal_engine_adapter import STRATEGY_ID_SIGNAL_ENGINE
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -898,6 +900,30 @@ class Orchestrator:
                                     trade_id=pos["trade_id"],
                                     error=str(exc),
                                 )
+
+                        # v2 Sub-task 4: feed per-strategy P&L attribution.
+                        # Every trade closed through this path currently
+                        # originates from the wrapped v1 signal engine
+                        # (src/strategies/signal_engine_adapter.py) — no
+                        # other registry strategy routes through here yet,
+                        # so the tag is unambiguous. Best-effort: attribution
+                        # is an observability feature, never a reason to
+                        # fail a live position close.
+                        try:
+                            get_attribution_tracker().record(
+                                AttributedFill(
+                                    strategy_id=STRATEGY_ID_SIGNAL_ENGINE,
+                                    pnl_usd=net_pnl,
+                                    entry_ts=cast("int", pos["entry_ts"]),
+                                    exit_ts=now_ms,
+                                )
+                            )
+                        except Exception as exc:
+                            self._log.warning(
+                                "orchestrator.attribution_record_failed",
+                                trade_id=pos["trade_id"],
+                                error=str(exc),
+                            )
                     except KeyError:
                         # Position was already closed by another path (e.g. a manual
                         # close via the API) between the snapshot above and this call --
