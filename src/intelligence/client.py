@@ -243,8 +243,7 @@ class IntelligenceAggregator:
 
         if not self.glassnode_key:
             raise RuntimeError(
-                "INTELLIGENCE_GLASSNODE_API_KEY not set — "
-                "set it in .env or disable on-chain gates"
+                "INTELLIGENCE_GLASSNODE_API_KEY not set — set it in .env or disable on-chain gates"
             )
 
         import httpx
@@ -322,8 +321,7 @@ class IntelligenceAggregator:
 
         if not self.glassnode_key:
             raise RuntimeError(
-                "INTELLIGENCE_GLASSNODE_API_KEY not set — "
-                "set it in .env or disable on-chain gates"
+                "INTELLIGENCE_GLASSNODE_API_KEY not set — set it in .env or disable on-chain gates"
             )
 
         import httpx

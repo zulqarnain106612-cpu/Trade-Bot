@@ -153,7 +153,7 @@ def test_regression_is_rejected_and_never_promoted(tmp_path: Path) -> None:
 
 
 def test_cooldown_blocks_second_attempt(tmp_path: Path) -> None:
-    runner, _, store, audit = build_runner(tmp_path, shadow_mode=True)
+    runner, _, _store, _audit = build_runner(tmp_path, shadow_mode=True)
     runner.attempt(
         "hmm.entropy_threshold", eval_fn_returning(improving_comparisons()), "oos_sharpe"
     )
@@ -165,7 +165,7 @@ def test_cooldown_blocks_second_attempt(tmp_path: Path) -> None:
 
 
 def test_unregistered_parameter_raises(tmp_path: Path) -> None:
-    runner, registry, _, _ = build_runner(tmp_path)
+    runner, _registry, _, _ = build_runner(tmp_path)
     with pytest.raises(KeyError):
         runner.attempt("does.not.exist", eval_fn_returning(improving_comparisons()), "oos_sharpe")
 

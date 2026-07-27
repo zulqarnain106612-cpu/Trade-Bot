@@ -180,7 +180,7 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
         assert fsm.state.status.name == "FILLED"
 
     @pytest.mark.asyncio
@@ -280,7 +280,7 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
         assert fsm.state.status.name == "FILLED"
 
     @pytest.mark.asyncio
@@ -298,7 +298,7 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
         assert fsm.state.status.name == "FILLED"
 
     @pytest.mark.asyncio

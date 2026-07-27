@@ -85,7 +85,7 @@ def test_resolve_approval_success(client_state):
 
 
 def test_resolve_approval_bad_operator_secret(client_state):
-    client, state = client_state
+    client, _state = client_state
     import uuid
 
     req_id = str(uuid.uuid4())
@@ -116,7 +116,7 @@ def test_resolve_approval_not_found(client_state):
 
 
 def test_resolve_approval_invalid_uuid(client_state):
-    client, state = client_state
+    client, _state = client_state
     resp = client.post(
         "/approvals/not-a-uuid/resolve",
         json={"approved": True, "operator": "alice", "operator_secret": _OP_SECRET},
@@ -131,7 +131,7 @@ def test_resolve_approval_invalid_uuid(client_state):
 
 
 def test_set_execution_mode_success(client_state):
-    client, state = client_state
+    client, _state = client_state
     with patch("src.api.main.runtime_config") as rc:
         rc.get_execution_mode = AsyncMock(return_value=MagicMock(value="automatic"))
         rc.set_execution_mode = AsyncMock(return_value=None)
@@ -144,7 +144,7 @@ def test_set_execution_mode_success(client_state):
 
 
 def test_set_execution_mode_bad_secret(client_state):
-    client, state = client_state
+    client, _state = client_state
     resp = client.post(
         "/execution-mode",
         json={"mode": "manual", "operator": "alice", "operator_secret": "wrong"},
@@ -154,7 +154,7 @@ def test_set_execution_mode_bad_secret(client_state):
 
 
 def test_set_execution_mode_invalid_mode(client_state):
-    client, state = client_state
+    client, _state = client_state
     resp = client.post(
         "/execution-mode",
         json={"mode": "turbo", "operator": "alice", "operator_secret": _OP_SECRET},
@@ -169,7 +169,7 @@ def test_set_execution_mode_invalid_mode(client_state):
 
 
 def test_post_risk_controls_success(client_state):
-    client, state = client_state
+    client, _state = client_state
     with patch("src.api.main.runtime_config") as rc:
         rc.get_risk_controls = AsyncMock(return_value={"stop_loss_enabled": True})
         rc.set_risk_controls = AsyncMock(return_value={"stop_loss_enabled": False})
@@ -186,7 +186,7 @@ def test_post_risk_controls_success(client_state):
 
 
 def test_post_risk_controls_bad_secret(client_state):
-    client, state = client_state
+    client, _state = client_state
     resp = client.post(
         "/risk-controls",
         json={

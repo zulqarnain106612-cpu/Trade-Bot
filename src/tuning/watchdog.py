@@ -17,7 +17,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 
 from src.config import SelfTuningSettings
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
@@ -25,7 +25,7 @@ from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.store import VersionedConfigStore
 
 
-class WatchdogOutcome(str, Enum):
+class WatchdogOutcome(StrEnum):
     NOT_IN_PROBATION = "not_in_probation"
     IN_PROBATION = "in_probation"
     CLEARED = "cleared"

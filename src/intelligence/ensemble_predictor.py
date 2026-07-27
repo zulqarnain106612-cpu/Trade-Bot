@@ -728,7 +728,7 @@ class EnsemblePredictor:
             # differentiate models on, so fall back to equal weighting
             # rather than crashing or silently producing NaN weights.
             n = len(self.models)
-            self.weights = {name: 1.0 / n for name in self.models}
+            self.weights = dict.fromkeys(self.models, 1.0 / n)
             log.warning(
                 "ensemble_weights_cold_start_fallback",
                 reason="no model has finite RMSE yet; using equal weights",
