@@ -54,6 +54,7 @@ from src.models.trainer import ModelTrainer
 from src.regime.changepoint import BayesianOnlineChangepointDetector
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.regime.ensemble import RegimeEnsembleVote, combine_regime_votes
+from src.risk.capital_preservation_floor import CapitalPreservationFloor
 from src.risk.cognitive_engine import (
     SignalContext,
     get_cognitive_engine,
@@ -186,6 +187,13 @@ class SignalEngine:
         # distribution across ticks, so it lives on self rather than being
         # recreated per call.
         self._changepoint_detector = BayesianOnlineChangepointDetector()
+        # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
+        # whole-book peak-drawdown halt that never auto-clears on equity
+        # recovery. One instance per engine, driven by this engine's own
+        # capital_usd stream each tick — see tick() gate 0.
+        self._capital_floor = CapitalPreservationFloor(
+            max_drawdown_pct=self._cfg.risk.capital_preservation_max_drawdown_pct
+        )
         self._log = log.bind(
             component="signal_engine",
             symbol=symbol,
@@ -624,7 +632,14 @@ class SignalEngine:
             _emit_audit("skipped", "slippage_negative_ev", kelly_result, gate_result)
             return self._skip("slippage_negative_ev")
 
+        # v10 capital preservation floor: mark the latest equity, then read
+        # the (possibly newly-tripped) halt state into the gate stack.
+        # update_equity() never raises for equity_usd >= 0.0 (see caller
+        # contract of AbstractExecutor.equity_usd) and, once halted, keeps
+        # returning False regardless of subsequent equity recovery.
+        self._capital_floor.update_equity(capital_usd)
         gate_ctx = RiskGateContext(
+            capital_preservation_halted=self._capital_floor.is_halted(),
             daily_pnl_usd=daily_pnl_usd,
             starting_equity_usd=starting_equity_usd,
             consecutive_loss_count=consecutive_loss_count,

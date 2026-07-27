@@ -161,3 +161,32 @@ live-wiring integration is the next major engineering effort."
 **Validation**: `ruff check src/ tests/` — all checks passed. `mypy src/`
 — success, no issues (115 source files). Full suite run separately after
 this entry to confirm final pass/coverage counts.
+
+## v10 capital preservation floor — wired into live gate stack
+
+First live-wiring step out of the v3-v10 "standalone, not wired" backlog
+noted above: `src/risk/capital_preservation_floor.py`'s
+`CapitalPreservationFloor` was a correct, tested primitive with no call
+site. Wired it as **gate 0** (outermost, evaluated before slippage/
+drawdown/regime/etc.) in `src/risk/gates.py`'s `evaluate_all_gates()`:
+- New `GateStatus.HALT_CAPITAL_PRESERVATION` and
+  `check_capital_preservation_floor(halted: bool)` — a pure read of the
+  floor's `is_halted()`, no equity math duplicated in gates.py.
+- `RiskGateContext.capital_preservation_halted: bool = False` — defaults
+  to False so any caller not yet passing it (there were none besides
+  signal_engine.py) is unaffected.
+- `SignalEngine` now owns one `CapitalPreservationFloor` instance per
+  (symbol, timeframe) engine, seeded from the new
+  `RiskSettings.capital_preservation_max_drawdown_pct` (default 0.30,
+  matches the floor's own default). `tick()` calls `update_equity()`
+  every bar before building `RiskGateContext`.
+
+**Deliberately not done in this pass**: no admin/API path to call
+`re_authorize()` once the floor trips — that still requires the
+API-key-to-role decision flagged in the v8 entry above. Until that
+exists, a tripped floor requires a code-level `re_authorize()` call or
+restart with a fresh (unhalted) instance; this is intentional (never
+auto-clears), not an oversight.
+
+**Validation**: pushed to CI (`ci.yml`) for pytest/ruff/mypy/coverage —
+not run locally per repo policy.

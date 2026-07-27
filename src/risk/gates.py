@@ -2,13 +2,15 @@
 Risk gate engine — hard limits that block new positions.
 
 Gates (all must pass for a trade to proceed):
-  0. Slippage / negative-EV veto : expected edge must cover estimated
+  0. Capital preservation floor : v10 whole-book peak-drawdown halt, never
+                               auto-clears — outermost backstop
+  1. Slippage / negative-EV veto : expected edge must cover estimated
                                spread + market-impact cost (GAP-001)
-  1. Daily drawdown halt     : daily PnL < -2% of starting equity → halt
-  2. Consecutive loss halt   : 3+ consecutive losses → halt
-  3. Regime gate             : no new positions when regime = volatile
-  4. Max position size       : position notional ≤ 5% of capital
-  5. Live gate               : both models must pass OOS thresholds before
+  2. Daily drawdown halt     : daily PnL < -2% of starting equity → halt
+  3. Consecutive loss halt   : 3+ consecutive losses → halt
+  4. Regime gate             : no new positions when regime = volatile
+  5. Max position size       : position notional ≤ 5% of capital
+  6. Live gate               : both models must pass OOS thresholds before
                                live trading is permitted
 
 Gates are evaluated in order; first failure short-circuits the rest.
@@ -60,6 +62,7 @@ class GateStatus(str, Enum):
     HALT_DRIFT = "halt_drift"  # Performance drift detection (GAP-003)
     HALT_EXCHANGE_STRESS = "halt_exchange_stress"  # GAP-015: exchange stress gate
     REDUCE_WHALE_ACTIVITY = "reduce_whale_activity"  # GAP-015: whale selling, size reduced
+    HALT_CAPITAL_PRESERVATION = "halt_capital_preservation"  # v10 outermost drawdown floor
 
 
 @dataclass(frozen=True)
@@ -176,6 +179,38 @@ def check_slippage_veto(
             "symbol": slippage.symbol,
         }
     )
+
+
+def check_capital_preservation_floor(halted: bool) -> GateResult:
+    """
+    Gate 0b: v10 capital preservation floor — the outermost, whole-book
+    drawdown backstop (src/risk/capital_preservation_floor.py).
+
+    Unlike check_daily_drawdown (which resets at UTC midnight), this
+    gate reflects a floor that never auto-clears on equity recovery —
+    only an explicit, out-of-band re_authorize() call on the
+    CapitalPreservationFloor instance can lift it. This gate is a pure
+    read of that instance's halted state; it performs no equity math
+    itself.
+
+    Parameters
+    ----------
+    halted : current CapitalPreservationFloor.is_halted() value
+
+    Returns
+    -------
+    GateResult — PASS if not halted, else HALT_CAPITAL_PRESERVATION.
+    """
+    if halted:
+        return GateResult.fail(
+            GateStatus.HALT_CAPITAL_PRESERVATION,
+            reason=(
+                "Capital preservation floor halted: max drawdown from peak "
+                "equity breached — requires explicit re_authorize()"
+            ),
+            details={"halted": True},
+        )
+    return GateResult.pass_gate(details={"halted": False})
 
 
 def check_daily_drawdown(
@@ -508,6 +543,11 @@ class RiskGateContext:
     # — it is returned in GateResult.details["whale_scalar"].
     whale_scalar: float = 1.0
 
+    # v10 — outermost capital preservation floor state. Defaults to False
+    # (not halted) so existing call sites that have not yet wired a
+    # CapitalPreservationFloor instance are unaffected.
+    capital_preservation_halted: bool = False
+
 
 def evaluate_all_gates(
     ctx: RiskGateContext,
@@ -517,13 +557,14 @@ def evaluate_all_gates(
     Evaluate all risk gates in sequence.  Returns on first failure.
 
     Gate order:
-      0. Slippage / negative-EV veto (GAP-001)
-      1. Daily drawdown
-      2. Consecutive losses
-      3. Regime
-      4. Position size
-      5. Paper minimum days (live mode only)
-      6. Live model gate
+      0. Capital preservation floor (v10 — never auto-clears)
+      1. Slippage / negative-EV veto (GAP-001)
+      2. Daily drawdown
+      3. Consecutive losses
+      4. Regime
+      5. Position size
+      6. Paper minimum days (live mode only)
+      7. Live model gate
 
     Parameters
     ----------
@@ -542,6 +583,7 @@ def evaluate_all_gates(
     # evaluation ever moves to a concurrent context. Explicit calls are also
     # fully visible to static analysis and mypy.
     ordered_results: list[GateResult] = [
+        check_capital_preservation_floor(ctx.capital_preservation_halted),
         check_slippage_veto(ctx.expected_edge_bps, ctx.slippage_estimate, cfg),
         check_daily_drawdown(ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg),
         check_consecutive_losses(ctx.consecutive_loss_count, cfg),
