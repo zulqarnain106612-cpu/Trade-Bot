@@ -38,7 +38,6 @@ from src.config import (
 )
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend, MissedTradeRecord, RegimeSnapshotRecord
-from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
@@ -54,7 +53,6 @@ from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.risk.portfolio_correlation import get_portfolio_correlation
-from src.strategies.signal_engine_adapter import STRATEGY_ID_SIGNAL_ENGINE
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -94,6 +92,12 @@ class Orchestrator:
         self._primary_tf = self._cfg.primary_timeframe
 
         self._executor: AnyExecutor | None = None
+        # Dedicated paper executor for non-primary timeframes when trading_mode=LIVE.
+        # Spec (README): only primary_timeframe (intraday) trades real money;
+        # scalping and swing streams are paper-only regardless of the global
+        # trading mode. None when trading_mode=PAPER, since self._executor
+        # already covers every timeframe in that case.
+        self._non_primary_executor: PaperExecutor | None = None
         self._engines: dict[str, SignalEngine] = {}
         self._detectors: dict[str, RegimeDetector] = {}
         self._trainers: dict[str, ModelTrainer] = {}
@@ -144,6 +148,14 @@ class Orchestrator:
                 self._fetcher,
                 starting_capital=self._cfg.starting_capital_usd,
             )
+            # Non-primary timeframes (scalping, swing) never trade real money,
+            # even when trading_mode=LIVE -- give them their own paper executor.
+            if any(tf != self._primary_tf for tf in self._timeframes):
+                self._non_primary_executor = PaperExecutor(
+                    self._storage,
+                    starting_capital=self._cfg.starting_capital_usd,
+                )
+                await self._non_primary_executor.initialize()
         else:
             self._executor = PaperExecutor(
                 self._storage,
@@ -311,10 +323,31 @@ class Orchestrator:
     # Shutdown
     # ------------------------------------------------------------------
 
+    def _executor_for(self, tf: Timeframe) -> AnyExecutor | None:
+        """
+        Route a timeframe to its executor.
+
+        Only primary_timeframe ever reaches self._executor when it's a
+        LiveExecutor; every other timeframe is forced to paper regardless of
+        the global trading_mode (spec: scalping/swing are paper-only).
+        """
+        if tf != self._primary_tf and self._non_primary_executor is not None:
+            return self._non_primary_executor
+        return self._executor
+
+    def _all_executors(self) -> list[AnyExecutor]:
+        """Every distinct executor instance currently active, for lifecycle/monitoring."""
+        executors: list[AnyExecutor] = []
+        if self._executor is not None:
+            executors.append(self._executor)
+        if self._non_primary_executor is not None:
+            executors.append(self._non_primary_executor)
+        return executors
+
     async def shutdown(self) -> None:
         """Flush state, close all subsystems, and shut down training executor."""
-        if self._executor is not None:
-            await self._executor.shutdown()
+        for executor in self._all_executors():
+            await executor.shutdown()
         await get_monitor().stop()  # Patch B: clean monitor shutdown
         # Shut down training thread pool cleanly — wait for any in-flight training job
         self._train_executor.shutdown(wait=True)
@@ -368,7 +401,7 @@ class Orchestrator:
         if engine is None:
             return
 
-        executor = self._executor
+        executor = self._executor_for(tf)
         if executor is None:
             return
 
@@ -391,10 +424,19 @@ class Orchestrator:
         if meta_metrics is not None:
             meta_gate = meta_metrics.live_gate_pass
 
-        # Win/loss stats for Kelly
+        # Win/loss stats for Kelly. Non-primary timeframes always execute as
+        # paper (see _executor_for) even when the global trading_mode is live,
+        # so their trade history is stored under "paper" -- querying by the
+        # global trading_mode here would find zero rows for them and silently
+        # fall back to default win/loss stats every tick.
+        effective_trading_mode = (
+            TradingMode.PAPER.value
+            if executor is self._non_primary_executor
+            else self._cfg.trading_mode.value
+        )
         recent_trades = await self._storage.fetch_trades(
             symbol=self._symbol,
-            trading_mode=self._cfg.trading_mode.value,
+            trading_mode=effective_trading_mode,
             limit=200,  # raised from 100 (VUL-020: larger window reduces overfit sizing)
         )
         # SCAN2-012: fetch_trades returns DESC order (most-recent first). Reverse to
@@ -781,10 +823,10 @@ class Orchestrator:
                 )
                 sleep_s = max(1.0, next_midnight - now.timestamp())
                 await asyncio.sleep(sleep_s)
-                if self._executor is not None:
+                for executor in self._all_executors():
                     # NEW-005: atomic reset via executor method — avoids torn read
                     # during concurrent mark_to_market.
-                    equity = await self._executor.reset_daily_equity()
+                    equity = await executor.reset_daily_equity()
                     self._log.info(
                         "orchestrator.daily_reset",
                         equity_usd=equity,
@@ -822,11 +864,19 @@ class Orchestrator:
         while self._running:
             try:
                 await asyncio.sleep(self._cfg.risk.position_monitor_interval_s)
-                if self._executor is None:
+                executors = self._all_executors()
+                if not executors:
                     continue
 
-                positions = await self._executor.open_positions_safe()
-                if not positions:
+                # Skip the price fetch entirely when every executor is flat --
+                # preserves the original no-op-when-flat behavior even with a
+                # second (non-primary) executor in the mix.
+                any_open = False
+                for executor in executors:
+                    if await executor.open_positions_safe():
+                        any_open = True
+                        break
+                if not any_open:
                     continue
 
                 try:
@@ -839,108 +889,89 @@ class Orchestrator:
                 if price <= 0.0:
                     continue
 
-                await self._executor.mark_to_market({self._symbol: price})
-
-                controls = await runtime_config.get_risk_controls()
-                now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
-
-                # Re-snapshot after marking so unrealized_pnl_pct reflects the
-                # price just fetched above, not a stale value from the last tick.
-                positions = await self._executor.open_positions_safe()
-                for pos in positions:
-                    if pos.get("symbol") != self._symbol:
-                        continue
-                    exit_reason = check_position_exit(
-                        unrealized_pnl_pct=cast("float", pos["unrealized_pnl_pct"]),
-                        entry_ts_ms=cast("int", pos["entry_ts"]),
-                        now_ts_ms=now_ms,
-                        stop_loss_enabled=cast("bool", controls["stop_loss_enabled"]),
-                        stop_loss_pct=cast("float", controls["stop_loss_pct"]),
-                        take_profit_enabled=cast("bool", controls["take_profit_enabled"]),
-                        take_profit_pct=cast("float", controls["take_profit_pct"]),
-                        max_holding_period_s=cast("float", controls["max_holding_period_s"]),
-                    )
-                    if exit_reason is None:
-                        continue
-                    try:
-                        net_pnl = await self._executor.close_position(
-                            trade_id=str(pos["trade_id"]),
-                            exit_price=price,
-                            exit_reason=exit_reason,
-                        )
-                        self._log.info(
-                            "orchestrator.position_auto_closed",
-                            trade_id=pos["trade_id"],
-                            symbol=pos["symbol"],
-                            exit_reason=exit_reason,
-                            exit_price=price,
-                            net_pnl_usd=round(net_pnl, 4),
-                            unrealized_pnl_pct_at_close=pos["unrealized_pnl_pct"],
-                        )
-
-                        # Record trade outcome for drift detection (GAP-003).
-                        # predicted_prob is not tracked on the position record, so a
-                        # neutral 0.5 is used — drift detection still gets accurate
-                        # PnL/direction/equity signal, just without confidence-weighted
-                        # prediction tracking for auto-closed trades.
-                        if self._drift_detector:
-                            try:
-                                await self._drift_adapter.record_closed_trade(
-                                    trade_id=str(pos["trade_id"]),
-                                    exit_price=price,
-                                    pnl_usd=net_pnl,
-                                    predicted_prob=0.5,
-                                    actual_direction=(1 if pos["direction"] == "long" else -1),
-                                    current_equity=self._executor.equity_usd,
-                                    starting_equity=self._cfg.starting_capital_usd,
-                                )
-                            except Exception as exc:
-                                self._log.warning(
-                                    "orchestrator.drift_record_failed",
-                                    trade_id=pos["trade_id"],
-                                    error=str(exc),
-                                )
-
-                        # v2 Sub-task 4: feed per-strategy P&L attribution.
-                        # Every trade closed through this path currently
-                        # originates from the wrapped v1 signal engine
-                        # (src/strategies/signal_engine_adapter.py) — no
-                        # other registry strategy routes through here yet,
-                        # so the tag is unambiguous. Best-effort: attribution
-                        # is an observability feature, never a reason to
-                        # fail a live position close.
-                        try:
-                            get_attribution_tracker().record(
-                                AttributedFill(
-                                    strategy_id=STRATEGY_ID_SIGNAL_ENGINE,
-                                    pnl_usd=net_pnl,
-                                    entry_ts=cast("int", pos["entry_ts"]),
-                                    exit_ts=now_ms,
-                                )
-                            )
-                        except Exception as exc:
-                            self._log.warning(
-                                "orchestrator.attribution_record_failed",
-                                trade_id=pos["trade_id"],
-                                error=str(exc),
-                            )
-                    except KeyError:
-                        # Position was already closed by another path (e.g. a manual
-                        # close via the API) between the snapshot above and this call --
-                        # not an error, just a race that resolved itself.
-                        self._log.debug(
-                            "orchestrator.position_monitor_already_closed",
-                            trade_id=pos["trade_id"],
-                        )
-                    except Exception as exc:
-                        self._log.error(
-                            "orchestrator.position_auto_close_failed",
-                            trade_id=pos["trade_id"],
-                            exit_reason=exit_reason,
-                            error=str(exc),
-                        )
+                for executor in executors:
+                    await self._monitor_positions_for(executor, price)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 self._log.error("orchestrator.position_monitor_loop_error", error=str(exc))
                 await asyncio.sleep(5)
+
+    async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
+        """Mark-to-market and stop-loss/take-profit/time-exit for one executor's positions."""
+        await executor.mark_to_market({self._symbol: price})
+
+        controls = await runtime_config.get_risk_controls()
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+
+        # Re-snapshot after marking so unrealized_pnl_pct reflects the
+        # price just fetched above, not a stale value from the last tick.
+        positions = await executor.open_positions_safe()
+        for pos in positions:
+            if pos.get("symbol") != self._symbol:
+                continue
+            exit_reason = check_position_exit(
+                unrealized_pnl_pct=cast("float", pos["unrealized_pnl_pct"]),
+                entry_ts_ms=cast("int", pos["entry_ts"]),
+                now_ts_ms=now_ms,
+                stop_loss_enabled=cast("bool", controls["stop_loss_enabled"]),
+                stop_loss_pct=cast("float", controls["stop_loss_pct"]),
+                take_profit_enabled=cast("bool", controls["take_profit_enabled"]),
+                take_profit_pct=cast("float", controls["take_profit_pct"]),
+                max_holding_period_s=cast("float", controls["max_holding_period_s"]),
+            )
+            if exit_reason is None:
+                continue
+            try:
+                net_pnl = await executor.close_position(
+                    trade_id=str(pos["trade_id"]),
+                    exit_price=price,
+                    exit_reason=exit_reason,
+                )
+                self._log.info(
+                    "orchestrator.position_auto_closed",
+                    trade_id=pos["trade_id"],
+                    symbol=pos["symbol"],
+                    exit_reason=exit_reason,
+                    exit_price=price,
+                    net_pnl_usd=round(net_pnl, 4),
+                    unrealized_pnl_pct_at_close=pos["unrealized_pnl_pct"],
+                )
+
+                # Record trade outcome for drift detection (GAP-003).
+                # predicted_prob is not tracked on the position record, so a
+                # neutral 0.5 is used — drift detection still gets accurate
+                # PnL/direction/equity signal, just without confidence-weighted
+                # prediction tracking for auto-closed trades.
+                if self._drift_detector:
+                    try:
+                        await self._drift_adapter.record_closed_trade(
+                            trade_id=str(pos["trade_id"]),
+                            exit_price=price,
+                            pnl_usd=net_pnl,
+                            predicted_prob=0.5,
+                            actual_direction=(1 if pos["direction"] == "long" else -1),
+                            current_equity=executor.equity_usd,
+                            starting_equity=self._cfg.starting_capital_usd,
+                        )
+                    except Exception as exc:
+                        self._log.warning(
+                            "orchestrator.drift_record_failed",
+                            trade_id=pos["trade_id"],
+                            error=str(exc),
+                        )
+            except KeyError:
+                # Position was already closed by another path (e.g. a manual
+                # close via the API) between the snapshot above and this call --
+                # not an error, just a race that resolved itself.
+                self._log.debug(
+                    "orchestrator.position_monitor_already_closed",
+                    trade_id=pos["trade_id"],
+                )
+            except Exception as exc:
+                self._log.error(
+                    "orchestrator.position_auto_close_failed",
+                    trade_id=pos["trade_id"],
+                    exit_reason=exit_reason,
+                    error=str(exc),
+                )

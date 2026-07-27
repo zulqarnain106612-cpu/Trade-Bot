@@ -108,12 +108,7 @@ jobs:
       - name: Compute version
         id: version
         run: |
-          VERSION=$(python -c "
-import tomllib
-with open('pyproject.toml','rb') as f:
-    d=tomllib.load(f)
-print(d['project']['version'])
-")
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           SHORT_SHA=$(git rev-parse --short HEAD)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"

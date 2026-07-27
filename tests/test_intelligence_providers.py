@@ -423,9 +423,27 @@ class TestBybitIntelligenceProvider:
 
     @pytest.mark.asyncio
     async def test_initialize_and_close(self, provider):
-        """Real ccxt.bybit market load, mirroring the OKX lifecycle test."""
+        """
+        initialize()/close() call load_markets()/close() on both ccxt clients.
+
+        Mocked rather than hitting the real exchange (consistent with every
+        other test in this file) -- a live call to api.bybit.com is unreliable
+        in CI: it has been observed failing both from TLS interception in
+        sandboxed environments and from Bybit/CloudFront blocking requests
+        from some CI runner regions with 403 Forbidden.
+        """
+        provider._spot.load_markets = AsyncMock(return_value={})
+        provider._perp.load_markets = AsyncMock(return_value={})
+        provider._spot.close = AsyncMock()
+        provider._perp.close = AsyncMock()
+
         await provider.initialize()
         await provider.close()
+
+        provider._spot.load_markets.assert_awaited_once()
+        provider._perp.load_markets.assert_awaited_once()
+        provider._spot.close.assert_awaited_once()
+        provider._perp.close.assert_awaited_once()
 
     def test_singleton(self):
         import src.intelligence.providers.bybit_provider as mod
