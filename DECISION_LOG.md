@@ -235,3 +235,24 @@ TradeAuditor's richer schema.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## v10 red-team cadence tracker — wired into AutoTuningScheduler (cadence only)
+
+Fourth live-wiring step from the v3-v10 backlog: `src/tuning/
+redteam_scheduler.py`'s `RedTeamScheduler` had no call site. Wired into
+`src/tuning/scheduler.py`'s `AutoTuningScheduler` (already the process's
+periodic-tick loop): each cycle, `_check_redteam_due()` logs a warning
+once the (default annual) interval since the last recorded run has
+elapsed.
+
+**Deliberately scoped down**: this does NOT run `stress_simulator.py`
+against a live allocation and does NOT call `record_run()` — doing so
+honestly requires `meta_allocator.py` (also still unwired) to be
+producing a real live allocation first; fabricating a "ran" record with
+no actual replay behind it would be worse than leaving it unwired. This
+commit only closes the "nobody is tracking when the next red-team replay
+is due" gap; running the real replay once meta_allocator is wired is
+follow-up work, not scope creep here.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
