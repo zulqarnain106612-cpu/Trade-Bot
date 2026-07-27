@@ -219,3 +219,19 @@ follow-up.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## v8 hash-chained audit trail — wired into signal_engine's audit closure
+
+Third live-wiring step from the v3-v10 backlog: `src/diagnostics/
+audit_trail.py`'s `AuditTrail` (append-only, SHA-256 hash-chained) had no
+call site — only the separate, richer `TradeAuditor` (src/diagnostics/
+trade_auditor.py) was wired. Both now run side by side from the same
+`_emit_audit()` closure in `src/engine/signal_engine.py`'s `tick()`:
+TradeAuditor remains the queryable, per-tick record; `AuditTrail` adds a
+compact, tamper-evident ledger (event_type/reason_code/details) that
+`verify_chain_integrity()` can later prove was never altered — the
+compliance property the v8 spec asked for, not a replacement for
+TradeAuditor's richer schema.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.

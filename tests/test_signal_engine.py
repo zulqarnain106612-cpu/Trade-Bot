@@ -482,6 +482,52 @@ class TestTradeablePath:
         assert r.tradeable is True
         assert r.direction == 0  # p_long=0.2 → short; signal_engine uses 0 not -1 for short
 
+    @pytest.mark.asyncio
+    async def test_tick_appends_to_hash_chained_audit_trail(self):
+        """v8: every _emit_audit call also appends to AuditTrail (src/diagnostics/audit_trail.py)."""
+        from src.diagnostics.audit_trail import get_audit_trail
+
+        trail = get_audit_trail()
+        len_before = len(trail)
+
+        e = _make_engine()
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            await e.tick(**_TICK)
+
+        assert len(trail) == len_before + 1
+        latest = trail.entries()[-1]
+        assert latest.event_type == "opened"
+        intact, broken_at = trail.verify_chain_integrity()
+        assert intact
+        assert broken_at is None
+
 
 # ---------------------------------------------------------------------------
 # Ensemble blend (src/intelligence/ensemble_predictor.py wired into p_long)

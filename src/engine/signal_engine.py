@@ -38,6 +38,7 @@ from src.api.metrics import regime_ensemble_failure_total
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend
+from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
@@ -621,6 +622,29 @@ class SignalEngine:
             )
             get_auditor().record(rec)
             get_degradation_tracker(_tf_key).record_prediction(p_long, _p_bet_ref[0])
+
+            # v8: same event, additionally appended to the hash-chained,
+            # tamper-evident AuditTrail (src/diagnostics/audit_trail.py).
+            # This never replaces TradeAuditor above -- TradeAuditor is the
+            # rich, queryable per-tick record; AuditTrail is the compact,
+            # append-only compliance ledger that can prove after the fact
+            # that no entry was altered or removed.
+            get_audit_trail().record(
+                event_type=outcome,
+                reason_code=skip or (gr.status.value if gr else "unknown"),
+                details={
+                    "symbol": self._symbol,
+                    "timeframe": self._timeframe.value
+                    if hasattr(self._timeframe, "value")
+                    else str(self._timeframe),
+                    "direction": direction,
+                    "p_long": round(p_long, 6),
+                    "gate_status": gr.status.value if gr else "unknown",
+                    "kelly_fraction": kr.adjusted_fraction if kr else None,
+                    "notional_usd": kr.notional_usd if kr else None,
+                    "equity_usd": capital_usd,
+                },
+            )
 
         # 8. Risk gate stack
         slippage_gate_result = check_slippage_veto(
