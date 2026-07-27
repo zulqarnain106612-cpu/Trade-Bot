@@ -34,9 +34,11 @@ import pandas as pd
 import structlog
 from xgboost import XGBClassifier
 
+from src.api.metrics import regime_ensemble_failure_total
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend
+from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
@@ -50,7 +52,10 @@ from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
 )
 from src.models.trainer import ModelTrainer
+from src.regime.changepoint import BayesianOnlineChangepointDetector
 from src.regime.detector import RegimeDetector, RegimePrediction
+from src.regime.ensemble import RegimeEnsembleVote, combine_regime_votes
+from src.risk.capital_preservation_floor import CapitalPreservationFloor
 from src.risk.cognitive_engine import (
     SignalContext,
     get_cognitive_engine,
@@ -178,6 +183,18 @@ class SignalEngine:
         self._ensemble = ensemble
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
+        # v4 regime ensemble (observability only — never gates trades, see
+        # tick()): a per-engine BOCPD instance must persist its run-length
+        # distribution across ticks, so it lives on self rather than being
+        # recreated per call.
+        self._changepoint_detector = BayesianOnlineChangepointDetector()
+        # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
+        # whole-book peak-drawdown halt that never auto-clears on equity
+        # recovery. One instance per engine, driven by this engine's own
+        # capital_usd stream each tick — see tick() gate 0.
+        self._capital_floor = CapitalPreservationFloor(
+            max_drawdown_pct=self._cfg.risk.capital_preservation_max_drawdown_pct
+        )
         self._log = log.bind(
             component="signal_engine",
             symbol=symbol,
@@ -415,6 +432,34 @@ class SignalEngine:
 
         # NEW-017: REGIME_VOLATILE imported at module level — no per-tick import overhead
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
+
+        # v4 regime ensemble — observability only. The changepoint detector's
+        # continuous instability signal and its agreement with the HMM's
+        # regime read are logged for monitoring/alerting; neither ever
+        # overrides regime_state or gates a trade (Domain Prior: treat HMM
+        # transitions as probabilistic, avoid hard-coded regime logic).
+        if regime is not None and len(bars) >= 2:
+            try:
+                last_return = float(bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1.0)
+                cp_prob = self._changepoint_detector.update(last_return)
+                ensemble_result = combine_regime_votes(
+                    RegimeEnsembleVote(
+                        hmm_prob_trending=regime.prob_trending,
+                        hmm_prob_ranging=regime.prob_ranging,
+                        hmm_prob_volatile=regime.prob_volatile,
+                        changepoint_probability=cp_prob,
+                    )
+                )
+                if ensemble_result.agreement_score < 0.5:
+                    self._log.warning(
+                        "signal.regime_ensemble_disagreement",
+                        agreement_score=ensemble_result.agreement_score,
+                        changepoint_probability=cp_prob,
+                        regime_state=regime_state,
+                    )
+            except Exception as exc:
+                regime_ensemble_failure_total.inc()
+                self._log.warning("signal.regime_ensemble_failed", error=str(exc))
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
         # Ensemble blend (src/intelligence/ensemble_predictor.py) — conservative
@@ -578,6 +623,29 @@ class SignalEngine:
             get_auditor().record(rec)
             get_degradation_tracker(_tf_key).record_prediction(p_long, _p_bet_ref[0])
 
+            # v8: same event, additionally appended to the hash-chained,
+            # tamper-evident AuditTrail (src/diagnostics/audit_trail.py).
+            # This never replaces TradeAuditor above -- TradeAuditor is the
+            # rich, queryable per-tick record; AuditTrail is the compact,
+            # append-only compliance ledger that can prove after the fact
+            # that no entry was altered or removed.
+            get_audit_trail().record(
+                event_type=outcome,
+                reason_code=skip or (gr.status.value if gr else "unknown"),
+                details={
+                    "symbol": self._symbol,
+                    "timeframe": self._timeframe.value
+                    if hasattr(self._timeframe, "value")
+                    else str(self._timeframe),
+                    "direction": direction,
+                    "p_long": round(p_long, 6),
+                    "gate_status": gr.status.value if gr else "unknown",
+                    "kelly_fraction": kr.adjusted_fraction if kr else None,
+                    "notional_usd": kr.notional_usd if kr else None,
+                    "equity_usd": capital_usd,
+                },
+            )
+
         # 8. Risk gate stack
         slippage_gate_result = check_slippage_veto(
             expected_edge_bps=_expected_edge_bps,
@@ -588,7 +656,14 @@ class SignalEngine:
             _emit_audit("skipped", "slippage_negative_ev", kelly_result, gate_result)
             return self._skip("slippage_negative_ev")
 
+        # v10 capital preservation floor: mark the latest equity, then read
+        # the (possibly newly-tripped) halt state into the gate stack.
+        # update_equity() never raises for equity_usd >= 0.0 (see caller
+        # contract of AbstractExecutor.equity_usd) and, once halted, keeps
+        # returning False regardless of subsequent equity recovery.
+        self._capital_floor.update_equity(capital_usd)
         gate_ctx = RiskGateContext(
+            capital_preservation_halted=self._capital_floor.is_halted,
             daily_pnl_usd=daily_pnl_usd,
             starting_equity_usd=starting_equity_usd,
             consecutive_loss_count=consecutive_loss_count,

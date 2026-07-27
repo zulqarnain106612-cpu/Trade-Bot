@@ -54,6 +54,7 @@ from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import AnyStorageBackend, create_storage_backend
+from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.tuning.audit import TuningEventType
@@ -1244,6 +1245,31 @@ async def get_order_status(
             )
         }
     return state.to_dict()
+
+
+@app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_attribution() -> dict[str, Any]:
+    """
+    Per-strategy P&L attribution (v2 multi-strategy portfolio engine).
+
+    Read-only. Sourced from the in-memory AttributionTracker, populated as
+    the orchestrator tags closed trades with the originating strategy_id
+    from the strategy registry (src/strategies/registry.py).
+
+    Returns
+    -------
+    {
+        "strategies": {strategy_id: {trade_count, total_pnl_usd, win_rate,
+                                      sharpe, max_drawdown_usd}, ...},
+        "fill_count": int,
+    }
+    """
+    tracker = get_attribution_tracker()
+    snapshot = tracker.snapshot()
+    return {
+        "strategies": {sid: attr.to_dict() for sid, attr in snapshot.items()},
+        "fill_count": tracker.fill_count(),
+    }
 
 
 @app.get("/performance-drift", tags=["monitoring"], dependencies=[Depends(api_key_header)])

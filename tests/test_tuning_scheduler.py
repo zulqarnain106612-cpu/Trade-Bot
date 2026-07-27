@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from typing import Any
 
 import numpy as np
@@ -264,6 +265,29 @@ class TestAutoTuningSchedulerAttempts:
         asyncio.run(_run())
         assert seen_cycle_counts == [0]
         assert scheduler._cycle_count == 1
+
+    def test_check_redteam_due_logs_when_never_run(self) -> None:
+        """A freshly constructed scheduler's RedTeamScheduler has no last_run,
+        so is_due() is True immediately -- _check_redteam_due() must log a
+        reminder without ever calling record_run() (that would fabricate a
+        replay that never happened)."""
+        settings = get_settings()
+        storage = _FakeStorage([], {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        assert scheduler._redteam_scheduler.last_run is None
+        scheduler._check_redteam_due()  # must not raise
+        assert scheduler._redteam_scheduler.last_run is None  # still not recorded
+
+    def test_check_redteam_due_silent_after_manual_recent_run(self) -> None:
+        settings = get_settings()
+        storage = _FakeStorage([], {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        now_ms = int(time.time() * 1000)
+        scheduler._redteam_scheduler.record_run(ran_at_ms=now_ms, breached_floor=False)
+        assert not scheduler._redteam_scheduler.is_due(now_ms)
+        scheduler._check_redteam_due()  # must not raise, and finds nothing due
 
     def test_attempt_all_uses_registry_champion_not_stale_settings(self, monkeypatch) -> None:
         """Regression (Finding 1): once hmm.entropy_scalar_floor has been

@@ -135,6 +135,12 @@ class RiskSettings(BaseSettings):
     consecutive_loss_halt: int = Field(default=3, ge=1, le=20)
     max_position_size_pct: float = Field(default=5.0, ge=0.1, le=25.0)
 
+    # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
+    # peak-equity drawdown that halts trading permanently until an explicit,
+    # out-of-band re_authorize() call -- unlike daily_drawdown_halt_pct above,
+    # this never auto-clears at UTC midnight or on equity recovery.
+    capital_preservation_max_drawdown_pct: float = Field(default=0.30, gt=0.0, lt=1.0)
+
     # Kelly (1956) — half-Kelly with ceiling per AFML Ch.10
     kelly_multiplier: float = Field(default=0.5, ge=0.01, le=1.0)
     kelly_ceiling: float = Field(default=0.25, ge=0.01, le=1.0)

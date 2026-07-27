@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import math
+import time
 
 import pandas as pd
 import structlog
@@ -78,6 +79,7 @@ from src.tuning.bootstrap import (
 )
 from src.tuning.evaluator import MetricComparison
 from src.tuning.proposer import Proposal
+from src.tuning.redteam_scheduler import RedTeamScheduler
 from src.tuning.registry import TunableParameter
 from src.tuning.state import parameter_registry, pause_state, runner, version_store
 
@@ -132,6 +134,15 @@ class AutoTuningScheduler:
         self._cycle_count = 0
         self._task: asyncio.Task[None] | None = None
         self._stopped = False
+        # v10 red-team cadence tracker (src/tuning/redteam_scheduler.py):
+        # this scheduler only tracks *when* a full-system stress replay is
+        # due -- it never runs one itself. Actually executing
+        # stress_simulator.py against the live allocation requires
+        # meta_allocator.py to be producing a real allocation first (still
+        # unwired -- see DECISION_LOG.md), so for now this cycle only logs a
+        # recurring reminder once the interval elapses; record_run() is left
+        # for whatever caller eventually performs the real replay.
+        self._redteam_scheduler = RedTeamScheduler()
 
     def start(self) -> None:
         if not parameter_registry.is_registered("hmm.entropy_threshold"):
@@ -183,12 +194,32 @@ class AutoTuningScheduler:
                     # direct-_attempt_all() test path.
                     await self._attempt_all()
                     self._cycle_count += 1
+                    self._check_redteam_due()
             except Exception as exc:
                 log.error("tuning.scheduler_attempt_failed", error=str(exc))
             try:
                 await asyncio.sleep(self._interval_s)
             except asyncio.CancelledError:
                 return
+
+    def _check_redteam_due(self) -> None:
+        """
+        Logs a recurring reminder once the v10 red-team cadence elapses.
+        Deliberately does not call self._redteam_scheduler.record_run() --
+        that would falsely mark a replay as having happened. Stays "due"
+        every cycle until a real caller runs stress_simulator.py against
+        the live allocation and records it.
+        """
+        now_ms = int(time.time() * 1000)
+        if self._redteam_scheduler.is_due(now_ms):
+            log.warning(
+                "tuning.redteam_stress_replay_due",
+                last_run_ms=(
+                    self._redteam_scheduler.last_run.ran_at_ms
+                    if self._redteam_scheduler.last_run
+                    else None
+                ),
+            )
 
     async def _attempt_all(self) -> None:
         # NOTE: each parameter group below (entropy, slippage, feature-window)
