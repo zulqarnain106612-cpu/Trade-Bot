@@ -2,7 +2,7 @@
 # Run: pip-compile --generate-hashes requirements.in -o requirements.lock
 # Then commit requirements.lock and use in CI with: pip install --require-hashes -r requirements.lock
 
-fastapi>=0.111,<1.0
+fastapi>=0.139.0,<1.0
 uvicorn[standard]>=0.29,<1.0
 websockets>=12.0,<14.0
 ccxt>=4.3,<5.0
