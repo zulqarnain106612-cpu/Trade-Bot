@@ -157,7 +157,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt -e .
           pip install "cosmic-ray==${{ env.COSMIC_RAY_VERSION }}"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mutation-session
 
@@ -192,12 +192,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install "cosmic-ray==${{ env.COSMIC_RAY_VERSION }}"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mutation-session
           path: master
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: mutation-shard-*
           path: shards
