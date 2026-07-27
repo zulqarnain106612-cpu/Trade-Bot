@@ -34,6 +34,7 @@ import pandas as pd
 import structlog
 from xgboost import XGBClassifier
 
+from src.api.metrics import regime_ensemble_failure_total
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend
@@ -50,7 +51,9 @@ from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
 )
 from src.models.trainer import ModelTrainer
+from src.regime.changepoint import BayesianOnlineChangepointDetector
 from src.regime.detector import RegimeDetector, RegimePrediction
+from src.regime.ensemble import RegimeEnsembleVote, combine_regime_votes
 from src.risk.cognitive_engine import (
     SignalContext,
     get_cognitive_engine,
@@ -178,6 +181,11 @@ class SignalEngine:
         self._ensemble = ensemble
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
+        # v4 regime ensemble (observability only — never gates trades, see
+        # tick()): a per-engine BOCPD instance must persist its run-length
+        # distribution across ticks, so it lives on self rather than being
+        # recreated per call.
+        self._changepoint_detector = BayesianOnlineChangepointDetector()
         self._log = log.bind(
             component="signal_engine",
             symbol=symbol,
@@ -415,6 +423,34 @@ class SignalEngine:
 
         # NEW-017: REGIME_VOLATILE imported at module level — no per-tick import overhead
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
+
+        # v4 regime ensemble — observability only. The changepoint detector's
+        # continuous instability signal and its agreement with the HMM's
+        # regime read are logged for monitoring/alerting; neither ever
+        # overrides regime_state or gates a trade (Domain Prior: treat HMM
+        # transitions as probabilistic, avoid hard-coded regime logic).
+        if regime is not None and len(bars) >= 2:
+            try:
+                last_return = float(bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1.0)
+                cp_prob = self._changepoint_detector.update(last_return)
+                ensemble_result = combine_regime_votes(
+                    RegimeEnsembleVote(
+                        hmm_prob_trending=regime.prob_trending,
+                        hmm_prob_ranging=regime.prob_ranging,
+                        hmm_prob_volatile=regime.prob_volatile,
+                        changepoint_probability=cp_prob,
+                    )
+                )
+                if ensemble_result.agreement_score < 0.5:
+                    self._log.warning(
+                        "signal.regime_ensemble_disagreement",
+                        agreement_score=ensemble_result.agreement_score,
+                        changepoint_probability=cp_prob,
+                        regime_state=regime_state,
+                    )
+            except Exception as exc:
+                regime_ensemble_failure_total.inc()
+                self._log.warning("signal.regime_ensemble_failed", error=str(exc))
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
         # Ensemble blend (src/intelligence/ensemble_predictor.py) — conservative

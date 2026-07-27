@@ -103,6 +103,14 @@ gate_block_total = Counter(
     registry=_REGISTRY,
 )
 
+regime_ensemble_failure_total = Counter(
+    "tradebot_regime_ensemble_failure_total",
+    "Number of times the v4 regime ensemble (BOCPD + HMM combine) raised "
+    "during a tick — instrumentation-only failures, never blocks trading, "
+    "but a rising rate indicates the observability signal has gone dark",
+    registry=_REGISTRY,
+)
+
 # ── Histogram ─────────────────────────────────────────────────────────────────
 tick_duration_seconds = Histogram(
     "tradebot_tick_duration_seconds",
