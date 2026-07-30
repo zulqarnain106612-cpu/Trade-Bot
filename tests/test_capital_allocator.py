@@ -165,3 +165,90 @@ class TestPerformanceWeightedAllocate:
         strats = self._strats()
         result = performance_weighted_allocate(strats, enabled_ids={"alpha"})
         assert result.method == "performance_weighted"
+
+
+# ---------------------------------------------------------------------------
+# risk_parity_allocate tests
+# ---------------------------------------------------------------------------
+
+
+class TestRiskParityAllocate:
+    """Inverse-volatility weighting: lower vol → higher weight."""
+
+    def _strats(self) -> tuple:
+        return (_Strat("a", 0.5), _Strat("b", 0.5))
+
+    def _seed_fills(self, pnls_by_id: dict) -> None:
+        from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
+
+        tracker = get_attribution_tracker()
+        tracker._fills.clear()
+        for sid, pnls in pnls_by_id.items():
+            for i, pnl in enumerate(pnls):
+                tracker._fills.append(
+                    AttributedFill(strategy_id=sid, pnl_usd=pnl, entry_ts=i, exit_ts=i + 1)
+                )
+
+    def _clear(self) -> None:
+        from src.diagnostics.attribution import get_attribution_tracker
+
+        get_attribution_tracker()._fills.clear()
+
+    def test_no_enabled_strategies_all_zero(self) -> None:
+        from src.strategies.capital_allocator import risk_parity_allocate
+
+        strats = self._strats()
+        result = risk_parity_allocate(strats, enabled_ids=set())
+        assert all(v == 0.0 for v in result.fractions.values())
+        assert result.method == "risk_parity"
+
+    def test_method_field(self) -> None:
+        from src.strategies.capital_allocator import risk_parity_allocate
+
+        self._clear()
+        result = risk_parity_allocate(self._strats(), enabled_ids={"a", "b"})
+        assert result.method == "risk_parity"
+
+    def test_warmup_gives_equal_shares(self) -> None:
+        """Strategies with < _MIN_TRADES_FOR_VOL fills → equal weight."""
+        from src.strategies.capital_allocator import risk_parity_allocate
+
+        self._clear()
+        result = risk_parity_allocate(self._strats(), enabled_ids={"a", "b"})
+        assert result.total() <= 1.0 + 1e-9
+        assert result.fractions["a"] == pytest.approx(result.fractions["b"], abs=1e-6)
+
+    def test_lower_vol_gets_higher_weight(self) -> None:
+        """Strategy with tighter P&L distribution should get more capital."""
+        from src.strategies.capital_allocator import risk_parity_allocate
+
+        n = 25
+        # 'a' has tiny variance (low vol → high inv-vol weight)
+        a_pnls = [1.0 + 0.001 * (i % 3) for i in range(n)]
+        # 'b' has high variance
+        b_pnls = [10.0 if i % 2 == 0 else -9.0 for i in range(n)]
+        self._seed_fills({"a": a_pnls, "b": b_pnls})
+        result = risk_parity_allocate(self._strats(), enabled_ids={"a", "b"})
+        assert result.fractions["a"] > result.fractions["b"]
+        assert result.total() <= 1.0 + 1e-9
+        self._clear()
+
+    def test_cap_respected(self) -> None:
+        """required_capital_fraction() cap must hold even with extreme inv-vol."""
+        from src.strategies.capital_allocator import risk_parity_allocate
+
+        n = 25
+        self._seed_fills({"a": [0.0001] * n})  # near-zero vol → will hit floor
+        strats = (_Strat("a", 0.05),)  # cap 5%
+        result = risk_parity_allocate(strats, enabled_ids={"a"})
+        assert result.fractions["a"] <= 0.05 + 1e-9
+        self._clear()
+
+    def test_total_never_exceeds_one(self) -> None:
+        from src.strategies.capital_allocator import risk_parity_allocate
+
+        n = 25
+        self._seed_fills({"a": [1.0] * n, "b": [2.0] * n})
+        result = risk_parity_allocate(self._strats(), enabled_ids={"a", "b"})
+        assert result.total() <= 1.0 + 1e-9
+        self._clear()
