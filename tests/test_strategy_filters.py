@@ -411,6 +411,40 @@ def test_apply_all_filters_volatile_blocks() -> None:
     assert result["scalar"] == 0.0
 
 
+def test_apply_all_filters_weak_adx_appends_adx_failure() -> None:
+    """apply_all_strategy_filters records adx_weak_or_misaligned when ADX filter fails."""
+    from src.config import REGIME_TRENDING
+
+    # Sinusoidal price → low ADX (no persistent trend)
+    t = np.linspace(0, 40 * np.pi, 300)
+    close = pd.Series(np.sin(t) * 5 + 100)
+    volume = pd.Series([1000.0] * 300)
+    atr = pd.Series([0.5] * 300)
+
+    result = apply_all_strategy_filters(
+        close=close,
+        volume=volume,
+        atr_series=atr,
+        direction=1,
+        regime_state=REGIME_TRENDING,
+        prob_trending=0.9,
+        prob_ranging=0.05,
+        prob_volatile=0.05,
+    )
+    # ADX should be weak on a sinusoidal series → filter does not pass
+    assert not result["passes"]
+
+
+def test_adx_zero_true_range_returns_zeros() -> None:
+    """All high=low=close (zero TR) → smoothed_tr near 0 → returns (0, 0, 0)."""
+    n = 50
+    price = pd.Series([100.0] * n)
+    adx, plus_di, minus_di = adx_dmi(price, price, price)
+    assert adx == 0.0
+    assert plus_di == 0.0
+    assert minus_di == 0.0
+
+
 def test_apply_all_filters_overnight_gap_blocks() -> None:
     from src.config import REGIME_TRENDING
 
