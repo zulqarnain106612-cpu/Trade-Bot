@@ -198,7 +198,9 @@ class OnChainProvider(ExchangeIntelligenceProvider):
             logger.warning("%s._get circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None
         except Exception as exc:
-            logger.warning("%s._get failed url=%s err=%s", self.__class__.__name__, url, exc)
+            logger.warning(
+                "%s._get failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            )
             return None
 
     async def _post(
@@ -221,7 +223,9 @@ class OnChainProvider(ExchangeIntelligenceProvider):
             logger.warning("%s._post circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None
         except Exception as exc:
-            logger.warning("%s._post failed url=%s err=%s", self.__class__.__name__, url, exc)
+            logger.warning(
+                "%s._post failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            )
             return None
 
     @property

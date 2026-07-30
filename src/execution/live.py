@@ -724,6 +724,7 @@ class LiveExecutor(AbstractExecutor):
                     symbol=symbol,
                     side=side,
                     error=str(exc),
+                    exc_info=True,
                 )
                 return None
 

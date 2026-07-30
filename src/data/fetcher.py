@@ -776,6 +776,7 @@ class _FetcherContextManager:
                 "fetcher.context_manager_close_error",
                 error=str(close_exc),
                 original_exc_type=exc_type.__name__ if exc_type else None,
+                exc_info=True,
             )
         return False  # do not suppress the original exception
 
