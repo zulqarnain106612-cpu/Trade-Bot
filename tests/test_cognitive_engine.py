@@ -604,11 +604,12 @@ class TestRiskValidatorCompositeScoreVeto:
     def test_extreme_drawdown_triggers_composite_veto(self) -> None:
         v = RiskValidator()
         # Saturate all components WITHOUT triggering individual veto thresholds:
-        # dd=-1.9% (<2.0% halt), consecutive=2 (<3 halt), vol_ratio=1.95 (<2.0), positions=5
-        # Composite = 0.35*0.95 + 0.30*0.975 + 0.25*0.667 + 0.10*1.0 ≈ 0.892 > 0.85
+        # dd=-1.98% (<2.0% halt), consecutive=2 (<3 halt), vol_ratio=1.95 (<2.0), positions=5
+        # Weights: 0.33/0.28/0.24/0.10/0.05 (GARCH=0 → only first 4 active)
+        # Composite = 0.33*0.99 + 0.28*0.975 + 0.24*0.667 + 0.10*1.0 ≈ 0.860 > 0.85
         ctx = make_ctx(
             capital_usd=100_000.0,
-            daily_pnl_usd=-1_900.0,  # dd_pct = -1.9% (below -2.0% halt → no individual veto)
+            daily_pnl_usd=-1_980.0,  # dd_pct = -1.98% (below -2.0% halt → no individual veto)
             consecutive_losses=2,  # < 3 halt threshold
             open_positions=5,  # pos_component = 1.0 (saturated)
             atr=1.95,
