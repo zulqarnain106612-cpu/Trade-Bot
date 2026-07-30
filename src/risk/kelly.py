@@ -406,6 +406,7 @@ def compute_position_size(
     regime_scalar: float = 1.0,
     correlation_scalar: float = 1.0,
     sample_uncertainty_scalar: float = 1.0,
+    garch_vol_scalar: float = 1.0,
     notional_cap_usd: float | None = None,
     cfg: RiskSettings | None = None,
 ) -> KellyResult | None:
@@ -457,6 +458,13 @@ def compute_position_size(
                      trade history), on top of (not instead of) the existing
                      probability shrinkage in compute_win_loss_stats. Defaults
                      to 1.0 (no-op) for backward compatibility.
+    garch_vol_scalar : GARCH-vol-targeting scalar in [0, 1]. When GARCH
+                     conditional vol exceeds the configured threshold
+                     (RISK_GARCH_VOL_THRESHOLD), the signal engine computes
+                     scalar = threshold / forecast (Carver 2019 vol-targeting
+                     approach) and passes it here, reducing position size
+                     inversely with volatility. Defaults to 1.0 (no-op) when
+                     not passed — preserves full backward compatibility.
     cfg            : RiskSettings
 
     Returns
@@ -496,6 +504,13 @@ def compute_position_size(
     else:
         uncertainty_scalar_clamped = max(0.0, min(1.0, sample_uncertainty_scalar))
 
+    # GARCH vol-targeting: same fail-safe — invalid scalar blocks sizing.
+    if not math.isfinite(garch_vol_scalar):
+        log.error("kelly.invalid_garch_vol_scalar", garch_vol_scalar=garch_vol_scalar)
+        garch_vol_scalar_clamped = 0.0
+    else:
+        garch_vol_scalar_clamped = max(0.0, min(1.0, garch_vol_scalar))
+
     _raw_frac, adj_frac, _ = kelly_from_model_probs(
         p_long=p_long,
         avg_win_usd=avg_win_usd,
@@ -505,7 +520,11 @@ def compute_position_size(
     )
 
     adj_frac = (
-        adj_frac * regime_scalar_clamped * correlation_scalar_clamped * uncertainty_scalar_clamped
+        adj_frac
+        * regime_scalar_clamped
+        * correlation_scalar_clamped
+        * uncertainty_scalar_clamped
+        * garch_vol_scalar_clamped
     )
 
     result = size_position(

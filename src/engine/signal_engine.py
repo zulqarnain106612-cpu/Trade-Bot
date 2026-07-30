@@ -406,6 +406,13 @@ class SignalEngine:
         if vec is None:
             return self._skip("insufficient_features_with_ofi")
 
+        # Extract GARCH vol early so it can feed both Kelly sizing and SignalContext.
+        _garch_vol_early = (
+            float(fm.features[COL_GARCH_VOL].iloc[-1])
+            if COL_GARCH_VOL in fm.features.columns and fm.features[COL_GARCH_VOL].iloc[-1] > 0
+            else 0.0
+        )
+
         # ── Push live feature values to drift monitor (Aronson 2006) ──
         _drift_mon = get_drift_monitor()
         for feat_name, feat_val in vec.items():
@@ -548,6 +555,18 @@ class SignalEngine:
         # HMM/changepoint disagreement reduces size proportionally rather than
         # being logged and discarded (auditor finding #2).
         combined_scalar = correlation_scalar * _regime_agreement_scalar
+
+        # GARCH vol-targeting scalar (Carver 2019): scale position inversely with
+        # realized conditional vol when it exceeds the configured threshold. This
+        # reduces notional exposure in high-vol regimes without a hard veto, keeping
+        # trades alive at reduced size rather than blocking them entirely.
+        _garch_threshold = get_settings().risk.garch_vol_threshold
+        _garch_vol_scalar = (
+            min(1.0, _garch_threshold / _garch_vol_early)
+            if _garch_vol_early > _garch_threshold
+            else 1.0
+        )
+
         kelly_result = compute_position_size(
             p_long=p_long,
             direction=direction,
@@ -557,6 +576,7 @@ class SignalEngine:
             avg_loss_usd=avg_loss_usd,
             regime_scalar=regime_scalar,
             correlation_scalar=combined_scalar,
+            garch_vol_scalar=_garch_vol_scalar,
             notional_cap_usd=_notional_cap_usd,
         )
 
@@ -857,11 +877,7 @@ class SignalEngine:
         _adv_20d = (
             float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
         )
-        _garch_vol = (
-            float(fm.features[COL_GARCH_VOL].iloc[-1])
-            if COL_GARCH_VOL in fm.features.columns and fm.features[COL_GARCH_VOL].iloc[-1] > 0
-            else 0.0
-        )
+        _garch_vol = _garch_vol_early  # already extracted above for Kelly sizing
         _cog_ctx = SignalContext(
             signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
             symbol=self._symbol,

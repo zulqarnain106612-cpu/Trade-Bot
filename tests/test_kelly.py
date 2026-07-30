@@ -352,6 +352,75 @@ class TestComputePositionSize:
 
     # ─── GAP-005/GAP-015: correlation_scalar parameter ────────────────────────────
 
+    # ─── GARCH vol-targeting scalar parameter ─────────────────────────────────────
+
+    def test_garch_vol_scalar_default_is_noop(self):
+        baseline = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+        )
+        with_one = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            garch_vol_scalar=1.0,
+        )
+        assert baseline is not None and with_one is not None
+        assert baseline.quantity == with_one.quantity
+
+    def test_garch_vol_scalar_half_shrinks_position(self):
+        full = compute_position_size(
+            p_long=0.52,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            garch_vol_scalar=1.0,
+        )
+        halved = compute_position_size(
+            p_long=0.52,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            garch_vol_scalar=0.5,
+        )
+        assert full is not None and halved is not None
+        assert halved.quantity <= full.quantity
+
+    def test_garch_vol_scalar_zero_blocks_sizing(self):
+        result = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            garch_vol_scalar=0.0,
+        )
+        assert result is None
+
+    def test_garch_vol_scalar_inf_fails_safe_to_zero(self):
+        result = compute_position_size(
+            p_long=0.75,
+            direction=1,
+            capital_usd=1000.0,
+            entry_price=30000.0,
+            avg_win_usd=20.0,
+            avg_loss_usd=10.0,
+            garch_vol_scalar=float("inf"),
+        )
+        assert result is None
+
     # ─── UI-004: sample_uncertainty_scalar parameter ──────────────────────────────
 
     def test_sample_uncertainty_scalar_default_is_noop(self):
