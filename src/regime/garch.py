@@ -14,9 +14,10 @@ Fit here via direct Gaussian quasi-MLE (scipy.optimize), not the third-party
 `arch` package, to avoid adding a new pinned dependency for one model.
 
 Two entry points:
-  - `fit_garch11`: in-sample fit — diagnostics / research only, must NOT be
-    used as a live or backtest feature (uses the full series to estimate
-    the params that generate its own conditional variance).
+  - `_fit_garch11_offline`: in-sample fit — diagnostics / research only, must NOT
+    be used as a live or backtest feature (uses the full series to estimate
+    the params that generate its own conditional variance). Underscore-prefixed
+    to prevent accidental import into the live pipeline.
   - `rolling_garch_forecast`: leak-free walk-forward — refits on a trailing
     window and forecasts exactly one step ahead, so the forecast at index i
     uses only returns strictly before i. Safe for backtest/feature use.
@@ -86,13 +87,18 @@ def _neg_log_likelihood(theta: np.ndarray, scaled_returns: np.ndarray) -> float:
     return -float(ll)
 
 
-def fit_garch11(returns: pd.Series, scale: float = _SCALE) -> Garch11Params:
+def _fit_garch11_offline(returns: pd.Series, scale: float = _SCALE) -> Garch11Params:
     """
     In-sample GARCH(1,1) fit via Gaussian quasi-MLE.
 
     NOT leak-free — the fitted params depend on the entire input series.
-    Use only for offline diagnostics/research. For a feature/backtest signal
-    use `rolling_garch_forecast` instead.
+    Use ONLY for offline diagnostics/research. For any feature, backtest,
+    or live signal use `rolling_garch_forecast` instead — it re-fits on a
+    trailing window and forecasts exactly one step ahead, so index i uses
+    only returns before i.
+
+    Prefixed with `_` to prevent accidental import into the live feature
+    pipeline. Any caller outside tests/scripts is a bug.
     """
     clean = returns.dropna().to_numpy() * scale
     if len(clean) < _MIN_OBS:

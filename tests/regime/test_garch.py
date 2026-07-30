@@ -8,9 +8,9 @@ import pytest
 
 from src.regime.garch import (
     Garch11Params,
+    _fit_garch11_offline,
     annualize_volatility,
     conditional_volatility,
-    fit_garch11,
     rolling_garch_forecast,
 )
 
@@ -47,7 +47,7 @@ def test_unconditional_variance_finite_when_stationary() -> None:
 
 def test_fit_garch11_recovers_plausible_params() -> None:
     returns = _synthetic_garch_returns()
-    params = fit_garch11(returns)
+    params = _fit_garch11_offline(returns)
     assert isinstance(params, Garch11Params)
     assert params.omega > 0
     assert 0 <= params.alpha <= 1
@@ -58,12 +58,12 @@ def test_fit_garch11_recovers_plausible_params() -> None:
 def test_fit_garch11_requires_minimum_observations() -> None:
     short_returns = pd.Series(np.random.default_rng(0).normal(0, 0.01, 10))
     with pytest.raises(ValueError, match="at least"):
-        fit_garch11(short_returns)
+        _fit_garch11_offline(short_returns)
 
 
 def test_conditional_volatility_matches_length_and_is_positive() -> None:
     returns = _synthetic_garch_returns()
-    params = fit_garch11(returns)
+    params = _fit_garch11_offline(returns)
     vol = conditional_volatility(returns, params)
     assert len(vol) == len(returns.dropna())
     assert (vol >= 0).all()

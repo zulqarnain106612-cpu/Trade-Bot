@@ -589,7 +589,7 @@ class Orchestrator:
                 # Fetch current price for fill simulation
                 try:
                     current_price = await self._fetcher.fetch_ticker_price(self._symbol)
-                except Exception:
+                except Exception as exc:
                     # VUL-ORCHESTRATOR-001: previous fallback used capital_usd which is
                     # equity in USD, not an asset price — would produce nonsensical position
                     # sizes. Skip the signal instead; a bad price is worse than no trade.
@@ -597,6 +597,8 @@ class Orchestrator:
                         "orchestrator.signal_skip_no_price",
                         timeframe=tf.value,
                         reason="ticker_fetch_failed_and_no_known_price",
+                        error=str(exc),
+                        exc_info=True,
                     )
                     return
 
@@ -741,7 +743,7 @@ class Orchestrator:
             detector.save(self._cfg.storage.model_dir)
             self._detectors[tf.value] = detector
         except Exception as exc:
-            self._log.error("orchestrator.hmm_train_failed", error=str(exc))
+            self._log.error("orchestrator.hmm_train_failed", error=str(exc), exc_info=True)
 
         # XGBoost training — CPU bound
         trainer = ModelTrainer(self._symbol, tf.value)
@@ -774,7 +776,7 @@ class Orchestrator:
                     self._cfg.storage.model_dir,
                 )
             except Exception as exc:
-                self._log.error("orchestrator.ensemble_train_failed", error=str(exc))
+                self._log.error("orchestrator.ensemble_train_failed", error=str(exc), exc_info=True)
                 ensemble = None
 
             # Persist metrics to storage
@@ -894,7 +896,9 @@ class Orchestrator:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                self._log.error("orchestrator.position_monitor_loop_error", error=str(exc))
+                self._log.error(
+                    "orchestrator.position_monitor_loop_error", error=str(exc), exc_info=True
+                )
                 await asyncio.sleep(5)
 
     async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
