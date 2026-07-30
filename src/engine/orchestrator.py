@@ -237,6 +237,7 @@ class Orchestrator:
                     "orchestrator.drift_detector_init_failed",
                     error=str(exc),
                     action="continuing_without_drift_detection",
+                    exc_info=True,
                 )
 
         # Build signal engines

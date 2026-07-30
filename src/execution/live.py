@@ -806,6 +806,7 @@ class LiveExecutor(AbstractExecutor):
                         symbol=symbol,
                         error=str(exc),
                         action="MANUAL_CLOSE_REQUIRED",
+                        exc_info=True,
                     )
                 return None
 
