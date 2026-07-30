@@ -26,8 +26,10 @@ class TestValidateCorsConfig:
     def test_valid_http_origin_with_port(self) -> None:
         validate_cors_config(["http://localhost:3000"], allow_credentials=True)
 
-    def test_wildcard_without_credentials_passes(self) -> None:
-        validate_cors_config(["*"], allow_credentials=False)
+    def test_wildcard_always_raises(self) -> None:
+        # '*' fails the hostname regex regardless of allow_credentials
+        with pytest.raises(RuntimeError, match="does not match"):
+            validate_cors_config(["*"], allow_credentials=False)
 
     def test_wildcard_with_credentials_raises(self) -> None:
         with pytest.raises(RuntimeError, match="allow_credentials"):
