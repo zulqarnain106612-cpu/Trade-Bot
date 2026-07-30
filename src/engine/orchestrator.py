@@ -244,10 +244,11 @@ class Orchestrator:
         model_dir = self._cfg.storage.model_dir
         for tf in self._timeframes:
             detector = self._detectors.get(tf.value)
-            trainer = self._trainers.get(tf.value)
-            if detector is None or trainer is None:
+            tf_trainer: ModelTrainer | None = self._trainers.get(tf.value)
+            if detector is None or tf_trainer is None:
                 self._log.warning("orchestrator.engine_skip", timeframe=tf.value)
                 continue
+            trainer = tf_trainer
 
             try:
                 direction_model = ModelTrainer.load_direction(model_dir, self._symbol, tf.value)

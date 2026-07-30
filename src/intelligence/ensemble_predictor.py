@@ -135,6 +135,10 @@ class PredictionModel(ABC):
     def get_performance_metrics(self) -> dict[str, Any]:
         """Model performance: MAE, RMSE, etc."""
 
+    @abstractmethod
+    def fit(self, *args: Any, **kwargs: Any) -> None:
+        """Fit the model. Concrete subclasses override with specific signatures."""
+
 
 class ARIMAPredictor(PredictionModel):
     """
@@ -567,11 +571,12 @@ class EnsemblePredictor:
                     # autocorrelation, not the feature matrix.
                     model.fit(y)
                 elif name == "lstm":
-                    X_seq, y_seq = self._build_lstm_sequences(y, model.lookback)
+                    lookback: int = getattr(model, "lookback", 20)
+                    X_seq, y_seq = self._build_lstm_sequences(y, lookback)
                     if X_seq is None:
                         log.warning(
                             f"{name}_insufficient_data",
-                            need_at_least=model.lookback + 1,
+                            need_at_least=lookback + 1,
                             have=len(y),
                         )
                         continue
@@ -664,7 +669,7 @@ class EnsemblePredictor:
         ci_upper = ensemble_point + 1.96 * total_uncertainty
 
         # Best model (lowest uncertainty)
-        best_model = min(individual_uncertainties, key=individual_uncertainties.get)
+        best_model = min(individual_uncertainties, key=lambda k: individual_uncertainties[k])
 
         # Update weights based on recent performance
         self._update_weights()
@@ -682,9 +687,9 @@ class EnsemblePredictor:
             point_estimate=ensemble_point,
             credible_lower=ci_lower,
             credible_upper=ci_upper,
-            model_disagreement=model_disagreement,
-            aleatoric_uncertainty=aleatoric,
-            epistemic_uncertainty=epistemic,
+            model_disagreement=float(model_disagreement),
+            aleatoric_uncertainty=float(aleatoric),
+            epistemic_uncertainty=float(epistemic),
             best_model=best_model,
             model_weights=self.weights.copy(),
             individual_predictions=individual_predictions,

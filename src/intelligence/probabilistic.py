@@ -440,7 +440,7 @@ class BayesianRegimeDetection:
 
         regime_probs = {"bear": float(raw[0]), "neutral": float(raw[1]), "bull": float(raw[2])}
 
-        most_likely = max(regime_probs, key=regime_probs.get)
+        most_likely = max(regime_probs, key=lambda k: regime_probs[k])
         # Cap confidence below 1.0 -- structurally guaranteed by smoothing above,
         # but clip defensively in case smoothing parameters are tuned later.
         confidence = float(np.clip(regime_probs[most_likely], 0.0, 0.98))

@@ -97,7 +97,7 @@ def _validate_operator(v: str) -> str:
 
 class AppState:
     storage: AnyStorageBackend
-    orchestrator: Orchestrator
+    orchestrator: Orchestrator | None
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
     _MODE_CHANGE_LIMIT: int = 3
@@ -1309,8 +1309,8 @@ async def get_strategy_allocation() -> dict[str, Any]:
     strategies = list(registry.all())
     if not strategies:
         return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
-    enabled_ids = [s.strategy_id for s in strategies]
-    result = performance_weighted_allocate(strategies, enabled_ids)
+    enabled_ids = {s.strategy_id for s in strategies}
+    result = performance_weighted_allocate(tuple(strategies), enabled_ids)
     tracker = get_attribution_tracker()
     return {
         "allocations": result.fractions,

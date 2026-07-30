@@ -644,7 +644,9 @@ class StorageBackend:
         assert conn is not None
 
         row = await conn.execute("PRAGMA user_version")
-        current: int = (await row.fetchone())[0]
+        fetched = await row.fetchone()
+        assert fetched is not None, "PRAGMA user_version returned no row"
+        current: int = fetched[0]
 
         if current == _SCHEMA_VERSION:
             return  # Already up to date.
@@ -1019,7 +1021,8 @@ class StorageBackend:
                 (symbol, timeframe),
             ) as cur
         ):
-            row = dict(await cur.fetchone())
+            _fetched = await cur.fetchone()
+            row = dict(_fetched) if _fetched is not None else {}
 
         total = int(row.get("total") or 0)
         if total == 0:
