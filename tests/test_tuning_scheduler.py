@@ -694,6 +694,7 @@ class TestSchedulerLifecycleBranches:
                 assert parameter_registry.is_registered("risk.ensemble_blend_weight")
                 assert parameter_registry.is_registered("risk.garch_vol_threshold")
                 assert parameter_registry.is_registered("features.atr_window")
+                assert parameter_registry.is_registered("features.garch_window")
                 assert parameter_registry.is_registered("xgboost.max_depth")
             finally:
                 scheduler.stop()
