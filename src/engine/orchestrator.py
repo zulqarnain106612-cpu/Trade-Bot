@@ -493,6 +493,7 @@ class Orchestrator:
                 "orchestrator.correlation_scalar_failed",
                 error=str(exc),
                 fallback_scalar=1.0,
+                exc_info=True,
             )
             correlation_scalar = 1.0
 

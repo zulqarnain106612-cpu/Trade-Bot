@@ -417,6 +417,7 @@ class LiveExecutor(AbstractExecutor):
                     trade_id=trade_id,
                     symbol=pos.symbol,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
 
@@ -919,6 +920,7 @@ class LiveExecutor(AbstractExecutor):
                 side=side,
                 quantity=quantity,
                 action="manual_reconciliation_required",
+                exc_info=True,
             )
             raise ccxt.ExchangeError(
                 f"Order for {symbol} did not confirm as filled within timeout — "
