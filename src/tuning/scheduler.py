@@ -196,7 +196,7 @@ class AutoTuningScheduler:
                     self._cycle_count += 1
                     self._check_redteam_due()
             except Exception as exc:
-                log.error("tuning.scheduler_attempt_failed", error=str(exc))
+                log.error("tuning.scheduler_attempt_failed", error=str(exc), exc_info=True)
             try:
                 await asyncio.sleep(self._interval_s)
             except asyncio.CancelledError:
@@ -279,7 +279,12 @@ class AutoTuningScheduler:
                         reasons=result.reasons,
                     )
                 except Exception as exc:
-                    log.error("tuning.scheduler_attempt_error", param=param_name, error=str(exc))
+                    log.error(
+                        "tuning.scheduler_attempt_error",
+                        param=param_name,
+                        error=str(exc),
+                        exc_info=True,
+                    )
 
         slippage_samples = await self._build_slippage_samples()
         if len(slippage_samples) < _MIN_SAMPLES:

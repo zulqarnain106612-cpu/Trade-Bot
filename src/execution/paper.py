@@ -730,7 +730,9 @@ class PaperExecutor(AbstractExecutor):
                 else:
                     simulated_fill_price = current_price - _slip_price_adj
             except Exception as _slip_exc:
-                self._log.warning("paper.slippage_estimate_failed", error=str(_slip_exc))
+                self._log.warning(
+                    "paper.slippage_estimate_failed", error=str(_slip_exc), exc_info=True
+                )
 
         entry_fee = simulated_fill_price * kelly_result.quantity * _PAPER_FEE_PCT
         notional = kelly_result.notional_usd

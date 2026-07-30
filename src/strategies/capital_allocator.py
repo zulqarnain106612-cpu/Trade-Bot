@@ -129,7 +129,7 @@ def performance_weighted_allocate(
     try:
         snapshot = get_attribution_tracker().snapshot()
     except Exception as exc:
-        log.warning("allocator.attribution_snapshot_failed", error=str(exc))
+        log.warning("allocator.attribution_snapshot_failed", error=str(exc), exc_info=True)
         return equal_weight_allocate(strategies, enabled_ids)
 
     raw: dict[str, float] = {}
