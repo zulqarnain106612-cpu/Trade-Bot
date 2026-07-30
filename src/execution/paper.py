@@ -36,6 +36,7 @@ import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
+from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.execution.base import AbstractExecutor
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
@@ -84,6 +85,7 @@ class PaperPosition:
     approved_by: str
     execution_mode: str
     fee_usd: float
+    strategy_id: str = field(default="signal_engine_v1")
     unrealized_pnl: float = field(default=0.0)
     current_price: float = field(default=0.0)
     # Peak unrealized PnL % since entry — used by trailing stop logic.
@@ -243,6 +245,7 @@ class PaperExecutor(AbstractExecutor):
         meta_label_prob: float,
         raw_signal: float,
         current_price: float,
+        strategy_id: str = "signal_engine_v1",
     ) -> tuple[str | None, str]:
         """
         Route a signal through the correct execution mode.
@@ -281,6 +284,7 @@ class PaperExecutor(AbstractExecutor):
                 raw_signal,
                 current_price,
                 approved_by="auto",
+                strategy_id=strategy_id,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -296,6 +300,7 @@ class PaperExecutor(AbstractExecutor):
                     raw_signal,
                     current_price,
                     approved_by="auto_below_limit",
+                    strategy_id=strategy_id,
                 )
                 return trade_id, "opened" if trade_id else "rejected"
             # Above limit — needs approval
@@ -324,6 +329,7 @@ class PaperExecutor(AbstractExecutor):
                 raw_signal,
                 current_price,
                 approved_by=operator,
+                strategy_id=strategy_id,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -351,6 +357,7 @@ class PaperExecutor(AbstractExecutor):
                 raw_signal,
                 current_price,
                 approved_by=operator,
+                strategy_id=strategy_id,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -440,6 +447,14 @@ class PaperExecutor(AbstractExecutor):
             peak_equity=snap_peak,
         )
 
+        get_attribution_tracker().record(
+            AttributedFill(
+                strategy_id=pos.strategy_id,
+                pnl_usd=net_pnl,
+                entry_ts=pos.entry_ts,
+                exit_ts=exit_ts,
+            )
+        )
         self._log.info(
             "paper.position_closed",
             trade_id=trade_id,
@@ -684,6 +699,7 @@ class PaperExecutor(AbstractExecutor):
         approved_by: str,
         adv_20d: float = 0.0,
         spread_bps: float = 2.0,
+        strategy_id: str = "signal_engine_v1",
     ) -> str | None:
         """
         Open a paper position and persist trade record.
@@ -748,6 +764,7 @@ class PaperExecutor(AbstractExecutor):
                 approved_by=approved_by,
                 execution_mode=self._cfg.execution_mode.value,
                 fee_usd=entry_fee,
+                strategy_id=strategy_id,
                 current_price=current_price,
             )
             self._positions[trade_id] = pos
