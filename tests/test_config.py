@@ -129,3 +129,17 @@ def test_invalidate_settings_cache_forces_reconstruction():
 def test_runtime_config_sync_execution_mode_property():
     rc = RuntimeConfig()
     assert rc.execution_mode == rc._execution_mode
+
+
+class TestFeatureSettingsGARCH:
+    def test_garch_window_default_is_100(self):
+        cfg = FeatureSettings()
+        assert cfg.garch_window == 100
+
+    def test_garch_window_minimum_is_50(self):
+        with pytest.raises(ValidationError):
+            FeatureSettings(garch_window=49)
+
+    def test_garch_window_custom_value(self):
+        cfg = FeatureSettings(garch_window=200)
+        assert cfg.garch_window == 200
