@@ -312,3 +312,47 @@ class TestOnChainProvider:
         assert not s.closed
         await provider.close()
         assert s.closed
+
+    @pytest.mark.asyncio
+    async def test_get_success_returns_data_and_caches(self):
+        """Successful _get call exercises raise_for_status + json + cache.set."""
+        provider = ConcreteProvider()
+
+        expected = {"result": {"data": [1, 2, 3]}}
+
+        mock_session = AsyncMock()
+        mock_resp = AsyncMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = AsyncMock(return_value=expected)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+        mock_session.get = MagicMock(return_value=mock_resp)
+        provider._session = mock_session
+
+        result = await provider._get("http://test/success")
+        assert result == expected
+
+        # Second call should return cached value without hitting session
+        mock_session.get.reset_mock()
+        cached = await provider._get("http://test/success")
+        assert cached == expected
+        mock_session.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_post_success_returns_data(self):
+        """Successful _post call exercises raise_for_status + json in _post."""
+        provider = ConcreteProvider()
+
+        expected = {"status": "ok"}
+
+        mock_session = AsyncMock()
+        mock_resp = AsyncMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = AsyncMock(return_value=expected)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+        mock_session.post = MagicMock(return_value=mock_resp)
+        provider._session = mock_session
+
+        result = await provider._post("http://test/post", json={"key": "value"})
+        assert result == expected
