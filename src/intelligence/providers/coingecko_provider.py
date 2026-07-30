@@ -18,7 +18,7 @@ Authority:
 from __future__ import annotations
 
 import time
-from typing import Final
+from typing import Any, Final
 
 import aiohttp
 import structlog
@@ -54,7 +54,7 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
 
     def __init__(self, cache_ttl_s: int = _CACHE_TTL_S) -> None:
         self._cache_ttl = cache_ttl_s
-        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         # Rolling BTC dominance history for z-score computation
         self._btc_dom_history: list[float] = []
         self._log = log.bind(component="coingecko_intelligence")
@@ -153,7 +153,7 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = "global"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         timeout = aiohttp.ClientTimeout(total=8.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -166,18 +166,6 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
                 data: dict = body.get("data", {})
                 self._set_cache(cache_key, data)
                 return data
-
-    def _get_cache(self, key: str) -> object | None:
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        ts, value = entry
-        if time.time() - ts > self._cache_ttl:
-            return None
-        return value
-
-    def _set_cache(self, key: str, value: object) -> None:
-        self._cache[key] = (time.time(), value)
 
 
 # ---------------------------------------------------------------------------

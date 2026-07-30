@@ -19,7 +19,7 @@ Authority:
 from __future__ import annotations
 
 import time
-from typing import Final
+from typing import Any, Final
 
 import aiohttp
 import structlog
@@ -53,7 +53,7 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
 
     def __init__(self, cache_ttl_s: int = _CACHE_TTL_S) -> None:
         self._cache_ttl = cache_ttl_s
-        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         # Rolling history for momentum computation
         self._hashrate_history: list[float] = []
         self._tx_history: list[float] = []
@@ -146,7 +146,7 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = "stats"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         timeout = aiohttp.ClientTimeout(total=8.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -171,18 +171,6 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
         if sigma < 1e-12:
             return 0.0
         return max(-3.0, min(3.0, (history[-1] - mu) / sigma))
-
-    def _get_cache(self, key: str) -> object | None:
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        ts, value = entry
-        if time.time() - ts > self._cache_ttl:
-            return None
-        return value
-
-    def _set_cache(self, key: str, value: object) -> None:
-        self._cache[key] = (time.time(), value)
 
 
 # ---------------------------------------------------------------------------
