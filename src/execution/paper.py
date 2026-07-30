@@ -86,6 +86,9 @@ class PaperPosition:
     fee_usd: float
     unrealized_pnl: float = field(default=0.0)
     current_price: float = field(default=0.0)
+    # Peak unrealized PnL % since entry — used by trailing stop logic.
+    # Starts at 0.0 (entry); only ever increases (monotone maximum).
+    peak_unrealized_pct: float = field(default=0.0)
 
     def mark(self, price: float) -> float:
         """Update unrealized PnL from current market price."""
@@ -94,6 +97,10 @@ class PaperPosition:
             self.unrealized_pnl = (price - self.entry_price) * self.quantity
         else:
             self.unrealized_pnl = (self.entry_price - price) * self.quantity
+        if self.notional_usd > 0:
+            pct = self.unrealized_pnl / self.notional_usd * 100.0
+            if pct > self.peak_unrealized_pct:
+                self.peak_unrealized_pct = pct
         return self.unrealized_pnl
 
 
@@ -564,6 +571,7 @@ class PaperExecutor(AbstractExecutor):
                     "unrealized_pnl_pct": round(p.unrealized_pnl / p.notional_usd * 100.0, 3)
                     if p.notional_usd > 0
                     else 0.0,
+                    "peak_unrealized_pct": round(p.peak_unrealized_pct, 3),
                     "regime_at_entry": p.regime_at_entry,
                     "entry_ts": p.entry_ts,
                 }
@@ -595,6 +603,7 @@ class PaperExecutor(AbstractExecutor):
                 "unrealized_pnl_pct": round(p.unrealized_pnl / p.notional_usd * 100.0, 3)
                 if p.notional_usd > 0
                 else 0.0,
+                "peak_unrealized_pct": round(p.peak_unrealized_pct, 3),
                 "regime_at_entry": p.regime_at_entry,
                 "entry_ts": p.entry_ts,
             }

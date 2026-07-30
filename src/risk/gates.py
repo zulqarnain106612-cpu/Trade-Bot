@@ -930,6 +930,9 @@ def check_position_exit(
     take_profit_enabled: bool,
     take_profit_pct: float,
     max_holding_period_s: float,
+    trailing_stop_enabled: bool = False,
+    trailing_stop_pct: float = 1.5,
+    peak_unrealized_pct: float = 0.0,
 ) -> str | None:
     """
     Evaluate whether an open position should be closed automatically.
@@ -960,16 +963,25 @@ def check_position_exit(
                             estimates for is a correctness issue, not merely a
                             risk-preference choice the operator should be able
                             to switch off.
+    trailing_stop_enabled : when True, close if unrealized_pnl_pct has
+                            retreated more than trailing_stop_pct from its
+                            all-time peak since entry.
+    trailing_stop_pct     : drawdown from peak that triggers the trailing stop.
+    peak_unrealized_pct   : highest unrealized PnL % seen since position open
+                            (tracked by PaperPosition.mark / LivePosition.mark).
 
     Returns
     -------
-    str | None -- one of "stop_loss", "profit_target", "time_exit", or None
-    if the position should remain open. These string values match the
-    exit_reason values already documented in PaperExecutor.close_position's
-    docstring ('profit_target' | 'stop_loss' | 'time_exit' | 'manual').
+    str | None -- one of "stop_loss", "trailing_stop", "profit_target",
+    "time_exit", or None if the position should remain open.
     """
     if stop_loss_enabled and unrealized_pnl_pct <= -abs(stop_loss_pct):
         return "stop_loss"
+
+    if trailing_stop_enabled and peak_unrealized_pct > 0.0:
+        drawdown_from_peak = peak_unrealized_pct - unrealized_pnl_pct
+        if drawdown_from_peak >= abs(trailing_stop_pct):
+            return "trailing_stop"
 
     if take_profit_enabled and unrealized_pnl_pct >= abs(take_profit_pct):
         return "profit_target"

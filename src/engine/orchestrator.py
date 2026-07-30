@@ -919,6 +919,9 @@ class Orchestrator:
                 take_profit_enabled=cast("bool", controls["take_profit_enabled"]),
                 take_profit_pct=cast("float", controls["take_profit_pct"]),
                 max_holding_period_s=cast("float", controls["max_holding_period_s"]),
+                trailing_stop_enabled=cast("bool", controls.get("trailing_stop_enabled", False)),
+                trailing_stop_pct=cast("float", controls.get("trailing_stop_pct", 1.5)),
+                peak_unrealized_pct=cast("float", pos.get("peak_unrealized_pct", 0.0)),
             )
             if exit_reason is None:
                 continue

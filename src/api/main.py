@@ -376,6 +376,13 @@ class SetRiskControlsRequest(BaseModel):
     take_profit_enabled: bool | None = None
     take_profit_pct: float | None = Field(default=None, ge=0.1, le=200.0)
     max_holding_period_s: float | None = Field(default=None, ge=60.0)
+    trailing_stop_enabled: bool | None = None
+    trailing_stop_pct: float | None = Field(
+        default=None,
+        ge=0.1,
+        le=50.0,
+        description="Trailing stop: close when PnL drops this pct from its per-position peak",
+    )
     operator: str = Field(..., min_length=1, max_length=64)
     operator_secret: str = Field(
         ...,
@@ -848,6 +855,8 @@ async def set_risk_controls(body: SetRiskControlsRequest, request: Request) -> d
         take_profit_enabled=body.take_profit_enabled,
         take_profit_pct=body.take_profit_pct,
         max_holding_period_s=body.max_holding_period_s,
+        trailing_stop_enabled=body.trailing_stop_enabled,
+        trailing_stop_pct=body.trailing_stop_pct,
     )
 
     await _state.storage.insert_audit_event(
