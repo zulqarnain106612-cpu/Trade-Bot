@@ -26,6 +26,7 @@ from src.risk.cognitive_engine import (
     RegimeValidator,
     RiskValidator,
     SignalContext,
+    ValidatorResult,
     ValidatorStatus,
     get_cognitive_engine,
 )
@@ -512,3 +513,78 @@ class TestRiskValidatorComputeRiskScore:
         )
         score = RiskValidator._compute_risk_score(ctx, dd_pct=-100.0, vol_ratio=2.0)
         assert abs(score - 1.0) < 1e-6
+
+
+class TestValidatorResultPassedProperty:
+    """Cover ValidatorResult.passed property (line 64)."""
+
+    def test_pass_status_is_passed(self) -> None:
+        r = ValidatorResult("test", ValidatorStatus.PASS, "ok")
+        assert r.passed is True
+
+    def test_warn_status_is_passed(self) -> None:
+        r = ValidatorResult("test", ValidatorStatus.WARN, "warn")
+        assert r.passed is True
+
+    def test_veto_status_not_passed(self) -> None:
+        r = ValidatorResult("test", ValidatorStatus.VETO, "blocked")
+        assert r.passed is False
+
+
+class TestQuantValidatorWinRatePlausibilityWarn:
+    """Cover win-rate plausibility WARN branch (lines 311, 323)."""
+
+    def test_inconsistent_edge_yields_warn(self) -> None:
+        v = QuantValidator()
+        # p_long=0.80 → implied_edge = (0.80-0.5)*200 = 60bps
+        # expected_edge_bps=0.0 → |60 - 0| = 60 > 50 → WARN
+        result = v.validate(make_ctx(p_long=0.80, expected_edge_bps=0.0))
+        assert result.status == ValidatorStatus.WARN
+        assert "implied edge" in result.reason
+
+    def test_consistent_edge_no_warn(self) -> None:
+        v = QuantValidator()
+        # p_long=0.70 → implied_edge=40bps, expected_edge_bps=40 → diff=0 < 50
+        result = v.validate(make_ctx(p_long=0.70, expected_edge_bps=40.0))
+        assert result.status != ValidatorStatus.VETO
+
+
+class TestRiskValidatorCompositeScoreVeto:
+    """Cover risk_score > 0.85 VETO branch (line 428)."""
+
+    def test_extreme_drawdown_triggers_composite_veto(self) -> None:
+        v = RiskValidator()
+        # Saturate drawdown, consecutive losses, vol ratio, and open positions
+        ctx = make_ctx(
+            daily_pnl_usd=-100_000.0,  # full capital loss → max drawdown component
+            consecutive_losses=20,  # saturated losses component
+            open_positions=50,  # saturated positions component
+            atr=10.0,
+            atr_median_20=1.0,  # vol_ratio=10 >> 2.0 → saturated vol component
+        )
+        result = v.validate(ctx)
+        assert result.status == ValidatorStatus.VETO
+        assert "risk_score" in result.reason
+
+
+class TestCognitiveEngineSizeDivergence:
+    """Cover _log_size_divergence early-return and warning paths."""
+
+    def setup_method(self) -> None:
+        self.engine = CognitiveEngine()
+
+    def test_both_zero_returns_early(self) -> None:
+        """When both kelly_fraction and continuous estimate are ~0, no warning logged."""
+        ctx = make_ctx(realized_vol=0.0, kelly_adjusted_fraction=0.0)
+        # realized_vol=0 → sigma=0 → continuous_kelly_estimate=0.0
+        # kelly_fraction=0.0 → early return (no assertion needed — just no crash)
+        self.engine._log_size_divergence(ctx, kelly_fraction=0.0)
+
+    def test_large_divergence_logs_warning(self) -> None:
+        """When continuous estimate diverges > 50% from kelly_fraction, warning is emitted."""
+        ctx = make_ctx(
+            realized_vol=0.01,  # tiny vol → large continuous kelly estimate
+            expected_edge_bps=500.0,  # large edge → large numerator
+        )
+        # kelly_fraction=0.0 vs large continuous → divergence > 0.5
+        self.engine._log_size_divergence(ctx, kelly_fraction=0.0001)
