@@ -57,6 +57,8 @@ from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.strategies.capital_allocator import performance_weighted_allocate
+from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
@@ -1277,6 +1279,37 @@ async def get_strategy_attribution() -> dict[str, Any]:
     snapshot = tracker.snapshot()
     return {
         "strategies": {sid: attr.to_dict() for sid, attr in snapshot.items()},
+        "fill_count": tracker.fill_count(),
+    }
+
+
+@app.get("/strategies/allocation", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_allocation() -> dict[str, Any]:
+    """
+    Current performance-weighted capital allocation across registered strategies.
+
+    Uses live Sharpe attribution data to compute Sharpe-weighted fractional
+    allocations. Strategies with < 30 fills receive equal-weight share (warm-up
+    fallback). Read-only — reflects what the allocator would produce right now.
+
+    Returns
+    -------
+    {
+        "allocations": {strategy_id: float, ...},  # fractions summing to <= 1.0
+        "method": str,                              # "performance_weighted" or "equal_weight"
+        "fill_count": int,                          # total fills tracked
+    }
+    """
+    registry = get_default_registry()
+    strategies = list(registry.all())
+    if not strategies:
+        return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
+    enabled_ids = [s.strategy_id for s in strategies]
+    result = performance_weighted_allocate(strategies, enabled_ids)
+    tracker = get_attribution_tracker()
+    return {
+        "allocations": result.fractions,
+        "method": result.method,
         "fill_count": tracker.fill_count(),
     }
 

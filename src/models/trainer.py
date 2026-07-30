@@ -687,6 +687,7 @@ class ModelTrainer:
             self._log.warning(
                 "trainer.drift_baseline_push_failed",
                 error=str(_diag_exc)[:200],
+                exc_info=True,
             )
 
         return result
