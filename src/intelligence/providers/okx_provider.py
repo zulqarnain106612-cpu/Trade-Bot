@@ -217,7 +217,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"funding:{self._perp_symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         history = await self._perp.fetch_funding_rate_history(
             self._perp_symbol, limit=_FR_HISTORY_PERIODS
@@ -245,7 +245,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"oi:{self._perp_symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         history = await self._perp.fetch_open_interest_history(
             self._perp_symbol, "1h", limit=_OI_HISTORY_HOURS
@@ -273,7 +273,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"basis:{self._symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         spot_ticker, perp_ticker = await asyncio.gather(
             self._spot.fetch_ticker(self._symbol),
@@ -306,7 +306,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"whale:{self._perp_symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         # OKX exposes taker flow via Long/Short ratio endpoint (no auth needed)
         # GET /api/v5/rubik/stat/contracts/long-short-account-ratio
@@ -350,18 +350,6 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         oi_stress = min(max(-oi_change_pct, 0.0) / 5.0, 1.0)
         score = _W_BASIS * basis_stress + _W_FR_Z * funding_stress + _W_OI * oi_stress
         return round(min(max(score, 0.0), 1.0), 4)
-
-    def _get_cache(self, key: str) -> object | None:
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        ts, value = entry
-        if time.time() - ts > self._cache_ttl:
-            return None
-        return value
-
-    def _set_cache(self, key: str, value: object) -> None:
-        self._cache[key] = (time.time(), value)
 
 
 # ---------------------------------------------------------------------------
