@@ -44,6 +44,9 @@ LIVE_WINDOW: Final[int] = 500
 ACCURACY_DROP_THRESHOLD: Final[float] = 0.15
 # GAP-003: rolling Sharpe threshold to trigger retrain / meta-label tightening
 ROLLING_SHARPE_THRESHOLD: Final[float] = 0.8
+# Sortino threshold — stricter than Sharpe because Sortino penalises
+# downside-only volatility; a ratio below 0.5 signals persistent losing runs.
+ROLLING_SORTINO_THRESHOLD: Final[float] = 0.5
 ROLLING_ACCURACY_THRESHOLD: Final[float] = 0.52
 META_LABEL_THRESHOLD: Final[float] = 0.65
 
@@ -321,6 +324,7 @@ class ModelDegradationTracker:
             "rolling_sortino": round(rolling_sortino, 4) if rolling_sortino is not None else None,
             "degraded": False,
             "drop": None,
+            "sortino_degraded": False,
             "tighten_meta_label_threshold": False,
             "retrain_recommended": False,
         }
@@ -331,11 +335,19 @@ class ModelDegradationTracker:
             sharpe_degraded = (
                 rolling_sharpe is not None and rolling_sharpe < ROLLING_SHARPE_THRESHOLD
             )
+            sortino_degraded = (
+                rolling_sortino is not None and rolling_sortino < ROLLING_SORTINO_THRESHOLD
+            )
             accuracy_below_floor = live_acc < ROLLING_ACCURACY_THRESHOLD
-            report["degraded"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
-            report["tighten_meta_label_threshold"] = accuracy_below_floor or sharpe_degraded
+            report["sortino_degraded"] = sortino_degraded
+            report["degraded"] = (
+                accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
+            )
+            report["tighten_meta_label_threshold"] = (
+                accuracy_below_floor or sharpe_degraded or sortino_degraded
+            )
             report["retrain_recommended"] = (
-                accuracy_degraded or sharpe_degraded or accuracy_below_floor
+                accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
             )
             if report["degraded"]:
                 log.warning(
@@ -343,6 +355,9 @@ class ModelDegradationTracker:
                     train_accuracy=round(self._train_accuracy, 4),
                     live_accuracy=round(live_acc, 4),
                     rolling_sharpe=round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
+                    rolling_sortino=round(rolling_sortino, 4)
+                    if rolling_sortino is not None
+                    else None,
                     drop=round(drop, 4),
                     action="retrain_recommended (AFML Ch.11)",
                 )

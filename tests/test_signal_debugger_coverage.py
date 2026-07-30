@@ -296,6 +296,41 @@ class TestModelDegradationTracker:
         report = self.tracker.check_degradation()
         assert report["degraded"] is True
 
+    def test_check_degradation_sortino_degraded_key_always_present(self):
+        # Even with no training metrics, sortino_degraded must be in report.
+        report = self.tracker.check_degradation()
+        assert "sortino_degraded" in report
+        assert report["sortino_degraded"] is False
+
+    def test_check_degradation_sortino_triggers_when_below_threshold(self):
+        # High train accuracy so accuracy drop alone won't trigger degradation.
+        self.tracker.set_training_metrics(0.55, 0.53)
+        # Feed exactly 25 trades: 5 large losses, 20 small wins → Sortino < 0.5.
+        for i in range(25):
+            pnl = -50.0 if i < 5 else 0.5
+            self.tracker.record_trade_result(pnl)
+        # Resolve 25 predictions with ~55% accuracy so accuracy path doesn't trigger.
+        for _ in range(25):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(1)
+        report = self.tracker.check_degradation()
+        assert report["rolling_sortino"] is not None
+        assert report["sortino_degraded"] is True
+        assert report["degraded"] is True
+        assert report["retrain_recommended"] is True
+        assert report["tighten_meta_label_threshold"] is True
+
+    def test_check_degradation_good_sortino_does_not_trigger(self):
+        # All winning trades → sortino returns None (no losses) → not degraded.
+        self.tracker.set_training_metrics(0.55, 0.53)
+        for _ in range(25):
+            self.tracker.record_trade_result(10.0)
+        for _ in range(25):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(1)
+        report = self.tracker.check_degradation()
+        assert report["sortino_degraded"] is False
+
 
 # ---------------------------------------------------------------------------
 # run_pipeline_selftest
