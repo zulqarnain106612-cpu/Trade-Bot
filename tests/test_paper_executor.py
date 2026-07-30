@@ -137,6 +137,45 @@ class TestPaperPosition:
         pnl = pos.mark(110.0)
         assert pnl == pytest.approx(-20.0)
 
+    def _make_pos(self, direction: int = 1) -> PaperPosition:
+        return PaperPosition(
+            trade_id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=direction,
+            entry_price=100.0,
+            quantity=2.0,
+            notional_usd=200.0,
+            entry_ts=1000,
+            kelly_fraction=0.1,
+            regime_at_entry=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="automatic",
+            fee_usd=0.2,
+        )
+
+    def test_peak_unrealized_pct_default_zero(self):
+        pos = self._make_pos()
+        assert pos.peak_unrealized_pct == 0.0
+
+    def test_peak_unrealized_pct_increases_on_profit(self):
+        pos = self._make_pos()
+        pos.mark(110.0)  # unrealized = +20 / 200 = +10%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)
+
+    def test_peak_unrealized_pct_does_not_decrease(self):
+        pos = self._make_pos()
+        pos.mark(110.0)  # peak at 10%
+        pos.mark(105.0)  # unrealized = +10 / 200 = 5%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)  # still 10%
+
+    def test_peak_unrealized_pct_loss_does_not_update(self):
+        pos = self._make_pos()
+        pos.mark(95.0)  # unrealized = -10 / 200 = -5% → not positive, no update
+        assert pos.peak_unrealized_pct == 0.0
+
 
 class TestApprovalRequestToDict:
     """ApprovalRequest.to_dict() serialization."""
