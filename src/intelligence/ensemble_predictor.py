@@ -168,7 +168,7 @@ class ARIMAPredictor(PredictionModel):
             forecast = self.model.forecast(steps=1).iloc[0]
             return float(forecast)
         except Exception as e:
-            log.error("arima_prediction_failed", error=str(e))
+            log.error("arima_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -214,7 +214,7 @@ class XGBoostPredictor(PredictionModel):
         try:
             return float(self.model.predict(features)[0])
         except Exception as e:
-            log.error("xgboost_prediction_failed", error=str(e))
+            log.error("xgboost_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -282,7 +282,7 @@ class LSTMPredictor(PredictionModel):
             self.rmse = float(np.sqrt(np.mean((fitted - np.asarray(y)) ** 2)))
             self.model = net
         except Exception as e:
-            log.error("lstm_fit_failed", error=str(e))
+            log.error("lstm_fit_failed", error=str(e), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None or not _TORCH_AVAILABLE:
@@ -297,7 +297,7 @@ class LSTMPredictor(PredictionModel):
                 out = self.model(torch.tensor(X_reshaped, dtype=torch.float32))
             return float(out.numpy().flatten()[0])
         except Exception as e:
-            log.error("lstm_prediction_failed", error=str(e))
+            log.error("lstm_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -375,7 +375,7 @@ class GaussianProcessPredictor(PredictionModel):
         except ImportError:
             log.warning("scikit-learn gaussian_process module not available, GP disabled")
         except Exception as e:
-            log.error("gp_fit_failed", error=str(e))
+            log.error("gp_fit_failed", error=str(e), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         point, _ = self.predict_with_uncertainty(features)
@@ -389,7 +389,7 @@ class GaussianProcessPredictor(PredictionModel):
             mean, std = self.model.predict(X, return_std=True)
             return float(mean[0]), float(std[0])
         except Exception as e:
-            log.error("gp_prediction_failed", error=str(e))
+            log.error("gp_prediction_failed", error=str(e), exc_info=True)
             return 0.0, 0.2
 
     def get_performance_metrics(self) -> dict:
@@ -477,7 +477,7 @@ class TreeEnsemblePredictor(PredictionModel):
                 m.fit(X_boot, y_boot)
                 self._bootstrap_models.append(m)
         except Exception as e:
-            log.error("tree_ensemble_fit_failed", error=str(e))
+            log.error("tree_ensemble_fit_failed", error=str(e), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None:
@@ -485,7 +485,7 @@ class TreeEnsemblePredictor(PredictionModel):
         try:
             return float(self.model.predict(features)[0])
         except Exception as e:
-            log.error("tree_ensemble_prediction_failed", error=str(e))
+            log.error("tree_ensemble_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -498,7 +498,7 @@ class TreeEnsemblePredictor(PredictionModel):
             uncertainty = float(np.std(boot_preds))
             return point, uncertainty
         except Exception as e:
-            log.error("tree_ensemble_uncertainty_failed", error=str(e))
+            log.error("tree_ensemble_uncertainty_failed", error=str(e), exc_info=True)
             return point, self.rmse if self.rmse != np.inf else 0.15
 
     def get_performance_metrics(self) -> dict:
@@ -581,7 +581,7 @@ class EnsemblePredictor:
                     model.fit(X, y)
                 log.info(f"{name}_fitted", metrics=model.get_performance_metrics())
             except Exception as e:
-                log.error(f"{name}_fit_failed", error=str(e))
+                log.error(f"{name}_fit_failed", error=str(e), exc_info=True)
 
         # Refresh weights immediately so .weights reflects the just-fitted
         # models rather than staying at stale pre-fit values until the next
@@ -642,7 +642,7 @@ class EnsemblePredictor:
                 individual_predictions[name] = point
                 individual_uncertainties[name] = uncertainty
             except Exception as e:
-                log.error("ensemble_member_failed", model=name, error=str(e))
+                log.error("ensemble_member_failed", model=name, error=str(e), exc_info=True)
                 individual_predictions[name] = 0.0
                 individual_uncertainties[name] = 0.5
 

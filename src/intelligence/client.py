@@ -173,7 +173,7 @@ class IntelligenceAggregator:
                 )
             return result
         except Exception as e:
-            log.error("glassnode_whale_activity_failed", error=str(e))
+            log.error("glassnode_whale_activity_failed", error=str(e), exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -211,7 +211,7 @@ class IntelligenceAggregator:
                 )
             return result
         except Exception as e:
-            log.error("cryptoquant_funding_rate_failed", error=str(e))
+            log.error("cryptoquant_funding_rate_failed", error=str(e), exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value

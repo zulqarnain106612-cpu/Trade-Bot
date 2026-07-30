@@ -154,7 +154,7 @@ class IntelligenceAnalyzer:
                 metric_name="exchange_netflow",
             )
         except Exception as e:
-            log.warning("exchange_netflow_zscore_compute_failed", error=str(e))
+            log.warning("exchange_netflow_zscore_compute_failed", error=str(e), exc_info=True)
             netflow_zscore = 0.0
             missing_metrics += 1
             confidence -= self._missing_data_penalty
@@ -170,7 +170,7 @@ class IntelligenceAnalyzer:
             # Clamp and normalize: ratio > 3 = bullish (+1), < 0.33 = bearish (-1).
             whale_ratio = float(np.clip(np.log(raw_whale_ratio + 0.01) / np.log(3), -1, 1))
         except Exception as e:
-            log.warning("whale_ratio_compute_failed", error=str(e))
+            log.warning("whale_ratio_compute_failed", error=str(e), exc_info=True)
             whale_ratio = 0.0
             missing_metrics += 1
             confidence -= self._missing_data_penalty
@@ -181,7 +181,7 @@ class IntelligenceAnalyzer:
             rate_pct = funding_rate.get("rate_pct", 0)
             funding_signal = 1.0 if rate_pct > 0.1 else (-1.0 if rate_pct < -0.05 else 0.0)
         except Exception as e:
-            log.warning("funding_rate_signal_failed", error=str(e))
+            log.warning("funding_rate_signal_failed", error=str(e), exc_info=True)
             rate_pct = 0.0
             funding_signal = 0.0
             missing_metrics += 1
