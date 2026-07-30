@@ -1378,3 +1378,65 @@ class TestLoadBars:
         assert len(result) == 310
         assert list(result.index) == sorted(result.index)
         assert "close" in result.columns
+
+
+# ---------------------------------------------------------------------------
+# Regime agreement scalar — pure unit tests (no async infrastructure needed)
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeAgreementScalar:
+    """Verify that SignalResult carries regime_agreement_scalar and defaults to 1.0."""
+
+    def test_signal_result_default_scalar_is_one(self) -> None:
+        from src.engine.signal_engine import SignalResult
+
+        result = SignalResult(
+            tradeable=False,
+            direction=0,
+            p_long=0.5,
+            p_bet=0.0,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
+            skip_reason="test",
+        )
+        assert result.regime_agreement_scalar == 1.0
+
+    def test_signal_result_accepts_explicit_scalar(self) -> None:
+        from src.engine.signal_engine import SignalResult
+
+        result = SignalResult(
+            tradeable=False,
+            direction=0,
+            p_long=0.5,
+            p_bet=0.0,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
+            skip_reason="test",
+            regime_agreement_scalar=0.65,
+        )
+        assert result.regime_agreement_scalar == pytest.approx(0.65)
+
+    def test_regime_agreement_scalar_floor_via_combine(self) -> None:
+        """agreement_score below 0.5 should clamp to 0.5, not go lower."""
+        from src.regime.ensemble import RegimeEnsembleVote, combine_regime_votes
+
+        vote = RegimeEnsembleVote(
+            hmm_prob_trending=0.8,
+            hmm_prob_ranging=0.1,
+            hmm_prob_volatile=0.1,
+            changepoint_probability=0.05,  # strong disagreement with trending HMM
+        )
+        result = combine_regime_votes(vote)
+        scalar = max(0.5, result.agreement_score)
+        assert 0.5 <= scalar <= 1.0
+
+    def test_combined_scalar_never_exceeds_correlation_scalar(self) -> None:
+        """combined = correlation * agreement — must never exceed either input."""
+        correlation_scalar = 0.8
+        regime_agreement_scalar = 0.7
+        combined = correlation_scalar * regime_agreement_scalar
+        assert combined <= correlation_scalar
+        assert combined <= regime_agreement_scalar

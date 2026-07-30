@@ -102,14 +102,17 @@ class SignalResult:
     """
     Complete output of one signal engine tick.
 
-    tradeable     : True when all gates pass and meta-label says bet
-    direction     : 1=long, 0=short (valid only when tradeable)
-    p_long        : XGBoost P(long)
-    p_bet         : meta-label P(bet)
-    kelly_result  : position sizing (None when not tradeable)
-    regime        : current regime prediction
-    gate_result   : final gate evaluation result
-    skip_reason   : human-readable reason when not tradeable
+    tradeable              : True when all gates pass and meta-label says bet
+    direction              : 1=long, 0=short (valid only when tradeable)
+    p_long                 : XGBoost P(long)
+    p_bet                  : meta-label P(bet)
+    kelly_result           : position sizing (None when not tradeable)
+    regime                 : current regime prediction
+    gate_result            : final gate evaluation result
+    skip_reason            : human-readable reason when not tradeable
+    regime_agreement_scalar: HMM/changepoint agreement [0.5, 1.0]; 1.0 means
+                             full agreement, <1.0 means disagreement already
+                             reduced the kelly_result notional proportionally.
     """
 
     tradeable: bool
@@ -120,6 +123,7 @@ class SignalResult:
     regime: RegimePrediction | None
     gate_result: GateResult | None
     skip_reason: str
+    regime_agreement_scalar: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -433,11 +437,13 @@ class SignalEngine:
         # NEW-017: REGIME_VOLATILE imported at module level — no per-tick import overhead
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
 
-        # v4 regime ensemble — observability only. The changepoint detector's
-        # continuous instability signal and its agreement with the HMM's
-        # regime read are logged for monitoring/alerting; neither ever
-        # overrides regime_state or gates a trade (Domain Prior: treat HMM
+        # v4 regime ensemble — agreement_score now acts as a multiplicative
+        # position-size scalar (1.0 = full agreement, 0.5 = half size floor).
+        # Regime disagreement (HMM vs changepoint) signals genuine instability
+        # that the HMM alone cannot detect mid-regime-transition; shrinking
+        # the position is safer than a hard veto (Domain Prior: treat HMM
         # transitions as probabilistic, avoid hard-coded regime logic).
+        _regime_agreement_scalar: float = 1.0  # default: no adjustment
         if regime is not None and len(bars) >= 2:
             try:
                 last_return = float(bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1.0)
@@ -450,12 +456,16 @@ class SignalEngine:
                         changepoint_probability=cp_prob,
                     )
                 )
+                # Floor at 0.5: never zero-out from agreement alone (that's the
+                # regime gate's job); instead reduce to 50% on total disagreement.
+                _regime_agreement_scalar = max(0.5, ensemble_result.agreement_score)
                 if ensemble_result.agreement_score < 0.5:
                     self._log.warning(
                         "signal.regime_ensemble_disagreement",
                         agreement_score=ensemble_result.agreement_score,
                         changepoint_probability=cp_prob,
                         regime_state=regime_state,
+                        position_scalar=_regime_agreement_scalar,
                     )
             except Exception as exc:
                 regime_ensemble_failure_total.inc()
@@ -530,6 +540,10 @@ class SignalEngine:
             _notional_cap_usd = None
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
+        # Combine portfolio-correlation scalar with regime-agreement scalar so
+        # HMM/changepoint disagreement reduces size proportionally rather than
+        # being logged and discarded (auditor finding #2).
+        combined_scalar = correlation_scalar * _regime_agreement_scalar
         kelly_result = compute_position_size(
             p_long=p_long,
             direction=direction,
@@ -538,7 +552,7 @@ class SignalEngine:
             avg_win_usd=avg_win_usd,
             avg_loss_usd=avg_loss_usd,
             regime_scalar=regime_scalar,
-            correlation_scalar=correlation_scalar,
+            correlation_scalar=combined_scalar,
             notional_cap_usd=_notional_cap_usd,
         )
 
@@ -919,6 +933,7 @@ class SignalEngine:
             regime=regime,
             gate_result=gate_result,
             skip_reason="",
+            regime_agreement_scalar=_regime_agreement_scalar,
         )
 
     # ------------------------------------------------------------------
