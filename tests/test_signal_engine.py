@@ -1584,3 +1584,69 @@ class TestGARCHVolWiring:
         assert len(captured) == 1
         ctx = captured[0]
         assert ctx.garch_vol_forecast == 0.0
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_scalar_applied_when_above_threshold(self) -> None:
+        """When GARCH vol > threshold, compute_position_size must receive scalar < 1."""
+        from src.config import get_settings
+
+        captured_kwargs: list = []
+        threshold = get_settings().risk.garch_vol_threshold  # default 0.02
+        high_garch = threshold * 4.0  # 4x threshold → scalar should be 0.25
+
+        def _mock_cps(*args, **kwargs):
+            captured_kwargs.append(kwargs)
+            return _mock_kelly()
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        fm = self._make_fm_with_garch(high_garch)
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", side_effect=_mock_cps),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=MagicMock(
+                    evaluate=MagicMock(
+                        return_value=MagicMock(
+                            passed=True,
+                            veto_reason="",
+                            adjusted_size_fraction=0.05,
+                        )
+                    )
+                ),
+            ),
+        ):
+            await e.tick(**_TICK)
+
+        assert captured_kwargs, "compute_position_size was never called"
+        scalar = captured_kwargs[0].get("garch_vol_scalar", 1.0)
+        assert scalar == pytest.approx(threshold / high_garch, rel=1e-5)
+        assert scalar < 1.0
