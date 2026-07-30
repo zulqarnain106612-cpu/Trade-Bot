@@ -428,6 +428,7 @@ class RiskValidator:
         risk_score = self._compute_risk_score(ctx, dd_pct, vol_ratio)
         metrics["risk_score"] = round(risk_score, 4)
         metrics["open_positions"] = ctx.open_positions
+        metrics["garch_vol_forecast"] = round(ctx.garch_vol_forecast, 6)
 
         # Hard cap: risk score > 0.85 → veto even if individual gates pass
         if risk_score > 0.85:
