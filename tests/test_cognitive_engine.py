@@ -571,6 +571,46 @@ class TestRiskValidatorComputeRiskScore:
         score_high = RiskValidator._compute_risk_score(ctx_high, dd_pct=0.0, vol_ratio=0.0)
         assert score_high > score_low
 
+    def test_regime_agreement_default_contributes_zero(self) -> None:
+        # Default regime_agreement_score=1.0 → disagree_component = 0.0 → no contribution.
+        ctx = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=0.0, vol_ratio=0.0)
+        assert score == pytest.approx(0.0)
+
+    def test_regime_full_disagreement_increases_score(self) -> None:
+        # regime_agreement_score=0.0 → disagree_component=1.0 → adds 0.05 to score.
+        ctx_agree = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            regime_agreement_score=1.0,
+        )
+        ctx_disagree = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            regime_agreement_score=0.0,
+        )
+        score_agree = RiskValidator._compute_risk_score(ctx_agree, dd_pct=0.0, vol_ratio=0.0)
+        score_disagree = RiskValidator._compute_risk_score(ctx_disagree, dd_pct=0.0, vol_ratio=0.0)
+        assert score_disagree == pytest.approx(score_agree + 0.05)
+
+    def test_regime_agreement_in_metrics(self) -> None:
+        v = RiskValidator()
+        result = v.validate(make_ctx(regime_agreement_score=0.75))
+        assert "regime_agreement_score" in result.metrics
+        assert result.metrics["regime_agreement_score"] == pytest.approx(0.75)
+
 
 class TestValidatorResultPassedProperty:
     """Cover ValidatorResult.passed property (line 64)."""
@@ -615,8 +655,9 @@ class TestRiskValidatorCompositeScoreVeto:
         v = RiskValidator()
         # Saturate all components WITHOUT triggering individual veto thresholds:
         # dd=-1.98% (<2.0% halt), consecutive=2 (<3 halt), vol_ratio=1.95 (<2.0), positions=5
-        # Weights: 0.33/0.28/0.24/0.10/0.05 (GARCH=0 → only first 4 active)
-        # Composite = 0.33*0.99 + 0.28*0.975 + 0.24*0.667 + 0.10*1.0 ≈ 0.860 > 0.85
+        # regime_agreement_score=0.0 → regime_disagree_component=1.0 (full disagreement)
+        # Weights: 0.33/0.28/0.24/0.08/0.02/0.05 — GARCH=0 so weight 0.02 unused
+        # Composite ≈ 0.33*0.99 + 0.28*0.975 + 0.24*0.667 + 0.08*1.0 + 0.05*1.0 ≈ 0.890 > 0.85
         ctx = make_ctx(
             capital_usd=100_000.0,
             daily_pnl_usd=-1_980.0,  # dd_pct = -1.98% (below -2.0% halt → no individual veto)
@@ -624,6 +665,7 @@ class TestRiskValidatorCompositeScoreVeto:
             open_positions=5,  # pos_component = 1.0 (saturated)
             atr=1.95,
             atr_median_20=1.0,  # vol_ratio = 1.95 (< 2.0 → no veto)
+            regime_agreement_score=0.0,  # maximum disagreement → regime_disagree_component = 1.0
         )
         result = v.validate(ctx)
         assert result.status == ValidatorStatus.VETO

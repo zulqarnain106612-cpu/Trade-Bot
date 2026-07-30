@@ -911,6 +911,7 @@ class SignalEngine:
             proposed_notional_usd=kelly_result.notional_usd,
             kelly_adjusted_fraction=kelly_result.adjusted_fraction,
             garch_vol_forecast=_garch_vol,
+            regime_agreement_score=_regime_agreement_scalar,
         )
         _cog_decision = get_cognitive_engine().evaluate(_cog_ctx)
         if not _cog_decision.passed:

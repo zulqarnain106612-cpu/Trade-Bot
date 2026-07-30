@@ -154,6 +154,11 @@ class SignalContext:
     # Per-bar sigma in raw-return units (NOT annualized). 0.0 when the
     # pipeline has not yet produced a valid forecast (warm-up period).
     garch_vol_forecast: float = 0.0
+    # Regime ensemble agreement score in [0, 1] (Dietterich 2000).
+    # 1.0 = HMM and changepoint detector fully agree (low regime uncertainty).
+    # 0.0 = complete disagreement (HMM confident, changepoint screaming shift).
+    # Defaults to 1.0 so pre-ensemble callers are treated as fully agreeing.
+    regime_agreement_score: float = 1.0
 
 
 # ── Validator interface ────────────────────────────────────────────────────────
@@ -429,6 +434,7 @@ class RiskValidator:
         metrics["risk_score"] = round(risk_score, 4)
         metrics["open_positions"] = ctx.open_positions
         metrics["garch_vol_forecast"] = round(ctx.garch_vol_forecast, 6)
+        metrics["regime_agreement_score"] = round(ctx.regime_agreement_score, 4)
 
         # Hard cap: risk score > 0.85 → veto even if individual gates pass
         if risk_score > 0.85:
@@ -462,18 +468,23 @@ class RiskValidator:
         loss_component = min(ctx.consecutive_losses / cfg.consecutive_loss_halt, 1.0)
         pos_component = min(ctx.open_positions / 5, 1.0)  # >5 open = max risk
         # GARCH: normalizes against the configurable threshold (RISK_GARCH_VOL_THRESHOLD).
-        # Weight 0.05 — supplementary signal, not primary risk factor.
+        # Weight 0.02 — supplementary, not primary risk factor.
         garch_component = (
             min(ctx.garch_vol_forecast / cfg.garch_vol_threshold, 1.0)
             if ctx.garch_vol_forecast > 0.0
             else 0.0
         )
+        # Regime disagreement: 1 - agreement_score (Dietterich 2000 ensemble).
+        # When HMM is confident but changepoint detector fires, this is high.
+        # Weight 0.05 — catches mid-transition signals that Sharpe/vol miss.
+        regime_disagree_component = 1.0 - max(0.0, min(1.0, ctx.regime_agreement_score))
         return (
             0.33 * dd_component
             + 0.28 * vol_component
             + 0.24 * loss_component
-            + 0.10 * pos_component
-            + 0.05 * garch_component
+            + 0.08 * pos_component
+            + 0.02 * garch_component
+            + 0.05 * regime_disagree_component
         )
 
 
