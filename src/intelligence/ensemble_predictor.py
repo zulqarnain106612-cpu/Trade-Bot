@@ -128,13 +128,16 @@ class PredictionModel(ABC):
     # EnsemblePredictor.fit() dispatches per model name rather than calling
     # model.fit() polymorphically, so enforcing a common signature via ABC
     # would provide false assurance of interchangeability.
-    def fit(self, *args: Any, **kwargs: Any) -> None:  # noqa: B027
+    def fit(self, *args: Any, **kwargs: Any) -> None:
         """Fit the model on training data (signature varies per subclass).
 
         Not abstract: each concrete subclass has an incompatible signature
         (ARIMA: (y,), XGBoost: (X, y), LSTM: (X_3d, y)). Dispatch is
         done per-name in EnsemblePredictor.fit(), not polymorphically.
         """
+        raise NotImplementedError(
+            f"{type(self).__name__} must override fit() with its own signature."
+        )
 
     @abstractmethod
     def predict(self, features: pd.DataFrame) -> float:

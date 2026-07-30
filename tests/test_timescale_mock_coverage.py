@@ -756,6 +756,25 @@ class TestIntelligenceFeatures:
         assert result.empty
 
     @pytest.mark.asyncio
+    async def test_fetch_intelligence_features_one_row(self):
+        from src.data.timescale_storage import _INTEL_COLUMNS
+
+        b = _make_backend()
+        row = {"bar_ts": 1_700_000_000_000, "confidence": 0.9, **{c: 1.0 for c in _INTEL_COLUMNS}}
+
+        @asynccontextmanager
+        async def _acquire():
+            conn = AsyncMock()
+            conn.fetch = AsyncMock(return_value=[row])
+            yield conn
+
+        b._pool.acquire = _acquire
+        df = await b.fetch_intelligence_features("BTC/USDT", "1h")
+        assert not df.empty
+        assert df.index.name == "bar_ts"
+        assert "intelligence_exchange_netflow_7d_zscore" in df.columns
+
+    @pytest.mark.asyncio
     async def test_intelligence_feature_coverage_no_rows(self):
         b = _make_backend()
 
@@ -768,6 +787,24 @@ class TestIntelligenceFeatures:
         b._pool.acquire = _acquire
         result = await b.intelligence_feature_coverage("BTC/USDT", "1h")
         assert result == {"total_rows": 0, "coverage": {}}
+
+    @pytest.mark.asyncio
+    async def test_intelligence_feature_coverage_with_rows(self):
+        from src.data.timescale_storage import _INTEL_COLUMNS
+
+        b = _make_backend()
+        row = {"total": 10, **{c: 8 for c in _INTEL_COLUMNS}}
+
+        @asynccontextmanager
+        async def _acquire():
+            conn = AsyncMock()
+            conn.fetchrow = AsyncMock(return_value=row)
+            yield conn
+
+        b._pool.acquire = _acquire
+        result = await b.intelligence_feature_coverage("BTC/USDT", "1h")
+        assert result["total_rows"] == 10
+        assert result["coverage"]["intelligence_exchange_netflow_7d_zscore"] == 0.8
 
 
 # ---------------------------------------------------------------------------
