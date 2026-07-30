@@ -85,6 +85,7 @@ class DriftIntegrationAdapter:
                 "drift.record_failed",
                 trade_id=trade_id,
                 error=str(exc),
+                exc_info=True,
             )
 
     def check_drift(self) -> dict[str, Any]:

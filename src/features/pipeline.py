@@ -968,9 +968,7 @@ def _inject_intelligence_features(
             fval = float(val)
         except (TypeError, ValueError):
             continue
-        import math as _math
-
-        if _math.isfinite(fval):
+        if np.isfinite(fval):
             extras[col] = fval
 
     # Always include confidence when available and finite
@@ -978,9 +976,7 @@ def _inject_intelligence_features(
     if conf is not None:
         try:
             cval = float(conf)
-            import math as _math
-
-            if _math.isfinite(cval):
+            if np.isfinite(cval):
                 extras[COL_INTELLIGENCE_CONFIDENCE] = cval
         except (TypeError, ValueError):
             pass
@@ -988,11 +984,8 @@ def _inject_intelligence_features(
     if not extras:
         return vec
 
-    import numpy as _np
-    import pandas as _pd
-
-    extras_series = _pd.Series(extras, dtype=_np.float64)
-    result = _pd.concat([vec, extras_series])
+    extras_series = pd.Series(extras, dtype=np.float64)
+    result = pd.concat([vec, extras_series])
 
     log.debug(
         "pipeline.intelligence_features_injected",
