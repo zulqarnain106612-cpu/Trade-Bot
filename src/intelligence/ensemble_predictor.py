@@ -121,6 +121,12 @@ class PredictionModel(ABC):
     Base class for ensemble members.
     """
 
+    lookback: int = 0
+
+    @abstractmethod
+    def fit(self, *args: Any, **kwargs: Any) -> None:
+        """Fit the model on training data."""
+
     @abstractmethod
     def predict(self, features: pd.DataFrame) -> float:
         """Point prediction."""
@@ -650,10 +656,10 @@ class EnsemblePredictor:
         ensemble_point = sum(individual_predictions[m] * self.weights[m] for m in self.models)
 
         # Aleatoric uncertainty: average of individual model uncertainties
-        aleatoric = np.mean(list(individual_uncertainties.values()))
+        aleatoric = float(np.mean(list(individual_uncertainties.values())))
 
         # Epistemic uncertainty: disagreement between models
-        model_disagreement = np.std(list(individual_predictions.values()))
+        model_disagreement = float(np.std(list(individual_predictions.values())))
         epistemic = model_disagreement
 
         # Total uncertainty
