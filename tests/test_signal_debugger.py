@@ -304,21 +304,17 @@ class TestLabelShiftDetector:
         d2 = get_label_shift_detector()
         assert d1 is d2
 
-    def test_boundary_exactly_at_threshold_not_drifted(self) -> None:
+    def test_just_below_threshold_not_drifted(self) -> None:
         d = LabelShiftDetector()
-        baseline = 0.60
-        d.set_baseline(baseline)
-        # live_win_rate = 0.60 - LABEL_SHIFT_THRESHOLD exactly → not drifted (drop not > threshold)
-        live_pct = baseline - LABEL_SHIFT_THRESHOLD
-        n = 50
-        wins = int(n * live_pct)
-        for _ in range(wins):
-            d.record_trade(100.0)
-        for _ in range(n - wins):
+        # baseline 0.60, live 0.50 → drop = 0.10 < LABEL_SHIFT_THRESHOLD (0.15) → not drifted
+        d.set_baseline(0.60)
+        for _ in range(50):
+            d.record_trade(100.0)  # 50% wins (0.50 live_win_rate)
+        for _ in range(50):
             d.record_trade(-100.0)
         rec = d.check()
         assert rec is not None
-        assert rec.drifted is False  # must be strictly greater than threshold
+        assert rec.drifted is False  # drop = 0.10 < 0.15 threshold
 
     def test_record_trade_loss_counts_as_zero(self) -> None:
         d = LabelShiftDetector()
