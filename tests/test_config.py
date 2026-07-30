@@ -14,6 +14,7 @@ from src.config import (
     BinanceSettings,
     FeatureSettings,
     HMMSettings,
+    RiskSettings,
     RuntimeConfig,
     Settings,
     Timeframe,
@@ -143,3 +144,21 @@ class TestFeatureSettingsGARCH:
     def test_garch_window_custom_value(self):
         cfg = FeatureSettings(garch_window=200)
         assert cfg.garch_window == 200
+
+
+class TestRiskSettingsGARCHVolThreshold:
+    def test_garch_vol_threshold_default_is_002(self):
+        cfg = RiskSettings()
+        assert cfg.garch_vol_threshold == pytest.approx(0.02)
+
+    def test_garch_vol_threshold_must_be_positive(self):
+        with pytest.raises(ValidationError):
+            RiskSettings(garch_vol_threshold=0.0)
+
+    def test_garch_vol_threshold_max_is_050(self):
+        with pytest.raises(ValidationError):
+            RiskSettings(garch_vol_threshold=0.51)
+
+    def test_garch_vol_threshold_custom_value(self):
+        cfg = RiskSettings(garch_vol_threshold=0.05)
+        assert cfg.garch_vol_threshold == pytest.approx(0.05)

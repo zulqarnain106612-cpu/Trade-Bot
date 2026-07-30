@@ -533,7 +533,7 @@ class TestRiskValidatorComputeRiskScore:
             open_positions=100,
             atr=10.0,
             atr_median_20=1.0,
-            garch_vol_forecast=0.05,  # > 0.02 threshold → garch_component = 1.0
+            garch_vol_forecast=0.05,  # > default 0.02 threshold → garch_component = 1.0
         )
         score = RiskValidator._compute_risk_score(ctx, dd_pct=-100.0, vol_ratio=2.0)
         assert abs(score - 1.0) < 1e-6

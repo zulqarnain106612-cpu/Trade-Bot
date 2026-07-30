@@ -461,10 +461,12 @@ class RiskValidator:
         vol_component = min(vol_ratio / 2.0, 1.0)
         loss_component = min(ctx.consecutive_losses / cfg.consecutive_loss_halt, 1.0)
         pos_component = min(ctx.open_positions / 5, 1.0)  # >5 open = max risk
-        # GARCH: 2% per-bar vol is the normalization denominator; clamped to [0,1].
+        # GARCH: normalizes against the configurable threshold (RISK_GARCH_VOL_THRESHOLD).
         # Weight 0.05 — supplementary signal, not primary risk factor.
         garch_component = (
-            min(ctx.garch_vol_forecast / 0.02, 1.0) if ctx.garch_vol_forecast > 0.0 else 0.0
+            min(ctx.garch_vol_forecast / cfg.garch_vol_threshold, 1.0)
+            if ctx.garch_vol_forecast > 0.0
+            else 0.0
         )
         return (
             0.33 * dd_component

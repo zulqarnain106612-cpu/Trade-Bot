@@ -197,6 +197,14 @@ class RiskSettings(BaseSettings):
     # tunable parameter goes through, never a direct edit to this default.
     ensemble_blend_weight: float = Field(default=0.15, ge=0.0, le=1.0)
 
+    # GARCH vol normalization threshold: the per-bar GARCH vol level at which
+    # the garch_component in _compute_risk_score saturates to 1.0.
+    # 0.02 = 2% per bar (~31.6% annualized at daily bars) — representative
+    # of a 1-sigma stress day in major crypto. Lower values make the engine
+    # more sensitive to elevated GARCH vol; higher values require larger
+    # shocks to affect the risk score.
+    garch_vol_threshold: float = Field(default=0.02, gt=0.0, le=0.50)
+
     # GAP-013 -- automated position-exit controls (stop-loss / take-profit /
     # time-based exit). These are STARTUP DEFAULTS ONLY, loaded once into
     # RuntimeConfig at process start. Unlike the hard limits above, the
