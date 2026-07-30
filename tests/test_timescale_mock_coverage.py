@@ -7,10 +7,10 @@ update_trade_exit, fetch_trades, insert_model_metrics, latest_model_metrics,
 live_gate_passes, insert_equity, fetch_equity_curve, latest_equity,
 earliest_equity_ts, validate_symbol, insert_audit_event, health_check,
 insert_missed_trade, fetch_missed_trades, upsert_regime_snapshot,
-latest_regime, regime_snapshot_before, bars_before, daily_pnl,
-count_consecutive_losses, store_intelligence_features,
-fetch_intelligence_features, intelligence_feature_coverage,
-prune_old_bars, open_timescale_storage context manager.
+latest_regime, bars_before, daily_pnl, count_consecutive_losses,
+store_intelligence_features, fetch_intelligence_features,
+intelligence_feature_coverage, regime_snapshot_before, prune_old_bars,
+open_timescale_storage context manager.
 """
 
 from __future__ import annotations
@@ -715,6 +715,59 @@ class TestBarsBefore:
         b = _make_backend()
         result = await b.bars_before("BTC/USDT", "1h", 1_700_000_000_000, limit=10)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# regime_snapshot_before
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeSnapshotBefore:
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_row(self):
+        b = _make_backend()
+        result = await b.regime_snapshot_before("BTC/USDT", "1h", 1_700_000_000_000)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# store_intelligence_features / fetch_intelligence_features /
+# intelligence_feature_coverage
+# ---------------------------------------------------------------------------
+
+
+class TestIntelligenceFeatures:
+    @pytest.mark.asyncio
+    async def test_store_intelligence_features(self):
+        b = _make_backend()
+        await b.store_intelligence_features(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            bar_ts=1_700_000_000_000,
+            features={"vol_ratio": 1.2, "rsi_14": 55.0},
+            confidence=0.85,
+            source="live",
+        )
+
+    @pytest.mark.asyncio
+    async def test_fetch_intelligence_features_empty(self):
+        b = _make_backend()
+        result = await b.fetch_intelligence_features("BTC/USDT", "1h")
+        assert result.empty
+
+    @pytest.mark.asyncio
+    async def test_intelligence_feature_coverage_no_rows(self):
+        b = _make_backend()
+
+        @asynccontextmanager
+        async def _acquire():
+            conn = AsyncMock()
+            conn.fetchrow = AsyncMock(return_value={"total": 0})
+            yield conn
+
+        b._pool.acquire = _acquire
+        result = await b.intelligence_feature_coverage("BTC/USDT", "1h")
+        assert result == {"total_rows": 0, "coverage": {}}
 
 
 # ---------------------------------------------------------------------------

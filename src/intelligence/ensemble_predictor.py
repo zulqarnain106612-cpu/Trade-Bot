@@ -123,9 +123,18 @@ class PredictionModel(ABC):
 
     lookback: int = 0
 
-    @abstractmethod
-    def fit(self, *args: Any, **kwargs: Any) -> None:
-        """Fit the model on training data."""
+    # fit() is intentionally NOT abstract: each subclass has a different,
+    # incompatible signature (ARIMA: (y,), XGBoost: (X, y), LSTM: (X_3d, y)).
+    # EnsemblePredictor.fit() dispatches per model name rather than calling
+    # model.fit() polymorphically, so enforcing a common signature via ABC
+    # would provide false assurance of interchangeability.
+    def fit(self, *args: Any, **kwargs: Any) -> None:  # noqa: B027
+        """Fit the model on training data (signature varies per subclass).
+
+        Not abstract: each concrete subclass has an incompatible signature
+        (ARIMA: (y,), XGBoost: (X, y), LSTM: (X_3d, y)). Dispatch is
+        done per-name in EnsemblePredictor.fit(), not polymorphically.
+        """
 
     @abstractmethod
     def predict(self, features: pd.DataFrame) -> float:
