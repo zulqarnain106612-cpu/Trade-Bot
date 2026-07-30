@@ -809,8 +809,8 @@ def build_inference_features(
     Compute feature vector for the most recent bar only.
 
     Accepts a history DataFrame (must include current bar as last row).
-    Returns a pd.Series of FEATURE_COLUMNS (7 base) or FEATURE_COLUMNS +
-    INTELLIGENCE_FEATURE_COLUMNS (up to 25 total) when intelligence_metrics
+    Returns a pd.Series of FEATURE_COLUMNS (8 base) or FEATURE_COLUMNS +
+    INTELLIGENCE_FEATURE_COLUMNS (up to 26 total) when intelligence_metrics
     is supplied and passes NaN validation.
 
     Parameters
@@ -832,8 +832,8 @@ def build_inference_features(
 
     Returns
     -------
-    pd.Series indexed by FEATURE_COLUMNS [+ finite intelligence cols], or None if
-    insufficient base feature data.
+    pd.Series indexed by FEATURE_COLUMNS (8 base) [+ finite intelligence cols],
+    or None if insufficient base feature data.
     """
     # Fast path — reuse pre-built feature matrix (SCAN2-007)
     if feature_matrix is not None and feature_matrix.features is not None:
