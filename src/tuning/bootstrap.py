@@ -282,6 +282,47 @@ _XGB_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 
+def register_garch_vol_threshold(
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
+) -> TunableParameter:
+    """
+    RiskSettings.garch_vol_threshold — the per-bar conditional-vol level above
+    which the GARCH vol-targeting scalar (Carver 2019) begins scaling position
+    size down. Below the threshold, no reduction is applied (scalar = 1.0).
+
+    A higher threshold is more permissive (fewer reductions); a lower threshold
+    is more aggressive (earlier and deeper reductions in high-vol regimes).
+    Evaluated using cpcv_oos_sharpe: the impact flows through position sizing,
+    so a frozen-model OOS Sharpe comparison captures whether the threshold
+    improves risk-adjusted returns without a full XGBoost retrain.
+
+    Registered but intentionally left unscheduled in scheduler.py until a
+    dedicated backtest harness measuring the vol-targeting scalar's sensitivity
+    to threshold changes exists (same pattern as register_ensemble_blend_weight).
+    """
+    settings = settings or get_settings()
+    default = settings.risk.garch_vol_threshold
+    floor, ceiling = _symmetric_bounds(default)
+    floor = max(0.001, floor)  # RiskSettings enforces gt=0.0; keep a safe margin
+    ceiling = min(0.50, ceiling)  # RiskSettings enforces le=0.50
+    current = _resume_current("risk.garch_vol_threshold", default, floor, ceiling, store)
+    param = TunableParameter(
+        name="risk.garch_vol_threshold",
+        description=(
+            "GARCH vol-targeting threshold (Carver 2019): per-bar sigma above which "
+            "position size is scaled down proportionally."
+        ),
+        floor=floor,
+        ceiling=ceiling,
+        current=current,
+        eval_strategy="cpcv_oos_sharpe",
+    )
+    registry.register(param)
+    return param
+
+
 def register_xgboost_hyperparam_param(
     registry: ParameterRegistry,
     field_name: str,
