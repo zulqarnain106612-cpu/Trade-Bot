@@ -132,7 +132,7 @@ class IntelligenceAggregator:
                 )
             return result
         except Exception as e:
-            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol)
+            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol, exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
