@@ -294,22 +294,25 @@ class MarketDataFetcher:
         with self._sem_init_guard:
             if self._gap_fill_sem is None:
                 self._gap_fill_sem = asyncio.Semaphore(1)
-        return self._gap_fill_sem  # type: ignore[return-value]
+        assert self._gap_fill_sem is not None
+        return self._gap_fill_sem
 
     async def initialize(self) -> None:
         """Build ccxt exchange instances and load markets."""
         cfg = self._settings
-        self._binance = _build_binance(cfg.binance)
-        self._okx = _build_okx(cfg.okx)
+        binance = _build_binance(cfg.binance)
+        self._binance = binance
+        okx = _build_okx(cfg.okx)
+        self._okx = okx
 
         await _with_retry(
-            lambda: self._binance.load_markets(),  # type: ignore[union-attr]
+            lambda: binance.load_markets(),
             label="binance.load_markets",
         )
         self._log.info("fetcher.binance_ready", testnet=cfg.binance.testnet)
 
         await _with_retry(
-            lambda: self._okx.load_markets(),  # type: ignore[union-attr]
+            lambda: okx.load_markets(),
             label="okx.load_markets",
         )
         self._log.info("fetcher.okx_ready", testnet=cfg.okx.testnet)

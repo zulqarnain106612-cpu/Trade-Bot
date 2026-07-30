@@ -359,7 +359,8 @@ class TimescaleBackend:
         with self._lock_init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        return self._lock  # type: ignore[return-value]
+        assert self._lock is not None
+        return self._lock
 
     async def initialize(self) -> None:
         """Create the asyncpg pool, required directories, and apply DDL + migrations."""

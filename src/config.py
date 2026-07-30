@@ -772,7 +772,8 @@ class RuntimeConfig:
         with self._init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        return self._lock  # type: ignore[return-value]
+        assert self._lock is not None
+        return self._lock
 
     async def get_execution_mode(self) -> ExecutionMode:
         async with self._get_lock():
