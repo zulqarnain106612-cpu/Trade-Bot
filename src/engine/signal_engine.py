@@ -560,7 +560,7 @@ class SignalEngine:
         # realized conditional vol when it exceeds the configured threshold. This
         # reduces notional exposure in high-vol regimes without a hard veto, keeping
         # trades alive at reduced size rather than blocking them entirely.
-        _garch_threshold = get_settings().risk.garch_vol_threshold
+        _garch_threshold = effective_risk_settings(self._cfg.risk).garch_vol_threshold
         _garch_vol_scalar = (
             min(1.0, _garch_threshold / _garch_vol_early)
             if _garch_vol_early > _garch_threshold
