@@ -379,3 +379,23 @@ Also fixed `test_onchain_base_coverage.py` to use `_async_cache` after rename.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## 2026-07-30 — Sortino degradation trigger + regime ensemble risk wiring
+
+**Changes**:
+- `signal_debugger.py`: `check_degradation()` now uses `rolling_sortino` as
+  a degradation trigger (`ROLLING_SORTINO_THRESHOLD = 0.5`). Adds `sortino_degraded`
+  key to the report dict (always present, default False). Sortino penalises
+  downside-only volatility so it catches persistent losing runs that Sharpe
+  (which treats upside and downside vol equally) can miss.
+- `cognitive_engine.py`: Added `regime_agreement_score: float = 1.0` field to
+  `SignalContext`. `_compute_risk_score` now includes a `regime_disagree_component`
+  (weight 0.05) = `1 - agreement_score`. Weights rebalanced: pos 0.10→0.08,
+  garch 0.05→0.02. Signal_engine passes `_regime_agreement_scalar` into
+  `SignalContext` so HMM/changepoint disagreement registers as risk.
+- `tuning/bootstrap.py`: Added `register_garch_vol_threshold()` so the GARCH
+  vol-targeting threshold can be self-tuned via the standard propose/evaluate/gate
+  machinery. Left unscheduled (same pattern as `ensemble_blend_weight`) until a
+  dedicated backtest harness exists.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally.
