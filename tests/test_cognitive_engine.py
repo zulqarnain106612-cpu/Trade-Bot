@@ -516,16 +516,50 @@ class TestRiskValidatorComputeRiskScore:
         assert score_high > score_low
 
     def test_weights_sum_to_one(self) -> None:
-        # Saturate all four components to 1.0 → score should equal sum of weights = 1.0
+        # Saturate all five components to 1.0 → score should equal sum of weights = 1.0
         ctx = make_ctx(
             daily_pnl_usd=-100_000.0,
             consecutive_losses=999,
             open_positions=100,
             atr=10.0,
             atr_median_20=1.0,
+            garch_vol_forecast=0.05,  # > 0.02 threshold → garch_component = 1.0
         )
         score = RiskValidator._compute_risk_score(ctx, dd_pct=-100.0, vol_ratio=2.0)
         assert abs(score - 1.0) < 1e-6
+
+    def test_garch_zero_contributes_nothing(self) -> None:
+        ctx = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.0,
+        )
+        score_no_garch = RiskValidator._compute_risk_score(ctx, dd_pct=0.0, vol_ratio=0.0)
+        assert score_no_garch == pytest.approx(0.0)
+
+    def test_garch_high_vol_increases_score(self) -> None:
+        ctx_low = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.001,
+        )
+        ctx_high = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.05,
+        )
+        score_low = RiskValidator._compute_risk_score(ctx_low, dd_pct=0.0, vol_ratio=0.0)
+        score_high = RiskValidator._compute_risk_score(ctx_high, dd_pct=0.0, vol_ratio=0.0)
+        assert score_high > score_low
 
 
 class TestValidatorResultPassedProperty:
