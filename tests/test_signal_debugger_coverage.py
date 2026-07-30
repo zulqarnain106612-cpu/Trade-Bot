@@ -200,7 +200,7 @@ class TestModelDegradationTracker:
     def test_rolling_sortino_no_losses_returns_none(self):
         for _ in range(25):
             self.tracker.record_trade_result(10.0)
-        # No negative P&Ls → fewer than 2 loss samples → None
+        # No negative P&Ls → empty losses list → None
         assert self.tracker.rolling_sortino() is None
 
     def test_rolling_sortino_returns_float_with_mixed_pnl(self):

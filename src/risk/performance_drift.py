@@ -243,10 +243,12 @@ class PerformanceDriftDetector:
                 reason=f"Insufficient live trades ({self._total_live_trades} < {_MIN_LIVE_TRADES})",
             )
 
-        # Check each metric for drift
+        # Check each metric for drift — Sortino before Sharpe because it is
+        # more specific (downside-only), so asymmetric drawdown scenarios surface
+        # the right label rather than the blunter Sharpe signal.
         drift_checks = [
-            self._check_sharpe_drift(),
             self._check_sortino_drift(),
+            self._check_sharpe_drift(),
             self._check_accuracy_drift(),
             self._check_winrate_drift(),
             self._check_drawdown_drift(),
@@ -301,12 +303,16 @@ class PerformanceDriftDetector:
         pnl_list = list(self._live_pnl_window)
         mean_pnl = statistics.mean(pnl_list)
         losses = [p for p in pnl_list if p < 0.0]
-        if len(losses) < 2:
+        if not losses:
             return None
-        downside_std = statistics.stdev(losses)
-        if downside_std <= 0.0:
+        # Semi-deviation = RMS of losses (L2 norm below target=0, Sortino & Price 1994).
+        # Using RMS rather than std handles the degenerate case where all losses are
+        # identical (std=0), which occurs frequently in test environments and in
+        # production when a strategy is in a sustained losing streak.
+        downside_rms = math.sqrt(sum(p * p for p in losses) / len(losses))
+        if downside_rms <= 0.0:
             return None
-        return mean_pnl / downside_std
+        return mean_pnl / downside_rms
 
     def _check_sharpe_drift(self) -> DriftDetected:
         """Check if rolling Sharpe has dropped >0.5pp vs training OOS Sharpe."""

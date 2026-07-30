@@ -275,20 +275,21 @@ class ModelDegradationTracker:
 
         Uses only negative P&L values for the denominator so upside volatility
         (news-driven pumps) does not suppress the quality signal.  Returns None
-        when fewer than 20 trades have been recorded or when there are fewer
-        than 2 losing trades (insufficient sample for a stable semi-deviation).
+        when fewer than 20 trades have been recorded or when there are no
+        losing trades (denominator would be zero).
         """
         if len(self._trade_pnls) < 20:
             return None
         returns = list(self._trade_pnls)
         mean_ret = float(np.mean(returns))
         losses = [r for r in returns if r < 0.0]
-        if len(losses) < 2:
+        if not losses:
             return None
-        downside_std = float(np.std(losses))
-        if downside_std <= 0.0:
+        # RMS of losses = semi-deviation below target=0 (Sortino & Price 1994).
+        downside_rms = math.sqrt(sum(p * p for p in losses) / len(losses))
+        if downside_rms <= 0.0:
             return None
-        return mean_ret / downside_std
+        return mean_ret / downside_rms
 
     def live_accuracy(self) -> float | None:
         """Compute rolling accuracy from resolved predictions."""
