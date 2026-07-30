@@ -188,6 +188,7 @@ class RuntimeMonitor:
                 )
             except Exception as exc:
                 failures = prior.consecutive_failures + 1
+                log.warning("health_probe.exception", name=name, error=str(exc), exc_info=True)
                 pr = ProbeResult(
                     name=name,
                     passed=False,
