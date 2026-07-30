@@ -109,6 +109,14 @@ def test_register_feature_window_param(field_name: str) -> None:
     assert param.floor >= 2.0
 
 
+def test_register_feature_window_garch_window_floor_is_at_least_50() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_feature_window_param(registry, "garch_window", settings)
+    # garch_window has ge=50 in FeatureSettings; floor must respect that.
+    assert param.floor >= 50.0
+
+
 def test_register_feature_window_param_unknown_field_raises() -> None:
     registry = ParameterRegistry()
     settings = Settings()

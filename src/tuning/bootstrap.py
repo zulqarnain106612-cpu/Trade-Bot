@@ -200,10 +200,15 @@ FEATURE_WINDOW_FIELDS: frozenset[str] = frozenset(
         "atr_window",
         "sharpe_window",
         "volume_zscore_window",
+        "garch_window",
     }
 )
 
-_FEATURE_WINDOW_MIN_VALUE = 2.0  # matches FeatureSettings' `ge=2` on each field
+_FEATURE_WINDOW_MIN_VALUE = 2.0  # matches FeatureSettings' `ge=2` on most fields
+# garch_window has ge=50 in FeatureSettings (needs enough obs for GARCH MLE)
+_FEATURE_WINDOW_FLOOR_OVERRIDES: dict[str, float] = {
+    "garch_window": 50.0,
+}
 
 
 def register_feature_window_param(
@@ -229,7 +234,8 @@ def register_feature_window_param(
     settings = settings or get_settings()
     default = float(getattr(settings.features, field_name))
     floor, ceiling = _symmetric_bounds(default)
-    floor = max(_FEATURE_WINDOW_MIN_VALUE, floor)
+    min_val = _FEATURE_WINDOW_FLOOR_OVERRIDES.get(field_name, _FEATURE_WINDOW_MIN_VALUE)
+    floor = max(min_val, floor)
     param_name = f"features.{field_name}"
     current = _resume_current(param_name, default, floor, ceiling, store)
     param = TunableParameter(
