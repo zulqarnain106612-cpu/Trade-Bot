@@ -34,6 +34,7 @@ from xgboost import XGBClassifier
 from src.config import FeatureSettings, HMMSettings, XGBoostSettings
 from src.features.pipeline import (
     COL_ATR_MOMENTUM,
+    COL_GARCH_VOL,
     COL_OFI,
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
@@ -48,6 +49,7 @@ from src.features.pipeline import (
     vwap_deviation_zscore,
 )
 from src.models.trainer import ModelTrainer, oos_sharpe_and_drawdown
+from src.regime.garch import rolling_garch_forecast
 from src.tuning.bootstrap import XGBOOST_HYPERPARAM_FIELDS
 from src.tuning.evaluator import (
     ChallengerEvaluator,
@@ -342,6 +344,12 @@ _FEATURE_WINDOW_RECOMPUTERS: dict[str, tuple[str, Callable[[pd.DataFrame, int], 
         COL_VOLUME_ZSCORE,
         lambda bars, window: volume_zscore(bars["volume"], window=window),
     ),
+    "garch_window": (
+        COL_GARCH_VOL,
+        lambda bars, window: rolling_garch_forecast(
+            bars["close"].pct_change().dropna(), window=window
+        ).reindex(bars.index),
+    ),
 }
 
 
@@ -374,7 +382,7 @@ def run_feature_window_backtest(
     features_cfg: FeatureSettings | None = None,
 ) -> list[MetricComparison]:
     """
-    Recalibrate one of the five rolling-window feature parameters (Phase 8
+    Recalibrate one of the rolling-window feature parameters (Phase 8
     item 3) against the currently deployed, FROZEN direction model's
     out-of-sample predictive quality -- this does NOT retrain. It measures
     the frozen model's sensitivity to a perturbed input feature, a
