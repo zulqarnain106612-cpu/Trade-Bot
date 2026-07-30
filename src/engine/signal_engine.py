@@ -42,6 +42,7 @@ from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
+    COL_GARCH_VOL,
     FEATURE_COLUMNS,
     build_feature_matrix,
     build_inference_features,
@@ -856,6 +857,11 @@ class SignalEngine:
         _adv_20d = (
             float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
         )
+        _garch_vol = (
+            float(fm.features[COL_GARCH_VOL].iloc[-1])
+            if COL_GARCH_VOL in fm.features.columns and fm.features[COL_GARCH_VOL].iloc[-1] > 0
+            else 0.0
+        )
         _cog_ctx = SignalContext(
             signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic()*1000)}",
             symbol=self._symbol,
@@ -888,6 +894,7 @@ class SignalEngine:
             proposed_qty=kelly_result.quantity,
             proposed_notional_usd=kelly_result.notional_usd,
             kelly_adjusted_fraction=kelly_result.adjusted_fraction,
+            garch_vol_forecast=_garch_vol,
         )
         _cog_decision = get_cognitive_engine().evaluate(_cog_ctx)
         if not _cog_decision.passed:
