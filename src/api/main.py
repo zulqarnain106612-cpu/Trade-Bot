@@ -1275,7 +1275,8 @@ async def get_strategy_attribution() -> dict[str, Any]:
     -------
     {
         "strategies": {strategy_id: {trade_count, total_pnl_usd, win_rate,
-                                      sharpe, max_drawdown_usd}, ...},
+                                      sharpe, sortino, calmar,
+                                      max_drawdown_usd}, ...},
         "fill_count": int,
     }
     """
