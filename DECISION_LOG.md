@@ -282,3 +282,47 @@ not floor violations):
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## GARCH vol integration — end-to-end wiring into cognitive engine risk score
+
+Three-stage integration of GARCH(1,1) conditional volatility into the live
+risk assessment pipeline:
+
+1. **Feature matrix** — GARCH walk-forward forecast (`garch_vol_forecast`)
+   added as 8th base feature column (`BASE_FEATURE_COLUMNS`) in
+   `src/features/pipeline.py`. The HMM also picks it up via
+   `HMM_FEATURE_COLS` in `src/regime/detector.py`, so regime transitions
+   now see conditional-vol regime differences.
+
+2. **Cognitive engine** — `SignalContext` gained `garch_vol_forecast: float
+   = 0.0` (optional, backward-compatible) and `_compute_risk_score` now
+   applies a 5% weight: `0.33*dd + 0.28*vol + 0.24*loss + 0.10*pos +
+   0.05*garch`. The GARCH component is clamped to [0, 1] at a 2%/bar
+   threshold, so a 2%+ per-bar GARCH forecast fully saturates the
+   component. Tests: `test_garch_zero_contributes_nothing`,
+   `test_garch_high_vol_increases_score`, `test_weights_sum_to_one`.
+
+3. **Signal engine wiring** — `SignalEngine.tick()` now extracts
+   `garch_vol_forecast` from the last row of the pre-built `FeatureMatrix`
+   (the matrix is already computed before the cognitive engine call, so
+   there is no extra computation). Falls back to 0.0 during warm-up when
+   GARCH has not yet converged. Tests: `TestGARCHVolWiring` in
+   `tests/test_signal_engine.py`.
+
+## Sortino semi-deviation formula — unified to Sortino & Price (1994)
+
+Three implementations previously used `statistics.std(losses)` which
+returns 0 for identical losses (common in tests and during sustained
+losing streaks), causing `rolling_sortino()` to return None incorrectly.
+
+Fixed to use the standard Sortino & Price (1994) formula:
+`downside_std = sqrt(sum(losses^2) / n_total)` — consistent across:
+- `src/risk/performance_drift.py` — `current_rolling_sortino()`
+- `src/diagnostics/signal_debugger.py` — `rolling_sortino()`
+- `src/diagnostics/attribution.py` — `_sortino()` (already correct)
+
+Also reordered `check_drift()` to run sortino before sharpe drift so
+asymmetric downside scenarios surface the more specific label.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
