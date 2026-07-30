@@ -154,6 +154,14 @@ async def test_fetch_empty_returns_empty_df(storage):
 
 
 @pytest.mark.asyncio
+async def test_coverage_no_rows_returns_zero_total(storage):
+    """No rows for symbol/timeframe → total_rows=0 and empty coverage dict."""
+    await storage.initialize()
+    cov = await storage.intelligence_feature_coverage("BTCUSDT", "1h")
+    assert cov == {"total_rows": 0, "coverage": {}}
+
+
+@pytest.mark.asyncio
 async def test_coverage_all_null(storage):
     """Row with all-NULL features → coverage 0 for all columns."""
     await storage.initialize()

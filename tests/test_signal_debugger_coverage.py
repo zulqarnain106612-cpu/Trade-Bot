@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 
 from src.diagnostics.signal_debugger import (
@@ -373,3 +375,14 @@ def test_get_label_shift_detector_singleton():
     d2 = get_label_shift_detector()
     assert d1 is d2
     assert isinstance(d1, LabelShiftDetector)
+
+
+def test_run_pipeline_selftest_failure_path():
+    """Force build_feature_matrix to raise so the except branch is covered."""
+    with patch(
+        "src.features.pipeline.build_feature_matrix",
+        side_effect=RuntimeError("synthetic failure"),
+    ):
+        result = run_pipeline_selftest()
+    assert result["passed"] is False
+    assert "synthetic failure" in result["error"]
