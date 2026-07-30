@@ -427,3 +427,88 @@ class TestCognitiveEngineAggregation:
         assert d["passed"] is True
         assert len(d["validators"]) == 5
         assert all("name" in v and "status" in v for v in d["validators"])
+
+
+# ---------------------------------------------------------------------------
+# Direct staticmethod unit tests — ProbabilityValidator and RiskValidator
+# ---------------------------------------------------------------------------
+
+
+class TestProbabilityValidatorMonteCarloCvar:
+    def test_cvar_less_than_or_equal_to_var(self) -> None:
+        v = ProbabilityValidator()
+        cvar, var95 = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=10_000.0)
+        # CVaR (expected shortfall) must be at most as good as the VaR cut-off
+        assert cvar <= var95
+
+    def test_cvar_negative_for_zero_mu(self) -> None:
+        v = ProbabilityValidator()
+        cvar, var95 = v._monte_carlo_cvar(mu=0.0, sigma=0.05, notional=10_000.0)
+        # With mu=0, 5th-pctile tail losses must be negative (loss, not gain)
+        assert cvar < 0.0
+        assert var95 < 0.0
+
+    def test_cvar_scales_with_notional(self) -> None:
+        v = ProbabilityValidator()
+        cvar_small, _ = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=1_000.0)
+        cvar_large, _ = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=10_000.0)
+        # Notional 10x → cvar 10x (linear scaling)
+        assert abs(cvar_large / cvar_small - 10.0) < 0.5
+
+    def test_cvar_deterministic_given_seed(self) -> None:
+        # Same seed (42) in source → identical results on repeated calls
+        v = ProbabilityValidator()
+        c1, v1 = v._monte_carlo_cvar(mu=0.005, sigma=0.02, notional=5_000.0)
+        c2, v2 = v._monte_carlo_cvar(mu=0.005, sigma=0.02, notional=5_000.0)
+        assert c1 == c2
+        assert v1 == v2
+
+    def test_cvar_positive_mu_improves_tail(self) -> None:
+        v = ProbabilityValidator()
+        cvar_zero, _ = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=10_000.0)
+        cvar_pos, _ = v._monte_carlo_cvar(mu=0.05, sigma=0.01, notional=10_000.0)
+        # A positive mean return shifts the entire distribution right
+        assert cvar_pos > cvar_zero
+
+
+class TestRiskValidatorComputeRiskScore:
+    def test_zero_risk_inputs(self) -> None:
+        ctx = make_ctx(
+            daily_pnl_usd=0.0, consecutive_losses=0, open_positions=0, atr=1.0, atr_median_20=1.0
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=0.0, vol_ratio=1.0)
+        assert 0.0 <= score <= 1.0
+
+    def test_score_bounded_to_unit_interval(self) -> None:
+        ctx = make_ctx(
+            daily_pnl_usd=-100_000.0,
+            consecutive_losses=999,
+            open_positions=100,
+            atr=100.0,
+            atr_median_20=1.0,
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=-50.0, vol_ratio=100.0)
+        assert 0.0 <= score <= 1.0
+
+    def test_high_drawdown_increases_score(self) -> None:
+        ctx_low = make_ctx(
+            daily_pnl_usd=0.0, consecutive_losses=0, open_positions=0, atr=1.0, atr_median_20=1.0
+        )
+        ctx_high = make_ctx(
+            daily_pnl_usd=0.0, consecutive_losses=0, open_positions=0, atr=1.0, atr_median_20=1.0
+        )
+        score_low = RiskValidator._compute_risk_score(ctx_low, dd_pct=-0.5, vol_ratio=1.0)
+        score_high = RiskValidator._compute_risk_score(ctx_high, dd_pct=-2.0, vol_ratio=1.0)
+        assert score_high > score_low
+
+    def test_weights_sum_to_one(self) -> None:
+        # Saturate all four components to 1.0 → score should equal sum of weights = 1.0
+        ctx = make_ctx(
+            daily_pnl_usd=-100_000.0,
+            consecutive_losses=999,
+            open_positions=100,
+            atr=10.0,
+            atr_median_20=1.0,
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=-100.0, vol_ratio=2.0)
+        assert abs(score - 1.0) < 1e-6
