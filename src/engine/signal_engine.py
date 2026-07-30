@@ -125,6 +125,7 @@ class SignalResult:
     gate_result: GateResult | None
     skip_reason: str
     regime_agreement_scalar: float = 1.0
+    changepoint_probability: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -455,10 +456,12 @@ class SignalEngine:
         # the position is safer than a hard veto (Domain Prior: treat HMM
         # transitions as probabilistic, avoid hard-coded regime logic).
         _regime_agreement_scalar: float = 1.0  # default: no adjustment
+        _cp_prob: float = 0.0
         if regime is not None and len(bars) >= 2:
             try:
                 last_return = float(bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1.0)
                 cp_prob = self._changepoint_detector.update(last_return)
+                _cp_prob = cp_prob
                 ensemble_result = combine_regime_votes(
                     RegimeEnsembleVote(
                         hmm_prob_trending=regime.prob_trending,
@@ -965,6 +968,7 @@ class SignalEngine:
             gate_result=gate_result,
             skip_reason="",
             regime_agreement_scalar=_regime_agreement_scalar,
+            changepoint_probability=_cp_prob,
         )
 
     # ------------------------------------------------------------------

@@ -524,6 +524,8 @@ class Orchestrator:
                 prob_ranging=result.regime.prob_ranging,
                 prob_trending=result.regime.prob_trending,
                 prob_volatile=result.regime.prob_volatile,
+                changepoint_probability=result.changepoint_probability,
+                agreement_score=result.regime_agreement_scalar,
             )
             await self._storage.upsert_regime_snapshot(snap)
 

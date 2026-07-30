@@ -135,14 +135,16 @@ CREATE INDEX IF NOT EXISTS idx_trades_mode
     ON trades (trading_mode, entry_ts DESC);
 
 CREATE TABLE IF NOT EXISTS regime_snapshots (
-    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    symbol          TEXT    NOT NULL,
-    timeframe       TEXT    NOT NULL,
-    ts              BIGINT  NOT NULL,
-    regime_state    INTEGER NOT NULL,     -- 0|1|2
-    prob_ranging    DOUBLE PRECISION NOT NULL,
-    prob_trending   DOUBLE PRECISION NOT NULL,
-    prob_volatile   DOUBLE PRECISION NOT NULL,
+    id                      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    symbol                  TEXT    NOT NULL,
+    timeframe               TEXT    NOT NULL,
+    ts                      BIGINT  NOT NULL,
+    regime_state            INTEGER NOT NULL,     -- 0|1|2
+    prob_ranging            DOUBLE PRECISION NOT NULL,
+    prob_trending           DOUBLE PRECISION NOT NULL,
+    prob_volatile           DOUBLE PRECISION NOT NULL,
+    changepoint_probability DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    agreement_score         DOUBLE PRECISION NOT NULL DEFAULT 1.0,
     UNIQUE (symbol, timeframe, ts)
 );
 CREATE INDEX IF NOT EXISTS idx_regime_sym_tf_ts
@@ -285,9 +287,17 @@ ALTER TABLE intelligence_features_history
 CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
     ON missed_trades (ts DESC);""",
     ),
+    (
+        6,
+        "regime-ensemble: add changepoint_probability and agreement_score to regime_snapshots",
+        """ALTER TABLE regime_snapshots
+    ADD COLUMN IF NOT EXISTS changepoint_probability DOUBLE PRECISION NOT NULL DEFAULT 0.0;
+ALTER TABLE regime_snapshots
+    ADD COLUMN IF NOT EXISTS agreement_score DOUBLE PRECISION NOT NULL DEFAULT 1.0;""",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 5
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 6
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (
@@ -958,13 +968,16 @@ class TimescaleBackend:
                 """
                 INSERT INTO regime_snapshots
                   (symbol, timeframe, ts, regime_state,
-                   prob_ranging, prob_trending, prob_volatile)
-                VALUES ($1,$2,$3,$4,$5,$6,$7)
+                   prob_ranging, prob_trending, prob_volatile,
+                   changepoint_probability, agreement_score)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
                 ON CONFLICT (symbol, timeframe, ts) DO UPDATE SET
                   regime_state=EXCLUDED.regime_state,
                   prob_ranging=EXCLUDED.prob_ranging,
                   prob_trending=EXCLUDED.prob_trending,
-                  prob_volatile=EXCLUDED.prob_volatile
+                  prob_volatile=EXCLUDED.prob_volatile,
+                  changepoint_probability=EXCLUDED.changepoint_probability,
+                  agreement_score=EXCLUDED.agreement_score
                 """,
                 snap.symbol,
                 snap.timeframe,
@@ -973,6 +986,8 @@ class TimescaleBackend:
                 snap.prob_ranging,
                 snap.prob_trending,
                 snap.prob_volatile,
+                snap.changepoint_probability,
+                snap.agreement_score,
             )
 
     async def latest_regime(self, symbol: str, timeframe: str) -> RegimeSnapshotRecord | None:
@@ -982,7 +997,8 @@ class TimescaleBackend:
             row = await conn.fetchrow(
                 """
                 SELECT symbol, timeframe, ts, regime_state,
-                       prob_ranging, prob_trending, prob_volatile
+                       prob_ranging, prob_trending, prob_volatile,
+                       changepoint_probability, agreement_score
                 FROM regime_snapshots
                 WHERE symbol=$1 AND timeframe=$2
                 ORDER BY ts DESC LIMIT 1
@@ -1000,6 +1016,8 @@ class TimescaleBackend:
             prob_ranging=row["prob_ranging"],
             prob_trending=row["prob_trending"],
             prob_volatile=row["prob_volatile"],
+            changepoint_probability=row["changepoint_probability"],
+            agreement_score=row["agreement_score"],
         )
 
     async def regime_snapshot_before(
@@ -1013,7 +1031,8 @@ class TimescaleBackend:
             row = await conn.fetchrow(
                 """
                 SELECT symbol, timeframe, ts, regime_state,
-                       prob_ranging, prob_trending, prob_volatile
+                       prob_ranging, prob_trending, prob_volatile,
+                       changepoint_probability, agreement_score
                 FROM regime_snapshots
                 WHERE symbol=$1 AND timeframe=$2 AND ts<=$3
                 ORDER BY ts DESC LIMIT 1
@@ -1032,6 +1051,8 @@ class TimescaleBackend:
             prob_ranging=row["prob_ranging"],
             prob_trending=row["prob_trending"],
             prob_volatile=row["prob_volatile"],
+            changepoint_probability=row["changepoint_probability"],
+            agreement_score=row["agreement_score"],
         )
 
     async def bars_before(

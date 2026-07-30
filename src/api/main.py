@@ -676,6 +676,8 @@ async def regime(timeframe: str) -> dict[str, Any]:
         "prob_ranging": round(snap.prob_ranging, 4),
         "prob_trending": round(snap.prob_trending, 4),
         "prob_volatile": round(snap.prob_volatile, 4),
+        "changepoint_probability": round(snap.changepoint_probability, 4),
+        "agreement_score": round(snap.agreement_score, 4),
     }
 
 
