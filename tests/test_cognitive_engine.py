@@ -550,8 +550,8 @@ class TestQuantValidatorWinRatePlausibilityWarn:
     def test_inconsistent_edge_yields_warn(self) -> None:
         v = QuantValidator()
         # p_long=0.80 → implied_edge = (0.80-0.5)*200 = 60bps
-        # expected_edge_bps=0.0 → |60 - 0| = 60 > 50 → WARN
-        result = v.validate(make_ctx(p_long=0.80, expected_edge_bps=0.0))
+        # expected_edge_bps=5.0 → |60 - 5| = 55 > 50 → WARN  (must be >0 to pass the <=0 gate)
+        result = v.validate(make_ctx(p_long=0.80, expected_edge_bps=5.0))
         assert result.status == ValidatorStatus.WARN
         assert "implied edge" in result.reason
 
@@ -567,13 +567,16 @@ class TestRiskValidatorCompositeScoreVeto:
 
     def test_extreme_drawdown_triggers_composite_veto(self) -> None:
         v = RiskValidator()
-        # Saturate drawdown, consecutive losses, vol ratio, and open positions
+        # Saturate all components WITHOUT triggering individual veto thresholds:
+        # dd=-1.9% (<2.0% halt), consecutive=2 (<3 halt), vol_ratio=1.95 (<2.0), positions=5
+        # Composite = 0.35*0.95 + 0.30*0.975 + 0.25*0.667 + 0.10*1.0 ≈ 0.892 > 0.85
         ctx = make_ctx(
-            daily_pnl_usd=-100_000.0,  # full capital loss → max drawdown component
-            consecutive_losses=20,  # saturated losses component
-            open_positions=50,  # saturated positions component
-            atr=10.0,
-            atr_median_20=1.0,  # vol_ratio=10 >> 2.0 → saturated vol component
+            capital_usd=100_000.0,
+            daily_pnl_usd=-1_900.0,  # dd_pct = -1.9% (below -2.0% halt → no individual veto)
+            consecutive_losses=2,  # < 3 halt threshold
+            open_positions=5,  # pos_component = 1.0 (saturated)
+            atr=1.95,
+            atr_median_20=1.0,  # vol_ratio = 1.95 (< 2.0 → no veto)
         )
         result = v.validate(ctx)
         assert result.status == ValidatorStatus.VETO

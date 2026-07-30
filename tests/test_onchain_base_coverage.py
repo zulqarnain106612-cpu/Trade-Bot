@@ -321,6 +321,7 @@ class TestOnChainProvider:
         expected = {"result": {"data": [1, 2, 3]}}
 
         mock_session = AsyncMock()
+        mock_session.closed = False  # prevent _ensure_session from recreating a real session
         mock_resp = AsyncMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json = AsyncMock(return_value=expected)
@@ -346,6 +347,7 @@ class TestOnChainProvider:
         expected = {"status": "ok"}
 
         mock_session = AsyncMock()
+        mock_session.closed = False  # prevent _ensure_session from recreating a real session
         mock_resp = AsyncMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json = AsyncMock(return_value=expected)
