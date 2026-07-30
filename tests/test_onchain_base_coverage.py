@@ -242,7 +242,7 @@ class TestOnChainProvider:
     async def test_get_cache_hit_skips_http(self):
         provider = ConcreteProvider()
         cached_data = {"result": "cached"}
-        await provider._cache.set("GET:http://test:[]", cached_data)
+        await provider._async_cache.set("GET:http://test:[]", cached_data)
 
         # _get should return cached without making HTTP call
         result = await provider._get("http://test", params={})

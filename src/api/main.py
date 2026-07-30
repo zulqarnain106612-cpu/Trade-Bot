@@ -482,6 +482,7 @@ async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
     from src.diagnostics.signal_debugger import get_degradation_tracker
 
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     cfg = get_settings()
 
@@ -518,7 +519,10 @@ async def status() -> dict[str, Any]:
         "primary_timeframe": cfg.primary_timeframe.value,
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
-            tf: str(err)[:200] for tf, err in _state.orchestrator._last_retrain_error.items()
+            tf: str(err)[:200]
+            for tf, err in (
+                _state.orchestrator._last_retrain_error if _state.orchestrator else {}
+            ).items()
         },
         "timestamp": datetime.now(tz=UTC).isoformat(),
     }
@@ -675,6 +679,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
 @app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         return {"approvals": []}
@@ -718,6 +723,7 @@ async def resolve_approval(
     # H-13: validate UUID format before dict lookup — prevents timing oracle and DoS
     if not _UUID_RE.match(request_id):
         raise HTTPException(status_code=400, detail="Invalid request_id format.")
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
