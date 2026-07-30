@@ -364,7 +364,7 @@ def run_pipeline_selftest() -> dict[str, Any]:
         log.info("signal_debugger.selftest_passed", rows=len(fm.features))
     except Exception as exc:
         result["error"] = str(exc)[:300]
-        log.error("signal_debugger.selftest_failed", error=result["error"])
+        log.error("signal_debugger.selftest_failed", error=result["error"], exc_info=True)
     return result
 
 
