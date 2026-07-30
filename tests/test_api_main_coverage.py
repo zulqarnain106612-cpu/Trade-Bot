@@ -262,6 +262,8 @@ def test_status_route_when_ready(mock_state):
     data = resp.json()
     assert "equity_usd" in data
     assert "cash_usd" in data
+    assert "degradation_report" in data
+    assert isinstance(data["degradation_report"], dict)
 
 
 def test_status_route_not_ready(mock_state):
