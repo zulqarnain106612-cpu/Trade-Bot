@@ -147,7 +147,7 @@ class ARIMAPredictor(PredictionModel):
         self.model: Any = None
         self.rmse = np.inf
 
-    def fit(self, timeseries: pd.Series):
+    def fit(self, timeseries: pd.Series) -> None:
         """Fit ARIMA on historical data."""
         try:
             from statsmodels.tsa.arima.model import ARIMA
@@ -192,7 +192,7 @@ class XGBoostPredictor(PredictionModel):
         self.model: Any = None
         self.rmse = np.inf
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit XGBoost."""
         try:
             import xgboost as xgb
@@ -248,7 +248,7 @@ class LSTMPredictor(PredictionModel):
         self.model: Any = None
         self.rmse = np.inf
 
-    def fit(self, X: np.ndarray, y: np.ndarray):
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         """Fit LSTM (requires torch). X shape: (n_samples, lookback, 1)."""
         if not _TORCH_AVAILABLE:
             log.warning("torch not installed, LSTM disabled")
@@ -341,7 +341,7 @@ class GaussianProcessPredictor(PredictionModel):
         self.rmse = np.inf
         self._feature_cols: list[str] | None = None
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit a GP regressor on tabular features."""
         try:
             from sklearn.gaussian_process import GaussianProcessRegressor
@@ -437,7 +437,7 @@ class TreeEnsemblePredictor(PredictionModel):
         self._bootstrap_models: list = []
         self.rmse = np.inf
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit the primary model plus a bootstrap ensemble for uncertainty."""
         try:
             from sklearn.ensemble import GradientBoostingRegressor
@@ -534,7 +534,7 @@ class EnsemblePredictor:
         self._feature_cols: list[str] | None = None
         self._update_weights()
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """
         Fit all ensemble members.
 
