@@ -326,3 +326,56 @@ asymmetric downside scenarios surface the more specific label.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## GARCH vol-targeting position sizing — Kelly garch_vol_scalar
+
+Extended the Kelly sizing pipeline with GARCH vol-targeting (Carver 2019):
+
+1. **Config**: `RISK_GARCH_VOL_THRESHOLD` added to `RiskSettings` (default
+   `0.02` — 2% per bar, ≈31.6% annualized). This is the saturation level
+   used in the cognitive engine's GARCH component AND the vol-targeting
+   denominator.
+
+2. **Kelly**: `compute_position_size()` gains a `garch_vol_scalar` parameter
+   (default 1.0 = no-op, backward compatible). Same fail-safe pattern as
+   `regime_scalar`, `correlation_scalar`, `sample_uncertainty_scalar` — an
+   invalid value clamps to 0.0 (blocks sizing), never amplifies.
+
+3. **Signal engine**: `_garch_vol` extracted early (before Kelly call) and
+   `garch_vol_scalar = threshold / forecast` computed when
+   `forecast > threshold`. Passed to `compute_position_size()`. The same
+   `_garch_vol_early` value is reused for `SignalContext.garch_vol_forecast`,
+   eliminating a redundant late extraction.
+
+Behavior: when GARCH vol = 4× threshold, position is reduced to 25% of what
+Kelly would otherwise allow — proportional vol-targeting, not a hard veto.
+Trades remain alive at reduced size during vol spikes.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
+
+## mypy error sweep — CI gate restored
+
+Fixed 25 pre-existing mypy errors spread across 8 files that were blocking
+CI (the errors existed before this session but were surfaced by the new
+mypy 2.3.0 version in CI):
+
+- `portfolio_correlation.py`: temp vars for `_var`/`_cov`/`_mean_y` in
+  else-branches (mypy does not narrow instance attrs across if-else)
+- `probabilistic.py`, `ensemble_predictor.py`: `lambda k: d[k]` instead of
+  `d.get` as `max`/`min` key (`.get` returns `T | None`, not `T`)
+- `onchain/base.py`: renamed `self._cache` → `self._async_cache` to avoid
+  type conflict with parent class's `dict[str, tuple[float, Any]]` annotation
+- `storage.py`: guarded `fetchone()` returns before indexing/dict()
+- `execution/base.py`: `submit_signal` return type `→ tuple[str|None, str]`
+- `ensemble_predictor.py`: added abstract `fit()` to `PredictionModel` ABC;
+  `getattr(model, "lookback", 20)` for LSTM; `float()` wraps on numpy scalars
+- `orchestrator.py`: `tf_trainer: ModelTrainer | None` annotation prevents
+  re-use confusion with `trainer: ModelTrainer` from earlier in the function
+- `api/main.py`: `AppState.orchestrator: Orchestrator | None`; `assert is not
+  None` narrowing before attribute access; tuple/set casts for allocate call
+
+Also fixed `test_onchain_base_coverage.py` to use `_async_cache` after rename.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
