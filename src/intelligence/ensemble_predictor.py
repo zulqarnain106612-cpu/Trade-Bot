@@ -132,7 +132,7 @@ class PredictionModel(ABC):
         """Prediction + uncertainty estimate."""
 
     @abstractmethod
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Model performance: MAE, RMSE, etc."""
 
 
@@ -176,7 +176,7 @@ class ARIMAPredictor(PredictionModel):
         uncertainty = self.rmse if self.rmse != np.inf else 0.1
         return point, uncertainty
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "ARIMA"}
 
 
@@ -222,7 +222,7 @@ class XGBoostPredictor(PredictionModel):
         uncertainty = self.rmse if self.rmse != np.inf else 0.15
         return point, uncertainty
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "XGBoost"}
 
 
@@ -305,7 +305,7 @@ class LSTMPredictor(PredictionModel):
         uncertainty = self.rmse if self.rmse != np.inf else 0.2
         return point, uncertainty
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "LSTM(torch)"}
 
 
@@ -392,7 +392,7 @@ class GaussianProcessPredictor(PredictionModel):
             log.error("gp_prediction_failed", error=str(e), exc_info=True)
             return 0.0, 0.2
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "GaussianProcess"}
 
 
@@ -501,7 +501,7 @@ class TreeEnsemblePredictor(PredictionModel):
             log.error("tree_ensemble_uncertainty_failed", error=str(e), exc_info=True)
             return point, self.rmse if self.rmse != np.inf else 0.15
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "TreeEnsemble(GBM+bootstrap)"}
 
 
