@@ -278,7 +278,7 @@ class SignalEngine:
         try:
             await self._fetcher.gap_fill(self._symbol, self._timeframe)
         except Exception as exc:
-            self._log.error("signal.gap_fill_failed", error=str(exc))
+            self._log.error("signal.gap_fill_failed", error=str(exc), exc_info=True)
             return self._skip("gap_fill_failed")
 
         # 2. Load bars
@@ -318,7 +318,7 @@ class SignalEngine:
         try:
             fm = build_feature_matrix(bars)
         except Exception as exc:
-            self._log.error("signal.feature_matrix_failed", error=str(exc))
+            self._log.error("signal.feature_matrix_failed", error=str(exc), exc_info=True)
             return self._skip("feature_matrix_failed")
 
         if fm.features is None or len(fm.features) < 1:
@@ -362,7 +362,7 @@ class SignalEngine:
             # (via the fields cleared below) fails the exchange-stress/whale
             # gates open -- an operator needs to see this by default, not
             # only when debug logging happens to be enabled.
-            self._log.warning("signal.ofi_fetch_failed", error=str(exc))
+            self._log.warning("signal.ofi_fetch_failed", error=str(exc), exc_info=True)
             live_ofi = None
             _exchange_stress = None
             _whale_ratio = None
@@ -379,7 +379,7 @@ class SignalEngine:
                 )
                 _intel_metrics_dict = await _intel_agg.fetch_metrics()
             except Exception as _intel_exc:
-                self._log.warning("signal.intel_fetch_failed", error=str(_intel_exc))
+                self._log.warning("signal.intel_fetch_failed", error=str(_intel_exc), exc_info=True)
                 _intel_metrics_dict = {}
 
             # Probabilistic post-processing: replace deterministic scalars with
@@ -390,7 +390,9 @@ class SignalEngine:
                 _exchange_stress = _p_inputs.exchange_stress_score
                 _whale_ratio = _p_inputs.whale_buy_sell_ratio
             except Exception as _prob_exc:
-                self._log.warning("signal.probabilistic_adapter_failed", error=str(_prob_exc))
+                self._log.warning(
+                    "signal.probabilistic_adapter_failed", error=str(_prob_exc), exc_info=True
+                )
                 _exchange_stress = None
                 _whale_ratio = None
 
@@ -430,6 +432,7 @@ class SignalEngine:
                 self._log.error(
                     "signal.regime_failed_defaulting_volatile",
                     error=str(exc),
+                    exc_info=True,
                 )
                 # Fail-safe: default to VOLATILE so regime gate blocks new positions
                 # until detector recovers — never default to RANGING (least restrictive)
@@ -469,7 +472,7 @@ class SignalEngine:
                     )
             except Exception as exc:
                 regime_ensemble_failure_total.inc()
-                self._log.warning("signal.regime_ensemble_failed", error=str(exc))
+                self._log.warning("signal.regime_ensemble_failed", error=str(exc), exc_info=True)
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
         # Ensemble blend (src/intelligence/ensemble_predictor.py) — conservative
@@ -501,7 +504,7 @@ class SignalEngine:
                 # ensemble disagreement can flip direction, not just scale size.
                 direction = 1 if p_long >= 0.5 else 0
             except Exception as exc:
-                self._log.warning("signal.ensemble_blend_failed", error=str(exc))
+                self._log.warning("signal.ensemble_blend_failed", error=str(exc), exc_info=True)
 
         # GAP-002: HMM posterior entropy gate — scale position size down when
         # the regime classification is uncertain (near-uniform posterior).
@@ -536,7 +539,7 @@ class SignalEngine:
             )
             _notional_cap_usd = _carver_result["recommended"]
         except Exception as _carver_exc:
-            self._log.warning("signal.carver_cap_failed", error=str(_carver_exc))
+            self._log.warning("signal.carver_cap_failed", error=str(_carver_exc), exc_info=True)
             _notional_cap_usd = None
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
@@ -594,7 +597,9 @@ class SignalEngine:
                     spread_bps=_spread_for_slippage,
                 )
             except Exception as _slip_exc:
-                self._log.warning("signal.slippage_estimate_failed", error=str(_slip_exc))
+                self._log.warning(
+                    "signal.slippage_estimate_failed", error=str(_slip_exc), exc_info=True
+                )
 
         # ── Audit closure setup — must precede all early-exit gates ──
         _prob_ranging = regime.prob_ranging if regime else 0.33
@@ -811,7 +816,9 @@ class SignalEngine:
                     # gap filter skips without open_price/prev_close) --
                     # a data-fetch hiccup on the confirmation timeframe
                     # must not block an otherwise-valid signal.
-                    self._log.warning("signal.mtf_confirmation_failed", error=str(exc))
+                    self._log.warning(
+                        "signal.mtf_confirmation_failed", error=str(exc), exc_info=True
+                    )
 
         # GAP-008 FIX: filters.py returns a "scalar" (AFML Ch.17 probability-based regime
         # confidence). Previously this was applied multiplicatively on top of the entropy-
