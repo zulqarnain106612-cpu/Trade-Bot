@@ -426,6 +426,67 @@ class TestSignificanceGatedDrift:
         assert _proportion_drop_significant(baseline_p=0.0, baseline_n=30, live_p=0.0, live_n=30)
 
 
+class TestRollingSharpeZeroVariance:
+    """Cover the zero-variance degenerate branch in _live_sharpe and _check_sharpe_drift."""
+
+    def _detector(self) -> PerformanceDriftDetector:
+        baseline = PerformanceBaseline(
+            train_sharpe=1.5,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=200,
+        )
+        return PerformanceDriftDetector(baseline)
+
+    def test_zero_variance_constant_pnl_returns_float_sharpe(self) -> None:
+        """All trades same PnL → std=0, _live_sharpe returns proxy (mean_pnl * 10)."""
+        d = self._detector()
+        for _ in range(25):
+            d.record_trade_outcome(
+                pnl_usd=5.0,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10_000.0,
+                starting_equity=10_000.0,
+            )
+        # std=0, mean>0 → proxy 5.0 * 10 = 50.0
+        sharpe = d.current_rolling_sharpe()
+        assert sharpe is not None
+        assert sharpe == 50.0
+
+    def test_zero_variance_zero_pnl_returns_zero(self) -> None:
+        """std=0 and mean=0 → current_rolling_sharpe returns 0.0."""
+        d = self._detector()
+        for _ in range(25):
+            d.record_trade_outcome(
+                pnl_usd=0.0,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10_000.0,
+                starting_equity=10_000.0,
+            )
+        sharpe = d.current_rolling_sharpe()
+        assert sharpe == 0.0
+
+    def test_zero_variance_sharpe_drift_triggers(self) -> None:
+        """std=0 zero PnL with high baseline Sharpe → drift detected (is_significant=True)."""
+        d = self._detector()
+        for _ in range(25):
+            d.record_trade_outcome(
+                pnl_usd=0.0,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10_000.0,
+                starting_equity=10_000.0,
+            )
+        result = d.check_drift()
+        # drift_pp = 1.5 - 0.0 = 1.5 > threshold; is_significant=True for degenerate case
+        assert result.drifted is True
+
+
 class TestModelDegradationTracker:
     def test_degradation_tracker_flags_low_accuracy_and_sharpe(self):
         from src.diagnostics.signal_debugger import ModelDegradationTracker
