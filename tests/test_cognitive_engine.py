@@ -307,6 +307,19 @@ class TestRegimeValidator:
         assert result.status == ValidatorStatus.VETO
         assert "Hurst" in result.reason
 
+    def test_veto_low_hurst_short_direction(self) -> None:
+        """Cover p_long < 0.5 branch (direction='short') in Hurst ternary."""
+        result = self.v.validate(
+            make_ctx(
+                regime_state=1,
+                regime_probs=[0.10, 0.85, 0.05],
+                hurst_exponent=0.40,
+                p_long=0.35,  # < 0.5 → direction = "short"
+            )
+        )
+        assert result.status == ValidatorStatus.VETO
+        assert "Hurst" in result.reason
+
     def test_entropy_computation_matches_manual_calculation(self):
         probs = [0.15, 0.72, 0.13]
         result = self.v.validate(make_ctx(regime_state=1, regime_probs=probs))
