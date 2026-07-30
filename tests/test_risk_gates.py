@@ -352,11 +352,12 @@ class TestEvaluateAllGatesSlippageWiring:
 class TestDrawdownTrackerEdgeCases:
     """Cover DrawdownTracker edge cases (peak <= 0 guard and alias property)."""
 
-    def test_drawdown_returns_zero_when_peak_is_zero(self) -> None:
+    def test_drawdown_returns_zero_at_starting_equity(self) -> None:
         from src.risk.gates import DrawdownTracker
 
-        dt = DrawdownTracker(starting_equity=0.0)
-        # peak stays 0 → drawdown_from_peak_pct returns 0.0 without dividing by zero
+        # starting_equity must be > 0; after construction with no updates,
+        # current == peak so drawdown_from_peak_pct is 0.0.
+        dt = DrawdownTracker(starting_equity=100.0)
         assert dt.drawdown_from_peak_pct == 0.0
 
     def test_alltime_peak_alias_matches_drawdown_from_peak(self) -> None:

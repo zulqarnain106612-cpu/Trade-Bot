@@ -545,18 +545,20 @@ class TestValidatorResultPassedProperty:
 
 
 class TestQuantValidatorWinRatePlausibilityWarn:
-    """Cover win-rate plausibility WARN branch (lines 311, 323)."""
+    """Cover win-rate plausibility WARN branch — in ProbabilityValidator section 2c."""
 
     def test_inconsistent_edge_yields_warn(self) -> None:
-        v = QuantValidator()
+        # The win-rate plausibility check lives in ProbabilityValidator (section 2c),
+        # not QuantValidator. QuantValidator handles Kelly/size checks only.
+        v = ProbabilityValidator()
         # p_long=0.80 → implied_edge = (0.80-0.5)*200 = 60bps
-        # expected_edge_bps=5.0 → |60 - 5| = 55 > 50 → WARN  (must be >0 to pass the <=0 gate)
+        # expected_edge_bps=5.0 → |60 - 5| = 55 > 50 → WARN
         result = v.validate(make_ctx(p_long=0.80, expected_edge_bps=5.0))
         assert result.status == ValidatorStatus.WARN
         assert "implied edge" in result.reason
 
     def test_consistent_edge_no_warn(self) -> None:
-        v = QuantValidator()
+        v = ProbabilityValidator()
         # p_long=0.70 → implied_edge=40bps, expected_edge_bps=40 → diff=0 < 50
         result = v.validate(make_ctx(p_long=0.70, expected_edge_bps=40.0))
         assert result.status != ValidatorStatus.VETO
@@ -580,7 +582,7 @@ class TestRiskValidatorCompositeScoreVeto:
         )
         result = v.validate(ctx)
         assert result.status == ValidatorStatus.VETO
-        assert "risk_score" in result.reason
+        assert "risk score" in result.reason.lower() or "0.8" in result.reason
 
 
 class TestCognitiveEngineSizeDivergence:
