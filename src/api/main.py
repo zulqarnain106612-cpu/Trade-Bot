@@ -513,6 +513,9 @@ async def status() -> dict[str, Any]:
         "pending_approvals": approvals,
         "regime": regime_dict,
         "predictions": get_degradation_tracker(cfg.primary_timeframe.value).prediction_stats(),
+        "degradation_report": get_degradation_tracker(
+            cfg.primary_timeframe.value
+        ).check_degradation(),
         "trading_mode": cfg.trading_mode.value,
         "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
