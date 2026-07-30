@@ -487,6 +487,79 @@ class TestRollingSharpeZeroVariance:
         assert result.drifted is True
 
 
+class TestSortinoDrift:
+    """Tests for Sortino drift detection and rolling_sortino accessor."""
+
+    def _baseline(self, oos_sortino: float = 1.5) -> PerformanceBaseline:
+        return PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+            train_sortino=2.2,
+            oos_sortino=oos_sortino,
+        )
+
+    def _record_mixed(self, det: PerformanceDriftDetector, n: int, pnl: float) -> None:
+        for i in range(n):
+            # Alternate wins and losses so there are always downside samples
+            p = pnl if i % 3 != 0 else -abs(pnl) * 0.5
+            det.record_trade_outcome(p, 0.7, 1, 10_000.0, 10_000.0)
+
+    def test_sortino_fields_in_baseline(self) -> None:
+        b = self._baseline()
+        assert b.train_sortino == 2.2
+        assert b.oos_sortino == 1.5
+
+    def test_sortino_in_to_dict(self) -> None:
+        d = self._baseline().to_dict()
+        assert "train_sortino" in d
+        assert "oos_sortino" in d
+
+    def test_rolling_sortino_returns_none_before_min_window(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        for _ in range(10):
+            det.record_trade_outcome(-5.0, 0.4, -1, 9_500.0, 10_000.0)
+        assert det.current_rolling_sortino() is None
+
+    def test_rolling_sortino_returns_float_with_losses(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        self._record_mixed(det, 25, 10.0)
+        s = det.current_rolling_sortino()
+        assert s is not None
+
+    def test_sortino_drift_not_triggered_with_zero_baseline(self) -> None:
+        b = self._baseline(oos_sortino=0.0)
+        det = PerformanceDriftDetector(b)
+        self._record_mixed(det, 35, -20.0)
+        result = det.check_drift()
+        # sortino check skips when baseline is 0; should not flag sortino drift
+        assert result.metric != "sortino"
+
+    def test_sortino_drift_triggers_when_below_threshold(self) -> None:
+        det = PerformanceDriftDetector(self._baseline(oos_sortino=3.0))
+        # All losses: Sortino = mean / downside_std = negative / positive → very negative
+        for _ in range(35):
+            det.record_trade_outcome(-50.0, 0.3, -1, 9_000.0, 10_000.0)
+        result = det.check_drift()
+        assert result.drifted is True
+        assert result.metric == "sortino"
+
+    def test_sortino_in_live_metrics(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        self._record_mixed(det, 25, 5.0)
+        metrics = det.get_live_metrics()
+        assert "rolling_sortino" in metrics
+
+    def test_sortino_none_in_live_metrics_before_window(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        metrics = det.get_live_metrics()
+        assert metrics["rolling_sortino"] is None
+
+
 class TestModelDegradationTracker:
     def test_degradation_tracker_flags_low_accuracy_and_sharpe(self):
         from src.diagnostics.signal_debugger import ModelDegradationTracker
