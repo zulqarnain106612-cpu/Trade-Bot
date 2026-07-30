@@ -164,3 +164,40 @@ async def test_network_error_returns_neutral_confidence_adjusted() -> None:
     assert metrics["stablecoin_reserve_ratio"] == 0.5
     assert metrics["confidence"] < 1.0
     assert metrics["confidence"] >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_initialize_noop() -> None:
+    provider = DeFiLlamaProvider()
+    await provider.initialize()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_close_noop() -> None:
+    provider = DeFiLlamaProvider()
+    await provider.close()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_fetch_metrics_stablecoin_ratio_none_when_no_major() -> None:
+    """stablecoin_ratio returns None for non-USDT/USDC only data; key stays at neutral."""
+    provider = DeFiLlamaProvider()
+    tvl_series = [{"date": i, "tvl": 1e9} for i in range(20)]
+
+    call_idx = 0
+    responses: list[Any] = [
+        tvl_series,
+        # peggedAssets with only DAI — ratio returns None
+        {"peggedAssets": [{"symbol": "DAI", "circulating": {"peggedUSD": 5e9}}]},
+    ]
+
+    async def mock_get(url: str, **kwargs: Any) -> Any:
+        nonlocal call_idx
+        r = responses[call_idx % len(responses)]
+        call_idx += 1
+        return r
+
+    provider._get = mock_get  # type: ignore[assignment]
+    metrics = await provider.fetch_metrics()
+    # stablecoin_reserve_ratio stays at neutral (0.5) because _stablecoin_ratio returns None
+    assert metrics["stablecoin_reserve_ratio"] == pytest.approx(0.5)

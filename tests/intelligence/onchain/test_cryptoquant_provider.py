@@ -271,3 +271,47 @@ class TestCryptoQuantProviderEnabled:
         with patch.object(prov, "_get", mock_get):
             await prov.initialize()
         mock_get.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_metrics_all_endpoints_fail(self):
+        """All _get calls return None → all confidence penalties applied."""
+        prov = self._make_provider()
+
+        async def mock_get(url, **kwargs):
+            return None
+
+        with patch.object(prov, "_get", side_effect=mock_get):
+            m = await prov.fetch_metrics()
+
+        # All 5 endpoints penalise confidence; result must be clamped at 0
+        assert m["confidence"] == pytest.approx(0.0)
+        # Neutral fallbacks applied
+        assert m["exchange_reserve_ratio"] == pytest.approx(0.5)
+        assert m["exchange_netflow_7d_zscore"] == pytest.approx(0.0)
+        assert m["miner_netflow_signal"] == pytest.approx(0.0)
+
+    @pytest.mark.asyncio
+    async def test_fetch_metrics_funding_no_binance_row(self):
+        """Funding data returned but no Binance exchange row → key absent."""
+        prov = self._make_provider()
+        responses = [
+            {"result": {"data": [{"reserve_usd": 5e9, "price": 60_000}]}},
+            {"result": {"data": [{"netflow_usd": 1.0}] * 30}},
+            {"result": {"data": [{"netflow_usd": 1.0}] * 30}},
+            # funding data with non-Binance exchange only
+            {"result": {"data": [{"exchange": "OKX", "funding_rate": 0.01}]}},
+            {"result": {"data": [{"market_cap": 1e12, "realized_cap": 5e11}]}},
+        ]
+        idx = 0
+
+        async def mock_get(url, **kwargs):
+            nonlocal idx
+            r = responses[idx % len(responses)]
+            idx += 1
+            return r
+
+        with patch.object(prov, "_get", side_effect=mock_get):
+            m = await prov.fetch_metrics()
+
+        # binance_funding_rate_pct should not be set
+        assert "binance_funding_rate_pct" not in m
