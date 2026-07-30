@@ -6,7 +6,9 @@ import pytest
 
 from src.config import invalidate_settings_cache
 from src.features.pipeline import (
+    BASE_FEATURE_COLUMNS,
     COL_ATR_MOMENTUM,
+    COL_GARCH_VOL,
     COL_LABEL,
     COL_META_LABEL,
     COL_OFI,
@@ -538,3 +540,44 @@ class TestBuildInferenceFeatures:
         vec = build_inference_features(synthetic_bars)
         assert vec is not None
         assert vec.dtype == np.float64
+
+
+# ─── GARCH integration in pipeline ───────────────────────────────────────────
+
+
+class TestGARCHPipelineIntegration:
+    """Verify that COL_GARCH_VOL is present and finite in both pipeline paths."""
+
+    def test_garch_vol_in_base_feature_columns(self) -> None:
+        assert COL_GARCH_VOL in BASE_FEATURE_COLUMNS
+        assert COL_GARCH_VOL == "garch_vol_forecast"
+
+    def test_garch_vol_present_in_feature_matrix(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        assert COL_GARCH_VOL in fm.features.columns
+
+    def test_garch_vol_finite_in_feature_matrix(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        assert fm.features[COL_GARCH_VOL].notna().all()
+        assert (fm.features[COL_GARCH_VOL] > 0).all()
+
+    def test_garch_vol_present_in_inference_slow_path(self, synthetic_bars):
+        vec = build_inference_features(synthetic_bars)
+        assert vec is not None
+        assert COL_GARCH_VOL in vec.index
+
+    def test_garch_vol_positive_in_inference(self, synthetic_bars):
+        vec = build_inference_features(synthetic_bars)
+        assert vec is not None
+        assert vec[COL_GARCH_VOL] > 0
+
+    def test_garch_vol_present_in_inference_fast_path(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        vec = build_inference_features(synthetic_bars, feature_matrix=fm)
+        assert vec is not None
+        assert COL_GARCH_VOL in vec.index
+        assert vec[COL_GARCH_VOL] > 0
+
+    def test_feature_columns_has_8_base_features(self) -> None:
+        assert len(BASE_FEATURE_COLUMNS) == 8
+        assert list(BASE_FEATURE_COLUMNS) == FEATURE_COLUMNS

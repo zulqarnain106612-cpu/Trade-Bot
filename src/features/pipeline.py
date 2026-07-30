@@ -9,14 +9,16 @@ Implements every feature from the signal architecture spec:
   5. ATR momentum                                 — Wilder (1978)
   6. Rolling Sharpe                               — Kelly (1956) / Chan (2013)
   7. Volume z-score                               — standardized volume pressure
-  8. Triple-barrier labeling                      — AFML Ch.3
-  9. Meta-label targets (bet-or-not column)       — AFML Ch.4
+  8. GARCH(1,1) conditional vol forecast          — Bollerslev (1986)
+  9. Triple-barrier labeling                      — AFML Ch.3
+  10. Meta-label targets (bet-or-not column)      — AFML Ch.4
 
 Authority sources:
   - López de Prado (2018) AFML Ch.3-5
   - Cont, Kukanov & Stoikov (2014) "The Price Impact of Order Book Events"
   - Chan (2013) Algorithmic Trading — realized vol, ATR momentum
   - Wilder (1978) New Concepts in Technical Trading Systems — ATR
+  - Bollerslev (1986) "Generalized Autoregressive Conditional Heteroskedasticity"
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import pandas as pd
 import structlog
 
 from src.config import FeatureSettings
+from src.regime.garch import rolling_garch_forecast
 from src.tuning.live_overrides import effective_feature_settings
 
 
@@ -45,6 +48,7 @@ COL_REALIZED_VOL_RATIO: Final[str] = "realized_vol_ratio"
 COL_ATR_MOMENTUM: Final[str] = "atr_momentum"
 COL_ROLLING_SHARPE: Final[str] = "rolling_sharpe"
 COL_VOLUME_ZSCORE: Final[str] = "volume_zscore"
+COL_GARCH_VOL: Final[str] = "garch_vol_forecast"
 
 # All feature columns in canonical order — used by trainer for consistent X matrix.
 #
@@ -62,6 +66,7 @@ BASE_FEATURE_COLUMNS: Final[list[str]] = [
     COL_ATR_MOMENTUM,
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
+    COL_GARCH_VOL,
 ]
 
 # Backward-compat alias: existing imports of FEATURE_COLUMNS still work.
@@ -86,7 +91,7 @@ def get_active_feature_columns(
         min_coverage: Minimum non-NULL fraction [0,1] to include a column.
 
     Returns:
-        Ordered list of column names.  Always starts with the 7 base features.
+        Ordered list of column names.  Always starts with the 8 base features.
         May include up to 18 additional intelligence columns.
 
     Example:
@@ -103,7 +108,7 @@ def get_active_feature_columns(
     if not coverage:
         _log.info(
             "get_active_feature_columns",
-            mode="7-feature",
+            mode="base-feature",
             reason="no intelligence coverage data",
         )
         return list(BASE_FEATURE_COLUMNS)
@@ -709,6 +714,12 @@ def build_feature_matrix(
     vol_z = volume_zscore(volume, window=cfg.volume_zscore_window)
 
     # ------------------------------------------------------------------ #
+    # 7b. GARCH(1,1) conditional volatility forecast — Bollerslev (1986)
+    # Walk-forward, one-step-ahead; no look-ahead (AFML Ch.5).
+    # ------------------------------------------------------------------ #
+    garch_vol = rolling_garch_forecast(log_ret, window=cfg.garch_window)
+
+    # ------------------------------------------------------------------ #
     # 8. Daily vol — shared by triple-barrier + trainer sample weights
     # ------------------------------------------------------------------ #
     daily_vol = _compute_daily_vol(log_ret.fillna(0.0))
@@ -736,6 +747,7 @@ def build_feature_matrix(
             COL_ATR_MOMENTUM: atr_mom,
             COL_ROLLING_SHARPE: r_sharpe,
             COL_VOLUME_ZSCORE: vol_z,
+            COL_GARCH_VOL: garch_vol,
             COL_LABEL: tb_labels,
             COL_RETURN: log_ret,
         },
@@ -797,8 +809,8 @@ def build_inference_features(
     Compute feature vector for the most recent bar only.
 
     Accepts a history DataFrame (must include current bar as last row).
-    Returns a pd.Series of FEATURE_COLUMNS (7 base) or FEATURE_COLUMNS +
-    INTELLIGENCE_FEATURE_COLUMNS (up to 25 total) when intelligence_metrics
+    Returns a pd.Series of FEATURE_COLUMNS (8 base) or FEATURE_COLUMNS +
+    INTELLIGENCE_FEATURE_COLUMNS (up to 26 total) when intelligence_metrics
     is supplied and passes NaN validation.
 
     Parameters
@@ -816,12 +828,12 @@ def build_inference_features(
                            Keys are IntelligenceMetrics field names (no "intelligence_"
                            prefix — the mapping is applied inside _inject_intelligence_features).
                            NaN / missing fields are skipped with a confidence penalty.
-                           When None or empty, returns 7-feature base vector (backward-compat).
+                           When None or empty, returns base feature vector (backward-compat).
 
     Returns
     -------
-    pd.Series indexed by FEATURE_COLUMNS [+ finite intelligence cols], or None if
-    insufficient base feature data.
+    pd.Series indexed by FEATURE_COLUMNS (8 base) [+ finite intelligence cols],
+    or None if insufficient base feature data.
     """
     # Fast path — reuse pre-built feature matrix (SCAN2-007)
     if feature_matrix is not None and feature_matrix.features is not None:
@@ -860,6 +872,7 @@ def build_inference_features(
         cfg.atr_window,
         cfg.sharpe_window,
         cfg.volume_zscore_window,
+        cfg.garch_window,
         64,  # EWMA vol warmup
     )
     if n < min_rows:
@@ -891,6 +904,9 @@ def build_inference_features(
     atr_val = atr_momentum(high, low, close, cfg.atr_window).iloc[-1]
     sharpe_val = rolling_sharpe(close, cfg.sharpe_window).iloc[-1]
     volz_val = volume_zscore(volume, cfg.volume_zscore_window).iloc[-1]
+    log_ret_inf = np.log(close / close.shift(1))
+    garch_val_series = rolling_garch_forecast(log_ret_inf, window=cfg.garch_window)
+    garch_val = garch_val_series.iloc[-1] if len(garch_val_series.dropna()) > 0 else float("nan")
 
     vec = pd.Series(
         {
@@ -901,6 +917,7 @@ def build_inference_features(
             COL_ATR_MOMENTUM: atr_val,
             COL_ROLLING_SHARPE: sharpe_val,
             COL_VOLUME_ZSCORE: volz_val,
+            COL_GARCH_VOL: garch_val,
         },
         dtype=np.float64,
     )
@@ -945,7 +962,7 @@ def _inject_intelligence_features(
     Confidence is included as "intelligence_confidence" when present.
 
     Args:
-        vec:                  Base 7-feature pd.Series.
+        vec:                  Base feature pd.Series (len = len(BASE_FEATURE_COLUMNS)).
         intelligence_metrics: Flat dict from MultiProviderIntelligenceAggregator.
 
     Returns:
@@ -968,9 +985,7 @@ def _inject_intelligence_features(
             fval = float(val)
         except (TypeError, ValueError):
             continue
-        import math as _math
-
-        if _math.isfinite(fval):
+        if np.isfinite(fval):
             extras[col] = fval
 
     # Always include confidence when available and finite
@@ -978,9 +993,7 @@ def _inject_intelligence_features(
     if conf is not None:
         try:
             cval = float(conf)
-            import math as _math
-
-            if _math.isfinite(cval):
+            if np.isfinite(cval):
                 extras[COL_INTELLIGENCE_CONFIDENCE] = cval
         except (TypeError, ValueError):
             pass
@@ -988,11 +1001,8 @@ def _inject_intelligence_features(
     if not extras:
         return vec
 
-    import numpy as _np
-    import pandas as _pd
-
-    extras_series = _pd.Series(extras, dtype=_np.float64)
-    result = _pd.concat([vec, extras_series])
+    extras_series = pd.Series(extras, dtype=np.float64)
+    result = pd.concat([vec, extras_series])
 
     log.debug(
         "pipeline.intelligence_features_injected",

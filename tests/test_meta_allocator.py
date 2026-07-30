@@ -73,3 +73,9 @@ def test_rate_limit_handles_new_strategy_not_in_current() -> None:
     result = rate_limit_allocation_shift(current, target, max_shift_per_step=0.05)
     assert result["b"] == pytest.approx(0.05)
     assert result["a"] == pytest.approx(0.95)
+
+
+def test_softmax_weights_empty_returns_empty() -> None:
+    from src.tuning.meta_allocator import _softmax_weights
+
+    assert _softmax_weights([], temperature=1.0) == []

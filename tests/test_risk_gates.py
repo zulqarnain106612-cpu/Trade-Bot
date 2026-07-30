@@ -347,3 +347,22 @@ class TestEvaluateAllGatesSlippageWiring:
         est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
         ctx = _make_ctx(expected_edge_bps=50.0, slippage_estimate=est)
         assert evaluate_all_gates(ctx).passed
+
+
+class TestDrawdownTrackerEdgeCases:
+    """Cover DrawdownTracker edge cases (peak <= 0 guard and alias property)."""
+
+    def test_drawdown_returns_zero_at_starting_equity(self) -> None:
+        from src.risk.gates import DrawdownTracker
+
+        # starting_equity must be > 0; after construction with no updates,
+        # current == peak so drawdown_from_peak_pct is 0.0.
+        dt = DrawdownTracker(starting_equity=100.0)
+        assert dt.drawdown_from_peak_pct == 0.0
+
+    def test_alltime_peak_alias_matches_drawdown_from_peak(self) -> None:
+        from src.risk.gates import DrawdownTracker
+
+        dt = DrawdownTracker(1000.0)
+        dt.update(900.0)
+        assert dt.drawdown_from_alltime_peak_pct == dt.drawdown_from_peak_pct

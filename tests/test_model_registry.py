@@ -98,3 +98,10 @@ def test_get_model_registry_singleton() -> None:
     r1 = get_model_registry()
     r2 = get_model_registry()
     assert r1 is r2
+
+
+def test_accuracy_on_empty_predictions_returns_zero() -> None:
+    """_accuracy([]) returns 0.0 without dividing by zero."""
+    from src.models.model_registry import ModelRegistry
+
+    assert ModelRegistry._accuracy([]) == 0.0

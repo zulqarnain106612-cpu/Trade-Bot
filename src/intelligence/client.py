@@ -132,7 +132,7 @@ class IntelligenceAggregator:
                 )
             return result
         except Exception as e:
-            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol)
+            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol, exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -173,7 +173,7 @@ class IntelligenceAggregator:
                 )
             return result
         except Exception as e:
-            log.error("glassnode_whale_activity_failed", error=str(e))
+            log.error("glassnode_whale_activity_failed", error=str(e), exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -211,7 +211,7 @@ class IntelligenceAggregator:
                 )
             return result
         except Exception as e:
-            log.error("cryptoquant_funding_rate_failed", error=str(e))
+            log.error("cryptoquant_funding_rate_failed", error=str(e), exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -521,7 +521,7 @@ class IntelligenceAggregator:
                 resp.raise_for_status()
                 data: list[dict] = resp.json()
         except Exception as exc:
-            log.error("glassnode_netflow_history_failed", error=str(exc))
+            log.error("glassnode_netflow_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             self._last_glassnode_call = datetime.now(UTC)
@@ -590,7 +590,7 @@ class IntelligenceAggregator:
                 resp.raise_for_status()
                 data: list[dict] = resp.json()
         except Exception as exc:
-            log.error("glassnode_whale_history_failed", error=str(exc))
+            log.error("glassnode_whale_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             self._last_glassnode_call = datetime.now(UTC)
@@ -655,7 +655,7 @@ class IntelligenceAggregator:
                 if r.get("timestamp") is not None
             ]
         except Exception as exc:
-            log.error("binance_funding_rate_history_failed", error=str(exc))
+            log.error("binance_funding_rate_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             await exchange.close()

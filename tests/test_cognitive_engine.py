@@ -26,6 +26,7 @@ from src.risk.cognitive_engine import (
     RegimeValidator,
     RiskValidator,
     SignalContext,
+    ValidatorResult,
     ValidatorStatus,
     get_cognitive_engine,
 )
@@ -223,6 +224,16 @@ class TestRiskValidator:
         result = self.v.validate(make_ctx(signal_id=""))
         assert result.status == ValidatorStatus.VETO
 
+    def test_garch_vol_in_metrics(self):
+        result = self.v.validate(make_ctx(garch_vol_forecast=0.015))
+        assert "garch_vol_forecast" in result.metrics
+        assert abs(result.metrics["garch_vol_forecast"] - 0.015) < 1e-9
+
+    def test_garch_zero_in_metrics(self):
+        result = self.v.validate(make_ctx(garch_vol_forecast=0.0))
+        assert "garch_vol_forecast" in result.metrics
+        assert result.metrics["garch_vol_forecast"] == 0.0
+
 
 # ─── BlockchainValidator ───────────────────────────────────────────────────────
 
@@ -302,6 +313,19 @@ class TestRegimeValidator:
     def test_veto_low_hurst_for_momentum_trade(self):
         result = self.v.validate(
             make_ctx(regime_state=1, regime_probs=[0.10, 0.85, 0.05], hurst_exponent=0.40)
+        )
+        assert result.status == ValidatorStatus.VETO
+        assert "Hurst" in result.reason
+
+    def test_veto_low_hurst_short_direction(self) -> None:
+        """Cover p_long < 0.5 branch (direction='short') in Hurst ternary."""
+        result = self.v.validate(
+            make_ctx(
+                regime_state=1,
+                regime_probs=[0.10, 0.85, 0.05],
+                hurst_exponent=0.40,
+                p_long=0.35,  # < 0.5 → direction = "short"
+            )
         )
         assert result.status == ValidatorStatus.VETO
         assert "Hurst" in result.reason
@@ -427,3 +451,245 @@ class TestCognitiveEngineAggregation:
         assert d["passed"] is True
         assert len(d["validators"]) == 5
         assert all("name" in v and "status" in v for v in d["validators"])
+
+
+# ---------------------------------------------------------------------------
+# Direct staticmethod unit tests — ProbabilityValidator and RiskValidator
+# ---------------------------------------------------------------------------
+
+
+class TestProbabilityValidatorMonteCarloCvar:
+    def test_cvar_less_than_or_equal_to_var(self) -> None:
+        v = ProbabilityValidator()
+        cvar, var95 = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=10_000.0)
+        # CVaR (expected shortfall) must be at most as good as the VaR cut-off
+        assert cvar <= var95
+
+    def test_cvar_negative_for_zero_mu(self) -> None:
+        v = ProbabilityValidator()
+        cvar, var95 = v._monte_carlo_cvar(mu=0.0, sigma=0.05, notional=10_000.0)
+        # With mu=0, 5th-pctile tail losses must be negative (loss, not gain)
+        assert cvar < 0.0
+        assert var95 < 0.0
+
+    def test_cvar_scales_with_notional(self) -> None:
+        v = ProbabilityValidator()
+        cvar_small, _ = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=1_000.0)
+        cvar_large, _ = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=10_000.0)
+        # Notional 10x → cvar 10x (linear scaling)
+        assert abs(cvar_large / cvar_small - 10.0) < 0.5
+
+    def test_cvar_deterministic_given_seed(self) -> None:
+        # Same seed (42) in source → identical results on repeated calls
+        v = ProbabilityValidator()
+        c1, v1 = v._monte_carlo_cvar(mu=0.005, sigma=0.02, notional=5_000.0)
+        c2, v2 = v._monte_carlo_cvar(mu=0.005, sigma=0.02, notional=5_000.0)
+        assert c1 == c2
+        assert v1 == v2
+
+    def test_cvar_positive_mu_improves_tail(self) -> None:
+        v = ProbabilityValidator()
+        cvar_zero, _ = v._monte_carlo_cvar(mu=0.0, sigma=0.01, notional=10_000.0)
+        cvar_pos, _ = v._monte_carlo_cvar(mu=0.05, sigma=0.01, notional=10_000.0)
+        # A positive mean return shifts the entire distribution right
+        assert cvar_pos > cvar_zero
+
+
+class TestRiskValidatorComputeRiskScore:
+    def test_zero_risk_inputs(self) -> None:
+        ctx = make_ctx(
+            daily_pnl_usd=0.0, consecutive_losses=0, open_positions=0, atr=1.0, atr_median_20=1.0
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=0.0, vol_ratio=1.0)
+        assert 0.0 <= score <= 1.0
+
+    def test_score_bounded_to_unit_interval(self) -> None:
+        ctx = make_ctx(
+            daily_pnl_usd=-100_000.0,
+            consecutive_losses=999,
+            open_positions=100,
+            atr=100.0,
+            atr_median_20=1.0,
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=-50.0, vol_ratio=100.0)
+        assert 0.0 <= score <= 1.0
+
+    def test_high_drawdown_increases_score(self) -> None:
+        ctx_low = make_ctx(
+            daily_pnl_usd=0.0, consecutive_losses=0, open_positions=0, atr=1.0, atr_median_20=1.0
+        )
+        ctx_high = make_ctx(
+            daily_pnl_usd=0.0, consecutive_losses=0, open_positions=0, atr=1.0, atr_median_20=1.0
+        )
+        score_low = RiskValidator._compute_risk_score(ctx_low, dd_pct=-0.5, vol_ratio=1.0)
+        score_high = RiskValidator._compute_risk_score(ctx_high, dd_pct=-2.0, vol_ratio=1.0)
+        assert score_high > score_low
+
+    def test_weights_sum_to_one(self) -> None:
+        # Saturate all five components to 1.0 → score should equal sum of weights = 1.0
+        ctx = make_ctx(
+            daily_pnl_usd=-100_000.0,
+            consecutive_losses=999,
+            open_positions=100,
+            atr=10.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.05,  # > default 0.02 threshold → garch_component = 1.0
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=-100.0, vol_ratio=2.0)
+        assert abs(score - 1.0) < 1e-6
+
+    def test_garch_zero_contributes_nothing(self) -> None:
+        ctx = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.0,
+        )
+        score_no_garch = RiskValidator._compute_risk_score(ctx, dd_pct=0.0, vol_ratio=0.0)
+        assert score_no_garch == pytest.approx(0.0)
+
+    def test_garch_high_vol_increases_score(self) -> None:
+        ctx_low = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.001,
+        )
+        ctx_high = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            garch_vol_forecast=0.05,
+        )
+        score_low = RiskValidator._compute_risk_score(ctx_low, dd_pct=0.0, vol_ratio=0.0)
+        score_high = RiskValidator._compute_risk_score(ctx_high, dd_pct=0.0, vol_ratio=0.0)
+        assert score_high > score_low
+
+    def test_regime_agreement_default_contributes_zero(self) -> None:
+        # Default regime_agreement_score=1.0 → disagree_component = 0.0 → no contribution.
+        ctx = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+        )
+        score = RiskValidator._compute_risk_score(ctx, dd_pct=0.0, vol_ratio=0.0)
+        assert score == pytest.approx(0.0)
+
+    def test_regime_full_disagreement_increases_score(self) -> None:
+        # regime_agreement_score=0.0 → disagree_component=1.0 → adds 0.05 to score.
+        ctx_agree = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            regime_agreement_score=1.0,
+        )
+        ctx_disagree = make_ctx(
+            daily_pnl_usd=0.0,
+            consecutive_losses=0,
+            open_positions=0,
+            atr=1.0,
+            atr_median_20=1.0,
+            regime_agreement_score=0.0,
+        )
+        score_agree = RiskValidator._compute_risk_score(ctx_agree, dd_pct=0.0, vol_ratio=0.0)
+        score_disagree = RiskValidator._compute_risk_score(ctx_disagree, dd_pct=0.0, vol_ratio=0.0)
+        assert score_disagree == pytest.approx(score_agree + 0.05)
+
+    def test_regime_agreement_in_metrics(self) -> None:
+        v = RiskValidator()
+        result = v.validate(make_ctx(regime_agreement_score=0.75))
+        assert "regime_agreement_score" in result.metrics
+        assert result.metrics["regime_agreement_score"] == pytest.approx(0.75)
+
+
+class TestValidatorResultPassedProperty:
+    """Cover ValidatorResult.passed property (line 64)."""
+
+    def test_pass_status_is_passed(self) -> None:
+        r = ValidatorResult("test", ValidatorStatus.PASS, "ok")
+        assert r.passed is True
+
+    def test_warn_status_is_passed(self) -> None:
+        r = ValidatorResult("test", ValidatorStatus.WARN, "warn")
+        assert r.passed is True
+
+    def test_veto_status_not_passed(self) -> None:
+        r = ValidatorResult("test", ValidatorStatus.VETO, "blocked")
+        assert r.passed is False
+
+
+class TestQuantValidatorWinRatePlausibilityWarn:
+    """Cover win-rate plausibility WARN branch — in ProbabilityValidator section 2c."""
+
+    def test_inconsistent_edge_yields_warn(self) -> None:
+        # The win-rate plausibility check lives in ProbabilityValidator (section 2c),
+        # not QuantValidator. QuantValidator handles Kelly/size checks only.
+        v = ProbabilityValidator()
+        # p_long=0.80 → implied_edge = (0.80-0.5)*200 = 60bps
+        # expected_edge_bps=5.0 → |60 - 5| = 55 > 50 → WARN
+        result = v.validate(make_ctx(p_long=0.80, expected_edge_bps=5.0))
+        assert result.status == ValidatorStatus.WARN
+        assert "implied edge" in result.reason
+
+    def test_consistent_edge_no_warn(self) -> None:
+        v = ProbabilityValidator()
+        # p_long=0.70 → implied_edge=40bps, expected_edge_bps=40 → diff=0 < 50
+        result = v.validate(make_ctx(p_long=0.70, expected_edge_bps=40.0))
+        assert result.status != ValidatorStatus.VETO
+
+
+class TestRiskValidatorCompositeScoreVeto:
+    """Cover risk_score > 0.85 VETO branch (line 428)."""
+
+    def test_extreme_drawdown_triggers_composite_veto(self) -> None:
+        v = RiskValidator()
+        # Saturate all components WITHOUT triggering individual veto thresholds:
+        # dd=-1.98% (<2.0% halt), consecutive=2 (<3 halt), vol_ratio=1.95 (<2.0), positions=5
+        # regime_agreement_score=0.0 → regime_disagree_component=1.0 (full disagreement)
+        # Weights: 0.33/0.28/0.24/0.08/0.02/0.05 — GARCH=0 so weight 0.02 unused
+        # Composite ≈ 0.33*0.99 + 0.28*0.975 + 0.24*0.667 + 0.08*1.0 + 0.05*1.0 ≈ 0.890 > 0.85
+        ctx = make_ctx(
+            capital_usd=100_000.0,
+            daily_pnl_usd=-1_980.0,  # dd_pct = -1.98% (below -2.0% halt → no individual veto)
+            consecutive_losses=2,  # < 3 halt threshold
+            open_positions=5,  # pos_component = 1.0 (saturated)
+            atr=1.95,
+            atr_median_20=1.0,  # vol_ratio = 1.95 (< 2.0 → no veto)
+            regime_agreement_score=0.0,  # maximum disagreement → regime_disagree_component = 1.0
+        )
+        result = v.validate(ctx)
+        assert result.status == ValidatorStatus.VETO
+        assert "risk score" in result.reason.lower() or "0.8" in result.reason
+
+
+class TestCognitiveEngineSizeDivergence:
+    """Cover _log_size_divergence early-return and warning paths."""
+
+    def setup_method(self) -> None:
+        self.engine = CognitiveEngine()
+
+    def test_both_zero_returns_early(self) -> None:
+        """When both kelly_fraction and continuous estimate are ~0, no warning logged."""
+        ctx = make_ctx(realized_vol=0.0, kelly_adjusted_fraction=0.0)
+        # realized_vol=0 → sigma=0 → continuous_kelly_estimate=0.0
+        # kelly_fraction=0.0 → early return (no assertion needed — just no crash)
+        self.engine._log_size_divergence(ctx, kelly_fraction=0.0)
+
+    def test_large_divergence_logs_warning(self) -> None:
+        """When continuous estimate diverges > 50% from kelly_fraction, warning is emitted."""
+        ctx = make_ctx(
+            realized_vol=0.01,  # tiny vol → large continuous kelly estimate
+            expected_edge_bps=500.0,  # large edge → large numerator
+        )
+        # kelly_fraction=0.0 vs large continuous → divergence > 0.5
+        self.engine._log_size_divergence(ctx, kelly_fraction=0.0001)

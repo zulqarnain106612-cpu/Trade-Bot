@@ -35,7 +35,7 @@ class OrderManager:
     Manages order lifecycle with FSM state tracking.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._log = log
 
     async def place_order_with_fsm(
@@ -77,11 +77,15 @@ class OrderManager:
             fsm.state.order_id = order_id
         except (ccxt.NetworkError, ccxt.RequestTimeout) as exc:
             fsm.state.last_error = str(exc)
-            self._log.error("order_placement_network_error", symbol=symbol, error=str(exc))
+            self._log.error(
+                "order_placement_network_error", symbol=symbol, error=str(exc), exc_info=True
+            )
             raise
         except ccxt.ExchangeError as exc:
             fsm.transition(OrderStatus.FAILED, {"error": str(exc)})
-            self._log.error("order_placement_exchange_error", symbol=symbol, error=str(exc))
+            self._log.error(
+                "order_placement_exchange_error", symbol=symbol, error=str(exc), exc_info=True
+            )
             raise
 
         # Confirm the fill
@@ -96,6 +100,7 @@ class OrderManager:
                 order_id=order_id,
                 symbol=symbol,
                 action="manual_reconciliation_required",
+                exc_info=True,
             )
             raise
         except ccxt.ExchangeError as exc:
@@ -307,6 +312,7 @@ class OrderManager:
                     "order_confirm_permanent_error",
                     order_id=order_id,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
 

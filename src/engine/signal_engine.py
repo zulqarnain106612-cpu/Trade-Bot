@@ -42,6 +42,7 @@ from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
+    COL_GARCH_VOL,
     FEATURE_COLUMNS,
     build_feature_matrix,
     build_inference_features,
@@ -102,14 +103,17 @@ class SignalResult:
     """
     Complete output of one signal engine tick.
 
-    tradeable     : True when all gates pass and meta-label says bet
-    direction     : 1=long, 0=short (valid only when tradeable)
-    p_long        : XGBoost P(long)
-    p_bet         : meta-label P(bet)
-    kelly_result  : position sizing (None when not tradeable)
-    regime        : current regime prediction
-    gate_result   : final gate evaluation result
-    skip_reason   : human-readable reason when not tradeable
+    tradeable              : True when all gates pass and meta-label says bet
+    direction              : 1=long, 0=short (valid only when tradeable)
+    p_long                 : XGBoost P(long)
+    p_bet                  : meta-label P(bet)
+    kelly_result           : position sizing (None when not tradeable)
+    regime                 : current regime prediction
+    gate_result            : final gate evaluation result
+    skip_reason            : human-readable reason when not tradeable
+    regime_agreement_scalar: HMM/changepoint agreement [0.5, 1.0]; 1.0 means
+                             full agreement, <1.0 means disagreement already
+                             reduced the kelly_result notional proportionally.
     """
 
     tradeable: bool
@@ -120,6 +124,8 @@ class SignalResult:
     regime: RegimePrediction | None
     gate_result: GateResult | None
     skip_reason: str
+    regime_agreement_scalar: float = 1.0
+    changepoint_probability: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +280,7 @@ class SignalEngine:
         try:
             await self._fetcher.gap_fill(self._symbol, self._timeframe)
         except Exception as exc:
-            self._log.error("signal.gap_fill_failed", error=str(exc))
+            self._log.error("signal.gap_fill_failed", error=str(exc), exc_info=True)
             return self._skip("gap_fill_failed")
 
         # 2. Load bars
@@ -314,7 +320,7 @@ class SignalEngine:
         try:
             fm = build_feature_matrix(bars)
         except Exception as exc:
-            self._log.error("signal.feature_matrix_failed", error=str(exc))
+            self._log.error("signal.feature_matrix_failed", error=str(exc), exc_info=True)
             return self._skip("feature_matrix_failed")
 
         if fm.features is None or len(fm.features) < 1:
@@ -358,7 +364,7 @@ class SignalEngine:
             # (via the fields cleared below) fails the exchange-stress/whale
             # gates open -- an operator needs to see this by default, not
             # only when debug logging happens to be enabled.
-            self._log.warning("signal.ofi_fetch_failed", error=str(exc))
+            self._log.warning("signal.ofi_fetch_failed", error=str(exc), exc_info=True)
             live_ofi = None
             _exchange_stress = None
             _whale_ratio = None
@@ -375,7 +381,7 @@ class SignalEngine:
                 )
                 _intel_metrics_dict = await _intel_agg.fetch_metrics()
             except Exception as _intel_exc:
-                self._log.warning("signal.intel_fetch_failed", error=str(_intel_exc))
+                self._log.warning("signal.intel_fetch_failed", error=str(_intel_exc), exc_info=True)
                 _intel_metrics_dict = {}
 
             # Probabilistic post-processing: replace deterministic scalars with
@@ -386,7 +392,9 @@ class SignalEngine:
                 _exchange_stress = _p_inputs.exchange_stress_score
                 _whale_ratio = _p_inputs.whale_buy_sell_ratio
             except Exception as _prob_exc:
-                self._log.warning("signal.probabilistic_adapter_failed", error=str(_prob_exc))
+                self._log.warning(
+                    "signal.probabilistic_adapter_failed", error=str(_prob_exc), exc_info=True
+                )
                 _exchange_stress = None
                 _whale_ratio = None
 
@@ -398,6 +406,13 @@ class SignalEngine:
         )
         if vec is None:
             return self._skip("insufficient_features_with_ofi")
+
+        # Extract GARCH vol early so it can feed both Kelly sizing and SignalContext.
+        _garch_vol_early = (
+            float(fm.features[COL_GARCH_VOL].iloc[-1])
+            if COL_GARCH_VOL in fm.features.columns and fm.features[COL_GARCH_VOL].iloc[-1] > 0
+            else 0.0
+        )
 
         # ── Push live feature values to drift monitor (Aronson 2006) ──
         _drift_mon = get_drift_monitor()
@@ -426,6 +441,7 @@ class SignalEngine:
                 self._log.error(
                     "signal.regime_failed_defaulting_volatile",
                     error=str(exc),
+                    exc_info=True,
                 )
                 # Fail-safe: default to VOLATILE so regime gate blocks new positions
                 # until detector recovers — never default to RANGING (least restrictive)
@@ -433,15 +449,19 @@ class SignalEngine:
         # NEW-017: REGIME_VOLATILE imported at module level — no per-tick import overhead
         regime_state = regime.state if regime is not None else REGIME_VOLATILE
 
-        # v4 regime ensemble — observability only. The changepoint detector's
-        # continuous instability signal and its agreement with the HMM's
-        # regime read are logged for monitoring/alerting; neither ever
-        # overrides regime_state or gates a trade (Domain Prior: treat HMM
+        # v4 regime ensemble — agreement_score now acts as a multiplicative
+        # position-size scalar (1.0 = full agreement, 0.5 = half size floor).
+        # Regime disagreement (HMM vs changepoint) signals genuine instability
+        # that the HMM alone cannot detect mid-regime-transition; shrinking
+        # the position is safer than a hard veto (Domain Prior: treat HMM
         # transitions as probabilistic, avoid hard-coded regime logic).
+        _regime_agreement_scalar: float = 1.0  # default: no adjustment
+        _cp_prob: float = 0.0
         if regime is not None and len(bars) >= 2:
             try:
                 last_return = float(bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1.0)
                 cp_prob = self._changepoint_detector.update(last_return)
+                _cp_prob = cp_prob
                 ensemble_result = combine_regime_votes(
                     RegimeEnsembleVote(
                         hmm_prob_trending=regime.prob_trending,
@@ -450,16 +470,20 @@ class SignalEngine:
                         changepoint_probability=cp_prob,
                     )
                 )
+                # Floor at 0.5: never zero-out from agreement alone (that's the
+                # regime gate's job); instead reduce to 50% on total disagreement.
+                _regime_agreement_scalar = max(0.5, ensemble_result.agreement_score)
                 if ensemble_result.agreement_score < 0.5:
                     self._log.warning(
                         "signal.regime_ensemble_disagreement",
                         agreement_score=ensemble_result.agreement_score,
                         changepoint_probability=cp_prob,
                         regime_state=regime_state,
+                        position_scalar=_regime_agreement_scalar,
                     )
             except Exception as exc:
                 regime_ensemble_failure_total.inc()
-                self._log.warning("signal.regime_ensemble_failed", error=str(exc))
+                self._log.warning("signal.regime_ensemble_failed", error=str(exc), exc_info=True)
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
 
         # Ensemble blend (src/intelligence/ensemble_predictor.py) — conservative
@@ -491,7 +515,7 @@ class SignalEngine:
                 # ensemble disagreement can flip direction, not just scale size.
                 direction = 1 if p_long >= 0.5 else 0
             except Exception as exc:
-                self._log.warning("signal.ensemble_blend_failed", error=str(exc))
+                self._log.warning("signal.ensemble_blend_failed", error=str(exc), exc_info=True)
 
         # GAP-002: HMM posterior entropy gate — scale position size down when
         # the regime classification is uncertain (near-uniform posterior).
@@ -526,10 +550,26 @@ class SignalEngine:
             )
             _notional_cap_usd = _carver_result["recommended"]
         except Exception as _carver_exc:
-            self._log.warning("signal.carver_cap_failed", error=str(_carver_exc))
+            self._log.warning("signal.carver_cap_failed", error=str(_carver_exc), exc_info=True)
             _notional_cap_usd = None
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
+        # Combine portfolio-correlation scalar with regime-agreement scalar so
+        # HMM/changepoint disagreement reduces size proportionally rather than
+        # being logged and discarded (auditor finding #2).
+        combined_scalar = correlation_scalar * _regime_agreement_scalar
+
+        # GARCH vol-targeting scalar (Carver 2019): scale position inversely with
+        # realized conditional vol when it exceeds the configured threshold. This
+        # reduces notional exposure in high-vol regimes without a hard veto, keeping
+        # trades alive at reduced size rather than blocking them entirely.
+        _garch_threshold = effective_risk_settings(self._cfg.risk).garch_vol_threshold
+        _garch_vol_scalar = (
+            min(1.0, _garch_threshold / _garch_vol_early)
+            if _garch_vol_early > _garch_threshold
+            else 1.0
+        )
+
         kelly_result = compute_position_size(
             p_long=p_long,
             direction=direction,
@@ -538,7 +578,8 @@ class SignalEngine:
             avg_win_usd=avg_win_usd,
             avg_loss_usd=avg_loss_usd,
             regime_scalar=regime_scalar,
-            correlation_scalar=correlation_scalar,
+            correlation_scalar=combined_scalar,
+            garch_vol_scalar=_garch_vol_scalar,
             notional_cap_usd=_notional_cap_usd,
         )
 
@@ -580,7 +621,9 @@ class SignalEngine:
                     spread_bps=_spread_for_slippage,
                 )
             except Exception as _slip_exc:
-                self._log.warning("signal.slippage_estimate_failed", error=str(_slip_exc))
+                self._log.warning(
+                    "signal.slippage_estimate_failed", error=str(_slip_exc), exc_info=True
+                )
 
         # ── Audit closure setup — must precede all early-exit gates ──
         _prob_ranging = regime.prob_ranging if regime else 0.33
@@ -797,7 +840,9 @@ class SignalEngine:
                     # gap filter skips without open_price/prev_close) --
                     # a data-fetch hiccup on the confirmation timeframe
                     # must not block an otherwise-valid signal.
-                    self._log.warning("signal.mtf_confirmation_failed", error=str(exc))
+                    self._log.warning(
+                        "signal.mtf_confirmation_failed", error=str(exc), exc_info=True
+                    )
 
         # GAP-008 FIX: filters.py returns a "scalar" (AFML Ch.17 probability-based regime
         # confidence). Previously this was applied multiplicatively on top of the entropy-
@@ -835,6 +880,7 @@ class SignalEngine:
         _adv_20d = (
             float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else 1.0
         )
+        _garch_vol = _garch_vol_early  # already extracted above for Kelly sizing
         _cog_ctx = SignalContext(
             signal_id=f"{self._symbol}_{self._timeframe}_{int(time.monotonic() * 1000)}",
             symbol=self._symbol,
@@ -867,6 +913,8 @@ class SignalEngine:
             proposed_qty=kelly_result.quantity,
             proposed_notional_usd=kelly_result.notional_usd,
             kelly_adjusted_fraction=kelly_result.adjusted_fraction,
+            garch_vol_forecast=_garch_vol,
+            regime_agreement_score=_regime_agreement_scalar,
         )
         _cog_decision = get_cognitive_engine().evaluate(_cog_ctx)
         if not _cog_decision.passed:
@@ -919,6 +967,8 @@ class SignalEngine:
             regime=regime,
             gate_result=gate_result,
             skip_reason="",
+            regime_agreement_scalar=_regime_agreement_scalar,
+            changepoint_probability=_cp_prob,
         )
 
     # ------------------------------------------------------------------

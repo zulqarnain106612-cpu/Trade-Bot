@@ -197,6 +197,14 @@ class RiskSettings(BaseSettings):
     # tunable parameter goes through, never a direct edit to this default.
     ensemble_blend_weight: float = Field(default=0.15, ge=0.0, le=1.0)
 
+    # GARCH vol normalization threshold: the per-bar GARCH vol level at which
+    # the garch_component in _compute_risk_score saturates to 1.0.
+    # 0.02 = 2% per bar (~31.6% annualized at daily bars) — representative
+    # of a 1-sigma stress day in major crypto. Lower values make the engine
+    # more sensitive to elevated GARCH vol; higher values require larger
+    # shocks to affect the risk score.
+    garch_vol_threshold: float = Field(default=0.02, gt=0.0, le=0.50)
+
     # GAP-013 -- automated position-exit controls (stop-loss / take-profit /
     # time-based exit). These are STARTUP DEFAULTS ONLY, loaded once into
     # RuntimeConfig at process start. Unlike the hard limits above, the
@@ -224,6 +232,16 @@ class RiskSettings(BaseSettings):
         default=86400.0,
         ge=60.0,
         description="Force time-based exit after this many seconds in position",
+    )
+    trailing_stop_enabled_default: bool = Field(default=False)
+    trailing_stop_pct_default: float = Field(
+        default=1.5,
+        ge=0.1,
+        le=50.0,
+        description=(
+            "Close when unrealized PnL drops more than this pct from its per-position peak. "
+            "Only active when trailing_stop_enabled is True."
+        ),
     )
     position_monitor_interval_s: float = Field(
         default=5.0,
@@ -330,6 +348,11 @@ class FeatureSettings(BaseSettings):
     atr_window: int = Field(default=14, ge=2)
     sharpe_window: int = Field(default=60, ge=2)
     volume_zscore_window: int = Field(default=20, ge=2)
+    # GARCH(1,1) conditional volatility window — Bollerslev (1986).
+    # Walk-forward refit window; must be >= 50 (minimum MLE observations).
+    # 100 bars stays within the 200-bar frac-diff burn-in so it adds no
+    # new min-required-rows constraint to build_feature_matrix().
+    garch_window: int = Field(default=100, ge=50)
 
     # Triple-barrier labeling — AFML Ch.3
     triple_barrier_pt_multiplier: float = Field(default=2.0, ge=0.1)
@@ -763,6 +786,8 @@ class RuntimeConfig:
         self._take_profit_enabled: bool = cfg.risk.take_profit_enabled_default
         self._take_profit_pct: float = cfg.risk.take_profit_pct_default
         self._max_holding_period_s: float = cfg.risk.max_holding_period_s_default
+        self._trailing_stop_enabled: bool = cfg.risk.trailing_stop_enabled_default
+        self._trailing_stop_pct: float = cfg.risk.trailing_stop_pct_default
 
     def _get_lock(self) -> asyncio.Lock:
         # Fast path — already initialised (no locking needed; reads are atomic in CPython).
@@ -772,7 +797,8 @@ class RuntimeConfig:
         with self._init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        return self._lock  # type: ignore[return-value]
+        assert self._lock is not None
+        return self._lock
 
     async def get_execution_mode(self) -> ExecutionMode:
         async with self._get_lock():
@@ -795,6 +821,8 @@ class RuntimeConfig:
                 "take_profit_enabled": self._take_profit_enabled,
                 "take_profit_pct": self._take_profit_pct,
                 "max_holding_period_s": self._max_holding_period_s,
+                "trailing_stop_enabled": self._trailing_stop_enabled,
+                "trailing_stop_pct": self._trailing_stop_pct,
             }
 
     async def set_risk_controls(
@@ -804,6 +832,8 @@ class RuntimeConfig:
         take_profit_enabled: bool | None = None,
         take_profit_pct: float | None = None,
         max_holding_period_s: float | None = None,
+        trailing_stop_enabled: bool | None = None,
+        trailing_stop_pct: float | None = None,
     ) -> dict[str, object]:
         """
         Update one or more exit-control fields atomically. Pass None for any
@@ -822,12 +852,18 @@ class RuntimeConfig:
                 self._take_profit_pct = take_profit_pct
             if max_holding_period_s is not None:
                 self._max_holding_period_s = max_holding_period_s
+            if trailing_stop_enabled is not None:
+                self._trailing_stop_enabled = trailing_stop_enabled
+            if trailing_stop_pct is not None:
+                self._trailing_stop_pct = trailing_stop_pct
             return {
                 "stop_loss_enabled": self._stop_loss_enabled,
                 "stop_loss_pct": self._stop_loss_pct,
                 "take_profit_enabled": self._take_profit_enabled,
                 "take_profit_pct": self._take_profit_pct,
                 "max_holding_period_s": self._max_holding_period_s,
+                "trailing_stop_enabled": self._trailing_stop_enabled,
+                "trailing_stop_pct": self._trailing_stop_pct,
             }
 
     # ------------------------------------------------------------------

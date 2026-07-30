@@ -64,7 +64,7 @@ try:
             self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_dim, batch_first=True)
             self.head = nn.Linear(hidden_dim, 1)
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             out, _ = self.lstm(x)
             return self.head(out[:, -1, :])
 
@@ -132,8 +132,12 @@ class PredictionModel(ABC):
         """Prediction + uncertainty estimate."""
 
     @abstractmethod
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Model performance: MAE, RMSE, etc."""
+
+    @abstractmethod
+    def fit(self, *args: Any, **kwargs: Any) -> None:
+        """Fit the model. Concrete subclasses override with specific signatures."""
 
 
 class ARIMAPredictor(PredictionModel):
@@ -147,7 +151,7 @@ class ARIMAPredictor(PredictionModel):
         self.model: Any = None
         self.rmse = np.inf
 
-    def fit(self, timeseries: pd.Series):
+    def fit(self, timeseries: pd.Series) -> None:
         """Fit ARIMA on historical data."""
         try:
             from statsmodels.tsa.arima.model import ARIMA
@@ -168,7 +172,7 @@ class ARIMAPredictor(PredictionModel):
             forecast = self.model.forecast(steps=1).iloc[0]
             return float(forecast)
         except Exception as e:
-            log.error("arima_prediction_failed", error=str(e))
+            log.error("arima_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -176,7 +180,7 @@ class ARIMAPredictor(PredictionModel):
         uncertainty = self.rmse if self.rmse != np.inf else 0.1
         return point, uncertainty
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "ARIMA"}
 
 
@@ -192,7 +196,7 @@ class XGBoostPredictor(PredictionModel):
         self.model: Any = None
         self.rmse = np.inf
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit XGBoost."""
         try:
             import xgboost as xgb
@@ -214,7 +218,7 @@ class XGBoostPredictor(PredictionModel):
         try:
             return float(self.model.predict(features)[0])
         except Exception as e:
-            log.error("xgboost_prediction_failed", error=str(e))
+            log.error("xgboost_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -222,7 +226,7 @@ class XGBoostPredictor(PredictionModel):
         uncertainty = self.rmse if self.rmse != np.inf else 0.15
         return point, uncertainty
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "XGBoost"}
 
 
@@ -248,7 +252,7 @@ class LSTMPredictor(PredictionModel):
         self.model: Any = None
         self.rmse = np.inf
 
-    def fit(self, X: np.ndarray, y: np.ndarray):
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         """Fit LSTM (requires torch). X shape: (n_samples, lookback, 1)."""
         if not _TORCH_AVAILABLE:
             log.warning("torch not installed, LSTM disabled")
@@ -282,7 +286,7 @@ class LSTMPredictor(PredictionModel):
             self.rmse = float(np.sqrt(np.mean((fitted - np.asarray(y)) ** 2)))
             self.model = net
         except Exception as e:
-            log.error("lstm_fit_failed", error=str(e))
+            log.error("lstm_fit_failed", error=str(e), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None or not _TORCH_AVAILABLE:
@@ -297,7 +301,7 @@ class LSTMPredictor(PredictionModel):
                 out = self.model(torch.tensor(X_reshaped, dtype=torch.float32))
             return float(out.numpy().flatten()[0])
         except Exception as e:
-            log.error("lstm_prediction_failed", error=str(e))
+            log.error("lstm_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -305,7 +309,7 @@ class LSTMPredictor(PredictionModel):
         uncertainty = self.rmse if self.rmse != np.inf else 0.2
         return point, uncertainty
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "LSTM(torch)"}
 
 
@@ -341,7 +345,7 @@ class GaussianProcessPredictor(PredictionModel):
         self.rmse = np.inf
         self._feature_cols: list[str] | None = None
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit a GP regressor on tabular features."""
         try:
             from sklearn.gaussian_process import GaussianProcessRegressor
@@ -375,7 +379,7 @@ class GaussianProcessPredictor(PredictionModel):
         except ImportError:
             log.warning("scikit-learn gaussian_process module not available, GP disabled")
         except Exception as e:
-            log.error("gp_fit_failed", error=str(e))
+            log.error("gp_fit_failed", error=str(e), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         point, _ = self.predict_with_uncertainty(features)
@@ -389,10 +393,10 @@ class GaussianProcessPredictor(PredictionModel):
             mean, std = self.model.predict(X, return_std=True)
             return float(mean[0]), float(std[0])
         except Exception as e:
-            log.error("gp_prediction_failed", error=str(e))
+            log.error("gp_prediction_failed", error=str(e), exc_info=True)
             return 0.0, 0.2
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "GaussianProcess"}
 
 
@@ -437,7 +441,7 @@ class TreeEnsemblePredictor(PredictionModel):
         self._bootstrap_models: list = []
         self.rmse = np.inf
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit the primary model plus a bootstrap ensemble for uncertainty."""
         try:
             from sklearn.ensemble import GradientBoostingRegressor
@@ -477,7 +481,7 @@ class TreeEnsemblePredictor(PredictionModel):
                 m.fit(X_boot, y_boot)
                 self._bootstrap_models.append(m)
         except Exception as e:
-            log.error("tree_ensemble_fit_failed", error=str(e))
+            log.error("tree_ensemble_fit_failed", error=str(e), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None:
@@ -485,7 +489,7 @@ class TreeEnsemblePredictor(PredictionModel):
         try:
             return float(self.model.predict(features)[0])
         except Exception as e:
-            log.error("tree_ensemble_prediction_failed", error=str(e))
+            log.error("tree_ensemble_prediction_failed", error=str(e), exc_info=True)
             return 0.0
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
@@ -498,10 +502,10 @@ class TreeEnsemblePredictor(PredictionModel):
             uncertainty = float(np.std(boot_preds))
             return point, uncertainty
         except Exception as e:
-            log.error("tree_ensemble_uncertainty_failed", error=str(e))
+            log.error("tree_ensemble_uncertainty_failed", error=str(e), exc_info=True)
             return point, self.rmse if self.rmse != np.inf else 0.15
 
-    def get_performance_metrics(self) -> dict:
+    def get_performance_metrics(self) -> dict[str, Any]:
         return {"rmse": self.rmse, "model_type": "TreeEnsemble(GBM+bootstrap)"}
 
 
@@ -512,7 +516,7 @@ class EnsemblePredictor:
     Output: Not just point forecast, but full uncertainty quantification.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.models = {
             "arima": ARIMAPredictor(),
             "xgboost": XGBoostPredictor(),
@@ -534,7 +538,7 @@ class EnsemblePredictor:
         self._feature_cols: list[str] | None = None
         self._update_weights()
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """
         Fit all ensemble members.
 
@@ -567,11 +571,12 @@ class EnsemblePredictor:
                     # autocorrelation, not the feature matrix.
                     model.fit(y)
                 elif name == "lstm":
-                    X_seq, y_seq = self._build_lstm_sequences(y, model.lookback)
+                    lookback: int = getattr(model, "lookback", 20)
+                    X_seq, y_seq = self._build_lstm_sequences(y, lookback)
                     if X_seq is None:
                         log.warning(
                             f"{name}_insufficient_data",
-                            need_at_least=model.lookback + 1,
+                            need_at_least=lookback + 1,
                             have=len(y),
                         )
                         continue
@@ -581,7 +586,7 @@ class EnsemblePredictor:
                     model.fit(X, y)
                 log.info(f"{name}_fitted", metrics=model.get_performance_metrics())
             except Exception as e:
-                log.error(f"{name}_fit_failed", error=str(e))
+                log.error(f"{name}_fit_failed", error=str(e), exc_info=True)
 
         # Refresh weights immediately so .weights reflects the just-fitted
         # models rather than staying at stale pre-fit values until the next
@@ -642,7 +647,7 @@ class EnsemblePredictor:
                 individual_predictions[name] = point
                 individual_uncertainties[name] = uncertainty
             except Exception as e:
-                log.error("ensemble_member_failed", model=name, error=str(e))
+                log.error("ensemble_member_failed", model=name, error=str(e), exc_info=True)
                 individual_predictions[name] = 0.0
                 individual_uncertainties[name] = 0.5
 
@@ -664,7 +669,7 @@ class EnsemblePredictor:
         ci_upper = ensemble_point + 1.96 * total_uncertainty
 
         # Best model (lowest uncertainty)
-        best_model = min(individual_uncertainties, key=individual_uncertainties.get)
+        best_model = min(individual_uncertainties, key=lambda k: individual_uncertainties[k])
 
         # Update weights based on recent performance
         self._update_weights()
@@ -682,9 +687,9 @@ class EnsemblePredictor:
             point_estimate=ensemble_point,
             credible_lower=ci_lower,
             credible_upper=ci_upper,
-            model_disagreement=model_disagreement,
-            aleatoric_uncertainty=aleatoric,
-            epistemic_uncertainty=epistemic,
+            model_disagreement=float(model_disagreement),
+            aleatoric_uncertainty=float(aleatoric),
+            epistemic_uncertainty=float(epistemic),
             best_model=best_model,
             model_weights=self.weights.copy(),
             individual_predictions=individual_predictions,

@@ -172,3 +172,32 @@ class TestNewSchemaFields:
         assert out["defi_tvl_7d_change_pct"] == pytest.approx(-3.5)
         assert out["mvrv_z_score"] == pytest.approx(2.1)
         assert out["sopr"] == pytest.approx(0.4)
+
+    def test_non_numeric_value_is_skipped(self) -> None:
+        """Non-float/int values are silently skipped (not type-coerced)."""
+        r = dict(ONCHAIN_NEUTRAL)
+        r["exchange_reserve_ratio"] = "bad_string"  # type: ignore[assignment]
+        out = validate_provider_result(r, "test")
+        # Falls back to neutral since the string is skipped
+        assert out["exchange_reserve_ratio"] == pytest.approx(
+            ONCHAIN_NEUTRAL["exchange_reserve_ratio"]
+        )
+
+
+class TestMergeOnchainResultsNanSkip:
+    def test_nan_in_merge_is_skipped(self) -> None:
+        """NaN values in a provider result are skipped during weighted merge."""
+        import math
+
+        good = dict(ONCHAIN_NEUTRAL)
+        good["confidence"] = 1.0
+        good["exchange_reserve_ratio"] = 0.8
+
+        bad = dict(ONCHAIN_NEUTRAL)
+        bad["confidence"] = 0.5
+        bad["exchange_reserve_ratio"] = float("nan")  # should be skipped
+
+        merged = merge_onchain_results([good, bad])
+        # Only the good provider contributes → value close to 0.8
+        assert not math.isnan(merged["exchange_reserve_ratio"])
+        assert merged["exchange_reserve_ratio"] == pytest.approx(0.8, rel=0.05)

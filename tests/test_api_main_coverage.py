@@ -262,6 +262,8 @@ def test_status_route_when_ready(mock_state):
     data = resp.json()
     assert "equity_usd" in data
     assert "cash_usd" in data
+    assert "degradation_report" in data
+    assert isinstance(data["degradation_report"], dict)
 
 
 def test_status_route_not_ready(mock_state):
@@ -1196,3 +1198,42 @@ def test_intelligence_providers_exception(mock_state):
         resp = client.get("/intelligence/providers", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
     assert "error" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# /strategies/allocation — new performance-weighted allocation endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_strategies_allocation_empty_registry(mock_state):
+    client = _get_client()
+    with patch("src.api.main.get_default_registry") as mock_reg:
+        mock_reg.return_value.all.return_value = []
+        resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["allocations"] == {}
+    assert data["method"] == "equal_weight"
+
+
+def test_strategies_allocation_with_strategies(mock_state):
+    from unittest.mock import MagicMock
+
+    strategy = MagicMock()
+    strategy.strategy_id = "signal_engine_v1"
+    strategy.required_capital_fraction.return_value = 1.0
+
+    client = _get_client()
+    with (
+        patch("src.api.main.get_default_registry") as mock_reg,
+        patch("src.api.main.get_attribution_tracker") as mock_tracker,
+    ):
+        mock_reg.return_value.all.return_value = [strategy]
+        mock_tracker.return_value.fill_count.return_value = 0
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "allocations" in data
+    assert "method" in data
+    assert "fill_count" in data

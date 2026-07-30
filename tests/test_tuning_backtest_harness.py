@@ -360,7 +360,13 @@ def test_run_feature_window_backtest_produces_two_comparisons() -> None:
 
 @pytest.mark.parametrize(
     "field_name",
-    ["vwap_window", "ofi_window", "atr_window", "sharpe_window", "volume_zscore_window"],
+    [
+        "vwap_window",
+        "ofi_window",
+        "atr_window",
+        "sharpe_window",
+        "volume_zscore_window",
+    ],
 )
 def test_run_feature_window_backtest_runs_for_every_field(field_name: str) -> None:
     bars = _synthetic_bars(1000)
@@ -374,6 +380,23 @@ def test_run_feature_window_backtest_runs_for_every_field(field_name: str) -> No
         features_cfg=_FEATURE_WINDOW_CFG,
     )
     assert len(comparisons) == 2
+
+
+def test_run_feature_window_backtest_garch_window() -> None:
+    """garch_window needs champion/challenger >= 50 (rolling_garch_forecast minimum)."""
+    bars = _synthetic_bars(1000)
+    model = _fitted_direction_model()
+    comparisons = run_feature_window_backtest(
+        bars,
+        field_name="garch_window",
+        champion_window=80,
+        challenger_window=100,
+        direction_model=model,
+        features_cfg=_FEATURE_WINDOW_CFG,
+    )
+    assert len(comparisons) == 2
+    names = {c.metric_name for c in comparisons}
+    assert names == {"oos_sharpe", "win_rate"}
 
 
 def test_identical_feature_window_never_significant() -> None:

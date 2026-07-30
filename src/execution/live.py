@@ -36,6 +36,7 @@ import structlog
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
+from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.execution.base import AbstractExecutor
 from src.execution.order_manager import OrderManager
 from src.risk.gates import DrawdownTracker
@@ -84,8 +85,10 @@ class LivePosition:
     approved_by: str
     execution_mode: str
     fee_usd: float
+    strategy_id: str = field(default="signal_engine_v1")
     unrealized_pnl: float = field(default=0.0)
     current_price: float = field(default=0.0)
+    peak_unrealized_pct: float = field(default=0.0)
 
     def mark(self, price: float) -> float:
         self.current_price = price
@@ -93,6 +96,10 @@ class LivePosition:
             self.unrealized_pnl = (price - self.entry_price) * self.quantity
         else:
             self.unrealized_pnl = (self.entry_price - price) * self.quantity
+        if self.notional_usd > 0:
+            pct = self.unrealized_pnl / self.notional_usd * 100.0
+            if pct > self.peak_unrealized_pct:
+                self.peak_unrealized_pct = pct
         return self.unrealized_pnl
 
 
@@ -242,6 +249,7 @@ class LiveExecutor(AbstractExecutor):
         meta_label_prob: float,
         raw_signal: float,
         current_price: float,
+        strategy_id: str = "signal_engine_v1",
     ) -> tuple[str | None, str]:
         """
         Route signal through execution mode and place live order if approved.
@@ -264,6 +272,7 @@ class LiveExecutor(AbstractExecutor):
                 meta_label_prob,
                 raw_signal,
                 approved_by="auto",
+                strategy_id=strategy_id,
             )
 
         if mode == ExecutionMode.RESTRICTED:
@@ -277,6 +286,7 @@ class LiveExecutor(AbstractExecutor):
                     meta_label_prob,
                     raw_signal,
                     approved_by="auto_below_limit",
+                    strategy_id=strategy_id,
                 )
             return await self._submit_signal_with_approval(
                 symbol,
@@ -288,6 +298,7 @@ class LiveExecutor(AbstractExecutor):
                 raw_signal,
                 timeout_s=self._risk_cfg.approval_timeout_s,
                 denied_outcome="skipped",
+                strategy_id=strategy_id,
             )
 
         if mode == ExecutionMode.MANUAL:
@@ -301,6 +312,7 @@ class LiveExecutor(AbstractExecutor):
                 raw_signal,
                 timeout_s=None,
                 denied_outcome="rejected",
+                strategy_id=strategy_id,
             )
 
         raise RuntimeError(f"Unknown execution mode: {mode!r}")  # pragma: no cover
@@ -315,6 +327,7 @@ class LiveExecutor(AbstractExecutor):
         meta_label_prob: float,
         raw_signal: float,
         approved_by: str,
+        strategy_id: str = "signal_engine_v1",
     ) -> tuple[str | None, str]:
         trade_id = await self._place_and_record(
             symbol,
@@ -325,6 +338,7 @@ class LiveExecutor(AbstractExecutor):
             meta_label_prob,
             raw_signal,
             approved_by=approved_by,
+            strategy_id=strategy_id,
         )
         return trade_id, "opened" if trade_id else "rejected"
 
@@ -339,6 +353,7 @@ class LiveExecutor(AbstractExecutor):
         raw_signal: float,
         timeout_s: float | None,
         denied_outcome: str,
+        strategy_id: str = "signal_engine_v1",
     ) -> tuple[str | None, str]:
         req_id = await self._enqueue_approval(
             symbol,
@@ -361,6 +376,7 @@ class LiveExecutor(AbstractExecutor):
             meta_label_prob,
             raw_signal,
             approved_by=operator,
+            strategy_id=strategy_id,
         )
 
     # ------------------------------------------------------------------
@@ -401,6 +417,7 @@ class LiveExecutor(AbstractExecutor):
                     trade_id=trade_id,
                     symbol=pos.symbol,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
 
@@ -452,6 +469,14 @@ class LiveExecutor(AbstractExecutor):
                 peak_equity=snap_peak,
             )
 
+            get_attribution_tracker().record(
+                AttributedFill(
+                    strategy_id=pos.strategy_id,
+                    pnl_usd=net_pnl,
+                    entry_ts=pos.entry_ts,
+                    exit_ts=int(datetime.now(tz=UTC).timestamp() * 1000),
+                )
+            )
             self._log.info(
                 "live.position_closed",
                 trade_id=trade_id,
@@ -581,6 +606,7 @@ class LiveExecutor(AbstractExecutor):
                 "unrealized_pnl_pct": round(p.unrealized_pnl / p.notional_usd * 100.0, 3)
                 if p.notional_usd > 0
                 else 0.0,
+                "peak_unrealized_pct": round(p.peak_unrealized_pct, 3),
                 "regime_at_entry": p.regime_at_entry,
                 "entry_ts": p.entry_ts,
             }
@@ -664,6 +690,7 @@ class LiveExecutor(AbstractExecutor):
         meta_label_prob: float,
         raw_signal: float,
         approved_by: str,
+        strategy_id: str = "signal_engine_v1",
     ) -> str | None:
         """Place market order, confirm fill, record position.
 
@@ -697,6 +724,7 @@ class LiveExecutor(AbstractExecutor):
                     symbol=symbol,
                     side=side,
                     error=str(exc),
+                    exc_info=True,
                 )
                 return None
 
@@ -779,6 +807,7 @@ class LiveExecutor(AbstractExecutor):
                         symbol=symbol,
                         error=str(exc),
                         action="MANUAL_CLOSE_REQUIRED",
+                        exc_info=True,
                     )
                 return None
 
@@ -800,6 +829,7 @@ class LiveExecutor(AbstractExecutor):
                     approved_by=approved_by,
                     execution_mode=self._cfg.execution_mode.value,
                     fee_usd=entry_fee,
+                    strategy_id=strategy_id,
                     current_price=actual_price,
                 )
                 self._positions[trade_id] = pos
@@ -892,6 +922,7 @@ class LiveExecutor(AbstractExecutor):
                 side=side,
                 quantity=quantity,
                 action="manual_reconciliation_required",
+                exc_info=True,
             )
             raise ccxt.ExchangeError(
                 f"Order for {symbol} did not confirm as filled within timeout — "

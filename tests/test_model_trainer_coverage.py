@@ -19,22 +19,14 @@ import pytest
 from xgboost import XGBClassifier
 
 from src.config import FeatureSettings, XGBoostSettings
-from src.features.pipeline import FeatureMatrix
+from src.features.pipeline import BASE_FEATURE_COLUMNS, FeatureMatrix
 from src.models.trainer import ModelTrainer, TrainingResult
 from src.risk.kelly import compute_win_loss_stats
 
 
-# Exact column names from src/features/pipeline.py
-FEATURES = [
-    "frac_diff",
-    "vwap_dev_zscore",
-    "ofi",
-    "realized_vol_ratio",
-    "atr_momentum",
-    "rolling_sharpe",
-    "volume_zscore",
-]
-N = len(FEATURES)  # 7
+# Derived from BASE_FEATURE_COLUMNS so the count stays in sync as features are added.
+FEATURES = list(BASE_FEATURE_COLUMNS)
+N = len(FEATURES)  # 8 after garch_vol_forecast added as 8th base feature
 
 
 # ---------------------------------------------------------------------------
@@ -927,7 +919,7 @@ class TestPredictMetaEdgeCases:
         assert 0.0 <= p <= 1.0
 
     def test_available_base_cols_fewer_than_expected_raises(self):
-        mm = _fitted_meta()  # trained on N + 2 = 9 features
+        mm = _fitted_meta()  # trained on N + 2 features
         short_vec = _vec()[:2]  # only 2 base columns available
         with pytest.raises(ValueError, match="feature schema"):
             _trainer().predict_meta(mm, short_vec, p_long=0.5)

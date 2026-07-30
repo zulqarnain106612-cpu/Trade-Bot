@@ -1378,3 +1378,275 @@ class TestLoadBars:
         assert len(result) == 310
         assert list(result.index) == sorted(result.index)
         assert "close" in result.columns
+
+
+# ---------------------------------------------------------------------------
+# Regime agreement scalar — pure unit tests (no async infrastructure needed)
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeAgreementScalar:
+    """Verify that SignalResult carries regime_agreement_scalar and defaults to 1.0."""
+
+    def test_signal_result_default_scalar_is_one(self) -> None:
+        from src.engine.signal_engine import SignalResult
+
+        result = SignalResult(
+            tradeable=False,
+            direction=0,
+            p_long=0.5,
+            p_bet=0.0,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
+            skip_reason="test",
+        )
+        assert result.regime_agreement_scalar == 1.0
+
+    def test_signal_result_accepts_explicit_scalar(self) -> None:
+        from src.engine.signal_engine import SignalResult
+
+        result = SignalResult(
+            tradeable=False,
+            direction=0,
+            p_long=0.5,
+            p_bet=0.0,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
+            skip_reason="test",
+            regime_agreement_scalar=0.65,
+        )
+        assert result.regime_agreement_scalar == pytest.approx(0.65)
+
+    def test_regime_agreement_scalar_floor_via_combine(self) -> None:
+        """agreement_score below 0.5 should clamp to 0.5, not go lower."""
+        from src.regime.ensemble import RegimeEnsembleVote, combine_regime_votes
+
+        vote = RegimeEnsembleVote(
+            hmm_prob_trending=0.8,
+            hmm_prob_ranging=0.1,
+            hmm_prob_volatile=0.1,
+            changepoint_probability=0.05,  # strong disagreement with trending HMM
+        )
+        result = combine_regime_votes(vote)
+        scalar = max(0.5, result.agreement_score)
+        assert 0.5 <= scalar <= 1.0
+
+    def test_combined_scalar_never_exceeds_correlation_scalar(self) -> None:
+        """combined = correlation * agreement — must never exceed either input."""
+        correlation_scalar = 0.8
+        regime_agreement_scalar = 0.7
+        combined = correlation_scalar * regime_agreement_scalar
+        assert combined <= correlation_scalar
+        assert combined <= regime_agreement_scalar
+
+
+# ---------------------------------------------------------------------------
+# GARCH vol wiring into SignalContext
+# ---------------------------------------------------------------------------
+
+
+class TestGARCHVolWiring:
+    """Verify garch_vol_forecast from the feature matrix reaches SignalContext."""
+
+    def _make_fm_with_garch(self, garch_val: float) -> FeatureMatrix:
+        from src.features.pipeline import COL_GARCH_VOL
+
+        fm = _fm()
+        fm.features[COL_GARCH_VOL] = garch_val
+        return fm
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_positive_reaches_signal_context(self) -> None:
+        """Positive GARCH forecast from feature matrix must be passed to CogEng ctx."""
+
+        captured: list = []
+
+        def _cog():
+            m = MagicMock()
+            r = MagicMock()
+            r.passed = True
+            r.veto_reason = ""
+            r.adjusted_size_fraction = 0.05
+
+            def _ev(ctx):
+                captured.append(ctx)
+                return r
+
+            m.evaluate = _ev
+            return m
+
+        e = _make_engine()
+        expected_garch = 0.015
+
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        fm = self._make_fm_with_garch(expected_garch)
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_cog()),
+        ):
+            await e.tick(**_TICK)
+
+        assert len(captured) == 1
+        ctx = captured[0]
+        assert abs(ctx.garch_vol_forecast - expected_garch) < 1e-9
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_zero_or_missing_defaults_to_zero(self) -> None:
+        """When feature matrix lacks GARCH column, garch_vol_forecast must be 0.0."""
+        captured: list = []
+
+        def _cog():
+            m = MagicMock()
+            r = MagicMock()
+            r.passed = True
+            r.veto_reason = ""
+            r.adjusted_size_fraction = 0.05
+
+            def _ev(ctx):
+                captured.append(ctx)
+                return r
+
+            m.evaluate = _ev
+            return m
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+
+        # Feature matrix without garch_vol_forecast column
+        fm_no_garch = MagicMock(spec=FeatureMatrix)
+        fm_no_garch.features = pd.DataFrame(
+            np.random.rand(120, 5), columns=[f"col_{i}" for i in range(5)]
+        )
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm_no_garch),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_cog()),
+        ):
+            await e.tick(**_TICK)
+
+        assert len(captured) == 1
+        ctx = captured[0]
+        assert ctx.garch_vol_forecast == 0.0
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_scalar_applied_when_above_threshold(self) -> None:
+        """When GARCH vol > threshold, compute_position_size must receive scalar < 1."""
+        from src.config import get_settings
+
+        captured_kwargs: list = []
+        threshold = get_settings().risk.garch_vol_threshold  # default 0.02
+        high_garch = threshold * 4.0  # 4x threshold → scalar should be 0.25
+
+        def _mock_cps(*args, **kwargs):
+            captured_kwargs.append(kwargs)
+            return _mock_kelly()
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        fm = self._make_fm_with_garch(high_garch)
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", side_effect=_mock_cps),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=MagicMock(
+                    evaluate=MagicMock(
+                        return_value=MagicMock(
+                            passed=True,
+                            veto_reason="",
+                            adjusted_size_fraction=0.05,
+                        )
+                    )
+                ),
+            ),
+        ):
+            await e.tick(**_TICK)
+
+        assert captured_kwargs, "compute_position_size was never called"
+        scalar = captured_kwargs[0].get("garch_vol_scalar", 1.0)
+        assert scalar == pytest.approx(threshold / high_garch, rel=1e-5)
+        assert scalar < 1.0

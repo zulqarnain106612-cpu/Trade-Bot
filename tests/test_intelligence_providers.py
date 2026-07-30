@@ -34,7 +34,7 @@ import pytest
 
 @pytest.fixture()
 def base_feature_vec() -> pd.Series:
-    """Minimal 7-feature base vector matching FEATURE_COLUMNS."""
+    """Minimal base feature vector matching FEATURE_COLUMNS."""
     from src.features.pipeline import FEATURE_COLUMNS
 
     return pd.Series(
@@ -1276,3 +1276,385 @@ class TestGetOnChainAwareAggregatorSingleton:
         from src.intelligence.providers.aggregator import get_onchain_aware_aggregator
 
         assert se_mod._get_intel_aggregator is get_onchain_aware_aggregator
+
+
+# ---------------------------------------------------------------------------
+# BinanceIntelligenceProvider (GAP — no coverage before this)
+# ---------------------------------------------------------------------------
+
+
+class TestBinanceIntelligenceProvider:
+    @pytest.fixture()
+    def provider(self):
+        from src.intelligence.providers.binance_provider import BinanceIntelligenceProvider
+
+        return BinanceIntelligenceProvider(symbol="BTC/USDT", perp_symbol="BTC/USDT:USDT")
+
+    # -- exchange_id -----------------------------------------------------------
+
+    def test_exchange_id(self, provider):
+        assert provider.exchange_id == "binance"
+
+    # -- fetch_metrics shape ---------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_fetch_metrics_returns_all_keys(self, provider):
+        from src.features.intelligence_features import INTELLIGENCE_FEATURE_COLUMNS
+
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 0.01, "zscore": 0.4})
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": 2.0, "value_usd": 1e9})
+        provider._fetch_basis_data = AsyncMock(return_value=8.0)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.3)
+
+        metrics = await provider.fetch_metrics()
+
+        for col in INTELLIGENCE_FEATURE_COLUMNS:
+            raw_key = col.removeprefix("intelligence_")
+            assert raw_key in metrics, f"Missing key: {raw_key}"
+        assert "confidence" in metrics
+        assert "timestamp" in metrics
+
+    @pytest.mark.asyncio
+    async def test_fetch_metrics_never_raises(self, provider):
+        provider._fetch_funding_data = AsyncMock(side_effect=Exception("network down"))
+        provider._fetch_oi_data = AsyncMock(side_effect=RuntimeError("timeout"))
+        provider._fetch_basis_data = AsyncMock(side_effect=ValueError("bad data"))
+        provider._fetch_whale_taker_ratio = AsyncMock(side_effect=Exception("rate limit"))
+
+        metrics = await provider.fetch_metrics()
+        assert isinstance(metrics, dict)
+        assert 0.0 <= metrics["confidence"] <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_confidence_reduced_on_partial_failure(self, provider):
+        """Failing fetches each deduct from confidence."""
+        provider._fetch_funding_data = AsyncMock(side_effect=Exception("fail"))
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": 0.0, "value_usd": 0.0})
+        provider._fetch_basis_data = AsyncMock(return_value=0.0)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.0)
+
+        metrics_fail = await provider.fetch_metrics()
+
+        provider._cache.clear()
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 0.01, "zscore": 0.3})
+        metrics_ok = await provider.fetch_metrics()
+
+        assert metrics_fail["confidence"] < metrics_ok["confidence"]
+
+    @pytest.mark.asyncio
+    async def test_stress_score_bounded(self, provider):
+        provider._fetch_funding_data = AsyncMock(return_value={"rate_pct": 1.0, "zscore": 10.0})
+        provider._fetch_oi_data = AsyncMock(return_value={"change_pct": -50.0, "value_usd": 1e10})
+        provider._fetch_basis_data = AsyncMock(return_value=500.0)
+        provider._fetch_whale_taker_ratio = AsyncMock(return_value=1.0)
+
+        metrics = await provider.fetch_metrics()
+        assert 0.0 <= metrics["exchange_stress_score"] <= 1.0
+
+    # -- _fetch_funding_data ---------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_fetch_funding_data_empty_history(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = AsyncMock(return_value=[])
+        result = await provider._fetch_funding_data()
+        assert result == {"rate_pct": 0.0, "zscore": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_fetch_funding_data_single_rate_no_zscore(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = AsyncMock(
+            return_value=[{"fundingRate": 0.0002}]
+        )
+        result = await provider._fetch_funding_data()
+        assert result["rate_pct"] == pytest.approx(0.02)
+        assert result["zscore"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fetch_funding_data_zscore_computed(self, provider):
+        rates = [0.0001] * 29 + [0.0010]  # last is 9x the mean
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = AsyncMock(
+            return_value=[{"fundingRate": r} for r in rates]
+        )
+        result = await provider._fetch_funding_data()
+        assert result["zscore"] > 0.0
+        assert result["rate_pct"] == pytest.approx(0.0010 * 100.0)
+
+    @pytest.mark.asyncio
+    async def test_fetch_funding_data_uses_cache(self, provider):
+        cached = {"rate_pct": 0.02, "zscore": 1.5}
+        provider._set_cache(f"funding:{provider._perp_symbol}", cached)
+        result = await provider._fetch_funding_data()
+        assert result == cached
+
+    # -- _fetch_oi_data --------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_fetch_oi_data_empty_history(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_open_interest_history = AsyncMock(return_value=[])
+        result = await provider._fetch_oi_data()
+        assert result == {"change_pct": 0.0, "value_usd": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_fetch_oi_data_computes_change_pct(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.fetch_open_interest_history = AsyncMock(
+            return_value=[
+                {"openInterestAmount": 1000.0, "openInterestValue": 5_000_000.0},
+                {"openInterestAmount": 1100.0, "openInterestValue": 5_500_000.0},
+            ]
+        )
+        result = await provider._fetch_oi_data()
+        assert result["change_pct"] == pytest.approx(10.0)
+        assert result["value_usd"] == pytest.approx(5_500_000.0)
+
+    @pytest.mark.asyncio
+    async def test_fetch_oi_data_uses_cache(self, provider):
+        cached = {"change_pct": 3.0, "value_usd": 2_000_000.0}
+        provider._set_cache(f"oi:{provider._perp_symbol}", cached)
+        result = await provider._fetch_oi_data()
+        assert result == cached
+
+    # -- _fetch_basis_data -----------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_computes_bps(self, provider):
+        provider._spot = AsyncMock()
+        provider._perp = AsyncMock()
+        provider._spot.fetch_ticker = AsyncMock(return_value={"last": 30_000.0})
+        provider._perp.fetch_ticker = AsyncMock(return_value={"last": 30_030.0})
+        result = await provider._fetch_basis_data()
+        assert result == pytest.approx(10.0)
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_missing_price_returns_zero(self, provider):
+        provider._spot = AsyncMock()
+        provider._perp = AsyncMock()
+        provider._spot.fetch_ticker = AsyncMock(return_value={"last": None, "close": None})
+        provider._perp.fetch_ticker = AsyncMock(return_value={"last": 30_000.0})
+        result = await provider._fetch_basis_data()
+        assert result == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_clamped_at_500bps(self, provider):
+        provider._spot = AsyncMock()
+        provider._perp = AsyncMock()
+        provider._spot.fetch_ticker = AsyncMock(return_value={"last": 1.0})
+        provider._perp.fetch_ticker = AsyncMock(return_value={"last": 100.0})  # +9900%
+        result = await provider._fetch_basis_data()
+        assert result == pytest.approx(500.0)
+
+    @pytest.mark.asyncio
+    async def test_fetch_basis_data_uses_cache(self, provider):
+        provider._set_cache(f"basis:{provider._symbol}", 42.0)
+        result = await provider._fetch_basis_data()
+        assert result == pytest.approx(42.0)
+
+    # -- _fetch_whale_taker_ratio (fapiPublicGetKlines path) -------------------
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_empty_raw_returns_neutral(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.market = MagicMock(return_value={"id": "BTCUSDT"})
+        provider._perp.fapiPublicGetKlines = AsyncMock(return_value=[])
+        result = await provider._fetch_whale_taker_ratio()
+        assert result == 1.0
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_computes_from_raw_klines(self, provider):
+        """Index 5 = total vol, index 9 = taker_buy_base_vol (Binance raw schema)."""
+        provider._perp = AsyncMock()
+        provider._perp.market = MagicMock(return_value={"id": "BTCUSDT"})
+        # Two bars: total_vol=100+100=200, taker_buy=60+60=120 → ratio=120/80=1.5
+        bar = ["ts", "o", "h", "l", "c", "100.0", "close_ts", "qav", "n", "60.0", "tbqav", "0"]
+        provider._perp.fapiPublicGetKlines = AsyncMock(return_value=[bar, bar])
+        result = await provider._fetch_whale_taker_ratio()
+        assert result == pytest.approx(1.5)
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_capped_at_ten(self, provider):
+        provider._perp = AsyncMock()
+        provider._perp.market = MagicMock(return_value={"id": "BTCUSDT"})
+        bar = ["ts", "o", "h", "l", "c", "100.0", "ct", "qav", "n", "99.9999", "tbqav", "0"]
+        provider._perp.fapiPublicGetKlines = AsyncMock(return_value=[bar])
+        result = await provider._fetch_whale_taker_ratio()
+        assert result <= 10.0
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_uses_cache(self, provider):
+        provider._set_cache(f"whale:{provider._perp_symbol}", 2.5)
+        result = await provider._fetch_whale_taker_ratio()
+        assert result == pytest.approx(2.5)
+
+    @pytest.mark.asyncio
+    async def test_whale_ratio_market_raises_returns_neutral_and_caches(self, provider):
+        """BadSymbol from market() must return 1.0 and cache the neutral so the
+        next call within TTL skips the network rather than retrying."""
+        provider._perp = AsyncMock()
+        provider._perp.market = MagicMock(side_effect=Exception("BadSymbol"))
+        provider._cache_ttl = 300
+
+        result = await provider._fetch_whale_taker_ratio()
+        assert result == 1.0
+        # The neutral must be cached so a second call does not hit the exchange
+        assert provider._get_cache(f"whale:{provider._perp_symbol}") == pytest.approx(1.0)
+
+    # -- caching (TTL expiry via base helper) ----------------------------------
+
+    def test_get_cache_miss_returns_none(self, provider):
+        assert provider._get_cache("nonexistent") is None
+
+    def test_get_cache_expired_returns_none(self, provider):
+        provider._cache_ttl = 1
+        provider._cache["k"] = (time.time() - 10.0, "value")
+        assert provider._get_cache("k") is None
+
+    def test_get_cache_hit_returns_value(self, provider):
+        provider._cache_ttl = 300
+        provider._cache["k"] = (time.time(), "fresh")
+        assert provider._get_cache("k") == "fresh"
+
+    @pytest.mark.asyncio
+    async def test_caching_prevents_duplicate_network_calls(self, provider):
+        """TTL cache must block a second network call within the TTL window."""
+        call_count = 0
+
+        async def counting_fetch(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            return [{"fundingRate": 0.0001}, {"fundingRate": 0.0001}]
+
+        provider._perp = AsyncMock()
+        provider._perp.fetch_funding_rate_history = counting_fetch
+        provider._cache_ttl = 300
+
+        await provider._fetch_funding_data()
+        await provider._fetch_funding_data()
+        assert call_count == 1
+
+    # -- _compute_stress_score -------------------------------------------------
+
+    def test_stress_score_all_zero_inputs(self, provider):
+        assert provider._compute_stress_score(0.0, 0.0, 0.0) == pytest.approx(0.0)
+
+    def test_stress_score_max_inputs(self, provider):
+        score = provider._compute_stress_score(500.0, 3.0, -5.0)
+        assert score == pytest.approx(1.0)
+
+    def test_stress_score_high_basis_only(self, provider):
+        score = provider._compute_stress_score(100.0, 0.0, 0.0)
+        assert score == pytest.approx(0.35)  # _W_BASIS * 1.0
+
+    def test_stress_score_high_funding_zscore_only(self, provider):
+        score = provider._compute_stress_score(0.0, 3.0, 0.0)
+        assert score == pytest.approx(0.40)  # _W_FR_Z * 1.0
+
+    def test_stress_score_oi_drop_only(self, provider):
+        score = provider._compute_stress_score(0.0, 0.0, -5.0)
+        assert score == pytest.approx(0.25)  # _W_OI * 1.0
+
+    def test_stress_score_positive_oi_no_stress(self, provider):
+        # OI growth is not stress — only drops count
+        score_up = provider._compute_stress_score(0.0, 0.0, 10.0)
+        score_flat = provider._compute_stress_score(0.0, 0.0, 0.0)
+        assert score_up == score_flat
+
+    # -- singleton -------------------------------------------------------------
+
+    def test_singleton(self):
+        import src.intelligence.providers.binance_provider as mod
+
+        mod._provider = None
+        from src.intelligence.providers.binance_provider import get_binance_intelligence_provider
+
+        p1 = get_binance_intelligence_provider()
+        p2 = get_binance_intelligence_provider()
+        assert p1 is p2
+        mod._provider = None
+
+    # -- initialize / close ----------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_initialize_and_close(self, provider):
+        provider._spot.load_markets = AsyncMock(return_value={})
+        provider._perp.load_markets = AsyncMock(return_value={})
+        provider._spot.close = AsyncMock()
+        provider._perp.close = AsyncMock()
+
+        await provider.initialize()
+        await provider.close()
+
+        provider._spot.load_markets.assert_awaited_once()
+        provider._perp.load_markets.assert_awaited_once()
+        provider._spot.close.assert_awaited_once()
+        provider._perp.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# ExchangeIntelligenceProvider base class — _get_cache / _set_cache helpers
+# (tests run on a minimal concrete subclass to isolate base logic)
+# ---------------------------------------------------------------------------
+
+
+class TestBaseProviderCacheHelpers:
+    @pytest.fixture()
+    def base(self):
+        """Minimal concrete subclass — only tests base-class cache helpers."""
+        from src.intelligence.providers.base import ExchangeIntelligenceProvider
+
+        class _Stub(ExchangeIntelligenceProvider):
+            @property
+            def exchange_id(self):
+                return "stub"
+
+            async def initialize(self):
+                pass
+
+            async def close(self):
+                pass
+
+            async def fetch_metrics(self) -> dict[str, float]:
+                return {"confidence": 1.0, "timestamp": float(int(time.time()))}
+
+        return _Stub()
+
+    def test_set_cache_initialises_dict_on_first_call(self, base):
+        """_set_cache must auto-create _cache when subclass doesn't pre-init it."""
+        assert not hasattr(base, "_cache")
+        base._set_cache("k", 42)
+        assert hasattr(base, "_cache")
+        assert "k" in base._cache
+
+    def test_set_cache_stores_timestamp(self, base):
+        before = time.time()
+        base._set_cache("k", "v")
+        ts, val = base._cache["k"]
+        assert ts >= before
+        assert val == "v"
+
+    def test_get_cache_miss_returns_none(self, base):
+        base._cache_ttl = 300
+        base._cache: dict = {}
+        assert base._get_cache("missing") is None
+
+    def test_get_cache_hit_within_ttl(self, base):
+        base._cache_ttl = 300
+        base._set_cache("k", "hello")
+        assert base._get_cache("k") == "hello"
+
+    def test_get_cache_expired_returns_none(self, base):
+        base._cache_ttl = 1
+        base._cache = {"k": (time.time() - 10.0, "stale")}
+        assert base._get_cache("k") is None
+
+    def test_get_cache_no_cache_attr_returns_none(self, base):
+        """_get_cache must not raise when _cache hasn't been set yet."""
+        assert not hasattr(base, "_cache")
+        assert base._get_cache("k") is None
+
+    def test_get_cache_zero_ttl_always_expires(self, base):
+        base._cache_ttl = 0
+        base._set_cache("k", "v")
+        assert base._get_cache("k") is None

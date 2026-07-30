@@ -14,7 +14,7 @@ mypy, and coverage; use `gh run watch` / `gh pr checks` to read results
 instead of running these locally.
 
 ## Decision Authority — what to decide vs what to ask
-**Decide and act, no confirmation needed:**
+**Decide and act, no confirmation needed but you decisions and actions should be at architect level.you are not the follower in millions who follow rules, you are the one who define them:**
 refactors, adding/fixing tests, non-breaking dependency bumps, docs, lint/type
 fixes, committing/pushing work for the full gate (ruff + mypy + pytest +
 coverage floors) to run in GitHub Actions — see Hard Rules for the
@@ -80,7 +80,7 @@ implementation details.
   this is never superseded by the Execution Contract above.
 
 ## Output Style
-Minimal, exact, implementation-focused; no filler or progress narration.
+shortest, exact, implementation-focused; no filler or progress narration.
 One complete solution over multiple weak alternatives. Code in files, not
 chat, unless the snippet is short. Chunk generated files to ≤30 lines where
 practical. Use git history / DECISION_LOG.md for change tracking instead of

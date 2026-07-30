@@ -46,6 +46,8 @@ def make_synthetic_features(n_per_regime: int = 80, seed: int = 7) -> pd.DataFra
     rng = np.random.default_rng(seed)
 
     def block(vol_ratio_mu, atr_mom_mu, sharpe_mu, n):
+        # garch_vol_forecast: conditional vol proxy; volatile regime has higher value
+        garch_mu = vol_ratio_mu * 0.02  # proxy: scales with realized_vol_ratio
         return pd.DataFrame(
             {
                 "frac_diff": rng.normal(0.0, 0.01, n),
@@ -53,6 +55,7 @@ def make_synthetic_features(n_per_regime: int = 80, seed: int = 7) -> pd.DataFra
                 "atr_momentum": rng.normal(atr_mom_mu, 0.05, n),
                 "rolling_sharpe": rng.normal(sharpe_mu, 0.1, n),
                 "volume_zscore": rng.normal(0.0, 0.3, n),
+                "garch_vol_forecast": rng.normal(garch_mu, 0.005, n).clip(0.001),
             }
         )
 

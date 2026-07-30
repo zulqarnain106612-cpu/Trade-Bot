@@ -205,7 +205,7 @@ async def _with_retry(
         try:
             return await coro_factory()
         except (ccxt.AuthenticationError, ccxt.InvalidOrder) as exc:
-            log.error("fetch.auth_or_invalid", label=label, error=str(exc))
+            log.error("fetch.auth_or_invalid", label=label, error=str(exc), exc_info=True)
             raise
         except ccxt.RateLimitExceeded as exc:
             # VF-011: On the final attempt raise the original exception so callers
@@ -217,6 +217,7 @@ async def _with_retry(
                     label=label,
                     attempts=attempts,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
             wait = min(delay * 2, 60.0)
@@ -226,6 +227,7 @@ async def _with_retry(
                 attempt=attempt,
                 wait_s=wait,
                 error=str(exc),
+                exc_info=True,
             )
             await asyncio.sleep(wait)
             delay = wait
@@ -236,6 +238,7 @@ async def _with_retry(
                     label=label,
                     attempts=attempts,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
             log.warning(
@@ -244,11 +247,12 @@ async def _with_retry(
                 attempt=attempt,
                 delay_s=delay,
                 error=str(exc),
+                exc_info=True,
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60.0)
         except ccxt.ExchangeError as exc:
-            log.error("fetch.exchange_error", label=label, error=str(exc))
+            log.error("fetch.exchange_error", label=label, error=str(exc), exc_info=True)
             raise
     # Should never reach here; satisfies type checker
     raise RuntimeError(f"_with_retry exhausted for {label!r}")  # pragma: no cover
@@ -294,22 +298,25 @@ class MarketDataFetcher:
         with self._sem_init_guard:
             if self._gap_fill_sem is None:
                 self._gap_fill_sem = asyncio.Semaphore(1)
-        return self._gap_fill_sem  # type: ignore[return-value]
+        assert self._gap_fill_sem is not None
+        return self._gap_fill_sem
 
     async def initialize(self) -> None:
         """Build ccxt exchange instances and load markets."""
         cfg = self._settings
-        self._binance = _build_binance(cfg.binance)
-        self._okx = _build_okx(cfg.okx)
+        binance = _build_binance(cfg.binance)
+        self._binance = binance
+        okx = _build_okx(cfg.okx)
+        self._okx = okx
 
         await _with_retry(
-            lambda: self._binance.load_markets(),  # type: ignore[union-attr]
+            lambda: binance.load_markets(),
             label="binance.load_markets",
         )
         self._log.info("fetcher.binance_ready", testnet=cfg.binance.testnet)
 
         await _with_retry(
-            lambda: self._okx.load_markets(),  # type: ignore[union-attr]
+            lambda: okx.load_markets(),
             label="okx.load_markets",
         )
         self._log.info("fetcher.okx_ready", testnet=cfg.okx.testnet)
@@ -552,6 +559,7 @@ class MarketDataFetcher:
                         symbol=symbol,
                         timeframe=tf.value,
                         error=str(exc),
+                        exc_info=True,
                     )
                     results[tf.value] = 0
         return results
@@ -768,6 +776,7 @@ class _FetcherContextManager:
                 "fetcher.context_manager_close_error",
                 error=str(close_exc),
                 original_exc_type=exc_type.__name__ if exc_type else None,
+                exc_info=True,
             )
         return False  # do not suppress the original exception
 

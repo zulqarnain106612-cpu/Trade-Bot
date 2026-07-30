@@ -38,6 +38,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # noisy 30-trade sample doesn't halt trading on a difference that a larger
 # sample would show is within normal variation.
 _DRIFT_SHARPE_DROP_PP: Final[float] = 0.5  # If live Sharpe drops >0.5pp vs training, halt
+_DRIFT_SORTINO_DROP_PP: Final[float] = 0.6  # If live Sortino drops >0.6pp vs training, halt
 _DRIFT_ACCURACY_DROP_PP: Final[float] = 0.10  # >10pp drop in model accuracy
 _DRIFT_WINRATE_DROP_PP: Final[float] = 0.15  # >15pp drop in win rate
 _DRIFT_DRAWDOWN_EXPAND_PP: Final[float] = 0.10  # Max DD expands >10pp vs training max DD
@@ -98,12 +99,18 @@ class PerformanceBaseline:
     train_win_rate: float
     max_drawdown_pct: float
     trades_in_backtest: int
+    # Sortino ratios — Sortino & Price (1994); default 0.0 for backward compat
+    # with callers that built the baseline before this field existed.
+    train_sortino: float = 0.0
+    oos_sortino: float = 0.0
     set_at_ms: int = field(default_factory=lambda: int(datetime.now(tz=UTC).timestamp() * 1000))
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "train_sharpe": self.train_sharpe,
             "oos_sharpe": self.oos_sharpe,
+            "train_sortino": self.train_sortino,
+            "oos_sortino": self.oos_sortino,
             "train_accuracy": self.train_accuracy,
             "oos_accuracy": self.oos_accuracy,
             "train_win_rate": self.train_win_rate,
@@ -236,8 +243,11 @@ class PerformanceDriftDetector:
                 reason=f"Insufficient live trades ({self._total_live_trades} < {_MIN_LIVE_TRADES})",
             )
 
-        # Check each metric for drift
+        # Check each metric for drift — Sortino before Sharpe because it is
+        # more specific (downside-only), so asymmetric drawdown scenarios surface
+        # the right label rather than the blunter Sharpe signal.
         drift_checks = [
+            self._check_sortino_drift(),
             self._check_sharpe_drift(),
             self._check_accuracy_drift(),
             self._check_winrate_drift(),
@@ -276,6 +286,33 @@ class PerformanceDriftDetector:
         if std_pnl > 0:
             return mean_pnl / std_pnl
         return 0.0 if mean_pnl == 0 else mean_pnl * 10
+
+    def current_rolling_sortino(self) -> float | None:
+        """
+        Rolling Sortino ratio over the live window.
+
+        Sortino = mean(P&L) / downside_std, where downside_std is the std
+        of only the negative P&L values (semi-deviation). Compared to the
+        Sharpe equivalent, it ignores upside volatility — a property that
+        is especially valuable in crypto where upside spikes are common.
+
+        Returns None when there is insufficient live history.
+        """
+        if len(self._live_pnl_window) < 20:
+            return None
+        pnl_list = list(self._live_pnl_window)
+        mean_pnl = statistics.mean(pnl_list)
+        losses = [p for p in pnl_list if p < 0.0]
+        if not losses:
+            return None
+        # Standard Sortino semi-deviation: sqrt(sum(losses^2) / n_total).
+        # Dividing by total trades (not just losses) matches Sortino & Price (1994)
+        # and attribution.py's _sortino(). Using squared sum avoids the std=0
+        # edge case when all losses are identical.
+        downside_std = math.sqrt(sum(p * p for p in losses) / len(pnl_list))
+        if downside_std <= 0.0:
+            return None
+        return mean_pnl / downside_std
 
     def _check_sharpe_drift(self) -> DriftDetected:
         """Check if rolling Sharpe has dropped >0.5pp vs training OOS Sharpe."""
@@ -321,6 +358,36 @@ class PerformanceDriftDetector:
                 reason=f"Sharpe drifted {drift_pp:.3f}pp below baseline ({live_sharpe:.2f} vs {baseline_sharpe:.2f})",
             )
 
+        return DriftDetected(drifted=False)
+
+    def _check_sortino_drift(self) -> DriftDetected:
+        """
+        Check if live rolling Sortino has dropped >0.6pp vs training OOS Sortino.
+
+        Sortino is more sensitive to downside-only variance, which matters for
+        crypto where upside volatility (news-driven pumps) should not suppress
+        position sizing. Skip when training Sortino is zero (baseline missing).
+        """
+        if self._baseline.oos_sortino <= 0.0:
+            return DriftDetected(drifted=False)
+
+        live_sortino = self.current_rolling_sortino()
+        if live_sortino is None:
+            return DriftDetected(drifted=False)
+
+        drift_pp = self._baseline.oos_sortino - live_sortino
+        if drift_pp > _DRIFT_SORTINO_DROP_PP:
+            return DriftDetected(
+                drifted=True,
+                metric="sortino",
+                live_value=live_sortino,
+                baseline_value=self._baseline.oos_sortino,
+                drift_pp=drift_pp,
+                reason=(
+                    f"Sortino drifted {drift_pp:.3f}pp below baseline "
+                    f"({live_sortino:.2f} vs {self._baseline.oos_sortino:.2f})"
+                ),
+            )
         return DriftDetected(drifted=False)
 
     def _check_accuracy_drift(self) -> DriftDetected:
@@ -423,10 +490,12 @@ class PerformanceDriftDetector:
             else 0.0
         )
 
+        live_sortino = self.current_rolling_sortino()
         return {
             "total_live_trades": self._total_live_trades,
             "total_live_wins": self._total_live_wins,
             "rolling_sharpe": round(live_sharpe, 3),
+            "rolling_sortino": round(live_sortino, 3) if live_sortino is not None else None,
             "rolling_winrate": round(live_winrate, 3),
             "rolling_accuracy": round(live_accuracy, 3),
             "max_live_drawdown_pct": round(self._max_live_drawdown_pct, 4),

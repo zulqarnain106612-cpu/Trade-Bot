@@ -282,3 +282,120 @@ not floor violations):
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+## GARCH vol integration — end-to-end wiring into cognitive engine risk score
+
+Three-stage integration of GARCH(1,1) conditional volatility into the live
+risk assessment pipeline:
+
+1. **Feature matrix** — GARCH walk-forward forecast (`garch_vol_forecast`)
+   added as 8th base feature column (`BASE_FEATURE_COLUMNS`) in
+   `src/features/pipeline.py`. The HMM also picks it up via
+   `HMM_FEATURE_COLS` in `src/regime/detector.py`, so regime transitions
+   now see conditional-vol regime differences.
+
+2. **Cognitive engine** — `SignalContext` gained `garch_vol_forecast: float
+   = 0.0` (optional, backward-compatible) and `_compute_risk_score` now
+   applies a 5% weight: `0.33*dd + 0.28*vol + 0.24*loss + 0.10*pos +
+   0.05*garch`. The GARCH component is clamped to [0, 1] at a 2%/bar
+   threshold, so a 2%+ per-bar GARCH forecast fully saturates the
+   component. Tests: `test_garch_zero_contributes_nothing`,
+   `test_garch_high_vol_increases_score`, `test_weights_sum_to_one`.
+
+3. **Signal engine wiring** — `SignalEngine.tick()` now extracts
+   `garch_vol_forecast` from the last row of the pre-built `FeatureMatrix`
+   (the matrix is already computed before the cognitive engine call, so
+   there is no extra computation). Falls back to 0.0 during warm-up when
+   GARCH has not yet converged. Tests: `TestGARCHVolWiring` in
+   `tests/test_signal_engine.py`.
+
+## Sortino semi-deviation formula — unified to Sortino & Price (1994)
+
+Three implementations previously used `statistics.std(losses)` which
+returns 0 for identical losses (common in tests and during sustained
+losing streaks), causing `rolling_sortino()` to return None incorrectly.
+
+Fixed to use the standard Sortino & Price (1994) formula:
+`downside_std = sqrt(sum(losses^2) / n_total)` — consistent across:
+- `src/risk/performance_drift.py` — `current_rolling_sortino()`
+- `src/diagnostics/signal_debugger.py` — `rolling_sortino()`
+- `src/diagnostics/attribution.py` — `_sortino()` (already correct)
+
+Also reordered `check_drift()` to run sortino before sharpe drift so
+asymmetric downside scenarios surface the more specific label.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
+
+## GARCH vol-targeting position sizing — Kelly garch_vol_scalar
+
+Extended the Kelly sizing pipeline with GARCH vol-targeting (Carver 2019):
+
+1. **Config**: `RISK_GARCH_VOL_THRESHOLD` added to `RiskSettings` (default
+   `0.02` — 2% per bar, ≈31.6% annualized). This is the saturation level
+   used in the cognitive engine's GARCH component AND the vol-targeting
+   denominator.
+
+2. **Kelly**: `compute_position_size()` gains a `garch_vol_scalar` parameter
+   (default 1.0 = no-op, backward compatible). Same fail-safe pattern as
+   `regime_scalar`, `correlation_scalar`, `sample_uncertainty_scalar` — an
+   invalid value clamps to 0.0 (blocks sizing), never amplifies.
+
+3. **Signal engine**: `_garch_vol` extracted early (before Kelly call) and
+   `garch_vol_scalar = threshold / forecast` computed when
+   `forecast > threshold`. Passed to `compute_position_size()`. The same
+   `_garch_vol_early` value is reused for `SignalContext.garch_vol_forecast`,
+   eliminating a redundant late extraction.
+
+Behavior: when GARCH vol = 4× threshold, position is reduced to 25% of what
+Kelly would otherwise allow — proportional vol-targeting, not a hard veto.
+Trades remain alive at reduced size during vol spikes.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
+
+## mypy error sweep — CI gate restored
+
+Fixed 25 pre-existing mypy errors spread across 8 files that were blocking
+CI (the errors existed before this session but were surfaced by the new
+mypy 2.3.0 version in CI):
+
+- `portfolio_correlation.py`: temp vars for `_var`/`_cov`/`_mean_y` in
+  else-branches (mypy does not narrow instance attrs across if-else)
+- `probabilistic.py`, `ensemble_predictor.py`: `lambda k: d[k]` instead of
+  `d.get` as `max`/`min` key (`.get` returns `T | None`, not `T`)
+- `onchain/base.py`: renamed `self._cache` → `self._async_cache` to avoid
+  type conflict with parent class's `dict[str, tuple[float, Any]]` annotation
+- `storage.py`: guarded `fetchone()` returns before indexing/dict()
+- `execution/base.py`: `submit_signal` return type `→ tuple[str|None, str]`
+- `ensemble_predictor.py`: added abstract `fit()` to `PredictionModel` ABC;
+  `getattr(model, "lookback", 20)` for LSTM; `float()` wraps on numpy scalars
+- `orchestrator.py`: `tf_trainer: ModelTrainer | None` annotation prevents
+  re-use confusion with `trainer: ModelTrainer` from earlier in the function
+- `api/main.py`: `AppState.orchestrator: Orchestrator | None`; `assert is not
+  None` narrowing before attribute access; tuple/set casts for allocate call
+
+Also fixed `test_onchain_base_coverage.py` to use `_async_cache` after rename.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
+
+## 2026-07-30 — Sortino degradation trigger + regime ensemble risk wiring
+
+**Changes**:
+- `signal_debugger.py`: `check_degradation()` now uses `rolling_sortino` as
+  a degradation trigger (`ROLLING_SORTINO_THRESHOLD = 0.5`). Adds `sortino_degraded`
+  key to the report dict (always present, default False). Sortino penalises
+  downside-only volatility so it catches persistent losing runs that Sharpe
+  (which treats upside and downside vol equally) can miss.
+- `cognitive_engine.py`: Added `regime_agreement_score: float = 1.0` field to
+  `SignalContext`. `_compute_risk_score` now includes a `regime_disagree_component`
+  (weight 0.05) = `1 - agreement_score`. Weights rebalanced: pos 0.10→0.08,
+  garch 0.05→0.02. Signal_engine passes `_regime_agreement_scalar` into
+  `SignalContext` so HMM/changepoint disagreement registers as risk.
+- `tuning/bootstrap.py`: Added `register_garch_vol_threshold()` so the GARCH
+  vol-targeting threshold can be self-tuned via the standard propose/evaluate/gate
+  machinery. Left unscheduled (same pattern as `ensemble_blend_weight`) until a
+  dedicated backtest harness exists.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally.

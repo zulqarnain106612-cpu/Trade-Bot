@@ -199,6 +199,7 @@ class Orchestrator:
                     "orchestrator.bootstrap_failed",
                     timeframe=tf.value,
                     error=str(result),
+                    exc_info=True,
                 )
                 raise RuntimeError(
                     f"Bootstrap failed for timeframe {tf.value}: {result}"
@@ -236,16 +237,18 @@ class Orchestrator:
                     "orchestrator.drift_detector_init_failed",
                     error=str(exc),
                     action="continuing_without_drift_detection",
+                    exc_info=True,
                 )
 
         # Build signal engines
         model_dir = self._cfg.storage.model_dir
         for tf in self._timeframes:
             detector = self._detectors.get(tf.value)
-            trainer = self._trainers.get(tf.value)
-            if detector is None or trainer is None:
+            tf_trainer: ModelTrainer | None = self._trainers.get(tf.value)
+            if detector is None or tf_trainer is None:
                 self._log.warning("orchestrator.engine_skip", timeframe=tf.value)
                 continue
+            trainer = tf_trainer
 
             try:
                 direction_model = ModelTrainer.load_direction(model_dir, self._symbol, tf.value)
@@ -263,7 +266,10 @@ class Orchestrator:
                 ensemble = None
             except Exception as exc:
                 self._log.warning(
-                    "orchestrator.ensemble_load_failed", timeframe=tf.value, error=str(exc)
+                    "orchestrator.ensemble_load_failed",
+                    timeframe=tf.value,
+                    error=str(exc),
+                    exc_info=True,
                 )
                 ensemble = None
 
@@ -380,6 +386,7 @@ class Orchestrator:
                     "orchestrator.tf_loop_error",
                     timeframe=tf.value,
                     error=str(exc),
+                    exc_info=True,
                 )
                 # Back off on repeated errors to avoid tight error loop
                 await asyncio.sleep(min(tf_seconds, 30))
@@ -488,6 +495,7 @@ class Orchestrator:
                 "orchestrator.correlation_scalar_failed",
                 error=str(exc),
                 fallback_scalar=1.0,
+                exc_info=True,
             )
             correlation_scalar = 1.0
 
@@ -516,6 +524,8 @@ class Orchestrator:
                 prob_ranging=result.regime.prob_ranging,
                 prob_trending=result.regime.prob_trending,
                 prob_volatile=result.regime.prob_volatile,
+                changepoint_probability=result.changepoint_probability,
+                agreement_score=result.regime_agreement_scalar,
             )
             await self._storage.upsert_regime_snapshot(snap)
 
@@ -542,7 +552,7 @@ class Orchestrator:
             # indefinitely, since Prometheus scraping gives no feedback loop
             # back into this process. Log at warning so it's visible without
             # ever raising into the caller.
-            self._log.warning("orchestrator.metrics_update_failed", error=str(exc))
+            self._log.warning("orchestrator.metrics_update_failed", error=str(exc), exc_info=True)
 
         # Route to executor if tradeable
         if result.tradeable and result.kelly_result is not None:
@@ -576,6 +586,7 @@ class Orchestrator:
                                 "orchestrator.drift_retrain_failed",
                                 timeframe=_tf,
                                 error=str(t.exception()),
+                                exc_info=True,
                             )
                         if self._retrain_tasks.get(_tf) is t:
                             del self._retrain_tasks[_tf]
@@ -589,7 +600,7 @@ class Orchestrator:
                 # Fetch current price for fill simulation
                 try:
                     current_price = await self._fetcher.fetch_ticker_price(self._symbol)
-                except Exception:
+                except Exception as exc:
                     # VUL-ORCHESTRATOR-001: previous fallback used capital_usd which is
                     # equity in USD, not an asset price — would produce nonsensical position
                     # sizes. Skip the signal instead; a bad price is worse than no trade.
@@ -597,6 +608,8 @@ class Orchestrator:
                         "orchestrator.signal_skip_no_price",
                         timeframe=tf.value,
                         reason="ticker_fetch_failed_and_no_known_price",
+                        error=str(exc),
+                        exc_info=True,
                     )
                     return
 
@@ -641,7 +654,9 @@ class Orchestrator:
                         )
                     )
                 except Exception as exc:
-                    self._log.warning("orchestrator.missed_trade_log_failed", error=str(exc))
+                    self._log.warning(
+                        "orchestrator.missed_trade_log_failed", error=str(exc), exc_info=True
+                    )
 
         # Scheduled retraining on primary timeframe — guard against overlap
         if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
@@ -731,7 +746,7 @@ class Orchestrator:
         try:
             fm = await loop.run_in_executor(self._train_executor, build_feature_matrix, bars)
         except ValueError as exc:
-            self._log.error("orchestrator.feature_build_failed", error=str(exc))
+            self._log.error("orchestrator.feature_build_failed", error=str(exc), exc_info=True)
             return
 
         # HMM training — CPU bound
@@ -741,7 +756,7 @@ class Orchestrator:
             detector.save(self._cfg.storage.model_dir)
             self._detectors[tf.value] = detector
         except Exception as exc:
-            self._log.error("orchestrator.hmm_train_failed", error=str(exc))
+            self._log.error("orchestrator.hmm_train_failed", error=str(exc), exc_info=True)
 
         # XGBoost training — CPU bound
         trainer = ModelTrainer(self._symbol, tf.value)
@@ -774,7 +789,7 @@ class Orchestrator:
                     self._cfg.storage.model_dir,
                 )
             except Exception as exc:
-                self._log.error("orchestrator.ensemble_train_failed", error=str(exc))
+                self._log.error("orchestrator.ensemble_train_failed", error=str(exc), exc_info=True)
                 ensemble = None
 
             # Persist metrics to storage
@@ -806,7 +821,7 @@ class Orchestrator:
                 meta_live_gate=meta_result.live_gate_pass,
             )
         except Exception as exc:
-            self._log.error("orchestrator.xgb_train_failed", error=str(exc))
+            self._log.error("orchestrator.xgb_train_failed", error=str(exc), exc_info=True)
 
     # ------------------------------------------------------------------
     # Midnight reset
@@ -834,7 +849,7 @@ class Orchestrator:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                self._log.error("orchestrator.midnight_reset_error", error=str(exc))
+                self._log.error("orchestrator.midnight_reset_error", error=str(exc), exc_info=True)
                 await asyncio.sleep(60)
 
     # ------------------------------------------------------------------
@@ -883,7 +898,9 @@ class Orchestrator:
                     price = await self._fetcher.fetch_ticker_price(self._symbol)
                 except Exception as exc:
                     self._log.warning(
-                        "orchestrator.position_monitor_price_fetch_failed", error=str(exc)
+                        "orchestrator.position_monitor_price_fetch_failed",
+                        error=str(exc),
+                        exc_info=True,
                     )
                     continue
                 if price <= 0.0:
@@ -894,7 +911,9 @@ class Orchestrator:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                self._log.error("orchestrator.position_monitor_loop_error", error=str(exc))
+                self._log.error(
+                    "orchestrator.position_monitor_loop_error", error=str(exc), exc_info=True
+                )
                 await asyncio.sleep(5)
 
     async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
@@ -919,6 +938,9 @@ class Orchestrator:
                 take_profit_enabled=cast("bool", controls["take_profit_enabled"]),
                 take_profit_pct=cast("float", controls["take_profit_pct"]),
                 max_holding_period_s=cast("float", controls["max_holding_period_s"]),
+                trailing_stop_enabled=cast("bool", controls.get("trailing_stop_enabled", False)),
+                trailing_stop_pct=cast("float", controls.get("trailing_stop_pct", 1.5)),
+                peak_unrealized_pct=cast("float", pos.get("peak_unrealized_pct", 0.0)),
             )
             if exit_reason is None:
                 continue
@@ -959,6 +981,7 @@ class Orchestrator:
                             "orchestrator.drift_record_failed",
                             trade_id=pos["trade_id"],
                             error=str(exc),
+                            exc_info=True,
                         )
             except KeyError:
                 # Position was already closed by another path (e.g. a manual
@@ -974,4 +997,5 @@ class Orchestrator:
                     trade_id=pos["trade_id"],
                     exit_reason=exit_reason,
                     error=str(exc),
+                    exc_info=True,
                 )

@@ -59,6 +59,7 @@ HMM_FEATURE_COLS: Final[list[str]] = [
     "atr_momentum",
     "rolling_sharpe",
     "volume_zscore",
+    "garch_vol_forecast",
 ]
 
 _MODEL_FILENAME: Final[str] = "hmm_{symbol}_{timeframe}.joblib"
@@ -402,9 +403,9 @@ class RegimeDetector:
 
         Returns canonical regime labels (0/1/2) aligned to features.index.
         """
-        self._require_fitted()
+        model, _ = self._require_fitted()
         X = self._transform(features)
-        raw_states: np.ndarray = self._model.predict(X)  # type: ignore[union-attr]
+        raw_states: np.ndarray = model.predict(X)
         canonical = np.array([self._state_map[int(s)] for s in raw_states])
         return pd.Series(canonical, index=features.index, dtype=np.int8, name="regime")
 
@@ -418,9 +419,9 @@ class RegimeDetector:
         Returns DataFrame with columns ['prob_ranging', 'prob_trending', 'prob_volatile']
         aligned to features.index.  Columns are reordered to canonical indices.
         """
-        self._require_fitted()
+        model, _ = self._require_fitted()
         X = self._transform(features)
-        posteriors: np.ndarray = self._model.predict_proba(X)  # type: ignore[union-attr]
+        posteriors: np.ndarray = model.predict_proba(X)
 
         # Reorder columns from raw HMM order to canonical
         canonical_posteriors = np.zeros_like(posteriors)
@@ -461,7 +462,7 @@ class RegimeDetector:
         ------
         ValueError : if fitted model is unavailable or data is insufficient.
         """
-        self._require_fitted()
+        model, _ = self._require_fitted()
 
         # VUL-025: If the last fit did not converge, return VOLATILE prediction
         # so the regime gate blocks all new positions until a successful retrain.
@@ -495,7 +496,7 @@ class RegimeDetector:
 
         window = obs_df.iloc[-lookback:]
         X = self._transform(window)
-        posteriors: np.ndarray = self._model.predict_proba(X)  # type: ignore[union-attr]
+        posteriors: np.ndarray = model.predict_proba(X)
 
         last_posterior: np.ndarray = posteriors[-1]  # shape (n_components,)
 
@@ -553,15 +554,15 @@ class RegimeDetector:
         ------
         RuntimeError : if model has not been fitted.
         """
-        self._require_fitted()
+        model, scaler = self._require_fitted()
         path = Path(model_dir) / _MODEL_FILENAME.format(
             symbol=self._symbol.replace("/", "_"),
             timeframe=self._timeframe,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "model": self._model,
-            "scaler": self._scaler,
+            "model": model,
+            "scaler": scaler,
             "state_map": self._state_map,
             "cfg": self._cfg,
             "train_hash": self._train_hash,
@@ -687,13 +688,15 @@ class RegimeDetector:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _require_fitted(self) -> None:
+    def _require_fitted(self) -> tuple[GaussianHMM, StandardScaler]:
         if not self._fitted or self._model is None or self._scaler is None:
             raise RuntimeError("RegimeDetector is not fitted — call fit() or load() first.")
+        return self._model, self._scaler
 
     def _transform(self, features: pd.DataFrame) -> np.ndarray:
         """Scale observation DataFrame using the fitted StandardScaler."""
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
             raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
-        return self._scaler.transform(obs.to_numpy(dtype=np.float64))  # type: ignore[union-attr]
+        assert self._scaler is not None
+        return self._scaler.transform(obs.to_numpy(dtype=np.float64))

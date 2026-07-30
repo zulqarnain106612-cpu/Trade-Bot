@@ -1,13 +1,16 @@
 """
 Per-strategy P&L attribution — v2 Sub-task 4.
 
-Computes realized P&L, Sharpe, max drawdown, and hit-rate per strategy_id
-from a stream of attributed fills. Pure computation, no I/O — the caller
-(orchestrator, once fills are tagged with strategy_id at signal origination
-per Sub-task 1's registry) feeds fills in via AttributionTracker.record().
+Computes realized P&L, Sharpe, Sortino, Calmar, max drawdown, and hit-rate per
+strategy_id from a stream of attributed fills. Pure computation, no I/O — the
+caller (orchestrator, once fills are tagged with strategy_id at signal
+origination per Sub-task 1's registry) feeds fills in via
+AttributionTracker.record().
 
 Authority:
   - Sharpe (1966) "Mutual Fund Performance" — risk-adjusted return ratio
+  - Sortino & Price (1994) "Performance Measurement in a Downside Risk Framework"
+  - Young (1991) "Calmar Ratio" — return / max-drawdown for fat-tail regimes
   - López de Prado (2018) AFML Ch.14 — backtest statistics / hit-rate
 """
 
@@ -41,6 +44,8 @@ class StrategyAttribution:
     total_pnl_usd: float
     win_rate: float
     sharpe: float
+    sortino: float
+    calmar: float
     max_drawdown_usd: float
 
     def to_dict(self) -> dict[str, float | int | str]:
@@ -50,6 +55,8 @@ class StrategyAttribution:
             "total_pnl_usd": round(self.total_pnl_usd, 4),
             "win_rate": round(self.win_rate, 4),
             "sharpe": round(self.sharpe, 4),
+            "sortino": round(self.sortino, 4),
+            "calmar": round(self.calmar, 4),
             "max_drawdown_usd": round(self.max_drawdown_usd, 4),
         }
 
@@ -63,6 +70,30 @@ def _sharpe(pnls: list[float]) -> float:
     if std == 0.0:
         return 0.0
     return mean / std
+
+
+def _sortino(pnls: list[float]) -> float:
+    """Mean / downside-deviation (semi-deviation of losses only)."""
+    if len(pnls) < 2:
+        return 0.0
+    mean = sum(pnls) / len(pnls)
+    losses = [p for p in pnls if p < 0.0]
+    if not losses:
+        # No losses: Sortino is undefined; return a large positive value
+        # floored to the Sharpe ratio so callers see consistent ordering.
+        return _sharpe(pnls)
+    downside_var = sum(p**2 for p in losses) / len(pnls)
+    downside_std = math.sqrt(downside_var)
+    if downside_std == 0.0:
+        return 0.0
+    return mean / downside_std
+
+
+def _calmar(pnls: list[float], max_dd: float) -> float:
+    """Total P&L / max drawdown — penalizes strategies with large peak-to-trough."""
+    if max_dd <= 0.0:
+        return 0.0
+    return sum(pnls) / max_dd
 
 
 def _max_drawdown(pnls: list[float]) -> float:
@@ -88,17 +119,22 @@ def compute_attribution(strategy_id: str, fills: list[AttributedFill]) -> Strate
             total_pnl_usd=0.0,
             win_rate=0.0,
             sharpe=0.0,
+            sortino=0.0,
+            calmar=0.0,
             max_drawdown_usd=0.0,
         )
 
     wins = sum(1 for p in pnls if p > 0)
+    max_dd = _max_drawdown(pnls)
     return StrategyAttribution(
         strategy_id=strategy_id,
         trade_count=len(pnls),
         total_pnl_usd=sum(pnls),
         win_rate=wins / len(pnls),
         sharpe=_sharpe(pnls),
-        max_drawdown_usd=_max_drawdown(pnls),
+        sortino=_sortino(pnls),
+        calmar=_calmar(pnls, max_dd),
+        max_drawdown_usd=max_dd,
     )
 
 

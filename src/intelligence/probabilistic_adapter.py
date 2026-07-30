@@ -147,6 +147,7 @@ class ProbabilisticMetricsAdapter:
                     "probabilistic_adapter.exchange_stress_failed",
                     error=str(exc),
                     fallback="None (gate fails open)",
+                    exc_info=True,
                 )
                 # Fail open: gate will PASS when score is None
                 exchange_stress_score = None
@@ -189,6 +190,7 @@ class ProbabilisticMetricsAdapter:
                     "probabilistic_adapter.whale_ratio_failed",
                     error=str(exc),
                     fallback="None (gate fails open)",
+                    exc_info=True,
                 )
 
         return ProbabilisticGateInputs(

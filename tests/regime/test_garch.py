@@ -8,9 +8,9 @@ import pytest
 
 from src.regime.garch import (
     Garch11Params,
+    _fit_garch11_offline,
     annualize_volatility,
     conditional_volatility,
-    fit_garch11,
     rolling_garch_forecast,
 )
 
@@ -47,7 +47,7 @@ def test_unconditional_variance_finite_when_stationary() -> None:
 
 def test_fit_garch11_recovers_plausible_params() -> None:
     returns = _synthetic_garch_returns()
-    params = fit_garch11(returns)
+    params = _fit_garch11_offline(returns)
     assert isinstance(params, Garch11Params)
     assert params.omega > 0
     assert 0 <= params.alpha <= 1
@@ -58,12 +58,12 @@ def test_fit_garch11_recovers_plausible_params() -> None:
 def test_fit_garch11_requires_minimum_observations() -> None:
     short_returns = pd.Series(np.random.default_rng(0).normal(0, 0.01, 10))
     with pytest.raises(ValueError, match="at least"):
-        fit_garch11(short_returns)
+        _fit_garch11_offline(short_returns)
 
 
 def test_conditional_volatility_matches_length_and_is_positive() -> None:
     returns = _synthetic_garch_returns()
-    params = fit_garch11(returns)
+    params = _fit_garch11_offline(returns)
     vol = conditional_volatility(returns, params)
     assert len(vol) == len(returns.dropna())
     assert (vol >= 0).all()
@@ -116,3 +116,33 @@ def test_annualize_volatility_scales_by_sqrt_time() -> None:
     per_bar = 0.01
     annual = annualize_volatility(per_bar, bars_per_year=24 * 365)
     assert annual == pytest.approx(per_bar * np.sqrt(24 * 365))
+
+
+def test_rolling_garch_forecast_refit_exception_yields_nan() -> None:
+    """When the optimizer raises on refit, that step becomes NaN and subsequent
+    steps that have a valid prior params object re-use the old params (no crash)."""
+    from unittest.mock import patch
+
+    import src.regime.garch as garch_mod
+
+    returns = _synthetic_garch_returns(n=300)
+    window = 100
+    call_count = 0
+
+    real_minimize = garch_mod.minimize
+
+    def failing_minimize(fn, x0, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        # Raise only on the very first refit call; let subsequent ones succeed
+        if call_count == 1:
+            raise RuntimeError("synthetic optimizer failure")
+        return real_minimize(fn, x0, **kwargs)
+
+    with patch.object(garch_mod, "minimize", side_effect=failing_minimize):
+        forecasts = rolling_garch_forecast(returns, window=window, refit_every=50)
+
+    # The forecast slot right after the failed refit must be NaN (params=None)
+    assert pd.isna(forecasts.iloc[window])
+    # Later slots (after a successful refit) should be valid
+    assert forecasts.iloc[window + 51 :].notna().any()

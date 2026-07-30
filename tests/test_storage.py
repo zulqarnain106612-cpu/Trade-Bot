@@ -530,6 +530,24 @@ class TestRegimeSnapshots:
         latest = await backend.latest_regime("BTC/USDT", "15m")
         assert latest.regime_state == 2
 
+    @pytest.mark.asyncio
+    async def test_regime_ensemble_fields_round_trip(self, backend):
+        snap = RegimeSnapshotRecord(
+            symbol="BTC/USDT",
+            timeframe="15m",
+            ts=3000,
+            regime_state=1,
+            prob_ranging=0.1,
+            prob_trending=0.8,
+            prob_volatile=0.1,
+            changepoint_probability=0.35,
+            agreement_score=0.72,
+        )
+        await backend.upsert_regime_snapshot(snap)
+        latest = await backend.latest_regime("BTC/USDT", "15m")
+        assert latest.changepoint_probability == pytest.approx(0.35)
+        assert latest.agreement_score == pytest.approx(0.72)
+
 
 class TestModelMetrics:
     """insert_model_metrics, latest_model_metrics, live_gate_passes."""

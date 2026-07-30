@@ -159,7 +159,7 @@ class OnChainProvider(ExchangeIntelligenceProvider):
     _RATE: float = 1.0
 
     def __init__(self) -> None:
-        self._cache = AsyncHTTPCache(default_ttl_s=self._CACHE_TTL_S)
+        self._async_cache: AsyncHTTPCache = AsyncHTTPCache(default_ttl_s=self._CACHE_TTL_S)
         self._limiter = RateLimiter(rate=self._RATE)
         self._breaker = CircuitBreaker()
         self._session: aiohttp.ClientSession | None = None
@@ -179,7 +179,7 @@ class OnChainProvider(ExchangeIntelligenceProvider):
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         cache_key = f"GET:{url}:{sorted((params or {}).items())}"
-        cached = await self._cache.get(cache_key)
+        cached = await self._async_cache.get(cache_key)
         if cached is not None:
             return cached
         await self._limiter.acquire()
@@ -192,13 +192,15 @@ class OnChainProvider(ExchangeIntelligenceProvider):
                     return await resp.json(content_type=None)
 
             data = await self._breaker.call(_do)
-            await self._cache.set(cache_key, data)
+            await self._async_cache.set(cache_key, data)
             return data
         except CircuitOpenError:
             logger.warning("%s._get circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None
         except Exception as exc:
-            logger.warning("%s._get failed url=%s err=%s", self.__class__.__name__, url, exc)
+            logger.warning(
+                "%s._get failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            )
             return None
 
     async def _post(
@@ -221,7 +223,9 @@ class OnChainProvider(ExchangeIntelligenceProvider):
             logger.warning("%s._post circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None
         except Exception as exc:
-            logger.warning("%s._post failed url=%s err=%s", self.__class__.__name__, url, exc)
+            logger.warning(
+                "%s._post failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            )
             return None
 
     @property

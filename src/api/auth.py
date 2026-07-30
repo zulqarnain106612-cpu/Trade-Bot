@@ -59,7 +59,7 @@ def verify_api_key(api_key: str | None) -> None:
     try:
         expected = _get_configured_key()
     except RuntimeError as exc:
-        log.critical("auth.key_not_configured", error=str(exc))
+        log.critical("auth.key_not_configured", error=str(exc), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Server authentication not configured.",

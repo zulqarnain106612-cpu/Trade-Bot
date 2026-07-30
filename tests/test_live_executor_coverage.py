@@ -443,6 +443,28 @@ class TestMarkToMarket:
         assert total == pytest.approx(25.0)
 
 
+class TestLivePosition:
+    def test_peak_unrealized_pct_default_zero(self):
+        pos = _make_position()
+        assert pos.peak_unrealized_pct == 0.0
+
+    def test_peak_unrealized_pct_increases_on_profit(self):
+        pos = _make_position(entry_price=50_000.0, quantity=0.1, notional_usd=5_000.0)
+        pos.mark(55_000.0)  # unrealized = +500 / 5000 = +10%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)
+
+    def test_peak_unrealized_pct_does_not_decrease(self):
+        pos = _make_position(entry_price=50_000.0, quantity=0.1, notional_usd=5_000.0)
+        pos.mark(55_000.0)  # peak at 10%
+        pos.mark(52_000.0)  # drops to 4%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)
+
+    def test_peak_unrealized_pct_loss_does_not_update(self):
+        pos = _make_position(entry_price=50_000.0, quantity=0.1, notional_usd=5_000.0)
+        pos.mark(47_000.0)  # loss → no update
+        assert pos.peak_unrealized_pct == 0.0
+
+
 class TestClosePosition:
     @pytest.mark.asyncio
     async def test_unknown_trade_id_raises(self):

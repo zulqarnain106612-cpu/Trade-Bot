@@ -4,7 +4,7 @@ Per-package / per-file coverage floor enforcement — GAP-020.
 
 Reads the .coverage data produced by pytest-cov (via ``coverage json``) and
 asserts that safety-critical paths meet minimum line-coverage thresholds that
-the global ``fail_under=60`` gate cannot catch.
+the global ``fail_under=95`` gate cannot catch.
 
 Usage (run after pytest):
     python3 scripts/check_coverage_floors.py [--coverage-file .coverage]

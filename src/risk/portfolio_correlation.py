@@ -69,7 +69,8 @@ class _EWMSeries:
         else:
             delta = value - self._mean
             self._mean += self._alpha * delta
-            self._var = (1 - self._alpha) * (self._var + self._alpha * delta**2)
+            var = self._var if self._var is not None else 0.0
+            self._var = (1 - self._alpha) * (var + self._alpha * delta**2)
 
     @property
     def std(self) -> float:
@@ -104,10 +105,11 @@ class _EWMCov:
             self._cov = 0.0
         else:
             dx = x - self._mean_x
-            dy = y - self._mean_y
-            self._cov = (1 - self._alpha) * (self._cov + self._alpha * dx * dy)
+            dy = y - (self._mean_y if self._mean_y is not None else 0.0)
+            cov = self._cov if self._cov is not None else 0.0
+            self._cov = (1 - self._alpha) * (cov + self._alpha * dx * dy)
             self._mean_x += self._alpha * dx
-            self._mean_y += self._alpha * dy
+            self._mean_y = (self._mean_y if self._mean_y is not None else 0.0) + self._alpha * dy
 
     @property
     def cov(self) -> float:

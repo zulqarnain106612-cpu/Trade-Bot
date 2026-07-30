@@ -57,6 +57,8 @@ from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.strategies.capital_allocator import performance_weighted_allocate
+from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
@@ -95,7 +97,7 @@ def _validate_operator(v: str) -> str:
 
 class AppState:
     storage: AnyStorageBackend
-    orchestrator: Orchestrator
+    orchestrator: Orchestrator | None
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
     _MODE_CHANGE_LIMIT: int = 3
@@ -245,11 +247,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await _state.orchestrator.startup()
         except Exception as exc:
             # NEW-003: ensure fetcher connections are closed even when startup fails
-            log.critical("api.startup_failed", error=str(exc))
+            log.critical("api.startup_failed", error=str(exc), exc_info=True)
             try:
                 await fetcher.close()
             except Exception as close_exc:
-                log.warning("api.fetcher_close_failed_on_startup_error", error=str(close_exc))
+                log.warning(
+                    "api.fetcher_close_failed_on_startup_error", error=str(close_exc), exc_info=True
+                )
             raise
         _state.ready = True  # NEW-001: mark ready only after full startup
 
@@ -376,6 +380,13 @@ class SetRiskControlsRequest(BaseModel):
     take_profit_enabled: bool | None = None
     take_profit_pct: float | None = Field(default=None, ge=0.1, le=200.0)
     max_holding_period_s: float | None = Field(default=None, ge=60.0)
+    trailing_stop_enabled: bool | None = None
+    trailing_stop_pct: float | None = Field(
+        default=None,
+        ge=0.1,
+        le=50.0,
+        description="Trailing stop: close when PnL drops this pct from its per-position peak",
+    )
     operator: str = Field(..., min_length=1, max_length=64)
     operator_secret: str = Field(
         ...,
@@ -471,6 +482,7 @@ async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
     from src.diagnostics.signal_debugger import get_degradation_tracker
 
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     cfg = get_settings()
 
@@ -501,13 +513,19 @@ async def status() -> dict[str, Any]:
         "pending_approvals": approvals,
         "regime": regime_dict,
         "predictions": get_degradation_tracker(cfg.primary_timeframe.value).prediction_stats(),
+        "degradation_report": get_degradation_tracker(
+            cfg.primary_timeframe.value
+        ).check_degradation(),
         "trading_mode": cfg.trading_mode.value,
         "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
-            tf: str(err)[:200] for tf, err in _state.orchestrator._last_retrain_error.items()
+            tf: str(err)[:200]
+            for tf, err in (
+                _state.orchestrator._last_retrain_error if _state.orchestrator else {}
+            ).items()
         },
         "timestamp": datetime.now(tz=UTC).isoformat(),
     }
@@ -658,12 +676,15 @@ async def regime(timeframe: str) -> dict[str, Any]:
         "prob_ranging": round(snap.prob_ranging, 4),
         "prob_trending": round(snap.prob_trending, 4),
         "prob_volatile": round(snap.prob_volatile, 4),
+        "changepoint_probability": round(snap.changepoint_probability, 4),
+        "agreement_score": round(snap.agreement_score, 4),
     }
 
 
 @app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         return {"approvals": []}
@@ -707,6 +728,7 @@ async def resolve_approval(
     # H-13: validate UUID format before dict lookup — prevents timing oracle and DoS
     if not _UUID_RE.match(request_id):
         raise HTTPException(status_code=400, detail="Invalid request_id format.")
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
@@ -848,6 +870,8 @@ async def set_risk_controls(body: SetRiskControlsRequest, request: Request) -> d
         take_profit_enabled=body.take_profit_enabled,
         take_profit_pct=body.take_profit_pct,
         max_holding_period_s=body.max_holding_period_s,
+        trailing_stop_enabled=body.trailing_stop_enabled,
+        trailing_stop_pct=body.trailing_stop_pct,
     )
 
     await _state.storage.insert_audit_event(
@@ -1113,7 +1137,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         log.info("api.ws_disconnected", client=str(ws.client))
     except Exception as exc:
-        log.error("api.ws_error", error=str(exc))
+        log.error("api.ws_error", error=str(exc), exc_info=True)
     finally:
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
@@ -1233,7 +1257,9 @@ async def get_order_status(
         # UI-006: log the real exception server-side; never echo raw
         # exception text back to the (authenticated but untrusted) caller —
         # it can leak internal state/stack details for no operational benefit.
-        log.warning("api.order_status_lookup_failed", order_id=order_id, error=str(exc))
+        log.warning(
+            "api.order_status_lookup_failed", order_id=order_id, error=str(exc), exc_info=True
+        )
         return {"error": "Failed to look up order status."}
     if state is None:
         return {
@@ -1260,7 +1286,8 @@ async def get_strategy_attribution() -> dict[str, Any]:
     -------
     {
         "strategies": {strategy_id: {trade_count, total_pnl_usd, win_rate,
-                                      sharpe, max_drawdown_usd}, ...},
+                                      sharpe, sortino, calmar,
+                                      max_drawdown_usd}, ...},
         "fill_count": int,
     }
     """
@@ -1268,6 +1295,37 @@ async def get_strategy_attribution() -> dict[str, Any]:
     snapshot = tracker.snapshot()
     return {
         "strategies": {sid: attr.to_dict() for sid, attr in snapshot.items()},
+        "fill_count": tracker.fill_count(),
+    }
+
+
+@app.get("/strategies/allocation", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_allocation() -> dict[str, Any]:
+    """
+    Current performance-weighted capital allocation across registered strategies.
+
+    Uses live Sharpe attribution data to compute Sharpe-weighted fractional
+    allocations. Strategies with < 30 fills receive equal-weight share (warm-up
+    fallback). Read-only — reflects what the allocator would produce right now.
+
+    Returns
+    -------
+    {
+        "allocations": {strategy_id: float, ...},  # fractions summing to <= 1.0
+        "method": str,                              # "performance_weighted" or "equal_weight"
+        "fill_count": int,                          # total fills tracked
+    }
+    """
+    registry = get_default_registry()
+    strategies = list(registry.all())
+    if not strategies:
+        return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
+    enabled_ids = {s.strategy_id for s in strategies}
+    result = performance_weighted_allocate(tuple(strategies), enabled_ids)
+    tracker = get_attribution_tracker()
+    return {
+        "allocations": result.fractions,
+        "method": result.method,
         "fill_count": tracker.fill_count(),
     }
 
