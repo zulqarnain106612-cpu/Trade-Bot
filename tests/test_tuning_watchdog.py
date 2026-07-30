@@ -131,11 +131,13 @@ def test_probation_status_returns_locked_after_rollback(tmp_path: Path) -> None:
 
 
 def test_lock_expires_after_cooldown(tmp_path: Path) -> None:
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import patch
+
     store = VersionedConfigStore(tmp_path / "versions.jsonl")
     audit = TuningAuditLog(tmp_path / "audit.jsonl")
-    # Use a very short cooldown (0 hours) so the lock is already expired
     settings = SelfTuningSettings(
-        probation_trades=100, probation_hours=999.0, min_hours_between_attempts=0.0
+        probation_trades=100, probation_hours=999.0, min_hours_between_attempts=1.0
     )
     watchdog = PostPromotionWatchdog(store, audit, settings)
 
@@ -156,8 +158,14 @@ def test_lock_expires_after_cooldown(tmp_path: Path) -> None:
         if outcome == WatchdogOutcome.ROLLED_BACK:
             break
 
-    # With 0-hour cooldown the lock should already be expired on the next check
-    assert not watchdog.is_locked("hmm.entropy_threshold")
+    # Locked right after rollback
+    assert watchdog.is_locked("hmm.entropy_threshold")
+
+    # Advance simulated time past the 1-hour cooldown
+    future = datetime.now(UTC) + timedelta(hours=2)
+    with patch("src.tuning.watchdog.datetime") as mock_dt:
+        mock_dt.now.return_value = future
+        assert not watchdog.is_locked("hmm.entropy_threshold")
 
 
 def test_start_probation_while_already_in_probation_overwrites(tmp_path: Path) -> None:
