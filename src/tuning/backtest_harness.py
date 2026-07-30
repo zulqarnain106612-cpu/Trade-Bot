@@ -384,7 +384,7 @@ def run_feature_window_backtest(
     convention (src/tuning/bootstrap.py) keeps challengers close to the
     window the model was actually trained on.
 
-    Builds the baseline 7-column feature matrix once at production
+    Builds the baseline feature matrix once at production
     settings, then recomputes ONLY `field_name`'s column at the champion
     and challenger window sizes and swaps it in. Scores both variants with
     the same frozen model and folds oos_sharpe_and_drawdown's single-bar-

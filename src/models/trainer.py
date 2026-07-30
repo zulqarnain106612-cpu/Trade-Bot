@@ -540,7 +540,7 @@ class ModelTrainer:
         """
         # GAP-015 Step 5: use coverage-gated feature set.
         # If an intelligence_coverage dict is attached to fm, resolve the
-        # active column list; otherwise fall back to 7 base features.
+        # active column list; otherwise fall back to base features (BASE_FEATURE_COLUMNS).
         _active_cols = get_active_feature_columns(
             coverage=getattr(fm, "intelligence_coverage", None),
             min_coverage=0.6,
@@ -961,7 +961,7 @@ class ModelTrainer:
         # Illegitimate case (SCAN2-005): feature_vec columns don't match model schema at all.
         expected_n = getattr(meta_model, "n_features_in_", None)
         if expected_n is not None:
-            # Minimum valid schema: 7 base (BASE_FEATURE_COLUMNS) + 2 direction signals.
+            # Minimum valid schema: len(BASE_FEATURE_COLUMNS) base features + 2 direction signals.
             # Any model with n_features_in_ < this minimum has an incompatible schema.
             _min_valid = len(BASE_FEATURE_COLUMNS) + 2
             if expected_n < _min_valid:
