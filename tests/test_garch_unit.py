@@ -152,6 +152,31 @@ def test_rolling_garch_forecast_length_matches_input() -> None:
     assert len(forecast) == len(ret)
 
 
+def test_rolling_garch_forecast_exception_fallback_produces_nan() -> None:
+    """When scipy.optimize.minimize raises, the except branch must produce NaN
+    at that step rather than crashing the entire forecast."""
+    from unittest.mock import patch
+
+    ret = _synthetic_returns(200)
+    call_count = [0]
+
+    original_minimize = __import__("scipy.optimize", fromlist=["minimize"]).minimize
+
+    def fail_first_then_pass(fn, x0, *args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise RuntimeError("simulated optimizer failure")
+        return original_minimize(fn, x0, *args, **kwargs)
+
+    with patch("src.regime.garch.minimize", side_effect=fail_first_then_pass):
+        forecast = rolling_garch_forecast(ret, window=100, refit_every=100)
+
+    # After the failure the branch falls back to sample variance and produces NaN
+    assert len(forecast) == len(ret)
+    # There must be at least some NaN values (before window and after failed fit)
+    assert forecast.isna().any()
+
+
 # ---------------------------------------------------------------------------
 # annualize_volatility
 # ---------------------------------------------------------------------------
