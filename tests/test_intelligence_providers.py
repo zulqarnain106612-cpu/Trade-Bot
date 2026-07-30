@@ -34,7 +34,7 @@ import pytest
 
 @pytest.fixture()
 def base_feature_vec() -> pd.Series:
-    """Minimal 7-feature base vector matching FEATURE_COLUMNS."""
+    """Minimal base feature vector matching FEATURE_COLUMNS."""
     from src.features.pipeline import FEATURE_COLUMNS
 
     return pd.Series(

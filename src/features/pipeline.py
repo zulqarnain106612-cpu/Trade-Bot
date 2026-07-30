@@ -9,14 +9,16 @@ Implements every feature from the signal architecture spec:
   5. ATR momentum                                 — Wilder (1978)
   6. Rolling Sharpe                               — Kelly (1956) / Chan (2013)
   7. Volume z-score                               — standardized volume pressure
-  8. Triple-barrier labeling                      — AFML Ch.3
-  9. Meta-label targets (bet-or-not column)       — AFML Ch.4
+  8. GARCH(1,1) conditional vol forecast          — Bollerslev (1986)
+  9. Triple-barrier labeling                      — AFML Ch.3
+  10. Meta-label targets (bet-or-not column)      — AFML Ch.4
 
 Authority sources:
   - López de Prado (2018) AFML Ch.3-5
   - Cont, Kukanov & Stoikov (2014) "The Price Impact of Order Book Events"
   - Chan (2013) Algorithmic Trading — realized vol, ATR momentum
   - Wilder (1978) New Concepts in Technical Trading Systems — ATR
+  - Bollerslev (1986) "Generalized Autoregressive Conditional Heteroskedasticity"
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import pandas as pd
 import structlog
 
 from src.config import FeatureSettings
+from src.regime.garch import rolling_garch_forecast
 from src.tuning.live_overrides import effective_feature_settings
 
 
@@ -45,6 +48,7 @@ COL_REALIZED_VOL_RATIO: Final[str] = "realized_vol_ratio"
 COL_ATR_MOMENTUM: Final[str] = "atr_momentum"
 COL_ROLLING_SHARPE: Final[str] = "rolling_sharpe"
 COL_VOLUME_ZSCORE: Final[str] = "volume_zscore"
+COL_GARCH_VOL: Final[str] = "garch_vol_forecast"
 
 # All feature columns in canonical order — used by trainer for consistent X matrix.
 #
@@ -62,6 +66,7 @@ BASE_FEATURE_COLUMNS: Final[list[str]] = [
     COL_ATR_MOMENTUM,
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
+    COL_GARCH_VOL,
 ]
 
 # Backward-compat alias: existing imports of FEATURE_COLUMNS still work.
@@ -709,6 +714,12 @@ def build_feature_matrix(
     vol_z = volume_zscore(volume, window=cfg.volume_zscore_window)
 
     # ------------------------------------------------------------------ #
+    # 7b. GARCH(1,1) conditional volatility forecast — Bollerslev (1986)
+    # Walk-forward, one-step-ahead; no look-ahead (AFML Ch.5).
+    # ------------------------------------------------------------------ #
+    garch_vol = rolling_garch_forecast(log_ret, window=cfg.garch_window)
+
+    # ------------------------------------------------------------------ #
     # 8. Daily vol — shared by triple-barrier + trainer sample weights
     # ------------------------------------------------------------------ #
     daily_vol = _compute_daily_vol(log_ret.fillna(0.0))
@@ -736,6 +747,7 @@ def build_feature_matrix(
             COL_ATR_MOMENTUM: atr_mom,
             COL_ROLLING_SHARPE: r_sharpe,
             COL_VOLUME_ZSCORE: vol_z,
+            COL_GARCH_VOL: garch_vol,
             COL_LABEL: tb_labels,
             COL_RETURN: log_ret,
         },
@@ -860,6 +872,7 @@ def build_inference_features(
         cfg.atr_window,
         cfg.sharpe_window,
         cfg.volume_zscore_window,
+        cfg.garch_window,
         64,  # EWMA vol warmup
     )
     if n < min_rows:
@@ -891,6 +904,9 @@ def build_inference_features(
     atr_val = atr_momentum(high, low, close, cfg.atr_window).iloc[-1]
     sharpe_val = rolling_sharpe(close, cfg.sharpe_window).iloc[-1]
     volz_val = volume_zscore(volume, cfg.volume_zscore_window).iloc[-1]
+    log_ret_inf = np.log(close / close.shift(1))
+    garch_val_series = rolling_garch_forecast(log_ret_inf, window=cfg.garch_window)
+    garch_val = garch_val_series.iloc[-1] if len(garch_val_series.dropna()) > 0 else float("nan")
 
     vec = pd.Series(
         {
@@ -901,6 +917,7 @@ def build_inference_features(
             COL_ATR_MOMENTUM: atr_val,
             COL_ROLLING_SHARPE: sharpe_val,
             COL_VOLUME_ZSCORE: volz_val,
+            COL_GARCH_VOL: garch_val,
         },
         dtype=np.float64,
     )

@@ -59,6 +59,7 @@ HMM_FEATURE_COLS: Final[list[str]] = [
     "atr_momentum",
     "rolling_sharpe",
     "volume_zscore",
+    "garch_vol_forecast",
 ]
 
 _MODEL_FILENAME: Final[str] = "hmm_{symbol}_{timeframe}.joblib"

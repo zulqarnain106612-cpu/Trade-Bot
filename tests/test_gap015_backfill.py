@@ -198,10 +198,14 @@ async def test_coverage_partial(storage):
 # ---------------------------------------------------------------------------
 
 
+_N_BASE = len(BASE_FEATURE_COLUMNS)  # 8 after adding garch_vol_forecast
+_N_INTEL = 18
+
+
 def test_no_coverage_returns_base():
     cols = get_active_feature_columns(None)
     assert cols == list(BASE_FEATURE_COLUMNS)
-    assert len(cols) == 7
+    assert len(cols) == _N_BASE
 
 
 def test_empty_coverage_returns_base():
@@ -212,8 +216,8 @@ def test_empty_coverage_returns_base():
 def test_full_coverage_returns_25():
     full = {c: 1.0 for c in INTELLIGENCE_FEATURE_COLUMNS}
     cols = get_active_feature_columns(full, min_coverage=0.6)
-    assert len(cols) == 7 + 18  # 7 base + 18 intel (OCI-012)
-    assert cols[:7] == list(BASE_FEATURE_COLUMNS)
+    assert len(cols) == _N_BASE + _N_INTEL  # 8 base + 18 intel (OCI-012)
+    assert cols[:_N_BASE] == list(BASE_FEATURE_COLUMNS)
     for ic in INTELLIGENCE_FEATURE_COLUMNS:
         assert ic in cols
 
@@ -221,21 +225,21 @@ def test_full_coverage_returns_25():
 def test_partial_coverage_excludes_low_cols():
     partial = {c: (0.9 if i < 3 else 0.1) for i, c in enumerate(INTELLIGENCE_FEATURE_COLUMNS)}
     cols = get_active_feature_columns(partial, min_coverage=0.6)
-    # 7 base + 3 high-coverage intel
-    assert len(cols) == 10
-    assert cols[:7] == list(BASE_FEATURE_COLUMNS)
+    # 8 base + 3 high-coverage intel
+    assert len(cols) == _N_BASE + 3
+    assert cols[:_N_BASE] == list(BASE_FEATURE_COLUMNS)
 
 
 def test_threshold_boundary():
     # Exactly at threshold → included
     cov = {c: 0.6 for c in INTELLIGENCE_FEATURE_COLUMNS}
     cols = get_active_feature_columns(cov, min_coverage=0.6)
-    assert len(cols) == 25
+    assert len(cols) == _N_BASE + _N_INTEL
 
     # Just below → excluded
     cov_below = {c: 0.5999 for c in INTELLIGENCE_FEATURE_COLUMNS}
     cols_below = get_active_feature_columns(cov_below, min_coverage=0.6)
-    assert len(cols_below) == 7
+    assert len(cols_below) == _N_BASE
 
 
 def test_feature_columns_backward_compat():

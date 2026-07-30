@@ -340,6 +340,11 @@ class FeatureSettings(BaseSettings):
     atr_window: int = Field(default=14, ge=2)
     sharpe_window: int = Field(default=60, ge=2)
     volume_zscore_window: int = Field(default=20, ge=2)
+    # GARCH(1,1) conditional volatility window — Bollerslev (1986).
+    # Walk-forward refit window; must be >= 50 (minimum MLE observations).
+    # 100 bars stays within the 200-bar frac-diff burn-in so it adds no
+    # new min-required-rows constraint to build_feature_matrix().
+    garch_window: int = Field(default=100, ge=50)
 
     # Triple-barrier labeling — AFML Ch.3
     triple_barrier_pt_multiplier: float = Field(default=2.0, ge=0.1)
