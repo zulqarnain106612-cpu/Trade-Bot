@@ -247,11 +247,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await _state.orchestrator.startup()
         except Exception as exc:
             # NEW-003: ensure fetcher connections are closed even when startup fails
-            log.critical("api.startup_failed", error=str(exc))
+            log.critical("api.startup_failed", error=str(exc), exc_info=True)
             try:
                 await fetcher.close()
             except Exception as close_exc:
-                log.warning("api.fetcher_close_failed_on_startup_error", error=str(close_exc))
+                log.warning(
+                    "api.fetcher_close_failed_on_startup_error", error=str(close_exc), exc_info=True
+                )
             raise
         _state.ready = True  # NEW-001: mark ready only after full startup
 
@@ -1124,7 +1126,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         log.info("api.ws_disconnected", client=str(ws.client))
     except Exception as exc:
-        log.error("api.ws_error", error=str(exc))
+        log.error("api.ws_error", error=str(exc), exc_info=True)
     finally:
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
@@ -1244,7 +1246,9 @@ async def get_order_status(
         # UI-006: log the real exception server-side; never echo raw
         # exception text back to the (authenticated but untrusted) caller —
         # it can leak internal state/stack details for no operational benefit.
-        log.warning("api.order_status_lookup_failed", order_id=order_id, error=str(exc))
+        log.warning(
+            "api.order_status_lookup_failed", order_id=order_id, error=str(exc), exc_info=True
+        )
         return {"error": "Failed to look up order status."}
     if state is None:
         return {

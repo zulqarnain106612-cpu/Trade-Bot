@@ -167,7 +167,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
             funding_rate_pct = funding_result.get("rate_pct", 0.0)
             funding_zscore = funding_result.get("zscore", 0.0)
         else:
-            self._log.warning("binance_intelligence.funding_failed", error=str(funding_result))
+            self._log.warning(
+                "binance_intelligence.funding_failed", error=str(funding_result), exc_info=True
+            )
             confidence -= 0.05
 
         # Unpack OI
@@ -177,7 +179,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
             oi_change_pct = oi_result.get("change_pct", 0.0)
             oi_value_usd = oi_result.get("value_usd", 0.0)
         else:
-            self._log.warning("binance_intelligence.oi_failed", error=str(oi_result))
+            self._log.warning("binance_intelligence.oi_failed", error=str(oi_result), exc_info=True)
             confidence -= 0.05
 
         # Unpack basis
@@ -185,7 +187,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         if isinstance(basis_result, float):
             basis_bps = basis_result
         else:
-            self._log.warning("binance_intelligence.basis_failed", error=str(basis_result))
+            self._log.warning(
+                "binance_intelligence.basis_failed", error=str(basis_result), exc_info=True
+            )
             confidence -= 0.05
 
         # Unpack whale ratio
@@ -193,7 +197,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         if isinstance(whale_result, float):
             whale_ratio = whale_result
         else:
-            self._log.warning("binance_intelligence.whale_failed", error=str(whale_result))
+            self._log.warning(
+                "binance_intelligence.whale_failed", error=str(whale_result), exc_info=True
+            )
             confidence -= 0.02
 
         # Composite exchange stress score [0, 1]
@@ -393,7 +399,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
                 }
             )
         except Exception as exc:
-            self._log.warning("binance_intelligence.klines_failed", error=str(exc))
+            self._log.warning("binance_intelligence.klines_failed", error=str(exc), exc_info=True)
             self._set_cache(cache_key, 1.0)
             return 1.0
 

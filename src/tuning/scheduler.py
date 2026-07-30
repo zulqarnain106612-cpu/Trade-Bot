@@ -322,6 +322,7 @@ class AutoTuningScheduler:
                     "tuning.scheduler_attempt_error",
                     param="risk.slippage_impact_coeff_bps",
                     error=str(exc),
+                    exc_info=True,
                 )
 
         bars_df = await self._build_feature_bars_df()
@@ -366,7 +367,10 @@ class AutoTuningScheduler:
                         )
                     except Exception as exc:
                         log.error(
-                            "tuning.scheduler_attempt_error", param=param_name, error=str(exc)
+                            "tuning.scheduler_attempt_error",
+                            param=param_name,
+                            error=str(exc),
+                            exc_info=True,
                         )
 
             # XGBoost hyperparameters -- needs only bar history (it trains its
@@ -433,6 +437,7 @@ class AutoTuningScheduler:
                                 "tuning.scheduler_attempt_error",
                                 param=param_name,
                                 error=str(exc),
+                                exc_info=True,
                             )
 
     def _load_direction_model(self) -> XGBClassifier | None:

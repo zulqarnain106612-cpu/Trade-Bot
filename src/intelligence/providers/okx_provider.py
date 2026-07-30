@@ -150,7 +150,9 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
             funding_rate_pct = funding_result.get("rate_pct", 0.0)
             funding_zscore = funding_result.get("zscore", 0.0)
         else:
-            self._log.warning("okx_intelligence.funding_failed", error=str(funding_result))
+            self._log.warning(
+                "okx_intelligence.funding_failed", error=str(funding_result), exc_info=True
+            )
             confidence -= 0.05
 
         oi_change_pct: float = 0.0
@@ -159,21 +161,25 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
             oi_change_pct = oi_result.get("change_pct", 0.0)
             oi_value_usd = oi_result.get("value_usd", 0.0)
         else:
-            self._log.warning("okx_intelligence.oi_failed", error=str(oi_result))
+            self._log.warning("okx_intelligence.oi_failed", error=str(oi_result), exc_info=True)
             confidence -= 0.05
 
         basis_bps: float = 0.0
         if isinstance(basis_result, float):
             basis_bps = basis_result
         else:
-            self._log.warning("okx_intelligence.basis_failed", error=str(basis_result))
+            self._log.warning(
+                "okx_intelligence.basis_failed", error=str(basis_result), exc_info=True
+            )
             confidence -= 0.05
 
         whale_ratio: float = 1.0
         if isinstance(whale_result, float):
             whale_ratio = whale_result
         else:
-            self._log.warning("okx_intelligence.whale_failed", error=str(whale_result))
+            self._log.warning(
+                "okx_intelligence.whale_failed", error=str(whale_result), exc_info=True
+            )
             confidence -= 0.02
 
         stress_score = self._compute_stress_score(basis_bps, funding_zscore, oi_change_pct)
@@ -332,7 +338,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
                 self._set_cache(cache_key, ratio)
                 return ratio
         except Exception as e:
-            self._log.debug("okx_intelligence.ls_ratio_failed", error=str(e))
+            self._log.debug("okx_intelligence.ls_ratio_failed", error=str(e), exc_info=True)
 
         # Second fallback: neutral
         self._set_cache(cache_key, 1.0)

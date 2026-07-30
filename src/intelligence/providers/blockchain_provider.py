@@ -113,7 +113,7 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
                 self._log.warning("blockchain_intelligence.empty_stats_response")
                 confidence -= _CONFIDENCE_PENALTY
         except Exception as exc:
-            self._log.warning("blockchain_intelligence.fetch_failed", error=str(exc))
+            self._log.warning("blockchain_intelligence.fetch_failed", error=str(exc), exc_info=True)
             confidence -= _CONFIDENCE_PENALTY
 
         confidence = max(0.0, min(1.0, confidence))

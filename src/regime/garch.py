@@ -199,7 +199,9 @@ def rolling_garch_forecast(
                     sigma2_path[t] = omega + alpha * train[t - 1] ** 2 + beta * sigma2_path[t - 1]
                 last_sigma2 = float(sigma2_path[-1])
             except Exception as exc:
-                log.warning("garch.rolling_forecast_refit_failed", index=i, error=str(exc))
+                log.warning(
+                    "garch.rolling_forecast_refit_failed", index=i, error=str(exc), exc_info=True
+                )
                 params = None
                 last_sigma2 = float(np.var(train))
 

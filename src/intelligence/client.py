@@ -523,7 +523,7 @@ class IntelligenceAggregator:
                 resp.raise_for_status()
                 data: list[dict] = resp.json()
         except Exception as exc:
-            log.error("glassnode_netflow_history_failed", error=str(exc))
+            log.error("glassnode_netflow_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             self._last_glassnode_call = datetime.now(UTC)
@@ -592,7 +592,7 @@ class IntelligenceAggregator:
                 resp.raise_for_status()
                 data: list[dict] = resp.json()
         except Exception as exc:
-            log.error("glassnode_whale_history_failed", error=str(exc))
+            log.error("glassnode_whale_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             self._last_glassnode_call = datetime.now(UTC)
@@ -657,7 +657,7 @@ class IntelligenceAggregator:
                 if r.get("timestamp") is not None
             ]
         except Exception as exc:
-            log.error("binance_funding_rate_history_failed", error=str(exc))
+            log.error("binance_funding_rate_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             await exchange.close()

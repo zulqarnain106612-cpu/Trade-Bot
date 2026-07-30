@@ -116,7 +116,7 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
                 self._log.warning("coingecko_intelligence.empty_global_response")
                 confidence -= _CONFIDENCE_PENALTY * 2  # both fields failed
         except Exception as exc:
-            self._log.warning("coingecko_intelligence.fetch_failed", error=str(exc))
+            self._log.warning("coingecko_intelligence.fetch_failed", error=str(exc), exc_info=True)
             confidence -= _CONFIDENCE_PENALTY * 2
 
         confidence = max(0.0, min(1.0, confidence))

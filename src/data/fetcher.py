@@ -205,7 +205,7 @@ async def _with_retry(
         try:
             return await coro_factory()
         except (ccxt.AuthenticationError, ccxt.InvalidOrder) as exc:
-            log.error("fetch.auth_or_invalid", label=label, error=str(exc))
+            log.error("fetch.auth_or_invalid", label=label, error=str(exc), exc_info=True)
             raise
         except ccxt.RateLimitExceeded as exc:
             # VF-011: On the final attempt raise the original exception so callers
@@ -217,6 +217,7 @@ async def _with_retry(
                     label=label,
                     attempts=attempts,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
             wait = min(delay * 2, 60.0)
@@ -226,6 +227,7 @@ async def _with_retry(
                 attempt=attempt,
                 wait_s=wait,
                 error=str(exc),
+                exc_info=True,
             )
             await asyncio.sleep(wait)
             delay = wait
@@ -236,6 +238,7 @@ async def _with_retry(
                     label=label,
                     attempts=attempts,
                     error=str(exc),
+                    exc_info=True,
                 )
                 raise
             log.warning(
@@ -244,11 +247,12 @@ async def _with_retry(
                 attempt=attempt,
                 delay_s=delay,
                 error=str(exc),
+                exc_info=True,
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60.0)
         except ccxt.ExchangeError as exc:
-            log.error("fetch.exchange_error", label=label, error=str(exc))
+            log.error("fetch.exchange_error", label=label, error=str(exc), exc_info=True)
             raise
     # Should never reach here; satisfies type checker
     raise RuntimeError(f"_with_retry exhausted for {label!r}")  # pragma: no cover
@@ -555,6 +559,7 @@ class MarketDataFetcher:
                         symbol=symbol,
                         timeframe=tf.value,
                         error=str(exc),
+                        exc_info=True,
                     )
                     results[tf.value] = 0
         return results

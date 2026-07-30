@@ -151,7 +151,7 @@ class RuntimeMonitor:
             try:
                 await self._run_all_probes()
             except Exception as exc:
-                log.error("runtime_monitor.loop_error", error=str(exc))
+                log.error("runtime_monitor.loop_error", error=str(exc), exc_info=True)
             await asyncio.sleep(POLL_INTERVAL_S)
 
     def _on_task_done(self, t: asyncio.Task) -> None:
@@ -235,7 +235,7 @@ class RuntimeMonitor:
                     pr = ProbeResult(name=pr_name, passed=True, value=round(stale_s, 1))
                 self._results[pr_name] = pr
             except Exception as exc:
-                log.warning("health_probe.tick_getter_error", tf=tf, error=str(exc))
+                log.warning("health_probe.tick_getter_error", tf=tf, error=str(exc), exc_info=True)
 
         # 3. Memory probe — leak detection
         mem_mb = self._rss_mb()
@@ -298,7 +298,7 @@ class RuntimeMonitor:
             # to the memory-leak probe that consumes this -- log so a read
             # failure (permissions, unexpected /proc format) doesn't look
             # like a clean bill of health.
-            log.debug("runtime_monitor.rss_read_failed", error=str(exc))
+            log.debug("runtime_monitor.rss_read_failed", error=str(exc), exc_info=True)
         return 0.0
 
 
