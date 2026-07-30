@@ -224,6 +224,16 @@ class TestRiskValidator:
         result = self.v.validate(make_ctx(signal_id=""))
         assert result.status == ValidatorStatus.VETO
 
+    def test_garch_vol_in_metrics(self):
+        result = self.v.validate(make_ctx(garch_vol_forecast=0.015))
+        assert "garch_vol_forecast" in result.metrics
+        assert abs(result.metrics["garch_vol_forecast"] - 0.015) < 1e-9
+
+    def test_garch_zero_in_metrics(self):
+        result = self.v.validate(make_ctx(garch_vol_forecast=0.0))
+        assert "garch_vol_forecast" in result.metrics
+        assert result.metrics["garch_vol_forecast"] == 0.0
+
 
 # ─── BlockchainValidator ───────────────────────────────────────────────────────
 
