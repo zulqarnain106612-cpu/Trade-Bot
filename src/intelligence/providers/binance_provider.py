@@ -236,6 +236,8 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
             "stablecoin_reserve_ratio": 0.5,  # no real-time free source
             "network_activity_score": 0.0,  # Glassnode transactions
             "defi_tvl_7d_change_pct": 0.0,  # DeFiLlama (no free real-time binance source)
+            "mvrv_z_score": 0.0,  # Dune Analytics paid tier (OCI-007)
+            "sopr": 0.0,  # Spent Output Profit Ratio, Dune Analytics paid tier
             # ── Metadata ───────────────────────────────────────────────────
             "confidence": confidence,
             "timestamp": ts,
