@@ -43,7 +43,7 @@ from __future__ import annotations
 import asyncio
 import statistics
 import time
-from typing import Final
+from typing import Any, Final
 
 import ccxt.async_support as ccxt
 import structlog
@@ -98,7 +98,7 @@ class BybitIntelligenceProvider(ExchangeIntelligenceProvider):
         self._spot = ccxt.bybit({"options": {"defaultType": "spot"}})
         self._perp = ccxt.bybit({"options": {"defaultType": "linear"}})
 
-        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         self._log = log.bind(
             component="bybit_intelligence",
             symbol=symbol,

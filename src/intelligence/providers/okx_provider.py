@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import statistics
 import time
-from typing import Final
+from typing import Any, Final
 
 import ccxt.async_support as ccxt
 import structlog
@@ -91,7 +91,7 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         self._spot = ccxt.okx({"options": {"defaultType": "spot"}})
         self._perp = ccxt.okx({"options": {"defaultType": "swap"}})
 
-        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         self._log = log.bind(
             component="okx_intelligence",
             symbol=symbol,

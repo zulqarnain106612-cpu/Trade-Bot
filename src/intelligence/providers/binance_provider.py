@@ -40,7 +40,7 @@ from __future__ import annotations
 import asyncio
 import statistics
 import time
-from typing import Final
+from typing import Any, Final
 
 import ccxt.async_support as ccxt
 import structlog
@@ -102,7 +102,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         self._perp = ccxt.binance({"options": {"defaultType": "future"}})
 
         # In-memory cache: key → (timestamp_s, value)
-        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         self._log = log.bind(
             component="binance_intelligence",
             symbol=symbol,
@@ -302,9 +302,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         if not history or len(history) < 2:
             return {"change_pct": 0.0, "value_usd": 0.0}
 
-        oi_now = history[-1]["openInterestAmount"]
-        oi_24h = history[0]["openInterestAmount"]
-        oi_val = history[-1].get("openInterestValue") or 0.0
+        oi_now = float(history[-1]["openInterestAmount"])
+        oi_24h = float(history[0]["openInterestAmount"])
+        oi_val = float(history[-1].get("openInterestValue") or 0.0)
 
         change_pct = ((oi_now - oi_24h) / oi_24h * 100.0) if oi_24h > 0 else 0.0
 
@@ -383,14 +383,20 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         #
         # Fix: call the raw/implicit ccxt method (bypasses normalization)
         # and read the correct index.
-        market = self._perp.market(self._perp_symbol)
-        raw = await self._perp.fapiPublicGetKlines(
-            {
-                "symbol": market["id"],
-                "interval": self._kline_tf,
-                "limit": _KLINE_LIMIT,
-            }
-        )
+        try:
+            market = self._perp.market(self._perp_symbol)
+            raw = await self._perp.fapiPublicGetKlines(
+                {
+                    "symbol": market["id"],
+                    "interval": self._kline_tf,
+                    "limit": _KLINE_LIMIT,
+                }
+            )
+        except Exception as exc:
+            self._log.warning("binance_intelligence.klines_failed", error=str(exc))
+            self._set_cache(cache_key, 1.0)
+            return 1.0
+
         if not raw:
             return 1.0
 
