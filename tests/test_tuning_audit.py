@@ -47,3 +47,26 @@ def test_details_defaults_to_empty_dict(tmp_path: Path) -> None:
     log = TuningAuditLog(tmp_path / "audit.jsonl")
     entry = log.record("hmm.entropy_threshold", TuningEventType.PAUSED)
     assert entry.details == {}
+
+
+def test_to_json_from_dict_roundtrip(tmp_path: Path) -> None:
+    from src.tuning.audit import TuningAuditEntry
+
+    entry = TuningAuditEntry(
+        param_name="hmm.entropy_threshold",
+        event_type=TuningEventType.PROMOTED,
+        timestamp="2026-01-01T00:00:00+00:00",
+        details={"v": 1, "delta": 0.05},
+    )
+    json_str = entry.to_json()
+    assert "promoted" in json_str
+    recovered = TuningAuditEntry.from_dict(__import__("json").loads(json_str))
+    assert recovered.param_name == entry.param_name
+    assert recovered.event_type == TuningEventType.PROMOTED
+    assert recovered.details == {"v": 1, "delta": 0.05}
+
+
+def test_path_property(tmp_path: Path) -> None:
+    path = tmp_path / "audit.jsonl"
+    log = TuningAuditLog(path)
+    assert log.path == path
