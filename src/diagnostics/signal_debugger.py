@@ -269,6 +269,27 @@ class ModelDegradationTracker:
             return 0.0
         return mean_ret / std_ret
 
+    def rolling_sortino(self) -> float | None:
+        """
+        Rolling Sortino ratio — mean / downside_std (Sortino & Price 1994).
+
+        Uses only negative P&L values for the denominator so upside volatility
+        (news-driven pumps) does not suppress the quality signal.  Returns None
+        when fewer than 20 trades have been recorded or when there are fewer
+        than 2 losing trades (insufficient sample for a stable semi-deviation).
+        """
+        if len(self._trade_pnls) < 20:
+            return None
+        returns = list(self._trade_pnls)
+        mean_ret = float(np.mean(returns))
+        losses = [r for r in returns if r < 0.0]
+        if len(losses) < 2:
+            return None
+        downside_std = float(np.std(losses))
+        if downside_std <= 0.0:
+            return None
+        return mean_ret / downside_std
+
     def live_accuracy(self) -> float | None:
         """Compute rolling accuracy from resolved predictions."""
         resolved = [r for r in self._preds if r.actual_direction is not None]
@@ -289,12 +310,14 @@ class ModelDegradationTracker:
         """
         live_acc = self.live_accuracy()
         rolling_sharpe = self.rolling_sharpe()
+        rolling_sortino = self.rolling_sortino()
         report: dict[str, Any] = {
             "live_accuracy": round(live_acc, 4) if live_acc is not None else None,
             "train_accuracy": round(self._train_accuracy, 4)
             if self._train_accuracy is not None
             else None,
             "rolling_sharpe": round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
+            "rolling_sortino": round(rolling_sortino, 4) if rolling_sortino is not None else None,
             "degraded": False,
             "drop": None,
             "tighten_meta_label_threshold": False,

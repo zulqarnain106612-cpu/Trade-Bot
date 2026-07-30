@@ -192,6 +192,31 @@ class TestModelDegradationTracker:
             self.tracker.record_trade_result(1.0)
         assert self.tracker.rolling_sharpe() == 0.0
 
+    def test_rolling_sortino_insufficient_trades(self):
+        for _ in range(10):
+            self.tracker.record_trade_result(-5.0)
+        assert self.tracker.rolling_sortino() is None
+
+    def test_rolling_sortino_no_losses_returns_none(self):
+        for _ in range(25):
+            self.tracker.record_trade_result(10.0)
+        # No negative P&Ls → fewer than 2 loss samples → None
+        assert self.tracker.rolling_sortino() is None
+
+    def test_rolling_sortino_returns_float_with_mixed_pnl(self):
+        for i in range(25):
+            pnl = 10.0 if i % 3 != 0 else -5.0
+            self.tracker.record_trade_result(pnl)
+        s = self.tracker.rolling_sortino()
+        assert s is not None
+
+    def test_rolling_sortino_in_check_degradation_report(self):
+        for i in range(25):
+            pnl = 5.0 if i % 3 != 0 else -2.0
+            self.tracker.record_trade_result(pnl)
+        report = self.tracker.check_degradation()
+        assert "rolling_sortino" in report
+
     def test_live_accuracy_insufficient_resolved(self):
         for _ in range(10):
             self.tracker.record_prediction(0.7, 0.6)
