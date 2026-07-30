@@ -1516,7 +1516,8 @@ class TestBinanceIntelligenceProvider:
         provider._cache["k"] = (time.time(), "fresh")
         assert provider._get_cache("k") == "fresh"
 
-    def test_caching_prevents_duplicate_network_calls(self, provider):
+    @pytest.mark.asyncio
+    async def test_caching_prevents_duplicate_network_calls(self, provider):
         """TTL cache must block a second network call within the TTL window."""
         call_count = 0
 
@@ -1529,10 +1530,8 @@ class TestBinanceIntelligenceProvider:
         provider._perp.fetch_funding_rate_history = counting_fetch
         provider._cache_ttl = 300
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(provider._fetch_funding_data())
-        asyncio.get_event_loop().run_until_complete(provider._fetch_funding_data())
+        await provider._fetch_funding_data()
+        await provider._fetch_funding_data()
         assert call_count == 1
 
     # -- _compute_stress_score -------------------------------------------------

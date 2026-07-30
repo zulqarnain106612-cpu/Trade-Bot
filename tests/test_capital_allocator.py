@@ -116,14 +116,14 @@ class TestPerformanceWeightedAllocate:
         """Strategy with higher Sharpe should receive more capital than lower."""
         from src.strategies.capital_allocator import performance_weighted_allocate
 
-        # Give alpha 30 trades with high Sharpe, beta 30 trades with lower Sharpe
+        # Give alpha 30 trades with high positive Sharpe, beta with lower (noisy) Sharpe.
+        # Use varying returns so std != 0 (constant returns give std=0 → Sharpe=0).
         n = 30
-        self._seed_tracker(
-            {
-                "alpha": [1.0] * n,  # constant win → very high Sharpe
-                "beta": [0.5, -0.4] * (n // 2),  # noisy, lower Sharpe
-            }
-        )
+        # alpha: tight cluster around +1.0 → high mean/std Sharpe
+        alpha_pnls = [1.0 + 0.01 * (i % 3 - 1) for i in range(n)]
+        # beta: high variance with modest mean → lower Sharpe
+        beta_pnls = [0.5 if i % 2 == 0 else -0.4 for i in range(n)]
+        self._seed_tracker({"alpha": alpha_pnls, "beta": beta_pnls})
         strats = (_Strat("alpha", 0.5), _Strat("beta", 0.5))
         result = performance_weighted_allocate(strats, enabled_ids={"alpha", "beta"})
         assert result.fractions["alpha"] > result.fractions["beta"]
@@ -135,12 +135,12 @@ class TestPerformanceWeightedAllocate:
         from src.strategies.capital_allocator import performance_weighted_allocate
 
         n = 30
-        self._seed_tracker(
-            {
-                "alpha": [-1.0] * n,  # consistent loser → negative Sharpe
-                "beta": [1.0] * n,  # consistent winner
-            }
-        )
+        # Use varying returns so std != 0 — constant returns give Sharpe=0.
+        # alpha: tight cluster around -1.0 → negative Sharpe
+        alpha_pnls = [-1.0 + 0.01 * (i % 3 - 1) for i in range(n)]
+        # beta: tight cluster around +1.0 → positive Sharpe
+        beta_pnls = [1.0 + 0.01 * (i % 3 - 1) for i in range(n)]
+        self._seed_tracker({"alpha": alpha_pnls, "beta": beta_pnls})
         strats = (_Strat("alpha", 0.5), _Strat("beta", 0.5))
         result = performance_weighted_allocate(strats, enabled_ids={"alpha", "beta"})
         assert result.fractions["alpha"] > 0.0
