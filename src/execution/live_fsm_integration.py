@@ -92,6 +92,7 @@ class LiveExecutorOrderFSM:
                 side=side,
                 qty=quantity,
                 error=str(exc),
+                exc_info=True,
             )
             raise
         except ccxt.ExchangeError as exc:
@@ -101,5 +102,6 @@ class LiveExecutorOrderFSM:
                 side=side,
                 qty=quantity,
                 error=str(exc),
+                exc_info=True,
             )
             raise
