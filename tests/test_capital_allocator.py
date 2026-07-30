@@ -166,6 +166,55 @@ class TestPerformanceWeightedAllocate:
         result = performance_weighted_allocate(strats, enabled_ids={"alpha"})
         assert result.method == "performance_weighted"
 
+    def test_metric_sortino_accepted(self) -> None:
+        """metric='sortino' must not raise and must produce valid fractions."""
+        from src.strategies.capital_allocator import performance_weighted_allocate
+
+        self._clear_tracker()
+        result = performance_weighted_allocate(
+            self._strats(), enabled_ids={"alpha", "beta"}, metric="sortino"
+        )
+        assert result.total() <= 1.0 + 1e-9
+
+    def test_metric_calmar_accepted(self) -> None:
+        from src.strategies.capital_allocator import performance_weighted_allocate
+
+        self._clear_tracker()
+        result = performance_weighted_allocate(
+            self._strats(), enabled_ids={"alpha"}, metric="calmar"
+        )
+        assert result.total() <= 1.0 + 1e-9
+
+    def test_invalid_metric_raises(self) -> None:
+        from src.strategies.capital_allocator import performance_weighted_allocate
+
+        with pytest.raises(ValueError, match="metric must be"):
+            performance_weighted_allocate(
+                self._strats(),
+                enabled_ids={"alpha"},
+                metric="omega",  # type: ignore[arg-type]
+            )
+
+    def test_sortino_metric_with_seeded_data(self) -> None:
+        """Sortino-weighted allocation differs from Sharpe-weighted when one
+        strategy has high upside vol but similar downside risk."""
+        from src.strategies.capital_allocator import performance_weighted_allocate
+
+        n = 30
+        # alpha: alternating big gains / tiny losses → high Sortino, moderate Sharpe
+        alpha_pnls = [5.0 if i % 2 == 0 else -0.1 for i in range(n)]
+        # beta: tight around +1 → similar Sharpe but lower Sortino upside vol
+        beta_pnls = [1.0 + 0.05 * (i % 3 - 1) for i in range(n)]
+        self._seed_tracker({"alpha": alpha_pnls, "beta": beta_pnls})
+        strats = (_Strat("alpha", 0.5), _Strat("beta", 0.5))
+        result = performance_weighted_allocate(
+            strats, enabled_ids={"alpha", "beta"}, metric="sortino"
+        )
+        assert result.total() <= 1.0 + 1e-9
+        # alpha has much higher Sortino (almost no losses) → should dominate
+        assert result.fractions["alpha"] > result.fractions["beta"]
+        self._clear_tracker()
+
 
 # ---------------------------------------------------------------------------
 # risk_parity_allocate tests

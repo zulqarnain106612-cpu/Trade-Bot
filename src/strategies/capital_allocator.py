@@ -108,27 +108,40 @@ def equal_weight_allocate(
 def performance_weighted_allocate(
     strategies: tuple[StrategyProtocol, ...],
     enabled_ids: set[str],
+    *,
+    metric: str = "sortino",
 ) -> AllocationResult:
     """
-    Sharpe-weighted capital allocation using live per-strategy attribution data.
+    Risk-adjusted capital allocation using live per-strategy attribution data.
 
     Algorithm
     ---------
-    1. Pull `AttributionTracker.snapshot()` for realized Sharpe per strategy.
+    1. Pull `AttributionTracker.snapshot()` per strategy.
     2. Strategies with < _MIN_TRADES_FOR_SHARPE fills get the equal-weight
        share as their weight (insufficient data -- no edge to exploit).
     3. Strategies with >= _MIN_TRADES_FOR_SHARPE fills:
-         - positive Sharpe -> proportional weight
-         - negative Sharpe -> floor at _NEG_SHARPE_WEIGHT_FRACTION * equal_share
+         - positive metric value -> proportional weight
+         - negative metric value -> floor at _NEG_SHARPE_WEIGHT_FRACTION * equal_share
            (keeps them alive at low allocation during a drawdown rather than
            zeroing them out based on potentially noisy recent history)
     4. Weights are capped by required_capital_fraction() then renormalized.
 
+    Parameters
+    ----------
+    metric : "sortino" (default), "sharpe", or "calmar".
+        Sortino is preferred for crypto because it does not penalize
+        upside volatility; Calmar is useful during trend regimes.
+        Falls back to Sharpe if the requested metric is unavailable.
+
     Falls back to equal_weight_allocate if attribution data is unavailable.
 
-    Authority: Sharpe (1966), Carver (2019) Ch.11, AFML Ch.16.
+    Authority: Sharpe (1966), Sortino & Price (1994), Carver (2019) Ch.11,
+    AFML Ch.16.
     """
     from src.diagnostics.attribution import get_attribution_tracker
+
+    if metric not in ("sortino", "sharpe", "calmar"):
+        raise ValueError(f"metric must be 'sortino', 'sharpe', or 'calmar', got {metric!r}")
 
     active = [s for s in strategies if s.strategy_id in enabled_ids]
     if not active:
@@ -151,11 +164,13 @@ def performance_weighted_allocate(
         if attr is None or attr.trade_count < _MIN_TRADES_FOR_SHARPE:
             # Warm-up phase - give equal share so new strategies get capital
             raw[s.strategy_id] = equal_share
-        elif attr.sharpe >= 0.0:
-            raw[s.strategy_id] = attr.sharpe
         else:
-            # Negative Sharpe - floor so the strategy isn't fully excluded
-            raw[s.strategy_id] = _NEG_SHARPE_WEIGHT_FRACTION * equal_share
+            score = getattr(attr, metric, None) or attr.sharpe
+            if score >= 0.0:
+                raw[s.strategy_id] = score
+            else:
+                # Negative score - floor so the strategy isn't fully excluded
+                raw[s.strategy_id] = _NEG_SHARPE_WEIGHT_FRACTION * equal_share
 
     # If all active strategies are in warm-up (all equal_share), the result is
     # identical to equal_weight - no normalization surprise.
