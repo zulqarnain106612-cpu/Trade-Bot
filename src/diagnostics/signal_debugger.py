@@ -285,11 +285,11 @@ class ModelDegradationTracker:
         losses = [r for r in returns if r < 0.0]
         if not losses:
             return None
-        # RMS of losses = semi-deviation below target=0 (Sortino & Price 1994).
-        downside_rms = math.sqrt(sum(p * p for p in losses) / len(losses))
-        if downside_rms <= 0.0:
+        # Standard Sortino semi-deviation: sqrt(sum(losses^2) / n_total).
+        downside_std = math.sqrt(sum(p * p for p in losses) / len(returns))
+        if downside_std <= 0.0:
             return None
-        return mean_ret / downside_rms
+        return mean_ret / downside_std
 
     def live_accuracy(self) -> float | None:
         """Compute rolling accuracy from resolved predictions."""

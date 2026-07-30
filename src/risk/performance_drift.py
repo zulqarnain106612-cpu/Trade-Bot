@@ -305,14 +305,14 @@ class PerformanceDriftDetector:
         losses = [p for p in pnl_list if p < 0.0]
         if not losses:
             return None
-        # Semi-deviation = RMS of losses (L2 norm below target=0, Sortino & Price 1994).
-        # Using RMS rather than std handles the degenerate case where all losses are
-        # identical (std=0), which occurs frequently in test environments and in
-        # production when a strategy is in a sustained losing streak.
-        downside_rms = math.sqrt(sum(p * p for p in losses) / len(losses))
-        if downside_rms <= 0.0:
+        # Standard Sortino semi-deviation: sqrt(sum(losses^2) / n_total).
+        # Dividing by total trades (not just losses) matches Sortino & Price (1994)
+        # and attribution.py's _sortino(). Using squared sum avoids the std=0
+        # edge case when all losses are identical.
+        downside_std = math.sqrt(sum(p * p for p in losses) / len(pnl_list))
+        if downside_std <= 0.0:
             return None
-        return mean_pnl / downside_rms
+        return mean_pnl / downside_std
 
     def _check_sharpe_drift(self) -> DriftDetected:
         """Check if rolling Sharpe has dropped >0.5pp vs training OOS Sharpe."""
