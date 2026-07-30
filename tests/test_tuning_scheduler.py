@@ -152,6 +152,7 @@ class TestAutoTuningSchedulerAttempts:
                 assert parameter_registry.is_registered("hmm.entropy_scalar_floor")
                 assert parameter_registry.is_registered("risk.slippage_impact_coeff_bps")
                 assert parameter_registry.is_registered("risk.ensemble_blend_weight")
+                assert parameter_registry.is_registered("risk.garch_vol_threshold")
                 assert parameter_registry.is_registered("xgboost.max_depth")
             finally:
                 scheduler.stop()
@@ -691,6 +692,7 @@ class TestSchedulerLifecycleBranches:
                 assert parameter_registry.is_registered("hmm.entropy_scalar_floor")
                 assert parameter_registry.is_registered("risk.slippage_impact_coeff_bps")
                 assert parameter_registry.is_registered("risk.ensemble_blend_weight")
+                assert parameter_registry.is_registered("risk.garch_vol_threshold")
                 assert parameter_registry.is_registered("features.atr_window")
                 assert parameter_registry.is_registered("xgboost.max_depth")
             finally:

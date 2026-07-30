@@ -72,6 +72,7 @@ from src.tuning.bootstrap import (
     XGBOOST_HYPERPARAM_FIELDS,
     register_ensemble_blend_weight,
     register_feature_window_param,
+    register_garch_vol_threshold,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
     register_slippage_impact_coeff,
@@ -157,6 +158,11 @@ class AutoTuningScheduler:
         # unscheduled" note.
         if not parameter_registry.is_registered("risk.ensemble_blend_weight"):
             register_ensemble_blend_weight(parameter_registry, self._settings, version_store)
+        # Same "unscheduled" state as ensemble_blend_weight: visible via
+        # /self-tuning/status but not auto-cycled until a vol-targeting
+        # backtest harness exists (see register_garch_vol_threshold docstring).
+        if not parameter_registry.is_registered("risk.garch_vol_threshold"):
+            register_garch_vol_threshold(parameter_registry, self._settings, version_store)
         for field_name in FEATURE_WINDOW_FIELDS:
             if not parameter_registry.is_registered(f"features.{field_name}"):
                 register_feature_window_param(
