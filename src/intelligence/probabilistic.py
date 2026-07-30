@@ -89,7 +89,7 @@ class BayesianExchangeStressModel:
     Output: Probability of exchange failure in next 24h
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize with weakly informative priors.
         Will be updated with historical crisis data.
@@ -259,7 +259,7 @@ class BayesianWhaleActivityModel:
     New: whale_ratio=3.0 → P(true_ratio > 2.5) = 65%, expected_impact = +1.2% vol reduction
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Prior: Based on historical whale trading, ratio ~ 1.5 on average
         self.prior_mean = 1.5
         self.prior_std = 0.4

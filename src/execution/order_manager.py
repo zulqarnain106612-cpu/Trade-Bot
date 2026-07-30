@@ -35,7 +35,7 @@ class OrderManager:
     Manages order lifecycle with FSM state tracking.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._log = log
 
     async def place_order_with_fsm(

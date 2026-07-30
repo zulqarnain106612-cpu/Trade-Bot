@@ -512,7 +512,7 @@ class EnsemblePredictor:
     Output: Not just point forecast, but full uncertainty quantification.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.models = {
             "arima": ARIMAPredictor(),
             "xgboost": XGBoostPredictor(),
