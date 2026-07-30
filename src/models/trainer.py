@@ -956,8 +956,8 @@ class ModelTrainer:
         # GAP-015: resolve base feature count from model's n_features_in_.
         # meta_model is trained with (base_features + 2 direction signals).
         # Legitimate cases:
-        #   - Pre-GAP-015 model: n_features_in_ = 9 (BASE) + 2 = 9.  feature_vec has 7.
-        #   - GAP-015 model: n_features_in_ = 9 + N_intel + 2.        feature_vec has 7 + N_intel.
+        #   - Pre-GAP-015 model: n_features_in_ = len(BASE) + 2.  feature_vec has len(BASE) cols.
+        #   - GAP-015 model: n_features_in_ = len(BASE) + N_intel + 2. feature_vec has len(BASE) + N_intel.
         # Illegitimate case (SCAN2-005): feature_vec columns don't match model schema at all.
         expected_n = getattr(meta_model, "n_features_in_", None)
         if expected_n is not None:

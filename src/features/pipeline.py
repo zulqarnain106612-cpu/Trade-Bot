@@ -91,7 +91,7 @@ def get_active_feature_columns(
         min_coverage: Minimum non-NULL fraction [0,1] to include a column.
 
     Returns:
-        Ordered list of column names.  Always starts with the 7 base features.
+        Ordered list of column names.  Always starts with the 8 base features.
         May include up to 18 additional intelligence columns.
 
     Example:
@@ -108,7 +108,7 @@ def get_active_feature_columns(
     if not coverage:
         _log.info(
             "get_active_feature_columns",
-            mode="7-feature",
+            mode="base-feature",
             reason="no intelligence coverage data",
         )
         return list(BASE_FEATURE_COLUMNS)
@@ -828,7 +828,7 @@ def build_inference_features(
                            Keys are IntelligenceMetrics field names (no "intelligence_"
                            prefix — the mapping is applied inside _inject_intelligence_features).
                            NaN / missing fields are skipped with a confidence penalty.
-                           When None or empty, returns 7-feature base vector (backward-compat).
+                           When None or empty, returns base feature vector (backward-compat).
 
     Returns
     -------
@@ -962,7 +962,7 @@ def _inject_intelligence_features(
     Confidence is included as "intelligence_confidence" when present.
 
     Args:
-        vec:                  Base 7-feature pd.Series.
+        vec:                  Base feature pd.Series (len = len(BASE_FEATURE_COLUMNS)).
         intelligence_metrics: Flat dict from MultiProviderIntelligenceAggregator.
 
     Returns:
