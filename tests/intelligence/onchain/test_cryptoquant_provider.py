@@ -274,7 +274,7 @@ class TestCryptoQuantProviderEnabled:
 
     @pytest.mark.asyncio
     async def test_fetch_metrics_all_endpoints_fail(self):
-        """All _get calls return None → all confidence penalties applied."""
+        """All _get calls return None → all 5 confidence penalties applied (5 * 0.05 = 0.25 off)."""
         prov = self._make_provider()
 
         async def mock_get(url, **kwargs):
@@ -283,8 +283,8 @@ class TestCryptoQuantProviderEnabled:
         with patch.object(prov, "_get", side_effect=mock_get):
             m = await prov.fetch_metrics()
 
-        # All 5 endpoints penalise confidence; result must be clamped at 0
-        assert m["confidence"] == pytest.approx(0.0)
+        # Each of 5 endpoints penalises 0.05 → 1.0 - 0.25 = 0.75
+        assert m["confidence"] == pytest.approx(0.75)
         # Neutral fallbacks applied
         assert m["exchange_reserve_ratio"] == pytest.approx(0.5)
         assert m["exchange_netflow_7d_zscore"] == pytest.approx(0.0)
@@ -292,7 +292,7 @@ class TestCryptoQuantProviderEnabled:
 
     @pytest.mark.asyncio
     async def test_fetch_metrics_funding_no_binance_row(self):
-        """Funding data returned but no Binance exchange row → key absent."""
+        """Funding data returned but no Binance exchange row → key stays at neutral 0.0."""
         prov = self._make_provider()
         responses = [
             {"result": {"data": [{"reserve_usd": 5e9, "price": 60_000}]}},
@@ -313,5 +313,5 @@ class TestCryptoQuantProviderEnabled:
         with patch.object(prov, "_get", side_effect=mock_get):
             m = await prov.fetch_metrics()
 
-        # binance_funding_rate_pct should not be set
-        assert "binance_funding_rate_pct" not in m
+        # binance_funding_rate_pct stays at neutral 0.0 (fr was None, key was never updated)
+        assert m["binance_funding_rate_pct"] == pytest.approx(0.0)

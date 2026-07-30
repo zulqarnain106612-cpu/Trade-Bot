@@ -199,5 +199,6 @@ async def test_fetch_metrics_stablecoin_ratio_none_when_no_major() -> None:
 
     provider._get = mock_get  # type: ignore[assignment]
     metrics = await provider.fetch_metrics()
-    # stablecoin_reserve_ratio stays at neutral (0.5) because _stablecoin_ratio returns None
-    assert metrics["stablecoin_reserve_ratio"] == pytest.approx(0.5)
+    # _stablecoin_ratio({"peggedAssets": [DAI only]}) returns 0.0 (usd_major=0/total)
+    # and 0.0 is a valid value so it overwrites the neutral 0.5
+    assert metrics["stablecoin_reserve_ratio"] == pytest.approx(0.0)

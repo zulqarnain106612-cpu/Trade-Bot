@@ -474,7 +474,7 @@ class TestRollingSharpeZeroVariance:
     def test_zero_variance_sharpe_drift_triggers(self) -> None:
         """std=0 zero PnL with high baseline Sharpe → drift detected (is_significant=True)."""
         d = self._detector()
-        for _ in range(25):
+        for _ in range(35):  # check_drift() requires >= 30 trades
             d.record_trade_outcome(
                 pnl_usd=0.0,
                 predicted_prob=0.7,
