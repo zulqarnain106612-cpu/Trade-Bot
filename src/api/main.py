@@ -1253,6 +1253,88 @@ async def debug_macro_budget() -> dict[str, Any]:
     return {"status": "ok", "summary": _REGISTRY.summary()}
 
 
+@app.get("/debug/regime-pulse", dependencies=[Depends(api_key_header)])
+async def debug_regime_pulse(
+    symbol: str = "BTC/USDT:USDT",
+    timeframe: str = "1h",
+) -> dict[str, Any]:
+    """
+    Single-glance trading health check.
+
+    Aggregates regime state, strategy selection, kill-switch status, and
+    macro-budget utilisation so operators can confirm the system is ready
+    to trade without querying multiple endpoints.
+
+    Returns
+    -------
+    {
+        "ready_to_trade": bool,
+        "regime": {...},
+        "strategy_selected": str,
+        "kill_switch_active": bool,
+        "macro_budget_ok": bool,
+        "gates": {regime, kill_switch, macro_budget}
+    }
+    """
+    from src.risk.macro_exposure_budget import _REGISTRY
+    from src.risk.strategy_kill_switch import get_kill_switch
+    from src.strategies.regime_strategy_selector import (
+        STRATEGY_NEUTRAL,
+        select_strategy,
+    )
+
+    # Regime from storage
+    regime_row = await _state.storage.latest_regime(timeframe)
+    if regime_row is not None:
+        regime_state = int(regime_row.get("state", 1))
+        confidence = float(regime_row.get("confidence", 0.5))
+        entropy = float(regime_row.get("entropy", 0.5))
+        is_transition = bool(regime_row.get("is_transition", False))
+    else:
+        regime_state, confidence, entropy, is_transition = 1, 0.5, 0.5, False
+
+    # Strategy selection
+    selection = select_strategy(
+        regime_state=regime_state,
+        confidence=confidence,
+        entropy=entropy,
+        is_transition=is_transition,
+    )
+
+    # Kill switch
+    ks = get_kill_switch()
+    kill_switch_active = not ks.is_active(symbol, timeframe)
+
+    # Macro budget
+    macro_ok = True
+    if _REGISTRY is not None:
+        summary = _REGISTRY.summary()
+        macro_ok = summary.get("global_utilisation_pct", 0.0) < 95.0
+
+    ready = selection.strategy != STRATEGY_NEUTRAL and not kill_switch_active and macro_ok
+
+    return {
+        "ready_to_trade": ready,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "regime": {
+            "state": regime_state,
+            "confidence": round(confidence, 4),
+            "entropy": round(entropy, 4),
+            "is_transition": is_transition,
+        },
+        "strategy_selected": selection.strategy,
+        "strategy_reject_reason": selection.reject_reason,
+        "kill_switch_active": kill_switch_active,
+        "macro_budget_ok": macro_ok,
+        "gates": {
+            "regime_ok": selection.strategy != STRATEGY_NEUTRAL,
+            "kill_switch_ok": not kill_switch_active,
+            "macro_budget_ok": macro_ok,
+        },
+    }
+
+
 @app.get("/debug/order-throttler", dependencies=[Depends(api_key_header)])
 async def debug_order_throttler() -> dict[str, Any]:
     """Per-exchange token-bucket rate-limiter status (tokens remaining, rate, burst)."""

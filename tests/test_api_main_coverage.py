@@ -1203,6 +1203,50 @@ def test_intelligence_providers_exception(mock_state):
 # ---------------------------------------------------------------------------
 
 
+def test_debug_regime_pulse_no_regime_data(mock_state):
+    mock_state.storage.latest_regime = AsyncMock(return_value=None)
+    client = _get_client()
+    resp = client.get("/debug/regime-pulse", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "ready_to_trade" in body
+    assert "regime" in body
+    assert "strategy_selected" in body
+    assert "kill_switch_active" in body
+    assert "macro_budget_ok" in body
+    assert "gates" in body
+
+
+def test_debug_regime_pulse_with_regime_data(mock_state):
+    mock_state.storage.latest_regime = AsyncMock(
+        return_value={"state": 1, "confidence": 0.85, "entropy": 0.10, "is_transition": False}
+    )
+    client = _get_client()
+    resp = client.get("/debug/regime-pulse", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["regime"]["state"] == 1
+    assert body["regime"]["confidence"] == pytest.approx(0.85)
+
+
+def test_debug_regime_pulse_volatile_not_ready(mock_state):
+    mock_state.storage.latest_regime = AsyncMock(
+        return_value={"state": 2, "confidence": 0.90, "entropy": 0.05, "is_transition": False}
+    )
+    client = _get_client()
+    resp = client.get("/debug/regime-pulse", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    # Volatile regime -> strategy neutral -> ready_to_trade must be False
+    assert body["ready_to_trade"] is False
+    assert body["gates"]["regime_ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# /debug/order-throttler
+# ---------------------------------------------------------------------------
+
+
 def test_debug_order_throttler_route(mock_state):
     client = _get_client()
     resp = client.get("/debug/order-throttler", headers={"x-api-key": _API_KEY})
