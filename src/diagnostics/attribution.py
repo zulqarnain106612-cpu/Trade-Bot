@@ -164,6 +164,17 @@ class AttributionTracker:
     def fill_count(self) -> int:
         return len(self._fills)
 
+    def fills_for(self, strategy_id: str) -> list[AttributedFill]:
+        """
+        This strategy's fills in the order they were recorded.
+
+        snapshot() aggregates away entry/exit timestamps, but the v6
+        promotion gauntlet needs them to answer "how long has this been
+        running under real conditions", which is a separate question from
+        "how many trades has it done".
+        """
+        return [f for f in self._fills if f.strategy_id == strategy_id]
+
 
 _tracker: AttributionTracker = AttributionTracker()
 

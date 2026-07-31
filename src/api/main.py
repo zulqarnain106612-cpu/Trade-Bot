@@ -63,7 +63,10 @@ from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.unified_ledger import get_unified_ledger
-from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
+from src.risk.strategy_kill_switch import (
+    GauntletNotPassedError,
+    get_strategy_kill_switch_manager,
+)
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
@@ -472,6 +475,30 @@ class SelfTuningPauseRequest(BaseModel):
         min_length=1,
         description="Must match OPERATOR_SECRET env var to authorise pause/resume",
     )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class StrategyReEnableRequest(BaseModel):
+    """
+    v6 — reinstate a kill-switched strategy.
+
+    force skips the promotion gauntlet. It exists because AttributionTracker
+    is in-memory: a restart wipes the track record, so a healthy strategy can
+    legitimately look like it has none. It is not a convenience flag — the
+    override is logged and reported as an override, never as a pass.
+    """
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise the re-enable",
+    )
+    force: bool = Field(default=False)
 
     @field_validator("operator")
     @classmethod
@@ -1450,6 +1477,73 @@ async def get_strategy_allocation() -> dict[str, Any]:
         "method": result.method,
         "fill_count": tracker.fill_count(),
     }
+
+
+@app.post(
+    "/strategies/{strategy_id}/re-enable",
+    tags=["monitoring"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        404: {"description": "No kill switch registered for this strategy"},
+        409: {"description": "Strategy has not passed the promotion gauntlet"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def re_enable_strategy(
+    strategy_id: str, body: StrategyReEnableRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Reinstate a strategy the kill switch disabled for drift (v2/v6).
+
+    Until this existed there was no path back: a strategy auto-disabled for
+    drift stayed disabled for the life of the process. The re-enable runs the
+    v6 promotion gauntlet against the strategy's own attributed track record,
+    so reinstatement clears the same bar as initial promotion.
+
+    409, not 400: the request is well-formed and the operator is authorised —
+    the strategy's record is what does not qualify yet.
+    """
+    _state.check_endpoint_rate_limit(
+        "re_enable_strategy", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "re_enable_strategy")
+
+    manager = get_strategy_kill_switch_manager()
+    if not manager.is_registered(strategy_id):
+        raise HTTPException(
+            status_code=404, detail=f"No kill switch registered for {strategy_id!r}."
+        )
+
+    try:
+        manager.re_enable(strategy_id, force=body.force)
+    except GauntletNotPassedError as exc:
+        log.warning(
+            "api.re_enable_rejected",
+            strategy_id=strategy_id,
+            operator=body.operator,
+            failed_criteria=list(exc.failed_criteria),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": str(exc), "failed_criteria": list(exc.failed_criteria)},
+        ) from exc
+
+    await _state.storage.insert_audit_event(
+        event_type="strategy_re_enabled",
+        operator=body.operator,
+        details={"strategy_id": strategy_id, "forced": body.force},
+    )
+    log.warning(
+        "api.strategy_re_enabled",
+        strategy_id=strategy_id,
+        operator=body.operator,
+        forced=body.force,
+    )
+    return {"strategy_id": strategy_id, "enabled": True, "forced": body.force}
 
 
 @app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])

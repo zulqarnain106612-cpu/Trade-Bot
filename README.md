@@ -124,6 +124,8 @@ fills, reconnects, and exchange-side rejections.
 | WS | /ws | Live push — equity, positions, signals |
 | GET | /orders/{order_id}/status | Order FSM status |
 | GET | /ledger | Cross-venue unified book (net/gross exposure, margin) |
+| GET | /strategies/stress-test | Replay historical crashes against the current allocation |
+| POST | /strategies/{id}/re-enable | Reinstate a kill-switched strategy (gauntlet-gated, requires OPERATOR_SECRET) |
 | GET | /performance-drift | Behavioral/performance drift snapshot |
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |

@@ -3,6 +3,39 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v6 promotion gauntlet: enforced on kill-switch re-enable
+
+`src/tuning/promotion_gauntlet.py` evaluated a candidate's track record and
+nothing ever called it. `StrategyKillSwitchManager.re_enable()` documented
+that "callers are responsible for that validation" — and had no callers at
+all, so a strategy auto-disabled for drift could not be reinstated for the
+life of the process. Two inert pieces that turned out to be each other's
+missing half.
+
+- **`re_enable()` now runs the gauntlet itself** against the strategy's own
+  attributed track record, so the discipline is enforced where it is stated
+  rather than delegated to a caller that never existed.
+- **`build_gauntlet_observation()`** assembles that record from
+  `AttributionTracker`. No fills returns `None` — an absence of evidence, not
+  evidence of a passing record — and the caller treats it as a failure rather
+  than a zero-valued pass.
+- **Drawdown units.** The gauntlet is specified in percentage terms while
+  attribution reports USD, so drawdown is expressed as a fraction of the
+  strategy's own peak cumulative P&L. A strategy that never reached a
+  positive peak has no denominator and reports 1.0, failing the criterion —
+  the right answer to "never made money, and we are being asked to give it
+  capital again".
+- **`force=True` is the explicit override**, because `AttributionTracker` is
+  in-memory and a restart wipes it, so a healthy strategy can legitimately
+  look like it has no record. Loud rather than convenient: logged at warning
+  and reported as an override, never as a pass.
+- **`POST /strategies/{id}/re-enable`** is the operator path that was
+  missing entirely. 409 on a gauntlet failure, not 400: the request is
+  well-formed and the operator authorised — the strategy's record is what
+  does not qualify yet.
+- A failed re-enable never partially applies; the strategy keeps both its
+  disabled flag and its original disabled reason.
+
 ## 2026-07-31 — v9 stress simulator: replayed against the live allocation
 
 `src/tuning/stress_simulator.py` could replay historical crash sequences
