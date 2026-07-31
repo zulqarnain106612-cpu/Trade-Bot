@@ -1188,6 +1188,52 @@ async def debug_attribution(
     return report.to_dict()
 
 
+@app.get("/debug/kill-switch", dependencies=[Depends(api_key_header)])
+async def debug_kill_switch(
+    symbol: str = "BTC/USDT:USDT",
+    timeframe: str = "1h",
+) -> dict[str, Any]:
+    """Per-strategy circuit breaker status (consecutive losses, win-rate, drawdown gates)."""
+    from src.risk.strategy_kill_switch import get_kill_switch
+
+    ks = get_kill_switch()
+    key = f"{symbol}:{timeframe}"
+    state = ks._states.get(key)
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "is_active": ks.is_active(symbol, timeframe),
+        "state": state.__dict__ if state is not None else None,
+    }
+
+
+@app.get("/debug/capital-floor", dependencies=[Depends(api_key_header)])
+async def debug_capital_floor() -> dict[str, Any]:
+    """Capital preservation floor status (HWM ratchet + absolute max-loss gate)."""
+    from src.risk.capital_preservation_floor import CapitalPreservationFloor
+
+    # Return schema only — actual instance lives in orchestrator / engine
+    return {
+        "info": "Instantiate CapitalPreservationFloor per-account in the engine.",
+        "default_params": {
+            "trigger_pct": 0.10,
+            "lock_in_pct": 0.05,
+            "max_loss_pct": 0.20,
+        },
+        "class": CapitalPreservationFloor.__module__ + ".CapitalPreservationFloor",
+    }
+
+
+@app.get("/debug/macro-budget", dependencies=[Depends(api_key_header)])
+async def debug_macro_budget() -> dict[str, Any]:
+    """Cross-asset macro exposure budget utilisation across all asset groups."""
+    from src.risk.macro_exposure_budget import _REGISTRY
+
+    if _REGISTRY is None:
+        return {"status": "not_initialised", "summary": None}
+    return {"status": "ok", "summary": _REGISTRY.summary()}
+
+
 @app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
 async def debug_selftest() -> dict[str, Any]:
     """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
