@@ -60,6 +60,7 @@ from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
+from src.diagnostics.audit_trail import get_audit_trail
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.unified_ledger import get_unified_ledger
@@ -1242,6 +1243,64 @@ async def debug_audit(
         "summary": aud.summary(),
         "anomalies": aud.anomaly_scan(),
         "recent": [r.to_dict() for r in aud.recent(limit)],
+    }
+
+
+@app.get("/audit/integrity", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def audit_chain_integrity(
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> dict[str, Any]:
+    """
+    Verify the hash-chained audit trail and return its tail.
+
+    src/diagnostics/audit_trail.py hash-chains every entry to the previous
+    one so tampering with history is detectable. SignalEngine writes to it on
+    every tick, and until this endpoint existed nothing ever verified the
+    chain or read it back — the hashing cost was paid on every tick and the
+    guarantee it buys was never collected. A tamper-evident log nobody checks
+    is not tamper-evident.
+
+    Distinct from /debug/audit, which reads TradeAuditor: that is a
+    human-readable decision log with no integrity guarantee, and the two are
+    different modules despite the similar name.
+
+    Reports rather than halts. A broken chain means a bug or tampering, and
+    which of those it is cannot be decided here — but it is logged at
+    critical so it cannot pass unnoticed while an operator is not looking at
+    the dashboard.
+
+    Returns
+    -------
+    {
+        "intact": bool,
+        "first_broken_sequence": int | None,   # None when intact
+        "entry_count": int,
+        "recent": [{sequence, ts_ms, event_type, reason_code, entry_hash}, ...],
+    }
+    """
+    trail = get_audit_trail()
+    intact, first_broken = trail.verify_chain_integrity()
+    entries = trail.entries()
+    if not intact:
+        log.critical(
+            "api.audit_chain_broken",
+            first_broken_sequence=first_broken,
+            entry_count=len(entries),
+        )
+    return {
+        "intact": intact,
+        "first_broken_sequence": first_broken,
+        "entry_count": len(entries),
+        "recent": [
+            {
+                "sequence": e.sequence,
+                "ts_ms": e.ts_ms,
+                "event_type": e.event_type,
+                "reason_code": e.reason_code,
+                "entry_hash": e.entry_hash,
+            }
+            for e in entries[-limit:]
+        ],
     }
 
 

@@ -128,6 +128,7 @@ fills, reconnects, and exchange-side rejections.
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |
 | GET | /debug/health | Runtime monitor snapshot |
+| GET | /audit/integrity | Hash-chain verification of the tamper-evident audit trail |
 | GET | /debug/audit | Trade decision audit log |
 | GET | /debug/drift | Feature drift (KS test) + model degradation |
 | POST | /debug/selftest | On-demand pipeline self-test |
