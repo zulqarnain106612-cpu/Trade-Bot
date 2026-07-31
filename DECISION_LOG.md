@@ -3,6 +3,42 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — two config knobs that nothing read
+
+A scan of all 154 `*Settings` fields for references outside `config.py`
+turned up five with no reader anywhere. Two of them were load-bearing.
+
+**`SelfTuningSettings.min_trades_between_attempts`** — the tuning cadence
+guard has two halves and only one was enforced. `TuningRunner._cooldown_active`
+checked `min_hours_between_attempts` and nothing ever read the trade half, so
+an operator setting it believed tuning waited for 200 new closed trades when
+it waited only on wall-clock. A quiet market can let 24 hours pass on a
+handful of trades, and re-tuning on that little new evidence is how a tuner
+starts fitting noise.
+
+- The runner records `closed_trade_count` in the PROPOSED audit entry so the
+  next attempt has a baseline, and `AutoTuningScheduler` supplies the current
+  count once per cycle.
+- `None` (count unavailable) means "this guard cannot claim a verdict" and
+  falls back to wall-clock alone. `0` would have read as "no new evidence"
+  and blocked tuning indefinitely on a storage hiccup.
+- The bar-driven feature-window group deliberately does NOT pass the count:
+  its evidence is bar history, not trades, and gating it on trade flow would
+  stall it through any quiet period — repeating the cross-group coupling the
+  note at the top of `_attempt_all()` exists to prevent.
+
+**`StorageSettings.bar_cache_days`** — configured a retention window that
+`prune_old_bars()` implemented on *both* storage backends and that nothing
+ever called. Bars accumulated for the life of the deployment.
+`Orchestrator._prune_old_bars()` now runs on the same primary-timeframe
+cadence as retraining, prunes every active timeframe, and is best-effort per
+timeframe so a housekeeping failure cannot take down a healthy tick loop.
+
+The other three (`log_as_json`, `rate_limit_per_minute`,
+`rate_limit_per_second`) are genuinely decorative — ccxt's own
+`enableRateLimit` covers the last two — and are left alone rather than given
+invented behaviour.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
