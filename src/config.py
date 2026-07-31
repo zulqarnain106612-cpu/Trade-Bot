@@ -339,6 +339,37 @@ class XGBoostSettings(BaseSettings):
     random_state: int = Field(default=42, ge=0)
     early_stopping_rounds: int = Field(default=50, ge=5)
 
+    # v4 shadow-mode promotion (src/models/model_registry.py). A retrain that
+    # clears the absolute live gate (OOS Sharpe / max DD / trade count) has not
+    # yet shown it is better than the model already running. shadow_mode_enabled
+    # makes a fresh bundle earn the live slot by out-predicting the incumbent on
+    # live bars first; disabling it restores the previous swap-on-retrain
+    # behaviour.
+    shadow_mode_enabled: bool = Field(default=True)
+    shadow_min_evaluations: int = Field(
+        default=100,
+        ge=1,
+        description="Resolved shadow predictions required before promotion is considered",
+    )
+    shadow_max_evaluations: int = Field(
+        default=400,
+        ge=1,
+        description=(
+            "Resolved predictions after which a shadow that has not beaten the "
+            "incumbent is abandoned, so it cannot block the next candidate forever"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_shadow_window(self) -> XGBoostSettings:
+        if self.shadow_max_evaluations < self.shadow_min_evaluations:
+            raise ValueError(
+                f"shadow_max_evaluations ({self.shadow_max_evaluations}) must be >= "
+                f"shadow_min_evaluations ({self.shadow_min_evaluations}); otherwise a "
+                "shadow is abandoned before it is ever evaluated"
+            )
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Feature engineering constants — AFML Ch.3-5
@@ -444,7 +475,12 @@ class StorageSettings(BaseSettings):
     model_dir: Path = Field(default=Path("models/artifacts"))
     log_dir: Path = Field(default=Path("logs"))
     bar_cache_days: int = Field(default=90, ge=1)
-
+    # Append-only audit trail for automated structural changes: model
+    # promotions (src/models/model_registry.py), strategy retirements
+    # (src/risk/strategy_kill_switch.py). One path, not one per producer —
+    # a reader reconstructing why the book changed shape needs those events
+    # interleaved in a single ordered file.
+    #
     # v10 self-updating decision log (src/diagnostics/decision_log_writer.py).
     # Deliberately NOT the repo's hand-written DECISION_LOG.md: that file is
     # tracked in git and edited by humans, and having a running process append

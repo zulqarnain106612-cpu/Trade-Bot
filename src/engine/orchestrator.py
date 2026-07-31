@@ -24,7 +24,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
@@ -39,12 +39,17 @@ from src.config import (
     runtime_config,
 )
 from src.data.fetcher import MarketDataFetcher
-from src.data.storage import AnyStorageBackend, MissedTradeRecord, RegimeSnapshotRecord
+from src.data.storage import (
+    AnyStorageBackend,
+    MissedTradeRecord,
+    ModelMetricsRecord,
+    RegimeSnapshotRecord,
+)
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
 )
-from src.engine.signal_engine import SignalEngine, SignalResult
+from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
@@ -884,6 +889,72 @@ class Orchestrator:
     # Model training
     # ------------------------------------------------------------------
 
+    async def _route_retrained_bundle(
+        self,
+        *,
+        tf: Timeframe,
+        version: str,
+        direction_model: Any,
+        meta_model: Any,
+        detector: Any,
+        ensemble: Any,
+        metrics_records: tuple[ModelMetricsRecord, ...],
+        live_gate_pass: bool,
+    ) -> None:
+        """
+        Decides what a freshly trained bundle is allowed to do.
+
+        Clearing the live gate is an *absolute* test (OOS Sharpe, max drawdown,
+        trade count) — it says the candidate is good enough to trade, not that
+        it is better than the model already trading. Retraining used to swap on
+        the strength of that absolute test alone, so a worse model replaced a
+        better one on every scheduled cycle. Shadow mode makes the candidate
+        out-predict the incumbent on live bars first (v4 model registry).
+
+        Three routes:
+          - fails the live gate  -> discarded; the incumbent already passed it
+          - shadow mode disabled -> swapped immediately (previous behaviour)
+          - otherwise            -> shadowed until it earns the live slot
+        """
+        engine = self._engines[tf.value]
+
+        if not live_gate_pass:
+            # Not swapped *and* not recorded: the live gate reads the latest
+            # metrics row, so writing this one would replace a passing
+            # incumbent's record with a failing candidate's and halt live
+            # trading on the strength of a model that never went live.
+            self._log.warning(
+                "orchestrator.retrain_discarded_live_gate_failed",
+                timeframe=tf.value,
+                version=version,
+            )
+            return
+
+        if not self._cfg.xgboost.shadow_mode_enabled:
+            for record in metrics_records:
+                await self._storage.insert_model_metrics(record)
+            await engine.swap_models(
+                direction_model, meta_model, detector, ensemble=ensemble, model_id=version
+            )
+            return
+
+        await engine.set_shadow_bundle(
+            ShadowBundle(
+                model_id=version,
+                direction_model=direction_model,
+                meta_model=meta_model,
+                detector=detector,
+                ensemble=ensemble,
+                metrics=metrics_records,
+            )
+        )
+        self._log.info(
+            "orchestrator.retrain_entered_shadow",
+            timeframe=tf.value,
+            version=version,
+            min_evaluations=self._cfg.xgboost.shadow_min_evaluations,
+        )
+
     async def _train_models(self, tf: Timeframe) -> None:
         """
         Train HMM + XGBoost models for a timeframe and persist to disk.
@@ -981,15 +1052,11 @@ class Orchestrator:
                 self._log.error("orchestrator.ensemble_train_failed", error=str(exc), exc_info=True)
                 ensemble = None
 
-            # Persist metrics to storage
-            await self._storage.insert_model_metrics(
-                dir_result.to_metrics_record("direction", tf.value, version)
-            )
-            await self._storage.insert_model_metrics(
-                meta_result.to_metrics_record("meta_label", tf.value, version)
+            metrics_records = (
+                dir_result.to_metrics_record("direction", tf.value, version),
+                meta_result.to_metrics_record("meta_label", tf.value, version),
             )
 
-            # Hot-swap models atomically via the engine's own lock (fix #14)
             if tf.value in self._engines:
                 new_dir = ModelTrainer.load_direction(
                     self._cfg.storage.model_dir, self._symbol, tf.value
@@ -997,9 +1064,22 @@ class Orchestrator:
                 new_meta = ModelTrainer.load_meta(
                     self._cfg.storage.model_dir, self._symbol, tf.value
                 )
-                await self._engines[tf.value].swap_models(
-                    new_dir, new_meta, detector, ensemble=ensemble
+                await self._route_retrained_bundle(
+                    tf=tf,
+                    version=version,
+                    direction_model=new_dir,
+                    meta_model=new_meta,
+                    detector=detector,
+                    ensemble=ensemble,
+                    metrics_records=metrics_records,
+                    live_gate_pass=dir_result.live_gate_pass and meta_result.live_gate_pass,
                 )
+            else:
+                # No engine on this timeframe, so nothing can be shadowed or
+                # swapped — the metrics are still the OOS record of a training
+                # run that happened and are persisted unconditionally.
+                for record in metrics_records:
+                    await self._storage.insert_model_metrics(record)
 
             self._log.info(
                 "orchestrator.training_complete",

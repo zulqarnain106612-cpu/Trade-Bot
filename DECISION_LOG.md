@@ -273,6 +273,53 @@ single position.
 - **Config** — `RISK_MACRO_EXPOSURE_ENABLED` (default true, because the
   overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
   30). Deliberately not registered as a self-tunable parameter.
+## 2026-07-31 — v4 shadow mode: a retrained model must earn the live slot
+
+`src/models/model_registry.py` had a complete shadow-evaluation and promotion
+API and no caller. Wiring it up exposed the reason it was written: retraining
+hot-swapped unconditionally.
+
+- **The bug.** `live_gate_pass` is an *absolute* test — OOS Sharpe > 1.5, max
+  DD < 15%, ≥ 500 trades. It says a candidate is good enough to trade; it says
+  nothing about whether it is better than the model already trading. Every
+  scheduled retrain swapped on the strength of that absolute test alone, so a
+  candidate that merely cleared the bar replaced an incumbent that had cleared
+  it by more. Model quality performed a random walk instead of ratcheting.
+- **Shadow first.** A passing candidate now runs in parallel and is scored
+  against the incumbent on live bars. It reaches the live slot only after
+  `xgboost.shadow_min_evaluations` resolved predictions *and* a higher hit
+  rate over the same window.
+- **Lagged by one bar, deliberately.** The outcome of a prediction made at bar
+  T does not exist until T+1, so each pair is held and resolved on the next
+  bar. A bar whose close is unchanged is dropped rather than scored — there
+  was no direction to have predicted, and crediting it to "short" would hand
+  both models a coin flip neither earned.
+- **Compared pre-blend.** The shadow is a direction model, so it is scored
+  against the direction model's raw `p_long`, not the ensemble-blended value.
+  Blending one side and not the other would measure the ensemble.
+- **The bundle promotes as a unit.** The meta model is fitted against its own
+  direction model's outputs; promoting a direction model without its meta
+  partner produces exactly the mismatched pair the engine's model lock exists
+  to prevent.
+- **Metrics are published on promotion, not on training.** `check_live_gate`
+  reads the *latest* metrics row for the timeframe. Inserting a candidate's
+  row while it sits in shadow would let a model that is not trading decide
+  whether live trading is permitted — in either direction.
+- **A failing candidate is discarded, not swapped and not recorded.** The
+  incumbent already passed the gate; replacing its metrics row with a failing
+  candidate's would halt live trading over a model that never went live.
+- **Bounded.** After `shadow_max_evaluations` a candidate that has not won is
+  abandoned, so a stale shadow cannot block every later candidate. A newer
+  candidate supersedes an older one, and any live swap drops the shadow — its
+  accumulated record answered "better than the model being replaced?", which
+  is no longer the question.
+- **Audited.** Each promotion appends to `storage.decision_log_path` via
+  `src/diagnostics/decision_log_writer.py` (also previously uncalled).
+  Default `logs/decision_log.md`, not this file: a running process appending
+  to a tracked, hand-authored file is not a good idea.
+- `GET /status` reports `shadow_models` per timeframe; absent means nothing is
+  under evaluation. `xgboost.shadow_mode_enabled=false` restores the previous
+  swap-on-retrain behaviour.
 
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 

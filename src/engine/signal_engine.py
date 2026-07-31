@@ -28,6 +28,7 @@ import math
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Final, cast
 
 import pandas as pd
@@ -37,8 +38,9 @@ from xgboost import XGBClassifier
 from src.api.metrics import regime_ensemble_failure_total
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
-from src.data.storage import AnyStorageBackend
+from src.data.storage import AnyStorageBackend, ModelMetricsRecord
 from src.diagnostics.audit_trail import get_audit_trail
+from src.diagnostics.decision_log_writer import StructuralChangeRecord, append_to_decision_log
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
@@ -54,6 +56,7 @@ from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
 )
 from src.intelligence.risk_quantification import RiskQuantifier
+from src.models.model_registry import ModelRegistry
 from src.models.online_trainer import OnlineTrainer
 from src.models.trainer import ModelTrainer
 from src.regime.changepoint import BayesianOnlineChangepointDetector
@@ -98,6 +101,58 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Minimum bars in storage before a signal can be generated
 _MIN_BARS_FOR_SIGNAL: Final[int] = 300
+
+
+# ---------------------------------------------------------------------------
+# v4 shadow-mode model promotion (src/models/model_registry.py)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowBundle:
+    """
+    A retrained model set awaiting promotion. The four objects are kept
+    together because they were trained as a unit: the meta model is fitted
+    against this direction model's outputs, so promoting a direction model
+    without its meta partner produces exactly the mismatched pair the model
+    lock exists to prevent.
+    """
+
+    model_id: str
+    direction_model: Any
+    meta_model: Any
+    detector: Any
+    ensemble: Any = None
+    # Metrics rows for this bundle, written only if it is promoted. The live
+    # gate (risk.gates.check_live_gate) reads the *latest* metrics row for the
+    # timeframe, so inserting a candidate's row at training time would let a
+    # model that is not trading decide whether live trading is permitted.
+    metrics: tuple[ModelMetricsRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingShadowObservation:
+    """
+    A shadow/live prediction pair made on `bar_ts`, awaiting the next bar
+    to reveal which one was right. Held rather than scored immediately
+    because the outcome does not exist yet at prediction time.
+    """
+
+    model_id: str
+    bar_ts: int
+    close: float
+    live_p_long: float
+    shadow_p_long: float
+
+
+def _append_decision_log(record: StructuralChangeRecord, path: Path) -> None:
+    """
+    Blocking decision-log append, run off-loop via asyncio.to_thread.
+    Creates the parent directory because storage settings deliberately no
+    longer create directories as a validator side effect (VUL-031).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    append_to_decision_log(record, path)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +285,17 @@ class SignalEngine:
         self._capital_floor = CapitalPreservationFloor(
             max_drawdown_pct=self._cfg.risk.capital_preservation_max_drawdown_pct
         )
+        # v4 shadow-mode promotion. One registry per engine, i.e. per
+        # (symbol, timeframe) — deliberately not model_registry's process-wide
+        # singleton, whose single live slot would conflate the 5m, 15m and 4h
+        # models into one and let a 5m retrain evict the 4h incumbent.
+        self._registry = ModelRegistry(min_evaluations=self._cfg.xgboost.shadow_min_evaluations)
+        # The models handed to __init__ came off disk with no version attached;
+        # "initial" names that honestly rather than inventing a timestamp. Every
+        # later swap records the real training version.
+        self._registry.set_live_model("initial")
+        self._shadow: ShadowBundle | None = None
+        self._pending_shadow: _PendingShadowObservation | None = None
         self._log = log.bind(
             component="signal_engine",
             symbol=symbol,
@@ -246,6 +312,7 @@ class SignalEngine:
         meta_model: Any,
         detector: Any,
         ensemble: Any = None,
+        model_id: str | None = None,
     ) -> None:
         """
         Atomically replace all model objects under the model lock.
@@ -254,6 +321,10 @@ class SignalEngine:
         during a concurrent hot-swap. `ensemble` defaults to None so existing
         callers that don't yet train/pass one are unaffected — a tick with no
         ensemble simply falls back to XGBoost-only p_long (see tick()).
+
+        Any shadow under evaluation is dropped: it was being scored against
+        the model this call is replacing, so its accumulated comparison no
+        longer answers the question "is this better than what is running?".
         """
         async with self._model_lock:
             self._direction_model = direction_model
@@ -261,7 +332,221 @@ class SignalEngine:
             self._detector = detector
             if ensemble is not None:
                 self._ensemble = ensemble
-        self._log.info("signal_engine.models_swapped", ensemble_swapped=ensemble is not None)
+            if model_id is not None:
+                self._registry.set_live_model(model_id)
+            self._discard_shadow_locked("live_model_replaced")
+        self._log.info(
+            "signal_engine.models_swapped",
+            ensemble_swapped=ensemble is not None,
+            model_id=model_id,
+        )
+
+    # ------------------------------------------------------------------
+    # v4 shadow-mode promotion
+    # ------------------------------------------------------------------
+
+    async def set_shadow_bundle(self, bundle: ShadowBundle) -> None:
+        """
+        Puts a retrained bundle under live evaluation without giving it any
+        influence over trading. Its predictions are computed each tick and
+        scored against the incumbent's on the same bar; nothing it produces
+        reaches sizing, gating, or order placement until promote-time.
+
+        A newer candidate supersedes an older one: keeping both would mean
+        the older shadow eventually promotes over a model that has already
+        been superseded by fresher data.
+        """
+        async with self._model_lock:
+            self._discard_shadow_locked("superseded_by_newer_candidate")
+            self._shadow = bundle
+            self._registry.register_shadow(bundle.model_id)
+        self._log.info("signal_engine.shadow_registered", model_id=bundle.model_id)
+
+    def _discard_shadow_locked(self, reason: str) -> None:
+        """Drops the current shadow. Caller must hold `self._model_lock`."""
+        if self._shadow is None:
+            return
+        model_id = self._shadow.model_id
+        if model_id in self._registry.shadow_ids():
+            self._registry.discard_shadow(model_id)
+        self._shadow = None
+        self._pending_shadow = None
+        self._log.info("signal_engine.shadow_discarded", model_id=model_id, reason=reason)
+
+    async def _evaluate_shadow_tick(
+        self, bars: pd.DataFrame, vec: pd.Series, live_p_long: float
+    ) -> None:
+        """
+        Scores the shadow bundle against the incumbent on this bar, and
+        promotes or abandons it when the window closes.
+
+        `live_p_long` must be the direction model's raw output, taken before
+        the ensemble blend: the shadow is a direction model, so blending one
+        side of the comparison and not the other would measure the ensemble,
+        not the candidate.
+
+        The comparison is lagged by one bar because the outcome of a
+        prediction made at bar T only exists at bar T+1. Nothing here can
+        influence this tick's signal — the shadow's prediction is recorded
+        and discarded, never returned.
+        """
+        if not self._cfg.xgboost.shadow_mode_enabled:
+            return
+
+        promoted: tuple[str, float, float, int] | None = None
+        pending_metrics: tuple[ModelMetricsRecord, ...] = ()
+        async with self._model_lock:
+            bundle = self._shadow
+            if bundle is None:
+                return
+            model_id = bundle.model_id
+            bar_ts = int(bars.index[-1])
+            close = float(bars["close"].iloc[-1])
+
+            # 1. Resolve the previous bar's pair, now that its outcome exists.
+            pending = self._pending_shadow
+            if pending is not None and pending.model_id != model_id:
+                # Belt and braces: set_shadow_bundle already clears this.
+                self._pending_shadow = None
+            elif pending is not None and bar_ts > pending.bar_ts:
+                if close != pending.close:
+                    actual = 1 if close > pending.close else -1
+                    self._registry.record_shadow_prediction(model_id, pending.shadow_p_long, actual)
+                    self._registry.record_live_prediction_for_comparison(
+                        model_id, pending.live_p_long, actual
+                    )
+                # An unchanged close has no direction to have predicted, so it
+                # is dropped rather than scored — crediting it to "short"
+                # would hand both models a coin flip that neither earned.
+                self._pending_shadow = None
+
+            # 2. Open this bar's pair.
+            if self._pending_shadow is None:
+                try:
+                    _, shadow_p_long = self._trainer.predict_direction(bundle.direction_model, vec)
+                except Exception as exc:
+                    # A candidate that cannot score the live feature vector
+                    # (e.g. a schema mismatch) can never be promoted, so it is
+                    # dropped now instead of retrying every bar forever.
+                    self._log.error(
+                        "signal_engine.shadow_predict_failed",
+                        model_id=model_id,
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                    self._discard_shadow_locked("prediction_failed")
+                    return
+                self._pending_shadow = _PendingShadowObservation(
+                    model_id=model_id,
+                    bar_ts=bar_ts,
+                    close=close,
+                    live_p_long=live_p_long,
+                    shadow_p_long=shadow_p_long,
+                )
+
+            # 3. Promote, abandon, or keep waiting.
+            n_evals = self._registry.evaluation_count(model_id)
+            ready, reason = self._registry.evaluate_shadow(model_id)
+            if ready:
+                shadow_acc, live_acc = self._registry.accuracies(model_id)
+                self._registry.promote_shadow(model_id)
+                self._direction_model = bundle.direction_model
+                self._meta_model = bundle.meta_model
+                self._detector = bundle.detector
+                # Matches swap_models: a bundle trained without an ensemble
+                # keeps the incumbent's rather than dropping to XGBoost-only.
+                if bundle.ensemble is not None:
+                    self._ensemble = bundle.ensemble
+                self._shadow = None
+                self._pending_shadow = None
+                pending_metrics = bundle.metrics
+                promoted = (model_id, shadow_acc, live_acc, n_evals)
+            elif n_evals >= self._cfg.xgboost.shadow_max_evaluations:
+                self._log.info(
+                    "signal_engine.shadow_abandoned",
+                    model_id=model_id,
+                    evaluations=n_evals,
+                    reason=reason,
+                )
+                self._discard_shadow_locked("did_not_beat_incumbent")
+
+        if promoted is not None:
+            # Publish the promoted bundle's metrics only now that it is the
+            # model actually trading — see ShadowBundle.metrics.
+            for metrics in pending_metrics:
+                try:
+                    await self._storage.insert_model_metrics(metrics)
+                except Exception as exc:
+                    self._log.error(
+                        "signal_engine.promoted_metrics_insert_failed",
+                        model_id=promoted[0],
+                        model_name=metrics.model_name,
+                        error=str(exc),
+                        exc_info=True,
+                    )
+            await self._record_promotion(*promoted)
+
+    async def _record_promotion(
+        self, model_id: str, shadow_acc: float, live_acc: float, n_evals: int
+    ) -> None:
+        """
+        Writes the promotion to the append-only decision log. Runs outside the
+        model lock and never raises: the swap already happened, and a failed
+        audit write must not be reported as a failed promotion.
+        """
+        self._log.info(
+            "signal_engine.shadow_promoted",
+            model_id=model_id,
+            shadow_accuracy=shadow_acc,
+            live_accuracy=live_acc,
+            evaluations=n_evals,
+        )
+        record = StructuralChangeRecord(
+            title=f"{self._symbol} {self._timeframe.value} model promoted",
+            change_type="model_promoted",
+            justification=(
+                f"Shadow model {model_id} out-predicted the incumbent over "
+                f"{n_evals} resolved live bars and was promoted to the live slot."
+            ),
+            evidence={
+                "symbol": self._symbol,
+                "timeframe": self._timeframe.value,
+                "model_id": model_id,
+                "shadow_accuracy": round(shadow_acc, 4),
+                "live_accuracy": round(live_acc, 4),
+                "evaluations": n_evals,
+            },
+        )
+        path = self._cfg.storage.decision_log_path
+        try:
+            await asyncio.to_thread(_append_decision_log, record, path)
+        except Exception as exc:
+            self._log.error(
+                "signal_engine.decision_log_write_failed",
+                model_id=model_id,
+                path=str(path),
+                error=str(exc),
+                exc_info=True,
+            )
+
+    async def shadow_status(self) -> dict[str, Any] | None:
+        """Current shadow evaluation state, or None when nothing is under evaluation."""
+        async with self._model_lock:
+            if self._shadow is None:
+                return None
+            model_id = self._shadow.model_id
+            shadow_acc, live_acc = self._registry.accuracies(model_id)
+            ready, reason = self._registry.evaluate_shadow(model_id)
+            return {
+                "model_id": model_id,
+                "evaluations": self._registry.evaluation_count(model_id),
+                "min_evaluations": self._cfg.xgboost.shadow_min_evaluations,
+                "max_evaluations": self._cfg.xgboost.shadow_max_evaluations,
+                "shadow_accuracy": shadow_acc,
+                "live_accuracy": live_acc,
+                "ready_to_promote": ready,
+                "reason": reason,
+            }
 
     # ------------------------------------------------------------------
     # Main tick — called by orchestrator on every bar close
@@ -522,6 +807,15 @@ class SignalEngine:
                 regime_ensemble_failure_total.inc()
                 self._log.warning("signal.regime_ensemble_failed", error=str(exc), exc_info=True)
         direction, p_long = self._trainer.predict_direction(direction_model, vec)
+
+        # v4 shadow-mode evaluation — scores any candidate bundle against the
+        # incumbent on this bar using the raw, pre-blend p_long. Observational
+        # only: it can swap the models used by *later* ticks, never this one.
+        # Failing here must not cost a live signal, so it fails open.
+        try:
+            await self._evaluate_shadow_tick(bars, vec, p_long)
+        except Exception as exc:
+            self._log.warning("signal.shadow_eval_failed", error=str(exc), exc_info=True)
 
         # Ensemble blend (src/intelligence/ensemble_predictor.py) — conservative
         # by default (RiskSettings.ensemble_blend_weight, self-tunable via
