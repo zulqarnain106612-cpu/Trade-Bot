@@ -1188,6 +1188,25 @@ async def debug_attribution(
     return report.to_dict()
 
 
+@app.get("/journal/summary", tags=["diagnostics"], dependencies=[Depends(api_key_header)])
+async def journal_summary(
+    limit: Annotated[int, Query(ge=1, le=5000)] = 1000,
+    trading_mode: str = "paper",
+) -> dict[str, Any]:
+    """
+    Structured trade journal summary with P&L decomposition.
+
+    Returns aggregate stats (win rate, fee drag, slippage cost) broken down
+    by regime and exit reason across the most recent closed trades.
+    """
+    from src.diagnostics.trade_journal import build_journal, summarise_journal
+
+    trades = await _state.storage.fetch_trades(trading_mode=trading_mode, limit=limit)
+    entries = build_journal(trades)
+    summary = summarise_journal(entries)
+    return summary.to_dict()
+
+
 @app.get("/debug/kill-switch", dependencies=[Depends(api_key_header)])
 async def debug_kill_switch(
     symbol: str = "BTC/USDT:USDT",

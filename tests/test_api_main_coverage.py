@@ -1259,3 +1259,72 @@ def test_debug_portfolio_correlation_with_data(mock_state):
     body = resp.json()
     assert body["n_symbols"] == 2
     assert "BTC/USDT" in body["tracked_symbols"]
+
+
+# ---------------------------------------------------------------------------
+# /journal/summary
+# ---------------------------------------------------------------------------
+
+
+def test_journal_summary_empty(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    client = _get_client()
+    resp = client.get("/journal/summary", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_trades"] == 0
+    assert body["win_rate"] == 0.0
+    assert body["by_regime"] == {}
+    assert body["by_exit_reason"] == {}
+
+
+def test_journal_summary_with_trades(mock_state):
+    from src.data.storage import TradeRecord
+
+    def _trade(pnl: float, regime: int, exit_reason: str) -> TradeRecord:
+        return TradeRecord(
+            id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            trading_mode="paper",
+            execution_mode="AUTOMATIC",
+            direction=1,
+            entry_price=100.0,
+            exit_price=101.0,
+            quantity=0.1,
+            notional_usd=1000.0,
+            entry_ts=1_700_000_000,
+            exit_ts=1_700_003_600,
+            pnl_usd=pnl,
+            pnl_pct=pnl / 1000.0,
+            fee_usd=0.5,
+            kelly_fraction=0.02,
+            regime_at_entry=regime,
+            meta_label_prob=0.6,
+            exit_reason=exit_reason,
+            approved_by=None,
+            raw_signal=0.7,
+        )
+
+    trades = [
+        _trade(10.0, 1, "take_profit"),
+        _trade(-5.0, 0, "stop_loss"),
+        _trade(8.0, 1, "signal_flip"),
+    ]
+    mock_state.storage.fetch_trades = AsyncMock(return_value=trades)
+    client = _get_client()
+    resp = client.get("/journal/summary", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_trades"] == 3
+    assert body["n_winners"] == 2
+    assert body["win_rate"] == pytest.approx(2 / 3, abs=0.01)
+    assert "trending" in body["by_regime"]
+    assert "take_profit" in body["by_exit_reason"]
+
+
+def test_journal_summary_custom_limit(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    client = _get_client()
+    resp = client.get("/journal/summary?limit=50", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
