@@ -3,6 +3,30 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
+
+`src/api/access_control.py` documented its own non-wiring: the role table
+existed and was tested, but every authenticated key held every authority
+because no key-to-role convention had been decided.
+
+- **Convention** — additive and opt-in. `API_SECRET_KEY` authenticates as
+  `TRADE_AUTHORIZING` (unchanged); the optional `API_READONLY_KEY`
+  authenticates as `READ_ONLY`. A single-key deployment behaves exactly as
+  before, so this could not weaken an existing install — the only reachable
+  change is that a *newly added* key has less authority than the one already
+  there. That asymmetry is what made the decision safe to take unilaterally.
+- **Enforcement** — `main.requires(Permission)` builds a dependency that
+  resolves the role and answers 403 (not 401 — the caller authenticated
+  fine, it lacks authority) on `/approvals/{id}/resolve`, `/execution-mode`,
+  `/risk-controls`, and `/self-tuning/{pause,resume,rollback}`.
+- **Misconfiguration fails closed.** A read-only key shorter than 32 chars,
+  or identical to `API_SECRET_KEY`, makes the roles indistinguishable, so
+  every request answers 503 rather than guessing a role.
+- `verify_api_key` / `verify_ws_key` now return the resolved `Role`; the
+  raise-on-failure contract is unchanged, so existing callers are unaffected.
+- A test asserts the gate is actually attached to every mutating POST route —
+  a permission table nothing references is exactly the failure being fixed.
+
 ## 2026-07-27 — v2 Sub-tasks 1-4: Multi-Strategy Portfolio Engine
 
 Implemented per [ROADMAP_V2_PLAN.md](ROADMAP_V2_PLAN.md):

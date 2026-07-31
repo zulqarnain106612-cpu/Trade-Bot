@@ -238,7 +238,13 @@ Regenerate the lockfile with:
 Copy `.env.example` to `.env` and fill in credentials. Key sections:
 
 - **Exchange**: `BINANCE_API_KEY` / `BINANCE_API_SECRET` / `BINANCE_TESTNET`, `OKX_API_KEY` / `OKX_API_SECRET` / `OKX_PASSPHRASE`
-- **Security**: `API_SECRET_KEY`, `OPERATOR_SECRET` (generate with `openssl rand -hex 32`)
+- **Security**: `API_SECRET_KEY`, `OPERATOR_SECRET` (generate with `openssl rand -hex 32`).
+  Optional `API_READONLY_KEY` — a second key that authenticates but resolves to the
+  read-only role, so the mutating endpoints (`/approvals/{id}/resolve`,
+  `/execution-mode`, `/risk-controls`, `/self-tuning/*`) answer 403 for it. Leave it
+  unset for a single-key deployment; `API_SECRET_KEY` keeps full authority either way.
+  It must differ from `API_SECRET_KEY` and meet the same 32-character minimum, or the
+  API fails closed with 503.
 - **Trading**: `TRADING_MODE` (`paper`/`live`), `EXECUTION_MODE`, `PRIMARY_SYMBOL`, `STARTING_CAPITAL_USD`
 - **Risk overrides** (optional, defaults shown above): `RISK_DAILY_DRAWDOWN_HALT_PCT`, `RISK_CONSECUTIVE_LOSS_HALT`, `RISK_MAX_POSITION_SIZE_PCT`, `RISK_KELLY_MULTIPLIER`, `RISK_KELLY_CEILING`
 - **Storage**: `STORAGE_BACKEND` (`sqlite`/`timescale`), `STORAGE_TIMESCALE_DSN`
