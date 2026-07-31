@@ -11,6 +11,7 @@ from src.diagnostics.system_health import (
     HealthComponent,
     SystemHealthReport,
     build_system_health,
+    check_feature_drift,
     check_kill_switch,
     check_macro_budget,
     check_order_throttler,
@@ -191,8 +192,75 @@ def test_order_throttler_exception() -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_feature_drift
+# ---------------------------------------------------------------------------
+
+
+def _make_drift_record(feature: str, drifted: bool) -> MagicMock:
+    r = MagicMock()
+    r.feature = feature
+    r.drifted = drifted
+    return r
+
+
+def test_feature_drift_ok() -> None:
+    monitor = MagicMock()
+    monitor.check_all.return_value = [
+        _make_drift_record("vol", False),
+        _make_drift_record("mom", False),
+    ]
+    with patch("src.diagnostics.signal_debugger.get_drift_monitor", return_value=monitor):
+        c = check_feature_drift()
+    assert c.status == STATUS_OK
+    assert c.details["n_drifted"] == 0
+
+
+def test_feature_drift_degraded() -> None:
+    monitor = MagicMock()
+    monitor.check_all.return_value = [
+        _make_drift_record("vol", True),
+        _make_drift_record("mom", False),
+    ]
+    with patch("src.diagnostics.signal_debugger.get_drift_monitor", return_value=monitor):
+        c = check_feature_drift(max_drifted=0)
+    assert c.status == STATUS_DEGRADED
+    assert "vol" in c.details["drifted_features"]
+
+
+def test_feature_drift_max_drifted_threshold() -> None:
+    monitor = MagicMock()
+    monitor.check_all.return_value = [_make_drift_record("vol", True)]
+    with patch("src.diagnostics.signal_debugger.get_drift_monitor", return_value=monitor):
+        c = check_feature_drift(max_drifted=1)
+    assert c.status == STATUS_OK
+
+
+def test_feature_drift_no_baselines_unknown() -> None:
+    monitor = MagicMock()
+    monitor.check_all.return_value = []
+    with patch("src.diagnostics.signal_debugger.get_drift_monitor", return_value=monitor):
+        c = check_feature_drift()
+    assert c.status == STATUS_UNKNOWN
+
+
+def test_feature_drift_exception_unknown() -> None:
+    with patch(
+        "src.diagnostics.signal_debugger.get_drift_monitor", side_effect=RuntimeError("fail")
+    ):
+        c = check_feature_drift()
+    assert c.status == STATUS_UNKNOWN
+    assert "fail" in c.message
+
+
+# ---------------------------------------------------------------------------
 # build_system_health integration
 # ---------------------------------------------------------------------------
+
+
+def _make_drift_monitor_ok() -> MagicMock:
+    monitor = MagicMock()
+    monitor.check_all.return_value = [_make_drift_record("vol", False)]
+    return monitor
 
 
 def test_build_system_health_returns_report() -> None:
@@ -200,17 +268,19 @@ def test_build_system_health_returns_report() -> None:
     reg = _make_registry(10.0)
     t = MagicMock()
     t.tokens_remaining.return_value = 5.0
+    dm = _make_drift_monitor_ok()
 
     with (
         patch("src.risk.strategy_kill_switch.get_kill_switch", return_value=ks),
         patch("src.risk.macro_exposure_budget._REGISTRY", reg),
         patch("src.execution.order_throttler.OrderThrottler", return_value=t),
+        patch("src.diagnostics.signal_debugger.get_drift_monitor", return_value=dm),
     ):
         report = build_system_health()
 
     assert report.overall_status == STATUS_OK
     names = {c.name for c in report.components}
-    assert names == {"kill_switch", "macro_budget", "order_throttler"}
+    assert names == {"kill_switch", "macro_budget", "order_throttler", "feature_drift"}
 
 
 def test_build_system_health_propagates_degraded() -> None:
@@ -218,11 +288,13 @@ def test_build_system_health_propagates_degraded() -> None:
     reg = _make_registry(10.0)
     t = MagicMock()
     t.tokens_remaining.return_value = 5.0
+    dm = _make_drift_monitor_ok()
 
     with (
         patch("src.risk.strategy_kill_switch.get_kill_switch", return_value=ks),
         patch("src.risk.macro_exposure_budget._REGISTRY", reg),
         patch("src.execution.order_throttler.OrderThrottler", return_value=t),
+        patch("src.diagnostics.signal_debugger.get_drift_monitor", return_value=dm),
     ):
         report = build_system_health()
 

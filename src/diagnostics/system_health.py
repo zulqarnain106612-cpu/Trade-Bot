@@ -172,25 +172,62 @@ def check_order_throttler(exchange: str = "default") -> HealthComponent:
         return HealthComponent(name="order_throttler", status=STATUS_UNKNOWN, message=str(exc))
 
 
+def check_feature_drift(max_drifted: int = 0) -> HealthComponent:
+    """
+    Report feature-drift status from FeatureDriftMonitor.
+
+    Degraded when the number of drifted features exceeds max_drifted.
+    Returns UNKNOWN when the monitor has no baselines set yet.
+    """
+    try:
+        from src.diagnostics.signal_debugger import get_drift_monitor
+
+        monitor = get_drift_monitor()
+        records = monitor.check_all()
+        if not records:
+            return HealthComponent(
+                name="feature_drift",
+                status=STATUS_UNKNOWN,
+                message="no baseline features registered",
+            )
+        drifted = [r.feature for r in records if r.drifted]
+        status = STATUS_DEGRADED if len(drifted) > max_drifted else STATUS_OK
+        return HealthComponent(
+            name="feature_drift",
+            status=status,
+            message=f"{len(drifted)} feature(s) drifted: {drifted}" if drifted else "",
+            details={
+                "n_features_checked": len(records),
+                "n_drifted": len(drifted),
+                "drifted_features": drifted,
+            },
+        )
+    except Exception as exc:
+        return HealthComponent(name="feature_drift", status=STATUS_UNKNOWN, message=str(exc))
+
+
 def build_system_health(
     symbol: str = "",
     timeframe: str = "",
     budget_warn_pct: float = 80.0,
     throttler_exchange: str = "default",
+    drift_max_drifted: int = 0,
 ) -> SystemHealthReport:
     """
     Collect health components from all subsystems and return the aggregate.
 
     Parameters
     ----------
-    symbol, timeframe : passed to kill-switch check for per-strategy status.
-    budget_warn_pct   : macro-budget utilisation threshold (%) for DEGRADED.
-    throttler_exchange: exchange name to check throttler token count for.
+    symbol, timeframe    : passed to kill-switch check for per-strategy status.
+    budget_warn_pct      : macro-budget utilisation threshold (%) for DEGRADED.
+    throttler_exchange   : exchange name to check throttler token count for.
+    drift_max_drifted    : max allowed drifted features before DEGRADED.
     """
     report = SystemHealthReport()
     report.components.append(check_kill_switch(symbol, timeframe))
     report.components.append(check_macro_budget(budget_warn_pct))
     report.components.append(check_order_throttler(throttler_exchange))
+    report.components.append(check_feature_drift(drift_max_drifted))
 
     log.debug(
         "system_health.built",
