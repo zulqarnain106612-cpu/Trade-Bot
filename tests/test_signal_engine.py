@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
-from src.config import Timeframe
+from src.config import RiskSettings, Timeframe
 from src.engine.signal_engine import SignalEngine, SignalResult
 from src.features.pipeline import FEATURE_COLUMNS, FeatureMatrix
 from src.regime.detector import RegimeDetector, RegimePrediction
@@ -605,7 +605,7 @@ class TestEnsembleBlend:
             return _make_bars(n=320)
 
         e._load_bars = _lb
-        mock_risk = MagicMock(ensemble_blend_weight=0.0)
+        mock_risk = RiskSettings(ensemble_blend_weight=0.0)
         with (
             patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
             patch(
@@ -644,7 +644,7 @@ class TestEnsembleBlend:
             return _make_bars(n=320)
 
         e._load_bars = _lb
-        mock_risk = MagicMock(ensemble_blend_weight=0.5)
+        mock_risk = RiskSettings(ensemble_blend_weight=0.5)
         with (
             patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
             patch(
@@ -688,7 +688,7 @@ class TestEnsembleBlend:
             return _make_bars(n=320)
 
         e._load_bars = _lb
-        mock_risk = MagicMock(ensemble_blend_weight=0.9)
+        mock_risk = RiskSettings(ensemble_blend_weight=0.9)
         with (
             patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
             patch(
@@ -727,7 +727,7 @@ class TestEnsembleBlend:
             return _make_bars(n=320)
 
         e._load_bars = _lb
-        mock_risk = MagicMock(ensemble_blend_weight=0.5)
+        mock_risk = RiskSettings(ensemble_blend_weight=0.5)
         with (
             patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
             patch(
