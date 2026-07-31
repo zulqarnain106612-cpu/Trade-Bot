@@ -512,10 +512,24 @@ class Orchestrator:
             # same position: two strategies can be uncorrelated as assets
             # yet run the same underlying bet. Both scalars multiply, and
             # Kelly stays the outer ceiling either way.
-            correlation_scalar = combined_correlation_scalar(
-                asset_scalar=correlation_scalar,
-                strategy_scalar=self._strategy_correlation_scalar(open_positions),
-            )
+            #
+            # Guarded separately from the asset scalar above rather than
+            # sharing its except: the outer handler resets to 1.0, so a
+            # fault here would discard an already-computed asset reduction
+            # and size the position larger than the asset tracker asked
+            # for. Failing to apply a ceiling must never remove one.
+            try:
+                correlation_scalar = combined_correlation_scalar(
+                    asset_scalar=correlation_scalar,
+                    strategy_scalar=self._strategy_correlation_scalar(open_positions),
+                )
+            except Exception as strategy_exc:
+                self._log.error(
+                    "orchestrator.strategy_correlation_scalar_failed",
+                    error=str(strategy_exc),
+                    retained_asset_scalar=round(correlation_scalar, 4),
+                    exc_info=True,
+                )
         except Exception as exc:
             self._log.error(
                 "orchestrator.correlation_scalar_failed",
