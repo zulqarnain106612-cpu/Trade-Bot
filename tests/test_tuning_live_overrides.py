@@ -146,9 +146,17 @@ class TestFeatureOverlay:
         assert result.garch_window == 81  # round(80.6)
 
     def test_garch_window_clamped_to_50_floor(self) -> None:
-        """Promoted value below 50 must be clamped to 50 (garch_window ge=50)."""
+        """Promoted value below 50 must be clamped to 50 (garch_window ge=50).
+
+        The registry floor is deliberately looser (2.0) than the overlay's
+        garch-specific floor: TunableParameter now rejects a `current`
+        outside [floor, ceiling], so registering current=30 against
+        floor=50 is no longer constructible. The overlay clamp is the last
+        line of defence when a parameter is registered with a permissive
+        floor, which is exactly what this asserts.
+        """
         base = FeatureSettings(garch_window=60)
-        _register("features.garch_window", 30.0, floor=50.0, ceiling=200.0)
+        _register("features.garch_window", 30.0, floor=2.0, ceiling=200.0)
         result = effective_feature_settings(base)
         assert result.garch_window == 50  # max(50, round(30))
 
