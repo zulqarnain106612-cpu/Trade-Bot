@@ -39,6 +39,7 @@ from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.execution.base import AbstractExecutor
 from src.execution.order_manager import OrderManager
+from src.execution.order_throttler import OrderThrottler
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
@@ -193,6 +194,11 @@ class LiveExecutor(AbstractExecutor):
         self._trade_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         self._drawdown_tracker = DrawdownTracker(self._starting_capital)
         self._order_manager: OrderManager = OrderManager()  # GAP-004
+        self._throttle_cfg = cfg.order_throttle
+        self._throttler: OrderThrottler = OrderThrottler(
+            rate=self._throttle_cfg.rate,
+            burst=self._throttle_cfg.burst,
+        )
         # GAP-004 follow-up (found during audit, 2026-06-25): the FSM
         # returned by place_order_with_fsm() was previously a local variable
         # in _place_market_order(), discarded as soon as the function
@@ -873,6 +879,57 @@ class LiveExecutor(AbstractExecutor):
             )
             return trade_id
 
+    async def _await_throttle_token(self, exchange_id: str) -> None:
+        """
+        Hold the order until the token bucket allows it, or refuse it.
+
+        Exchanges answer request-weight bursts with HTTP 429 and then a
+        temporary IP ban, which would strand any open position with no way to
+        exit — so a short wait is strictly better than firing the order.
+        Past ``max_wait_s`` the entry price the signal was sized against is
+        stale, and filling anyway would mean trading a price the risk layer
+        never approved, so the order is refused instead.
+
+        Raises ccxt.ExchangeError when the required wait exceeds max_wait_s.
+        """
+        if not self._throttle_cfg.enabled:
+            return
+
+        result = self._throttler.acquire(exchange_id)
+        if result.allowed:
+            return
+
+        if result.wait_s > self._throttle_cfg.max_wait_s:
+            self._log.error(
+                "live.order_throttled_reject",
+                exchange=exchange_id,
+                wait_s=round(result.wait_s, 3),
+                max_wait_s=self._throttle_cfg.max_wait_s,
+            )
+            raise ccxt.ExchangeError(
+                f"Order rate limit for {exchange_id}: {result.wait_s:.3f}s backlog "
+                f"exceeds max_wait_s={self._throttle_cfg.max_wait_s}s — order refused "
+                f"rather than filled at a stale price."
+            )
+
+        self._log.warning(
+            "live.order_throttled_wait",
+            exchange=exchange_id,
+            wait_s=round(result.wait_s, 3),
+        )
+        # +1ms: wait_s refills exactly one token, so sleeping the bare amount
+        # can land a float-epsilon short and fail the retry for no reason.
+        await asyncio.sleep(result.wait_s + 0.001)
+        # One retry: the sleep covers the refill of exactly one token, and the
+        # trade semaphore serialises order placement, so a second rejection
+        # here means the clock moved against us rather than a real backlog.
+        retry = self._throttler.acquire(exchange_id)
+        if not retry.allowed:
+            raise ccxt.ExchangeError(
+                f"Order rate limit for {exchange_id}: token still unavailable after "
+                f"waiting {result.wait_s:.3f}s — order refused."
+            )
+
     async def _place_market_order(
         self,
         symbol: str,
@@ -893,9 +950,12 @@ class LiveExecutor(AbstractExecutor):
 
         Raises ccxt.ExchangeError if order does not fill within timeout.
         """
+        exchange = self._fetcher.get_order_exchange()
+        await self._await_throttle_token(getattr(exchange, "id", "binance"))
+
         try:
             fsm, confirmed_order = await self._order_manager.place_order_with_fsm(
-                exchange=self._fetcher.get_order_exchange(),
+                exchange=exchange,
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
