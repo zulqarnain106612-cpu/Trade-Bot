@@ -565,6 +565,64 @@ class SelfTuningSettings(BaseSettings):
     )
 
 
+class StrategySettings(BaseSettings):
+    """
+    Tunable parameters for the mean-reversion, breakout, and regime-selector
+    strategy modules added in the improvement-loop phase.
+
+    All values are overridable via env vars prefixed with STRATEGY_.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
+
+    # Mean reversion (Bollinger + OU gate)
+    mr_lookback: int = Field(default=20, ge=5, description="Bollinger lookback bars.")
+    mr_entry_z: float = Field(
+        default=2.0, gt=0.0, description="Z-score to enter a mean-reversion trade."
+    )
+    mr_exit_z: float = Field(
+        default=0.5, ge=0.0, description="Z-score to exit a mean-reversion trade."
+    )
+    mr_min_half_life: int = Field(default=2, ge=1, description="Minimum OU half-life in bars.")
+    mr_max_half_life: int = Field(default=120, ge=2, description="Maximum OU half-life in bars.")
+    mr_require_ou: bool = Field(
+        default=True, description="Require OU test to pass before entering."
+    )
+
+    # Breakout (Donchian + ATR gate)
+    bo_entry_period: int = Field(
+        default=20, ge=5, description="Donchian channel entry lookback bars."
+    )
+    bo_exit_period: int = Field(
+        default=10, ge=2, description="Donchian channel exit lookback bars."
+    )
+    bo_atr_period: int = Field(default=14, ge=2, description="ATR smoothing period for Wilder EMA.")
+    bo_min_atr_pct: float = Field(
+        default=0.1, ge=0.0, description="Minimum ATR% for volatility gate."
+    )
+    bo_max_atr_pct: float = Field(
+        default=10.0, gt=0.0, description="Maximum ATR% for volatility gate."
+    )
+
+    # Regime strategy selector
+    rs_min_confidence: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description="Minimum dominant-regime probability before selecting a strategy.",
+    )
+    rs_max_entropy: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Maximum normalised entropy before falling back to neutral.",
+    )
+    rs_transition_guard: bool = Field(
+        default=True,
+        description="Block strategy selection during detected regime transitions.",
+    )
+
+
 class Settings(BaseSettings):
     """
     Root settings object.  Single source of truth for the entire application.
@@ -617,6 +675,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
+    strategy: StrategySettings = Field(default_factory=StrategySettings)
 
     # Logging
     log_level: str = Field(default="INFO")

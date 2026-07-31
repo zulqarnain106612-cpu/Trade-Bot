@@ -129,3 +129,70 @@ def test_invalidate_settings_cache_forces_reconstruction():
 def test_runtime_config_sync_execution_mode_property():
     rc = RuntimeConfig()
     assert rc.execution_mode == rc._execution_mode
+
+
+# ---------------------------------------------------------------------------
+# StrategySettings
+# ---------------------------------------------------------------------------
+
+
+class TestStrategySettings:
+    def test_default_mean_reversion_params(self):
+        from src.config import StrategySettings
+
+        s = StrategySettings()
+        assert s.mr_lookback == 20
+        assert s.mr_entry_z == 2.0
+        assert s.mr_exit_z == 0.5
+        assert s.mr_min_half_life == 2
+        assert s.mr_max_half_life == 120
+        assert s.mr_require_ou is True
+
+    def test_default_breakout_params(self):
+        from src.config import StrategySettings
+
+        s = StrategySettings()
+        assert s.bo_entry_period == 20
+        assert s.bo_exit_period == 10
+        assert s.bo_atr_period == 14
+        assert s.bo_min_atr_pct == 0.1
+        assert s.bo_max_atr_pct == 10.0
+
+    def test_default_regime_selector_params(self):
+        from src.config import StrategySettings
+
+        s = StrategySettings()
+        assert s.rs_min_confidence == 0.55
+        assert s.rs_max_entropy == 0.75
+        assert s.rs_transition_guard is True
+
+    def test_custom_mr_lookback(self):
+        from src.config import StrategySettings
+
+        s = StrategySettings(mr_lookback=40)
+        assert s.mr_lookback == 40
+
+    def test_mr_lookback_min_validation(self):
+        from pydantic import ValidationError
+
+        from src.config import StrategySettings
+
+        with pytest.raises(ValidationError):
+            StrategySettings(mr_lookback=4)  # ge=5
+
+    def test_rs_confidence_range_validation(self):
+        from pydantic import ValidationError
+
+        from src.config import StrategySettings
+
+        with pytest.raises(ValidationError):
+            StrategySettings(rs_min_confidence=1.5)  # le=1.0
+
+    def test_settings_has_strategy_subsection(self):
+        from src.config import Settings
+
+        cfg = Settings()
+        assert hasattr(cfg, "strategy")
+        assert cfg.strategy.mr_lookback == 20
+        assert cfg.strategy.bo_entry_period == 20
+        assert cfg.strategy.rs_min_confidence == 0.55
