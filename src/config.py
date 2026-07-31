@@ -642,6 +642,45 @@ class StrategyPortfolioSettings(BaseSettings):
     options_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
 
 
+class OrderThrottleSettings(BaseSettings):
+    """
+    Outgoing-order rate limiting (src/execution/order_throttler.py).
+
+    Exchanges enforce request-weight budgets (Binance: 1200 weight/min ≈ 20
+    req/s) and answer bursts with HTTP 429 followed by a temporary IP ban.
+    A ban mid-position is worse than a few hundred milliseconds of delay, so
+    the live executor waits for a token when the wait is short and refuses
+    the order outright when the backlog is long enough that the fill would be
+    stale anyway.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="ORDER_THROTTLE_", env_file=".env", extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Apply the token-bucket limiter to live order placement.",
+    )
+    rate: float = Field(
+        default=8.0,
+        gt=0.0,
+        description="Sustained order rate (orders/second) per exchange. Below Binance's ~20/s ceiling.",
+    )
+    burst: int = Field(
+        default=16,
+        ge=1,
+        description="Token-bucket capacity — how many orders may be placed back-to-back.",
+    )
+    max_wait_s: float = Field(
+        default=2.0,
+        ge=0.0,
+        description=(
+            "Longest the executor will wait for a token before rejecting the order. "
+            "Beyond this the intended entry price is stale, so failing fast beats "
+            "filling on a price the signal never saw."
+        ),
+    )
+
+
 class Settings(BaseSettings):
     """
     Root settings object.  Single source of truth for the entire application.
@@ -695,6 +734,7 @@ class Settings(BaseSettings):
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
     strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
+    order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
 
     # Logging
     log_level: str = Field(default="INFO")
