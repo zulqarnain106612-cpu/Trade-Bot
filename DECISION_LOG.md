@@ -93,6 +93,64 @@ tribal-knowledge gap the module was written to close.
   the working tree and produce merge conflicts on every kill-switch trip.
   Same format, so the two read together.
 
+## 2026-07-31 — v6 promotion gauntlet: enforced on kill-switch re-enable
+
+`src/tuning/promotion_gauntlet.py` evaluated a candidate's track record and
+nothing ever called it. `StrategyKillSwitchManager.re_enable()` documented
+that "callers are responsible for that validation" — and had no callers at
+all, so a strategy auto-disabled for drift could not be reinstated for the
+life of the process. Two inert pieces that turned out to be each other's
+missing half.
+
+- **`re_enable()` now runs the gauntlet itself** against the strategy's own
+  attributed track record, so the discipline is enforced where it is stated
+  rather than delegated to a caller that never existed.
+- **`build_gauntlet_observation()`** assembles that record from
+  `AttributionTracker`. No fills returns `None` — an absence of evidence, not
+  evidence of a passing record — and the caller treats it as a failure rather
+  than a zero-valued pass.
+- **Drawdown units.** The gauntlet is specified in percentage terms while
+  attribution reports USD, so drawdown is expressed as a fraction of the
+  strategy's own peak cumulative P&L. A strategy that never reached a
+  positive peak has no denominator and reports 1.0, failing the criterion —
+  the right answer to "never made money, and we are being asked to give it
+  capital again".
+- **`force=True` is the explicit override**, because `AttributionTracker` is
+  in-memory and a restart wipes it, so a healthy strategy can legitimately
+  look like it has no record. Loud rather than convenient: logged at warning
+  and reported as an override, never as a pass.
+- **`POST /strategies/{id}/re-enable`** is the operator path that was
+  missing entirely. 409 on a gauntlet failure, not 400: the request is
+  well-formed and the operator authorised — the strategy's record is what
+  does not qualify yet.
+- A failed re-enable never partially applies; the strategy keeps both its
+  disabled flag and its original disabled reason.
+
+## 2026-07-31 — v9 stress simulator: replayed against the live allocation
+
+`src/tuning/stress_simulator.py` could replay historical crash sequences
+against an allocation, but nothing ever called it — a reallocation could go
+out having been checked only against the period its own attribution data
+happened to cover.
+
+- **Consumer** — `GET /strategies/stress-test` runs the allocation that
+  `/strategies/allocation` would produce right now against every scenario in
+  `KNOWN_CRISIS_SCENARIOS`. Read-only, same as the allocation endpoint: the
+  reallocation decision is human-mediated through the API today, so an API
+  surface is the correct place for the check.
+- **The floor comes from `RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT`**, not
+  the simulator's own 0.30 default, so `breaches_floor` means "breaches the
+  halt that is actually armed" rather than a number that happens to agree
+  with it today.
+- **Every strategy is replayed against the same market-wide sequence.** The
+  simulator supports per-strategy scenario returns, but this bot has no
+  attributed crisis-period history per strategy, and assuming any strategy
+  hedges a crash it never traded through would understate exactly the tail
+  risk the test exists to find. Splitting capital across strategies is not
+  diversification against a market-wide crash, and the report must not imply
+  that it is.
+- Kill-switched strategies are excluded, matching `/strategies/allocation`.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table

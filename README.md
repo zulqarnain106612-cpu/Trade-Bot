@@ -126,6 +126,8 @@ fills, reconnects, and exchange-side rejections.
 | GET | /ledger | Cross-venue unified book (net/gross exposure, margin) |
 | GET | /recovery/status | Startup reconciliation state (live vs exchange) |
 | POST | /recovery/acknowledge | Clear the reconciliation block (requires OPERATOR_SECRET) |
+| GET | /strategies/stress-test | Replay historical crashes against the current allocation |
+| POST | /strategies/{id}/re-enable | Reinstate a kill-switched strategy (gauntlet-gated, requires OPERATOR_SECRET) |
 | GET | /performance-drift | Behavioral/performance drift snapshot |
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |
