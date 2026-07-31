@@ -12,6 +12,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from src.config import StrategyPortfolioSettings
+
 
 # We need a valid API key for the tests
 _API_KEY = "x" * 32
@@ -678,6 +680,9 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
     fake_cfg.api.cors_origins = []
     fake_cfg.trading_mode.value = "paper"
     fake_cfg.self_tuning.enabled = False
+    # Real settings object: the lifespan registers the strategy portfolio,
+    # which reads float capital ceilings off this attribute.
+    fake_cfg.strategy_portfolio = StrategyPortfolioSettings()
 
     class _FetcherCtx:
         async def __aenter__(self):
@@ -725,6 +730,9 @@ def test_lifespan_no_insecure_bind_warning_when_tls_configured(monkeypatch):
     fake_cfg.api.cors_origins = []
     fake_cfg.trading_mode.value = "paper"
     fake_cfg.self_tuning.enabled = False
+    # Real settings object: the lifespan registers the strategy portfolio,
+    # which reads float capital ceilings off this attribute.
+    fake_cfg.strategy_portfolio = StrategyPortfolioSettings()
 
     class _FetcherCtx:
         async def __aenter__(self):
