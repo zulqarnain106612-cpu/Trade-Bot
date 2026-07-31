@@ -52,7 +52,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.api.access_control import Permission, require_permission
+from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import resolve_role, verify_api_key, verify_ws_key
 from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
@@ -340,19 +340,29 @@ def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key
     verify_api_key(x_api_key)
 
 
+def current_role(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> Role:
+    """
+    Authenticate the caller and return the role their key carries.
+
+    Split out from `requires` so there is a single stable dependency object
+    for the role lookup: `requires` builds a fresh closure per permission,
+    which app.dependency_overrides cannot target. Overriding this one is how
+    a test bypasses authentication while still exercising authorization.
+    """
+    return resolve_role(x_api_key)
+
+
 def requires(permission: Permission) -> Callable[..., None]:
     """
     Build a FastAPI dependency enforcing `permission` for the caller's role.
 
-    Authenticates the key (401 on failure) and then authorizes the role the
-    key carries (403 on failure). Read-only keys hold VIEW_* only, so this
-    is what keeps them off the trade-authorizing and mode-changing routes.
-    When no read-only key is configured every caller is TRADE_AUTHORIZING
-    and these dependencies are a pass-through.
+    Authentication (401) happens in `current_role`; this adds authorization
+    (403). Read-only keys hold VIEW_* only, so this is what keeps them off
+    the trade-authorizing and mode-changing routes. When no read-only key is
+    configured every caller is TRADE_AUTHORIZING and these are pass-throughs.
     """
 
-    def _dependency(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
-        role = resolve_role(x_api_key)
+    def _dependency(role: Role = Depends(current_role)) -> None:
         try:
             require_permission(role, permission)
         except PermissionError as exc:

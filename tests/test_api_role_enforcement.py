@@ -15,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from src.api.access_control import Permission
+from src.api.access_control import Permission, Role
 
 
 _TRADE_KEY = "t" * 32
@@ -37,51 +37,63 @@ def role_env():
 # ---------------------------------------------------------------------------
 
 
-def test_requires_allows_trade_key(role_env) -> None:
+def test_current_role_maps_trade_key(role_env) -> None:
+    from src.api.main import current_role
+
+    assert current_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
+
+
+def test_current_role_maps_readonly_key(role_env) -> None:
+    from src.api.main import current_role
+
+    assert current_role(_READ_KEY) is Role.READ_ONLY
+
+
+def test_current_role_rejects_unknown_key_with_401(role_env) -> None:
+    from src.api.main import current_role
+
+    with pytest.raises(HTTPException) as exc_info:
+        current_role("z" * 32)
+    assert exc_info.value.status_code == 401
+
+
+def test_requires_allows_trade_authorizing_role() -> None:
     from src.api.main import requires
 
-    requires(Permission.CHANGE_EXECUTION_MODE)(_TRADE_KEY)  # no raise
+    requires(Permission.CHANGE_EXECUTION_MODE)(Role.TRADE_AUTHORIZING)  # no raise
 
 
-def test_requires_denies_readonly_key_with_403(role_env) -> None:
+def test_requires_denies_read_only_role_with_403() -> None:
     from src.api.main import requires
 
     with pytest.raises(HTTPException) as exc_info:
-        requires(Permission.CHANGE_EXECUTION_MODE)(_READ_KEY)
+        requires(Permission.CHANGE_EXECUTION_MODE)(Role.READ_ONLY)
     assert exc_info.value.status_code == 403
     assert "lacks permission" in str(exc_info.value.detail)
 
 
-def test_requires_denies_readonly_key_on_approve_trade(role_env) -> None:
+def test_requires_denies_read_only_role_on_approve_trade() -> None:
     from src.api.main import requires
 
     with pytest.raises(HTTPException) as exc_info:
-        requires(Permission.APPROVE_TRADE)(_READ_KEY)
+        requires(Permission.APPROVE_TRADE)(Role.READ_ONLY)
     assert exc_info.value.status_code == 403
 
 
-def test_requires_allows_readonly_key_for_view_permissions(role_env) -> None:
+def test_requires_allows_read_only_role_for_view_permissions() -> None:
     from src.api.main import requires
 
-    requires(Permission.VIEW_STATUS)(_READ_KEY)  # no raise
-    requires(Permission.VIEW_TRADES)(_READ_KEY)  # no raise
+    requires(Permission.VIEW_STATUS)(Role.READ_ONLY)  # no raise
+    requires(Permission.VIEW_TRADES)(Role.READ_ONLY)  # no raise
 
 
-def test_requires_rejects_unknown_key_with_401(role_env) -> None:
-    from src.api.main import requires
-
-    with pytest.raises(HTTPException) as exc_info:
-        requires(Permission.VIEW_STATUS)("z" * 32)
-    assert exc_info.value.status_code == 401
-
-
-def test_requires_is_pass_through_without_readonly_key() -> None:
-    """Single-key deployments keep the pre-RBAC behaviour: the one key is full access."""
-    from src.api.main import requires
+def test_single_key_deployment_resolves_as_trade_authorizing() -> None:
+    """Without API_READONLY_KEY the one key is full access, as before RBAC."""
+    from src.api.main import current_role
 
     with patch.dict(os.environ, {"API_SECRET_KEY": _TRADE_KEY}):
         os.environ.pop("API_READONLY_KEY", None)
-        requires(Permission.CHANGE_EXECUTION_MODE)(_TRADE_KEY)  # no raise
+        assert current_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
 
 
 # ---------------------------------------------------------------------------
