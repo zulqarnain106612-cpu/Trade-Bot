@@ -64,6 +64,13 @@ _ORDER_FSM_REGISTRY_MAX_SIZE: Final[int] = 200
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _LIVE_FEE_FALLBACK: Final[float] = 0.001  # fallback if exchange fee missing
+
+# v8 reconciliation tolerances. Spot balances carry dust and fills round, so
+# an exact comparison would flag a correctly-tracked book on every restart.
+# The relative term scales with the position actually held; the absolute term
+# is the floor below which a balance is not a position at all.
+_RECONCILE_DUST_QTY: Final[float] = 1e-8
+_RECONCILE_TOLERANCE_PCT: Final[float] = 0.01  # 1% of the larger side
 _ORDER_CONFIRM_POLLS: Final[int] = 10  # max polls for order confirmation
 _ORDER_CONFIRM_INTERVAL: Final[float] = 0.5  # seconds between polls
 
@@ -261,14 +268,26 @@ class LiveExecutor(AbstractExecutor):
         A snapshot that could not be obtained is treated as unresolved, not
         as "no discrepancies": failing to look is not the same as looking and
         finding nothing.
+
+        Scoped to the symbols this executor is responsible for -- whatever the
+        local book holds, plus the configured primary symbol so a crashed
+        position in it is still caught when the local book came back empty.
+        An unrelated asset elsewhere in the account is not evidence that this
+        bot's book is wrong.
+
+        Comparison uses a relative tolerance because spot balances carry dust
+        and fills round. The consequence is deliberate: a manual balance in a
+        traded symbol does block startup, because the executor genuinely
+        cannot distinguish it from an untracked position of its own.
         """
+        symbols = sorted({p.symbol for p in self._positions.values()} | {self._cfg.primary_symbol})
         try:
-            exchange_raw = await self._fetcher.fetch_exchange_positions()
+            holdings = await self._fetcher.fetch_exchange_holdings(symbols)
         except Exception as exc:
-            exchange_raw = None
+            holdings = None
             self._log.error("live.reconcile_fetch_failed", error=str(exc), exc_info=True)
 
-        if exchange_raw is None:
+        if holdings is None:
             self._recovery_discrepancies = [
                 Discrepancy(
                     symbol="*",
@@ -280,18 +299,28 @@ class LiveExecutor(AbstractExecutor):
             self._log.critical("live.reconcile_snapshot_unavailable", entries_blocked=True)
             return
 
-        local = [
-            PositionSnapshot(
-                symbol=p.symbol,
-                quantity=p.quantity if p.direction == 1 else -p.quantity,
-            )
-            for p in self._positions.values()
+        # Net per symbol: several timeframes can hold the same symbol, and
+        # PositionSnapshot is one row per symbol.
+        netted: dict[str, float] = {}
+        for position in self._positions.values():
+            signed = position.quantity if position.direction == 1 else -position.quantity
+            netted[position.symbol] = netted.get(position.symbol, 0.0) + signed
+
+        local = [PositionSnapshot(symbol=sym, quantity=qty) for sym, qty in netted.items()]
+        exchange = [
+            PositionSnapshot(symbol=sym, quantity=qty)
+            for sym, qty in holdings.items()
+            if abs(qty) > _RECONCILE_DUST_QTY
         ]
-        exchange = [PositionSnapshot(symbol=s, quantity=q) for s, q in exchange_raw]
-        self._recovery_discrepancies = reconcile(local, exchange)
+        tolerance = max(
+            _RECONCILE_DUST_QTY,
+            _RECONCILE_TOLERANCE_PCT
+            * max((abs(q) for q in [*netted.values(), *holdings.values()]), default=0.0),
+        )
+        self._recovery_discrepancies = reconcile(local, exchange, quantity_tolerance=tolerance)
 
         if is_state_consistent(self._recovery_discrepancies):
-            self._log.info("live.reconcile_consistent", exchange_positions=len(exchange))
+            self._log.info("live.reconcile_consistent", symbols=symbols)
             return
         self._log.critical(
             "live.reconcile_discrepancies",

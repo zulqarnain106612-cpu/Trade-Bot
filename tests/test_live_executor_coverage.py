@@ -74,7 +74,7 @@ def _make_executor(
     # exchange truth, and an unavailable snapshot deliberately blocks new
     # entries. A bare MagicMock would make every test look like a crashed
     # process with an unknown book.
-    executor._fetcher.fetch_exchange_positions = AsyncMock(return_value=[])
+    executor._fetcher.fetch_exchange_holdings = AsyncMock(return_value={})
     executor._recovery_discrepancies = []
     executor._cfg = MagicMock()
     executor._risk_cfg = MagicMock(

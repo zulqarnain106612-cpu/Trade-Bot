@@ -219,7 +219,7 @@ def _make_executor(starting_capital: float = 100_000.0, cash: float | None = Non
     ex._fetcher = MagicMock()
     # v8: initialize() reconciles against exchange truth; an unavailable
     # snapshot blocks new entries, so give it an explicit empty book.
-    ex._fetcher.fetch_exchange_positions = AsyncMock(return_value=[])
+    ex._fetcher.fetch_exchange_holdings = AsyncMock(return_value={})
     ex._recovery_discrepancies = []
     ex._cfg = MagicMock()
     ex._risk_cfg = MagicMock(notional_limit_usd=10_000.0, approval_timeout_s=30.0)

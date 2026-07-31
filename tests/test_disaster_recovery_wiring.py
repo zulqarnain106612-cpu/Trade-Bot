@@ -17,7 +17,7 @@ from src.config import TradingMode
 from src.diagnostics.disaster_recovery import DiscrepancyType
 
 
-def _make_executor(exchange_positions, *, local=None, fetch_raises=False):
+def _make_executor(holdings, *, local=None, fetch_raises=False):
     """LiveExecutor with a stubbed exchange snapshot and local book."""
     from src.execution.live import LiveExecutor
 
@@ -25,12 +25,13 @@ def _make_executor(exchange_positions, *, local=None, fetch_raises=False):
     storage.latest_equity = AsyncMock(return_value=None)
     fetcher = MagicMock()
     if fetch_raises:
-        fetcher.fetch_exchange_positions = AsyncMock(side_effect=RuntimeError("exchange down"))
+        fetcher.fetch_exchange_holdings = AsyncMock(side_effect=RuntimeError("exchange down"))
     else:
-        fetcher.fetch_exchange_positions = AsyncMock(return_value=exchange_positions)
+        fetcher.fetch_exchange_holdings = AsyncMock(return_value=holdings)
 
     cfg = MagicMock()
     cfg.trading_mode = TradingMode.LIVE
+    cfg.primary_symbol = "BTC/USDT"
     cfg.starting_capital_usd = 1000.0
     cfg.risk.notional_limit_usd = 100.0
     cfg.order_throttle.rate = 5.0
@@ -69,20 +70,20 @@ def _local_position(symbol: str, direction: int, quantity: float):
 class TestReconcileOnInitialize:
     @pytest.mark.asyncio
     async def test_matching_books_leave_no_block(self) -> None:
-        executor = _make_executor([("BTC/USDT", 0.5)], local=[_local_position("BTC/USDT", 1, 0.5)])
+        executor = _make_executor({"BTC/USDT": 0.5}, local=[_local_position("BTC/USDT", 1, 0.5)])
         await executor.initialize()
         assert executor.recovery_discrepancies == []
 
     @pytest.mark.asyncio
     async def test_both_books_empty_is_consistent(self) -> None:
-        executor = _make_executor([])
+        executor = _make_executor({"BTC/USDT": 0.0})
         await executor.initialize()
         assert executor.recovery_discrepancies == []
 
     @pytest.mark.asyncio
     async def test_exchange_position_unknown_locally_is_flagged(self) -> None:
         """The crash case: initialize() restores equity but not positions."""
-        executor = _make_executor([("BTC/USDT", 0.5)])
+        executor = _make_executor({"BTC/USDT": 0.5})
         await executor.initialize()
         found = executor.recovery_discrepancies
         assert len(found) == 1
@@ -91,7 +92,9 @@ class TestReconcileOnInitialize:
 
     @pytest.mark.asyncio
     async def test_local_position_absent_on_exchange_is_flagged(self) -> None:
-        executor = _make_executor([], local=[_local_position("ETH/USDT", 1, 2.0)])
+        executor = _make_executor(
+            {"BTC/USDT": 0.0, "ETH/USDT": 0.0}, local=[_local_position("ETH/USDT", 1, 2.0)]
+        )
         await executor.initialize()
         found = executor.recovery_discrepancies
         assert len(found) == 1
@@ -99,24 +102,24 @@ class TestReconcileOnInitialize:
 
     @pytest.mark.asyncio
     async def test_quantity_mismatch_is_flagged(self) -> None:
-        executor = _make_executor([("BTC/USDT", 0.3)], local=[_local_position("BTC/USDT", 1, 0.5)])
+        executor = _make_executor({"BTC/USDT": 0.3}, local=[_local_position("BTC/USDT", 1, 0.5)])
         await executor.initialize()
         assert executor.recovery_discrepancies[0].discrepancy_type is (
             DiscrepancyType.QUANTITY_MISMATCH
         )
 
     @pytest.mark.asyncio
-    async def test_short_positions_compare_by_signed_quantity(self) -> None:
-        """A local short of 0.5 must match an exchange short, not a long."""
-        executor = _make_executor(
-            [("BTC/USDT", -0.5)], local=[_local_position("BTC/USDT", -1, 0.5)]
-        )
+    async def test_a_local_short_cannot_match_a_spot_balance(self) -> None:
+        """A spot venue holds no shorts, so a local short is a real disagreement."""
+        executor = _make_executor({"BTC/USDT": 0.5}, local=[_local_position("BTC/USDT", -1, 0.5)])
         await executor.initialize()
-        assert executor.recovery_discrepancies == []
+        # A spot venue cannot be short, so a local short against a positive
+        # balance is a real disagreement, not a sign convention artefact.
+        assert executor.recovery_discrepancies != []
 
     @pytest.mark.asyncio
-    async def test_a_local_short_against_an_exchange_long_is_a_mismatch(self) -> None:
-        executor = _make_executor([("BTC/USDT", 0.5)], local=[_local_position("BTC/USDT", -1, 0.5)])
+    async def test_a_local_short_against_a_balance_is_a_mismatch(self) -> None:
+        executor = _make_executor({"BTC/USDT": 0.5}, local=[_local_position("BTC/USDT", -1, 0.5)])
         await executor.initialize()
         assert executor.recovery_discrepancies != []
 
@@ -144,7 +147,7 @@ class TestReconcileOnInitialize:
 class TestEntryBlock:
     @pytest.mark.asyncio
     async def test_submit_signal_is_rejected_while_unreconciled(self) -> None:
-        executor = _make_executor([("BTC/USDT", 0.5)])
+        executor = _make_executor({"BTC/USDT": 0.5})
         await executor.initialize()
         trade_id, outcome = await executor.submit_signal(
             symbol="BTC/USDT",
@@ -161,7 +164,7 @@ class TestEntryBlock:
 
     @pytest.mark.asyncio
     async def test_acknowledgement_lifts_the_block(self) -> None:
-        executor = _make_executor([("BTC/USDT", 0.5)])
+        executor = _make_executor({"BTC/USDT": 0.5})
         await executor.initialize()
         cleared = executor.acknowledge_recovery("ops")
         assert cleared == 1
@@ -170,58 +173,59 @@ class TestEntryBlock:
     @pytest.mark.asyncio
     async def test_acknowledgement_is_explicit_only(self) -> None:
         """Nothing re-runs reconciliation and silently clears the block."""
-        executor = _make_executor([("BTC/USDT", 0.5)])
+        executor = _make_executor({"BTC/USDT": 0.5})
         await executor.initialize()
         await executor._reconcile_with_exchange()
         assert executor.recovery_discrepancies != []
 
 
-class TestFetchExchangePositions:
-    def _fetcher(self, raw, *, raises=None):
+class TestFetchExchangeHoldings:
+    def _fetcher(self, balance, *, raises=None):
         from src.data.fetcher import MarketDataFetcher
 
         fetcher = MarketDataFetcher.__new__(MarketDataFetcher)
         exchange = MagicMock()
-        exchange.fetch_positions = AsyncMock(
+        exchange.fetch_balance = AsyncMock(
             side_effect=raises if raises else None,
-            return_value=raw,
+            return_value=balance,
         )
         fetcher.get_order_exchange = lambda: exchange  # type: ignore[method-assign]
         return fetcher
 
     @pytest.mark.asyncio
-    async def test_signs_shorts_negative(self) -> None:
-        fetcher = self._fetcher(
-            [{"symbol": "BTC/USDT", "contracts": 0.5, "side": "short"}],
-        )
-        assert await fetcher.fetch_exchange_positions() == [("BTC/USDT", -0.5)]
+    async def test_maps_the_base_asset_balance_per_symbol(self) -> None:
+        fetcher = self._fetcher({"total": {"BTC": 0.5, "ETH": 2.0, "USDT": 900.0}})
+        got = await fetcher.fetch_exchange_holdings(["BTC/USDT", "ETH/USDT"])
+        assert got == {"BTC/USDT": 0.5, "ETH/USDT": 2.0}
 
     @pytest.mark.asyncio
-    async def test_longs_stay_positive(self) -> None:
-        fetcher = self._fetcher([{"symbol": "BTC/USDT", "contracts": 0.5, "side": "long"}])
-        assert await fetcher.fetch_exchange_positions() == [("BTC/USDT", 0.5)]
+    async def test_uses_total_so_resting_orders_still_count(self) -> None:
+        """Locked quantity is still owned; free alone under-reports the book."""
+        fetcher = self._fetcher({"free": {"BTC": 0.1}, "total": {"BTC": 0.5}})
+        assert await fetcher.fetch_exchange_holdings(["BTC/USDT"]) == {"BTC/USDT": 0.5}
 
     @pytest.mark.asyncio
-    async def test_flat_and_malformed_entries_are_dropped(self) -> None:
-        fetcher = self._fetcher(
-            [
-                {"symbol": "BTC/USDT", "contracts": 0.0, "side": "long"},
-                {"symbol": None, "contracts": 1.0},
-                {"contracts": 1.0},
-                {"symbol": "ETH/USDT"},
-            ]
-        )
-        assert await fetcher.fetch_exchange_positions() == []
+    async def test_an_unheld_asset_reports_zero_not_missing(self) -> None:
+        fetcher = self._fetcher({"total": {"USDT": 900.0}})
+        assert await fetcher.fetch_exchange_holdings(["BTC/USDT"]) == {"BTC/USDT": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_perp_style_symbols_resolve_to_the_same_base(self) -> None:
+        fetcher = self._fetcher({"total": {"BTC": 0.5}})
+        assert await fetcher.fetch_exchange_holdings(["BTC/USDT:USDT"]) == {"BTC/USDT:USDT": 0.5}
+
+    @pytest.mark.asyncio
+    async def test_unparseable_balance_entries_read_as_zero(self) -> None:
+        fetcher = self._fetcher({"total": {"BTC": "not-a-number"}})
+        assert await fetcher.fetch_exchange_holdings(["BTC/USDT"]) == {"BTC/USDT": 0.0}
+
+    @pytest.mark.asyncio
+    async def test_no_symbols_requested_needs_no_call(self) -> None:
+        fetcher = self._fetcher({"total": {}})
+        assert await fetcher.fetch_exchange_holdings([]) == {}
 
     @pytest.mark.asyncio
     async def test_failure_returns_none_not_an_empty_book(self) -> None:
-        """[] asserts the exchange holds nothing; None says we could not tell."""
+        """{} asserts the exchange holds nothing; None says we could not tell."""
         fetcher = self._fetcher(None, raises=RuntimeError("boom"))
-        assert await fetcher.fetch_exchange_positions() is None
-
-    @pytest.mark.asyncio
-    async def test_spot_only_account_reports_an_empty_book(self) -> None:
-        import ccxt.async_support as ccxt
-
-        fetcher = self._fetcher(None, raises=ccxt.NotSupported("spot only"))
-        assert await fetcher.fetch_exchange_positions() == []
+        assert await fetcher.fetch_exchange_holdings(["BTC/USDT"]) is None

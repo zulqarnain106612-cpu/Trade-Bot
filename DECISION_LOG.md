@@ -96,8 +96,20 @@ restored equity from storage but **not** positions, so after a crash
 Every risk gate and Kelly calculation downstream then reasoned about a book it
 believed was flat.
 
-- **Producer** — `MarketDataFetcher.fetch_exchange_positions()` reads signed
-  quantities from the order exchange. Positions are read, never inferred.
+- **Producer** — `MarketDataFetcher.fetch_exchange_holdings(symbols)` reads
+  base-asset balances from the order exchange. Balances, not
+  `fetch_positions`: both exchanges are constructed with
+  `defaultType="spot"`, and a spot account has no positions endpoint — a
+  long BTC/USDT "position" is simply a BTC balance. An earlier revision of
+  this change used `fetch_positions` and would have flagged every correctly
+  tracked book on every live start. Holdings are read, never inferred.
+- **Scoped to the bot's own symbols** (local book plus the configured primary
+  symbol). An unrelated asset elsewhere in the account is not evidence that
+  this bot's book is wrong.
+- **Relative tolerance**, because spot balances carry dust and fills round.
+  The consequence is deliberate: a manual balance in a traded symbol does
+  block startup, because the executor genuinely cannot distinguish it from an
+  untracked position of its own.
 - **Consumer** — `LiveExecutor._reconcile_with_exchange()` runs during
   `initialize()` and records every discrepancy.
 - **An unavailable snapshot blocks, it does not report clean.** The fetcher
