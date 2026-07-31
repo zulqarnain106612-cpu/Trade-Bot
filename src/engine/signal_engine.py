@@ -1102,6 +1102,22 @@ class SignalEngine:
         repeats: without it the same bar would be learned on every tick and
         the SGD model would overweight whichever bar sat at the boundary.
 
+        Both online models are fed, not just the direction one. `blend()`
+        warms up on `min(dir_samples, meta_samples) >= 50`, so feeding only
+        the direction model would leave the meta counter at zero forever and
+        the blend would never activate — the module would stay exactly as
+        inert as before, just with a producer attached.
+
+        The meta-label used here is "did this bar resolve at a barrier at
+        all" (`|label| == 1`), which is why the 0-labels dropped from
+        direction learning are still useful to the meta model: direction
+        learns from resolved directional moves, meta learns which bars were
+        worth betting on in the first place. This is a weaker meta-label than
+        the batch trainer's (which conditions on the primary model having
+        been right), but it needs no stored per-bar prediction history and no
+        second inference against a model whose feature schema may not match
+        the historical matrix.
+
         Entirely best-effort. The online model is a drift detector layered on
         top of the batch models; a failure here must never cost a tick.
         """
@@ -1125,15 +1141,21 @@ class SignalEngine:
 
             self._online_feature_cols = list(fm.features.columns)
             feature_vec = fm.features.loc[bar_ts].to_numpy(dtype=float)
+            raw_label = float(labelled.iloc[-1])
+
+            # Meta first, and unconditionally: it learns which bars resolved
+            # at a barrier at all, so an untouched bar is a real 0 for it
+            # rather than missing data. p_long=0.5 is the honest input --
+            # this bar's live direction probability was not retained, and
+            # inventing one would teach the meta model a fiction.
+            resolved = 1 if abs(raw_label) == 1.0 else 0
+            trainer.learn_meta(feature_vec, p_long=0.5, label=resolved)
+
             # Triple-barrier labels are -1/0/+1; the online direction model is
             # a binary long/short classifier, so a 0 (barrier untouched, no
             # directional information) is dropped rather than coerced.
-            raw_label = float(labelled.iloc[-1])
-            if raw_label == 0.0:
-                self._last_online_learn_ts = ts_key
-                return
-
-            trainer.learn_direction(feature_vec, label=1 if raw_label > 0 else 0)
+            if raw_label != 0.0:
+                trainer.learn_direction(feature_vec, label=1 if raw_label > 0 else 0)
             self._last_online_learn_ts = ts_key
         except Exception as exc:
             self._log.debug("signal.online_learn_failed", error=str(exc), exc_info=True)

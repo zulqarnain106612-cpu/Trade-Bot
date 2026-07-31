@@ -86,6 +86,34 @@ class TestLearnOnline:
         engine._learn_online(_matrix(_TS, [1.0, -1.0, 0.0]))
         trainer.learn_direction.assert_not_called()
 
+    def test_the_meta_model_is_fed_too(self) -> None:
+        """
+        blend() warms up on min(dir_samples, meta_samples) >= 50. Feeding only
+        the direction model would leave the meta counter at zero forever and
+        the blend would never activate -- inert with a producer attached.
+        """
+        trainer = MagicMock()
+        engine = _engine(trainer)
+        engine._learn_online(_matrix(_TS, [1.0, -1.0, 1.0]))
+        trainer.learn_meta.assert_called_once()
+        assert trainer.learn_meta.call_args.kwargs["label"] == 1
+
+    def test_an_unresolved_bar_is_a_real_zero_for_the_meta_model(self) -> None:
+        """Meta learns which bars resolved at a barrier; 0 is data, not a gap."""
+        trainer = MagicMock()
+        engine = _engine(trainer)
+        engine._learn_online(_matrix(_TS, [1.0, -1.0, 0.0]))
+        trainer.learn_meta.assert_called_once()
+        assert trainer.learn_meta.call_args.kwargs["label"] == 0
+
+    def test_meta_is_not_relearned_on_a_repeated_tick(self) -> None:
+        trainer = MagicMock()
+        engine = _engine(trainer)
+        fm = _matrix(_TS, [1.0, -1.0, 0.0])
+        engine._learn_online(fm)
+        engine._learn_online(fm)
+        assert trainer.learn_meta.call_count == 1
+
     def test_the_same_bar_is_not_learned_twice(self) -> None:
         """Ticks arrive faster than bars close."""
         trainer = MagicMock()
