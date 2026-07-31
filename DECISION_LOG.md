@@ -275,6 +275,39 @@ only declared halt the stack could never emit.
 - **Fails open on a missing detector** (`None`), so the change is inert for
   any caller that does not supply one.
 
+## 2026-08-01 — the live loop now keeps the intelligence it fetches
+
+`SignalEngine` fetches the provider aggregator's 18 intelligence metrics on
+every tick, uses them for that one decision, and dropped them.
+`store_intelligence_features()` existed on *both* storage backends and had
+exactly one caller: `scripts/backfill_intelligence.py`, run by hand. So in a
+live deployment `intelligence_features_history` stayed empty.
+
+Two consumers quietly depend on that table being populated:
+
+- the trainer's intelligence feature matrix (GAP-015 step 4, documented in
+  `fetch_intelligence_features`'s own docstring), and
+- the v7 macro overlay, which reads funding / stablecoin / netflow history
+  from it. It correctly returns "no overlay" on an empty table — so the
+  overlay was wired, honest, and permanently inert for a reason that had
+  nothing to do with the overlay.
+
+The aggregator's `_NEUTRAL` key set is exactly the 18 storage columns, so the
+metrics dict is directly storable with no mapping layer.
+
+- **Keyed on the latest bar timestamp**, so the several ticks inside one bar
+  upsert a single row rather than accumulating duplicates. The aggregator
+  caches for 300s, so most of those writes carry identical values anyway.
+- **`confidence` goes in its own column, not into `features`.** It is the
+  aggregator's quality score for the merge, not a market measurement, and
+  writing it as a feature would hand the model a column describing how much
+  to trust the other columns.
+- **Best-effort.** A storage failure loses one bar of history, recoverable by
+  backfill; letting it break the tick would trade a recoverable data gap for
+  a missed trading decision.
+- Rows are tagged `source="live"` so they are distinguishable from
+  backfilled history.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table

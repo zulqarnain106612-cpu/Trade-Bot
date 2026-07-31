@@ -726,6 +726,8 @@ class SignalEngine:
                 _exchange_stress = None
                 _whale_ratio = None
 
+        await self._persist_intelligence_features(bars, _intel_metrics_dict)
+
         vec = build_inference_features(
             bars,
             live_ofi=live_ofi,
@@ -1548,6 +1550,50 @@ class SignalEngine:
         except Exception as exc:
             self._log.warning("signal.cvar_cap_failed", error=str(exc), exc_info=True)
             return None
+
+    async def _persist_intelligence_features(
+        self, bars: pd.DataFrame, metrics: dict[str, float]
+    ) -> None:
+        """
+        Write this tick's intelligence metrics to intelligence_features_history.
+
+        The engine fetches these from the provider aggregator on every tick and,
+        until now, used them only for the current decision and dropped them.
+        `store_intelligence_features()` existed on both storage backends and was
+        called by exactly one thing: scripts/backfill_intelligence.py, run by
+        hand. So in a live deployment the table stayed empty, which silently
+        starves two consumers that expect it to be populated -- the trainer's
+        intelligence feature matrix (GAP-015) and the v7 macro overlay.
+
+        Keyed on the latest bar timestamp, so the several ticks that occur
+        within one bar upsert the same row rather than accumulating duplicates.
+        The aggregator caches for 300s anyway, so those writes mostly carry
+        identical values.
+
+        Best-effort: a storage failure here loses one bar of history, which is
+        recoverable by backfill. Letting it break the tick would trade a
+        recoverable data gap for a missed trading decision.
+        """
+        if not metrics or bars is None or bars.empty:
+            return
+        try:
+            bar_ts = int(bars.index[-1])
+            # "confidence" is the aggregator's own quality score for this
+            # merge, not a feature -- it is stored in its own column, so it
+            # must not also be written as one.
+            features = {k: v for k, v in metrics.items() if k != "confidence"}
+            if not features:
+                return
+            await self._storage.store_intelligence_features(
+                symbol=self._symbol,
+                timeframe=self._timeframe.value,
+                bar_ts=bar_ts,
+                features=features,
+                confidence=float(metrics.get("confidence", 0.0)),
+                source="live",
+            )
+        except Exception as exc:
+            self._log.warning("signal.intel_persist_failed", error=str(exc), exc_info=True)
 
     def _skip(self, reason: str) -> SignalResult:
         self._log.debug("signal.skip", reason=reason)
