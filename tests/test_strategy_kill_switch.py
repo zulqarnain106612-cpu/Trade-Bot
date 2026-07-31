@@ -98,10 +98,15 @@ def test_two_losses_below_threshold():
 
 
 def test_win_rate_gate_not_fired_before_min_sample():
-    ks = StrategyKillSwitch(min_win_rate=0.5, win_rate_min_sample=20)
+    ks = StrategyKillSwitch(
+        min_win_rate=0.5,
+        win_rate_min_sample=20,
+        max_consecutive_losses=999,  # prevent consecutive-loss gate from firing first
+        strategy_drawdown_ceiling=1.0,
+    )
     for _ in range(10):
         ks.record_trade(SYM, TF, pnl_usd=-1.0, equity_usd=900.0)
-    assert ks.is_active(SYM, TF) is True  # < 20 trades, no gate yet
+    assert ks.is_active(SYM, TF) is True  # < 20 trades, win-rate gate not yet sampled
 
 
 def test_win_rate_gate_fires_at_min_sample():

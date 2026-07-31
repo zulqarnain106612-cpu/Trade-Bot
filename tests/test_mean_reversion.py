@@ -84,9 +84,10 @@ def test_bollinger_confidence_in_range():
 
 
 def test_bollinger_exit_signal_when_z_near_zero():
-    prices = np.concatenate([np.full(19, 100.0), [100.1]])
+    # 19 bars at 100, one at 102 (to give std > 0), then final at 100 (z ≈ 0)
+    prices = np.concatenate([np.full(18, 100.0), [102.0], [100.0]])
     sig = bollinger_signal(prices, lookback=20, entry_z=2.0, exit_z=0.5)
-    # |z| is very small, should be an exit signal
+    # |z| is near zero (last bar equals window mean), should be an exit signal
     assert sig.is_exit is True
     assert sig.is_entry is False
 

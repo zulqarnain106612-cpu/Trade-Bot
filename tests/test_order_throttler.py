@@ -123,9 +123,11 @@ def test_tokens_remaining_full_on_first_access():
 
 
 def test_tokens_remaining_decreases_after_acquire():
-    t = OrderThrottler(rate=10.0, burst=10)
+    # Use very low refill rate so elapsed-time refill between acquire() and
+    # tokens_remaining() is negligible (tokens_remaining calls _refill internally)
+    t = OrderThrottler(rate=0.001, burst=10)
     t.acquire("ex")
-    assert t.tokens_remaining("ex") == pytest.approx(9.0)
+    assert t.tokens_remaining("ex") == pytest.approx(9.0, abs=0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -205,10 +207,16 @@ def test_status_structure():
 
 
 def test_tokens_refill_after_drain():
-    t = OrderThrottler(rate=1000.0, burst=2)  # very fast refill
+    # Use very low refill so two acquires reliably drain the bucket,
+    # then high rate to verify refill happens.
+    t = OrderThrottler(rate=0.0001, burst=2)  # near-zero refill
     t.acquire("ex")
     t.acquire("ex")
-    # Should be empty now
-    assert t.tokens_remaining("ex") < 0.1
-    time.sleep(0.002)  # 2ms → 2 tokens at 1000/s
-    assert t.tokens_remaining("ex") > 0.5
+    # Bucket should be empty (epsilon refill over microseconds at 0.0001/s)
+    assert t.tokens_remaining("ex") < 0.01
+    # Now recreate with fast refill rate and verify tokens accumulate
+    t2 = OrderThrottler(rate=500.0, burst=2)
+    t2.acquire("ex")
+    t2.acquire("ex")
+    time.sleep(0.004)  # 4ms at 500/s → ~2 tokens
+    assert t2.tokens_remaining("ex") > 0.5

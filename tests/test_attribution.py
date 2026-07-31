@@ -129,8 +129,8 @@ def test_compute_stats_skips_open_trades():
         _trade(pnl_usd=None, pnl_pct=None, exit_price=None),
     ]
     s = _compute_stats(trades)
-    # n_trades = 2 (both passed in), but only 1 has pnl_usd
-    assert s.n_trades == 2
+    # n_trades counts only closed trades (those with pnl_usd)
+    assert s.n_trades == 1
     assert s.n_wins == 1
 
 
