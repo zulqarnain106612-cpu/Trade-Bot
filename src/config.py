@@ -594,6 +594,54 @@ class SelfTuningSettings(BaseSettings):
     )
 
 
+class StrategyPortfolioSettings(BaseSettings):
+    """
+    Which strategy families join the portfolio, and their capital ceilings.
+
+    Consumed by src/strategies/bootstrap.py, which registers the enabled set
+    into the process-wide StrategyRegistry at startup. Registration is not
+    execution: a registered strategy participates in capital allocation and
+    attribution, and only trades once the orchestrator feeds it a context.
+
+    Each *_fraction is an upper bound on the share of book capital that
+    strategy may request, enforced independently of Kelly (Kelly is a
+    ceiling, not a target). The enabled fractions are validated to sum to
+    <= 1.0 at bootstrap, so a mis-set config fails at startup rather than
+    at the first fill.
+
+    Defaults keep only the incumbent model-driven signal engine enabled.
+    The v2/v3/v5 strategy families are opt-in per CLAUDE.md's out-of-sample
+    requirement — none of them has live validation yet, and enabling one by
+    default would silently dilute capital away from the validated path.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
+
+    signal_engine_enabled: bool = Field(default=True)
+    signal_engine_fraction: float = Field(default=1.0, gt=0.0, le=1.0)
+
+    mean_reversion_enabled: bool = Field(default=False)
+    mean_reversion_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+
+    breakout_enabled: bool = Field(default=False)
+    breakout_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+
+    funding_carry_enabled: bool = Field(default=False)
+    funding_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    xsec_momentum_enabled: bool = Field(default=False)
+    xsec_momentum_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+
+    basis_trade_enabled: bool = Field(default=False)
+    basis_trade_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    cross_exchange_arb_enabled: bool = Field(default=False)
+    cross_exchange_arb_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    options_carry_enabled: bool = Field(default=False)
+    options_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+
+
 class OrderThrottleSettings(BaseSettings):
     """
     Outgoing-order rate limiting (src/execution/order_throttler.py).
@@ -685,6 +733,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
+    strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
     order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
 
     # Logging
