@@ -77,6 +77,10 @@ from src.tuning.state import (
     watchdog as tuning_watchdog,
 )
 from src.tuning.store import NoPriorVersionError, NoVersionsError
+from src.tuning.stress_simulator import (
+    KNOWN_CRISIS_SCENARIOS,
+    run_all_known_scenarios,
+)
 
 
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
@@ -1445,6 +1449,76 @@ async def get_strategy_allocation() -> dict[str, Any]:
         "allocations": result.fractions,
         "method": result.method,
         "fill_count": tracker.fill_count(),
+    }
+
+
+@app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_allocation_stress_test() -> dict[str, Any]:
+    """
+    Replay historical crisis periods against the current proposed allocation.
+
+    The allocator justifies a split from whatever period its attribution data
+    covers; this checks the same split against known crash sequences it was
+    never fitted to (src/tuning/stress_simulator.py). Read-only, like
+    /strategies/allocation — it reports what the current allocation would have
+    done, it does not change one.
+
+    Every strategy is replayed against the SAME market-wide crash sequence.
+    That is the conservative assumption on purpose: the simulator supports
+    per-strategy scenario returns, but this bot has no attributed
+    crisis-period history per strategy, and assuming any strategy hedges a
+    crash it has never traded through would understate exactly the tail risk
+    the test exists to find.
+
+    The floor comes from RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT, not the
+    simulator's own default, so `breaches_floor` means "breaches the halt that
+    is actually armed" rather than a number that happens to match today.
+
+    Returns
+    -------
+    {
+        "allocations": {strategy_id: float, ...},
+        "capital_preservation_floor_pct": float,
+        "scenarios": [{scenario, max_drawdown_pct, final_return_pct,
+                       breaches_floor}, ...],
+        "breaches_any_floor": bool,
+    }
+    """
+    registry = get_default_registry()
+    strategies = list(registry.all())
+    floor = float(get_settings().risk.capital_preservation_max_drawdown_pct)
+    if not strategies:
+        return {
+            "allocations": {},
+            "capital_preservation_floor_pct": floor,
+            "scenarios": [],
+            "breaches_any_floor": False,
+        }
+
+    enabled_ids = get_strategy_kill_switch_manager().enabled_ids(s.strategy_id for s in strategies)
+    allocation = performance_weighted_allocate(tuple(strategies), enabled_ids).fractions
+
+    by_scenario = {
+        name: dict.fromkeys(allocation, returns) for name, returns in KNOWN_CRISIS_SCENARIOS.items()
+    }
+    results = run_all_known_scenarios(
+        allocation,
+        by_scenario,
+        capital_preservation_floor_pct=floor,
+    )
+    return {
+        "allocations": allocation,
+        "capital_preservation_floor_pct": floor,
+        "scenarios": [
+            {
+                "scenario": r.scenario_name,
+                "max_drawdown_pct": round(r.simulated_max_drawdown_pct, 4),
+                "final_return_pct": round(r.simulated_final_return_pct, 4),
+                "breaches_floor": r.breaches_capital_floor,
+            }
+            for r in results
+        ],
+        "breaches_any_floor": any(r.breaches_capital_floor for r in results),
     }
 
 

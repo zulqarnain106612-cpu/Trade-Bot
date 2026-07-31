@@ -3,6 +3,31 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v9 stress simulator: replayed against the live allocation
+
+`src/tuning/stress_simulator.py` could replay historical crash sequences
+against an allocation, but nothing ever called it — a reallocation could go
+out having been checked only against the period its own attribution data
+happened to cover.
+
+- **Consumer** — `GET /strategies/stress-test` runs the allocation that
+  `/strategies/allocation` would produce right now against every scenario in
+  `KNOWN_CRISIS_SCENARIOS`. Read-only, same as the allocation endpoint: the
+  reallocation decision is human-mediated through the API today, so an API
+  surface is the correct place for the check.
+- **The floor comes from `RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT`**, not
+  the simulator's own 0.30 default, so `breaches_floor` means "breaches the
+  halt that is actually armed" rather than a number that happens to agree
+  with it today.
+- **Every strategy is replayed against the same market-wide sequence.** The
+  simulator supports per-strategy scenario returns, but this bot has no
+  attributed crisis-period history per strategy, and assuming any strategy
+  hedges a crash it never traded through would understate exactly the tail
+  risk the test exists to find. Splitting capital across strategies is not
+  diversification against a market-wide crash, and the report must not imply
+  that it is.
+- Kill-switched strategies are excluded, matching `/strategies/allocation`.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
