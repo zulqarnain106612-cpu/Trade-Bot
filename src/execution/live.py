@@ -608,6 +608,7 @@ class LiveExecutor(AbstractExecutor):
                 else 0.0,
                 "peak_unrealized_pct": round(p.peak_unrealized_pct, 3),
                 "regime_at_entry": p.regime_at_entry,
+                "strategy_id": p.strategy_id,
                 "entry_ts": p.entry_ts,
             }
             for p in self._positions.values()

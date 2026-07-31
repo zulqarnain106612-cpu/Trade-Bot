@@ -160,3 +160,89 @@ def test_registration_failure_does_not_abort_startup(monkeypatch):
     # Startup must survive: a kill-switch registration fault is not a reason
     # to refuse to trade at all.
     _orchestrator()._register_kill_switches(_baseline())
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator._record_kill_switch_outcome
+# ---------------------------------------------------------------------------
+
+
+def _orchestrator_with_capital(capital: float = 100_000.0) -> Orchestrator:
+    from unittest.mock import MagicMock
+
+    orch = _orchestrator()
+    orch._cfg = MagicMock(starting_capital_usd=capital)
+    return orch
+
+
+def test_records_outcome_against_the_named_strategy(monkeypatch):
+    import src.engine.orchestrator as orch_mod
+
+    manager = StrategyKillSwitchManager()
+    manager.register_strategy("signal_engine_v1", _baseline())
+    monkeypatch.setattr(orch_mod, "get_strategy_kill_switch_manager", lambda: manager)
+
+    _orchestrator_with_capital()._record_kill_switch_outcome(
+        strategy_id="signal_engine_v1",
+        pnl_usd=-50.0,
+        actual_direction=1,
+        current_equity=99_950.0,
+        now_ms=1_700_000_000_000,
+    )
+
+    detector = manager._states["signal_engine_v1"].detector
+    assert detector._total_live_trades == 1
+    assert detector._live_pnl_window[-1] == -50.0
+
+
+def test_unregistered_strategy_is_skipped(monkeypatch):
+    import src.engine.orchestrator as orch_mod
+
+    manager = StrategyKillSwitchManager()
+    monkeypatch.setattr(orch_mod, "get_strategy_kill_switch_manager", lambda: manager)
+
+    # No baseline was ever measured for this strategy — nothing to compare
+    # against, so this must be a silent no-op rather than a KeyError.
+    _orchestrator_with_capital()._record_kill_switch_outcome(
+        strategy_id="never_registered_v1",
+        pnl_usd=-50.0,
+        actual_direction=1,
+        current_equity=99_950.0,
+        now_ms=0,
+    )
+    assert not manager.is_registered("never_registered_v1")
+
+
+def test_blank_strategy_id_is_skipped(monkeypatch):
+    import src.engine.orchestrator as orch_mod
+
+    manager = StrategyKillSwitchManager()
+    monkeypatch.setattr(orch_mod, "get_strategy_kill_switch_manager", lambda: manager)
+
+    _orchestrator_with_capital()._record_kill_switch_outcome(
+        strategy_id="",
+        pnl_usd=-50.0,
+        actual_direction=1,
+        current_equity=99_950.0,
+        now_ms=0,
+    )
+    assert manager.enabled_ids([""]) == {""}
+
+
+def test_kill_switch_fault_does_not_break_the_exit_path(monkeypatch):
+    import src.engine.orchestrator as orch_mod
+
+    class _Exploding(StrategyKillSwitchManager):
+        def is_registered(self, strategy_id: str) -> bool:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(orch_mod, "get_strategy_kill_switch_manager", _Exploding)
+
+    # A completed exit must not become an error path.
+    _orchestrator_with_capital()._record_kill_switch_outcome(
+        strategy_id="signal_engine_v1",
+        pnl_usd=-50.0,
+        actual_direction=1,
+        current_equity=99_950.0,
+        now_ms=0,
+    )

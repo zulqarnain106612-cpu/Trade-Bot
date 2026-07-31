@@ -964,6 +964,64 @@ class Orchestrator:
                     exc_info=True,
                 )
 
+    def _record_kill_switch_outcome(
+        self,
+        *,
+        strategy_id: str,
+        pnl_usd: float,
+        actual_direction: int,
+        current_equity: float,
+        now_ms: int,
+    ) -> None:
+        """
+        Feed one closed trade to that strategy's kill switch, then evaluate.
+
+        Recording and evaluating are paired deliberately: drift is only
+        checked on new evidence, so a strategy that has stopped trading
+        cannot be disabled by a stale window, and one that is trading badly
+        is re-evaluated on every close rather than on a timer.
+
+        Skipped when the strategy has no kill switch — that means no
+        baseline was ever measured for it (see _register_kill_switches),
+        and there is nothing to compare against.
+
+        predicted_prob is 0.5 for the same reason the global drift feed
+        uses it: the confidence that produced the entry is not carried on
+        the position record. PnL, direction and equity are still exact.
+
+        Never raises: a kill-switch fault must not turn a completed exit
+        into an error path.
+        """
+        if not strategy_id:
+            return
+        try:
+            manager = get_strategy_kill_switch_manager()
+            if not manager.is_registered(strategy_id):
+                return
+            manager.record_trade_outcome(
+                strategy_id=strategy_id,
+                pnl_usd=pnl_usd,
+                predicted_prob=0.5,
+                actual_direction=actual_direction,
+                current_equity=current_equity,
+                starting_equity=self._cfg.starting_capital_usd,
+            )
+            drift = manager.evaluate(strategy_id, now_ms=now_ms)
+            if drift.drifted:
+                self._log.warning(
+                    "orchestrator.strategy_kill_switched",
+                    strategy_id=strategy_id,
+                    reason=drift.reason,
+                    metric=drift.metric,
+                )
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.kill_switch_record_failed",
+                strategy_id=strategy_id,
+                error=str(exc),
+                exc_info=True,
+            )
+
     def _publish_signal_to_registry(self, result: SignalResult) -> None:
         """
         Hand this tick's SignalResult to the registered signal-engine adapter.
@@ -1053,6 +1111,18 @@ class Orchestrator:
                             error=str(exc),
                             exc_info=True,
                         )
+
+                # Same outcome, per strategy. The global drift detector above
+                # sees the book as one series; the kill switch keeps a
+                # separate detector per strategy_id so one decaying strategy
+                # is disabled without halting the others.
+                self._record_kill_switch_outcome(
+                    strategy_id=str(pos.get("strategy_id", "")),
+                    pnl_usd=net_pnl,
+                    actual_direction=(1 if pos["direction"] == "long" else -1),
+                    current_equity=executor.equity_usd,
+                    now_ms=now_ms,
+                )
             except KeyError:
                 # Position was already closed by another path (e.g. a manual
                 # close via the API) between the snapshot above and this call --
