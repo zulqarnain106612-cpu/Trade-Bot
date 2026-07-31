@@ -416,6 +416,7 @@ class LiveExecutor(AbstractExecutor):
                     symbol=pos.symbol,
                     side=close_side,
                     quantity=pos.quantity,
+                    is_exit=True,
                 )
             except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
                 self._log.error(
@@ -779,7 +780,9 @@ class LiveExecutor(AbstractExecutor):
                 # order to flatten the position before returning.
                 flatten_side = "sell" if side == "buy" else "buy"
                 try:
-                    flatten_order = await self._place_market_order(symbol, flatten_side, filled_qty)
+                    flatten_order = await self._place_market_order(
+                        symbol, flatten_side, filled_qty, is_exit=True
+                    )
                     flatten_price = float(
                         flatten_order.get("average") or flatten_order.get("price") or actual_price
                     )
@@ -879,7 +882,7 @@ class LiveExecutor(AbstractExecutor):
             )
             return trade_id
 
-    async def _await_throttle_token(self, exchange_id: str) -> None:
+    async def _await_throttle_token(self, exchange_id: str, *, is_exit: bool = False) -> None:
         """
         Hold the order until the token bucket allows it, or refuse it.
 
@@ -890,13 +893,30 @@ class LiveExecutor(AbstractExecutor):
         stale, and filling anyway would mean trading a price the risk layer
         never approved, so the order is refused instead.
 
-        Raises ccxt.ExchangeError when the required wait exceeds max_wait_s.
+        ``is_exit`` orders are never refused and never delayed. Refusing an
+        exit leaves real, unhedged exposure open — strictly worse than any
+        rate-limit consequence, and unlike an entry there is no "skip it and
+        wait for the next signal" fallback. The token is still consumed so
+        the entry budget shrinks to account for the request, and a would-be
+        rejection is logged rather than raised.
+
+        Raises ccxt.ExchangeError when a non-exit order's required wait
+        exceeds max_wait_s.
         """
         if not self._throttle_cfg.enabled:
             return
 
         result = self._throttler.acquire(exchange_id)
         if result.allowed:
+            return
+
+        if is_exit:
+            self._log.warning(
+                "live.exit_order_bypassed_throttle",
+                exchange=exchange_id,
+                wait_s=round(result.wait_s, 3),
+                reason="exit orders are never refused — unhedged exposure beats a 429",
+            )
             return
 
         if result.wait_s > self._throttle_cfg.max_wait_s:
@@ -935,9 +955,14 @@ class LiveExecutor(AbstractExecutor):
         symbol: str,
         side: str,
         quantity: float,
+        *,
+        is_exit: bool = False,
     ) -> dict[str, Any]:
         """
         Place a market order and wait for fill confirmation.
+
+        ``is_exit`` marks an order that closes or flattens existing exposure;
+        it bypasses order-rate refusal (see _await_throttle_token).
 
         Now uses OrderFSM via OrderManager for:
           - State machine driven confirmation
@@ -951,7 +976,7 @@ class LiveExecutor(AbstractExecutor):
         Raises ccxt.ExchangeError if order does not fill within timeout.
         """
         exchange = self._fetcher.get_order_exchange()
-        await self._await_throttle_token(getattr(exchange, "id", "binance"))
+        await self._await_throttle_token(getattr(exchange, "id", "binance"), is_exit=is_exit)
 
         try:
             fsm, confirmed_order = await self._order_manager.place_order_with_fsm(

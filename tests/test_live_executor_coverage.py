@@ -994,6 +994,31 @@ class TestAwaitThrottleToken:
             await ex._await_throttle_token("binance")
 
     @pytest.mark.asyncio
+    async def test_exit_order_is_never_refused(self):
+        # Refusing an exit leaves real unhedged exposure open, and unlike an
+        # entry there is no "skip it, wait for the next signal" fallback.
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=0.1, burst=1, max_wait_s=0.5)
+        ex._throttler = OrderThrottler(rate=0.1, burst=1)
+        await ex._await_throttle_token("binance")  # drain
+        await ex._await_throttle_token("binance", is_exit=True)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_close_position_exits_through_a_drained_bucket(self):
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=0.1, burst=1, max_wait_s=0.5)
+        ex._throttler = OrderThrottler(rate=0.1, burst=1)
+        ex._fetcher.get_order_exchange = MagicMock(return_value=MagicMock(id="binance"))
+        fsm = MagicMock()
+        fsm.state.order_id = "ord-1"
+        ex._order_manager.place_order_with_fsm = AsyncMock(
+            return_value=(fsm, _filled_order(order_id="ord-1"))
+        )
+        await ex._place_market_order("BTC/USDT", "buy", 0.1)  # drains the bucket
+        await ex._place_market_order("BTC/USDT", "sell", 0.1, is_exit=True)
+        assert ex._order_manager.place_order_with_fsm.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_place_market_order_refused_when_throttled(self):
         import ccxt
 
