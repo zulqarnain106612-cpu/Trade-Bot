@@ -13,6 +13,7 @@ from src.risk.gates import (
     RiskGateContext,
     check_consecutive_losses,
     check_daily_drawdown,
+    check_position_exit,
     check_position_size,
     check_regime_gate,
     check_slippage_veto,
@@ -253,3 +254,75 @@ class TestEvaluateAllGates:
         r = evaluate_all_gates(self._ctx(direction_gate_pass=False, trading_mode=TradingMode.LIVE))
         assert r.passed is False
         assert r.status == GateStatus.HALT_LIVE_GATE
+
+
+# ---------------------------------------------------------------------------
+# check_position_exit (GAP-013 — no prior tests)
+# ---------------------------------------------------------------------------
+
+_NOW_MS = 1_700_000_000_000  # arbitrary epoch-ms anchor
+_ENTRY_MS = _NOW_MS - 60_000  # 60 seconds ago
+
+
+def _exit(
+    pnl_pct: float = 0.0,
+    *,
+    sl_enabled: bool = True,
+    sl_pct: float = 2.0,
+    tp_enabled: bool = True,
+    tp_pct: float = 4.0,
+    max_hold_s: float = 86_400.0,
+    holding_s: float = 60.0,
+) -> str | None:
+    entry_ms = _NOW_MS - int(holding_s * 1_000)
+    return check_position_exit(
+        unrealized_pnl_pct=pnl_pct,
+        entry_ts_ms=entry_ms,
+        now_ts_ms=_NOW_MS,
+        stop_loss_enabled=sl_enabled,
+        stop_loss_pct=sl_pct,
+        take_profit_enabled=tp_enabled,
+        take_profit_pct=tp_pct,
+        max_holding_period_s=max_hold_s,
+    )
+
+
+class TestCheckPositionExit:
+    def test_no_exit_when_within_thresholds(self) -> None:
+        assert _exit(pnl_pct=0.5) is None
+
+    def test_stop_loss_triggered(self) -> None:
+        assert _exit(pnl_pct=-2.0) == "stop_loss"
+
+    def test_stop_loss_at_exact_threshold(self) -> None:
+        assert _exit(pnl_pct=-2.0, sl_pct=2.0) == "stop_loss"
+
+    def test_stop_loss_disabled_does_not_trigger(self) -> None:
+        assert _exit(pnl_pct=-10.0, sl_enabled=False) is None
+
+    def test_take_profit_triggered(self) -> None:
+        assert _exit(pnl_pct=4.0) == "profit_target"
+
+    def test_take_profit_at_exact_threshold(self) -> None:
+        assert _exit(pnl_pct=4.0, tp_pct=4.0) == "profit_target"
+
+    def test_take_profit_disabled_does_not_trigger(self) -> None:
+        assert _exit(pnl_pct=50.0, tp_enabled=False) is None
+
+    def test_time_exit_triggered(self) -> None:
+        assert _exit(holding_s=86_401.0, max_hold_s=86_400.0) == "time_exit"
+
+    def test_time_exit_not_yet_triggered(self) -> None:
+        assert _exit(holding_s=3_600.0, max_hold_s=86_400.0) is None
+
+    def test_stop_loss_takes_priority_over_take_profit(self) -> None:
+        # pnl crosses both thresholds (shouldn't happen in practice, but SL wins)
+        result = _exit(pnl_pct=-5.0, sl_pct=2.0, tp_enabled=True, tp_pct=4.0)
+        assert result == "stop_loss"
+
+    def test_stop_loss_uses_abs_of_pct_param(self) -> None:
+        # Negative sl_pct should still work (abs taken inside function)
+        assert _exit(pnl_pct=-2.0, sl_pct=-2.0) == "stop_loss"
+
+    def test_take_profit_uses_abs_of_pct_param(self) -> None:
+        assert _exit(pnl_pct=4.0, tp_pct=-4.0) == "profit_target"
