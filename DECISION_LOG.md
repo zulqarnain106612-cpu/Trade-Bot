@@ -151,6 +151,35 @@ happened to cover.
   that it is.
 - Kill-switched strategies are excluded, matching `/strategies/allocation`.
 
+## 2026-07-31 — CVaR notional ceiling: risk_quantification enters the sizing path
+
+`src/intelligence/risk_quantification.py` was headed "EXPERIMENTAL — NOT
+wired into live signal path. Blocked on API key provisioning." That blocker
+never applied to `value_at_risk()`: it needs a returns array and nothing
+else. The note belonged to the metrics that consume paid provider data, and
+it kept a usable risk control shelved for the wrong reason.
+
+- **Why it matters.** Kelly sizes from win probability and payoff ratio and
+  is blind to tail *shape*. Two return series can look identical to Kelly and
+  differ entirely in how bad the bad days get, so a fat-tailed regime can
+  clear every Kelly check and still ruin the book.
+- **CVaR, not VaR.** VaR answers "how bad is the 5th percentile" and says
+  nothing about how much worse the other 5% get; a position sized to a VaR
+  limit is sized to the least bad outcome it was trying to survive.
+- **Composition** — `SignalEngine._cvar_notional_cap()` produces a notional
+  ceiling and takes the tighter of it and the existing Carver cap. Both are
+  ceilings; the binding one is whichever says less. Kelly remains the outer
+  ceiling either way.
+- **No estimate means no ceiling, not a zero one.** Too little history, a
+  tail estimate that finds no loss at all, or any error returns `None`. A
+  ceiling that cannot be computed must not collapse sizing to zero when Kelly
+  and Carver are both still in force.
+- **Config** — `RISK_CVAR_LIMIT_PCT` (None = disabled, so this is inert until
+  an operator opts in and can then only lower a notional),
+  `RISK_CVAR_CONFIDENCE`, `RISK_CVAR_LOOKBACK_BARS` (floor of 100, below
+  which the tail quantile is a handful of points and describes the sample
+  rather than the distribution).
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
