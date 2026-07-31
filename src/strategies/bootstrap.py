@@ -20,10 +20,14 @@ capital allocation and attribution; it only trades once the orchestrator
 feeds it a context and acts on the returned Signal. Registering is
 therefore safe to do unconditionally at startup.
 
-Capital fractions are upper bounds enforced independently of Kelly (Kelly
-is a ceiling, not a target — see CLAUDE.md Domain Priors), and the sum of
-enabled fractions is validated at bootstrap so a mis-set config cannot
-commit more than 100% of book capital before a single order is placed.
+Capital fractions are per-strategy *ceilings*, not an allocation split:
+``StrategyProtocol.required_capital_fraction()`` is documented as an upper
+bound on what a strategy may request, and the capital allocator caps each
+strategy at its ceiling and renormalises the result to sum to at most 1.0.
+They therefore need not — and generally will not — sum to 1.0. The one
+configuration worth flagging is the opposite: ceilings that sum *below*
+1.0 make it impossible for the allocator to deploy the whole book, so
+that is logged as a warning at bootstrap.
 """
 
 from __future__ import annotations
@@ -124,7 +128,13 @@ def enabled_specs(cfg: StrategyPortfolioSettings) -> tuple[StrategySpec, ...]:
 
 
 def total_enabled_fraction(cfg: StrategyPortfolioSettings) -> float:
-    """Sum of capital fractions across enabled strategies."""
+    """
+    Sum of capital ceilings across enabled strategies.
+
+    Not a budget: the allocator caps per strategy and renormalises, so this
+    exceeding 1.0 is normal. Below 1.0 it is a soft warning — the allocator
+    cannot deploy the whole book no matter how the weights fall.
+    """
     return sum(float(getattr(cfg, spec.fraction_attr)) for spec in enabled_specs(cfg))
 
 
@@ -140,20 +150,20 @@ def register_default_strategies(
     Idempotent: a strategy_id already present is left alone rather than
     raising, so calling this twice (e.g. API lifespan plus a test fixture)
     does not blow up an otherwise healthy process.
-
-    Raises ValueError when the enabled capital fractions sum above 1.0 —
-    that is a config error which would let the portfolio commit more than
-    the book, and it must fail at startup rather than at the first fill.
     """
     registry = registry if registry is not None else get_default_registry()
     cfg = cfg if cfg is not None else get_settings().strategy_portfolio
 
     total = total_enabled_fraction(cfg)
-    if total > 1.0:
-        raise ValueError(
-            f"Enabled strategy capital fractions sum to {total:.3f} (> 1.0) — "
-            f"the portfolio would commit more than the whole book. Lower the "
-            f"STRATEGY_*_FRACTION values or disable a strategy."
+    if enabled_specs(cfg) and total < 1.0:
+        log.warning(
+            "strategy_bootstrap.ceilings_below_full_book",
+            total_capital_ceiling=round(total, 4),
+            message=(
+                "Enabled strategy capital ceilings sum below 1.0 — the allocator "
+                "caps each strategy at its ceiling, so it can never deploy the "
+                "whole book. Raise STRATEGY_*_FRACTION or enable more strategies."
+            ),
         )
 
     registered: list[str] = []
@@ -171,7 +181,7 @@ def register_default_strategies(
     log.info(
         "strategy_bootstrap.complete",
         registered=registered,
-        total_capital_fraction=round(total, 4),
+        total_capital_ceiling=round(total, 4),
         registry_size=len(registry),
     )
     return tuple(registered)
