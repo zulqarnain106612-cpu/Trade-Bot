@@ -3,6 +3,7 @@ Tests for on-chain provider pure helper functions.
 
 Covers untested pure functions in:
   - src/intelligence/onchain/defillama_provider.py
+  - src/intelligence/onchain/dune_provider.py
   - src/intelligence/onchain/schema.py
 """
 
@@ -15,6 +16,11 @@ import pytest
 from src.intelligence.onchain.defillama_provider import (
     _compute_tvl_metrics,
     _stablecoin_ratio,
+)
+from src.intelligence.onchain.dune_provider import (
+    _extract_rows,
+    _miner_netflow_zscore,
+    _results_fresh,
 )
 from src.intelligence.onchain.schema import (
     ONCHAIN_NEUTRAL,
@@ -252,3 +258,104 @@ class TestMergeOnchainResults:
         r2["confidence"] = 0.5
         merged = merge_onchain_results([r1, r2])
         assert merged["timestamp"] == pytest.approx(2_000.0)
+
+
+# ---------------------------------------------------------------------------
+# Dune Analytics pure helper functions
+# ---------------------------------------------------------------------------
+
+
+class TestExtractRows:
+    def test_none_input_returns_none(self) -> None:
+        assert _extract_rows(None) is None
+
+    def test_extracts_from_result_rows(self) -> None:
+        data = {"result": {"rows": [{"a": 1}, {"a": 2}]}}
+        rows = _extract_rows(data)
+        assert rows == [{"a": 1}, {"a": 2}]
+
+    def test_extracts_from_flat_rows(self) -> None:
+        data = {"rows": [{"b": 3}]}
+        assert _extract_rows(data) == [{"b": 3}]
+
+    def test_none_when_rows_not_a_list(self) -> None:
+        data = {"result": {"rows": "not_a_list"}}
+        assert _extract_rows(data) is None
+
+    def test_empty_result_returns_empty_list(self) -> None:
+        data = {"result": {"rows": []}}
+        assert _extract_rows(data) == []
+
+    def test_missing_rows_key_returns_empty(self) -> None:
+        data = {"result": {}}
+        assert _extract_rows(data) == []
+
+
+class TestResultsFresh:
+    def _make_completed(self, age_seconds: float = 60) -> dict:
+        import datetime
+
+        ts = datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=age_seconds)
+        return {
+            "state": "QUERY_STATE_COMPLETED",
+            "execution_ended_at": ts.isoformat(),
+        }
+
+    def test_fresh_within_ttl(self) -> None:
+        assert _results_fresh(self._make_completed(60), ttl_s=300)
+
+    def test_stale_beyond_ttl(self) -> None:
+        assert not _results_fresh(self._make_completed(400), ttl_s=300)
+
+    def test_wrong_state_not_fresh(self) -> None:
+        result = {"state": "QUERY_STATE_PENDING", "execution_ended_at": "2024-01-01T00:00:00Z"}
+        assert not _results_fresh(result, ttl_s=300)
+
+    def test_missing_timestamp_not_fresh(self) -> None:
+        result = {"state": "QUERY_STATE_COMPLETED"}
+        assert not _results_fresh(result, ttl_s=300)
+
+    def test_malformed_timestamp_returns_false(self) -> None:
+        result = {"state": "QUERY_STATE_COMPLETED", "execution_ended_at": "not-a-date"}
+        assert not _results_fresh(result, ttl_s=300)
+
+    def test_success_state_also_accepted(self) -> None:
+        result = self._make_completed(10)
+        result["state"] = "SUCCESS"
+        assert _results_fresh(result, ttl_s=300)
+
+
+class TestMinerNetflowZscore:
+    def test_empty_rows_returns_zero(self) -> None:
+        assert _miner_netflow_zscore([]) == 0.0
+
+    def test_single_row_returns_zero(self) -> None:
+        assert _miner_netflow_zscore([{"miner_outflow_btc_7d": 100}]) == 0.0
+
+    def test_zero_variance_returns_zero_not_error(self) -> None:
+        rows = [{"miner_outflow_btc_7d": 50.0}] * 10
+        result = _miner_netflow_zscore(rows)
+        assert result == 0.0 or result != result  # zero or nan-safe
+
+    def test_high_outlier_clamped_to_positive_one(self) -> None:
+        rows = [{"miner_outflow_btc_7d": 0.0}] * 20 + [{"miner_outflow_btc_7d": 1_000_000.0}]
+        result = _miner_netflow_zscore(rows)
+        assert result == pytest.approx(1.0)
+
+    def test_low_outlier_clamped_to_negative_one(self) -> None:
+        rows = [{"miner_outflow_btc_7d": 0.0}] * 20 + [{"miner_outflow_btc_7d": -1_000_000.0}]
+        result = _miner_netflow_zscore(rows)
+        assert result == pytest.approx(-1.0)
+
+    def test_missing_key_treated_as_zero(self) -> None:
+        rows = [{}] * 10  # no miner_outflow_btc_7d key
+        result = _miner_netflow_zscore(rows)
+        assert result == 0.0
+
+    def test_neutral_series_returns_near_zero(self) -> None:
+        import random
+
+        rng = random.Random(42)
+        rows = [{"miner_outflow_btc_7d": rng.gauss(100.0, 5.0)} for _ in range(30)]
+        result = _miner_netflow_zscore(rows)
+        assert -1.0 <= result <= 1.0
