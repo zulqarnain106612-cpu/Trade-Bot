@@ -243,7 +243,8 @@ Copy `.env.example` to `.env` and fill in credentials. Key sections:
 - **Risk overrides** (optional, defaults shown above): `RISK_DAILY_DRAWDOWN_HALT_PCT`, `RISK_CONSECUTIVE_LOSS_HALT`, `RISK_MAX_POSITION_SIZE_PCT`, `RISK_KELLY_MULTIPLIER`, `RISK_KELLY_CEILING`
 - **Storage**: `STORAGE_BACKEND` (`sqlite`/`timescale`), `STORAGE_TIMESCALE_DSN`
 - **Intelligence** (all optional, fail-open if unset): `INTELLIGENCE_GLASSNODE_API_KEY`, `INTELLIGENCE_CRYPTOQUANT_API_KEY`, `INTELLIGENCE_ARKHAM_API_KEY`, `INTELLIGENCE_DUNE_API_KEY`, `INTELLIGENCE_COINGLASS_API_KEY`
-- **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`
+- **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`, `SELF_TUNING_DECISION_LOG_PATH` (Markdown journal of live promotions; empty disables)
+- **Options Greeks caps** (optional, both or neither): `STRATEGY_OPTIONS_CARRY_MAX_ABS_DELTA`, `STRATEGY_OPTIONS_CARRY_MAX_ABS_VEGA` — book-level ceilings the options-carry strategy checks before selling premium, since Kelly sizes on notional and cannot see an option's non-linear exposure
 - **API**: `API_HOST`, `API_PORT`, `API_CORS_ORIGINS`
 
 #### API roles

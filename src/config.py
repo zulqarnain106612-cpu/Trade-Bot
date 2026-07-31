@@ -656,6 +656,34 @@ class StrategyPortfolioSettings(BaseSettings):
 
     options_carry_enabled: bool = Field(default=False)
     options_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    options_carry_max_abs_delta: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Book-level |delta| ceiling for the options-carry strategy, in "
+            "underlying units. Unset (the default) leaves the Greeks gate off. "
+            "Both this and options_carry_max_abs_vega must be set to arm it — "
+            "a half-configured cap is rejected at startup rather than silently "
+            "gating on one Greek."
+        ),
+    )
+    options_carry_max_abs_vega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Book-level |vega| ceiling (per 1 vol-point) for options-carry.",
+    )
+
+    @model_validator(mode="after")
+    def _greeks_caps_are_all_or_nothing(self) -> StrategyPortfolioSettings:
+        delta, vega = self.options_carry_max_abs_delta, self.options_carry_max_abs_vega
+        if (delta is None) != (vega is None):
+            raise ValueError(
+                "STRATEGY_OPTIONS_CARRY_MAX_ABS_DELTA and "
+                "STRATEGY_OPTIONS_CARRY_MAX_ABS_VEGA must be set together — "
+                "capping one Greek while leaving the other unbounded is not a "
+                "meaningful exposure limit."
+            )
+        return self
 
 
 class OrderThrottleSettings(BaseSettings):

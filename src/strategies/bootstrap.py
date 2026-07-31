@@ -38,6 +38,7 @@ from dataclasses import dataclass
 import structlog
 
 from src.config import StrategyPortfolioSettings, get_settings
+from src.risk.greeks import GreeksExposureCaps
 from src.strategies.basis_trade import BasisTradeStrategy
 from src.strategies.breakout import BreakoutStrategy
 from src.strategies.cross_exchange_arb import CrossExchangeArbStrategy
@@ -65,6 +66,27 @@ class StrategySpec:
     factory: Callable[[float], StrategyProtocol]
     enabled_attr: str
     fraction_attr: str
+    # Set when a family needs more than its capital fraction to construct.
+    # Takes precedence over `factory`; `factory` stays required so every spec
+    # still declares the plain constructor it wraps.
+    builder: Callable[[float, StrategyPortfolioSettings], StrategyProtocol] | None = None
+
+
+def _build_options_carry(fraction: float, cfg: StrategyPortfolioSettings) -> OptionsCarryStrategy:
+    """
+    Attach the book-level Greeks ceilings when both are configured.
+
+    Kelly sizes on notional and cannot see the non-linear delta/vega a short
+    option adds, so this cap is the only thing bounding that exposure. The
+    config validator guarantees the two limits are set together, so checking
+    one for None is sufficient.
+    """
+    max_delta = cfg.options_carry_max_abs_delta
+    max_vega = cfg.options_carry_max_abs_vega
+    caps: GreeksExposureCaps | None = None
+    if max_delta is not None and max_vega is not None:
+        caps = GreeksExposureCaps(max_abs_delta=max_delta, max_abs_vega=max_vega)
+    return OptionsCarryStrategy(fraction, greeks_caps=caps)
 
 
 # Order is stable and meaningful: the model-driven signal engine is the
@@ -118,6 +140,7 @@ _SPECS: tuple[StrategySpec, ...] = (
         factory=OptionsCarryStrategy,
         enabled_attr="options_carry_enabled",
         fraction_attr="options_carry_fraction",
+        builder=_build_options_carry,
     ),
 )
 
@@ -171,7 +194,8 @@ def register_default_strategies(
         if spec.strategy_id in registry:
             log.debug("strategy_bootstrap.already_registered", strategy_id=spec.strategy_id)
             continue
-        strategy = spec.factory(float(getattr(cfg, spec.fraction_attr)))
+        fraction = float(getattr(cfg, spec.fraction_attr))
+        strategy = spec.builder(fraction, cfg) if spec.builder else spec.factory(fraction)
         try:
             registry.register(strategy)
         except DuplicateStrategyError:  # pragma: no cover - guarded by the check above
