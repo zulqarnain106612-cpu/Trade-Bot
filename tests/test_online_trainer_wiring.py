@@ -9,6 +9,7 @@ projection, and the two blend call sites.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -41,11 +42,16 @@ def _engine(online_trainer):
     engine._online_trainer = online_trainer
     engine._last_online_learn_ts = None
     engine._online_feature_cols = None
+    engine._p_long_by_bar = OrderedDict()
     engine._log = MagicMock()
     return engine
 
 
 _TS = ["2026-01-01 00:00", "2026-01-01 00:15", "2026-01-01 00:30"]
+
+
+def _ts_key(ts: str) -> int:
+    return int(pd.Timestamp(ts).value)
 
 
 class TestLearnOnline:
@@ -94,14 +100,17 @@ class TestLearnOnline:
         """
         trainer = MagicMock()
         engine = _engine(trainer)
+        engine._p_long_by_bar[_ts_key(_TS[-1])] = 0.73
         engine._learn_online(_matrix(_TS, [1.0, -1.0, 1.0]))
         trainer.learn_meta.assert_called_once()
         assert trainer.learn_meta.call_args.kwargs["label"] == 1
+        assert trainer.learn_meta.call_args.kwargs["p_long"] == pytest.approx(0.73)
 
     def test_an_unresolved_bar_is_a_real_zero_for_the_meta_model(self) -> None:
         """Meta learns which bars resolved at a barrier; 0 is data, not a gap."""
         trainer = MagicMock()
         engine = _engine(trainer)
+        engine._p_long_by_bar[_ts_key(_TS[-1])] = 0.5
         engine._learn_online(_matrix(_TS, [1.0, -1.0, 0.0]))
         trainer.learn_meta.assert_called_once()
         assert trainer.learn_meta.call_args.kwargs["label"] == 0
@@ -109,6 +118,7 @@ class TestLearnOnline:
     def test_meta_is_not_relearned_on_a_repeated_tick(self) -> None:
         trainer = MagicMock()
         engine = _engine(trainer)
+        engine._p_long_by_bar[_ts_key(_TS[-1])] = 0.5
         fm = _matrix(_TS, [1.0, -1.0, 0.0])
         engine._learn_online(fm)
         engine._learn_online(fm)
@@ -229,3 +239,70 @@ class TestPersistence:
         orch._log = MagicMock()
         orch._engines = {"15m": MagicMock(_online_trainer=None)}
         orch._persist_online_trainers()  # must not raise
+
+
+class TestPLongRecording:
+    def test_a_bar_without_a_recorded_p_long_is_not_meta_trained(self) -> None:
+        """
+        Faking a constant would train the meta model on a feature that never
+        varies and then score it with one that does -- blend() appends the
+        live batch_p_long at inference.
+        """
+        trainer = MagicMock()
+        engine = _engine(trainer)
+        engine._learn_online(_matrix(_TS, [1.0, -1.0, 1.0]))
+        trainer.learn_meta.assert_not_called()
+        # Direction learning is unaffected; it never consumed p_long.
+        trainer.learn_direction.assert_called_once()
+
+    def test_the_batch_probability_is_recorded_for_the_latest_bar(self) -> None:
+        engine = _engine(MagicMock())
+        bars = pd.DataFrame({"close": [1.0, 2.0]}, index=pd.DatetimeIndex(_TS[:2]))
+        engine._record_p_long_for_bar(bars, 0.61)
+        assert engine._p_long_by_bar[_ts_key(_TS[1])] == pytest.approx(0.61)
+
+    def test_the_history_is_bounded(self) -> None:
+        """An unbounded dict here would grow for the life of the process."""
+        from src.engine.signal_engine import _P_LONG_HISTORY_BARS
+
+        engine = _engine(MagicMock())
+        base = pd.Timestamp("2026-01-01")
+        for i in range(_P_LONG_HISTORY_BARS + 50):
+            bars = pd.DataFrame(
+                {"close": [1.0]}, index=pd.DatetimeIndex([base + pd.Timedelta(minutes=i)])
+            )
+            engine._record_p_long_for_bar(bars, 0.5)
+        assert len(engine._p_long_by_bar) == _P_LONG_HISTORY_BARS
+
+    def test_the_oldest_entries_are_evicted_first(self) -> None:
+        from src.engine.signal_engine import _P_LONG_HISTORY_BARS
+
+        engine = _engine(MagicMock())
+        base = pd.Timestamp("2026-01-01")
+        for i in range(_P_LONG_HISTORY_BARS + 1):
+            bars = pd.DataFrame(
+                {"close": [1.0]}, index=pd.DatetimeIndex([base + pd.Timedelta(minutes=i)])
+            )
+            engine._record_p_long_for_bar(bars, 0.5)
+        assert int(base.value) not in engine._p_long_by_bar
+        newest = base + pd.Timedelta(minutes=_P_LONG_HISTORY_BARS)
+        assert int(newest.value) in engine._p_long_by_bar
+
+    def test_empty_bars_record_nothing(self) -> None:
+        engine = _engine(MagicMock())
+        engine._record_p_long_for_bar(pd.DataFrame(), 0.5)
+        assert len(engine._p_long_by_bar) == 0
+
+    def test_the_recorded_value_is_the_pre_blend_probability(self) -> None:
+        """
+        Recording the blended value would let the online model learn from its
+        own output and drift toward self-confirmation.
+        """
+        import inspect
+
+        from src.engine.signal_engine import SignalEngine
+
+        source = inspect.getsource(SignalEngine.tick)
+        record_at = source.index("self._record_p_long_for_bar(")
+        blend_at = source.index("self._blend_online(p_long, 0.5, vec)")
+        assert record_at < blend_at
