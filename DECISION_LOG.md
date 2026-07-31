@@ -450,3 +450,47 @@ process was down is invisible to both sides and still needs a venue query.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally
 per repo policy.
+
+## 2026-07-31 — Unbounded in-memory growth in the long-running process
+
+Two accumulators grew for the life of the process. Neither is a crash in a
+short test run; both matter in a bot meant to stay up for months.
+
+**AttributionTracker** held every fill ever recorded in one flat list, and
+`snapshot()` rescanned that list once per strategy. The capital allocator
+calls `snapshot()` on every allocation, so allocation cost grew linearly
+with uptime — a slow, silent degradation rather than a failure.
+
+The fix had to answer which figures may shrink when a fill is evicted.
+Decision: **counts and totals are lifetime, ratios are windowed.**
+`trade_count`, `total_pnl_usd`, `win_rate`, and `first_entry_ts` are
+accumulated as running scalars, because the allocator's warm-up rule and
+the promotion gauntlet's `min_trades` / `min_days_running` bars are
+statements about a strategy's whole history — recomputing them from a
+truncated window would let a candidate that already failed the bar quietly
+re-enter the running once its old fills aged out. Sharpe, Sortino, Calmar,
+and max drawdown are path-dependent and are computed over the retained
+window (2000 fills per strategy), which has the side benefit of tracking
+recent behaviour rather than being anchored to a strategy's first month.
+`observation_from_fills()` therefore takes explicit `first_entry_ms` and
+`lifetime_trade_count` overrides rather than deriving them from the window.
+
+Indexing per strategy also isolates them: one noisy strategy can no longer
+evict another's history, and a lookup no longer scans every fill in the
+process.
+
+**PaperExecutor's approval queue** pruned resolved requests only inside
+`pending_approvals()`. The dashboard and the WebSocket heartbeat both call
+`pending_approvals_safe()`, so in a deployment where nobody opens
+`GET /approvals` the queue never shrank — the H-05 leak was still open on
+the path that actually runs. `LiveExecutor` already routed both accessors
+through one pruning method; paper now matches, so the two cannot drift
+apart again.
+
+**Not changed**: `AuditTrail._entries` is also unbounded, but it is a hash
+chain verified from genesis, so eviction needs a checkpoint anchor rather
+than a `maxlen`. It also has no production importers today — bounding it
+before it has a writer would be designing against a guess.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
