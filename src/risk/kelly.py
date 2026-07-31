@@ -440,10 +440,16 @@ def compute_position_size(
                      Multiplies the half-Kelly fraction down when the new
                      symbol is highly correlated with currently open
                      positions (per-symbol Kelly otherwise ignores
-                     cross-asset correlation — see Gap-005). Defaults to
-                     1.0 (no-op) for backward compatibility with callers
-                     that do not pass a correlation tracker (e.g. unit
-                     tests, single-symbol back-test harnesses).
+                     cross-asset correlation — see Gap-005). The
+                     orchestrator passes the *combined* asset x strategy
+                     scalar here (see src.risk.strategy_correlation.
+                     combined_correlation_scalar) — two strategies can be
+                     uncorrelated as assets while running the same
+                     underlying bet, so both ceilings apply to one
+                     position. Defaults to 1.0 (no-op) for backward
+                     compatibility with callers that do not pass a
+                     correlation tracker (e.g. unit tests, single-symbol
+                     back-test harnesses).
     notional_cap_usd : GAP-015 — absolute USD notional cap from
                      src.strategies.position_sizing.recommend_position_notional()
                      (Carver/AFML/Thorp minimum). Applied as a hard ceiling
