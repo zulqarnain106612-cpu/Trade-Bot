@@ -30,7 +30,9 @@ class StrategyCorrelationTracker:
     Usage::
 
         tracker = StrategyCorrelationTracker()
-        tracker.push_strategy_returns({"mean_reversion_pairs_v1": 0.001, "breakout_volume_v1": -0.0004})
+        tracker.push_strategy_returns(
+            {"mean_reversion_pairs_v1": 0.001, "breakout_volume_v1": -0.0004}
+        )
         scalar = tracker.correlation_scalar(
             new_strategy_id="funding_carry_v1",
             active_strategy_ids=["mean_reversion_pairs_v1"],
