@@ -1,7 +1,9 @@
 """
 FastAPI dashboard API.
 
-Security: ALL endpoints require X-API-Key header matching API_SECRET_KEY env var.
+Security: ALL endpoints require an X-API-Key header. API_SECRET_KEY carries the
+trade-authorizing role; the optional API_READONLY_KEY carries a view-only role
+that is rejected with 403 on the mutating routes (see src/api/access_control.py).
 
 Endpoints:
   GET  /health                     — system health + storage counts
@@ -29,7 +31,7 @@ import json
 import os
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
@@ -48,7 +50,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.api.auth import verify_api_key, verify_ws_key
+from src.api.access_control import Permission, require_permission
+from src.api.auth import resolve_role, verify_api_key, verify_ws_key
 from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
@@ -327,6 +330,28 @@ app.add_middleware(
 def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
     """FastAPI dependency — validates X-API-Key header on every request."""
     verify_api_key(x_api_key)
+
+
+def requires(permission: Permission) -> Callable[..., None]:
+    """
+    Build a FastAPI dependency enforcing `permission` for the caller's role.
+
+    Authenticates the key (401 on failure) and then authorizes the role the
+    key carries (403 on failure). Read-only keys hold VIEW_* only, so this
+    is what keeps them off the trade-authorizing and mode-changing routes.
+    When no read-only key is configured every caller is TRADE_AUTHORIZING
+    and these dependencies are a pass-through.
+    """
+
+    def _dependency(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
+        role = resolve_role(x_api_key)
+        try:
+            require_permission(role, permission)
+        except PermissionError as exc:
+            log.warning("auth.permission_denied", role=role.value, permission=permission.value)
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    return _dependency
 
 
 def require_ready() -> None:
@@ -701,7 +726,7 @@ async def approvals() -> dict[str, Any]:
 
 @app.post(
     "/approvals/{request_id}/resolve",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[Depends(requires(Permission.APPROVE_TRADE)), Depends(require_ready)],
     responses={
         503: {"description": "Executor not initialized"},
         404: {"description": "Approval request not found or already resolved"},
@@ -756,7 +781,7 @@ async def resolve_approval(
 
 @app.post(
     "/execution-mode",
-    dependencies=[Depends(api_key_header)],
+    dependencies=[Depends(requires(Permission.CHANGE_EXECUTION_MODE))],
     responses={
         400: {"description": "Invalid execution mode"},
         401: {"description": "Invalid operator secret"},
@@ -831,7 +856,10 @@ async def get_risk_controls() -> dict[str, Any]:
 
 @app.post(
     "/risk-controls",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         400: {"description": "Invalid risk-control value"},
         401: {"description": "Invalid operator secret"},
@@ -999,7 +1027,10 @@ async def self_tuning_status() -> dict[str, Any]:
 
 @app.post(
     "/self-tuning/pause",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         429: {"description": "Rate limit exceeded"},
@@ -1022,7 +1053,10 @@ async def self_tuning_pause(body: SelfTuningPauseRequest, request: Request) -> d
 
 @app.post(
     "/self-tuning/resume",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         429: {"description": "Rate limit exceeded"},
@@ -1041,7 +1075,10 @@ async def self_tuning_resume(body: SelfTuningPauseRequest, request: Request) -> 
 
 @app.post(
     "/self-tuning/rollback/{param_name}",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         404: {"description": "Parameter has no version history"},

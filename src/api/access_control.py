@@ -2,14 +2,13 @@
 Role-based access control primitives — v8 Institutional-Grade Operations.
 
 Defines the read-only vs. trade-authorizing role split and a pure
-permission-check function. Deliberately decoupled from key storage/
-verification (src/api/auth.py) — wiring this into live request
-dependencies requires deciding a new API-key-to-role mapping convention
-(e.g. a second env var for a read-only key), which touches the existing
-single-key auth model and env configuration. That's a security-sensitive
-config decision left for explicit follow-up rather than made unilaterally
-here; this module provides the tested role logic that follow-up will
-consume.
+permission-check function. Key storage/verification stays in
+src/api/auth.py, which maps a presented key to a Role here:
+API_SECRET_KEY → TRADE_AUTHORIZING, the optional API_READONLY_KEY →
+READ_ONLY. src/api/main.py's `requires(permission)` dependency turns a
+denial into HTTP 403 on the mutating routes. Leaving API_READONLY_KEY
+unset keeps the original single-key model, in which every authenticated
+caller is trade-authorizing.
 
 Authority:
   - Domain Prior: no hidden failures or skipped validation — a role check

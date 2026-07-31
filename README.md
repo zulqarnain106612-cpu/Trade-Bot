@@ -238,13 +238,32 @@ Regenerate the lockfile with:
 Copy `.env.example` to `.env` and fill in credentials. Key sections:
 
 - **Exchange**: `BINANCE_API_KEY` / `BINANCE_API_SECRET` / `BINANCE_TESTNET`, `OKX_API_KEY` / `OKX_API_SECRET` / `OKX_PASSPHRASE`
-- **Security**: `API_SECRET_KEY`, `OPERATOR_SECRET` (generate with `openssl rand -hex 32`)
+- **Security**: `API_SECRET_KEY`, `OPERATOR_SECRET` (generate with `openssl rand -hex 32`); optional `API_READONLY_KEY` issues a view-only credential (see below)
 - **Trading**: `TRADING_MODE` (`paper`/`live`), `EXECUTION_MODE`, `PRIMARY_SYMBOL`, `STARTING_CAPITAL_USD`
 - **Risk overrides** (optional, defaults shown above): `RISK_DAILY_DRAWDOWN_HALT_PCT`, `RISK_CONSECUTIVE_LOSS_HALT`, `RISK_MAX_POSITION_SIZE_PCT`, `RISK_KELLY_MULTIPLIER`, `RISK_KELLY_CEILING`
 - **Storage**: `STORAGE_BACKEND` (`sqlite`/`timescale`), `STORAGE_TIMESCALE_DSN`
 - **Intelligence** (all optional, fail-open if unset): `INTELLIGENCE_GLASSNODE_API_KEY`, `INTELLIGENCE_CRYPTOQUANT_API_KEY`, `INTELLIGENCE_ARKHAM_API_KEY`, `INTELLIGENCE_DUNE_API_KEY`, `INTELLIGENCE_COINGLASS_API_KEY`
 - **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`
 - **API**: `API_HOST`, `API_PORT`, `API_CORS_ORIGINS`
+
+#### API roles
+
+Every request carries `X-API-Key`. The key determines the caller's role:
+
+| Key | Role | Can do |
+| --- | --- | --- |
+| `API_SECRET_KEY` | `trade_authorizing` | everything |
+| `API_READONLY_KEY` (optional) | `read_only` | GET routes + `/ws` only |
+
+A `read_only` key gets `403` on `POST /execution-mode`, `POST /risk-controls`,
+`POST /approvals/{id}/resolve`, and the `/self-tuning/*` mutations. Leave
+`API_READONLY_KEY` unset for a single-key deployment — behaviour is then
+identical to a deployment with no roles at all. When set it must be at least
+32 characters and must differ from `API_SECRET_KEY`; otherwise the API fails
+closed with `503` rather than silently collapsing the two roles.
+
+Roles are *not* a substitute for `OPERATOR_SECRET`: mode and risk changes
+still require that second factor on top of a trade-authorizing key.
 
 ### 3. Backend
 
