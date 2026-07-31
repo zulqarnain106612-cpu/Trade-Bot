@@ -19,6 +19,7 @@ Authority:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import structlog
@@ -132,6 +133,24 @@ class StrategyKillSwitchManager:
 
     def is_enabled(self, strategy_id: str) -> bool:
         return self._require_state(strategy_id).enabled
+
+    def is_registered(self, strategy_id: str) -> bool:
+        """True when this strategy has a kill switch. Never raises."""
+        return strategy_id in self._states
+
+    def enabled_ids(self, strategy_ids: Iterable[str]) -> set[str]:
+        """
+        Subset of ``strategy_ids`` that capital may currently be routed to.
+
+        A strategy with no kill switch registered counts as enabled: absence
+        of a switch means no baseline was ever measured, and treating
+        "unmeasured" as "disabled" would silently zero the whole portfolio
+        the first time this is called before startup finishes registering.
+        Being explicitly disabled requires observed drift, not missing data.
+        """
+        return {
+            sid for sid in strategy_ids if not self.is_registered(sid) or self._states[sid].enabled
+        }
 
     def re_enable(self, strategy_id: str) -> None:
         """
