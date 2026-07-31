@@ -53,6 +53,11 @@ from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.risk.portfolio_correlation import get_portfolio_correlation
+from src.strategies.registry import get_default_registry
+from src.strategies.signal_engine_adapter import (
+    STRATEGY_ID_SIGNAL_ENGINE,
+    SignalEngineStrategy,
+)
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -529,6 +534,13 @@ class Orchestrator:
             )
             await self._storage.upsert_regime_snapshot(snap)
 
+        # Feed the registry adapter this tick's SignalResult. SignalEngine is
+        # async and stateful, so SignalEngineStrategy cannot call it — it
+        # translates a result handed to it. Without this the incumbent
+        # strategy's generate_signal() would answer Signal(0, 0, 0) forever,
+        # making it look permanently flat to anything reading the registry.
+        self._publish_signal_to_registry(result)
+
         # TASK-007: push metrics snapshot to Prometheus gauges/counters
         try:
             _executor = getattr(self, "_executor", None)
@@ -915,6 +927,28 @@ class Orchestrator:
                     "orchestrator.position_monitor_loop_error", error=str(exc), exc_info=True
                 )
                 await asyncio.sleep(5)
+
+    def _publish_signal_to_registry(self, result: SignalResult) -> None:
+        """
+        Hand this tick's SignalResult to the registered signal-engine adapter.
+
+        No-op when signal_engine_v1 is not registered (STRATEGY_SIGNAL_ENGINE_
+        ENABLED=false) or when the registered object is some other
+        implementation — the registry is keyed by strategy_id, not type, so
+        the isinstance check is what makes submit_result() safe to call.
+
+        Never raises into the trade path: this is observability plumbing for
+        capital allocation and attribution, and a failure here must not stop
+        an otherwise valid signal from reaching the executor.
+        """
+        try:
+            strategy = get_default_registry().get(STRATEGY_ID_SIGNAL_ENGINE)
+            if isinstance(strategy, SignalEngineStrategy):
+                strategy.submit_result(result)
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.registry_signal_publish_failed", error=str(exc), exc_info=True
+            )
 
     async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
         """Mark-to-market and stop-loss/take-profit/time-exit for one executor's positions."""
