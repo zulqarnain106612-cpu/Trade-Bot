@@ -123,6 +123,7 @@ fills, reconnects, and exchange-side rejections.
 | POST | /self-tuning/pause \| /resume \| /rollback/{param_name} | Self-tuning controls |
 | WS | /ws | Live push — equity, positions, signals |
 | GET | /orders/{order_id}/status | Order FSM status |
+| GET | /ledger | Cross-venue unified book (net/gross exposure, margin) |
 | GET | /performance-drift | Behavioral/performance drift snapshot |
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |

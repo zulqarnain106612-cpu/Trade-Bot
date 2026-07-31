@@ -62,6 +62,7 @@ from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.execution.unified_ledger import get_unified_ledger
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
@@ -1341,6 +1342,49 @@ async def get_order_status(
             )
         }
     return state.to_dict()
+
+
+@app.get("/ledger", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_unified_ledger_snapshot() -> dict[str, Any]:
+    """
+    Cross-venue book (v3 unified ledger).
+
+    Read-only view of src/execution/unified_ledger.py, republished by the
+    orchestrator each tick. Paper fills are carried under their own "paper"
+    venue and are never netted against live exchange exposure.
+
+    Returns
+    -------
+    {
+        "venues": [{venue, symbol, quantity, entry_price, margin_used_usd}, ...],
+        "by_symbol": {symbol: {net_exposure, gross_exposure, venues}, ...},
+        "total_margin_used_usd": float,
+    }
+    """
+    ledger = get_unified_ledger()
+    positions = ledger.all_positions
+    symbols = sorted({p.symbol for p in positions})
+    return {
+        "venues": [
+            {
+                "venue": p.venue,
+                "symbol": p.symbol,
+                "quantity": p.quantity,
+                "entry_price": round(p.entry_price, 4),
+                "margin_used_usd": round(p.margin_used_usd, 2),
+            }
+            for p in positions
+        ],
+        "by_symbol": {
+            symbol: {
+                "net_exposure": ledger.net_exposure(symbol),
+                "gross_exposure": ledger.gross_exposure(symbol),
+                "venues": ledger.venues_holding(symbol),
+            }
+            for symbol in symbols
+        },
+        "total_margin_used_usd": round(ledger.total_margin_used_usd(), 2),
+    }
 
 
 @app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])
