@@ -156,3 +156,34 @@ class TestMetaModel:
         meta = _model(11, [*BASE_FEATURE_COLUMNS, _FUNDING])
         _trainer().predict_meta(meta, _vec(**{_NETFLOW: 111.0, _FUNDING: 222.0}), p_long=0.6)
         assert meta.scored[0, -3] == pytest.approx(222.0)
+
+
+class TestBacktestHarness:
+    """
+    The tuning backtest scores models whose metrics decide parameter
+    promotion, so a positional mismatch here promotes a parameter on the
+    strength of a backtest that fed features into the wrong slots.
+    """
+
+    def _features(self) -> pd.DataFrame:
+        data = {c: [0.5, 0.5] for c in BASE_FEATURE_COLUMNS}
+        data[_NETFLOW] = [111.0, 111.0]
+        data[_FUNDING] = [222.0, 222.0]
+        return pd.DataFrame(data)
+
+    def test_named_columns_are_used_when_recorded(self) -> None:
+        from src.tuning.backtest_harness import _predict_direction_batch
+
+        model = _FakeModel(9, [*BASE_FEATURE_COLUMNS, _FUNDING])
+        model.predict = lambda arr: setattr(model, "scored", arr) or np.array([1, 0])
+        _predict_direction_batch(model, self._features())
+        assert model.scored.shape == (2, 9)
+        assert model.scored[0, -1] == pytest.approx(222.0)
+
+    def test_it_falls_back_to_positional_for_older_artifacts(self) -> None:
+        from src.tuning.backtest_harness import _predict_direction_batch
+
+        model = _FakeModel(len(BASE_FEATURE_COLUMNS), None)
+        model.predict = lambda arr: setattr(model, "scored", arr) or np.array([1, 0])
+        _predict_direction_batch(model, self._features())
+        assert model.scored.shape == (2, len(BASE_FEATURE_COLUMNS))
