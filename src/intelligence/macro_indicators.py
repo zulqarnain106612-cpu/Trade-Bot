@@ -112,9 +112,14 @@ def _zscore_of_latest(
     if series is None:
         return 0.0, False
     std = float(series.std(ddof=1))
-    if not math.isfinite(std) or std <= 0.0:
-        # A flat window carries no dispersion information; treating it as a
-        # 0-sigma reading is honest, treating it as a divide-by-zero is not.
+    # A flat window carries no dispersion information. The threshold is
+    # relative, not `std <= 0.0`: pandas computes std by a numerically-stable
+    # route that leaves ~1e-18 residue on a genuinely constant series, and
+    # dividing a similarly tiny numerator by it manufactures a confident
+    # z-score out of pure floating-point noise (observed: z=0.96 from twelve
+    # identical 0.01 funding prints).
+    scale = float(series.abs().max()) or 1.0
+    if not math.isfinite(std) or std <= scale * 1e-9:
         return 0.0, False
     return (float(series.iloc[-1]) - float(series.mean())) / std, True
 

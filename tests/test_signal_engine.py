@@ -360,10 +360,16 @@ class TestSkipPaths:
         A broken budget must not remove the correlation/regime ceiling that was
         already computed — failing to apply a ceiling is not a licence to widen.
         """
+
+        class _BrokenBudget:
+            reason = "broken"
+
+            @property
+            def scalar(self) -> float:
+                raise RuntimeError("boom")
+
         baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
-        broken = MagicMock()
-        type(broken).scalar = property(lambda _self: (_ for _ in ()).throw(RuntimeError("boom")))
-        kwargs = await self._kelly_kwargs_for_macro(broken)
+        kwargs = await self._kelly_kwargs_for_macro(_BrokenBudget())
         assert kwargs["correlation_scalar"] == pytest.approx(baseline, abs=1e-9)
 
     @pytest.mark.asyncio

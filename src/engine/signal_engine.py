@@ -576,8 +576,15 @@ class SignalEngine:
         # that reason, and keeps the "budget can only shrink" invariant in
         # one place. A failure leaves combined_scalar untouched: losing a
         # ceiling must never be worse than never having had one.
+        # Snapshotted rather than read again at log time: the tradeable log
+        # line runs outside this guard, so re-reading the budget there would
+        # let the same fault escape the handler that was written to contain it.
+        _macro_scalar: float | None = None
+        _macro_reason: str | None = None
         if macro_budget is not None:
             try:
+                _macro_scalar = round(macro_budget.scalar, 3)
+                _macro_reason = macro_budget.reason
                 combined_scalar = apply_macro_budget_to_kelly_fraction(
                     combined_scalar, macro_budget
                 )
@@ -896,10 +903,8 @@ class SignalEngine:
             correlation_scalar_applied=round(
                 correlation_scalar, 3
             ),  # GAP-005/015: IS applied (see kelly.py)
-            macro_exposure_scalar=(
-                round(macro_budget.scalar, 3) if macro_budget is not None else None
-            ),
-            macro_exposure_reason=(macro_budget.reason if macro_budget is not None else None),
+            macro_exposure_scalar=_macro_scalar,
+            macro_exposure_reason=_macro_reason,
             hurst=round(cast("dict[str, float]", _filter_result["details"]).get("hurst", 0.5), 3),
             ensemble_point_estimate=(
                 round(_ensemble_point_estimate, 6) if _ensemble_point_estimate is not None else None
