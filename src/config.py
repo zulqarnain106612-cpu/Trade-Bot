@@ -210,6 +210,21 @@ class RiskSettings(BaseSettings):
     # budget is a pure shrink -- its scalar is bounded to <= 1.0 by
     # construction, so turning it on can only move exposure in the safer
     # direction and it can never widen the Kelly ceiling.
+    # CVaR notional ceiling (src/intelligence/risk_quantification.py). Caps a
+    # position so its expected TAIL loss -- not its average loss -- stays
+    # within this fraction of equity. Kelly sizes from win probability and
+    # payoff ratio and is blind to tail shape, so a fat-tailed regime can pass
+    # every Kelly check and still ruin the book.
+    #
+    # None = disabled, which is the behaviour before this setting existed.
+    # Enabling it can only lower a notional, never raise one.
+    cvar_limit_pct: float | None = Field(default=None, gt=0.0, le=1.0)
+    cvar_confidence: float = Field(default=0.95, gt=0.5, lt=1.0)
+    # Bars of return history the CVaR estimate is built from. Below ~100 the
+    # empirical tail quantile is a handful of observations and the estimate
+    # says more about the sample than the distribution.
+    cvar_lookback_bars: int = Field(default=250, ge=100, le=5000)
+
     macro_exposure_enabled: bool = Field(default=True)
     # Bars of intelligence-feature history used to z-score funding and to
     # measure stablecoin growth. 30 bars keeps the window responsive to a

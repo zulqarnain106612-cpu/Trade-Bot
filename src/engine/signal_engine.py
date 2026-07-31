@@ -52,6 +52,7 @@ from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter a
 from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
 )
+from src.intelligence.risk_quantification import RiskQuantifier
 from src.models.trainer import ModelTrainer
 from src.regime.changepoint import BayesianOnlineChangepointDetector
 from src.regime.detector import RegimeDetector, RegimePrediction
@@ -198,6 +199,10 @@ class SignalEngine:
         # distribution across ticks, so it lives on self rather than being
         # recreated per call.
         self._changepoint_detector = BayesianOnlineChangepointDetector()
+        # Per-engine so its fitted-distribution caches key off this
+        # symbol/timeframe's own return window rather than being shared
+        # across engines that see different data.
+        self._risk_quantifier = RiskQuantifier()
         # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
         # whole-book peak-drawdown halt that never auto-clears on equity
         # recovery. One instance per engine, driven by this engine's own
@@ -562,6 +567,19 @@ class SignalEngine:
         except Exception as _carver_exc:
             self._log.warning("signal.carver_cap_failed", error=str(_carver_exc), exc_info=True)
             _notional_cap_usd = None
+
+        # CVaR notional ceiling. Kelly sizes from win probability and payoff
+        # ratio and is blind to tail SHAPE, so a fat-tailed regime can clear
+        # every Kelly check and still ruin the book. Composed with the Carver
+        # cap by taking the tighter of the two -- both are ceilings, and the
+        # binding one is whichever says less.
+        _cvar_cap_usd = self._cvar_notional_cap(bars, capital_usd)
+        if _cvar_cap_usd is not None:
+            _notional_cap_usd = (
+                _cvar_cap_usd
+                if _notional_cap_usd is None
+                else min(_notional_cap_usd, _cvar_cap_usd)
+            )
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
         # Combine portfolio-correlation scalar with regime-agreement scalar so
@@ -1050,6 +1068,50 @@ class SignalEngine:
             index=[r.ts for r in records],
         )
         return df.sort_index()
+
+    def _cvar_notional_cap(self, bars: pd.DataFrame, capital_usd: float) -> float | None:
+        """
+        Largest notional whose expected tail loss stays inside the CVaR budget.
+
+        CVaR, not VaR: VaR answers "how bad is the 5th percentile", which says
+        nothing about how much worse the other 5% get. A position sized to a
+        VaR limit is sized to the least bad outcome it was trying to survive.
+
+        Returns None -- meaning "no CVaR ceiling" -- when the limit is not
+        configured, when there is too little history for the tail estimate to
+        mean anything, or on any error. A ceiling that cannot be computed must
+        not become a ceiling of zero: this composes with Kelly and the Carver
+        cap, both of which are still in force.
+        """
+        limit_pct = self._cfg.risk.cvar_limit_pct
+        if limit_pct is None:
+            return None
+        try:
+            lookback = self._cfg.risk.cvar_lookback_bars
+            closes = bars["close"].to_numpy(dtype=float)[-(lookback + 1) :]
+            if len(closes) < 101:
+                return None
+            returns = closes[1:] / closes[:-1] - 1.0
+            returns = returns[~pd.isna(returns)]
+            if len(returns) < 100:
+                return None
+
+            result = self._risk_quantifier.value_at_risk(
+                returns,
+                confidence_level=self._cfg.risk.cvar_confidence,
+                method="historical",
+            )
+            cvar = float(result["cvar"])
+            # cvar is a negative return in the loss tail. A non-negative value
+            # means the tail estimate found no loss at all, which is not a
+            # licence to size without limit -- it means the estimate carries no
+            # information, so no ceiling is published.
+            if not math.isfinite(cvar) or cvar >= 0.0:
+                return None
+            return float(limit_pct) * capital_usd / abs(cvar)
+        except Exception as exc:
+            self._log.warning("signal.cvar_cap_failed", error=str(exc), exc_info=True)
+            return None
 
     def _skip(self, reason: str) -> SignalResult:
         self._log.debug("signal.skip", reason=reason)
