@@ -86,6 +86,8 @@ def observation_from_fills(
     fills: list[AttributedFill],
     equity_usd: float,
     now_ms: int | None = None,
+    first_entry_ms: int | None = None,
+    lifetime_trade_count: int | None = None,
 ) -> GauntletObservation:
     """
     Build a GauntletObservation from a candidate's realized paper fills.
@@ -95,6 +97,13 @@ def observation_from_fills(
     has still been running, and crediting it only two days would let it
     re-clear the min_days_running bar forever.
 
+    `first_entry_ms` and `lifetime_trade_count` override what `fills` alone
+    can show. The attribution tracker retains a bounded window, so once a
+    long-lived strategy's oldest fills age out, deriving these from `fills`
+    would reset its apparent age and shrink its trade count — letting a
+    candidate that already failed the bar quietly re-enter the running.
+    Callers holding the tracker should pass both.
+
     `realized_max_drawdown_pct` converts the attribution tracker's USD
     drawdown against `equity_usd`. A non-positive equity yields 1.0 (100%
     drawdown) rather than a division error or a flattering 0.0 — the
@@ -103,16 +112,22 @@ def observation_from_fills(
     attribution = compute_attribution(strategy_id, fills)
     own_fills = [f for f in fills if f.strategy_id == strategy_id]
 
-    if not own_fills:
+    first_entry = first_entry_ms
+    if first_entry is None and own_fills:
+        first_entry = min(f.entry_ts for f in own_fills)
+
+    if first_entry is None:
         days_running = 0.0
     else:
         now = now_ms if now_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
-        days_running = max(0.0, (now - min(f.entry_ts for f in own_fills)) / _MS_PER_DAY)
+        days_running = max(0.0, (now - first_entry) / _MS_PER_DAY)
 
     drawdown_pct = 1.0 if equity_usd <= 0.0 else attribution.max_drawdown_usd / equity_usd
 
     return GauntletObservation(
-        trade_count=attribution.trade_count,
+        trade_count=(
+            lifetime_trade_count if lifetime_trade_count is not None else attribution.trade_count
+        ),
         days_running=days_running,
         realized_sharpe=attribution.sharpe,
         realized_max_drawdown_pct=drawdown_pct,
