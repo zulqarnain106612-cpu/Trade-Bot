@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -101,6 +102,11 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Minimum bars in storage before a signal can be generated
 _MIN_BARS_FOR_SIGNAL: Final[int] = 300
+
+# Bars of p_long history retained for online meta training. Comfortably
+# exceeds any triple-barrier resolution horizon, so a bar's recorded
+# probability is still present when its label finally resolves.
+_P_LONG_HISTORY_BARS: Final[int] = 500
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +273,11 @@ class SignalEngine:
         # or sklearn sees a different feature count than it was fitted with
         # and every blend fails open forever.
         self._online_feature_cols: list[str] | None = None
+        # bar_ts -> the batch p_long this engine produced for that bar, kept so
+        # the online META model can be trained on the same input it is scored
+        # with. Bounded: only recent bars can still have an unresolved barrier,
+        # so anything older is dead weight.
+        self._p_long_by_bar: OrderedDict[int, float] = OrderedDict()
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         # v4 regime ensemble (observability only — never gates trades, see
@@ -860,6 +871,8 @@ class SignalEngine:
         # p_long is final at this point and is what every gate downstream
         # reads, whereas p_bet does not exist until predict_meta runs. Each
         # output is consumed where its batch input is authoritative.
+        self._record_p_long_for_bar(bars, p_long)
+
         p_long, _, _online_weight = self._blend_online(p_long, 0.5, vec)
         # Same rule as the ensemble blend above: re-derive direction from the
         # blended probability so a large enough disagreement flips the trade,
@@ -1409,6 +1422,31 @@ class SignalEngine:
         )
         return df.sort_index()
 
+    def _record_p_long_for_bar(self, bars: pd.DataFrame, batch_p_long: float) -> None:
+        """
+        Remember this bar's p_long so the online meta model can train on it.
+
+        Records the BATCH (pre-online-blend) probability deliberately: feeding
+        the blended value back in would let the online model learn from its
+        own output, which drifts toward self-confirmation rather than toward
+        the market.
+
+        Bounded to _P_LONG_HISTORY_BARS. Only bars whose triple-barrier label
+        is still unresolved can ever be looked up, so older entries are dead
+        weight, and an unbounded dict here would grow for the life of the
+        process.
+        """
+        try:
+            if bars is None or bars.empty:
+                return
+            ts_key = int(pd.Timestamp(bars.index[-1]).value)
+            self._p_long_by_bar[ts_key] = float(batch_p_long)
+            self._p_long_by_bar.move_to_end(ts_key)
+            while len(self._p_long_by_bar) > _P_LONG_HISTORY_BARS:
+                self._p_long_by_bar.popitem(last=False)
+        except Exception as exc:
+            self._log.debug("signal.p_long_record_failed", error=str(exc), exc_info=True)
+
     def _learn_online(self, fm: FeatureMatrix) -> None:
         """
         Feed the newest *resolved* labelled bar to the online learner.
@@ -1470,7 +1508,15 @@ class SignalEngine:
             # this bar's live direction probability was not retained, and
             # inventing one would teach the meta model a fiction.
             resolved = 1 if abs(raw_label) == 1.0 else 0
-            trainer.learn_meta(feature_vec, p_long=0.5, label=resolved)
+            # Only train the meta model on a bar whose actual p_long we
+            # recorded. Passing a constant here instead would train the model
+            # on a feature that never varies and then score it with one that
+            # does -- a train/serve skew, since blend() appends the live
+            # batch_p_long at inference. Skipping costs warm-up time; faking
+            # it costs correctness in a way nothing would report.
+            recorded_p_long = self._p_long_by_bar.get(ts_key)
+            if recorded_p_long is not None:
+                trainer.learn_meta(feature_vec, p_long=recorded_p_long, label=resolved)
 
             # Triple-barrier labels are -1/0/+1; the online direction model is
             # a binary long/short classifier, so a 0 (barrier untouched, no
