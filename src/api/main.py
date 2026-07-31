@@ -57,6 +57,7 @@ from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
@@ -1327,7 +1328,11 @@ async def get_strategy_allocation() -> dict[str, Any]:
     strategies = list(registry.all())
     if not strategies:
         return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
-    enabled_ids = {s.strategy_id for s in strategies}
+    # Kill-switched strategies are excluded, which the allocator turns into a
+    # 0.0 share — previously every registered strategy was passed as enabled
+    # unconditionally, so a strategy the kill switch had disabled for drift
+    # still showed a full allocation.
+    enabled_ids = get_strategy_kill_switch_manager().enabled_ids(s.strategy_id for s in strategies)
     result = performance_weighted_allocate(tuple(strategies), enabled_ids)
     tracker = get_attribution_tracker()
     return {
