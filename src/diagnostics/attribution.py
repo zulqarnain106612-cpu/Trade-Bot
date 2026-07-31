@@ -161,6 +161,16 @@ class AttributionTracker:
         strategy_ids = {f.strategy_id for f in self._fills}
         return {sid: compute_attribution(sid, self._fills) for sid in strategy_ids}
 
+    def fills_for(self, strategy_id: str) -> list[AttributedFill]:
+        """
+        This strategy's raw fills, in record order.
+
+        snapshot() aggregates away the timestamps; the promotion gauntlet
+        (src/tuning/promotion_gauntlet.py) needs them to know how long a
+        candidate has actually been running, which no aggregate carries.
+        """
+        return [f for f in self._fills if f.strategy_id == strategy_id]
+
     def fill_count(self) -> int:
         return len(self._fills)
 

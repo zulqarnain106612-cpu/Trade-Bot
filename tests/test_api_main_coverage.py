@@ -1245,3 +1245,59 @@ def test_strategies_allocation_with_strategies(mock_state):
     assert "allocations" in data
     assert "method" in data
     assert "fill_count" in data
+
+
+# ---------------------------------------------------------------------------
+# GET /strategies/gauntlet
+# ---------------------------------------------------------------------------
+
+
+def _gauntlet_fills(count: int, first_entry_ms: int):
+    from src.diagnostics.attribution import AttributedFill
+
+    day_ms = 86_400_000
+    return [
+        AttributedFill(
+            strategy_id="alpha",
+            pnl_usd=10.0,
+            entry_ts=first_entry_ms + i * day_ms,
+            exit_ts=first_entry_ms + (i + 1) * day_ms,
+        )
+        for i in range(count)
+    ]
+
+
+def test_strategies_gauntlet_empty_tracker(mock_state):
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["candidates"] == {}
+    assert data["criteria"]["min_trades"] == 30
+    assert data["equity_usd"] == 100_000.0
+
+
+def test_strategies_gauntlet_reports_failed_criteria(mock_state):
+    import time
+
+    now_ms = int(time.time() * 1000)
+    fills = _gauntlet_fills(3, now_ms - 3 * 86_400_000)
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = fills
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["passed"] is False
+    assert candidate["trade_count"] == 3
+    # too few trades AND too few days running — both must be reported, not just the first
+    assert any("trade_count" in c for c in candidate["failed_criteria"])
+    assert any("days_running" in c for c in candidate["failed_criteria"])
+
+
+def test_strategies_gauntlet_requires_api_key(mock_state):
+    resp = _get_client().get("/strategies/gauntlet")
+    assert resp.status_code == 401

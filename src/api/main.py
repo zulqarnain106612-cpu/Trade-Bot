@@ -65,6 +65,11 @@ from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
+from src.tuning.promotion_gauntlet import (
+    GauntletCriteria,
+    evaluate_gauntlet,
+    observation_from_fills,
+)
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
     audit_log as tuning_audit_log,
@@ -1341,6 +1346,63 @@ async def get_strategy_attribution() -> dict[str, Any]:
     return {
         "strategies": {sid: attr.to_dict() for sid, attr in snapshot.items()},
         "fill_count": tracker.fill_count(),
+    }
+
+
+@app.get(
+    "/strategies/gauntlet",
+    tags=["monitoring"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def get_strategy_gauntlet() -> dict[str, Any]:
+    """
+    Promotion-gauntlet status for every strategy with realized fills (v6).
+
+    Read-only and advisory: it reports which candidates *would* clear the
+    bar for live capital, and names the criteria each one still fails.
+    Nothing is promoted here — auto-discovery never auto-promotes, so
+    acting on this stays an explicit operator step.
+
+    Returns
+    -------
+    {
+        "criteria": {min_trades, min_days_running, min_sharpe, max_drawdown_pct},
+        "equity_usd": float,          # drawdown denominator used
+        "candidates": {strategy_id: {passed, failed_criteria, trade_count,
+                                     days_running, realized_sharpe,
+                                     realized_max_drawdown_pct}, ...},
+    }
+    """
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    tracker = get_attribution_tracker()
+    criteria = GauntletCriteria()
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    equity_usd = float(executor.equity_usd) if executor else 0.0
+
+    candidates: dict[str, Any] = {}
+    for strategy_id in tracker.snapshot():
+        observation = observation_from_fills(
+            strategy_id, tracker.fills_for(strategy_id), equity_usd
+        )
+        result = evaluate_gauntlet(observation, criteria)
+        candidates[strategy_id] = {
+            "passed": result.passed,
+            "failed_criteria": list(result.failed_criteria),
+            "trade_count": observation.trade_count,
+            "days_running": round(observation.days_running, 3),
+            "realized_sharpe": round(observation.realized_sharpe, 4),
+            "realized_max_drawdown_pct": round(observation.realized_max_drawdown_pct, 4),
+        }
+
+    return {
+        "criteria": {
+            "min_trades": criteria.min_trades,
+            "min_days_running": criteria.min_days_running,
+            "min_sharpe": criteria.min_sharpe,
+            "max_drawdown_pct": criteria.max_drawdown_pct,
+        },
+        "equity_usd": equity_usd,
+        "candidates": candidates,
     }
 
 
