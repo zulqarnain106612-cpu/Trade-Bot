@@ -52,7 +52,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from src.api.access_control import Permission, require_permission
+from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
 from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
@@ -334,23 +334,35 @@ def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key
     verify_api_key(x_api_key)
 
 
+def resolve_role(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> Role:
+    """
+    FastAPI dependency — authenticate and return the caller's role.
+
+    A named module-level function, not a closure inside requires(), so that
+    it is a single stable key in app.dependency_overrides. A per-permission
+    closure would be a different object for every route and could not be
+    overridden in tests at all.
+    """
+    return verify_api_key(x_api_key)
+
+
 def requires(permission: Permission) -> Callable[..., None]:
     """
     Build a FastAPI dependency enforcing *permission* for the calling key.
 
-    Layered on top of api_key_header rather than replacing it: this only
-    decides what an already-authenticated key may do. In a single-key
-    deployment every valid key resolves to Role.TRADE_AUTHORIZING, so these
-    dependencies are a no-op until a read-only key is actually configured —
-    they can restrict an endpoint, never open one.
+    Layered on top of resolve_role rather than replacing authentication:
+    this only decides what an already-authenticated key may do. In a
+    single-key deployment every valid key resolves to
+    Role.TRADE_AUTHORIZING, so these dependencies are a no-op until a
+    read-only key is actually configured — they can restrict an endpoint,
+    never open one.
 
     403, not 401: the caller authenticated correctly and is being denied on
     authority, and conflating the two would tell a read-only holder their
     key was wrong.
     """
 
-    def _dependency(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
-        role = verify_api_key(x_api_key)
+    def _dependency(role: Role = Depends(resolve_role)) -> None:
         try:
             require_permission(role, permission)
         except PermissionError as exc:

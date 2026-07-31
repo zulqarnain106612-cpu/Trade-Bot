@@ -73,39 +73,43 @@ class TestRoleResolution:
         assert exc.value.status_code == 503
 
 
+class TestResolveRoleDependency:
+    def test_resolve_role_delegates_to_verify_api_key(self) -> None:
+        from src.api.main import resolve_role
+
+        assert resolve_role(PRIMARY) is Role.TRADE_AUTHORIZING
+
+    def test_resolve_role_rejects_an_unknown_key(self) -> None:
+        from src.api.main import resolve_role
+
+        with pytest.raises(HTTPException) as exc:
+            resolve_role("z" * 40)
+        assert exc.value.status_code == 401
+
+
 class TestRequiresDependency:
     def _dep(self, permission: Permission):
         from src.api.main import requires
 
         return requires(permission)
 
-    def test_trade_authorizing_key_passes_every_permission(self) -> None:
+    def test_trade_authorizing_role_passes_every_permission(self) -> None:
         for permission in Permission:
-            assert self._dep(permission)(PRIMARY) is None
+            assert self._dep(permission)(Role.TRADE_AUTHORIZING) is None
 
-    def test_read_only_key_is_denied_with_403(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("API_READONLY_KEY", READONLY)
+    def test_read_only_role_is_denied_with_403(self) -> None:
         with pytest.raises(HTTPException) as exc:
-            self._dep(Permission.APPROVE_TRADE)(READONLY)
+            self._dep(Permission.APPROVE_TRADE)(Role.READ_ONLY)
         # 403 not 401: the caller authenticated, it just lacks the authority.
         assert exc.value.status_code == 403
 
-    def test_read_only_key_may_still_view(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("API_READONLY_KEY", READONLY)
-        assert self._dep(Permission.VIEW_TRADES)(READONLY) is None
+    def test_read_only_role_may_still_view(self) -> None:
+        assert self._dep(Permission.VIEW_TRADES)(Role.READ_ONLY) is None
 
-    def test_read_only_key_cannot_change_execution_mode(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("API_READONLY_KEY", READONLY)
+    def test_read_only_role_cannot_change_execution_mode(self) -> None:
         with pytest.raises(HTTPException) as exc:
-            self._dep(Permission.CHANGE_EXECUTION_MODE)(READONLY)
+            self._dep(Permission.CHANGE_EXECUTION_MODE)(Role.READ_ONLY)
         assert exc.value.status_code == 403
-
-    def test_invalid_key_is_401_before_any_permission_check(self) -> None:
-        with pytest.raises(HTTPException) as exc:
-            self._dep(Permission.APPROVE_TRADE)("z" * 40)
-        assert exc.value.status_code == 401
 
 
 class TestGatedEndpointsDeclareTheDependency:
