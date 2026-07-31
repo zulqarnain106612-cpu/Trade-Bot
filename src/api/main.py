@@ -1400,11 +1400,33 @@ async def debug_drift() -> dict[str, Any]:
     }
 
 
-@app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
-async def debug_selftest() -> dict[str, Any]:
-    """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
+@app.post(
+    "/debug/selftest",
+    dependencies=[Depends(api_key_header)],
+    responses={429: {"description": "Rate limit exceeded"}},
+)
+async def debug_selftest(request: Request) -> dict[str, Any]:
+    """
+    On-demand pipeline self-test — synthetic round-trip through the feature
+    pipeline.
+
+    Rate limited, unlike the other read-only diagnostics, because it is not
+    a read: it generates 800 synthetic bars and runs the full feature build
+    (fractional differentiation, GARCH, every rolling statistic) on a shared
+    executor. Every other mutating POST here is governed -- this one was the
+    exception, and it is the CPU-expensive one, so any valid key could have
+    kept the box busy building throwaway matrices while the live tick loop
+    waited for a thread.
+
+    Deliberately NOT role-gated: it changes no trading state, so a read-only
+    key running a diagnostic is legitimate. The cost is the problem, and a
+    rate limit is the control that matches it.
+    """
     from src.diagnostics.signal_debugger import run_pipeline_selftest
 
+    _state.check_endpoint_rate_limit(
+        "debug_selftest", request.client.host if request.client else ""
+    )
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_pipeline_selftest)
     return result
