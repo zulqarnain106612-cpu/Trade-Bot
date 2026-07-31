@@ -131,15 +131,15 @@ def test_ou_params_for_oscillating_series():
 def test_ou_params_r_squared_in_range():
     prices = _oscillating(200)
     ou = estimate_ou_params(prices)
-    if ou is not None:
-        assert 0.0 <= ou.r_squared <= 1.0
+    assert ou is not None
+    assert 0.0 <= ou.r_squared <= 1.0
 
 
 def test_ou_params_sigma_nonnegative():
     prices = _oscillating(100)
     ou = estimate_ou_params(prices)
-    if ou is not None:
-        assert ou.sigma >= 0.0
+    assert ou is not None
+    assert ou.sigma >= 0.0
 
 
 # ---------------------------------------------------------------------------
