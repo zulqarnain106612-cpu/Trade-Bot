@@ -700,11 +700,25 @@ class SignalEngine:
             return self._skip("slippage_negative_ev")
 
         # v10 capital preservation floor: mark the latest equity, then read
-        # the (possibly newly-tripped) halt state into the gate stack.
-        # update_equity() never raises for equity_usd >= 0.0 (see caller
-        # contract of AbstractExecutor.equity_usd) and, once halted, keeps
-        # returning False regardless of subsequent equity recovery.
-        self._capital_floor.update_equity(capital_usd)
+        # the (possibly newly-tripped) halt state into the gate stack. Once
+        # halted it keeps returning False regardless of equity recovery.
+        #
+        # update_equity() rejects a non-finite mark rather than storing it,
+        # because an `inf` would become the permanent peak and leave every
+        # later drawdown computing to NaN — silently disabling the outermost
+        # backstop for the life of the process. Skipping the tick here keeps
+        # that fault from reaching the floor's state at all; a tick we cannot
+        # size is one we must not trade.
+        try:
+            self._capital_floor.update_equity(capital_usd)
+        except ValueError as exc:
+            self._log.error(
+                "signal.capital_floor_mark_rejected",
+                capital_usd=capital_usd,
+                error=str(exc),
+            )
+            _emit_audit("skipped", "invalid_equity_mark", kelly_result, None)
+            return self._skip("invalid_equity_mark")
         gate_ctx = RiskGateContext(
             capital_preservation_halted=self._capital_floor.is_halted,
             daily_pnl_usd=daily_pnl_usd,

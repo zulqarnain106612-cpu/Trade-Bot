@@ -45,6 +45,23 @@ garbage. Same distinction as the disaster-recovery reconciliation's
 measured. The orchestrator passes the reason through opaquely, so no caller
 change was needed.
 
+**`CapitalPreservationFloor` has the same defect with a worse blast radius**,
+so it is fixed here too. It holds the only copy of its peak-equity state, so
+a corrupt mark is not a one-tick fault — it is permanent:
+
+- `equity_usd < 0.0` is False for NaN, so the existing guard misses it and
+  `drawdown_pct` computes to NaN, which never trips the floor.
+- `inf` is worse and it persists. `max(peak, inf)` sets `_peak_equity = inf`,
+  after which every drawdown is `(inf - equity) / inf = nan`. **One bad mark
+  silently disables the outermost backstop for the life of the process.**
+
+`update_equity()` now raises on a non-finite mark, keeping it out of
+`_peak_equity` entirely, and the signal engine's gate-0 call site converts
+that into a skipped tick (`invalid_equity_mark`) rather than letting it
+escape `tick()`. A tick whose equity cannot be read is one that must not
+trade, and nothing downstream would have noticed a floor that had quietly
+stopped working.
+
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 
 `src/execution/unified_ledger.py` had complete cross-venue accounting and no

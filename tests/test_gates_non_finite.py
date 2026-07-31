@@ -243,3 +243,29 @@ class TestFullStackShortCircuits:
         result = evaluate_all_gates(self._ctx(regime_state=REGIME_VOLATILE), cfg=cfg)
         assert result.passed is False
         assert result.status is GateStatus.HALT_REGIME
+
+
+# ---------------------------------------------------------------------------
+# Capital preservation floor — the outermost backstop
+# ---------------------------------------------------------------------------
+
+
+class TestCapitalPreservationFloor:
+    """
+    The floor holds the only copy of its peak-equity state, so a corrupt
+    mark there is not a one-tick fault — it is permanent. Covered in depth
+    in tests/test_capital_preservation_floor.py; repeated here because it
+    is the same defect class as the gates above.
+    """
+
+    @pytest.mark.parametrize("bad", NON_FINITE)
+    def test_non_finite_mark_is_refused(self, bad):
+        from src.risk.capital_preservation_floor import CapitalPreservationFloor
+
+        floor = CapitalPreservationFloor(max_drawdown_pct=0.30)
+        floor.update_equity(10_000.0)
+        with pytest.raises(ValueError, match="finite"):
+            floor.update_equity(bad)
+        # Still armed against the real peak rather than a poisoned one.
+        assert floor.update_equity(6_000.0) is False
+        assert floor.is_halted
