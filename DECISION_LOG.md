@@ -3,6 +3,37 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v5 Greeks ceilings: enforced on the options-carry strategy
+
+`src/risk/greeks.py` had Black-Scholes Greeks and a portfolio cap check with
+no caller. `OptionsCarryStrategy` emitted premium-selling signals whose delta
+and vega were entirely unmeasured — and notional-based Kelly sizing cannot
+see that exposure, which is precisely why the module was written separately:
+a short option is small in notional terms and still carries unbounded
+directional and vol risk.
+
+- **Producer** — `OptionsCarryContext` gained the contract terms (spot,
+  strike, time to expiry, implied vol, call/put, contract count) and the
+  book's current delta/vega.
+- **Consumer** — `OptionsCarryStrategy._greeks_within_caps()` computes the
+  contract's Greeks, adds them to the book, and vetoes the signal on breach.
+- **Sign convention** — the strategy *sells* premium, so the position carries
+  the negative of the long-option Greeks. A short call is short delta, so an
+  existing long book nets it down rather than up; getting this backwards
+  would have turned the ceiling into an accelerator.
+- **Portfolio-level, not per-trade**: `portfolio_delta`/`portfolio_vega` are
+  included, so a contract that passes alone can still be vetoed by the book
+  it would join.
+- **Unmeasurable contracts are vetoed, not waved through.** No caps
+  configured means no check (the behaviour before the setting existed). Caps
+  configured but terms missing or unusable means veto — once an operator has
+  asked for a ceiling, letting through a position whose Greeks cannot be
+  computed defeats the point of asking.
+- **Config** — `STRATEGY_OPTIONS_MAX_ABS_DELTA` / `..._MAX_ABS_VEGA`, both
+  defaulting to None. Setting one leaves the other at `math.inf` rather than
+  borrowing an invented default; an unstated ceiling is not a ceiling anyone
+  agreed to.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
