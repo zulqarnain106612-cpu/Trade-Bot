@@ -714,6 +714,59 @@ class MarketDataFetcher:
             # Spot symbol or exchange doesn't support funding rates — not an error.
             return 0.0
 
+    # ------------------------------------------------------------------
+    # Exchange-truth position snapshot — disaster-recovery reconciliation
+    # ------------------------------------------------------------------
+
+    async def fetch_exchange_positions(self) -> list[tuple[str, float]] | None:
+        """
+        Signed position quantities as the order exchange reports them.
+
+        Used to reconcile local state against exchange truth after a restart
+        (src/diagnostics/disaster_recovery.py). Positions are read from the
+        exchange, never inferred.
+
+        Returns
+        -------
+        list[tuple[str, float]] | None
+            (symbol, signed_quantity) per non-flat position, or None when the
+            snapshot could not be obtained.
+
+        None, not []: an empty list is the assertion "the exchange holds
+        nothing", which would make every local position look like a
+        MISSING_ON_EXCHANGE discrepancy. An unavailable snapshot is not
+        evidence of a flat account, and reconciliation must be able to tell
+        the two apart.
+        """
+        exchange = self.get_order_exchange()
+        try:
+            raw: list[dict[str, Any]] = await _with_retry(
+                lambda: exchange.fetch_positions(),
+                label="binance.fetch_positions",
+            )
+        except ccxt.NotSupported:
+            # Spot-only account: there is no positions endpoint, and that is
+            # a definite "no derivatives exposure", not a failed lookup.
+            return []
+        except Exception as exc:
+            log.error("fetch.positions_failed", error=str(exc), exc_info=True)
+            return None
+
+        positions: list[tuple[str, float]] = []
+        for entry in raw:
+            symbol = entry.get("symbol")
+            contracts = entry.get("contracts")
+            if not symbol or contracts is None:
+                continue
+            quantity = float(contracts)
+            if quantity == 0.0:
+                continue
+            # ccxt reports contracts as an unsigned size plus a side field.
+            if str(entry.get("side", "")).lower() == "short":
+                quantity = -quantity
+            positions.append((str(symbol), quantity))
+        return positions
+
 
 # ---------------------------------------------------------------------------
 # Raw OHLCV → BarRecord conversion

@@ -37,6 +37,13 @@ from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
+from src.diagnostics.disaster_recovery import (
+    Discrepancy,
+    DiscrepancyType,
+    PositionSnapshot,
+    is_state_consistent,
+    reconcile,
+)
 from src.execution.base import AbstractExecutor
 from src.execution.order_manager import OrderManager
 from src.execution.order_throttler import OrderThrottler
@@ -207,6 +214,12 @@ class LiveExecutor(AbstractExecutor):
         # GET /orders/{order_id}/status had no registry to read from.
         self._order_fsm_registry: OrderedDict[str, Any] = OrderedDict()
         self._initialized: bool = False
+        # v8 disaster recovery: discrepancies found when initialize() compared
+        # local state against exchange truth. Non-empty means the process is
+        # not sure what it owns, so submit_signal() refuses to open anything
+        # new until an operator clears it -- explicit-only, like the strategy
+        # kill switch and the capital-preservation floor.
+        self._recovery_discrepancies: list[Discrepancy] = []
         self._log = log.bind(component="live_executor")
 
     # ------------------------------------------------------------------
@@ -228,7 +241,92 @@ class LiveExecutor(AbstractExecutor):
             )
         else:
             self._log.info("live.initialized_fresh", starting_capital=self._starting_capital)
+        await self._reconcile_with_exchange()
         self._initialized = True
+
+    async def _reconcile_with_exchange(self) -> None:
+        """
+        Compare local positions against exchange truth on startup (v8).
+
+        initialize() restores equity from storage but not positions, so after
+        a crash self._positions is empty while the exchange may still hold
+        real exposure. Trading on that assumption would size as though the
+        book were flat.
+
+        Any discrepancy is recorded and blocks new entries until an operator
+        acknowledges it. The reconciliation itself never places or cancels an
+        order — the module is deliberately advisory, and guessing how to
+        resolve an unexplained position is exactly the wrong instinct here.
+
+        A snapshot that could not be obtained is treated as unresolved, not
+        as "no discrepancies": failing to look is not the same as looking and
+        finding nothing.
+        """
+        try:
+            exchange_raw = await self._fetcher.fetch_exchange_positions()
+        except Exception as exc:
+            exchange_raw = None
+            self._log.error("live.reconcile_fetch_failed", error=str(exc), exc_info=True)
+
+        if exchange_raw is None:
+            self._recovery_discrepancies = [
+                Discrepancy(
+                    symbol="*",
+                    discrepancy_type=DiscrepancyType.MISSING_LOCALLY,
+                    local_quantity=0.0,
+                    exchange_quantity=0.0,
+                )
+            ]
+            self._log.critical("live.reconcile_snapshot_unavailable", entries_blocked=True)
+            return
+
+        local = [
+            PositionSnapshot(
+                symbol=p.symbol,
+                quantity=p.quantity if p.direction == 1 else -p.quantity,
+            )
+            for p in self._positions.values()
+        ]
+        exchange = [PositionSnapshot(symbol=s, quantity=q) for s, q in exchange_raw]
+        self._recovery_discrepancies = reconcile(local, exchange)
+
+        if is_state_consistent(self._recovery_discrepancies):
+            self._log.info("live.reconcile_consistent", exchange_positions=len(exchange))
+            return
+        self._log.critical(
+            "live.reconcile_discrepancies",
+            count=len(self._recovery_discrepancies),
+            discrepancies=[
+                {
+                    "symbol": d.symbol,
+                    "type": d.discrepancy_type.value,
+                    "local": d.local_quantity,
+                    "exchange": d.exchange_quantity,
+                }
+                for d in self._recovery_discrepancies
+            ],
+            entries_blocked=True,
+        )
+
+    @property
+    def recovery_discrepancies(self) -> list[Discrepancy]:
+        """Unresolved startup reconciliation discrepancies (empty = clean)."""
+        return list(self._recovery_discrepancies)
+
+    def acknowledge_recovery(self, operator: str) -> int:
+        """
+        Clear the reconciliation block after an operator has resolved it.
+
+        Explicit-only and never automatic: the discrepancies are cleared
+        because a human says the book is now understood, not because time
+        passed or a later snapshot happened to agree.
+
+        Returns the number of discrepancies cleared.
+        """
+        cleared = len(self._recovery_discrepancies)
+        self._recovery_discrepancies = []
+        self._log.warning("live.recovery_acknowledged", operator=operator, cleared=cleared)
+        return cleared
 
     async def shutdown(self) -> None:
         """Persist equity and log open positions on shutdown."""
@@ -264,6 +362,19 @@ class LiveExecutor(AbstractExecutor):
         outcome: 'opened' | 'queued' | 'skipped' | 'rejected'
         """
         self._require_initialized()
+        # v8: refuse new exposure while startup reconciliation is unresolved.
+        # Sizing assumes self._positions is the whole book; if the exchange
+        # disagrees, every gate downstream is reasoning about the wrong book.
+        # Exits are unaffected -- this blocks submit_signal only, so an
+        # operator can still flatten while the discrepancy is being resolved.
+        if self._recovery_discrepancies:
+            self._log.error(
+                "live.blocked_unreconciled_state",
+                symbol=symbol,
+                discrepancies=len(self._recovery_discrepancies),
+            )
+            return None, "rejected"
+
         # H-15: read runtime_config (live async-settable) not self._cfg.execution_mode
         # (frozen Settings). Without this, POST /execution-mode has no effect.
         mode = await runtime_config.get_execution_mode()

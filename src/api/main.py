@@ -428,6 +428,28 @@ class SelfTuningPauseRequest(BaseModel):
         return _validate_operator(v)
 
 
+class RecoveryAcknowledgeRequest(BaseModel):
+    """
+    v8 -- clear the startup-reconciliation block on the live executor.
+
+    Operator-secret gated because acknowledging means asserting the book is
+    now understood; nothing else in the system can establish that, and a
+    wrong assertion lets the executor size against a book it does not know.
+    """
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise the acknowledgement",
+    )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
 class SelfTuningRollbackRequest(BaseModel):
     """Phase 6 -- manual forced revert of a tuned parameter to its
     previous version, bypassing the watchdog's own drift detection
@@ -1323,6 +1345,99 @@ async def get_unified_ledger_snapshot() -> dict[str, Any]:
         },
         "total_margin_used_usd": round(ledger.total_margin_used_usd(), 2),
     }
+
+
+def _live_executor_or_none() -> Any:
+    """The live executor, or None when the process is paper-only/not ready."""
+    from src.execution.live import LiveExecutor
+
+    orchestrator = _state.orchestrator
+    if orchestrator is None:
+        return None
+    executor = orchestrator._executor
+    return executor if isinstance(executor, LiveExecutor) else None
+
+
+@app.get("/recovery/status", tags=["execution"], dependencies=[Depends(api_key_header)])
+async def recovery_status() -> dict[str, Any]:
+    """
+    Startup reconciliation state (v8 disaster recovery).
+
+    `blocked` true means the live executor found local state disagreeing with
+    exchange truth on startup and is refusing to open new positions until an
+    operator acknowledges. Exits are never blocked.
+
+    A paper-only process reports `applicable: false` — reconciliation is a
+    live-execution concern, and reporting "clean" there would imply a check
+    that never ran.
+    """
+    executor = _live_executor_or_none()
+    if executor is None:
+        return {"applicable": False, "blocked": False, "discrepancies": []}
+    discrepancies = executor.recovery_discrepancies
+    return {
+        "applicable": True,
+        "blocked": bool(discrepancies),
+        "discrepancies": [
+            {
+                "symbol": d.symbol,
+                "type": d.discrepancy_type.value,
+                "local_quantity": d.local_quantity,
+                "exchange_quantity": d.exchange_quantity,
+            }
+            for d in discrepancies
+        ],
+    }
+
+
+@app.post(
+    "/recovery/acknowledge",
+    tags=["execution"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        409: {"description": "No live executor to acknowledge"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def recovery_acknowledge(
+    body: RecoveryAcknowledgeRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Clear the startup-reconciliation block after an operator resolves it.
+
+    409 when there is no live executor: silently reporting success would tell
+    an operator a block was lifted that never existed.
+    """
+    _state.check_endpoint_rate_limit(
+        "recovery_acknowledge", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "recovery_acknowledge")
+
+    executor = _live_executor_or_none()
+    if executor is None:
+        raise HTTPException(status_code=409, detail="No live executor is running.")
+
+    discrepancies = executor.recovery_discrepancies
+    cleared = executor.acknowledge_recovery(body.operator)
+    await _state.storage.insert_audit_event(
+        event_type="recovery_acknowledged",
+        operator=body.operator,
+        details={
+            "cleared": cleared,
+            "discrepancies": [
+                {
+                    "symbol": d.symbol,
+                    "type": d.discrepancy_type.value,
+                    "local_quantity": d.local_quantity,
+                    "exchange_quantity": d.exchange_quantity,
+                }
+                for d in discrepancies
+            ],
+        },
+    )
+    log.warning("api.recovery_acknowledged", operator=body.operator, cleared=cleared)
+    return {"cleared": cleared, "blocked": False, "operator": body.operator}
 
 
 @app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])
