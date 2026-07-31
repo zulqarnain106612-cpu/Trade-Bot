@@ -3,6 +3,44 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-08-01 — GAP-015: intelligence features never reached the model
+
+The intelligence layer was broken in three places at once, and each break
+hid the next.
+
+1. **Nothing wrote the table.** `store_intelligence_features()` had one
+   caller — a hand-run backfill script (fixed separately today).
+2. **Nothing set the coverage attribute.** The trainer resolves its column
+   set with `get_active_feature_columns(getattr(fm, "intelligence_coverage",
+   None))`. Nothing anywhere assigned `fm.intelligence_coverage`, so coverage
+   was always `None` and the active set was always the 8 base columns.
+3. **Inference injected the features anyway.** `build_inference_features`
+   appends up to 18 intelligence columns when metrics are present, and
+   `predict_direction` / `predict_meta` then slice the vector back down to
+   the model's `n_features_in_` — taking the *first* N columns, which are the
+   base ones. The intelligence columns were computed, injected, and silently
+   sliced off on every single tick.
+
+So the whole GAP-015 layer was decorative: providers fetched, metrics merged,
+confidence computed, features injected — and the model never saw any of it.
+The slicing logic is what made it invisible; without it there would have been
+a loud shape mismatch on the first inference.
+
+`Orchestrator._attach_intelligence_features()` fixes 2 and 3 together, which
+is the only way either works:
+
+- **Both halves are required.** Attaching coverage without joining the
+  columns only makes the trainer log "column in active set but absent from
+  FeatureMatrix" and drop them again. Joining without coverage leaves the
+  active set at the base 8 and ignores the joined columns.
+- **Left join on bar timestamp.** Bars are authoritative; a bar with no
+  intelligence row keeps its base features rather than being dropped from
+  training. The resulting NaNs are exactly what the coverage gate judges.
+- **The coverage gate still applies** — a column present but sparse (say sopr
+  at 20%) is joined onto the matrix and still excluded from the active set.
+- **Best-effort.** Intelligence is an enrichment; failing to attach it must
+  degrade training to base features, never abort the retrain.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table

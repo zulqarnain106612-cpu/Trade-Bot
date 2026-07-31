@@ -878,6 +878,8 @@ class Orchestrator:
             self._log.error("orchestrator.feature_build_failed", error=str(exc), exc_info=True)
             return
 
+        await self._attach_intelligence_features(fm, tf)
+
         # HMM training — CPU bound
         detector = RegimeDetector(self._symbol, tf.value)
         try:
@@ -1116,6 +1118,66 @@ class Orchestrator:
         if indicators is None:
             return None
         return compute_macro_exposure_scalar(classify_macro_regime(indicators))
+
+    async def _attach_intelligence_features(self, fm: object, tf: Timeframe) -> None:
+        """
+        Join the stored intelligence history onto the training matrix (GAP-015).
+
+        The trainer resolves its column set with
+        ``get_active_feature_columns(coverage=getattr(fm, "intelligence_coverage", None))``.
+        Nothing ever set that attribute, so coverage was always None, the
+        active set was always the 8 base columns, and the 18 intelligence
+        features never reached training — while inference happily injected
+        them into the vector, where predict_direction/predict_meta sliced them
+        straight back off to match the model's ``n_features_in_``. Computed,
+        injected, and silently discarded.
+
+        Both halves are needed. Attaching coverage without joining the columns
+        would only make the trainer log "column in active set but absent from
+        FeatureMatrix" and drop them again; joining without coverage would
+        leave the active set at the base 8 and ignore the joined columns.
+
+        Left-join on bar timestamp: bars are authoritative, and a bar with no
+        intelligence row keeps its base features rather than being dropped
+        from training. The resulting NaNs are what the coverage gate is for.
+
+        Best-effort. Intelligence is an enrichment; failing to attach it must
+        degrade training to base features, never abort the retrain.
+        """
+        try:
+            coverage_report = await self._storage.intelligence_feature_coverage(
+                self._symbol, tf.value
+            )
+            coverage = coverage_report.get("coverage") if coverage_report else None
+            if not coverage:
+                return
+
+            intel = await self._storage.fetch_intelligence_features(
+                symbol=self._symbol, timeframe=tf.value
+            )
+            if intel is None or intel.empty:
+                return
+
+            features = getattr(fm, "features", None)
+            if features is None or features.empty:
+                return
+
+            joined = features.join(intel, how="left")
+            fm.features = joined  # type: ignore[attr-defined]
+            fm.intelligence_coverage = coverage  # type: ignore[attr-defined]
+            self._log.info(
+                "orchestrator.intelligence_attached",
+                timeframe=tf.value,
+                intelligence_columns=len(intel.columns),
+                rows_with_intelligence=int(intel.index.isin(features.index).sum()),
+            )
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.intelligence_attach_failed",
+                timeframe=tf.value,
+                error=str(exc),
+                exc_info=True,
+            )
 
     def _venue_for(self, executor: AnyExecutor) -> str:
         """
