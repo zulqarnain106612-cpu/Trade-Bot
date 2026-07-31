@@ -3,6 +3,34 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v7 macro exposure overlay: producer + wiring
+
+`src/risk/macro_exposure_budget.py` and `src/intelligence/macro_regime.py`
+were both fully tested and entirely inert — nothing in the tree ever built a
+`MacroIndicators`, so the v7 portfolio-level macro overlay never influenced a
+single position.
+
+- **Producer** — new `src/intelligence/macro_indicators.py` derives the three
+  indicators from the intelligence-feature history already persisted by
+  `Storage.store_intelligence_features` (funding z-score, stablecoin-reserve
+  growth, exchange-netflow z-score). No new data source, and specifically no
+  paid one: Binance funding is free, and the rest is already being written.
+- **Wiring** — `Orchestrator._macro_exposure_budget()` builds the budget per
+  tick and passes it to `SignalEngine.tick(macro_budget=...)`, which folds it
+  into the scalar handed to `compute_position_size`. Multiplying the scalar is
+  arithmetically identical to shrinking the Kelly fraction, and keeps the
+  "budget can only shrink" invariant inside `macro_exposure_budget.py`.
+- **Absent data is None, not neutral.** A neutral `MacroIndicators` maps to a
+  ~0.62 scalar, so defaulting to it would have cut every position by a third
+  whenever the intelligence table was empty. `None` means "no overlay".
+- **Faults never widen exposure.** A macro failure in the orchestrator yields
+  `None`; a failure inside the engine leaves the already-computed
+  correlation/regime scalar intact. Failing to apply a ceiling must never
+  remove one — same posture as the strategy-correlation fix in #32.
+- **Config** — `RISK_MACRO_EXPOSURE_ENABLED` (default true, because the
+  overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
+  30). Deliberately not registered as a self-tunable parameter.
+
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 
 `src/execution/unified_ledger.py` had complete cross-venue accounting and no
