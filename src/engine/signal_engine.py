@@ -44,6 +44,7 @@ from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
     COL_GARCH_VOL,
     FEATURE_COLUMNS,
+    FeatureMatrix,
     build_feature_matrix,
     build_inference_features,
 )
@@ -52,6 +53,7 @@ from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter a
 from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
 )
+from src.models.online_trainer import OnlineTrainer
 from src.models.trainer import ModelTrainer
 from src.regime.changepoint import BayesianOnlineChangepointDetector
 from src.regime.detector import RegimeDetector, RegimePrediction
@@ -177,6 +179,7 @@ class SignalEngine:
         meta_model: XGBClassifier,
         trainer: ModelTrainer,
         ensemble: EnsemblePredictor | None = None,
+        online_trainer: OnlineTrainer | None = None,
     ) -> None:
         self._symbol = symbol
         self._timeframe = timeframe
@@ -191,6 +194,23 @@ class SignalEngine:
         # None until the orchestrator's first retrain cycle produces one --
         # blending fails open to XGBoost-only p_long until then (see tick()).
         self._ensemble = ensemble
+        # TASK-008 online learner. None disables the whole path -- the batch
+        # models remain authoritative either way, since blend() applies a
+        # fixed 0.15 weight and returns the batch values unchanged until it
+        # has warmed up. Learning is the point; the blend is deliberately
+        # small because this is a drift detector, not a replacement model.
+        self._online_trainer = online_trainer
+        # Bar timestamp of the most recent sample already fed to the online
+        # learner. Ticks arrive faster than bars close, so without this the
+        # same resolved bar would be learned repeatedly and the SGD model
+        # would overweight whichever bar happened to sit at the boundary.
+        self._last_online_learn_ts: int | None = None
+        # Column order the online learner was fitted on. The live inference
+        # vector carries extra intelligence columns that the historical
+        # feature matrix does not, so blending has to project onto this list
+        # or sklearn sees a different feature count than it was fitted with
+        # and every blend fails open forever.
+        self._online_feature_cols: list[str] | None = None
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         # v4 regime ensemble (observability only — never gates trades, see
@@ -335,6 +355,8 @@ class SignalEngine:
 
         if fm.features is None or len(fm.features) < 1:
             return self._skip("insufficient_features")
+
+        self._learn_online(fm)
 
         # Inference vector — last row of feature matrix, augmented with live OFI.
         # TASK-010: co-fetch orderbook (spread_bps) + funding rate concurrently —
@@ -526,6 +548,16 @@ class SignalEngine:
                 direction = 1 if p_long >= 0.5 else 0
             except Exception as exc:
                 self._log.warning("signal.ensemble_blend_failed", error=str(exc), exc_info=True)
+
+        # TASK-008 online blend, applied here rather than once at the end:
+        # p_long is final at this point and is what every gate downstream
+        # reads, whereas p_bet does not exist until predict_meta runs. Each
+        # output is consumed where its batch input is authoritative.
+        p_long, _, _online_weight = self._blend_online(p_long, 0.5, vec)
+        # Same rule as the ensemble blend above: re-derive direction from the
+        # blended probability so a large enough disagreement flips the trade,
+        # rather than silently leaving direction pointing the other way.
+        direction = 1 if p_long >= 0.5 else 0
 
         # GAP-002: HMM posterior entropy gate — scale position size down when
         # the regime classification is uncertain (near-uniform posterior).
@@ -780,6 +812,10 @@ class SignalEngine:
 
         # 9. Meta-label gate
         meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)
+        # Second blend call, for p_bet only -- p_long above is already blended
+        # and is passed through unchanged here.
+        _, p_bet, _online_weight = self._blend_online(p_long, p_bet, vec)
+        meta_label = 1 if p_bet >= 0.5 else 0
         _p_bet_ref[0] = p_bet  # make p_bet available to _emit_audit closure
 
         if meta_label == 0:
@@ -900,6 +936,7 @@ class SignalEngine:
             notional_usd=round(kelly_result.notional_usd, 2),
             kelly_fraction=round(kelly_result.adjusted_fraction, 4),
             regime_scalar_filter_logged_only=round(_regime_scalar, 3),  # GAP-008: not applied
+            online_blend_weight=round(_online_weight, 3),
             correlation_scalar_applied=round(
                 correlation_scalar, 3
             ),  # GAP-005/015: IS applied (see kelly.py)
@@ -1050,6 +1087,104 @@ class SignalEngine:
             index=[r.ts for r in records],
         )
         return df.sort_index()
+
+    def _learn_online(self, fm: FeatureMatrix) -> None:
+        """
+        Feed the newest *resolved* labelled bar to the online learner.
+
+        The triple-barrier labeller cannot label the most recent bars — their
+        barriers have not been touched yet — so `fm.labels` is shorter than
+        `fm.features`. Learning from the last feature row would therefore pair
+        a bar with some other bar's label. Only the last row that actually has
+        a label is used, matched by index, never by position.
+
+        Ticks arrive faster than bars close, so `_last_online_learn_ts` gates
+        repeats: without it the same bar would be learned on every tick and
+        the SGD model would overweight whichever bar sat at the boundary.
+
+        Both online models are fed, not just the direction one. `blend()`
+        warms up on `min(dir_samples, meta_samples) >= 50`, so feeding only
+        the direction model would leave the meta counter at zero forever and
+        the blend would never activate — the module would stay exactly as
+        inert as before, just with a producer attached.
+
+        The meta-label used here is "did this bar resolve at a barrier at
+        all" (`|label| == 1`), which is why the 0-labels dropped from
+        direction learning are still useful to the meta model: direction
+        learns from resolved directional moves, meta learns which bars were
+        worth betting on in the first place. This is a weaker meta-label than
+        the batch trainer's (which conditions on the primary model having
+        been right), but it needs no stored per-bar prediction history and no
+        second inference against a model whose feature schema may not match
+        the historical matrix.
+
+        Entirely best-effort. The online model is a drift detector layered on
+        top of the batch models; a failure here must never cost a tick.
+        """
+        trainer = self._online_trainer
+        if trainer is None:
+            return
+        try:
+            labels = fm.labels
+            if labels is None or len(labels) < 1:
+                return
+            labelled = labels.dropna()
+            if labelled.empty:
+                return
+            bar_ts = labelled.index[-1]
+            if bar_ts not in fm.features.index:
+                return
+
+            ts_key = int(pd.Timestamp(bar_ts).value)
+            if self._last_online_learn_ts == ts_key:
+                return
+
+            self._online_feature_cols = list(fm.features.columns)
+            feature_vec = fm.features.loc[bar_ts].to_numpy(dtype=float)
+            raw_label = float(labelled.iloc[-1])
+
+            # Meta first, and unconditionally: it learns which bars resolved
+            # at a barrier at all, so an untouched bar is a real 0 for it
+            # rather than missing data. p_long=0.5 is the honest input --
+            # this bar's live direction probability was not retained, and
+            # inventing one would teach the meta model a fiction.
+            resolved = 1 if abs(raw_label) == 1.0 else 0
+            trainer.learn_meta(feature_vec, p_long=0.5, label=resolved)
+
+            # Triple-barrier labels are -1/0/+1; the online direction model is
+            # a binary long/short classifier, so a 0 (barrier untouched, no
+            # directional information) is dropped rather than coerced.
+            if raw_label != 0.0:
+                trainer.learn_direction(feature_vec, label=1 if raw_label > 0 else 0)
+            self._last_online_learn_ts = ts_key
+        except Exception as exc:
+            self._log.debug("signal.online_learn_failed", error=str(exc), exc_info=True)
+
+    def _blend_online(
+        self, batch_p_long: float, batch_p_bet: float, vec: pd.Series
+    ) -> tuple[float, float, float]:
+        """
+        Blend batch probabilities with the online learner's view.
+
+        Returns (p_long, p_bet, applied_weight); the batch values come back
+        unchanged when there is no learner or it has not warmed up, so callers
+        can apply the result unconditionally.
+        """
+        trainer = self._online_trainer
+        cols = self._online_feature_cols
+        if trainer is None or cols is None:
+            return batch_p_long, batch_p_bet, 0.0
+        try:
+            projected = vec.reindex(cols).fillna(0.0).to_numpy(dtype=float)
+            prediction = trainer.blend(
+                batch_p_long=batch_p_long,
+                batch_p_bet=batch_p_bet,
+                feature_vec=projected,
+            )
+            return prediction.p_long, prediction.p_bet, prediction.online_weight
+        except Exception as exc:
+            self._log.debug("signal.online_blend_failed", error=str(exc), exc_info=True)
+            return batch_p_long, batch_p_bet, 0.0
 
     def _skip(self, reason: str) -> SignalResult:
         self._log.debug("signal.skip", reason=reason)

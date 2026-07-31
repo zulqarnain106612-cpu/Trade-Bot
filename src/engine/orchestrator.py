@@ -23,6 +23,7 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
@@ -50,6 +51,7 @@ from src.execution.unified_ledger import VenuePosition, get_unified_ledger
 from src.features.pipeline import build_feature_matrix
 from src.intelligence.macro_indicators import build_macro_indicators
 from src.intelligence.macro_regime import classify_macro_regime
+from src.models.online_trainer import OnlineTrainer
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
@@ -349,6 +351,25 @@ class Orchestrator:
                 )
                 ensemble = None
 
+            # TASK-008 online learner. One instance per (symbol, timeframe),
+            # given its own directory so two timeframes never overwrite each
+            # other's SGD state. Additive and optional on exactly the same
+            # terms as the ensemble above: a load failure must not stop the
+            # engine coming up, it only means starting from a cold model.
+            try:
+                online_trainer = OnlineTrainer(
+                    model_dir=Path(model_dir)
+                    / f"online_{self._symbol.replace('/', '_')}_{tf.value}"
+                )
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.online_trainer_init_failed",
+                    timeframe=tf.value,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                online_trainer = None
+
             self._engines[tf.value] = SignalEngine(
                 symbol=self._symbol,
                 timeframe=tf,
@@ -359,6 +380,7 @@ class Orchestrator:
                 meta_model=meta_model,
                 trainer=trainer,
                 ensemble=ensemble,
+                online_trainer=online_trainer,
             )
 
         self._log.info(
@@ -431,9 +453,33 @@ class Orchestrator:
         for executor in self._all_executors():
             await executor.shutdown()
         await get_monitor().stop()  # Patch B: clean monitor shutdown
+        self._persist_online_trainers()
         # Shut down training thread pool cleanly — wait for any in-flight training job
         self._train_executor.shutdown(wait=True)
         self._log.info("orchestrator.shutdown_complete")
+
+    def _persist_online_trainers(self) -> None:
+        """
+        Save each engine's online learner so its SGD state survives a restart.
+
+        Best-effort per timeframe: the learner is a drift detector on top of
+        the batch models, so losing one restart's worth of incremental state
+        costs accuracy, never correctness — and it must not be able to abort
+        the rest of shutdown, which still has executors to close.
+        """
+        for tf_value, engine in self._engines.items():
+            trainer = getattr(engine, "_online_trainer", None)
+            if trainer is None:
+                continue
+            try:
+                trainer.save()
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.online_trainer_save_failed",
+                    timeframe=tf_value,
+                    error=str(exc),
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Timeframe loop

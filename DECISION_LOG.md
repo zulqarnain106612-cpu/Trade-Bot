@@ -3,6 +3,41 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — TASK-008 online learner: producer, consumer, persistence
+
+`src/models/online_trainer.py` had a complete incremental-SGD implementation
+and no caller. Nothing ever fed it a resolved bar, so its 50-sample warm-up
+was never reached and its blend never applied — the file was a fully-tested
+no-op sitting in the hot path's blast radius for no benefit.
+
+- **Producer** — `SignalEngine._learn_online()` feeds the newest *resolved*
+  labelled bar each tick. Matched by index, not position: the triple-barrier
+  labeller cannot label the most recent bars, so `fm.labels` is shorter than
+  `fm.features` and taking the last feature row would pair a bar with some
+  other bar's label. A `0` label (barrier untouched) carries no directional
+  information and is dropped rather than coerced to short.
+- **Idempotence** — ticks arrive faster than bars close, so a
+  `_last_online_learn_ts` gate stops the same bar being learned repeatedly
+  and the SGD model overweighting whichever bar sat at the boundary.
+- **Consumer** — blended at two call sites, not one. `p_long` is blended
+  right after the ensemble blend, where it is final and is what every
+  downstream gate reads; `p_bet` after `predict_meta`, because it does not
+  exist before then. Each output is consumed where its batch input is
+  authoritative. Both re-derive their label from the blended probability, so
+  a large enough disagreement flips the decision rather than leaving it
+  pointing the other way.
+- **Column projection** — the live inference vector carries intelligence
+  columns the historical feature matrix does not. `_online_feature_cols`
+  records the fitted order and the live vector is projected onto it;
+  otherwise sklearn sees a different feature count than it was fitted with
+  and every blend fails open, permanently and silently.
+- **Persistence** — `Orchestrator._persist_online_trainers()` saves each
+  engine's learner on shutdown, per timeframe and best-effort. Losing a
+  restart's incremental state costs accuracy, never correctness, and must
+  not abort a shutdown that still has executors to close.
+- Blend weight stays at the module's 0.15 default. This is a drift detector,
+  not a replacement model; the batch models remain authoritative.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
