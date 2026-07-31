@@ -21,7 +21,7 @@ SQLite (WAL) or TimescaleDB · structlog
 | Labeling | Triple-barrier method (AFML Ch.3) |
 | Validation | CPCV — Combinatorial Purged Cross-Validation (AFML Ch.7) |
 | Sizing | Half-Kelly (multiplier=0.5, ceiling=0.25) + Carver forecast-scaled + AFML bet-size + Thorp variance-adjusted |
-| Online adaptation | `src/models/online_trainer.py` — incremental model updates between full retrains |
+| Online adaptation | `src/models/online_trainer.py` — incremental SGD updates between full retrains. **Built and tested, not yet wired into the signal path** — no caller blends its prediction today. |
 
 ## Intelligence Layer
 
@@ -36,7 +36,8 @@ unreachable or unkeyed — never blocks the core trading loop.
 | On-chain | Arkham Intel, Dune Analytics, Coinglass, DeFiLlama | Free-tier keys, optional |
 | On-chain (paid) | Glassnode, CryptoQuant | Optional; CryptoQuant funding-rate falls back to Binance perp if unset |
 | Market cap / dominance | CoinGecko | Free |
-| Ensemble | `src/intelligence/ensemble_predictor.py`, `causal_inference.py`, `probabilistic.py` | Combines provider signals, causal weighting, probabilistic calibration |
+| Ensemble | `src/intelligence/ensemble_predictor.py`, `probabilistic.py` | Combines provider signals, probabilistic calibration |
+| Causal weighting | `src/intelligence/causal_inference.py` | **Experimental, not wired** — blocked on API key provisioning (DECISION_LOG GAP-015) |
 
 `GET /intelligence/coverage` and `GET /intelligence/providers` report live
 provider health and field coverage.
