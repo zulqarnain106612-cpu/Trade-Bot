@@ -689,6 +689,11 @@ class Orchestrator:
             paper_trading_days=paper_trading_days,
             correlation_scalar=correlation_scalar,
             macro_budget=macro_budget,
+            # GAP-003: the drift detector is built during startup AFTER the
+            # engines exist, so it is supplied per tick rather than injected
+            # at construction -- an engine built before it existed would
+            # otherwise hold None for the life of the process.
+            drift_detector=self._drift_detector,
         )
 
         # Persist regime snapshot

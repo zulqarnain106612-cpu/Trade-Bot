@@ -247,6 +247,34 @@ tamper-evident; it is just a slower log.
   moment an entry is removed, which is one of the tamper cases it exists to
   catch.
 
+## 2026-08-01 — GAP-003: the drift gate was detected-but-not-enforced
+
+`check_performance_drift()` returns `HALT_DRIFT`, has tests, and was **not in
+`evaluate_all_gates()`**. The detector was fed on every closed trade, the
+metrics were reported at `GET /performance-drift`, and nothing stopped
+trading on the drifted model. Detection was wired; the gate was not. Every
+other `GateStatus` member has a producer inside the live stack — this was the
+only declared halt the stack could never emit.
+
+- **Live-only**, matching this gate's own contract and the paper-minimum-days
+  gate beside it. Halting the paper track on drift would stop the run that is
+  supposed to be gathering evidence about whether the drift persists.
+- **Ordered with `check_live_gate`**, because both answer "is the model still
+  good enough to trade" as opposed to the position-level checks above them,
+  and ahead of the intelligence gates so the stronger evidence names the halt.
+- **`drift_detector` is passed per tick, not injected at construction.** The
+  orchestrator builds its detector during startup *after* the engines exist,
+  so a constructor-injected engine would hold `None` for the process's life.
+- **Fails closed on a detector fault**, unlike the intelligence gates above
+  it. Those fail open because a third-party feed being down says nothing
+  about our model; this one measures our own realized performance, so a check
+  that cannot run means the model's state is unknown — and opening a position
+  on an unknown model is the hazard the gate exists for. `check_drift()`
+  already returns `drifted=False` when it merely lacks data, so reaching the
+  handler is a genuine fault rather than a cold start.
+- **Fails open on a missing detector** (`None`), so the change is inert for
+  any caller that does not supply one.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table

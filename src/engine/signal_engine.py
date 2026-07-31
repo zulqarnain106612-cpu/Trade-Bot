@@ -565,6 +565,7 @@ class SignalEngine:
         paper_trading_days: int = 0,
         correlation_scalar: float = 1.0,
         macro_budget: MacroExposureBudget | None = None,
+        drift_detector: Any = None,
     ) -> SignalResult:
         """
         Run one full signal computation cycle.
@@ -586,6 +587,11 @@ class SignalEngine:
                                  tracked symbols' open positions. Defaults
                                  to 1.0 (no-op) — same backward-compatible
                                  contract as regime_scalar.
+        drift_detector        : GAP-003 PerformanceDriftDetector, owned by the
+                                 orchestrator (it is built after startup
+                                 training, so it is passed per tick rather
+                                 than at construction). None fails the drift
+                                 gate open.
         macro_budget          : v7 portfolio-level macro overlay from
                                  src.risk.macro_exposure_budget, computed by
                                  the orchestrator. None = no macro data (or
@@ -1102,6 +1108,7 @@ class SignalEngine:
             slippage_estimate=_slippage_estimate,
             exchange_stress_score=_exchange_stress,  # GAP-015: None → fail-open
             whale_buy_sell_ratio=_whale_ratio,  # GAP-015: None → fail-open
+            drift_detector=drift_detector,  # GAP-003: None → fail-open
         )
         gate_result = evaluate_all_gates(gate_ctx)
 
