@@ -31,7 +31,7 @@ import json
 import os
 import re
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
@@ -58,6 +58,7 @@ from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
+from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
@@ -1247,6 +1248,85 @@ async def debug_drift() -> dict[str, Any]:
         "model_degradation": get_degradation_tracker(
             get_settings().primary_timeframe.value
         ).check_degradation(),
+    }
+
+
+def _net_by_symbol(pairs: Iterable[tuple[str, float]]) -> list[PositionSnapshot]:
+    """Collapse (symbol, signed_qty) pairs into one net snapshot per symbol."""
+    netted: dict[str, float] = {}
+    for symbol, quantity in pairs:
+        netted[symbol] = netted.get(symbol, 0.0) + quantity
+    return [PositionSnapshot(symbol=s, quantity=q) for s, q in sorted(netted.items())]
+
+
+@app.get(
+    "/debug/reconcile",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def debug_reconcile() -> dict[str, Any]:
+    """
+    Reconcile the in-memory book against the persisted open-trade table.
+
+    This is the crash-recovery check: the trade table is what survives a
+    restart, so a position present in one side and not the other means the
+    process died between placing an order and recording its exit, or was
+    restarted without its book. Read-only — it reports discrepancies and
+    never closes, reopens, or rewrites anything.
+
+    Scope: the durable record is the reference here, not exchange truth. A
+    fill that happened while the process was down is invisible to both
+    sides and needs a venue query to detect.
+
+    Returns
+    -------
+    {
+        "consistent": bool,
+        "local_position_count": int,
+        "reference_position_count": int,
+        "discrepancies": [{symbol, discrepancy_type, local_quantity,
+                           reference_quantity}, ...],
+    }
+    """
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    cfg = get_settings()
+
+    local_positions = await executor.open_positions_safe()
+    local = _net_by_symbol(
+        (
+            str(p["symbol"]),
+            float(cast(float, p["quantity"])) * (1.0 if p["direction"] == "long" else -1.0),
+        )
+        for p in local_positions
+    )
+
+    open_trades = await _state.storage.fetch_trades(
+        trading_mode=cfg.trading_mode.value, limit=1000, open_only=True
+    )
+    reference = _net_by_symbol(
+        (t.symbol, t.quantity * (1.0 if t.direction == 1 else -1.0)) for t in open_trades
+    )
+
+    discrepancies = reconcile(local, reference)
+    if discrepancies:
+        log.warning(
+            "api.reconcile_discrepancies",
+            count=len(discrepancies),
+            symbols=[d.symbol for d in discrepancies],
+        )
+    return {
+        "consistent": is_state_consistent(discrepancies),
+        "local_position_count": len(local_positions),
+        "reference_position_count": len(open_trades),
+        "discrepancies": [
+            {
+                "symbol": d.symbol,
+                "discrepancy_type": d.discrepancy_type.value,
+                "local_quantity": d.local_quantity,
+                "reference_quantity": d.reference_quantity,
+            }
+            for d in discrepancies
+        ],
     }
 
 

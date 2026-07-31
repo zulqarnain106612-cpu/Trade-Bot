@@ -1301,3 +1301,110 @@ def test_strategies_gauntlet_reports_failed_criteria(mock_state):
 def test_strategies_gauntlet_requires_api_key(mock_state):
     resp = _get_client().get("/strategies/gauntlet")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /debug/reconcile
+# ---------------------------------------------------------------------------
+
+
+def _open_trade(symbol: str, quantity: float, direction: int = 1):
+    from src.data.storage import TradeRecord
+
+    return TradeRecord(
+        id=f"t-{symbol}-{quantity}",
+        symbol=symbol,
+        timeframe="1h",
+        trading_mode="paper",
+        execution_mode="automatic",
+        direction=direction,
+        entry_price=100.0,
+        exit_price=None,
+        quantity=quantity,
+        notional_usd=100.0 * quantity,
+        entry_ts=1,
+        exit_ts=None,
+        pnl_usd=None,
+        pnl_pct=None,
+        fee_usd=0.0,
+        kelly_fraction=0.1,
+        regime_at_entry=0,
+        meta_label_prob=0.5,
+        exit_reason=None,
+        approved_by=None,
+        raw_signal=None,
+    )
+
+
+def _memory_position(symbol: str, quantity: float, direction: str = "long"):
+    return {"symbol": symbol, "quantity": quantity, "direction": direction}
+
+
+def test_reconcile_consistent_when_both_sides_empty(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["discrepancies"] == []
+
+
+def test_reconcile_flags_position_absent_from_the_durable_record(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_in_reference"
+    assert data["discrepancies"][0]["local_quantity"] == 0.1
+
+
+def test_reconcile_flags_orphan_open_trade_after_restart(mock_state):
+    """The classic crash case: the DB still has an open trade, memory has nothing."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(return_value=[])
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.1)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_locally"
+    assert data["discrepancies"][0]["reference_quantity"] == 0.1
+
+
+def test_reconcile_detects_quantity_mismatch(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.15)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["discrepancies"][0]["discrepancy_type"] == "quantity_mismatch"
+
+
+def test_reconcile_nets_multiple_positions_on_one_symbol(mock_state):
+    """Two in-memory legs on one symbol must net before comparison, not overwrite."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[
+            _memory_position("BTC/USDT", 0.1),
+            _memory_position("BTC/USDT", 0.05, direction="short"),
+        ]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        return_value=[_open_trade("BTC/USDT", 0.1), _open_trade("BTC/USDT", 0.05, direction=0)]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["local_position_count"] == 2
+    assert data["reference_position_count"] == 2
+
+
+def test_reconcile_requests_only_open_trades(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert mock_state.storage.fetch_trades.await_args.kwargs["open_only"] is True
+
+
+def test_reconcile_requires_api_key(mock_state):
+    assert _get_client().get("/debug/reconcile").status_code == 401
