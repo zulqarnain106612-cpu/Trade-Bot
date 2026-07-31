@@ -31,6 +31,38 @@ single position.
   overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
   30). Deliberately not registered as a self-tunable parameter.
 
+## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
+
+`src/execution/unified_ledger.py` had complete cross-venue accounting and no
+producer. Wiring it up exposed a live sizing bug rather than just adding an
+observability surface.
+
+- **The bug.** The portfolio-correlation ceiling took its "other open
+  positions" list from `executor.open_positions_safe()`. Each Orchestrator
+  constructs its *own* executor, so a position opened by another symbol's
+  orchestrator was invisible. The ceiling was computed against a book
+  strictly smaller than the real one — which biases the correlation estimate
+  toward "uncorrelated", i.e. toward sizing **up**. `PortfolioCorrelationTracker`
+  is already process-wide; its input now matches its scope.
+- **Producer** — `Orchestrator._sync_and_read_ledger()` republishes the
+  venue's slice each tick. Wholesale replacement, not merge: a position
+  closed since the last tick has to disappear, and an incremental update
+  would overstate exposure forever.
+- **Aggregation** — the ledger keys on `(venue, symbol)` while one executor
+  legitimately holds one position per timeframe, so
+  `_aggregate_venue_positions` nets signed quantities into a single
+  venue-level row. Recording them raw would have silently kept whichever
+  timeframe was enumerated last.
+- **Gross, not net**, for the correlation input: a long on one venue against
+  a short on another still carries that symbol's correlation risk.
+- **Paper is its own venue.** In live mode the non-primary timeframes run on
+  a separate paper executor; netting simulated fills against real exchange
+  exposure would understate the book.
+- A ledger fault falls back to the old executor-only list — a smaller book
+  already biases toward 1.0, so this path must not also be able to lose the
+  ceiling outright.
+- `GET /ledger` exposes the book read-only.
+
 ## 2026-07-27 — v2 Sub-tasks 1-4: Multi-Strategy Portfolio Engine
 
 Implemented per [ROADMAP_V2_PLAN.md](ROADMAP_V2_PLAN.md):
