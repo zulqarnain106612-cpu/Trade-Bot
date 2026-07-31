@@ -222,6 +222,31 @@ The other three (`log_as_json`, `rate_limit_per_minute`,
 `enableRateLimit` covers the last two — and are left alone rather than given
 invented behaviour.
 
+## 2026-08-01 — the audit chain is finally verified by something
+
+`src/diagnostics/audit_trail.py` hash-chains every entry to the previous one
+so tampering with history is detectable. `SignalEngine` writes to it on every
+tick. Nothing ever called `verify_chain_integrity()`, and nothing ever read
+the trail back — the SHA-256 cost was paid on every tick and the guarantee it
+buys was never collected. A tamper-evident log nobody checks is not
+tamper-evident; it is just a slower log.
+
+- **Consumer** — `GET /audit/integrity` verifies the chain, reports
+  `first_broken_sequence`, and returns the tail with each entry's hash so an
+  operator can re-verify independently rather than trusting the endpoint that
+  is reporting on itself.
+- **Distinct from `/debug/audit`**, which reads `TradeAuditor` — a
+  human-readable decision log with no integrity guarantee. Similar names,
+  different modules; conflating them is how the chain stayed unverified. A
+  test asserts the two endpoints read different sources.
+- **Reports, does not halt.** A broken chain means either a bug or tampering
+  and this endpoint cannot tell which, so halting on it would be a guess. It
+  logs at critical, because nobody may be looking at the dashboard at the
+  moment the chain breaks.
+- The verifier returns a *sequence*, not a list index — an index shifts the
+  moment an entry is removed, which is one of the tamper cases it exists to
+  catch.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
@@ -273,6 +298,7 @@ single position.
 - **Config** — `RISK_MACRO_EXPOSURE_ENABLED` (default true, because the
   overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
   30). Deliberately not registered as a self-tunable parameter.
+
 ## 2026-07-31 — v4 shadow mode: a retrained model must earn the live slot
 
 `src/models/model_registry.py` had a complete shadow-evaluation and promotion
