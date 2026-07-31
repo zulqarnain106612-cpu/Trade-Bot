@@ -3,6 +3,40 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — GAP-015 notional cap: a ceiling that failed open
+
+`compute_position_size()` applied the Carver/AFML/Thorp notional cap by
+re-quantising the quantity, then keeping the capped result *only if* it
+survived quantisation. Three ways that let an oversized position through:
+
+- **A cap tighter than one quantisation step returned the uncapped result.**
+  `if capped_qty > 0.0:` guarded the replacement, and the `else` branch was
+  the original, full-size `KellyResult`. The tighter the ceiling, the more
+  likely it was ignored entirely — exactly backwards.
+- **A `0.0` cap read as "no cap".** Per UI-007,
+  `recommend_position_notional()` returns exactly `0.0` to mean "thorp, afml
+  and carver all agree there is no edge, do not trade". That unanimous veto
+  was being discarded on the live sizing path, and the position was taken at
+  full Kelly size. Same defect class as VF-030's `max_position_pct=0.0`.
+- **A non-finite cap read as "no cap".** `cap > 0.0` is False for NaN, so an
+  unchecked NaN silently removed a ceiling the caller had asked for. The
+  scalar arguments alongside it already clamp non-finite values to 0.0; the
+  cap now fails closed to match.
+
+The capped quantity also skipped `size_position()`'s exchange-minimum
+checks. It is a *different* quantity and has to clear the same filters, so
+a capped order could be emitted below `min_amount`/`min_cost` for the
+exchange to reject — or, in paper, booked as a fill that could never have
+happened, biasing the record that gates live promotion.
+
+When a cap and the exchange minimums are irreconcilable there is no valid
+position, so the trade is skipped. Taking it at the uncapped size is the one
+outcome a ceiling must never produce.
+
+`adjusted_fraction` is now recomputed from the capped notional. Both
+executors write it into the trade record, so leaving the pre-cap value
+booked a Kelly fraction the position never had.
+
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 
 `src/execution/unified_ledger.py` had complete cross-venue accounting and no
