@@ -384,6 +384,75 @@ class TestSignificanceGatedDrift:
         assert _proportion_drop_significant(baseline_p=0.0, baseline_n=30, live_p=0.0, live_n=30)
 
 
+class TestDrawdownDrift:
+    """Tests for _check_drawdown_drift (GAP — no prior coverage)."""
+
+    def _baseline(self, max_dd: float = 0.05) -> PerformanceBaseline:
+        return PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.8,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=max_dd,
+            trades_in_backtest=1000,
+        )
+
+    def _record_trades(
+        self, detector: PerformanceDriftDetector, n: int = 35, pnl: float = 5.0
+    ) -> None:
+        for _ in range(n):
+            detector.record_trade_outcome(
+                pnl_usd=pnl,
+                predicted_prob=0.6,
+                actual_direction=1,
+                current_equity=1000.0,
+                starting_equity=1000.0,
+            )
+
+    def test_no_drawdown_expansion_no_drift(self):
+        detector = PerformanceDriftDetector(self._baseline(max_dd=0.05))
+        # Drive max_live_drawdown_pct = 0 (all positive PnL, peak never exceeded)
+        self._record_trades(detector, pnl=10.0)
+        result = detector.check_drift()
+        assert not result.drifted
+
+    def test_large_drawdown_expansion_triggers_drift(self):
+        detector = PerformanceDriftDetector(self._baseline(max_dd=0.02))
+        # Force a large drawdown by recording low current_equity against a peak
+        # Record initial trades to set equity_peak high
+        for _ in range(35):
+            detector.record_trade_outcome(
+                pnl_usd=50.0,
+                predicted_prob=0.6,
+                actual_direction=1,
+                current_equity=2000.0,  # peak set to 2000
+                starting_equity=1000.0,
+            )
+        # Now record a trade with much lower current equity → big drawdown
+        detector.record_trade_outcome(
+            pnl_usd=-200.0,
+            predicted_prob=0.4,
+            actual_direction=-1,
+            current_equity=500.0,  # (2000-500)/1000 = 1.5 = 150% > 10pp threshold
+            starting_equity=1000.0,
+        )
+        detector.check_drift()
+        # Verify _check_drawdown_drift would flag this
+        dd_result = detector._check_drawdown_drift()
+        assert dd_result.drifted
+        assert dd_result.metric == "drawdown"
+
+    def test_drawdown_at_exact_threshold_does_not_drift(self):
+        # _DRIFT_DRAWDOWN_EXPAND_PP = 0.10 — uses strict >
+        baseline_dd = 0.05
+        detector = PerformanceDriftDetector(self._baseline(max_dd=baseline_dd))
+        # Force max_live_drawdown_pct to exactly baseline + 0.10
+        detector._max_live_drawdown_pct = baseline_dd + 0.10
+        result = detector._check_drawdown_drift()
+        assert not result.drifted  # 0.10 is not > 0.10
+
+
 class TestModelDegradationTracker:
     def test_degradation_tracker_flags_low_accuracy_and_sharpe(self):
         from src.diagnostics.signal_debugger import ModelDegradationTracker
