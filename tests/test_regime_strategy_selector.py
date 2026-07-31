@@ -10,6 +10,7 @@ from src.strategies.regime_strategy_selector import (
     STRATEGY_NEUTRAL,
     StrategySelection,
     select_strategy,
+    select_strategy_from_config,
     select_strategy_from_prediction,
 )
 
@@ -240,3 +241,41 @@ def test_confidence_gate_checked_after_entropy():
     # Entropy passes, confidence fails
     result = _sel(entropy=0.20, max_entropy=0.75, confidence=0.30, min_confidence=0.55)
     assert "confidence" in result.reject_reason
+
+
+# ---------------------------------------------------------------------------
+# select_strategy_from_config
+# ---------------------------------------------------------------------------
+
+
+def test_from_config_uses_default_thresholds():
+    # Default config: rs_min_confidence=0.55, rs_max_entropy=0.75
+    result = select_strategy_from_config(
+        regime_state=REGIME_TRENDING,
+        confidence=0.80,
+        entropy=0.15,
+        is_transition=False,
+    )
+    assert result.strategy == STRATEGY_BREAKOUT
+
+
+def test_from_config_blocks_low_confidence():
+    result = select_strategy_from_config(
+        regime_state=REGIME_RANGING,
+        confidence=0.30,  # below default 0.55
+        entropy=0.20,
+        is_transition=False,
+    )
+    assert result.strategy == STRATEGY_NEUTRAL
+    assert "confidence" in result.reject_reason
+
+
+def test_from_config_blocks_high_entropy():
+    result = select_strategy_from_config(
+        regime_state=REGIME_TRENDING,
+        confidence=0.90,
+        entropy=0.85,  # above default 0.75
+        is_transition=False,
+    )
+    assert result.strategy == STRATEGY_NEUTRAL
+    assert "entropy" in result.reject_reason

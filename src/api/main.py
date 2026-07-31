@@ -1335,6 +1335,39 @@ async def debug_regime_pulse(
     }
 
 
+@app.get("/settings/strategy", tags=["settings"], dependencies=[Depends(api_key_header)])
+async def get_strategy_settings() -> dict[str, Any]:
+    """
+    Current StrategySettings values (mean-reversion, breakout, regime-selector).
+
+    Reports the active thresholds from STRATEGY_* env vars so operators can
+    verify what parameters are in effect without reading .env files directly.
+    """
+    cfg = get_settings().strategy
+    return {
+        "mean_reversion": {
+            "mr_lookback": cfg.mr_lookback,
+            "mr_entry_z": cfg.mr_entry_z,
+            "mr_exit_z": cfg.mr_exit_z,
+            "mr_min_half_life": cfg.mr_min_half_life,
+            "mr_max_half_life": cfg.mr_max_half_life,
+            "mr_require_ou": cfg.mr_require_ou,
+        },
+        "breakout": {
+            "bo_entry_period": cfg.bo_entry_period,
+            "bo_exit_period": cfg.bo_exit_period,
+            "bo_atr_period": cfg.bo_atr_period,
+            "bo_min_atr_pct": cfg.bo_min_atr_pct,
+            "bo_max_atr_pct": cfg.bo_max_atr_pct,
+        },
+        "regime_selector": {
+            "rs_min_confidence": cfg.rs_min_confidence,
+            "rs_max_entropy": cfg.rs_max_entropy,
+            "rs_transition_guard": cfg.rs_transition_guard,
+        },
+    }
+
+
 @app.get("/debug/order-throttler", dependencies=[Depends(api_key_header)])
 async def debug_order_throttler() -> dict[str, Any]:
     """Per-exchange token-bucket rate-limiter status (tokens remaining, rate, burst)."""

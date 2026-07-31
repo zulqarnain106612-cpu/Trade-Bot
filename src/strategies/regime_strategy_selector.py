@@ -189,6 +189,34 @@ def select_strategy(
     )
 
 
+def select_strategy_from_config(
+    regime_state: int,
+    confidence: float,
+    entropy: float,
+    is_transition: bool = False,
+) -> StrategySelection:
+    """
+    Config-aware wrapper: reads thresholds from settings.strategy.*.
+
+    Convenience alternative to select_strategy() for production use where
+    the caller does not want to manage threshold values explicitly.
+    Reads rs_min_confidence, rs_max_entropy, rs_transition_guard from
+    src.config.get_settings().strategy.
+    """
+    from src.config import get_settings
+
+    cfg = get_settings().strategy
+    return select_strategy(
+        regime_state=regime_state,
+        confidence=confidence,
+        entropy=entropy,
+        is_transition=is_transition,
+        min_confidence=cfg.rs_min_confidence,
+        max_entropy=cfg.rs_max_entropy,
+        transition_guard=cfg.rs_transition_guard,
+    )
+
+
 def select_strategy_from_prediction(prediction: object, **kwargs: object) -> StrategySelection:
     """
     Convenience wrapper accepting an EnsembleRegimePrediction directly.

@@ -1203,6 +1203,24 @@ def test_intelligence_providers_exception(mock_state):
 # ---------------------------------------------------------------------------
 
 
+def test_settings_strategy_route(mock_state):
+    client = _get_client()
+    resp = client.get("/settings/strategy", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "mean_reversion" in body
+    assert "breakout" in body
+    assert "regime_selector" in body
+    assert body["mean_reversion"]["mr_lookback"] == 20
+    assert body["breakout"]["bo_entry_period"] == 20
+    assert body["regime_selector"]["rs_min_confidence"] == pytest.approx(0.55)
+
+
+# ---------------------------------------------------------------------------
+# /debug/regime-pulse
+# ---------------------------------------------------------------------------
+
+
 def test_debug_regime_pulse_no_regime_data(mock_state):
     mock_state.storage.latest_regime = AsyncMock(return_value=None)
     client = _get_client()
