@@ -3,6 +3,30 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v10 decision log: the kill switch is its first producer
+
+`src/diagnostics/decision_log_writer.py` could format and append a
+structural-change record, but nothing ever produced one — every automated
+change to the strategy mix went unrecorded, which is precisely the
+tribal-knowledge gap the module was written to close.
+
+- **Producer** — `StrategyKillSwitchManager` records three transitions:
+  auto-disable on drift, the CUSUM structural-decay flag, and explicit
+  re-enable. The re-enable entry carries the reason the strategy was
+  originally pulled, since that is the context an auditor needs most.
+- **Written after the state change, never before.** A decision log that
+  cannot be written must not stop capital being pulled from a drifting
+  strategy; `_record_structural_change()` never raises.
+- **Gated on the transition, not the state.** `evaluate()` runs every tick
+  and both drift and CUSUM decay stay latched once tripped, so an
+  unguarded write would append the same entry forever. The disable path was
+  already guarded by `state.enabled`; decay needed a new `decay_logged` flag.
+- **Separate file from the hand-written log.** `STORAGE_DECISION_LOG_PATH`
+  defaults to `logs/AUTOMATED_DECISION_LOG.md`. `DECISION_LOG.md` is tracked
+  in git and edited by humans; a running process appending to it would dirty
+  the working tree and produce merge conflicts on every kill-switch trip.
+  Same format, so the two read together.
+
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
 `src/api/access_control.py` documented its own non-wiring: the role table
