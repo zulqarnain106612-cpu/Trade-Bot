@@ -207,16 +207,21 @@ def test_status_structure():
 
 
 def test_tokens_refill_after_drain():
+    from unittest.mock import patch
+
     # Use very low refill so two acquires reliably drain the bucket.
     t = OrderThrottler(rate=0.0001, burst=2)  # near-zero refill
     t.acquire("ex")
     t.acquire("ex")
     # Bucket should be empty (epsilon refill over microseconds at 0.0001/s)
     assert t.tokens_remaining("ex") < 0.01
-    # Now recreate with very fast refill rate so even 1ms of scheduler jitter
-    # is sufficient to accumulate > 0.5 tokens (5000/s → 5 tokens/ms).
-    t2 = OrderThrottler(rate=5000.0, burst=2)
+
+    # Verify refill by patching time.monotonic to advance 1 second deterministically.
+    t2 = OrderThrottler(rate=5.0, burst=2)
     t2.acquire("ex")
     t2.acquire("ex")
-    time.sleep(0.002)  # 2ms at 5000/s → ~10 tokens (capped at burst=2)
-    assert t2.tokens_remaining("ex") > 0.5
+    # Inject 1 second of simulated elapsed time: bucket had 0 tokens, rate=5/s → +5 tokens
+    base = time.monotonic()
+    with patch("src.execution.order_throttler.time") as mock_time:
+        mock_time.monotonic.return_value = base + 1.0
+        assert t2.tokens_remaining("ex") > 0.5  # at least 1 token refilled

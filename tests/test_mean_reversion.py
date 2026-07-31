@@ -84,10 +84,13 @@ def test_bollinger_confidence_in_range():
 
 
 def test_bollinger_exit_signal_when_z_near_zero():
-    # 19 bars at 100, one at 102 (to give std > 0), then final at 100 (z ≈ 0)
+    # 19 bars at 100, one at 102 (to give std > 0), then final at 100.
+    # Window mean = (18*100 + 102 + 100)/20 = 100.1, std ≈ 0.447
+    # z = (100 - 100.1) / 0.447 ≈ -0.224 < exit_z=0.5 → is_exit=True
     prices = np.concatenate([np.full(18, 100.0), [102.0], [100.0]])
     sig = bollinger_signal(prices, lookback=20, entry_z=2.0, exit_z=0.5)
-    # |z| is near zero (last bar equals window mean), should be an exit signal
+    # Verify the precondition holds before asserting the exit flag
+    assert abs(sig.z_score) < 0.5, f"precondition: |z|={abs(sig.z_score):.4f} must be < exit_z=0.5"
     assert sig.is_exit is True
     assert sig.is_entry is False
 
@@ -157,13 +160,13 @@ def test_is_mean_reverting_trending_false():
 
 
 def test_is_mean_reverting_half_life_too_short():
-    # Use a very restrictive minimum
-    prices = _oscillating(200, amplitude=0.001)  # nearly flat but slightly oscillating
-    ok, ou, reason = is_mean_reverting(prices, min_half_life=1000, max_half_life=9999)
-    # half-life of a fast oscillation is short; if ou is found, it may be < min
-    if ou is not None and ou.half_life_bars < 1000:
-        assert ok is False
-        assert "min" in reason
+    # 4-bar sine period → AR(1) fit gives half-life ~1 bar, well below min=10
+    prices = 100.0 + 2.0 * np.sin(2 * np.pi * np.arange(200) / 4.0)
+    ok, ou, reason = is_mean_reverting(prices, min_half_life=10, max_half_life=9999)
+    assert ok is False
+    assert ou is not None  # OU fit must succeed for a sine wave
+    assert ou.half_life_bars < 10
+    assert "min" in reason
 
 
 def test_is_mean_reverting_half_life_too_long():
