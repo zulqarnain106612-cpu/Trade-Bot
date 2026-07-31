@@ -1175,6 +1175,19 @@ async def debug_drift() -> dict[str, Any]:
     }
 
 
+@app.get("/debug/attribution", dependencies=[Depends(api_key_header)])
+async def debug_attribution(
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+    trading_mode: str = "paper",
+) -> dict[str, Any]:
+    """P&L attribution sliced by regime, timeframe, direction, and model-confidence quartile."""
+    from src.diagnostics.attribution import build_attribution
+
+    trades = await _state.storage.fetch_trades(trading_mode=trading_mode, limit=limit)
+    report = build_attribution(trades)
+    return report.to_dict()
+
+
 @app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
 async def debug_selftest() -> dict[str, Any]:
     """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
