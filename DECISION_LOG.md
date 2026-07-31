@@ -142,6 +142,12 @@ happened to cover.
   the simulator's own 0.30 default, so `breaches_floor` means "breaches the
   halt that is actually armed" rather than a number that happens to agree
   with it today.
+- **Units are reconciled at the boundary.** The config value and the
+  simulator's internal comparison are fractions (`..._PCT` is 0.30 despite
+  the name, validated `0 < x < 1`), while `StressTestResult` already
+  multiplies its drawdown by 100. The endpoint reports the floor as a percent
+  so the two are comparable — printing the raw 0.30 beside a 50.2 drawdown
+  reads as a comfortable margin and is in fact a 20-point breach.
 - **Every strategy is replayed against the same market-wide sequence.** The
   simulator supports per-strategy scenario returns, but this bot has no
   attributed crisis-period history per strategy, and assuming any strategy

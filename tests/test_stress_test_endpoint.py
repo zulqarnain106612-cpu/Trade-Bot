@@ -85,7 +85,22 @@ class TestStressTestEndpoint:
         strict = await _call(allocation, ["signal_engine_v1"], floor=0.01)
         assert lenient["breaches_any_floor"] is False
         assert strict["breaches_any_floor"] is True
-        assert lenient["capital_preservation_floor_pct"] == 0.99
+        # Reported as a percent so it is comparable to max_drawdown_pct in the
+        # same object; the config value and the internal check are fractions.
+        assert lenient["capital_preservation_floor_pct"] == pytest.approx(99.0)
+
+    @pytest.mark.asyncio
+    async def test_the_floor_is_reported_in_the_same_units_as_the_drawdown(self) -> None:
+        """
+        A raw 0.30 floor printed beside a 50.2 drawdown reads as a comfortable
+        margin and is in fact a 20-point breach.
+        """
+        result = await _call({"signal_engine_v1": 1.0}, ["signal_engine_v1"], floor=0.30)
+        assert result["capital_preservation_floor_pct"] == pytest.approx(30.0)
+        breaching = [s for s in result["scenarios"] if s["breaches_floor"]]
+        assert breaching, "expected at least one breaching scenario"
+        for scenario in breaching:
+            assert scenario["max_drawdown_pct"] > result["capital_preservation_floor_pct"]
 
     @pytest.mark.asyncio
     async def test_every_strategy_is_replayed_against_the_same_crash(self) -> None:
