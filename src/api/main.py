@@ -14,6 +14,8 @@ Endpoints:
   GET  /approvals                  — pending approval requests
   POST /approvals/{id}/resolve     — approve or reject a pending trade
   POST /execution-mode             — switch AUTOMATIC/RESTRICTED/MANUAL at runtime
+  GET  /strategies/gauntlet        — promotion-gauntlet status per candidate
+  GET  /debug/reconcile            — in-memory book vs persisted open trades
   WS   /ws                         — live push of equity + positions + signals
 
 WebSocket push format (JSON):

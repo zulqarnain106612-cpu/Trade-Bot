@@ -130,8 +130,15 @@ fills, reconnects, and exchange-side rejections.
 | GET | /debug/audit | Trade decision audit log |
 | GET | /debug/drift | Feature drift (KS test) + model degradation |
 | POST | /debug/selftest | On-demand pipeline self-test |
+| GET | /debug/reconcile | In-memory book vs persisted open trades (crash recovery) |
+| GET | /strategies/attribution | Per-strategy P&L attribution |
+| GET | /strategies/allocation | Performance-weighted capital allocation |
+| GET | /strategies/gauntlet | Promotion-gauntlet status per strategy candidate |
 
-All endpoints require `X-API-Key` header.
+All endpoints require `X-API-Key` header. A key set in `API_READONLY_KEY`
+authenticates the same way but is refused with `403` on the four mutating
+routes (`/execution-mode`, `/risk-controls`, `/approvals/{id}/resolve`,
+`/self-tuning/*`) — see [API roles](#api-roles).
 
 ## Diagnostics
 
