@@ -526,7 +526,11 @@ class TestRiskValidatorComputeRiskScore:
         assert score_high > score_low
 
     def test_weights_sum_to_one(self) -> None:
-        # Saturate all five components to 1.0 → score should equal sum of weights = 1.0
+        # Saturate all SIX components to 1.0 → score should equal sum of
+        # weights = 1.0. The regime-disagreement component (weight 0.05) was
+        # added after this test was written and make_ctx defaults
+        # regime_agreement_score to 1.0 (full agreement → component 0.0),
+        # which capped the saturated score at 0.95.
         ctx = make_ctx(
             daily_pnl_usd=-100_000.0,
             consecutive_losses=999,
@@ -534,6 +538,7 @@ class TestRiskValidatorComputeRiskScore:
             atr=10.0,
             atr_median_20=1.0,
             garch_vol_forecast=0.05,  # > default 0.02 threshold → garch_component = 1.0
+            regime_agreement_score=0.0,  # → regime_disagree_component = 1.0
         )
         score = RiskValidator._compute_risk_score(ctx, dd_pct=-100.0, vol_ratio=2.0)
         assert abs(score - 1.0) < 1e-6

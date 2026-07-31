@@ -335,8 +335,8 @@ def test_adx_too_short_returns_zeros() -> None:
     high = pd.Series([101.0, 102.0])
     low = pd.Series([99.0, 100.0])
     close = pd.Series([100.0, 101.0])
-    adx, _plus_di, _minus_di = adx_dmi(high, low, close)
-    assert adx == 0.0
+    adx, plus_di, minus_di = adx_dmi(high, low, close)
+    assert (adx, plus_di, minus_di) == (0.0, 0.0, 0.0)
 
 
 # ---------------------------------------------------------------------------
