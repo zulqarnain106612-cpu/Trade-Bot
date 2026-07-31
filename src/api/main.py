@@ -1455,7 +1455,10 @@ async def recovery_status() -> dict[str, Any]:
 @app.post(
     "/recovery/acknowledge",
     tags=["execution"],
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         409: {"description": "No live executor to acknowledge"},
