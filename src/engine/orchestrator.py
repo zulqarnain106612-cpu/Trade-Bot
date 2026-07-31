@@ -53,6 +53,10 @@ from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.risk.portfolio_correlation import get_portfolio_correlation
+from src.risk.strategy_correlation import (
+    combined_correlation_scalar,
+    get_strategy_correlation,
+)
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
 from src.strategies.registry import get_default_registry
 from src.strategies.signal_engine_adapter import (
@@ -132,6 +136,12 @@ class Orchestrator:
         # Orchestrator instance is single-symbol (self._symbol); the tracker itself
         # is process-wide and aggregates returns pushed by every symbol's Orchestrator.
         self._last_close_for_corr: dict[str, tuple[int, float]] = {}
+
+        # Last mark-to-market unrealized P&L per trade_id, used to difference
+        # one interval's return per strategy for StrategyCorrelationTracker.
+        # Keyed by trade_id rather than strategy_id so a strategy running
+        # several positions contributes each one's delta exactly once.
+        self._last_unrealized_by_trade: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
@@ -496,6 +506,15 @@ class Orchestrator:
             correlation_scalar = tracker.correlation_scalar(
                 new_symbol=self._symbol,
                 open_symbols=other_open_symbols,
+            )
+
+            # Strategy-level correlation is an independent ceiling on the
+            # same position: two strategies can be uncorrelated as assets
+            # yet run the same underlying bet. Both scalars multiply, and
+            # Kelly stays the outer ceiling either way.
+            correlation_scalar = combined_correlation_scalar(
+                asset_scalar=correlation_scalar,
+                strategy_scalar=self._strategy_correlation_scalar(open_positions),
             )
         except Exception as exc:
             self._log.error(
@@ -964,6 +983,93 @@ class Orchestrator:
                     exc_info=True,
                 )
 
+    def _strategy_correlation_scalar(self, open_positions: list[dict[str, object]]) -> float:
+        """
+        Sizing scalar for the incumbent strategy against the other strategies
+        currently holding capital.
+
+        Returns 1.0 (no reduction) when no other strategy holds a position,
+        which is the normal case while signal_engine_v1 is the only enabled
+        strategy — the ceiling only bites once the portfolio is genuinely
+        multi-strategy.
+        """
+        other_active = sorted(
+            {
+                str(p.get("strategy_id", ""))
+                for p in open_positions
+                if p.get("strategy_id") and p.get("strategy_id") != STRATEGY_ID_SIGNAL_ENGINE
+            }
+        )
+        if not other_active:
+            return 1.0
+        return get_strategy_correlation().correlation_scalar(
+            new_strategy_id=STRATEGY_ID_SIGNAL_ENGINE,
+            active_strategy_ids=other_active,
+        )
+
+    def _push_strategy_returns(self, positions: list[dict[str, object]]) -> None:
+        """
+        Push one mark-to-market interval's realized return per strategy.
+
+        StrategyCorrelationTracker answers "is this strategy's return stream
+        correlated with the others currently holding capital?", but it had
+        no producer — nothing in src/ ever called push_strategy_returns, so
+        the tracker was empty and every scalar it produced was a no-op 1.0.
+
+        The return for an interval is the change in unrealized P&L over that
+        strategy's open notional, aggregated across its positions. Using the
+        mark-to-market delta rather than closed-trade P&L matters for
+        correctness here: correlation is only meaningful across *aligned*
+        series, and closed trades arrive at whatever irregular times each
+        strategy happens to exit. Every strategy is marked on the same tick.
+
+        A strategy's first appearance produces no return — there is no prior
+        mark to difference against — and positions that closed since the last
+        call are dropped so their stale marks cannot leak into a later delta.
+        """
+        pnl_by_strategy: dict[str, float] = {}
+        notional_by_strategy: dict[str, float] = {}
+        current_marks: dict[str, float] = {}
+
+        for pos in positions:
+            strategy_id = str(pos.get("strategy_id", ""))
+            trade_id = str(pos.get("trade_id", ""))
+            if not strategy_id or not trade_id:
+                continue
+            unrealized = float(cast("float", pos.get("unrealized_pnl", 0.0)))
+            notional = float(cast("float", pos.get("notional_usd", 0.0)))
+            current_marks[trade_id] = unrealized
+            prior = self._last_unrealized_by_trade.get(trade_id)
+            if prior is None or notional <= 0.0:
+                continue
+            pnl_by_strategy[strategy_id] = pnl_by_strategy.get(strategy_id, 0.0) + (
+                unrealized - prior
+            )
+            notional_by_strategy[strategy_id] = (
+                notional_by_strategy.get(strategy_id, 0.0) + notional
+            )
+
+        # Replace wholesale: trade_ids absent from this snapshot are closed,
+        # and keeping their last mark would let a stale value resurface as a
+        # spurious delta if the id were ever reused.
+        self._last_unrealized_by_trade = current_marks
+
+        returns = {
+            sid: pnl_by_strategy[sid] / notional_by_strategy[sid]
+            for sid in pnl_by_strategy
+            if notional_by_strategy.get(sid, 0.0) > 0.0
+        }
+        if not returns:
+            return
+        try:
+            get_strategy_correlation().push_strategy_returns(returns)
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.strategy_returns_push_failed",
+                error=str(exc),
+                exc_info=True,
+            )
+
     def _record_kill_switch_outcome(
         self,
         *,
@@ -1054,6 +1160,7 @@ class Orchestrator:
         # Re-snapshot after marking so unrealized_pnl_pct reflects the
         # price just fetched above, not a stale value from the last tick.
         positions = await executor.open_positions_safe()
+        self._push_strategy_returns(positions)
         for pos in positions:
             if pos.get("symbol") != self._symbol:
                 continue
