@@ -833,6 +833,15 @@ class Orchestrator:
                         "orchestrator.missed_trade_log_failed", error=str(exc), exc_info=True
                     )
 
+        # Bar retention. StorageSettings.bar_cache_days configured a retention
+        # window and prune_old_bars() implemented it on both backends, but
+        # nothing ever called it -- bars accumulated for the life of the
+        # deployment. Runs on the same primary-timeframe cadence as retraining
+        # because it is the same kind of periodic housekeeping, and prunes
+        # every active timeframe rather than only the primary one.
+        if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
+            await self._prune_old_bars()
+
         # Scheduled retraining on primary timeframe — guard against overlap
         if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
             prior = self._retrain_tasks.get(tf.value)
@@ -1162,6 +1171,40 @@ class Orchestrator:
         if indicators is None:
             return None
         return compute_macro_exposure_scalar(classify_macro_regime(indicators))
+
+    async def _prune_old_bars(self) -> None:
+        """
+        Drop bars older than StorageSettings.bar_cache_days.
+
+        Best-effort per timeframe: a pruning failure is a housekeeping
+        problem, not a trading one, and must never take down a tick loop that
+        is otherwise healthy. Each timeframe is pruned independently so one
+        failure does not skip the rest.
+
+        Retention is deliberately checked against the configured window every
+        cycle rather than tracked incrementally -- prune_old_bars() is
+        idempotent, so a missed cycle self-heals on the next one instead of
+        leaving a permanent gap in what gets collected.
+        """
+        keep_days = int(self._cfg.storage.bar_cache_days)
+        for tf in self._timeframes:
+            try:
+                deleted = await self._storage.prune_old_bars(self._symbol, tf.value, keep_days)
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.prune_bars_failed",
+                    timeframe=tf.value,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                continue
+            if deleted:
+                self._log.info(
+                    "orchestrator.pruned_bars",
+                    timeframe=tf.value,
+                    deleted=deleted,
+                    keep_days=keep_days,
+                )
 
     def _venue_for(self, executor: AnyExecutor) -> str:
         """
