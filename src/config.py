@@ -563,6 +563,14 @@ class SelfTuningSettings(BaseSettings):
     )
     audit_log_path: Path = Field(default=Path("logs/self_tuning_audit.jsonl"))
     version_store_path: Path = Field(default=Path("logs/self_tuning_versions.jsonl"))
+    decision_log_path: Path | None = Field(
+        default=Path("DECISION_LOG.md"),
+        description=(
+            "Human-readable Markdown journal appended on every live (non-shadow) "
+            "promotion, so an unattended parameter change stays reconstructable by "
+            "an auditor without parsing the JSONL audit log. Set empty to disable."
+        ),
+    )
     proposer_strategy: Literal["random_walk", "bayesian"] = Field(
         default="random_walk",
         description=(
@@ -592,6 +600,14 @@ class SelfTuningSettings(BaseSettings):
             "docs/SELF_TUNING_IMPLEMENTATION_PLAN.md."
         ),
     )
+
+    @field_validator("decision_log_path", mode="before")
+    @classmethod
+    def _blank_path_disables(cls, v: object) -> object:
+        """SELF_TUNING_DECISION_LOG_PATH="" means "off", not Path("")."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class StrategyPortfolioSettings(BaseSettings):
