@@ -57,6 +57,7 @@ from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
@@ -237,6 +238,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "API keys will be transmitted in cleartext."
                 ),
             )
+    # Populate the strategy registry before the orchestrator starts ticking.
+    # Registration is not execution — it only makes the enabled strategies
+    # visible to capital allocation and attribution — but a fraction config
+    # that over-commits the book must fail here, not at the first fill.
+    register_default_strategies(cfg=cfg.strategy_portfolio)
+
     # GAP-006: backend chosen by STORAGE_BACKEND (sqlite | timescale)
     _state.storage = create_storage_backend()
     await _state.storage.initialize()
