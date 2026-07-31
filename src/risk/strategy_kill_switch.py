@@ -24,6 +24,11 @@ from dataclasses import dataclass
 
 import structlog
 
+from src.config import get_settings
+from src.diagnostics.decision_log_writer import (
+    StructuralChangeRecord,
+    append_to_decision_log,
+)
 from src.risk.performance_drift import (
     DriftDetected,
     PerformanceBaseline,
@@ -45,6 +50,10 @@ class StrategyRuntimeState:
     enabled: bool = True
     disabled_reason: str = ""
     disabled_at_ms: int = 0
+    # evaluate() runs every tick and the CUSUM statistic stays above its
+    # threshold once crossed, so without this the decay entry would be
+    # appended on every subsequent tick forever.
+    decay_logged: bool = False
 
 
 class StrategyKillSwitchManager:
@@ -118,6 +127,21 @@ class StrategyKillSwitchManager:
                         "gauntlet re-evaluation before any re-enable"
                     ),
                 )
+                if not state.decay_logged:
+                    state.decay_logged = True
+                    _record_structural_change(
+                        title=f"Strategy {strategy_id} flagged structurally decayed",
+                        change_type="strategy_structural_decay",
+                        justification=(
+                            "CUSUM-confirmed structural decay — route to promotion "
+                            "gauntlet re-evaluation before any re-enable"
+                        ),
+                        evidence={
+                            "strategy_id": strategy_id,
+                            "cusum_statistic": round(state.decay_detector.cusum_statistic, 4),
+                            "rolling_sharpe": round(rolling_sharpe, 4),
+                        },
+                    )
 
         if drift.drifted and state.enabled:
             state.enabled = False
@@ -128,6 +152,19 @@ class StrategyKillSwitchManager:
                 strategy_id=strategy_id,
                 reason=drift.reason,
                 metric=drift.metric,
+            )
+            # Recorded AFTER the state change, never before: a decision log
+            # that cannot be written must not stop capital being pulled from
+            # a drifting strategy.
+            _record_structural_change(
+                title=f"Strategy {strategy_id} auto-disabled",
+                change_type="strategy_disabled",
+                justification=drift.reason,
+                evidence={
+                    "strategy_id": strategy_id,
+                    "metric": drift.metric,
+                    "disabled_at_ms": now_ms,
+                },
             )
         return drift
 
@@ -160,10 +197,24 @@ class StrategyKillSwitchManager:
         re-validate, it only clears the disabled flag.
         """
         state = self._require_state(strategy_id)
+        previous_reason = state.disabled_reason
         state.enabled = True
         state.disabled_reason = ""
         state.disabled_at_ms = 0
         log.info("strategy_kill_switch.re_enabled", strategy_id=strategy_id)
+        _record_structural_change(
+            title=f"Strategy {strategy_id} re-enabled",
+            change_type="strategy_re_enabled",
+            justification=(
+                "Explicit operator/automation re-enable. This method does not "
+                "re-validate; the caller is responsible for having passed the "
+                "same out-of-sample gauntlet as initial promotion."
+            ),
+            evidence={
+                "strategy_id": strategy_id,
+                "previous_disabled_reason": previous_reason or "(none)",
+            },
+        )
 
     def disabled_reason(self, strategy_id: str) -> str:
         return self._require_state(strategy_id).disabled_reason
@@ -191,3 +242,41 @@ _manager: StrategyKillSwitchManager = StrategyKillSwitchManager()
 def get_strategy_kill_switch_manager() -> StrategyKillSwitchManager:
     """Module-level singleton for the strategy kill-switch manager."""
     return _manager
+
+
+def _record_structural_change(
+    title: str,
+    change_type: str,
+    justification: str,
+    evidence: dict[str, str | float | int],
+) -> None:
+    """
+    Append one structural change to the automated decision log (v10).
+
+    Synchronous file append inside an async application, which is acceptable
+    here only because these events are rare by construction — a kill-switch
+    trip, a decay flag, an explicit re-enable — not per-tick work.
+
+    Never raises. The log exists so a human can reconstruct why the portfolio
+    changed; failing to write it is a loss of auditability, not a reason to
+    abandon the risk action that produced it.
+    """
+    try:
+        path = get_settings().storage.decision_log_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        append_to_decision_log(
+            StructuralChangeRecord(
+                title=title,
+                change_type=change_type,
+                justification=justification,
+                evidence=evidence,
+            ),
+            log_path=path,
+        )
+    except Exception as exc:
+        log.error(
+            "strategy_kill_switch.decision_log_write_failed",
+            change_type=change_type,
+            error=str(exc),
+            exc_info=True,
+        )
