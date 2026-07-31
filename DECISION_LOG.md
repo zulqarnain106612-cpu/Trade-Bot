@@ -746,3 +746,40 @@ locally per repo policy.
   dedicated backtest harness exists.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally.
+
+## 2026-08-01 — Meta-allocator wiring: rate-limited rebalancing
+
+`src/tuning/meta_allocator.py` was fully tested and had zero importers.
+Its `rate_limit_allocation_shift()` was the one capability the live path
+lacked: `performance_weighted_allocate()` is stateless, so every caller
+recomputed a target from scratch and a single noisy attribution window
+could reallocate the whole book in one step — the allocator itself
+becoming a source of instability.
+
+**Changes**:
+- `meta_allocator.py`: added `AllocationController` — holds the incumbent
+  allocation, steps toward a target by at most `max_shift_per_step` per
+  call, thread-safe, plus `get_allocation_controller()` singleton. The
+  singleton ignores a later, wider rate limit so no second caller can
+  loosen the limit protecting a live book. First step adopts the target
+  outright (creeping up from zero would starve the book for ten
+  rebalances after every restart).
+- `config.py` (`StrategyPortfolioSettings`): `max_allocation_shift_per_step`
+  (0.10) and `allocation_rebalance_interval_s` (3600).
+- `orchestrator.py`: new `_allocation_rebalance_loop` task alongside the
+  midnight-reset and position-monitor loops. The cadence lives here, not
+  in the API, so allocation advances at the operator's configured rate
+  rather than at whatever rate a dashboard polls.
+- `api/main.py`: `/strategies/allocation` now reports `allocations`
+  (applied) *and* `target_allocations`, plus `max_shift_per_step`; reading
+  it never advances state. `/strategies/stress-test` now stresses the
+  applied allocation — a crash tests the positions held today, not the
+  target being crept toward. Both fall back to the target before the first
+  rebalance.
+
+The softmax `compute_target_allocation()` in the same module stays unused:
+`capital_allocator.performance_weighted_allocate()` is the live policy and
+two competing allocation policies is a worse outcome than one dead helper.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.

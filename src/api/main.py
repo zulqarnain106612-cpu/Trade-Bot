@@ -71,6 +71,7 @@ from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
+from src.tuning.meta_allocator import get_allocation_controller
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
     audit_log as tuning_audit_log,
@@ -1569,20 +1570,38 @@ async def get_strategy_allocation() -> dict[str, Any]:
 
     Uses live Sharpe attribution data to compute Sharpe-weighted fractional
     allocations. Strategies with < 30 fills receive equal-weight share (warm-up
-    fallback). Read-only — reflects what the allocator would produce right now.
+    fallback). Read-only — reading this endpoint never advances the allocation.
+
+    `target_allocations` is what the allocator would pick from attribution as
+    it stands right now. `allocations` is what the book is actually running:
+    the orchestrator's rebalance loop moves it toward the target by at most
+    `max_shift_per_step` per rebalance, so the two differ whenever the target
+    has recently moved. Before the first rebalance (or with no orchestrator
+    running) there is no incumbent allocation and the two are identical.
 
     Returns
     -------
     {
-        "allocations": {strategy_id: float, ...},  # fractions summing to <= 1.0
+        "allocations": {strategy_id: float, ...},   # fractions summing to <= 1.0
+        "target_allocations": {strategy_id: float, ...},
+        "max_shift_per_step": float,
         "method": str,                              # "performance_weighted" or "equal_weight"
         "fill_count": int,                          # total fills tracked
     }
     """
     registry = get_default_registry()
     strategies = list(registry.all())
+    controller = get_allocation_controller(
+        get_settings().strategy_portfolio.max_allocation_shift_per_step
+    )
     if not strategies:
-        return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
+        return {
+            "allocations": {},
+            "target_allocations": {},
+            "max_shift_per_step": controller.max_shift_per_step,
+            "method": "equal_weight",
+            "fill_count": 0,
+        }
     # Kill-switched strategies are excluded, which the allocator turns into a
     # 0.0 share — previously every registered strategy was passed as enabled
     # unconditionally, so a strategy the kill switch had disabled for drift
@@ -1591,7 +1610,9 @@ async def get_strategy_allocation() -> dict[str, Any]:
     result = performance_weighted_allocate(tuple(strategies), enabled_ids)
     tracker = get_attribution_tracker()
     return {
-        "allocations": result.fractions,
+        "allocations": controller.applied() or result.fractions,
+        "target_allocations": result.fractions,
+        "max_shift_per_step": controller.max_shift_per_step,
         "method": result.method,
         "fill_count": tracker.fill_count(),
     }
@@ -1718,7 +1739,17 @@ async def get_allocation_stress_test() -> dict[str, Any]:
         }
 
     enabled_ids = get_strategy_kill_switch_manager().enabled_ids(s.strategy_id for s in strategies)
-    allocation = performance_weighted_allocate(tuple(strategies), enabled_ids).fractions
+    # Stress the allocation the book is actually running, not the target it is
+    # still creeping toward -- a crash tests the positions you hold today. The
+    # target is the fallback only before the first rebalance, when there is no
+    # incumbent allocation yet.
+    controller = get_allocation_controller(
+        get_settings().strategy_portfolio.max_allocation_shift_per_step
+    )
+    allocation = (
+        controller.applied()
+        or performance_weighted_allocate(tuple(strategies), enabled_ids).fractions
+    )
 
     by_scenario = {
         name: dict.fromkeys(allocation, returns) for name, returns in KNOWN_CRISIS_SCENARIOS.items()
