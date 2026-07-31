@@ -688,6 +688,18 @@ class StrategyPortfolioSettings(BaseSettings):
     options_max_abs_delta: float | None = Field(default=None, gt=0.0)
     options_max_abs_vega: float | None = Field(default=None, gt=0.0)
 
+    # v9 rate-limited rebalancing (src/tuning/meta_allocator.py). The
+    # performance-weighted allocator recomputes a target from realized
+    # Sharpe/Sortino; the book moves toward that target by at most this
+    # fraction per rebalance, so one noisy attribution window cannot
+    # reallocate the whole portfolio in a single step.
+    max_allocation_shift_per_step: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    # Seconds between rebalance steps. One hour is long enough that the
+    # attribution window has meaningfully changed between steps, and with the
+    # 0.10 default shift a full reallocation takes ~10h rather than one tick.
+    allocation_rebalance_interval_s: int = Field(default=3600, ge=60)
+
 
 class OrderThrottleSettings(BaseSettings):
     """

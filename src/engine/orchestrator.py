@@ -68,11 +68,13 @@ from src.risk.strategy_correlation import (
     get_strategy_correlation,
 )
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
+from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.strategies.signal_engine_adapter import (
     STRATEGY_ID_SIGNAL_ENGINE,
     SignalEngineStrategy,
 )
+from src.tuning.meta_allocator import get_allocation_controller
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -409,6 +411,9 @@ class Orchestrator:
         ]
         tasks.append(asyncio.create_task(self._midnight_reset_loop(), name="midnight_reset"))
         tasks.append(asyncio.create_task(self._position_monitor_loop(), name="position_monitor"))
+        tasks.append(
+            asyncio.create_task(self._allocation_rebalance_loop(), name="allocation_rebalance")
+        )
 
         # Wait until stop event
         await self._stop_event.wait()
@@ -1034,6 +1039,56 @@ class Orchestrator:
                 break
             except Exception as exc:
                 self._log.error("orchestrator.midnight_reset_error", error=str(exc), exc_info=True)
+                await asyncio.sleep(60)
+
+    # ------------------------------------------------------------------
+    # v9 -- rate-limited capital rebalancing
+    # ------------------------------------------------------------------
+
+    async def _allocation_rebalance_loop(self) -> None:
+        """
+        Advance the book's capital allocation one rate-limited step toward
+        the performance-weighted target, on a fixed cadence.
+
+        The allocator itself (performance_weighted_allocate) is stateless: it
+        answers "given attribution as of right now, what split is optimal?".
+        Applied directly, that makes the allocator a source of instability —
+        a single unlucky window flips the split, and the next window flips it
+        back, churning capital on noise. The controller keeps the incumbent
+        allocation and moves at most max_allocation_shift_per_step toward the
+        target per rebalance (Domain Prior: the same "no runaway automation"
+        discipline that makes Kelly a ceiling rather than a target).
+
+        The cadence lives here rather than in the API layer so allocation
+        advances at a rate the operator configured, not at whatever rate a
+        dashboard happens to poll /strategies/allocation.
+        """
+        portfolio = self._cfg.strategy_portfolio
+        controller = get_allocation_controller(portfolio.max_allocation_shift_per_step)
+        while self._running:
+            try:
+                await asyncio.sleep(portfolio.allocation_rebalance_interval_s)
+                strategies = tuple(get_default_registry().all())
+                if not strategies:
+                    continue
+                enabled_ids = get_strategy_kill_switch_manager().enabled_ids(
+                    s.strategy_id for s in strategies
+                )
+                target = performance_weighted_allocate(strategies, enabled_ids)
+                applied = controller.step_toward(target.fractions)
+                self._log.info(
+                    "orchestrator.allocation_rebalance",
+                    method=target.method,
+                    target={sid: round(w, 4) for sid, w in target.fractions.items()},
+                    applied={sid: round(w, 4) for sid, w in applied.items()},
+                    max_shift_per_step=controller.max_shift_per_step,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self._log.error(
+                    "orchestrator.allocation_rebalance_error", error=str(exc), exc_info=True
+                )
                 await asyncio.sleep(60)
 
     # ------------------------------------------------------------------
