@@ -1463,3 +1463,89 @@ def test_risk_size_check_missing_field_422(mock_state):
         headers={"x-api-key": _API_KEY},
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /debug/capital-floor
+# ---------------------------------------------------------------------------
+
+
+def test_debug_capital_floor_route(mock_state):
+    client = _get_client()
+    resp = client.get("/debug/capital-floor", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "default_params" in data
+    assert "trigger_pct" in data["default_params"]
+    assert "class" in data
+
+
+# ---------------------------------------------------------------------------
+# /debug/kill-switch
+# ---------------------------------------------------------------------------
+
+
+def test_debug_kill_switch_no_state(mock_state):
+    with patch(
+        "src.risk.strategy_kill_switch.get_kill_switch",
+    ) as mock_ks:
+        ks = MagicMock()
+        ks._states = {}
+        ks.is_active.return_value = True
+        mock_ks.return_value = ks
+
+        client = _get_client()
+        resp = client.get("/debug/kill-switch", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "is_active" in data
+    assert data["state"] is None
+
+
+def test_debug_kill_switch_with_state(mock_state):
+    with patch(
+        "src.risk.strategy_kill_switch.get_kill_switch",
+    ) as mock_ks:
+        ks = MagicMock()
+        fake_state = MagicMock()
+        fake_state.__dict__ = {"consecutive_losses": 2, "total_trades": 10}
+        ks._states = {"BTC/USDT:USDT:1h": fake_state}
+        ks.is_active.return_value = False
+        mock_ks.return_value = ks
+
+        client = _get_client()
+        resp = client.get(
+            "/debug/kill-switch",
+            params={"symbol": "BTC/USDT:USDT", "timeframe": "1h"},
+            headers={"x-api-key": _API_KEY},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_active"] is False
+
+
+# ---------------------------------------------------------------------------
+# /debug/macro-budget
+# ---------------------------------------------------------------------------
+
+
+def test_debug_macro_budget_not_initialised(mock_state):
+    with patch("src.risk.macro_exposure_budget._REGISTRY", None):
+        client = _get_client()
+        resp = client.get("/debug/macro-budget", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "not_initialised"
+    assert data["summary"] is None
+
+
+def test_debug_macro_budget_with_registry(mock_state):
+    mock_reg = MagicMock()
+    mock_reg.summary.return_value = {"global_utilisation_pct": 42.0}
+    with patch("src.risk.macro_exposure_budget._REGISTRY", mock_reg):
+        client = _get_client()
+        resp = client.get("/debug/macro-budget", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["summary"]["global_utilisation_pct"] == pytest.approx(42.0)
