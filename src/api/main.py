@@ -1568,23 +1568,33 @@ async def get_allocation_stress_test() -> dict[str, Any]:
     simulator's own default, so `breaches_floor` means "breaches the halt that
     is actually armed" rather than a number that happens to match today.
 
+    Units: everything reported here is a PERCENT. The config value and the
+    simulator's internal comparison are both FRACTIONS
+    (RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT is 0.30 despite its name,
+    validated 0 < x < 1), while StressTestResult already multiplies its
+    drawdown by 100. Reporting the floor raw would have put "drawdown 50.2"
+    next to "floor 0.30" in the same object, which reads as a comfortable
+    margin and is in fact a 20-point breach.
+
     Returns
     -------
     {
         "allocations": {strategy_id: float, ...},
-        "capital_preservation_floor_pct": float,
+        "capital_preservation_floor_pct": float,   # percent, e.g. 30.0
         "scenarios": [{scenario, max_drawdown_pct, final_return_pct,
-                       breaches_floor}, ...],
+                       breaches_floor}, ...],      # percents
         "breaches_any_floor": bool,
     }
     """
     registry = get_default_registry()
     strategies = list(registry.all())
+    # Fraction for the comparison, percent for the report -- see Units above.
     floor = float(get_settings().risk.capital_preservation_max_drawdown_pct)
+    floor_pct = floor * 100.0
     if not strategies:
         return {
             "allocations": {},
-            "capital_preservation_floor_pct": floor,
+            "capital_preservation_floor_pct": floor_pct,
             "scenarios": [],
             "breaches_any_floor": False,
         }
@@ -1602,7 +1612,7 @@ async def get_allocation_stress_test() -> dict[str, Any]:
     )
     return {
         "allocations": allocation,
-        "capital_preservation_floor_pct": floor,
+        "capital_preservation_floor_pct": floor_pct,
         "scenarios": [
             {
                 "scenario": r.scenario_name,
