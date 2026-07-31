@@ -211,3 +211,86 @@ class TestComputeMetricsConfidenceFix:
             funding_rate={"rate_pct": 0.02},
         )
         assert metrics_bearish.whale_buy_sell_ratio == pytest.approx(-1.0)
+
+
+# ---------------------------------------------------------------------------
+# _compute_zscore and _compute_exchange_stress (pure private methods)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeZscore:
+    def _analyzer_with_history(self, values: list[float], col: str) -> IntelligenceAnalyzer:
+        import pandas as pd
+
+        a = IntelligenceAnalyzer()
+        a.historical_data = pd.DataFrame({col: values})
+        return a
+
+    def test_empty_history_returns_zero(self) -> None:
+        import pandas as pd
+
+        a = IntelligenceAnalyzer()
+        a.historical_data = pd.DataFrame()
+        assert a._compute_zscore(5.0, "some_metric") == 0.0
+
+    def test_missing_column_returns_zero(self) -> None:
+        import pandas as pd
+
+        a = IntelligenceAnalyzer()
+        a.historical_data = pd.DataFrame({"other_col": [1.0, 2.0, 3.0]})
+        assert a._compute_zscore(5.0, "missing") == 0.0
+
+    def test_single_row_returns_zero(self) -> None:
+        a = self._analyzer_with_history([5.0], "col")
+        assert a._compute_zscore(5.0, "col") == 0.0
+
+    def test_constant_series_returns_zero(self) -> None:
+        a = self._analyzer_with_history([3.0, 3.0, 3.0], "col")
+        assert a._compute_zscore(3.0, "col") == 0.0
+
+    def test_positive_zscore_for_high_value(self) -> None:
+        a = self._analyzer_with_history([1.0, 2.0, 3.0, 4.0, 5.0], "col")
+        result = a._compute_zscore(10.0, "col")
+        assert result > 0.0
+
+    def test_negative_zscore_for_low_value(self) -> None:
+        a = self._analyzer_with_history([1.0, 2.0, 3.0, 4.0, 5.0], "col")
+        result = a._compute_zscore(-10.0, "col")
+        assert result < 0.0
+
+    def test_clamped_to_minus5_plus5(self) -> None:
+        a = self._analyzer_with_history([0.0, 0.0, 0.0, 0.0, 1.0], "col")
+        result_high = a._compute_zscore(1e9, "col")
+        result_low = a._compute_zscore(-1e9, "col")
+        assert result_high == pytest.approx(5.0)
+        assert result_low == pytest.approx(-5.0)
+
+
+class TestComputeExchangeStress:
+    def _analyzer(self) -> IntelligenceAnalyzer:
+        return IntelligenceAnalyzer()
+
+    def test_normal_conditions_near_zero(self) -> None:
+        a = self._analyzer()
+        result = a._compute_exchange_stress(netflow_zscore=0.5, funding_signal=0.1)
+        assert result == pytest.approx(0.0)
+
+    def test_high_negative_netflow_adds_stress(self) -> None:
+        a = self._analyzer()
+        result = a._compute_exchange_stress(netflow_zscore=-3.0, funding_signal=0.0)
+        assert result > 0.0
+
+    def test_high_funding_adds_stress(self) -> None:
+        a = self._analyzer()
+        result = a._compute_exchange_stress(netflow_zscore=0.0, funding_signal=0.8)
+        assert result == pytest.approx(0.3)
+
+    def test_combined_stress_bounded_at_one(self) -> None:
+        a = self._analyzer()
+        result = a._compute_exchange_stress(netflow_zscore=-100.0, funding_signal=1.0)
+        assert 0.0 <= result <= 1.0
+
+    def test_netflow_stress_capped_at_half(self) -> None:
+        a = self._analyzer()
+        result_extreme = a._compute_exchange_stress(netflow_zscore=-1000.0, funding_signal=0.0)
+        assert result_extreme <= 0.5
