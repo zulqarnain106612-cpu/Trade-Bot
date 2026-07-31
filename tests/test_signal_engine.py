@@ -313,6 +313,59 @@ class TestSkipPaths:
         assert mock_kelly.call_args is not None, "compute_position_size was never called"
         assert mock_kelly.call_args.kwargs["regime_scalar"] == pytest.approx(0.6, abs=1e-9)
 
+    async def _kelly_kwargs_for_macro(self, macro_budget):
+        """Drive one tick with *macro_budget* and return compute_position_size kwargs."""
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch(
+                "src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()
+            ) as mock_kelly,
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_mock_cognitive()),
+        ):
+            await e.tick(**dict(_TICK, macro_budget=macro_budget))
+
+        assert mock_kelly.call_args is not None, "compute_position_size was never called"
+        return mock_kelly.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_macro_budget_none_leaves_scalar_untouched(self):
+        """No macro data must be a no-op, never a neutral haircut."""
+        from src.risk.macro_exposure_budget import MacroExposureBudget
+
+        baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
+        shrunk = (
+            await self._kelly_kwargs_for_macro(
+                MacroExposureBudget(scalar=0.25, reason="max risk-off")
+            )
+        )["correlation_scalar"]
+        assert shrunk == pytest.approx(baseline * 0.25, abs=1e-9)
+
+    @pytest.mark.asyncio
+    async def test_macro_budget_fault_retains_the_unshrunk_scalar(self):
+        """
+        A broken budget must not remove the correlation/regime ceiling that was
+        already computed — failing to apply a ceiling is not a licence to widen.
+        """
+        baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
+        broken = MagicMock()
+        type(broken).scalar = property(lambda _self: (_ for _ in ()).throw(RuntimeError("boom")))
+        kwargs = await self._kelly_kwargs_for_macro(broken)
+        assert kwargs["correlation_scalar"] == pytest.approx(baseline, abs=1e-9)
+
     @pytest.mark.asyncio
     async def test_direction_gate_not_passed(self):
         e = _make_engine()
