@@ -430,6 +430,14 @@ class StorageSettings(BaseSettings):
     log_dir: Path = Field(default=Path("logs"))
     bar_cache_days: int = Field(default=90, ge=1)
 
+    # v10 self-updating decision log (src/diagnostics/decision_log_writer.py).
+    # Deliberately NOT the repo's hand-written DECISION_LOG.md: that file is
+    # tracked in git and edited by humans, and having a running process append
+    # to it would produce merge conflicts and dirty working trees on every
+    # kill-switch trip. Same format, separate file, so the two can be read
+    # together without either corrupting the other.
+    decision_log_path: Path = Field(default=Path("logs/AUTOMATED_DECISION_LOG.md"))
+
     # Directory creation intentionally removed from this validator (VUL-031).
     # Having a Pydantic validator create filesystem directories is a side-effect
     # that runs on every Settings instantiation, including during tests, which
