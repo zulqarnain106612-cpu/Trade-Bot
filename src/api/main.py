@@ -445,10 +445,14 @@ def _verify_operator_secret(operator_secret: str, operator: str, endpoint: str) 
 
 @app.get("/health", dependencies=[Depends(api_key_header)])
 async def health() -> dict[str, Any]:
-    """System health check — storage row counts, uptime."""
+    """System health check — storage row counts, uptime, subsystem status."""
+    from src.diagnostics.system_health import build_system_health
+
     counts = await _state.storage.health_check()
+    sys_health = build_system_health()
     return {
-        "status": "ok",
+        "status": sys_health.overall_status,
+        "subsystems": sys_health.to_dict(),
         "storage": counts,
         "trading_mode": get_settings().trading_mode.value,
         "execution_mode": (await runtime_config.get_execution_mode()).value,
