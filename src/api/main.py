@@ -1234,6 +1234,39 @@ async def debug_macro_budget() -> dict[str, Any]:
     return {"status": "ok", "summary": _REGISTRY.summary()}
 
 
+@app.get("/debug/order-throttler", dependencies=[Depends(api_key_header)])
+async def debug_order_throttler() -> dict[str, Any]:
+    """Per-exchange token-bucket rate-limiter status (tokens remaining, rate, burst)."""
+    from src.execution.order_throttler import OrderThrottler
+
+    # The throttler is stateless at module level; surface default params and
+    # note that per-exchange state lives inside the orchestrator's instance.
+    return {
+        "info": "Per-exchange throttler state lives in the orchestrator instance.",
+        "default_params": {
+            "rate_per_second": 10.0,
+            "burst": 20,
+        },
+        "class": OrderThrottler.__module__ + ".OrderThrottler",
+        "status_method": "throttler.status()",
+    }
+
+
+@app.get("/debug/portfolio-correlation", dependencies=[Depends(api_key_header)])
+async def debug_portfolio_correlation() -> dict[str, Any]:
+    """EWM rolling pairwise correlation matrix for all tracked symbols."""
+    from src.risk.portfolio_correlation import get_portfolio_correlation
+
+    tracker = get_portfolio_correlation()
+    symbols = tracker.tracked_symbols
+    matrix = {f"{a}:{b}": v for (a, b), v in tracker.correlation_matrix().items()}
+    return {
+        "tracked_symbols": symbols,
+        "n_symbols": len(symbols),
+        "correlation_matrix": matrix,
+    }
+
+
 @app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
 async def debug_selftest() -> dict[str, Any]:
     """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""

@@ -1196,3 +1196,66 @@ def test_intelligence_providers_exception(mock_state):
         resp = client.get("/intelligence/providers", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
     assert "error" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# /debug/order-throttler
+# ---------------------------------------------------------------------------
+
+
+def test_debug_order_throttler_route(mock_state):
+    client = _get_client()
+    resp = client.get("/debug/order-throttler", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "default_params" in body
+    assert body["default_params"]["rate_per_second"] == 10.0
+    assert body["default_params"]["burst"] == 20
+
+
+# ---------------------------------------------------------------------------
+# /debug/portfolio-correlation
+# ---------------------------------------------------------------------------
+
+
+def test_debug_portfolio_correlation_empty(mock_state):
+    from src.risk.portfolio_correlation import PortfolioCorrelationTracker
+
+    with patch(
+        "src.risk.portfolio_correlation._portfolio_correlation",
+        PortfolioCorrelationTracker(),
+    ):
+        client = _get_client()
+        resp = client.get("/debug/portfolio-correlation", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_symbols"] == 0
+    assert body["tracked_symbols"] == []
+    assert body["correlation_matrix"] == {}
+
+
+def test_debug_portfolio_correlation_with_data(mock_state):
+    import numpy as np
+
+    from src.risk.portfolio_correlation import PortfolioCorrelationTracker
+
+    tracker = PortfolioCorrelationTracker(halflife=10)
+    rng = np.random.default_rng(7)
+    for _ in range(50):
+        tracker.push_bar_returns(
+            {
+                "BTC/USDT": float(rng.standard_normal()),
+                "ETH/USDT": float(rng.standard_normal()),
+            }
+        )
+
+    with patch(
+        "src.risk.portfolio_correlation._portfolio_correlation",
+        tracker,
+    ):
+        client = _get_client()
+        resp = client.get("/debug/portfolio-correlation", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_symbols"] == 2
+    assert "BTC/USDT" in body["tracked_symbols"]
