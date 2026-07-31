@@ -13,6 +13,14 @@ import math
 
 import pytest
 
+from src.intelligence.onchain.coinglass_provider import (
+    _extract_funding,
+    _extract_list,
+    _heatmap_max,
+    _liq_zscore,
+    _ls_ratio,
+    _oi_change_pct,
+)
 from src.intelligence.onchain.defillama_provider import (
     _compute_tvl_metrics,
     _stablecoin_ratio,
@@ -359,3 +367,124 @@ class TestMinerNetflowZscore:
         rows = [{"miner_outflow_btc_7d": rng.gauss(100.0, 5.0)} for _ in range(30)]
         result = _miner_netflow_zscore(rows)
         assert -1.0 <= result <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Coinglass pure helper functions
+# ---------------------------------------------------------------------------
+
+
+class TestExtractList:
+    def test_flat_list_input_returns_list(self) -> None:
+        data = {"data": [1, 2, 3]}
+        assert _extract_list(data) == [1, 2, 3]
+
+    def test_nested_dict_finds_list(self) -> None:
+        data = {"data": {"rows": [{"a": 1}]}}
+        assert _extract_list(data) == [{"a": 1}]
+
+    def test_non_dict_returns_empty(self) -> None:
+        assert _extract_list([]) == []  # type: ignore[arg-type]
+        assert _extract_list(None) == []  # type: ignore[arg-type]
+
+    def test_no_data_key_uses_root(self) -> None:
+        # Root is a list after getting inner = data.get("data", data) = data (dict)
+        # Since inner is a dict but no list value, returns []
+        data = {"foo": "bar"}
+        assert _extract_list(data) == []
+
+
+class TestOiChangePct:
+    def test_empty_returns_zero(self) -> None:
+        assert _oi_change_pct({}) == 0.0
+
+    def test_single_row_returns_zero(self) -> None:
+        assert _oi_change_pct({"data": [{"c": 100.0}]}) == 0.0
+
+    def test_dict_rows_with_c_field(self) -> None:
+        rows = [{"c": 100.0}] * 25 + [{"c": 110.0}]
+        result = _oi_change_pct({"data": rows})
+        assert result == pytest.approx(10.0, rel=0.01)
+
+    def test_list_rows_ohlcv_format(self) -> None:
+        rows = [[0, 0, 0, 100.0]] * 25 + [[0, 0, 0, 110.0]]
+        result = _oi_change_pct({"data": rows})
+        assert result == pytest.approx(10.0, rel=0.01)
+
+    def test_zero_past_24h_returns_zero(self) -> None:
+        rows = [{"c": 0.0}] * 25 + [{"c": 50.0}]
+        result = _oi_change_pct({"data": rows})
+        assert result == 0.0
+
+
+class TestLiqZscore:
+    def test_empty_returns_zero(self) -> None:
+        assert _liq_zscore({}) == 0.0
+
+    def test_single_row_returns_zero(self) -> None:
+        assert _liq_zscore({"data": [{"buyLiquidationUsd": 100, "sellLiquidationUsd": 50}]}) == 0.0
+
+    def test_zscore_of_high_latest_is_positive(self) -> None:
+        rows = [{"buyLiquidationUsd": 10, "sellLiquidationUsd": 10}] * 20
+        rows.append({"buyLiquidationUsd": 500, "sellLiquidationUsd": 500})
+        result = _liq_zscore({"data": rows})
+        assert result > 0.0
+
+    def test_list_format_row(self) -> None:
+        rows = [[10.0, 10.0]] * 10 + [[50.0, 50.0]]
+        result = _liq_zscore({"data": rows})
+        assert result > 0.0
+
+
+class TestHeatmapMax:
+    def test_empty_returns_zero(self) -> None:
+        assert _heatmap_max({}) == 0.0
+
+    def test_list_format_takes_third_element(self) -> None:
+        rows = [[1, 2, 500.0], [1, 2, 300.0]]
+        result = _heatmap_max({"data": rows})
+        assert result == pytest.approx(500.0)
+
+    def test_dict_format_liquidation_usd(self) -> None:
+        rows = [{"liquidationUsd": 200.0}, {"liquidationUsd": 800.0}]
+        result = _heatmap_max({"data": rows})
+        assert result == pytest.approx(800.0)
+
+
+class TestExtractFunding:
+    def test_empty_returns_none(self) -> None:
+        assert _extract_funding({}) is None
+
+    def test_extracts_funding_rate_field(self) -> None:
+        rows = [{"fundingRate": 0.0015}]
+        result = _extract_funding({"data": rows})
+        assert result == pytest.approx(0.0015)
+
+    def test_extracts_from_exchange_list(self) -> None:
+        rows = [{"exchangeList": [{"fundingRate": 0.001}, {"fundingRate": 0.003}]}]
+        result = _extract_funding({"data": rows})
+        assert result == pytest.approx(0.002)
+
+    def test_none_when_no_rate_field(self) -> None:
+        rows = [{"other": "data"}]
+        assert _extract_funding({"data": rows}) is None
+
+
+class TestLsRatio:
+    def test_empty_returns_one(self) -> None:
+        assert _ls_ratio({}) == 1.0
+
+    def test_extracts_long_short_ratio(self) -> None:
+        rows = [{"longRatio": 60.0, "shortRatio": 40.0}]
+        result = _ls_ratio({"data": rows})
+        assert result == pytest.approx(1.5)
+
+    def test_zero_short_returns_one(self) -> None:
+        rows = [{"longRatio": 60.0, "shortRatio": 0.0}]
+        result = _ls_ratio({"data": rows})
+        assert result == 1.0
+
+    def test_long_account_field_used_as_fallback(self) -> None:
+        rows = [{"longAccount": 55.0, "shortAccount": 45.0}]
+        result = _ls_ratio({"data": rows})
+        assert result == pytest.approx(55.0 / 45.0)
