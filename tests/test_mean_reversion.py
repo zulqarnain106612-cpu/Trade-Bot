@@ -57,18 +57,19 @@ def test_bollinger_flat_series_std_too_small():
 
 
 def test_bollinger_price_above_mean_signal_short():
-    prices = np.concatenate([np.full(19, 100.0), [110.0]])  # 20 bars, last is far above
+    # mean≈100.5, std≈2.21, z≈4.3 >> entry_z=2 → always fires short entry
+    prices = np.concatenate([np.full(19, 100.0), [110.0]])
     sig = bollinger_signal(prices, lookback=20, entry_z=2.0)
-    # z > 0 → direction should be -1 (short)
-    if sig.direction != 0:
-        assert sig.direction == -1
+    assert sig.is_entry is True
+    assert sig.direction == -1
 
 
 def test_bollinger_price_below_mean_signal_long():
-    prices = np.concatenate([np.full(19, 100.0), [90.0]])  # last is far below
+    # mean≈99.5, std≈2.21, z≈-4.3 << -entry_z=2 → always fires long entry
+    prices = np.concatenate([np.full(19, 100.0), [90.0]])
     sig = bollinger_signal(prices, lookback=20, entry_z=2.0)
-    if sig.direction != 0:
-        assert sig.direction == 1
+    assert sig.is_entry is True
+    assert sig.direction == 1
 
 
 def test_bollinger_z_score_finite():
@@ -172,9 +173,10 @@ def test_is_mean_reverting_half_life_too_short():
 def test_is_mean_reverting_half_life_too_long():
     prices = _oscillating(200)
     ok, ou, reason = is_mean_reverting(prices, min_half_life=2, max_half_life=1)
-    if ou is not None and ou.half_life_bars > 1:
-        assert ok is False
-        assert "max" in reason
+    assert ou is not None  # oscillating series always yields an OU fit
+    assert ou.half_life_bars > 1
+    assert ok is False
+    assert "max" in reason
 
 
 # ---------------------------------------------------------------------------

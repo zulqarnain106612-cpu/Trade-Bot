@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from src.execution.order_throttler import OrderThrottler, ThrottleResult
@@ -216,12 +214,14 @@ def test_tokens_refill_after_drain():
     # Bucket should be empty (epsilon refill over microseconds at 0.0001/s)
     assert t.tokens_remaining("ex") < 0.01
 
-    # Verify refill by patching time.monotonic to advance 1 second deterministically.
+    # Verify refill by anchoring _last_refill to a known fixed value, then
+    # patching time.monotonic to return fixed+1s — fully deterministic.
     t2 = OrderThrottler(rate=5.0, burst=2)
     t2.acquire("ex")
     t2.acquire("ex")
-    # Inject 1 second of simulated elapsed time: bucket had 0 tokens, rate=5/s → +5 tokens
-    base = time.monotonic()
+    bucket = t2._get_bucket("ex")
+    fixed = 1_000_000.0
+    bucket._last_refill = fixed  # anchor last_refill so elapsed is exactly 1s
     with patch("src.execution.order_throttler.time") as mock_time:
-        mock_time.monotonic.return_value = base + 1.0
-        assert t2.tokens_remaining("ex") > 0.5  # at least 1 token refilled
+        mock_time.monotonic.return_value = fixed + 1.0  # +1s → +5 tokens at rate=5/s
+        assert t2.tokens_remaining("ex") > 0.5
