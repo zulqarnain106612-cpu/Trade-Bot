@@ -1328,3 +1328,74 @@ def test_journal_summary_custom_limit(mock_state):
     client = _get_client()
     resp = client.get("/journal/summary?limit=50", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# POST /risk/size-check
+# ---------------------------------------------------------------------------
+
+_SIZE_CHECK_BODY = {
+    "symbol": "BTC/USDT",
+    "group": "crypto_large_cap",
+    "capital_usd": 100_000.0,
+    "current_equity": 100_000.0,
+    "hwm": 100_000.0,
+    "realized_vol_pct": 80.0,
+    "win_rate": 0.55,
+    "avg_win_usd": 100.0,
+    "avg_loss_usd": 80.0,
+    "target_vol_pct": 1.0,
+    "max_notional_pct": 0.25,
+}
+
+
+def test_risk_size_check_returns_expected_keys(mock_state):
+    client = _get_client()
+    resp = client.post("/risk/size-check", json=_SIZE_CHECK_BODY, headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "vol_target" in body
+    assert "budget_check" in body
+    assert "final_notional_usd" in body
+    assert "allowed" in body
+    assert "reject_reason" in body
+
+
+def test_risk_size_check_vol_target_structure(mock_state):
+    client = _get_client()
+    resp = client.post("/risk/size-check", json=_SIZE_CHECK_BODY, headers={"x-api-key": _API_KEY})
+    vt = resp.json()["vol_target"]
+    assert "notional_usd" in vt
+    assert "vol_target_notional" in vt
+    assert "kelly_scalar" in vt
+    assert "dd_haircut" in vt
+    assert vt["dd_haircut"] == pytest.approx(1.0)  # no drawdown at hwm
+
+
+def test_risk_size_check_budget_check_structure(mock_state):
+    client = _get_client()
+    resp = client.post("/risk/size-check", json=_SIZE_CHECK_BODY, headers={"x-api-key": _API_KEY})
+    bc = resp.json()["budget_check"]
+    assert "allowed" in bc
+    assert "group" in bc
+    assert bc["group"] == "crypto_large_cap"
+
+
+def test_risk_size_check_drawdown_blocks(mock_state):
+    # current_equity well below hwm -> dd haircut -> zero notional -> not allowed
+    body = {**_SIZE_CHECK_BODY, "current_equity": 70_000.0, "hwm": 100_000.0}
+    client = _get_client()
+    resp = client.post("/risk/size-check", json=body, headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["vol_target"]["dd_haircut"] < 1.0
+
+
+def test_risk_size_check_missing_field_422(mock_state):
+    client = _get_client()
+    resp = client.post(
+        "/risk/size-check",
+        json={"symbol": "BTC/USDT"},  # missing required fields
+        headers={"x-api-key": _API_KEY},
+    )
+    assert resp.status_code == 422
