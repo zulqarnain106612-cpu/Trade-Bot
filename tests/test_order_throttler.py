@@ -207,16 +207,16 @@ def test_status_structure():
 
 
 def test_tokens_refill_after_drain():
-    # Use very low refill so two acquires reliably drain the bucket,
-    # then high rate to verify refill happens.
+    # Use very low refill so two acquires reliably drain the bucket.
     t = OrderThrottler(rate=0.0001, burst=2)  # near-zero refill
     t.acquire("ex")
     t.acquire("ex")
     # Bucket should be empty (epsilon refill over microseconds at 0.0001/s)
     assert t.tokens_remaining("ex") < 0.01
-    # Now recreate with fast refill rate and verify tokens accumulate
-    t2 = OrderThrottler(rate=500.0, burst=2)
+    # Now recreate with very fast refill rate so even 1ms of scheduler jitter
+    # is sufficient to accumulate > 0.5 tokens (5000/s → 5 tokens/ms).
+    t2 = OrderThrottler(rate=5000.0, burst=2)
     t2.acquire("ex")
     t2.acquire("ex")
-    time.sleep(0.004)  # 4ms at 500/s → ~2 tokens
+    time.sleep(0.002)  # 2ms at 5000/s → ~10 tokens (capped at burst=2)
     assert t2.tokens_remaining("ex") > 0.5

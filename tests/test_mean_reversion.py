@@ -186,12 +186,12 @@ def test_mean_reversion_signal_no_ou_gate():
 
 
 def test_mean_reversion_signal_trending_rejected_with_ou():
-    # Trending series: OU gate should reject
+    # Trending series: OU gate should reject any entry even at low entry_z
     prices = _trending(100)
     sig = mean_reversion_signal(prices, lookback=20, entry_z=0.1, require_ou=True)
-    # Either no entry (z small) or ou_gate_rejected
-    if sig.is_entry:
-        assert sig.direction == 0
+    # OU gate rejects trending series → no entry signal allowed
+    assert sig.is_entry is False
+    assert sig.direction == 0
 
 
 def test_mean_reversion_signal_passes_without_entry():
