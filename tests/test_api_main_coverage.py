@@ -1408,3 +1408,43 @@ def test_reconcile_requests_only_open_trades(mock_state):
 
 def test_reconcile_requires_api_key(mock_state):
     assert _get_client().get("/debug/reconcile").status_code == 401
+
+
+def test_reconcile_pages_through_open_trades(mock_state):
+    """A single capped query would drop positions and then report them as
+    discrepancies — a reconciliation that invents differences is worse than none."""
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", float(_RECONCILE_PAGE) + 3.0)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        side_effect=[full_page, [_open_trade("BTC/USDT", 1.0) for _ in range(3)]]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["reference_position_count"] == _RECONCILE_PAGE + 3
+    assert data["consistent"] is True
+    assert data["truncated"] is False
+
+
+def test_reconcile_reports_truncation_at_the_page_bound(mock_state):
+    from src.api.main import _RECONCILE_MAX_PAGES, _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(return_value=full_page)
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["truncated"] is True
+    assert mock_state.storage.fetch_trades.await_count == _RECONCILE_MAX_PAGES
+
+
+def test_reconcile_advances_the_offset_between_pages(mock_state):
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(side_effect=[full_page, []])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    offsets = [c.kwargs["offset"] for c in mock_state.storage.fetch_trades.await_args_list]
+    assert offsets == [0, _RECONCILE_PAGE]

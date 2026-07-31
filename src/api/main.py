@@ -58,7 +58,7 @@ from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
-from src.data.storage import AnyStorageBackend, create_storage_backend
+from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
@@ -1263,6 +1263,35 @@ async def debug_drift() -> dict[str, Any]:
     }
 
 
+_RECONCILE_PAGE = 500
+_RECONCILE_MAX_PAGES = 20
+
+
+async def _fetch_all_open_trades(trading_mode: str) -> tuple[list[TradeRecord], bool]:
+    """
+    Page through every open trade. Returns (trades, truncated).
+
+    A single capped query would silently drop open positions past the cap and
+    then report them as discrepancies — a reconciliation that invents
+    differences is worse than none. The page bound keeps a runaway table from
+    turning this endpoint into an unbounded read; hitting it is reported as
+    `truncated` rather than passed off as a complete comparison.
+    """
+    trades: list[TradeRecord] = []
+    for page in range(_RECONCILE_MAX_PAGES):
+        batch = await _state.storage.fetch_trades(
+            trading_mode=trading_mode,
+            limit=_RECONCILE_PAGE,
+            offset=page * _RECONCILE_PAGE,
+            open_only=True,
+        )
+        trades.extend(batch)
+        if len(batch) < _RECONCILE_PAGE:
+            return trades, False
+    log.warning("api.reconcile_truncated", page_limit=_RECONCILE_MAX_PAGES, fetched=len(trades))
+    return trades, True
+
+
 def _net_by_symbol(pairs: Iterable[tuple[str, float]]) -> list[PositionSnapshot]:
     """Collapse (symbol, signed_qty) pairs into one net snapshot per symbol."""
     netted: dict[str, float] = {}
@@ -1293,6 +1322,7 @@ async def debug_reconcile() -> dict[str, Any]:
     -------
     {
         "consistent": bool,
+        "truncated": bool,          # True if the open-trade scan hit its page bound
         "local_position_count": int,
         "reference_position_count": int,
         "discrepancies": [{symbol, discrepancy_type, local_quantity,
@@ -1312,9 +1342,7 @@ async def debug_reconcile() -> dict[str, Any]:
         for p in local_positions
     )
 
-    open_trades = await _state.storage.fetch_trades(
-        trading_mode=cfg.trading_mode.value, limit=1000, open_only=True
-    )
+    open_trades, truncated = await _fetch_all_open_trades(cfg.trading_mode.value)
     reference = _net_by_symbol(
         (t.symbol, t.quantity * (1.0 if t.direction == 1 else -1.0)) for t in open_trades
     )
@@ -1328,6 +1356,7 @@ async def debug_reconcile() -> dict[str, Any]:
         )
     return {
         "consistent": is_state_consistent(discrepancies),
+        "truncated": truncated,
         "local_position_count": len(local_positions),
         "reference_position_count": len(open_trades),
         "discrepancies": [
