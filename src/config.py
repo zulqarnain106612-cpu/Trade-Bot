@@ -131,14 +131,24 @@ class RiskSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RISK_", env_file=".env", extra="ignore")
 
+    # UNITS: PERCENT (2.0 means 2%). Note the inconsistency with
+    # capital_preservation_max_drawdown_pct below, which is a FRACTION
+    # despite the identical _pct suffix. Both names are load-bearing --
+    # they are the RISK_* env var names -- so the units are documented and
+    # pinned by tests rather than renamed out from under deployments.
     daily_drawdown_halt_pct: float = Field(default=2.0, ge=0.1, le=10.0)
     consecutive_loss_halt: int = Field(default=3, ge=1, le=20)
+    # UNITS: PERCENT (5.0 means 5% of capital).
     max_position_size_pct: float = Field(default=5.0, ge=0.1, le=25.0)
 
     # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
     # peak-equity drawdown that halts trading permanently until an explicit,
     # out-of-band re_authorize() call -- unlike daily_drawdown_halt_pct above,
     # this never auto-clears at UTC midnight or on equity recovery.
+    # UNITS: FRACTION (0.30 means 30%), unlike daily_drawdown_halt_pct
+    # above. CapitalPreservationFloor compares it directly against a
+    # computed drawdown fraction, and the validator (0 < x < 1) is what
+    # keeps a percent-shaped value from being accepted here.
     capital_preservation_max_drawdown_pct: float = Field(default=0.30, gt=0.0, lt=1.0)
 
     # Kelly (1956) — half-Kelly with ceiling per AFML Ch.10
@@ -425,6 +435,7 @@ class FeatureSettings(BaseSettings):
     # that many future bars. A purge gap shorter than the label horizon
     # lets training labels overlap with (leak from) the test fold.
     purge_gap_bars: int = Field(default=60, ge=0)
+    # UNITS: FRACTION (0.01 means 1% of the sample embargoed).
     embargo_pct: float = Field(default=0.01, ge=0.0, le=0.5)
 
     # UI-015: multi-timeframe trend confirmation (Schwager 1993) — see
@@ -645,6 +656,8 @@ class SelfTuningSettings(BaseSettings):
             "safety machinery is identical either way."
         ),
     )
+    # UNITS: FRACTION (0.1 means 10%) -- its own description already says
+    # "as a fraction", which the _pct suffix contradicts.
     proposer_step_pct: float = Field(
         default=0.1,
         gt=0.0,
