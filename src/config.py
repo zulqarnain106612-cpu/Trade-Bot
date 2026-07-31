@@ -652,6 +652,19 @@ class StrategyPortfolioSettings(BaseSettings):
     options_carry_enabled: bool = Field(default=False)
     options_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
 
+    # v5 portfolio Greeks ceilings (src/risk/greeks.py), applied to the
+    # options_carry strategy independently of Kelly notional sizing -- a
+    # premium-selling position is small in notional terms and still capable of
+    # unbounded directional and vol exposure, which is exactly what notional
+    # sizing cannot see.
+    #
+    # None = not configured = no Greeks check, which is the behaviour before
+    # this setting existed. Setting either one makes the check mandatory: once
+    # an operator asks for a cap, a contract whose Greeks cannot be computed
+    # is vetoed rather than waved through unmeasured.
+    options_max_abs_delta: float | None = Field(default=None, gt=0.0)
+    options_max_abs_vega: float | None = Field(default=None, gt=0.0)
+
 
 class OrderThrottleSettings(BaseSettings):
     """
