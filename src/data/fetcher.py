@@ -745,7 +745,7 @@ class MarketDataFetcher:
 
         None, not {}: an empty mapping is the assertion "the exchange holds
         nothing", which would make every local position look like a
-        MISSING_ON_EXCHANGE discrepancy. An unavailable snapshot is not
+        MISSING_IN_REFERENCE discrepancy. An unavailable snapshot is not
         evidence of a flat account, and reconciliation must be able to tell
         the two apart.
         """
