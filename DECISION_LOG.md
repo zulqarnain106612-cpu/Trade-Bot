@@ -50,6 +50,116 @@ hot-swapped unconditionally.
 - `GET /status` reports `shadow_models` per timeframe; absent means nothing is
   under evaluation. `xgboost.shadow_mode_enabled=false` restores the previous
   swap-on-retrain behaviour.
+## 2026-07-31 — risk gates: a NaN measurement passed every gate it was fed to
+
+`src/risk/gates.py` had no finiteness checks anywhere in 993 lines, while
+`src/risk/kelly.py` one layer down had been systematically hardened against
+exactly this (VF-024/026/027/028/029/030). The gates are the last check
+before an order, so failing open there is the more serious of the two:
+kelly.py can only mis-size a trade the gates already approved.
+
+IEEE-754 makes **every** comparison against NaN False, so an unguarded NaN
+does not trip a threshold — it passes through it. `<= 0.0` guards do not
+help for the same reason, which is why the existing `capital_usd <= 0.0` and
+`starting_equity_usd <= 0.0` checks did not catch it.
+
+Concretely, before this change:
+
+- `check_position_size` — a NaN notional gives `nan / capital = nan`, and
+  `nan > max_position_size_pct` is False. **A position of unknown size was
+  approved.**
+- `check_daily_drawdown` — a NaN equity or PnL gives `nan <= threshold` =
+  False. The drawdown halt could not fire.
+- `check_slippage_veto` — `nan <= 0.0` is False, so a trade whose execution
+  cost was unknown cleared the negative-EV veto.
+- `check_exchange_stress` — `nan > halt_threshold` is False, so the most
+  stressed possible reading passed the contagion halt.
+- `check_position_exit` — stop-loss, trailing stop and take-profit are all
+  comparisons against `unrealized_pnl_pct`, so **one NaN mark disabled all
+  three at once**, leaving the position unprotected until the time exit.
+
+"Cannot be measured" now means "blocked", never "within limits". The one
+gate whose failure is advisory rather than a halt (whale activity) reduces
+size instead of halting, preserving its existing semantics.
+
+`None` and NaN are deliberately kept distinct: `None` means no data was
+fetched and continues to fail open by design, NaN means data arrived and is
+garbage. Same distinction as the disaster-recovery reconciliation's
+`None`-vs-`[]`.
+
+`check_position_exit` gained an `"invalid_mark"` reason rather than reusing
+`"stop_loss"`, so the trade record does not claim a stop-loss that was never
+measured. The orchestrator passes the reason through opaquely, so no caller
+change was needed.
+
+**`CapitalPreservationFloor` has the same defect with a worse blast radius**,
+so it is fixed here too. It holds the only copy of its peak-equity state, so
+a corrupt mark is not a one-tick fault — it is permanent:
+
+- `equity_usd < 0.0` is False for NaN, so the existing guard misses it and
+  `drawdown_pct` computes to NaN, which never trips the floor.
+- `inf` is worse and it persists. `max(peak, inf)` sets `_peak_equity = inf`,
+  after which every drawdown is `(inf - equity) / inf = nan`. **One bad mark
+  silently disables the outermost backstop for the life of the process.**
+
+`update_equity()` now raises on a non-finite mark, keeping it out of
+`_peak_equity` entirely, and the signal engine's gate-0 call site converts
+that into a skipped tick (`invalid_equity_mark`) rather than letting it
+escape `tick()`. A tick whose equity cannot be read is one that must not
+trade, and nothing downstream would have noticed a floor that had quietly
+stopped working.
+
+## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
+
+`src/api/access_control.py` documented its own non-wiring: the role table
+existed and was tested, but every authenticated key held every authority
+because no key-to-role convention had been decided.
+
+- **Convention** — additive and opt-in. `API_SECRET_KEY` authenticates as
+  `TRADE_AUTHORIZING` (unchanged); the optional `API_READONLY_KEY`
+  authenticates as `READ_ONLY`. A single-key deployment behaves exactly as
+  before, so this could not weaken an existing install — the only reachable
+  change is that a *newly added* key has less authority than the one already
+  there. That asymmetry is what made the decision safe to take unilaterally.
+- **Enforcement** — `main.requires(Permission)` builds a dependency that
+  resolves the role and answers 403 (not 401 — the caller authenticated
+  fine, it lacks authority) on `/approvals/{id}/resolve`, `/execution-mode`,
+  `/risk-controls`, and `/self-tuning/{pause,resume,rollback}`.
+- **Misconfiguration fails closed.** A read-only key shorter than 32 chars,
+  or identical to `API_SECRET_KEY`, makes the roles indistinguishable, so
+  every request answers 503 rather than guessing a role.
+- `verify_api_key` / `verify_ws_key` now return the resolved `Role`; the
+  raise-on-failure contract is unchanged, so existing callers are unaffected.
+- A test asserts the gate is actually attached to every mutating POST route —
+  a permission table nothing references is exactly the failure being fixed.
+
+## 2026-07-31 — v7 macro exposure overlay: producer + wiring
+
+`src/risk/macro_exposure_budget.py` and `src/intelligence/macro_regime.py`
+were both fully tested and entirely inert — nothing in the tree ever built a
+`MacroIndicators`, so the v7 portfolio-level macro overlay never influenced a
+single position.
+
+- **Producer** — new `src/intelligence/macro_indicators.py` derives the three
+  indicators from the intelligence-feature history already persisted by
+  `Storage.store_intelligence_features` (funding z-score, stablecoin-reserve
+  growth, exchange-netflow z-score). No new data source, and specifically no
+  paid one: Binance funding is free, and the rest is already being written.
+- **Wiring** — `Orchestrator._macro_exposure_budget()` builds the budget per
+  tick and passes it to `SignalEngine.tick(macro_budget=...)`, which folds it
+  into the scalar handed to `compute_position_size`. Multiplying the scalar is
+  arithmetically identical to shrinking the Kelly fraction, and keeps the
+  "budget can only shrink" invariant inside `macro_exposure_budget.py`.
+- **Absent data is None, not neutral.** A neutral `MacroIndicators` maps to a
+  ~0.62 scalar, so defaulting to it would have cut every position by a third
+  whenever the intelligence table was empty. `None` means "no overlay".
+- **Faults never widen exposure.** A macro failure in the orchestrator yields
+  `None`; a failure inside the engine leaves the already-computed
+  correlation/regime scalar intact. Failing to apply a ceiling must never
+  remove one — same posture as the strategy-correlation fix in #32.
+- **Config** — `RISK_MACRO_EXPOSURE_ENABLED` (default true, because the
+  overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
+  30). Deliberately not registered as a self-tunable parameter.
 
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 

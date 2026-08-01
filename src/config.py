@@ -205,6 +205,17 @@ class RiskSettings(BaseSettings):
     # shocks to affect the risk score.
     garch_vol_threshold: float = Field(default=0.02, gt=0.0, le=0.50)
 
+    # v7 macro exposure overlay (src/risk/macro_exposure_budget.py, fed by
+    # src/intelligence/macro_indicators.py). Enabled by default because the
+    # budget is a pure shrink -- its scalar is bounded to <= 1.0 by
+    # construction, so turning it on can only move exposure in the safer
+    # direction and it can never widen the Kelly ceiling.
+    macro_exposure_enabled: bool = Field(default=True)
+    # Bars of intelligence-feature history used to z-score funding and to
+    # measure stablecoin growth. 30 bars keeps the window responsive to a
+    # regime shift while still spanning enough prints for a stable sigma.
+    macro_exposure_lookback_bars: int = Field(default=30, ge=8, le=500)
+
     # GAP-013 -- automated position-exit controls (stop-loss / take-profit /
     # time-based exit). These are STARTUP DEFAULTS ONLY, loaded once into
     # RuntimeConfig at process start. Unlike the hard limits above, the

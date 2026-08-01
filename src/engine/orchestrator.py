@@ -53,11 +53,17 @@ from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
 from src.features.pipeline import build_feature_matrix
+from src.intelligence.macro_indicators import build_macro_indicators
+from src.intelligence.macro_regime import classify_macro_regime
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
+from src.risk.macro_exposure_budget import (
+    MacroExposureBudget,
+    compute_macro_exposure_scalar,
+)
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.strategy_correlation import (
@@ -605,6 +611,20 @@ class Orchestrator:
             )
             correlation_scalar = 1.0
 
+        # v7 macro overlay: shrink-only, computed independently of the
+        # correlation scalars above so a fault in either path cannot discard
+        # the other's ceiling. Fails to None (no overlay) rather than to a
+        # neutral scalar -- see _macro_exposure_budget.
+        macro_budget: MacroExposureBudget | None = None
+        try:
+            macro_budget = await self._macro_exposure_budget(tf)
+        except Exception as exc:
+            self._log.error(
+                "orchestrator.macro_exposure_budget_failed",
+                error=str(exc),
+                exc_info=True,
+            )
+
         # Run signal engine
         result: SignalResult = await engine.tick(
             capital_usd=capital_usd,
@@ -617,6 +637,7 @@ class Orchestrator:
             avg_loss_usd=avg_loss,
             paper_trading_days=paper_trading_days,
             correlation_scalar=correlation_scalar,
+            macro_budget=macro_budget,
         )
 
         # Persist regime snapshot
@@ -1137,6 +1158,44 @@ class Orchestrator:
                     error=str(exc),
                     exc_info=True,
                 )
+
+    async def _macro_exposure_budget(self, tf: Timeframe) -> MacroExposureBudget | None:
+        """
+        v7 portfolio-level macro overlay for this tick.
+
+        Reads the recent intelligence-feature window for this symbol/timeframe,
+        classifies aggregate risk appetite, and converts it into a shrink-only
+        exposure scalar. Returns None -- meaning "apply no overlay" -- when the
+        overlay is disabled or the window carries no usable macro data.
+
+        None, not a neutral MacroIndicators: a neutral reading still maps to a
+        ~0.62 scalar, so defaulting to neutral would quietly cut every position
+        by a third whenever the intelligence table happens to be empty.
+        """
+        # self._cfg.risk directly, not effective_risk_settings: the macro
+        # overlay is not a self-tunable parameter, so overlaying the registry
+        # here would only imply an authority it does not have.
+        risk = self._cfg.risk
+        if not risk.macro_exposure_enabled:
+            return None
+
+        lookback = risk.macro_exposure_lookback_bars
+        latest_ts = await self._storage.latest_bar_ts(self._symbol, tf.value)
+        if latest_ts is None:
+            return None
+        # since_ts, not LIMIT: fetch_intelligence_features orders ascending, so
+        # a bare limit would return the OLDEST rows, not the most recent ones.
+        since_ts = latest_ts - lookback * TIMEFRAME_SECONDS[tf] * 1000
+
+        features = await self._storage.fetch_intelligence_features(
+            symbol=self._symbol,
+            timeframe=tf.value,
+            since_ts=since_ts,
+        )
+        indicators = build_macro_indicators(features)
+        if indicators is None:
+            return None
+        return compute_macro_exposure_scalar(classify_macro_regime(indicators))
 
     def _venue_for(self, executor: AnyExecutor) -> str:
         """
