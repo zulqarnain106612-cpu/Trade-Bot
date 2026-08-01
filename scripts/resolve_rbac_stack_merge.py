@@ -116,6 +116,29 @@ def _resolve_text(text: str) -> tuple[str, int]:
     return "\n".join(out) + ("\n" if text.endswith("\n") else ""), hunks
 
 
+def _repoint_auth_test() -> str | None:
+    """
+    Retarget tests/test_api_auth_middleware.py at main's auth API.
+
+    This module merges *cleanly* — git sees no conflict — yet it imports
+    `resolve_role` from src.api.auth, which only the stack's auth.py ever
+    defined. Keeping main's auth.py therefore leaves a clean-merged file
+    referencing a symbol that no longer exists, and an ImportError at
+    collection takes down the entire test session, not just this module.
+    Main folded that mapping into verify_api_key, which has the same
+    signature and return type, so the call sites transfer unchanged.
+    """
+    p = Path("tests/test_api_auth_middleware.py")
+    if not p.exists():
+        return None
+    text = p.read_text()
+    if "resolve_role" not in text:
+        return None
+    text = text.replace("    resolve_role,\n", "").replace("resolve_role(", "verify_api_key(")
+    p.write_text(text)
+    return str(p)
+
+
 def main() -> int:
     conflicted = _conflicted()
     if not conflicted:
@@ -133,6 +156,10 @@ def main() -> int:
             p.write_text(resolved)
             print(f"{path}: resolved {hunks} hunk(s)")
         staged.append(path)
+
+    if repointed := _repoint_auth_test():
+        print(f"{repointed}: repointed at main's verify_api_key")
+        staged.append(repointed)
 
     subprocess.run(["git", "add", "--", *staged], check=True)
     print(f"\nstaged {len(staged)} file(s); review `git diff --cached` before committing")
