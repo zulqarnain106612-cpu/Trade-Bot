@@ -16,7 +16,6 @@ Authority:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import structlog
@@ -81,15 +80,16 @@ class OptionsCarryStrategy:
     def __init__(
         self,
         max_capital_fraction: float = 0.10,
-        caps: GreeksExposureCaps | None = None,
+        greeks_caps: GreeksExposureCaps | None = None,
         cfg: StrategyPortfolioSettings | None = None,
     ) -> None:
         if not 0.0 < max_capital_fraction <= 1.0:
             raise ValueError(f"max_capital_fraction must be in (0, 1], got {max_capital_fraction}")
         self._max_capital_fraction = max_capital_fraction
-        # Resolved from config when not injected, so the registry factory
-        # (src/strategies/bootstrap.py) keeps its single-argument signature.
-        self._caps = caps if caps is not None else _caps_from_config(cfg)
+        # Resolved from config when not injected, so a caller that has no
+        # settings object (a bare constructor in a test, say) still gets the
+        # configured ceilings rather than silently none.
+        self._greeks_caps = greeks_caps if greeks_caps is not None else _caps_from_config(cfg)
 
     def generate_signal(self, bar: object) -> Signal:
         if not isinstance(bar, OptionsCarryContext):
@@ -122,7 +122,7 @@ class OptionsCarryStrategy:
         unusable -> veto: once an operator has asked for a ceiling, waving
         through a position whose Greeks cannot be measured defeats it.
         """
-        caps = self._caps
+        caps = self._greeks_caps
         if caps is None:
             return True, "no greeks caps configured"
 
@@ -158,16 +158,14 @@ def _caps_from_config(cfg: StrategyPortfolioSettings | None) -> GreeksExposureCa
     """
     Build caps from settings, or None when the operator configured neither.
 
-    A cap set on only one Greek leaves the other effectively unbounded
-    (math.inf) rather than silently borrowing a default — an unstated ceiling
-    is not a ceiling anyone agreed to.
+    Half-configuration cannot reach here: StrategyPortfolioSettings rejects
+    one-sided caps at startup, because capping one Greek and leaving the
+    other unbounded is not a meaningful exposure limit. Checking one field
+    for None is therefore sufficient.
     """
     cfg = cfg if cfg is not None else get_settings().strategy_portfolio
-    max_delta = cfg.options_max_abs_delta
-    max_vega = cfg.options_max_abs_vega
-    if max_delta is None and max_vega is None:
+    max_delta = cfg.options_carry_max_abs_delta
+    max_vega = cfg.options_carry_max_abs_vega
+    if max_delta is None or max_vega is None:
         return None
-    return GreeksExposureCaps(
-        max_abs_delta=float(max_delta) if max_delta is not None else math.inf,
-        max_abs_vega=float(max_vega) if max_vega is not None else math.inf,
-    )
+    return GreeksExposureCaps(max_abs_delta=float(max_delta), max_abs_vega=float(max_vega))

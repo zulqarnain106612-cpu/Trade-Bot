@@ -9,9 +9,8 @@ exposure, which is the reason the module exists separately.
 
 from __future__ import annotations
 
-import math
-
 import pytest
+from pydantic import ValidationError
 
 from src.risk.greeks import GreeksExposureCaps
 from src.strategies.options_carry import (
@@ -140,8 +139,8 @@ class TestCapsFromConfig:
         from src.config import StrategyPortfolioSettings
 
         return StrategyPortfolioSettings(
-            options_max_abs_delta=delta,
-            options_max_abs_vega=vega,
+            options_carry_max_abs_delta=delta,
+            options_carry_max_abs_vega=vega,
         )
 
     def test_neither_configured_gives_no_caps(self) -> None:
@@ -151,18 +150,15 @@ class TestCapsFromConfig:
         caps = _caps_from_config(self._cfg(2.0, 3.0))
         assert caps == GreeksExposureCaps(max_abs_delta=2.0, max_abs_vega=3.0)
 
-    def test_delta_only_leaves_vega_unbounded(self) -> None:
-        """An unstated ceiling is not a ceiling anyone agreed to."""
-        caps = _caps_from_config(self._cfg(2.0, None))
-        assert caps is not None
-        assert caps.max_abs_delta == 2.0
-        assert math.isinf(caps.max_abs_vega)
-
-    def test_vega_only_leaves_delta_unbounded(self) -> None:
-        caps = _caps_from_config(self._cfg(None, 3.0))
-        assert caps is not None
-        assert math.isinf(caps.max_abs_delta)
-        assert caps.max_abs_vega == 3.0
+    def test_half_configuration_is_rejected_before_it_reaches_here(self) -> None:
+        """
+        A one-sided cap is refused at settings construction, so
+        _caps_from_config never has to decide what half a ceiling means.
+        """
+        with pytest.raises(ValidationError):
+            self._cfg(2.0, None)
+        with pytest.raises(ValidationError):
+            self._cfg(None, 3.0)
 
     def test_strategy_resolves_caps_from_config_when_not_injected(self) -> None:
         strategy = OptionsCarryStrategy(cfg=self._cfg(0.01, 100.0))

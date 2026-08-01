@@ -767,18 +767,11 @@ class StrategyPortfolioSettings(BaseSettings):
             )
         return self
 
-    # v5 portfolio Greeks ceilings (src/risk/greeks.py), applied to the
-    # options_carry strategy independently of Kelly notional sizing -- a
-    # premium-selling position is small in notional terms and still capable of
-    # unbounded directional and vol exposure, which is exactly what notional
-    # sizing cannot see.
-    #
-    # None = not configured = no Greeks check, which is the behaviour before
-    # this setting existed. Setting either one makes the check mandatory: once
-    # an operator asks for a cap, a contract whose Greeks cannot be computed
-    # is vetoed rather than waved through unmeasured.
-    options_max_abs_delta: float | None = Field(default=None, gt=0.0)
-    options_max_abs_vega: float | None = Field(default=None, gt=0.0)
+    # The v5 portfolio Greeks ceilings live above as options_carry_max_abs_*,
+    # which is the pair the startup validator enforces as all-or-nothing and
+    # the README documents. A second options_max_abs_* pair was added here in
+    # parallel and is deliberately not reinstated: two names for one ceiling
+    # means the one an operator sets may not be the one the strategy reads.
 
     # v9 rate-limited rebalancing (src/tuning/meta_allocator.py). The
     # performance-weighted allocator recomputes a target from realized
