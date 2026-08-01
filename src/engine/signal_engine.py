@@ -933,7 +933,14 @@ class SignalEngine:
         )  # fallback: p_long proxy
 
         # TASK-009: Build SlippageEstimate using live spread (TASK-010) + ADV-20 from bars.
-        _spread_for_slippage = _live_ob_spread_bps if _live_ob_spread_bps is not None else None
+        # SlippageModel wants the *half*-spread — a single marketable order
+        # crosses from mid to one touch, not touch to touch, and the config
+        # fallback (slippage_default_spread_bps) is documented in that unit.
+        # _live_ob_spread_bps is the full quoted width, so halve it here; the
+        # unhalved value stays the one persisted to the trade audit trail.
+        _spread_for_slippage = (
+            _live_ob_spread_bps / 2.0 if _live_ob_spread_bps is not None else None
+        )
         _adv_20d_for_slip = (
             float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else None
         )
