@@ -146,6 +146,50 @@ observability surface.
   ceiling outright.
 - `GET /ledger` exposes the book read-only.
 
+## 2026-07-31 — v8 disaster recovery: reconcile local state against the exchange
+
+`src/diagnostics/disaster_recovery.py` had a pure, tested comparison and no
+caller. Wiring it exposed the gap it was written for: `LiveExecutor.initialize()`
+restored equity from storage but **not** positions, so after a crash
+`self._positions` was empty while the exchange could still hold real exposure.
+Every risk gate and Kelly calculation downstream then reasoned about a book it
+believed was flat.
+
+- **Producer** — `MarketDataFetcher.fetch_exchange_holdings(symbols)` reads
+  base-asset balances from the order exchange. Balances, not
+  `fetch_positions`: both exchanges are constructed with
+  `defaultType="spot"`, and a spot account has no positions endpoint — a
+  long BTC/USDT "position" is simply a BTC balance. An earlier revision of
+  this change used `fetch_positions` and would have flagged every correctly
+  tracked book on every live start. Holdings are read, never inferred.
+- **Scoped to the bot's own symbols** (local book plus the configured primary
+  symbol). An unrelated asset elsewhere in the account is not evidence that
+  this bot's book is wrong.
+- **Relative tolerance**, because spot balances carry dust and fills round.
+  The consequence is deliberate: a manual balance in a traded symbol does
+  block startup, because the executor genuinely cannot distinguish it from an
+  untracked position of its own.
+- **Consumer** — `LiveExecutor._reconcile_with_exchange()` runs during
+  `initialize()` and records every discrepancy.
+- **An unavailable snapshot blocks, it does not report clean.** The fetcher
+  returns `None` rather than `[]` on failure, because `[]` is the assertion
+  "the exchange holds nothing" and would make every local position look like a
+  `MISSING_ON_EXCHANGE` discrepancy. Failing to look is not the same as
+  looking and finding nothing.
+- **Teeth** — while discrepancies are unresolved, `submit_signal()` refuses to
+  open new positions. Exits are deliberately unaffected, so an operator can
+  still flatten while investigating.
+- **Explicit-only clearing**, matching the strategy kill switch and the
+  capital-preservation floor: `POST /recovery/acknowledge` (operator-secret
+  gated, audit-logged) is the only way to lift the block. Re-running
+  reconciliation never clears it on its own.
+- Reconciliation stays advisory — it never places or cancels an order.
+  Guessing how to resolve an unexplained live position is exactly the wrong
+  instinct.
+- `GET /recovery/status` reports the state; a paper-only process reports
+  `applicable: false` rather than "clean", which would imply a check that
+  never ran.
+
 ## 2026-07-27 — v2 Sub-tasks 1-4: Multi-Strategy Portfolio Engine
 
 Implemented per [ROADMAP_V2_PLAN.md](ROADMAP_V2_PLAN.md):
