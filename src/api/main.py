@@ -1577,7 +1577,7 @@ async def recovery_status() -> dict[str, Any]:
                 "symbol": d.symbol,
                 "type": d.discrepancy_type.value,
                 "local_quantity": d.local_quantity,
-                "exchange_quantity": d.exchange_quantity,
+                "exchange_quantity": d.reference_quantity,
             }
             for d in discrepancies
         ],
@@ -1627,7 +1627,7 @@ async def recovery_acknowledge(
                     "symbol": d.symbol,
                     "type": d.discrepancy_type.value,
                     "local_quantity": d.local_quantity,
-                    "exchange_quantity": d.exchange_quantity,
+                    "exchange_quantity": d.reference_quantity,
                 }
                 for d in discrepancies
             ],
