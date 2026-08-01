@@ -619,3 +619,54 @@ locally per repo policy.
   dedicated backtest harness exists.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally.
+
+## 2026-07-31 — Wiring the inert institutional-grade modules
+
+Five modules landed fully tested with zero importers. Tested-but-unreachable
+code is worse than absent code: it reads as a capability the system does not
+actually have. Each entry below names the mapping decision that was blocking
+the wiring, since that — not the code — was the real open question.
+
+**RBAC (`src/api/access_control.py`)**: blocked on the key-to-role mapping.
+Decision: a second optional env var, `API_READONLY_KEY` → `READ_ONLY`;
+`API_SECRET_KEY` stays `TRADE_AUTHORIZING`. `requires(permission)` in
+`src/api/main.py` returns 403 on the mutating routes. Both keys are compared
+unconditionally so timing does not reveal which was presented. A read-only
+key shorter than 32 chars, or equal to the secret key, fails closed with 503
+rather than silently collapsing the two roles. Unset = previous behaviour.
+
+**Decision-log writer (`src/diagnostics/decision_log_writer.py`)**: first
+producer is a live (non-shadow) self-tuning promotion — an unattended
+structural change to live risk behaviour is exactly what the journal is for.
+Shadow WOULD_PROMOTE events are not journalled; they change nothing. The
+write is best-effort: the version store and JSONL audit log already hold the
+decision durably, so an OSError is logged, not propagated.
+
+**Promotion gauntlet (`src/tuning/promotion_gauntlet.py`)**: nothing knew how
+to build a `GauntletObservation`. `observation_from_fills()` adapts the
+attribution tracker's fills. Two judgement calls: `days_running` runs from
+first entry to *now*, not to the last exit (otherwise a candidate that goes
+quiet re-clears the bar forever); non-positive equity yields a 1.0 drawdown
+fraction, because an unmeasurable denominator must fail the gauntlet rather
+than flatter it. Surfaced read-only at `GET /strategies/gauntlet`.
+
+**Greeks (`src/risk/greeks.py`)**: the v5 claim that options exposure is
+capped independently of Kelly was not true of any code path. `OptionsCarry`
+now consults `check_greeks_within_caps` before emitting a signal. Both
+covered calls and cash-secured puts are premium *sales*, so the book takes
+the short side of the contract's Greeks. Caps arm via
+`STRATEGY_OPTIONS_CARRY_MAX_ABS_{DELTA,VEGA}`, which must be set together —
+bounding one Greek while the other floats is not a limit.
+
+**Disaster recovery (`src/diagnostics/disaster_recovery.py`)**: needed a
+reference snapshot. Decision: use the persisted open-trade table
+(`fetch_trades(open_only=True)`), which is what survives a crash, rather
+than waiting on an exchange position query. The module's vocabulary was
+generalised (`reference_snapshot`, `MISSING_IN_REFERENCE`) because the
+comparison is identical for either reference. `GET /debug/reconcile` nets
+per symbol first — the executor can hold several legs on one symbol.
+Known scope limit, documented on the endpoint: a fill that landed while the
+process was down is invisible to both sides and still needs a venue query.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally
+per repo policy.

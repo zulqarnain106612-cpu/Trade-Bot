@@ -21,7 +21,7 @@ SQLite (WAL) or TimescaleDB · structlog
 | Labeling | Triple-barrier method (AFML Ch.3) |
 | Validation | CPCV — Combinatorial Purged Cross-Validation (AFML Ch.7) |
 | Sizing | Half-Kelly (multiplier=0.5, ceiling=0.25) + Carver forecast-scaled + AFML bet-size + Thorp variance-adjusted |
-| Online adaptation | `src/models/online_trainer.py` — incremental model updates between full retrains |
+| Online adaptation | `src/models/online_trainer.py` — incremental SGD updates between full retrains. **Built and tested, not yet wired into the signal path** — no caller blends its prediction today. |
 
 ## Intelligence Layer
 
@@ -36,7 +36,8 @@ unreachable or unkeyed — never blocks the core trading loop.
 | On-chain | Arkham Intel, Dune Analytics, Coinglass, DeFiLlama | Free-tier keys, optional |
 | On-chain (paid) | Glassnode, CryptoQuant | Optional; CryptoQuant funding-rate falls back to Binance perp if unset |
 | Market cap / dominance | CoinGecko | Free |
-| Ensemble | `src/intelligence/ensemble_predictor.py`, `causal_inference.py`, `probabilistic.py` | Combines provider signals, causal weighting, probabilistic calibration |
+| Ensemble | `src/intelligence/ensemble_predictor.py`, `probabilistic.py` | Combines provider signals, probabilistic calibration |
+| Causal weighting | `src/intelligence/causal_inference.py` | **Experimental, not wired** — blocked on API key provisioning (DECISION_LOG GAP-015) |
 
 `GET /intelligence/coverage` and `GET /intelligence/providers` report live
 provider health and field coverage.
@@ -133,8 +134,15 @@ fills, reconnects, and exchange-side rejections.
 | GET | /debug/audit | Trade decision audit log |
 | GET | /debug/drift | Feature drift (KS test) + model degradation |
 | POST | /debug/selftest | On-demand pipeline self-test |
+| GET | /debug/reconcile | In-memory book vs persisted open trades (crash recovery) |
+| GET | /strategies/attribution | Per-strategy P&L attribution |
+| GET | /strategies/allocation | Performance-weighted capital allocation |
+| GET | /strategies/gauntlet | Promotion-gauntlet status per strategy candidate |
 
-All endpoints require `X-API-Key` header.
+All endpoints require `X-API-Key` header. A key set in `API_READONLY_KEY`
+authenticates the same way but is refused with `403` on the four mutating
+routes (`/execution-mode`, `/risk-controls`, `/approvals/{id}/resolve`,
+`/self-tuning/*`) — see [API roles](#api-roles).
 
 ## Diagnostics
 
@@ -252,8 +260,28 @@ Copy `.env.example` to `.env` and fill in credentials. Key sections:
 - **Risk overrides** (optional, defaults shown above): `RISK_DAILY_DRAWDOWN_HALT_PCT`, `RISK_CONSECUTIVE_LOSS_HALT`, `RISK_MAX_POSITION_SIZE_PCT`, `RISK_KELLY_MULTIPLIER`, `RISK_KELLY_CEILING`
 - **Storage**: `STORAGE_BACKEND` (`sqlite`/`timescale`), `STORAGE_TIMESCALE_DSN`
 - **Intelligence** (all optional, fail-open if unset): `INTELLIGENCE_GLASSNODE_API_KEY`, `INTELLIGENCE_CRYPTOQUANT_API_KEY`, `INTELLIGENCE_ARKHAM_API_KEY`, `INTELLIGENCE_DUNE_API_KEY`, `INTELLIGENCE_COINGLASS_API_KEY`
-- **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`
+- **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`, `SELF_TUNING_DECISION_LOG_PATH` (Markdown journal of live promotions; empty disables)
+- **Options Greeks caps** (optional, both or neither): `STRATEGY_OPTIONS_CARRY_MAX_ABS_DELTA`, `STRATEGY_OPTIONS_CARRY_MAX_ABS_VEGA` — book-level ceilings the options-carry strategy checks before selling premium, since Kelly sizes on notional and cannot see an option's non-linear exposure
 - **API**: `API_HOST`, `API_PORT`, `API_CORS_ORIGINS`
+
+#### API roles
+
+Every request carries `X-API-Key`. The key determines the caller's role:
+
+| Key | Role | Can do |
+| --- | --- | --- |
+| `API_SECRET_KEY` | `trade_authorizing` | everything |
+| `API_READONLY_KEY` (optional) | `read_only` | GET routes + `/ws` only |
+
+A `read_only` key gets `403` on `POST /execution-mode`, `POST /risk-controls`,
+`POST /approvals/{id}/resolve`, and the `/self-tuning/*` mutations. Leave
+`API_READONLY_KEY` unset for a single-key deployment — behaviour is then
+identical to a deployment with no roles at all. When set it must be at least
+32 characters and must differ from `API_SECRET_KEY`; otherwise the API fails
+closed with `503` rather than silently collapsing the two roles.
+
+Roles are *not* a substitute for `OPERATOR_SECRET`: mode and risk changes
+still require that second factor on top of a trade-authorizing key.
 
 ### 3. Backend
 
