@@ -131,14 +131,24 @@ class RiskSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RISK_", env_file=".env", extra="ignore")
 
+    # UNITS: PERCENT (2.0 means 2%). Note the inconsistency with
+    # capital_preservation_max_drawdown_pct below, which is a FRACTION
+    # despite the identical _pct suffix. Both names are load-bearing --
+    # they are the RISK_* env var names -- so the units are documented and
+    # pinned by tests rather than renamed out from under deployments.
     daily_drawdown_halt_pct: float = Field(default=2.0, ge=0.1, le=10.0)
     consecutive_loss_halt: int = Field(default=3, ge=1, le=20)
+    # UNITS: PERCENT (5.0 means 5% of capital).
     max_position_size_pct: float = Field(default=5.0, ge=0.1, le=25.0)
 
     # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
     # peak-equity drawdown that halts trading permanently until an explicit,
     # out-of-band re_authorize() call -- unlike daily_drawdown_halt_pct above,
     # this never auto-clears at UTC midnight or on equity recovery.
+    # UNITS: FRACTION (0.30 means 30%), unlike daily_drawdown_halt_pct
+    # above. CapitalPreservationFloor compares it directly against a
+    # computed drawdown fraction, and the validator (0 < x < 1) is what
+    # keeps a percent-shaped value from being accepted here.
     capital_preservation_max_drawdown_pct: float = Field(default=0.30, gt=0.0, lt=1.0)
 
     # Kelly (1956) — half-Kelly with ceiling per AFML Ch.10
@@ -210,6 +220,21 @@ class RiskSettings(BaseSettings):
     # budget is a pure shrink -- its scalar is bounded to <= 1.0 by
     # construction, so turning it on can only move exposure in the safer
     # direction and it can never widen the Kelly ceiling.
+    # CVaR notional ceiling (src/intelligence/risk_quantification.py). Caps a
+    # position so its expected TAIL loss -- not its average loss -- stays
+    # within this fraction of equity. Kelly sizes from win probability and
+    # payoff ratio and is blind to tail shape, so a fat-tailed regime can pass
+    # every Kelly check and still ruin the book.
+    #
+    # None = disabled, which is the behaviour before this setting existed.
+    # Enabling it can only lower a notional, never raise one.
+    cvar_limit_pct: float | None = Field(default=None, gt=0.0, le=1.0)
+    cvar_confidence: float = Field(default=0.95, gt=0.5, lt=1.0)
+    # Bars of return history the CVaR estimate is built from. Below ~100 the
+    # empirical tail quantile is a handful of observations and the estimate
+    # says more about the sample than the distribution.
+    cvar_lookback_bars: int = Field(default=250, ge=100, le=5000)
+
     macro_exposure_enabled: bool = Field(default=True)
     # Bars of intelligence-feature history used to z-score funding and to
     # measure stablecoin growth. 30 bars keeps the window responsive to a
@@ -317,7 +342,6 @@ class XGBoostSettings(BaseSettings):
     min_child_weight: int = Field(default=5, ge=1)
     reg_alpha: float = Field(default=0.1, ge=0.0)
     reg_lambda: float = Field(default=1.0, ge=0.0)
-    use_label_encoder: bool = Field(default=False)
     eval_metric: str = Field(default="logloss")
     tree_method: str = Field(default="hist")
     device: str = Field(default="cpu")
@@ -410,6 +434,7 @@ class FeatureSettings(BaseSettings):
     # that many future bars. A purge gap shorter than the label horizon
     # lets training labels overlap with (leak from) the test fold.
     purge_gap_bars: int = Field(default=60, ge=0)
+    # UNITS: FRACTION (0.01 means 1% of the sample embargoed).
     embargo_pct: float = Field(default=0.01, ge=0.0, le=0.5)
 
     # UI-015: multi-timeframe trend confirmation (Schwager 1993) — see
@@ -460,12 +485,19 @@ class StorageSettings(BaseSettings):
     model_dir: Path = Field(default=Path("models/artifacts"))
     log_dir: Path = Field(default=Path("logs"))
     bar_cache_days: int = Field(default=90, ge=1)
-    # Append-only audit trail for automated structural changes (model
-    # promotions, strategy retirements). Defaults under log_dir rather than the
-    # repository's own DECISION_LOG.md: that file is hand-authored and version
-    # controlled, and a running process appending to it would put uncommitted
-    # machine writes into a tracked file.
-    decision_log_path: Path = Field(default=Path("logs/decision_log.md"))
+    # Append-only audit trail for automated structural changes: model
+    # promotions (src/models/model_registry.py), strategy retirements
+    # (src/risk/strategy_kill_switch.py). One path, not one per producer —
+    # a reader reconstructing why the book changed shape needs those events
+    # interleaved in a single ordered file.
+    #
+    # v10 self-updating decision log (src/diagnostics/decision_log_writer.py).
+    # Deliberately NOT the repo's hand-written DECISION_LOG.md: that file is
+    # tracked in git and edited by humans, and having a running process append
+    # to it would produce merge conflicts and dirty working trees on every
+    # kill-switch trip. Same format, separate file, so the two can be read
+    # together without either corrupting the other.
+    decision_log_path: Path = Field(default=Path("logs/AUTOMATED_DECISION_LOG.md"))
 
     # Directory creation intentionally removed from this validator (VUL-031).
     # Having a Pydantic validator create filesystem directories is a side-effect
@@ -631,6 +663,8 @@ class SelfTuningSettings(BaseSettings):
             "safety machinery is identical either way."
         ),
     )
+    # UNITS: FRACTION (0.1 means 10%) -- its own description already says
+    # "as a fraction", which the _pct suffix contradicts.
     proposer_step_pct: float = Field(
         default=0.1,
         gt=0.0,
@@ -732,6 +766,24 @@ class StrategyPortfolioSettings(BaseSettings):
                 "meaningful exposure limit."
             )
         return self
+
+    # The v5 portfolio Greeks ceilings live above as options_carry_max_abs_*,
+    # which is the pair the startup validator enforces as all-or-nothing and
+    # the README documents. A second options_max_abs_* pair was added here in
+    # parallel and is deliberately not reinstated: two names for one ceiling
+    # means the one an operator sets may not be the one the strategy reads.
+
+    # v9 rate-limited rebalancing (src/tuning/meta_allocator.py). The
+    # performance-weighted allocator recomputes a target from realized
+    # Sharpe/Sortino; the book moves toward that target by at most this
+    # fraction per rebalance, so one noisy attribution window cannot
+    # reallocate the whole portfolio in a single step.
+    max_allocation_shift_per_step: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    # Seconds between rebalance steps. One hour is long enough that the
+    # attribution window has meaningfully changed between steps, and with the
+    # 0.10 default shift a full reallocation takes ~10h rather than one tick.
+    allocation_rebalance_interval_s: int = Field(default=3600, ge=60)
 
 
 class OrderThrottleSettings(BaseSettings):

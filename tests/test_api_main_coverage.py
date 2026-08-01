@@ -1269,6 +1269,106 @@ def test_strategies_allocation_with_strategies(mock_state):
     assert "fill_count" in data
 
 
+def _allocation_strategy(strategy_id: str):
+    from unittest.mock import MagicMock
+
+    strategy = MagicMock()
+    strategy.strategy_id = strategy_id
+    strategy.required_capital_fraction.return_value = 1.0
+    return strategy
+
+
+def test_strategies_allocation_reports_applied_and_target(mock_state):
+    """
+    The endpoint reports the allocation the book is running alongside the
+    one the allocator currently wants. Reading it must not advance either.
+    """
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        controller = get_allocation_controller(0.10)
+        controller.step_toward({"a": 0.5, "b": 0.5})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+            second = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == {"a": 0.5, "b": 0.5}
+        assert data["target_allocations"] == pytest.approx({"a": 0.5, "b": 0.5})
+        assert data["max_shift_per_step"] == pytest.approx(0.10)
+        # Reading twice must not step the controller — the rebalance cadence
+        # belongs to the orchestrator, not to whoever polls the dashboard.
+        assert second.json()["allocations"] == data["allocations"]
+    finally:
+        reset_allocation_controller()
+
+
+def test_strategies_allocation_falls_back_to_target_before_first_rebalance(mock_state):
+    from src.tuning.meta_allocator import reset_allocation_controller
+
+    reset_allocation_controller()
+    try:
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [_allocation_strategy("a")]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == data["target_allocations"]
+        assert data["allocations"]["a"] == pytest.approx(1.0)
+    finally:
+        reset_allocation_controller()
+
+
+def test_allocation_stress_test_uses_the_applied_allocation(mock_state):
+    """A crash tests the positions held today, not the target being crept toward."""
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        get_allocation_controller(0.10).step_toward({"a": 1.0, "b": 0.0})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.performance_weighted_allocate") as mock_alloc,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            resp = client.get("/strategies/stress-test", headers={"x-api-key": _API_KEY})
+
+        assert resp.status_code == 200
+        assert resp.json()["allocations"] == {"a": 1.0, "b": 0.0}
+        mock_alloc.assert_not_called()
+    finally:
+        reset_allocation_controller()
+
+
 # ---------------------------------------------------------------------------
 # GET /strategies/gauntlet
 # ---------------------------------------------------------------------------

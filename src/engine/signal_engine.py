@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,6 +47,7 @@ from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
     COL_GARCH_VOL,
     FEATURE_COLUMNS,
+    FeatureMatrix,
     build_feature_matrix,
     build_inference_features,
 )
@@ -54,7 +56,9 @@ from src.intelligence.probabilistic_adapter import ProbabilisticMetricsAdapter a
 from src.intelligence.providers.aggregator import (
     get_onchain_aware_aggregator as _get_intel_aggregator,
 )
+from src.intelligence.risk_quantification import RiskQuantifier
 from src.models.model_registry import ModelRegistry
+from src.models.online_trainer import OnlineTrainer
 from src.models.trainer import ModelTrainer
 from src.regime.changepoint import BayesianOnlineChangepointDetector
 from src.regime.detector import RegimeDetector, RegimePrediction
@@ -102,6 +106,11 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Minimum bars in storage before a signal can be generated
 _MIN_BARS_FOR_SIGNAL: Final[int] = 300
+
+# Bars of p_long history retained for online meta training. Comfortably
+# exceeds any triple-barrier resolution horizon, so a bar's recorded
+# probability is still present when its label finally resolves.
+_P_LONG_HISTORY_BARS: Final[int] = 500
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +245,7 @@ class SignalEngine:
         meta_model: XGBClassifier,
         trainer: ModelTrainer,
         ensemble: EnsemblePredictor | None = None,
+        online_trainer: OnlineTrainer | None = None,
     ) -> None:
         self._symbol = symbol
         self._timeframe = timeframe
@@ -250,6 +260,28 @@ class SignalEngine:
         # None until the orchestrator's first retrain cycle produces one --
         # blending fails open to XGBoost-only p_long until then (see tick()).
         self._ensemble = ensemble
+        # TASK-008 online learner. None disables the whole path -- the batch
+        # models remain authoritative either way, since blend() applies a
+        # fixed 0.15 weight and returns the batch values unchanged until it
+        # has warmed up. Learning is the point; the blend is deliberately
+        # small because this is a drift detector, not a replacement model.
+        self._online_trainer = online_trainer
+        # Bar timestamp of the most recent sample already fed to the online
+        # learner. Ticks arrive faster than bars close, so without this the
+        # same resolved bar would be learned repeatedly and the SGD model
+        # would overweight whichever bar happened to sit at the boundary.
+        self._last_online_learn_ts: int | None = None
+        # Column order the online learner was fitted on. The live inference
+        # vector carries extra intelligence columns that the historical
+        # feature matrix does not, so blending has to project onto this list
+        # or sklearn sees a different feature count than it was fitted with
+        # and every blend fails open forever.
+        self._online_feature_cols: list[str] | None = None
+        # bar_ts -> the batch p_long this engine produced for that bar, kept so
+        # the online META model can be trained on the same input it is scored
+        # with. Bounded: only recent bars can still have an unresolved barrier,
+        # so anything older is dead weight.
+        self._p_long_by_bar: OrderedDict[int, float] = OrderedDict()
         self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         # v4 regime ensemble (observability only — never gates trades, see
@@ -257,6 +289,10 @@ class SignalEngine:
         # distribution across ticks, so it lives on self rather than being
         # recreated per call.
         self._changepoint_detector = BayesianOnlineChangepointDetector()
+        # Per-engine so its fitted-distribution caches key off this
+        # symbol/timeframe's own return window rather than being shared
+        # across engines that see different data.
+        self._risk_quantifier = RiskQuantifier()
         # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
         # whole-book peak-drawdown halt that never auto-clears on equity
         # recovery. One instance per engine, driven by this engine's own
@@ -544,6 +580,7 @@ class SignalEngine:
         paper_trading_days: int = 0,
         correlation_scalar: float = 1.0,
         macro_budget: MacroExposureBudget | None = None,
+        drift_detector: Any = None,
     ) -> SignalResult:
         """
         Run one full signal computation cycle.
@@ -565,6 +602,11 @@ class SignalEngine:
                                  tracked symbols' open positions. Defaults
                                  to 1.0 (no-op) — same backward-compatible
                                  contract as regime_scalar.
+        drift_detector        : GAP-003 PerformanceDriftDetector, owned by the
+                                 orchestrator (it is built after startup
+                                 training, so it is passed per tick rather
+                                 than at construction). None fails the drift
+                                 gate open.
         macro_budget          : v7 portfolio-level macro overlay from
                                  src.risk.macro_exposure_budget, computed by
                                  the orchestrator. None = no macro data (or
@@ -624,6 +666,8 @@ class SignalEngine:
 
         if fm.features is None or len(fm.features) < 1:
             return self._skip("insufficient_features")
+
+        self._learn_online(fm)
 
         # Inference vector — last row of feature matrix, augmented with live OFI.
         # TASK-010: co-fetch orderbook (spread_bps) + funding rate concurrently —
@@ -696,6 +740,8 @@ class SignalEngine:
                 )
                 _exchange_stress = None
                 _whale_ratio = None
+
+        await self._persist_intelligence_features(bars, _intel_metrics_dict)
 
         vec = build_inference_features(
             bars,
@@ -825,6 +871,18 @@ class SignalEngine:
             except Exception as exc:
                 self._log.warning("signal.ensemble_blend_failed", error=str(exc), exc_info=True)
 
+        # TASK-008 online blend, applied here rather than once at the end:
+        # p_long is final at this point and is what every gate downstream
+        # reads, whereas p_bet does not exist until predict_meta runs. Each
+        # output is consumed where its batch input is authoritative.
+        self._record_p_long_for_bar(bars, p_long)
+
+        p_long, _, _online_weight = self._blend_online(p_long, 0.5, vec)
+        # Same rule as the ensemble blend above: re-derive direction from the
+        # blended probability so a large enough disagreement flips the trade,
+        # rather than silently leaving direction pointing the other way.
+        direction = 1 if p_long >= 0.5 else 0
+
         # GAP-002: HMM posterior entropy gate — scale position size down when
         # the regime classification is uncertain (near-uniform posterior).
         # No fitted regime (regime is None) is already routed to
@@ -868,6 +926,19 @@ class SignalEngine:
         except Exception as _carver_exc:
             self._log.warning("signal.carver_cap_failed", error=str(_carver_exc), exc_info=True)
             _notional_cap_usd = None
+
+        # CVaR notional ceiling. Kelly sizes from win probability and payoff
+        # ratio and is blind to tail SHAPE, so a fat-tailed regime can clear
+        # every Kelly check and still ruin the book. Composed with the Carver
+        # cap by taking the tighter of the two -- both are ceilings, and the
+        # binding one is whichever says less.
+        _cvar_cap_usd = self._cvar_notional_cap(bars, capital_usd)
+        if _cvar_cap_usd is not None:
+            _notional_cap_usd = (
+                _cvar_cap_usd
+                if _notional_cap_usd is None
+                else min(_notional_cap_usd, _cvar_cap_usd)
+            )
 
         # 7. Kelly sizing (pre-gate — needed for position-size gate)
         # Combine portfolio-correlation scalar with regime-agreement scalar so
@@ -1085,6 +1156,7 @@ class SignalEngine:
             slippage_estimate=_slippage_estimate,
             exchange_stress_score=_exchange_stress,  # GAP-015: None → fail-open
             whale_buy_sell_ratio=_whale_ratio,  # GAP-015: None → fail-open
+            drift_detector=drift_detector,  # GAP-003: None → fail-open
         )
         gate_result = evaluate_all_gates(gate_ctx)
 
@@ -1107,6 +1179,10 @@ class SignalEngine:
 
         # 9. Meta-label gate
         meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)
+        # Second blend call, for p_bet only -- p_long above is already blended
+        # and is passed through unchanged here.
+        _, p_bet, _online_weight = self._blend_online(p_long, p_bet, vec)
+        meta_label = 1 if p_bet >= 0.5 else 0
         _p_bet_ref[0] = p_bet  # make p_bet available to _emit_audit closure
 
         if meta_label == 0:
@@ -1227,6 +1303,7 @@ class SignalEngine:
             notional_usd=round(kelly_result.notional_usd, 2),
             kelly_fraction=round(kelly_result.adjusted_fraction, 4),
             regime_scalar_filter_logged_only=round(_regime_scalar, 3),  # GAP-008: not applied
+            online_blend_weight=round(_online_weight, 3),
             correlation_scalar_applied=round(
                 correlation_scalar, 3
             ),  # GAP-005/015: IS applied (see kelly.py)
@@ -1377,6 +1454,225 @@ class SignalEngine:
             index=[r.ts for r in records],
         )
         return df.sort_index()
+
+    def _record_p_long_for_bar(self, bars: pd.DataFrame, batch_p_long: float) -> None:
+        """
+        Remember this bar's p_long so the online meta model can train on it.
+
+        Records the BATCH (pre-online-blend) probability deliberately: feeding
+        the blended value back in would let the online model learn from its
+        own output, which drifts toward self-confirmation rather than toward
+        the market.
+
+        Bounded to _P_LONG_HISTORY_BARS. Only bars whose triple-barrier label
+        is still unresolved can ever be looked up, so older entries are dead
+        weight, and an unbounded dict here would grow for the life of the
+        process.
+        """
+        try:
+            if bars is None or bars.empty:
+                return
+            ts_key = int(pd.Timestamp(bars.index[-1]).value)
+            self._p_long_by_bar[ts_key] = float(batch_p_long)
+            self._p_long_by_bar.move_to_end(ts_key)
+            while len(self._p_long_by_bar) > _P_LONG_HISTORY_BARS:
+                self._p_long_by_bar.popitem(last=False)
+        except Exception as exc:
+            self._log.debug("signal.p_long_record_failed", error=str(exc), exc_info=True)
+
+    def _learn_online(self, fm: FeatureMatrix) -> None:
+        """
+        Feed the newest *resolved* labelled bar to the online learner.
+
+        The triple-barrier labeller cannot label the most recent bars — their
+        barriers have not been touched yet — so `fm.labels` is shorter than
+        `fm.features`. Learning from the last feature row would therefore pair
+        a bar with some other bar's label. Only the last row that actually has
+        a label is used, matched by index, never by position.
+
+        Ticks arrive faster than bars close, so `_last_online_learn_ts` gates
+        repeats: without it the same bar would be learned on every tick and
+        the SGD model would overweight whichever bar sat at the boundary.
+
+        Both online models are fed, not just the direction one. `blend()`
+        warms up on `min(dir_samples, meta_samples) >= 50`, so feeding only
+        the direction model would leave the meta counter at zero forever and
+        the blend would never activate — the module would stay exactly as
+        inert as before, just with a producer attached.
+
+        The meta-label used here is "did this bar resolve at a barrier at
+        all" (`|label| == 1`), which is why the 0-labels dropped from
+        direction learning are still useful to the meta model: direction
+        learns from resolved directional moves, meta learns which bars were
+        worth betting on in the first place. This is a weaker meta-label than
+        the batch trainer's (which conditions on the primary model having
+        been right), but it needs no stored per-bar prediction history and no
+        second inference against a model whose feature schema may not match
+        the historical matrix.
+
+        Entirely best-effort. The online model is a drift detector layered on
+        top of the batch models; a failure here must never cost a tick.
+        """
+        trainer = self._online_trainer
+        if trainer is None:
+            return
+        try:
+            labels = fm.labels
+            if labels is None or len(labels) < 1:
+                return
+            labelled = labels.dropna()
+            if labelled.empty:
+                return
+            bar_ts = labelled.index[-1]
+            if bar_ts not in fm.features.index:
+                return
+
+            ts_key = int(pd.Timestamp(bar_ts).value)
+            if self._last_online_learn_ts == ts_key:
+                return
+
+            self._online_feature_cols = list(fm.features.columns)
+            feature_vec = fm.features.loc[bar_ts].to_numpy(dtype=float)
+            raw_label = float(labelled.iloc[-1])
+
+            # Meta first, and unconditionally: it learns which bars resolved
+            # at a barrier at all, so an untouched bar is a real 0 for it
+            # rather than missing data. p_long=0.5 is the honest input --
+            # this bar's live direction probability was not retained, and
+            # inventing one would teach the meta model a fiction.
+            resolved = 1 if abs(raw_label) == 1.0 else 0
+            # Only train the meta model on a bar whose actual p_long we
+            # recorded. Passing a constant here instead would train the model
+            # on a feature that never varies and then score it with one that
+            # does -- a train/serve skew, since blend() appends the live
+            # batch_p_long at inference. Skipping costs warm-up time; faking
+            # it costs correctness in a way nothing would report.
+            recorded_p_long = self._p_long_by_bar.get(ts_key)
+            if recorded_p_long is not None:
+                trainer.learn_meta(feature_vec, p_long=recorded_p_long, label=resolved)
+
+            # Triple-barrier labels are -1/0/+1; the online direction model is
+            # a binary long/short classifier, so a 0 (barrier untouched, no
+            # directional information) is dropped rather than coerced.
+            if raw_label != 0.0:
+                trainer.learn_direction(feature_vec, label=1 if raw_label > 0 else 0)
+            self._last_online_learn_ts = ts_key
+        except Exception as exc:
+            self._log.debug("signal.online_learn_failed", error=str(exc), exc_info=True)
+
+    def _blend_online(
+        self, batch_p_long: float, batch_p_bet: float, vec: pd.Series
+    ) -> tuple[float, float, float]:
+        """
+        Blend batch probabilities with the online learner's view.
+
+        Returns (p_long, p_bet, applied_weight); the batch values come back
+        unchanged when there is no learner or it has not warmed up, so callers
+        can apply the result unconditionally.
+        """
+        trainer = self._online_trainer
+        cols = self._online_feature_cols
+        if trainer is None or cols is None:
+            return batch_p_long, batch_p_bet, 0.0
+        try:
+            projected = vec.reindex(cols).fillna(0.0).to_numpy(dtype=float)
+            prediction = trainer.blend(
+                batch_p_long=batch_p_long,
+                batch_p_bet=batch_p_bet,
+                feature_vec=projected,
+            )
+            return prediction.p_long, prediction.p_bet, prediction.online_weight
+        except Exception as exc:
+            self._log.debug("signal.online_blend_failed", error=str(exc), exc_info=True)
+            return batch_p_long, batch_p_bet, 0.0
+
+    def _cvar_notional_cap(self, bars: pd.DataFrame, capital_usd: float) -> float | None:
+        """
+        Largest notional whose expected tail loss stays inside the CVaR budget.
+
+        CVaR, not VaR: VaR answers "how bad is the 5th percentile", which says
+        nothing about how much worse the other 5% get. A position sized to a
+        VaR limit is sized to the least bad outcome it was trying to survive.
+
+        Returns None -- meaning "no CVaR ceiling" -- when the limit is not
+        configured, when there is too little history for the tail estimate to
+        mean anything, or on any error. A ceiling that cannot be computed must
+        not become a ceiling of zero: this composes with Kelly and the Carver
+        cap, both of which are still in force.
+        """
+        limit_pct = self._cfg.risk.cvar_limit_pct
+        if limit_pct is None:
+            return None
+        try:
+            lookback = self._cfg.risk.cvar_lookback_bars
+            closes = bars["close"].to_numpy(dtype=float)[-(lookback + 1) :]
+            if len(closes) < 101:
+                return None
+            returns = closes[1:] / closes[:-1] - 1.0
+            returns = returns[~pd.isna(returns)]
+            if len(returns) < 100:
+                return None
+
+            result = self._risk_quantifier.value_at_risk(
+                returns,
+                confidence_level=self._cfg.risk.cvar_confidence,
+                method="historical",
+            )
+            cvar = float(result["cvar"])
+            # cvar is a negative return in the loss tail. A non-negative value
+            # means the tail estimate found no loss at all, which is not a
+            # licence to size without limit -- it means the estimate carries no
+            # information, so no ceiling is published.
+            if not math.isfinite(cvar) or cvar >= 0.0:
+                return None
+            return float(limit_pct) * capital_usd / abs(cvar)
+        except Exception as exc:
+            self._log.warning("signal.cvar_cap_failed", error=str(exc), exc_info=True)
+            return None
+
+    async def _persist_intelligence_features(
+        self, bars: pd.DataFrame, metrics: dict[str, float]
+    ) -> None:
+        """
+        Write this tick's intelligence metrics to intelligence_features_history.
+
+        The engine fetches these from the provider aggregator on every tick and,
+        until now, used them only for the current decision and dropped them.
+        `store_intelligence_features()` existed on both storage backends and was
+        called by exactly one thing: scripts/backfill_intelligence.py, run by
+        hand. So in a live deployment the table stayed empty, which silently
+        starves two consumers that expect it to be populated -- the trainer's
+        intelligence feature matrix (GAP-015) and the v7 macro overlay.
+
+        Keyed on the latest bar timestamp, so the several ticks that occur
+        within one bar upsert the same row rather than accumulating duplicates.
+        The aggregator caches for 300s anyway, so those writes mostly carry
+        identical values.
+
+        Best-effort: a storage failure here loses one bar of history, which is
+        recoverable by backfill. Letting it break the tick would trade a
+        recoverable data gap for a missed trading decision.
+        """
+        if not metrics or bars is None or bars.empty:
+            return
+        try:
+            bar_ts = int(bars.index[-1])
+            # "confidence" is the aggregator's own quality score for this
+            # merge, not a feature -- it is stored in its own column, so it
+            # must not also be written as one.
+            features = {k: v for k, v in metrics.items() if k != "confidence"}
+            if not features:
+                return
+            await self._storage.store_intelligence_features(
+                symbol=self._symbol,
+                timeframe=self._timeframe.value,
+                bar_ts=bar_ts,
+                features=features,
+                confidence=float(metrics.get("confidence", 0.0)),
+                source="live",
+            )
+        except Exception as exc:
+            self._log.warning("signal.intel_persist_failed", error=str(exc), exc_info=True)
 
     def _skip(self, reason: str) -> SignalResult:
         self._log.debug("signal.skip", reason=reason)

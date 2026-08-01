@@ -602,6 +602,11 @@ class RiskGateContext:
     # blocked (check_slippage_veto fails open on None — see its docstring).
     expected_edge_bps: float = 0.0
     slippage_estimate: SlippageEstimate | None = None
+    # GAP-003 PerformanceDriftDetector. Typed Any to avoid a gates ->
+    # performance_drift import edge; check_performance_drift already takes Any
+    # and only calls check_drift()/get_live_metrics() on it. None = no detector
+    # supplied = the gate passes, which is how it stays inert until wired.
+    drift_detector: Any = None
 
     # GAP-015 — intelligence gate inputs (gates 9 & 10).
     # Populated from BinanceIntelligenceProvider.fetch_metrics();
@@ -667,6 +672,20 @@ def evaluate_all_gates(
             else GateResult.pass_gate()
         ),
         check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
+        # GAP-003 performance drift. Live-only, matching the paper-minimum-days
+        # gate above and this gate's own contract: halting the paper track on
+        # drift would stop the very run that is meant to be gathering the
+        # evidence about whether the drift persists.
+        #
+        # Grouped with check_live_gate because both answer "is the model still
+        # good enough to trade", as opposed to the position-level checks above
+        # them. Fails open on a None detector, so this is a no-op until the
+        # orchestrator actually supplies one.
+        (
+            check_performance_drift(ctx.drift_detector)
+            if ctx.trading_mode == TradingMode.LIVE
+            else GateResult.pass_gate()
+        ),
         # GAP-015: intelligence gates — fail open (PASS) when data unavailable
         check_exchange_stress(ctx.exchange_stress_score),
         check_whale_activity(ctx.whale_buy_sell_ratio),
@@ -816,7 +835,26 @@ def check_performance_drift(drift_detector: Any) -> GateResult:
     if drift_detector is None:
         return GateResult.pass_gate(details={"reason": "drift_detector_not_enabled"})
 
-    drift = drift_detector.check_drift()
+    try:
+        drift = drift_detector.check_drift()
+    except Exception as exc:
+        # Fail CLOSED, unlike the intelligence gates below. Those fail open
+        # because a third-party feed being down says nothing about our model;
+        # this gate measures our own realized performance, so a check that
+        # cannot run means the model's state is unknown -- and opening a new
+        # position on an unknown model is the exact hazard the gate exists
+        # for. check_drift() already returns drifted=False when it merely
+        # lacks data, so reaching here is a genuine fault, not a cold start.
+        #
+        # Live-only (see evaluate_all_gates), so paper keeps running, and an
+        # operator who needs to trade through it can clear the detector.
+        log.error("gates.drift_check_failed", error=str(exc), exc_info=True)
+        return GateResult.fail(
+            GateStatus.HALT_DRIFT,
+            reason=f"performance drift check failed: {exc}",
+            details={"metric": "unavailable", "error": str(exc)},
+        )
+
     if drift.drifted:
         return GateResult.fail(
             GateStatus.HALT_DRIFT,

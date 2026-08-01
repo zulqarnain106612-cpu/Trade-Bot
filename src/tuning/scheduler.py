@@ -234,6 +234,13 @@ class AutoTuningScheduler:
         # insufficient: return` here previously skipped slippage AND
         # feature-window attempts too whenever entropy had too few closed
         # trades, even though feature-window tuning needs only bar history.
+        # Closed-trade count for the trade half of the runner's cadence guard
+        # (SelfTuningSettings.min_trades_between_attempts). Computed once per
+        # cycle and shared across every attempt below, so all parameters
+        # measure "new evidence since my last attempt" against the same
+        # snapshot rather than drifting apart within one cycle.
+        closed_trade_count = await self._closed_trade_count()
+
         samples = await self._build_trade_samples()
         if len(samples) < _MIN_SAMPLES:
             log.info("tuning.scheduler_insufficient_samples", n_samples=len(samples))
@@ -275,7 +282,12 @@ class AutoTuningScheduler:
                     )
 
                 try:
-                    result = runner.attempt(param_name, evaluate, primary_metric="oos_sharpe")
+                    result = runner.attempt(
+                        param_name,
+                        evaluate,
+                        primary_metric="oos_sharpe",
+                        closed_trade_count=closed_trade_count,
+                    )
                     log.info(
                         "tuning.scheduler_attempt",
                         param=param_name,
@@ -314,6 +326,7 @@ class AutoTuningScheduler:
                     "risk.slippage_impact_coeff_bps",
                     evaluate_slippage,
                     primary_metric="slippage_prediction_accuracy",
+                    closed_trade_count=closed_trade_count,
                 )
                 log.info(
                     "tuning.scheduler_attempt",
@@ -360,6 +373,15 @@ class AutoTuningScheduler:
                         )
 
                     try:
+                        # closed_trade_count is deliberately NOT passed here.
+                        # min_trades_between_attempts is a "has enough new
+                        # evidence accumulated" guard, and for this group the
+                        # evidence is bar history, not trades -- these
+                        # parameters are evaluated by a bar-driven backtest.
+                        # Gating them on trade flow would stall bar-driven
+                        # tuning through any quiet period, and would repeat the
+                        # cross-group coupling the note at the top of
+                        # _attempt_all() exists to prevent.
                         result = runner.attempt(
                             param_name, evaluate_feature_window, primary_metric="oos_sharpe"
                         )
@@ -473,6 +495,26 @@ class AutoTuningScheduler:
             },
             index=[b.ts for b in bars],
         )
+
+    async def _closed_trade_count(self) -> int | None:
+        """
+        Number of closed trades on record, or None when it cannot be read.
+
+        None rather than 0 on failure: 0 would read as "no new evidence since
+        the last attempt" and block tuning indefinitely on a storage hiccup,
+        while the runner treats None as "this guard cannot claim a verdict"
+        and falls back to the wall-clock cooldown alone.
+        """
+        try:
+            trades = await self._storage.fetch_trades(
+                symbol=self._symbol,
+                trading_mode=self._settings.trading_mode.value,
+                limit=1_000_000,
+            )
+            return len(trades)
+        except Exception as exc:
+            log.warning("tuning.closed_trade_count_failed", error=str(exc), exc_info=True)
+            return None
 
     async def _build_slippage_samples(self) -> list[SlippageFillSample]:
         trades = await self._storage.fetch_trades(

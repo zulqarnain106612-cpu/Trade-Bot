@@ -343,15 +343,25 @@ def test_get_order_exchange_raises_before_init():
 
 
 def test_get_sem_lazy_creates():
+    """
+    First access creates the semaphore; every later access returns that same
+    object, which is what makes it a shared concurrency limit rather than a
+    fresh unlimited one per call.
+
+    This test previously wrapped the call in ``asyncio.coroutine(...)`` --
+    removed in Python 3.11, which this project targets -- inside a bare
+    ``except Exception: pass``. It raised AttributeError before reaching
+    _get_sem, swallowed it, and passed unconditionally. _get_sem is a plain
+    synchronous method and needs no event loop at all.
+    """
     f = _make_fetcher()
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(asyncio.coroutine(lambda: f._get_sem())())
-    except Exception:
-        # run_until_complete approach won't work with new_event_loop outside context
-        pass
-    finally:
-        loop.close()
+    assert f._gap_fill_sem is None, "semaphore should not exist before first access"
+
+    first = f._get_sem()
+    assert isinstance(first, asyncio.Semaphore)
+    assert f._gap_fill_sem is first
+
+    assert f._get_sem() is first, "repeated access must not replace the semaphore"
 
 
 @pytest.mark.asyncio

@@ -136,8 +136,9 @@ async def verify_ws_key(ws: WebSocket) -> Role:
     """
     Validate API key on a WebSocket upgrade request.
 
-    Reads X-Api-Key from headers; closes the socket with 4401 if missing or
-    invalid. The socket is a broadcast-only status stream, so a read-only
+    Reads X-Api-Key from the headers, falling back to an ``api_key`` query
+    parameter for browser clients, which cannot set upgrade headers. Closes
+    the socket with 4401 if missing or invalid. The socket is a broadcast-only status stream, so a read-only
     key is accepted here — the returned Role is what callers must consult
     before honouring anything a client sends back over the socket.
     """
@@ -148,7 +149,19 @@ async def verify_ws_key(ws: WebSocket) -> Role:
         await ws.close(code=4503)
         raise
 
-    client_key = ws.headers.get(_HEADER_NAME, "")
+    # Header first, query parameter second. Browsers cannot set headers on a
+    # WebSocket upgrade -- the API is fixed by the WHATWG spec -- so the
+    # dashboard has always sent the key as ?api_key=..., while this function
+    # read only the header. Every browser connection was closed 4401, which
+    # is invisible in practice because the REST polling that populates most
+    # of the UI does set the header and keeps working.
+    #
+    # The query form is accepted only as a fallback, and it is genuinely
+    # weaker: query strings routinely appear in proxy and access logs where
+    # headers do not. Clients that CAN set a header still get the stronger
+    # path, and the server binds loopback unless an operator overrides
+    # API_HOST (see main.py's lifespan check).
+    client_key = ws.headers.get(_HEADER_NAME, "") or ws.query_params.get("api_key", "")
     if client_key:
         supplied = client_key.encode("utf-8")
         is_primary = hmac.compare_digest(supplied, expected.encode("utf-8"))

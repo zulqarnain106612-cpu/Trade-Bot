@@ -85,7 +85,10 @@ def test_re_enable_clears_disabled_state() -> None:
     mgr.evaluate("strat_a")
     assert not mgr.is_enabled("strat_a")
 
-    mgr.re_enable("strat_a")
+    # force=True: re_enable now runs the v6 promotion gauntlet, and this
+    # strategy has no attributed track record for it to evaluate. The
+    # gauntlet-enforced paths are covered in test_promotion_gauntlet_wiring.
+    mgr.re_enable("strat_a", force=True)
     assert mgr.is_enabled("strat_a")
     assert mgr.disabled_reason("strat_a") == ""
 
