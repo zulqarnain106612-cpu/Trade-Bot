@@ -714,6 +714,67 @@ class MarketDataFetcher:
             # Spot symbol or exchange doesn't support funding rates — not an error.
             return 0.0
 
+    # ------------------------------------------------------------------
+    # Exchange-truth holdings snapshot — disaster-recovery reconciliation
+    # ------------------------------------------------------------------
+
+    async def fetch_exchange_holdings(self, symbols: list[str]) -> dict[str, float] | None:
+        """
+        Base-asset balances for *symbols*, as the order exchange reports them.
+
+        Used to reconcile local state against exchange truth after a restart
+        (src/diagnostics/disaster_recovery.py). Holdings are read, never
+        inferred.
+
+        Balances, not ``fetch_positions``: both exchanges here are built with
+        ``defaultType="spot"`` (see _build_binance/_build_okx), and a spot
+        account has no positions endpoint — a long BTC/USDT "position" is
+        simply a BTC balance. Quantities are therefore never negative; a
+        local short recorded against a spot venue is itself a discrepancy
+        worth surfacing.
+
+        Scoped to *symbols* rather than returning the whole balance sheet:
+        the bot's mandate is the symbols it trades, and an unrelated asset
+        sitting in the account is not evidence that its own book is wrong.
+
+        Returns
+        -------
+        dict[str, float] | None
+            {symbol: base-asset quantity} for every requested symbol, or None
+            when the snapshot could not be obtained.
+
+        None, not {}: an empty mapping is the assertion "the exchange holds
+        nothing", which would make every local position look like a
+        MISSING_ON_EXCHANGE discrepancy. An unavailable snapshot is not
+        evidence of a flat account, and reconciliation must be able to tell
+        the two apart.
+        """
+        if not symbols:
+            return {}
+        exchange = self.get_order_exchange()
+        try:
+            balance: dict[str, Any] = await _with_retry(
+                lambda: exchange.fetch_balance(),
+                label="binance.fetch_balance",
+            )
+        except Exception as exc:
+            log.error("fetch.balance_failed", error=str(exc), exc_info=True)
+            return None
+
+        # "total" is free + locked-in-orders. Locked quantity is still owned,
+        # so excluding it would under-report the book by exactly the amount
+        # sitting in a resting order.
+        totals = balance.get("total") or {}
+        holdings: dict[str, float] = {}
+        for symbol in symbols:
+            base = str(symbol).split("/")[0].split(":")[0]
+            raw = totals.get(base)
+            try:
+                holdings[symbol] = float(raw) if raw is not None else 0.0
+            except (TypeError, ValueError):
+                holdings[symbol] = 0.0
+        return holdings
+
 
 # ---------------------------------------------------------------------------
 # Raw OHLCV → BarRecord conversion
