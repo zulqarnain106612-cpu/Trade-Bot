@@ -2,21 +2,18 @@
 API authentication — API key validation for REST and WebSocket.
 
 All routes and the WebSocket endpoint require the X-API-Key header
-to match one of two configured keys:
+to match the API_SECRET_KEY environment variable.
 
-  - ``API_SECRET_KEY``   → Role.TRADE_AUTHORIZING (full access)
-  - ``API_READONLY_KEY`` → Role.READ_ONLY (optional; view-only access)
+Comparison uses hmac.compare_digest to prevent timing-oracle attacks.
 
-``API_READONLY_KEY`` is optional. When unset, the only accepted key is
-``API_SECRET_KEY`` and every authenticated caller is trade-authorizing —
-identical to the single-key model that preceded this. When set it must
-satisfy the same length floor and must differ from ``API_SECRET_KEY``,
-otherwise startup fails closed rather than silently collapsing the two
-roles into one.
-
-Comparison uses hmac.compare_digest to prevent timing-oracle attacks, and
-both keys are always compared (no short-circuit) so the response time does
-not reveal which key matched.
+Role resolution (src/api/access_control.py) is layered on top and is
+strictly opt-in: with only API_SECRET_KEY configured — the deployment shape
+that exists today — every authenticated caller resolves to
+Role.TRADE_AUTHORIZING, which is byte-for-byte the current behaviour.
+Setting the optional API_READONLY_KEY introduces a second, separate key
+that authenticates successfully but resolves to Role.READ_ONLY, so
+permission-gated endpoints reject it. Adding a key can therefore only ever
+remove authority from a caller, never grant it.
 """
 
 from __future__ import annotations
@@ -33,6 +30,9 @@ from src.api.access_control import Role
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _HEADER_NAME = "x-api-key"
+
+# Optional second key. Unset = single-key deployment = no role downgrade.
+_READONLY_KEY_ENV = "API_READONLY_KEY"
 
 
 _MIN_KEY_LENGTH = 32  # 256-bit minimum — equivalent to openssl rand -hex 32
@@ -63,46 +63,45 @@ def _get_configured_key() -> str:
     return key
 
 
-def _key_matches(supplied: bytes, key: str | None) -> bool:
-    """Constant-time comparison; an unconfigured (None) key never matches."""
-    return key is not None and hmac.compare_digest(supplied, key.encode("utf-8"))
-
-
 def _get_readonly_key() -> str | None:
     """
-    Return the optional read-only API key from environment, or None.
+    Return the optional read-only API key, or None when not configured.
 
-    Raises RuntimeError if the key is set but unusable:
-      - shorter than _MIN_KEY_LENGTH characters (weak key), or
-      - identical to API_SECRET_KEY (would silently grant full access to a
-        caller the operator believes is read-only).
+    Raises RuntimeError when it is configured but unusable:
+      - shorter than _MIN_KEY_LENGTH (a weak key is still a key), or
+      - identical to API_SECRET_KEY, which would make the two roles
+        indistinguishable. That is a silent privilege question, so it fails
+        loudly at request time rather than resolving to a guessed role.
     """
-    key = os.environ.get("API_READONLY_KEY", "").strip()
+    key = os.environ.get(_READONLY_KEY_ENV, "").strip()
     if not key:
         return None
     if len(key) < _MIN_KEY_LENGTH:
         raise RuntimeError(
-            f"API_READONLY_KEY is too short ({len(key)} chars). "
+            f"{_READONLY_KEY_ENV} is too short ({len(key)} chars). "
             f"Minimum {_MIN_KEY_LENGTH} characters required. "
             "Generate a strong key with: openssl rand -hex 32"
         )
     if hmac.compare_digest(key.encode("utf-8"), _get_configured_key().encode("utf-8")):
         raise RuntimeError(
-            "API_READONLY_KEY must differ from API_SECRET_KEY — identical keys "
-            "would grant trade-authorizing access to read-only clients."
+            f"{_READONLY_KEY_ENV} is identical to API_SECRET_KEY — the read-only "
+            "and trade-authorizing roles would be indistinguishable."
         )
     return key
 
 
-def resolve_role(api_key: str | None) -> Role:
+def verify_api_key(api_key: str | None) -> Role:
     """
-    Authenticate a client-supplied API key and return the role it carries.
+    Validate a client-supplied API key against the configured secret(s).
 
-    Raises HTTP 401 if missing or matching neither configured key, and
-    HTTP 503 if the server keys are missing/misconfigured.
+    Returns the Role the key authenticates as. Callers that only need
+    authentication may ignore the return value — the raise-on-failure
+    contract is unchanged.
 
-    Both comparisons run unconditionally so the elapsed time does not leak
-    which of the two keys was presented.
+    Raises HTTP 401 if missing or wrong, HTTP 503 if the server's own key
+    configuration is unusable. Uses hmac.compare_digest to prevent timing
+    attacks, and always compares against BOTH keys before deciding, so the
+    response time does not reveal which key matched.
     """
     try:
         expected = _get_configured_key()
@@ -114,38 +113,33 @@ def resolve_role(api_key: str | None) -> Role:
             detail="Server authentication not configured.",
         ) from exc
 
-    supplied = (api_key or "").encode("utf-8")
-    is_trade = _key_matches(supplied, expected)
-    is_readonly = _key_matches(supplied, readonly)
-
-    if api_key is None or not (is_trade or is_readonly):
-        log.warning("auth.invalid_key")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key.",
-            headers={"WWW-Authenticate": "ApiKey"},
+    if api_key is not None:
+        supplied = api_key.encode("utf-8")
+        is_primary = hmac.compare_digest(supplied, expected.encode("utf-8"))
+        is_readonly = readonly is not None and hmac.compare_digest(
+            supplied, readonly.encode("utf-8")
         )
-    return Role.TRADE_AUTHORIZING if is_trade else Role.READ_ONLY
+        if is_primary:
+            return Role.TRADE_AUTHORIZING
+        if is_readonly:
+            return Role.READ_ONLY
+
+    log.warning("auth.invalid_key")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing API key.",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
 
 
-def verify_api_key(api_key: str | None) -> None:
-    """
-    Validate a client-supplied API key against the configured secret(s).
-
-    Raises HTTP 401 if missing or wrong. Accepts either configured key —
-    authorization (what the role may *do*) is enforced separately by the
-    permission dependencies in src/api/main.py.
-    """
-    resolve_role(api_key)
-
-
-async def verify_ws_key(ws: WebSocket) -> None:
+async def verify_ws_key(ws: WebSocket) -> Role:
     """
     Validate API key on a WebSocket upgrade request.
 
-    Reads X-Api-Key from headers; closes the socket with 4401
-    if missing or invalid. Either configured key is accepted — the socket
-    is a read-only broadcast stream, so READ_ONLY suffices.
+    Reads X-Api-Key from headers; closes the socket with 4401 if missing or
+    invalid. The socket is a broadcast-only status stream, so a read-only
+    key is accepted here — the returned Role is what callers must consult
+    before honouring anything a client sends back over the socket.
     """
     try:
         expected = _get_configured_key()
@@ -155,10 +149,17 @@ async def verify_ws_key(ws: WebSocket) -> None:
         raise
 
     client_key = ws.headers.get(_HEADER_NAME, "")
-    supplied = client_key.encode("utf-8")
-    is_trade = _key_matches(supplied, expected)
-    is_readonly = _key_matches(supplied, readonly)
-    if not client_key or not (is_trade or is_readonly):
-        log.warning("auth.ws_invalid_key", client=str(ws.client))
-        await ws.close(code=4401)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    if client_key:
+        supplied = client_key.encode("utf-8")
+        is_primary = hmac.compare_digest(supplied, expected.encode("utf-8"))
+        is_readonly = readonly is not None and hmac.compare_digest(
+            supplied, readonly.encode("utf-8")
+        )
+        if is_primary:
+            return Role.TRADE_AUTHORIZING
+        if is_readonly:
+            return Role.READ_ONLY
+
+    log.warning("auth.ws_invalid_key", client=str(ws.client))
+    await ws.close(code=4401)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")

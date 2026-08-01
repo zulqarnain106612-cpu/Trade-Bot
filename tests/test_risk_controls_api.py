@@ -441,9 +441,10 @@ def api_client():
     api_main._state.ready = True
 
     api_main.app.dependency_overrides[api_main.api_key_header] = lambda: None
-    # Routes gated on a permission resolve the role instead of calling
-    # api_key_header; override that too or they 401 with no header.
-    api_main.app.dependency_overrides[api_main.current_role] = lambda: (
+    # The mutating endpoints now also depend on resolve_role (RBAC).
+    # Overriding api_key_header alone leaves that dependency live and
+    # every POST answers 401 with no API_SECRET_KEY configured.
+    api_main.app.dependency_overrides[api_main.resolve_role] = lambda: (
         api_main.Role.TRADE_AUTHORIZING
     )
     api_main.app.dependency_overrides[api_main.require_ready] = lambda: None
