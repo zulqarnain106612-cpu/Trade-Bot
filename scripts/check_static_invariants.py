@@ -257,6 +257,179 @@ def check_every_gate_status_is_reachable() -> list[str]:
     ]
 
 
+def _migration_versions(path: Path, list_name: str) -> list[tuple[int, int]]:
+    """(version, lineno) for every tuple literal in a migration list."""
+    for node in ast.walk(_parse(path)):
+        if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+            continue
+        if node.target.id != list_name or not isinstance(node.value, (ast.List, ast.Tuple)):
+            continue
+        return [
+            (entry.elts[0].value, entry.lineno)
+            for entry in node.value.elts
+            if isinstance(entry, ast.Tuple)
+            and entry.elts
+            and isinstance(entry.elts[0], ast.Constant)
+            and isinstance(entry.elts[0].value, int)
+        ]
+    return []
+
+
+def check_migration_versions() -> list[str]:
+    """
+    Two migrations sharing a version number is unrecoverable in the field.
+
+    Migrations are applied forward-only and skipped once the recorded schema
+    version is at or past them, so a database that applied one of a colliding
+    pair will never apply the other — and nothing reports it. Two branches
+    open at once both taking the next free number is the normal way this
+    happens; it happened here on 2026-08-01 with two v6 migrations.
+
+    The SQLite and TimescaleDB backends must also stay in lockstep: they are
+    interchangeable behind AnyStorageBackend, so a version present in one and
+    absent from the other means the same code meets two different schemas.
+    """
+    backends = (
+        (SRC / "data" / "storage.py", "_MIGRATIONS"),
+        (SRC / "data" / "timescale_storage.py", "_PG_MIGRATIONS"),
+    )
+    problems: list[str] = []
+    seen: dict[str, set[int]] = {}
+
+    for path, list_name in backends:
+        versions = _migration_versions(path, list_name)
+        if not versions:
+            problems.append(f"{_rel(path)}: could not read {list_name} — check moved or renamed")
+            continue
+        counts: dict[int, list[int]] = defaultdict(list)
+        for version, lineno in versions:
+            counts[version].append(lineno)
+        for version, lines in sorted(counts.items()):
+            if len(lines) > 1:
+                at = ", ".join(f"line {line}" for line in lines)
+                problems.append(f"{_rel(path)}: migration version {version} defined twice ({at})")
+        seen[_rel(path)] = {v for v, _ in versions}
+
+    if len(seen) == 2:
+        (a_name, a), (b_name, b) = seen.items()
+        problems.extend(f"migration {m} is in {a_name} but not {b_name}" for m in sorted(a - b))
+        problems.extend(f"migration {m} is in {b_name} but not {a_name}" for m in sorted(b - a))
+    return problems
+
+
+def check_enum_members_exist() -> list[str]:
+    """
+    ``SomeEnum.RENAMED_AWAY`` raises AttributeError only when that line runs.
+
+    Renaming a member is a one-line change in the enum and an unbounded
+    number of call sites elsewhere, and nothing links them. Two branches
+    make it worse: one renames, the other adds a reference to the old name,
+    and the merge is textually clean. That is exactly how
+    ``DiscrepancyType.MISSING_ON_EXCHANGE`` survived into a merged branch.
+    """
+    members: dict[str, set[str]] = {}
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = {b.id for b in node.bases if isinstance(b, ast.Name)}
+            bases |= {b.attr for b in node.bases if isinstance(b, ast.Attribute)}
+            if not bases & {"Enum", "StrEnum", "IntEnum", "Flag", "IntFlag"}:
+                continue
+            members[node.name] = {
+                target.id
+                for stmt in node.body
+                for target in (
+                    stmt.targets
+                    if isinstance(stmt, ast.Assign)
+                    else [stmt.target]
+                    if isinstance(stmt, ast.AnnAssign)
+                    else []
+                )
+                if isinstance(target, ast.Name)
+            }
+
+    problems: list[str] = []
+    for root in (SRC, REPO / "tests"):
+        for path in _py_files(root):
+            for node in ast.walk(_parse(path)):
+                if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+                    continue
+                known = members.get(node.value.id)
+                # Only flag SHOUTY_CASE, which is unambiguously a member
+                # reference; lowercase attributes are methods and properties
+                # that Enum subclasses are free to define.
+                if known and node.attr.isupper() and node.attr not in known:
+                    problems.append(
+                        f"{_rel(path)}:{node.lineno}: "
+                        f"{node.value.id}.{node.attr} is not a member of {node.value.id}"
+                    )
+    return problems
+
+
+def _keyword_only_safe_signatures() -> dict[str, set[str] | None]:
+    """
+    Accepted keyword names per ``ClassName.__init__`` / top-level function.
+
+    None means "accepts anything" — the target takes ``**kwargs``, so no
+    conclusion can be drawn and the call is not checked.
+    """
+    accepted: dict[str, set[str] | None] = {}
+    for path in _py_files(SRC):
+        tree = _parse(path)
+        targets: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                targets.append((node.name, node))
+            elif isinstance(node, ast.ClassDef):
+                targets.extend(
+                    (node.name, stmt)
+                    for stmt in node.body
+                    if isinstance(stmt, ast.FunctionDef) and stmt.name == "__init__"
+                )
+        for name, fn in targets:
+            if fn.args.kwarg is not None:
+                accepted[name] = None
+                continue
+            names = {a.arg for a in (*fn.args.args, *fn.args.posonlyargs, *fn.args.kwonlyargs)}
+            names.discard("self")
+            # A name defined in two modules with different signatures cannot
+            # be resolved without real import machinery, so it is dropped
+            # rather than guessed at.
+            accepted[name] = None if name in accepted and accepted[name] != names else names
+    return accepted
+
+
+def check_keyword_arguments_match_signatures() -> list[str]:
+    """
+    ``Thing(renamed_kwarg=...)`` is a TypeError only on the line that runs.
+
+    Same shape as the enum check and the same origin: a constructor keyword
+    renamed on one branch while another branch adds call sites using the old
+    name. ``OptionsCarryStrategy(caps=...)`` against a signature that had
+    become ``greeks_caps=`` cost a full CI round on 2026-08-01.
+
+    Resolution is by bare name, not by import, so anything ambiguous across
+    modules is skipped rather than guessed.
+    """
+    accepted = _keyword_only_safe_signatures()
+    problems: list[str] = []
+    for root in (SRC, REPO / "tests"):
+        for path in _py_files(root):
+            for node in ast.walk(_parse(path)):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                allowed = accepted.get(node.func.id)
+                if not allowed:  # unknown target, or **kwargs, or no named params
+                    continue
+                problems.extend(
+                    f"{_rel(path)}:{node.lineno}: {node.func.id}() has no parameter {keyword.arg!r}"
+                    for keyword in node.keywords
+                    if keyword.arg is not None and keyword.arg not in allowed
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("positional column slices", check_positional_column_slices),
@@ -264,6 +437,9 @@ CHECKS = (
     ("orphan asyncio tasks", check_no_orphan_tasks),
     ("unread settings", check_settings_are_read),
     ("unreachable gate statuses", check_every_gate_status_is_reachable),
+    ("migration versions", check_migration_versions),
+    ("enum members", check_enum_members_exist),
+    ("keyword arguments", check_keyword_arguments_match_signatures),
 )
 
 
