@@ -45,6 +45,9 @@ class StrategyRuntimeState:
     enabled: bool = True
     disabled_reason: str = ""
     disabled_at_ms: int = 0
+    # Trade count at the last CUSUM update, so evaluate() can tell a fresh
+    # observation from a re-poll of the same window.
+    decay_trades_seen: int = 0
 
 
 class StrategyKillSwitchManager:
@@ -105,8 +108,17 @@ class StrategyKillSwitchManager:
         # the CUSUM decay detector. current_rolling_sharpe() returns None
         # before the minimum live-trade window fills, matching check_drift's
         # own guard — nothing to accumulate yet in that case.
+        #
+        # Gate the update on the live-trade count having advanced. evaluate()
+        # is a poll and its docstring invites repeated calls; feeding the
+        # unchanged rolling Sharpe on every call made the CUSUM accumulate
+        # at the polling rate, so a strategy sitting a hair below baseline
+        # crossed the decision threshold after N ticks with no new trades at
+        # all. CUSUM is only a persistence test if one trade moves it once.
         rolling_sharpe = state.detector.current_rolling_sharpe()
-        if rolling_sharpe is not None:
+        trades_recorded = state.detector.total_live_trades
+        if rolling_sharpe is not None and trades_recorded > state.decay_trades_seen:
+            state.decay_trades_seen = trades_recorded
             state.decay_detector.update(rolling_sharpe)
             if state.decay_detector.is_decayed:
                 log.warning(
@@ -177,6 +189,18 @@ class StrategyKillSwitchManager:
         promotion gauntlet for full re-evaluation.
         """
         return self._require_state(strategy_id).decay_detector.is_decayed
+
+    def decay_statistic(self, strategy_id: str) -> tuple[float, int]:
+        """
+        The raw CUSUM statistic and the number of observations behind it.
+
+        Exposed alongside the is_structurally_decayed() boolean so callers
+        and operators can see how much evidence has accumulated rather than
+        only whether it crossed the threshold — the observation count is
+        also what distinguishes real accumulation from repeated polling.
+        """
+        detector = self._require_state(strategy_id).decay_detector
+        return detector.cusum_statistic, detector.observation_count
 
     def _require_state(self, strategy_id: str) -> StrategyRuntimeState:
         state = self._states.get(strategy_id)
