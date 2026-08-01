@@ -265,12 +265,16 @@ def recommend_position_notional(
     kelly_ceiling: float = 0.25,
 ) -> dict[str, float]:
     """
-    Run all four sizing methods and return the minimum (most conservative).
+    Run the three sizing methods, take the minimum (most conservative), then
+    apply the AFML Ch.16 correlation haircut to that minimum.
 
     This implements the Carver (2019) principle of "whichever method gives
-    the smaller position" — reduces risk of oversizing in any single framework.
+    the smaller position" — reduces risk of oversizing in any single framework
+    — and keeps the concentration control binding regardless of which method
+    won.
 
-    Returns dict with each method's notional and the recommended notional.
+    Returns dict with each method's notional, the correlation-adjusted
+    minimum, and the recommended notional.
     """
     thorp = thorp_kelly_with_variance(
         win_prob,
@@ -288,13 +292,19 @@ def recommend_position_notional(
         daily_vol_pct,
         price,
     )
-    corr_adj_thorp = correlation_adjusted_notional(thorp, avg_book_correlation)
+    # The correlation haircut applies to whichever method actually wins the
+    # min, not to the Thorp leg alone. Adjusting thorp and *then* taking the
+    # min meant a book at 0.95 correlation got the full, unreduced size
+    # whenever Carver or AFML was the binding constraint — the concentration
+    # control silently did nothing in exactly the cases it did not choose.
+    raw_min = min(thorp, afml, carver)
+    corr_adjusted = correlation_adjusted_notional(raw_min, avg_book_correlation)
 
     notionals = {
         "thorp_kelly": round(thorp, 2),
         "afml_bet_size": round(afml, 2),
         "carver_forecast": round(carver, 2),
-        "correlation_adjusted": round(corr_adj_thorp, 2),
+        "correlation_adjusted": round(corr_adjusted, 2),
     }
 
     # UI-007: the most conservative (minimum) of the four methods, floored
@@ -306,7 +316,6 @@ def recommend_position_notional(
     # was no edge. The floor exists only to avoid recommending a real but
     # sub-exchange-minimum notional (e.g. $0.03), not to manufacture a
     # trade out of no edge.
-    raw_min = min(thorp, afml, carver, corr_adj_thorp)
-    recommended = 0.0 if raw_min <= 0.0 else max(_MIN_NOTIONAL_USD, raw_min)
+    recommended = 0.0 if corr_adjusted <= 0.0 else max(_MIN_NOTIONAL_USD, corr_adjusted)
     notionals["recommended"] = round(recommended, 2)
     return notionals

@@ -538,6 +538,40 @@ class TestRecommendPositionNotional:
             avg_book_correlation=0.95,
         )
         assert result_high_corr["correlation_adjusted"] <= result_low_corr["correlation_adjusted"]
+        # The haircut must reach the recommendation, not just the reported
+        # intermediate — it applies to the winning method whichever it is.
+        assert result_high_corr["recommended"] < result_low_corr["recommended"]
+
+    def test_correlation_haircut_binds_when_carver_is_the_minimum(self):
+        """A tiny forecast makes Carver the binding method; the correlation
+        haircut must still reduce the recommendation."""
+        kwargs = {
+            "capital_usd": 1_000_000.0,
+            "price": 100.0,
+            "p_long": 0.9,
+            "win_prob": 0.7,
+            "win_loss_ratio": 2.0,
+            "forecast": 0.5,
+            "daily_vol_pct": 0.02,
+        }
+        low = recommend_position_notional(**kwargs, avg_book_correlation=0.0)
+        high = recommend_position_notional(**kwargs, avg_book_correlation=0.95)
+        assert low["carver_forecast"] < low["thorp_kelly"]
+        assert low["carver_forecast"] < low["afml_bet_size"]
+        assert high["recommended"] < low["recommended"]
+
+    def test_perfect_correlation_recommends_zero(self):
+        result = recommend_position_notional(
+            capital_usd=10000.0,
+            price=100.0,
+            p_long=0.8,
+            win_prob=0.65,
+            win_loss_ratio=1.8,
+            forecast=15.0,
+            daily_vol_pct=0.02,
+            avg_book_correlation=1.0,
+        )
+        assert result["recommended"] == 0.0
 
     def test_all_values_are_floats(self):
         result = recommend_position_notional(
