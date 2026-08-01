@@ -238,12 +238,12 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,                 -- profit_target|stop_loss|time_exit|manual
     approved_by     TEXT,                 -- operator id or 'auto'
     raw_signal      REAL,                 -- XGBoost primary probability
-    -- The two inputs to the ensemble blend and the weight that combined them
-    -- (migration v7). NULL means no blend happened, which is distinct from a
-    -- blend at weight 0.0 — the tuning harness needs to tell those apart.
-    pre_blend_p_long      REAL,
-    ensemble_p_long       REAL,
-    ensemble_blend_weight REAL,
+    -- pre_blend_p_long / ensemble_p_long / ensemble_blend_weight are added by
+    -- migration v7, not declared here. SQLite has no ADD COLUMN IF NOT EXISTS,
+    -- so a column that appears in both this DDL and a migration makes every
+    -- fresh database fail on "duplicate column name" — which is why no
+    -- post-v0 column is declared here. The Postgres DDL can list them because
+    -- its migrations are idempotent.
     created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 );
 CREATE INDEX IF NOT EXISTS idx_trades_sym_ts
