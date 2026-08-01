@@ -36,6 +36,64 @@ outcome a ceiling must never produce.
 `adjusted_fraction` is now recomputed from the capped notional. Both
 executors write it into the trade record, so leaving the pre-cap value
 booked a Kelly fraction the position never had.
+## 2026-07-31 — risk gates: a NaN measurement passed every gate it was fed to
+
+`src/risk/gates.py` had no finiteness checks anywhere in 993 lines, while
+`src/risk/kelly.py` one layer down had been systematically hardened against
+exactly this (VF-024/026/027/028/029/030). The gates are the last check
+before an order, so failing open there is the more serious of the two:
+kelly.py can only mis-size a trade the gates already approved.
+
+IEEE-754 makes **every** comparison against NaN False, so an unguarded NaN
+does not trip a threshold — it passes through it. `<= 0.0` guards do not
+help for the same reason, which is why the existing `capital_usd <= 0.0` and
+`starting_equity_usd <= 0.0` checks did not catch it.
+
+Concretely, before this change:
+
+- `check_position_size` — a NaN notional gives `nan / capital = nan`, and
+  `nan > max_position_size_pct` is False. **A position of unknown size was
+  approved.**
+- `check_daily_drawdown` — a NaN equity or PnL gives `nan <= threshold` =
+  False. The drawdown halt could not fire.
+- `check_slippage_veto` — `nan <= 0.0` is False, so a trade whose execution
+  cost was unknown cleared the negative-EV veto.
+- `check_exchange_stress` — `nan > halt_threshold` is False, so the most
+  stressed possible reading passed the contagion halt.
+- `check_position_exit` — stop-loss, trailing stop and take-profit are all
+  comparisons against `unrealized_pnl_pct`, so **one NaN mark disabled all
+  three at once**, leaving the position unprotected until the time exit.
+
+"Cannot be measured" now means "blocked", never "within limits". The one
+gate whose failure is advisory rather than a halt (whale activity) reduces
+size instead of halting, preserving its existing semantics.
+
+`None` and NaN are deliberately kept distinct: `None` means no data was
+fetched and continues to fail open by design, NaN means data arrived and is
+garbage. Same distinction as the disaster-recovery reconciliation's
+`None`-vs-`[]`.
+
+`check_position_exit` gained an `"invalid_mark"` reason rather than reusing
+`"stop_loss"`, so the trade record does not claim a stop-loss that was never
+measured. The orchestrator passes the reason through opaquely, so no caller
+change was needed.
+
+**`CapitalPreservationFloor` has the same defect with a worse blast radius**,
+so it is fixed here too. It holds the only copy of its peak-equity state, so
+a corrupt mark is not a one-tick fault — it is permanent:
+
+- `equity_usd < 0.0` is False for NaN, so the existing guard misses it and
+  `drawdown_pct` computes to NaN, which never trips the floor.
+- `inf` is worse and it persists. `max(peak, inf)` sets `_peak_equity = inf`,
+  after which every drawdown is `(inf - equity) / inf = nan`. **One bad mark
+  silently disables the outermost backstop for the life of the process.**
+
+`update_equity()` now raises on a non-finite mark, keeping it out of
+`_peak_equity` entirely, and the signal engine's gate-0 call site converts
+that into a skipped tick (`invalid_equity_mark`) rather than letting it
+escape `tick()`. A tick whose equity cannot be read is one that must not
+trade, and nothing downstream would have noticed a floor that had quietly
+stopped working.
 
 ## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
 
