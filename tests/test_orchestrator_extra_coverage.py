@@ -1015,13 +1015,17 @@ class TestTrainModelsRemainingBranches:
         )
 
     @pytest.mark.asyncio
-    async def test_ensemble_train_exception_falls_back_to_none_and_still_swaps(self):
+    async def test_ensemble_train_exception_falls_back_to_none_and_still_shadows(self):
         """train_ensemble()/save_ensemble() failing must not block the
         direction/meta models -- which already trained/saved successfully --
-        from being hot-swapped in with ensemble=None."""
+        from reaching the shadow slot with ensemble=None.
+
+        Shadow mode is on by default, so a bundle that clears the live gate is
+        shadowed rather than swapped; the ensemble fallback being carried
+        through is what this covers either way."""
         orch = self._orch_for_train()
         existing_engine = AsyncMock()
-        existing_engine.swap_models = AsyncMock(return_value=None)
+        existing_engine.set_shadow_bundle = AsyncMock(return_value=None)
         orch._engines[Timeframe.INTRADAY.value] = existing_engine
 
         fm = MagicMock()
