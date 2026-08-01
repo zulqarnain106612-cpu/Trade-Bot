@@ -228,11 +228,12 @@ def risk_parity_allocate(
     try:
         tracker = get_attribution_tracker()
         snapshot = tracker.snapshot()
-        # Build per-strategy P&L series for vol computation.
-        pnl_series: dict[str, list[float]] = {s.strategy_id: [] for s in active}
-        for fill in tracker._fills:
-            if fill.strategy_id in pnl_series:
-                pnl_series[fill.strategy_id].append(fill.pnl_usd)
+        # Build per-strategy P&L series for vol computation. fills_for() is
+        # the public accessor and reads only that strategy's retained window,
+        # so this no longer scans every fill in the process for each caller.
+        pnl_series: dict[str, list[float]] = {
+            s.strategy_id: [f.pnl_usd for f in tracker.fills_for(s.strategy_id)] for s in active
+        }
     except Exception as exc:
         log.warning("allocator.risk_parity_attribution_failed", error=str(exc), exc_info=True)
         return equal_weight_allocate(strategies, enabled_ids)

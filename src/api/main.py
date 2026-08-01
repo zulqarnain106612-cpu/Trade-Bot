@@ -1809,7 +1809,11 @@ async def get_strategy_gauntlet() -> dict[str, Any]:
     candidates: dict[str, Any] = {}
     for strategy_id in tracker.snapshot():
         observation = observation_from_fills(
-            strategy_id, tracker.fills_for(strategy_id), equity_usd
+            strategy_id,
+            tracker.fills_for(strategy_id),
+            equity_usd,
+            first_entry_ms=tracker.first_entry_ts_for(strategy_id),
+            lifetime_trade_count=tracker.lifetime_trade_count(strategy_id),
         )
         result = evaluate_gauntlet(observation, criteria)
         candidates[strategy_id] = {

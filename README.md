@@ -153,7 +153,7 @@ fills, reconnects, and exchange-side rejections.
 | GET | /debug/drift | Feature drift (KS test) + model degradation |
 | POST | /debug/selftest | On-demand pipeline self-test |
 | GET | /debug/reconcile | In-memory book vs persisted open trades (crash recovery) |
-| GET | /strategies/attribution | Per-strategy P&L attribution |
+| GET | /strategies/attribution | Per-strategy P&L attribution (lifetime counts/P&L; risk ratios over a bounded recent window) |
 | GET | /strategies/allocation | Performance-weighted capital allocation |
 | GET | /strategies/gauntlet | Promotion-gauntlet status per strategy candidate |
 
@@ -168,6 +168,7 @@ routes (`/execution-mode`, `/risk-controls`, `/approvals/{id}/resolve`,
 - `TradeAuditor` — per-tick decision log with features, probabilities, gate chain, outcome
 - `SignalDebugger` — KS-test feature drift vs training baseline, model degradation tracker
 - `PerformanceDriftDetector` — behavioral drift vs a rolling performance baseline
+- `AttributionTracker` — per-strategy fills retained in a bounded window (2000/strategy) so a long-running process does not grow without bound; trade counts, total P&L, win rate, and first-entry timestamp are kept as lifetime scalars and survive eviction
 - Pipeline self-test on startup — synthetic round-trip through feature pipeline
 
 ## Storage
