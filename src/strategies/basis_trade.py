@@ -29,16 +29,29 @@ class BasisTradeContext:
     days_to_perp_funding_normalization: float = 1.0
 
 
-def compute_annualized_basis_pct(spot_price: float, perp_price: float) -> float:
+def compute_annualized_basis_pct(
+    spot_price: float,
+    perp_price: float,
+    days_to_normalization: float = 1.0,
+) -> float:
     """
-    Simple annualized basis: (perp - spot) / spot * (365 / 1) — treats the
-    perp-spot gap as if it must close within a year for the annualization
-    to be comparable across venues; a simplification appropriate for a
-    carry-strength signal, not fair-value calendar-spread pricing.
+    Annualized basis: (perp - spot) / spot * (365 / days_to_normalization).
+
+    The horizon matters: the same raw gap is a far weaker carry signal if it
+    is expected to persist for a week than if it closes by the next funding
+    stamp, so annualizing every gap over a single day (as this did before)
+    overstated slow-normalizing bases by the horizon ratio. A simplification
+    appropriate for a carry-strength signal, not fair-value calendar-spread
+    pricing.
     """
     if spot_price <= 0:
         raise ValueError(f"spot_price must be positive, got {spot_price}")
-    return (perp_price - spot_price) / spot_price * 100.0 * 365.0
+    if perp_price <= 0:
+        raise ValueError(f"perp_price must be positive, got {perp_price}")
+    if days_to_normalization <= 0:
+        raise ValueError(f"days_to_normalization must be positive, got {days_to_normalization}")
+    raw_pct = (perp_price - spot_price) / spot_price * 100.0
+    return raw_pct * 365.0 / days_to_normalization
 
 
 class BasisTradeStrategy:
@@ -61,7 +74,11 @@ class BasisTradeStrategy:
         if not isinstance(bar, BasisTradeContext):
             raise TypeError(f"BasisTradeStrategy requires a BasisTradeContext, got {type(bar)}")
 
-        basis_pct = compute_annualized_basis_pct(bar.spot_price, bar.perp_price)
+        basis_pct = compute_annualized_basis_pct(
+            bar.spot_price,
+            bar.perp_price,
+            bar.days_to_perp_funding_normalization,
+        )
         abs_basis = abs(basis_pct)
 
         if abs_basis < _MIN_ANNUALIZED_BASIS_PCT:
