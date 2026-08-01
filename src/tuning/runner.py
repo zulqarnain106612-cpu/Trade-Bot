@@ -17,6 +17,12 @@ advances the parameter's live champion value in ParameterRegistry
 (registry.update_current) -- see src/tuning/live_overrides.py, which is
 the seam that surfaces that updated value to the live regime/risk/
 features/model code paths.
+
+A live promotion is also journalled to a Markdown decision log
+(`decision_log_path`, default DECISION_LOG.md via SelfTuningSettings) so an
+unattended structural change is reconstructable by a human auditor without
+parsing the JSONL audit log. Shadow WOULD_PROMOTE events are not journalled
+-- they change nothing, and logging them would bury the real changes.
 """
 
 from __future__ import annotations
@@ -24,8 +30,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+
+import structlog
 
 from src.config import SelfTuningSettings
+from src.diagnostics.decision_log_writer import (
+    StructuralChangeRecord,
+    append_to_decision_log,
+)
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.evaluator import EvaluationResult, MetricComparison
 from src.tuning.gate import GateDecision, PromotionGate
@@ -33,6 +46,8 @@ from src.tuning.proposer import Proposal, Proposer
 from src.tuning.registry import ParameterRegistry, TunableParameter
 from src.tuning.store import VersionedConfigStore
 
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 EvaluateFn = Callable[[TunableParameter, Proposal], list[MetricComparison]]
 
@@ -61,6 +76,7 @@ class TuningRunner:
         proposer: Proposer,
         gate: PromotionGate,
         shadow_mode: bool = True,
+        decision_log_path: Path | None = None,
     ) -> None:
         self._registry = registry
         self._store = store
@@ -69,6 +85,10 @@ class TuningRunner:
         self._proposer = proposer
         self._gate = gate
         self._shadow_mode = shadow_mode
+        # Markdown journal for human auditors. Only written on live promotions
+        # -- a shadow WOULD_PROMOTE changes nothing structurally, so logging it
+        # here would bury the real changes in noise.
+        self._decision_log_path = decision_log_path
 
     def _cooldown_active(
         self, param_name: str, closed_trade_count: int | None = None
@@ -113,6 +133,50 @@ class TuningRunner:
         if closed_trade_count - previous < self._settings.min_trades_between_attempts:
             return True, "cooldown_active_insufficient_trades"
         return False, ""
+
+    def _write_decision_log(
+        self,
+        param_name: str,
+        proposal: Proposal,
+        decision: GateDecision,
+        primary_metric: str,
+    ) -> None:
+        """
+        Append a Markdown record of a live promotion for human auditors.
+
+        Best-effort by design: the promotion is already durable in the version
+        store and the JSONL audit log, so a filesystem problem here must not
+        undo or block a decision those two have already recorded. The failure
+        is logged at error level rather than swallowed.
+        """
+        if self._decision_log_path is None:
+            return
+        record = StructuralChangeRecord(
+            title=f"Self-tuning promoted {param_name}",
+            change_type="parameter_promoted",
+            justification=(
+                f"Challenger value {proposal.challenger_value} cleared the promotion "
+                f"gate on {primary_metric} and replaced champion "
+                f"{proposal.champion_value}. Promoted unattended by the self-tuning "
+                f"runner (shadow_mode=False)."
+            ),
+            evidence={
+                "param_name": param_name,
+                "champion_value": proposal.champion_value,
+                "challenger_value": proposal.challenger_value,
+                "primary_metric": primary_metric,
+                "gate_reasons": "; ".join(decision.reasons),
+            },
+        )
+        try:
+            append_to_decision_log(record, self._decision_log_path)
+        except OSError as exc:
+            log.error(
+                "tuning.decision_log_write_failed",
+                param_name=param_name,
+                path=str(self._decision_log_path),
+                error=str(exc),
+            )
 
     def attempt(
         self,
@@ -237,6 +301,7 @@ class TuningRunner:
             TuningEventType.PROMOTED,
             {"challenger_value": proposal.challenger_value, "reasons": list(decision.reasons)},
         )
+        self._write_decision_log(param_name, proposal, decision, primary_metric)
         return AttemptResult(
             param_name=param_name,
             attempted=True,

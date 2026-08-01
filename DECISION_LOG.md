@@ -345,6 +345,39 @@ is the only way either works:
   at 20%) is joined onto the matrix and still excluded from the active set.
 - **Best-effort.** Intelligence is an enrichment; failing to attach it must
   degrade training to base features, never abort the retrain.
+## 2026-07-31 — GAP-015 notional cap: a ceiling that failed open
+
+`compute_position_size()` applied the Carver/AFML/Thorp notional cap by
+re-quantising the quantity, then keeping the capped result *only if* it
+survived quantisation. Three ways that let an oversized position through:
+
+- **A cap tighter than one quantisation step returned the uncapped result.**
+  `if capped_qty > 0.0:` guarded the replacement, and the `else` branch was
+  the original, full-size `KellyResult`. The tighter the ceiling, the more
+  likely it was ignored entirely — exactly backwards.
+- **A `0.0` cap read as "no cap".** Per UI-007,
+  `recommend_position_notional()` returns exactly `0.0` to mean "thorp, afml
+  and carver all agree there is no edge, do not trade". That unanimous veto
+  was being discarded on the live sizing path, and the position was taken at
+  full Kelly size. Same defect class as VF-030's `max_position_pct=0.0`.
+- **A non-finite cap read as "no cap".** `cap > 0.0` is False for NaN, so an
+  unchecked NaN silently removed a ceiling the caller had asked for. The
+  scalar arguments alongside it already clamp non-finite values to 0.0; the
+  cap now fails closed to match.
+
+The capped quantity also skipped `size_position()`'s exchange-minimum
+checks. It is a *different* quantity and has to clear the same filters, so
+a capped order could be emitted below `min_amount`/`min_cost` for the
+exchange to reject — or, in paper, booked as a fill that could never have
+happened, biasing the record that gates live promotion.
+
+When a cap and the exchange minimums are irreconcilable there is no valid
+position, so the trade is skipped. Taking it at the uncapped size is the one
+outcome a ceiling must never produce.
+
+`adjusted_fraction` is now recomputed from the capped notional. Both
+executors write it into the trade record, so leaving the pre-cap value
+booked a Kelly fraction the position never had.
 ## 2026-07-31 — risk gates: a NaN measurement passed every gate it was fed to
 
 `src/risk/gates.py` had no finiteness checks anywhere in 993 lines, while
@@ -1013,3 +1046,53 @@ two competing allocation policies is a worse outcome than one dead helper.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+## 2026-07-31 — Wiring the inert institutional-grade modules
+
+Five modules landed fully tested with zero importers. Tested-but-unreachable
+code is worse than absent code: it reads as a capability the system does not
+actually have. Each entry below names the mapping decision that was blocking
+the wiring, since that — not the code — was the real open question.
+
+**RBAC (`src/api/access_control.py`)**: blocked on the key-to-role mapping.
+Decision: a second optional env var, `API_READONLY_KEY` → `READ_ONLY`;
+`API_SECRET_KEY` stays `TRADE_AUTHORIZING`. `requires(permission)` in
+`src/api/main.py` returns 403 on the mutating routes. Both keys are compared
+unconditionally so timing does not reveal which was presented. A read-only
+key shorter than 32 chars, or equal to the secret key, fails closed with 503
+rather than silently collapsing the two roles. Unset = previous behaviour.
+
+**Decision-log writer (`src/diagnostics/decision_log_writer.py`)**: first
+producer is a live (non-shadow) self-tuning promotion — an unattended
+structural change to live risk behaviour is exactly what the journal is for.
+Shadow WOULD_PROMOTE events are not journalled; they change nothing. The
+write is best-effort: the version store and JSONL audit log already hold the
+decision durably, so an OSError is logged, not propagated.
+
+**Promotion gauntlet (`src/tuning/promotion_gauntlet.py`)**: nothing knew how
+to build a `GauntletObservation`. `observation_from_fills()` adapts the
+attribution tracker's fills. Two judgement calls: `days_running` runs from
+first entry to *now*, not to the last exit (otherwise a candidate that goes
+quiet re-clears the bar forever); non-positive equity yields a 1.0 drawdown
+fraction, because an unmeasurable denominator must fail the gauntlet rather
+than flatter it. Surfaced read-only at `GET /strategies/gauntlet`.
+
+**Greeks (`src/risk/greeks.py`)**: the v5 claim that options exposure is
+capped independently of Kelly was not true of any code path. `OptionsCarry`
+now consults `check_greeks_within_caps` before emitting a signal. Both
+covered calls and cash-secured puts are premium *sales*, so the book takes
+the short side of the contract's Greeks. Caps arm via
+`STRATEGY_OPTIONS_CARRY_MAX_ABS_{DELTA,VEGA}`, which must be set together —
+bounding one Greek while the other floats is not a limit.
+
+**Disaster recovery (`src/diagnostics/disaster_recovery.py`)**: needed a
+reference snapshot. Decision: use the persisted open-trade table
+(`fetch_trades(open_only=True)`), which is what survives a crash, rather
+than waiting on an exchange position query. The module's vocabulary was
+generalised (`reference_snapshot`, `MISSING_IN_REFERENCE`) because the
+comparison is identical for either reference. `GET /debug/reconcile` nets
+per symbol first — the executor can hold several legs on one symbol.
+Known scope limit, documented on the endpoint: a fill that landed while the
+process was down is invisible to both sides and still needs a venue query.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally
+per repo policy.

@@ -161,19 +161,18 @@ class AttributionTracker:
         strategy_ids = {f.strategy_id for f in self._fills}
         return {sid: compute_attribution(sid, self._fills) for sid in strategy_ids}
 
-    def fill_count(self) -> int:
-        return len(self._fills)
-
     def fills_for(self, strategy_id: str) -> list[AttributedFill]:
         """
-        This strategy's fills in the order they were recorded.
+        This strategy's raw fills, in record order.
 
-        snapshot() aggregates away entry/exit timestamps, but the v6
-        promotion gauntlet needs them to answer "how long has this been
-        running under real conditions", which is a separate question from
-        "how many trades has it done".
+        snapshot() aggregates away the timestamps; the promotion gauntlet
+        (src/tuning/promotion_gauntlet.py) needs them to know how long a
+        candidate has actually been running, which no aggregate carries.
         """
         return [f for f in self._fills if f.strategy_id == strategy_id]
+
+    def fill_count(self) -> int:
+        return len(self._fills)
 
 
 _tracker: AttributionTracker = AttributionTracker()

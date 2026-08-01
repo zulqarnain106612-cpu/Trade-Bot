@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from src.config import StrategyPortfolioSettings
 from src.strategies.bootstrap import (
@@ -190,3 +191,42 @@ def test_all_families_can_be_enabled_together_within_budget():
     registered = register_default_strategies(registry, cfg)
     assert len(registered) == len(_SPECS)
     assert len(registry) == len(_SPECS)
+
+
+# ---------------------------------------------------------------------------
+# Greeks-capped options-carry builder
+# ---------------------------------------------------------------------------
+
+
+def test_options_carry_built_without_caps_by_default() -> None:
+    registry = StrategyRegistry()
+    register_default_strategies(registry, _cfg(options_carry_enabled=True))
+    strategy = registry.get("options_carry_v1")
+    assert strategy._greeks_caps is None
+
+
+def test_options_carry_receives_configured_greeks_caps() -> None:
+    registry = StrategyRegistry()
+    cfg = _cfg(
+        options_carry_enabled=True,
+        options_carry_max_abs_delta=2.5,
+        options_carry_max_abs_vega=400.0,
+    )
+    register_default_strategies(registry, cfg)
+    caps = registry.get("options_carry_v1")._greeks_caps
+    assert caps is not None
+    assert caps.max_abs_delta == 2.5
+    assert caps.max_abs_vega == 400.0
+
+
+def test_half_configured_greeks_caps_rejected_at_startup() -> None:
+    with pytest.raises(ValidationError, match="must be set together"):
+        _cfg(options_carry_enabled=True, options_carry_max_abs_delta=2.5)
+    with pytest.raises(ValidationError, match="must be set together"):
+        _cfg(options_carry_enabled=True, options_carry_max_abs_vega=400.0)
+
+
+def test_specs_without_a_builder_still_use_the_plain_factory() -> None:
+    registry = StrategyRegistry()
+    register_default_strategies(registry, _cfg(breakout_enabled=True))
+    assert registry.get("breakout_volume_v1").required_capital_fraction() > 0.0

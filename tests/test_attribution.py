@@ -152,3 +152,21 @@ def test_to_dict_includes_sortino_and_calmar() -> None:
     d = compute_attribution("s", fills).to_dict()
     assert "sortino" in d
     assert "calmar" in d
+
+
+def test_fills_for_returns_only_that_strategy_in_record_order() -> None:
+    tracker = AttributionTracker()
+    a1 = AttributedFill("alpha", 10.0, 1, 2)
+    b1 = AttributedFill("beta", -3.0, 1, 2)
+    a2 = AttributedFill("alpha", 5.0, 3, 4)
+    for fill in (a1, b1, a2):
+        tracker.record(fill)
+
+    assert tracker.fills_for("alpha") == [a1, a2]
+    assert tracker.fills_for("beta") == [b1]
+
+
+def test_fills_for_unknown_strategy_is_empty() -> None:
+    tracker = AttributionTracker()
+    tracker.record(AttributedFill("alpha", 10.0, 1, 2))
+    assert tracker.fills_for("gamma") == []
