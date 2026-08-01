@@ -165,9 +165,14 @@ class TestVerifyWsKey:
     def _set_key(self):
         return patch.dict(os.environ, {"API_SECRET_KEY": self._KEY}, clear=False)
 
-    def _mock_ws(self, key=None):
+    def _mock_ws(self, key=None, query_key=None):
         ws = MagicMock()
         ws.headers = {"x-api-key": key} if key else {}
+        # verify_ws_key falls back to ?api_key= for browser clients, which
+        # cannot set upgrade headers. Without a real mapping here the
+        # MagicMock returns a MagicMock and the fallback "succeeds" with a
+        # non-string, so this has to be an explicit empty dict.
+        ws.query_params = {"api_key": query_key} if query_key else {}
         ws.close = AsyncMock()
         ws.client = ("127.0.0.1", 9000)
         return ws

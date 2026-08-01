@@ -322,7 +322,14 @@ class TestAutoTuningSchedulerAttempts:
         # this test only cares about which champion_floor value evaluate()
         # is built with.
         monkeypatch.setattr(runner._settings, "enabled", True)
-        monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+        monkeypatch.setattr(
+            runner,
+            # _cooldown_active now takes the closed-trade count as a second
+            # argument and returns (blocked, reason) so the caller can log WHICH
+            # half of the cadence guard fired.
+            "_cooldown_active",
+            lambda param_name, closed_trade_count=None: (False, ""),
+        )
 
         async def _run():
             scheduler.start()
@@ -671,7 +678,14 @@ def _enable_runner_for_test(monkeypatch) -> None:
     param can still be within min_hours_between_attempts=24h). Same pattern
     as test_attempt_all_uses_registry_champion_not_stale_settings above."""
     monkeypatch.setattr(runner._settings, "enabled", True)
-    monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+    monkeypatch.setattr(
+        runner,
+        # _cooldown_active now takes the closed-trade count as a second
+        # argument and returns (blocked, reason) so the caller can log WHICH
+        # half of the cadence guard fired.
+        "_cooldown_active",
+        lambda param_name, closed_trade_count=None: (False, ""),
+    )
 
 
 class TestSchedulerLifecycleBranches:

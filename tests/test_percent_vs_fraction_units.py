@@ -24,6 +24,7 @@ from src.config import FeatureSettings, RiskSettings, SelfTuningSettings
 # Fields whose value is a FRACTION of 1 despite the _pct suffix.
 _FRACTION_FIELDS = [
     (RiskSettings, "capital_preservation_max_drawdown_pct"),
+    (RiskSettings, "cvar_limit_pct"),
     (FeatureSettings, "embargo_pct"),
     (SelfTuningSettings, "proposer_step_pct"),
 ]
@@ -63,6 +64,10 @@ def test_fraction_fields_are_bounded_at_or_below_one(model: type, field: str) ->
 @pytest.mark.parametrize(("model", "field"), _FRACTION_FIELDS)
 def test_fraction_field_defaults_are_fractions(model: type, field: str) -> None:
     default = model.model_fields[field].default
+    if default is None:
+        # Optional control (None = disabled). The bound test above is what
+        # pins its units; there is no default to check.
+        return
     assert 0.0 < default <= 1.0
 
 

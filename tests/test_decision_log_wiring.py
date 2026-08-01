@@ -90,14 +90,17 @@ class TestReEnable:
     def test_a_re_enable_is_recorded_with_the_prior_reason(self, log_path: Path) -> None:
         manager = _manager(drifted=True, reason="win rate collapsed")
         manager.evaluate("mean_reversion_v1")
-        manager.re_enable("mean_reversion_v1")
+        # force=True: re_enable runs the v6 promotion gauntlet, and this
+        # manager has no attributed track record for it to evaluate. The
+        # override path is also the one that must still record an entry.
+        manager.re_enable("mean_reversion_v1", force=True)
         text = log_path.read_text(encoding="utf-8")
         assert "strategy_re_enabled" in text
         # The reason it was pulled is the context an auditor needs most.
         assert "win rate collapsed" in text
 
     def test_re_enabling_a_never_disabled_strategy_still_records(self, log_path: Path) -> None:
-        _manager(drifted=False).re_enable("mean_reversion_v1")
+        _manager(drifted=False).re_enable("mean_reversion_v1", force=True)
         assert "strategy_re_enabled" in log_path.read_text(encoding="utf-8")
 
 

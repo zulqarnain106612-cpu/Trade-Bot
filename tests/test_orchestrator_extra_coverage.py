@@ -1056,9 +1056,18 @@ class TestTrainModelsRemainingBranches:
         ):
             await orch._train_models(Timeframe.INTRADAY)  # must not raise
 
-        existing_engine.swap_models.assert_awaited_once_with(
-            new_dir, new_meta, detector, ensemble=None
-        )
+        # Retraining no longer swaps directly: with shadow_mode_enabled (the
+        # default) a passing candidate is shadowed until it out-predicts the
+        # incumbent. The property this test exists for is unchanged -- an
+        # ensemble failure must not stop the direction/meta bundle from being
+        # routed -- so it now asserts the routing, and that the bundle
+        # carries ensemble=None rather than a half-built one.
+        existing_engine.set_shadow_bundle.assert_awaited_once()
+        bundle = existing_engine.set_shadow_bundle.await_args.args[0]
+        assert bundle.direction_model is new_dir
+        assert bundle.meta_model is new_meta
+        assert bundle.detector is detector
+        assert bundle.ensemble is None
 
 
 # ---------------------------------------------------------------------------

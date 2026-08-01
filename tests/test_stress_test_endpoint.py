@@ -8,6 +8,7 @@ checked only against the period its own attribution data covered.
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,12 +22,23 @@ def _strategy(strategy_id: str):
     return strategy
 
 
+def _no_applied():
+    """A controller with no incumbent allocation, so the target is used."""
+    controller = MagicMock()
+    controller.applied.return_value = None
+    return controller
+
+
 def _patched(allocation: dict[str, float], strategies: list[str], floor: float = 0.30):
     """Patch the endpoint's three collaborators: registry, kill switch, allocator."""
     registry = MagicMock()
     registry.all.return_value = [_strategy(s) for s in strategies]
     settings = MagicMock()
     settings.risk.capital_preservation_max_drawdown_pct = floor
+    # The endpoint now stresses the allocation the book is actually running,
+    # which means constructing the rate-limited AllocationController -- it
+    # validates this bound, so a MagicMock reaches a float comparison.
+    settings.strategy_portfolio.max_allocation_shift_per_step = 0.10
     kill_switch = MagicMock()
     kill_switch.enabled_ids.side_effect = lambda ids: set(ids)
     return (
@@ -37,14 +49,19 @@ def _patched(allocation: dict[str, float], strategies: list[str], floor: float =
             "src.api.main.performance_weighted_allocate",
             return_value=AllocationResult(fractions=allocation, method="performance_weighted"),
         ),
+        # The controller is a module-level singleton, so a previous test's
+        # applied() allocation would otherwise leak in and silently replace
+        # the one under test.
+        patch("src.api.main.get_allocation_controller", return_value=_no_applied()),
     )
 
 
 async def _call(allocation, strategies, floor=0.30):
     from src.api.main import get_allocation_stress_test
 
-    a, b, c, d = _patched(allocation, strategies, floor)
-    with a, b, c, d:
+    with contextlib.ExitStack() as stack:
+        for ctx in _patched(allocation, strategies, floor):
+            stack.enter_context(ctx)
         return await get_allocation_stress_test()
 
 
@@ -125,6 +142,7 @@ class TestStressTestEndpoint:
         registry.all.return_value = [_strategy("a"), _strategy("b")]
         settings = MagicMock()
         settings.risk.capital_preservation_max_drawdown_pct = 0.30
+        settings.strategy_portfolio.max_allocation_shift_per_step = 0.10
         kill_switch = MagicMock()
         kill_switch.enabled_ids.return_value = {"a"}
         allocate = MagicMock(
@@ -135,6 +153,7 @@ class TestStressTestEndpoint:
             patch("src.api.main.get_settings", return_value=settings),
             patch("src.api.main.get_strategy_kill_switch_manager", return_value=kill_switch),
             patch("src.api.main.performance_weighted_allocate", allocate),
+            patch("src.api.main.get_allocation_controller", return_value=_no_applied()),
         ):
             result = await get_allocation_stress_test()
         assert allocate.call_args.args[1] == {"a"}
