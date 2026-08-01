@@ -17,6 +17,12 @@ Authority:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from src.diagnostics.attribution import AttributedFill, compute_attribution
+
+
+_MS_PER_DAY = 86_400_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,3 +79,41 @@ def evaluate_gauntlet(
         )
 
     return GauntletResult(passed=len(failed) == 0, failed_criteria=tuple(failed))
+
+
+def observation_from_fills(
+    strategy_id: str,
+    fills: list[AttributedFill],
+    equity_usd: float,
+    now_ms: int | None = None,
+) -> GauntletObservation:
+    """
+    Build a GauntletObservation from a candidate's realized paper fills.
+
+    `days_running` is measured from the earliest entry to *now*, not to the
+    last exit: a candidate that traded twice on day one and then went quiet
+    has still been running, and crediting it only two days would let it
+    re-clear the min_days_running bar forever.
+
+    `realized_max_drawdown_pct` converts the attribution tracker's USD
+    drawdown against `equity_usd`. A non-positive equity yields 1.0 (100%
+    drawdown) rather than a division error or a flattering 0.0 — the
+    gauntlet must fail closed when it cannot measure the denominator.
+    """
+    attribution = compute_attribution(strategy_id, fills)
+    own_fills = [f for f in fills if f.strategy_id == strategy_id]
+
+    if not own_fills:
+        days_running = 0.0
+    else:
+        now = now_ms if now_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
+        days_running = max(0.0, (now - min(f.entry_ts for f in own_fills)) / _MS_PER_DAY)
+
+    drawdown_pct = 1.0 if equity_usd <= 0.0 else attribution.max_drawdown_usd / equity_usd
+
+    return GauntletObservation(
+        trade_count=attribution.trade_count,
+        days_running=days_running,
+        realized_sharpe=attribution.sharpe,
+        realized_max_drawdown_pct=drawdown_pct,
+    )

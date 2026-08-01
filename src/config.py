@@ -611,6 +611,14 @@ class SelfTuningSettings(BaseSettings):
     )
     audit_log_path: Path = Field(default=Path("logs/self_tuning_audit.jsonl"))
     version_store_path: Path = Field(default=Path("logs/self_tuning_versions.jsonl"))
+    decision_log_path: Path | None = Field(
+        default=Path("DECISION_LOG.md"),
+        description=(
+            "Human-readable Markdown journal appended on every live (non-shadow) "
+            "promotion, so an unattended parameter change stays reconstructable by "
+            "an auditor without parsing the JSONL audit log. Set empty to disable."
+        ),
+    )
     proposer_strategy: Literal["random_walk", "bayesian"] = Field(
         default="random_walk",
         description=(
@@ -640,6 +648,14 @@ class SelfTuningSettings(BaseSettings):
             "docs/SELF_TUNING_IMPLEMENTATION_PLAN.md."
         ),
     )
+
+    @field_validator("decision_log_path", mode="before")
+    @classmethod
+    def _blank_path_disables(cls, v: object) -> object:
+        """SELF_TUNING_DECISION_LOG_PATH="" means "off", not Path("")."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class StrategyPortfolioSettings(BaseSettings):
@@ -688,6 +704,34 @@ class StrategyPortfolioSettings(BaseSettings):
 
     options_carry_enabled: bool = Field(default=False)
     options_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    options_carry_max_abs_delta: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Book-level |delta| ceiling for the options-carry strategy, in "
+            "underlying units. Unset (the default) leaves the Greeks gate off. "
+            "Both this and options_carry_max_abs_vega must be set to arm it — "
+            "a half-configured cap is rejected at startup rather than silently "
+            "gating on one Greek."
+        ),
+    )
+    options_carry_max_abs_vega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Book-level |vega| ceiling (per 1 vol-point) for options-carry.",
+    )
+
+    @model_validator(mode="after")
+    def _greeks_caps_are_all_or_nothing(self) -> StrategyPortfolioSettings:
+        delta, vega = self.options_carry_max_abs_delta, self.options_carry_max_abs_vega
+        if (delta is None) != (vega is None):
+            raise ValueError(
+                "STRATEGY_OPTIONS_CARRY_MAX_ABS_DELTA and "
+                "STRATEGY_OPTIONS_CARRY_MAX_ABS_VEGA must be set together — "
+                "capping one Greek while leaving the other unbounded is not a "
+                "meaningful exposure limit."
+            )
+        return self
 
 
 class OrderThrottleSettings(BaseSettings):

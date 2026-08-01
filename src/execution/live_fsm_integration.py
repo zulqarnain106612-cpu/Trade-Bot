@@ -1,11 +1,18 @@
 """
-Live Executor FSM Integration — refactored order placement with OrderFSM.
+Live Executor FSM Integration — SUPERSEDED, retained but unused.
 
-Replaces polling loop in LiveExecutor._place_market_order with
-OrderManager.place_order_with_fsm for state machine driven order handling.
+This was the staging ground for TASK-004-004: an FSM-based replacement for
+LiveExecutor's order-placement polling loop, to be swapped into live.py.
+That swap has since happened directly — src/execution/live.py constructs its
+own OrderManager (GAP-004) and calls place_order_with_fsm in
+_place_market_order. Nothing imports this module.
 
-This module provides the replacement implementation that can be swapped
-into live.py via refactoring TASK-004-004.
+It is therefore a second, divergent copy of the live order path: an edit
+made here has no effect on trading, and an edit made only here while
+live.py drifts is a silent correctness hazard. Change live.py, not this.
+
+Removal needs explicit operator sign-off because it lives under
+src/execution/, so it is flagged rather than deleted here.
 """
 
 from __future__ import annotations

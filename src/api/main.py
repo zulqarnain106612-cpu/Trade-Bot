@@ -16,6 +16,8 @@ Endpoints:
   GET  /approvals                  — pending approval requests
   POST /approvals/{id}/resolve     — approve or reject a pending trade
   POST /execution-mode             — switch AUTOMATIC/RESTRICTED/MANUAL at runtime
+  GET  /strategies/gauntlet        — promotion-gauntlet status per candidate
+  GET  /debug/reconcile            — in-memory book vs persisted open trades
   WS   /ws                         — live push of equity + positions + signals
 
 WebSocket push format (JSON):
@@ -33,7 +35,7 @@ import json
 import os
 import re
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
@@ -58,8 +60,9 @@ from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
-from src.data.storage import AnyStorageBackend, create_storage_backend
+from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
+from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.unified_ledger import get_unified_ledger
@@ -68,6 +71,11 @@ from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
+from src.tuning.promotion_gauntlet import (
+    GauntletCriteria,
+    evaluate_gauntlet,
+    observation_from_fills,
+)
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
     audit_log as tuning_audit_log,
@@ -1309,6 +1317,114 @@ async def debug_drift() -> dict[str, Any]:
     }
 
 
+_RECONCILE_PAGE = 500
+_RECONCILE_MAX_PAGES = 20
+
+
+async def _fetch_all_open_trades(trading_mode: str) -> tuple[list[TradeRecord], bool]:
+    """
+    Page through every open trade. Returns (trades, truncated).
+
+    A single capped query would silently drop open positions past the cap and
+    then report them as discrepancies — a reconciliation that invents
+    differences is worse than none. The page bound keeps a runaway table from
+    turning this endpoint into an unbounded read; hitting it is reported as
+    `truncated` rather than passed off as a complete comparison.
+    """
+    trades: list[TradeRecord] = []
+    for page in range(_RECONCILE_MAX_PAGES):
+        batch = await _state.storage.fetch_trades(
+            trading_mode=trading_mode,
+            limit=_RECONCILE_PAGE,
+            offset=page * _RECONCILE_PAGE,
+            open_only=True,
+        )
+        trades.extend(batch)
+        if len(batch) < _RECONCILE_PAGE:
+            return trades, False
+    log.warning("api.reconcile_truncated", page_limit=_RECONCILE_MAX_PAGES, fetched=len(trades))
+    return trades, True
+
+
+def _net_by_symbol(pairs: Iterable[tuple[str, float]]) -> list[PositionSnapshot]:
+    """Collapse (symbol, signed_qty) pairs into one net snapshot per symbol."""
+    netted: dict[str, float] = {}
+    for symbol, quantity in pairs:
+        netted[symbol] = netted.get(symbol, 0.0) + quantity
+    return [PositionSnapshot(symbol=s, quantity=q) for s, q in sorted(netted.items())]
+
+
+@app.get(
+    "/debug/reconcile",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def debug_reconcile() -> dict[str, Any]:
+    """
+    Reconcile the in-memory book against the persisted open-trade table.
+
+    This is the crash-recovery check: the trade table is what survives a
+    restart, so a position present in one side and not the other means the
+    process died between placing an order and recording its exit, or was
+    restarted without its book. Read-only — it reports discrepancies and
+    never closes, reopens, or rewrites anything.
+
+    Scope: the durable record is the reference here, not exchange truth. A
+    fill that happened while the process was down is invisible to both
+    sides and needs a venue query to detect.
+
+    Returns
+    -------
+    {
+        "consistent": bool,
+        "truncated": bool,          # True if the open-trade scan hit its page bound
+        "local_position_count": int,
+        "reference_position_count": int,
+        "discrepancies": [{symbol, discrepancy_type, local_quantity,
+                           reference_quantity}, ...],
+    }
+    """
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    cfg = get_settings()
+
+    local_positions = await executor.open_positions_safe()
+    local = _net_by_symbol(
+        (
+            str(p["symbol"]),
+            float(cast(float, p["quantity"])) * (1.0 if p["direction"] == "long" else -1.0),
+        )
+        for p in local_positions
+    )
+
+    open_trades, truncated = await _fetch_all_open_trades(cfg.trading_mode.value)
+    reference = _net_by_symbol(
+        (t.symbol, t.quantity * (1.0 if t.direction == 1 else -1.0)) for t in open_trades
+    )
+
+    discrepancies = reconcile(local, reference)
+    if discrepancies:
+        log.warning(
+            "api.reconcile_discrepancies",
+            count=len(discrepancies),
+            symbols=[d.symbol for d in discrepancies],
+        )
+    return {
+        "consistent": is_state_consistent(discrepancies),
+        "truncated": truncated,
+        "local_position_count": len(local_positions),
+        "reference_position_count": len(open_trades),
+        "discrepancies": [
+            {
+                "symbol": d.symbol,
+                "discrepancy_type": d.discrepancy_type.value,
+                "local_quantity": d.local_quantity,
+                "reference_quantity": d.reference_quantity,
+            }
+            for d in discrepancies
+        ],
+    }
+
+
 @app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
 async def debug_selftest() -> dict[str, Any]:
     """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
@@ -1471,7 +1587,10 @@ async def recovery_status() -> dict[str, Any]:
 @app.post(
     "/recovery/acknowledge",
     tags=["execution"],
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         409: {"description": "No live executor to acknowledge"},
@@ -1541,6 +1660,63 @@ async def get_strategy_attribution() -> dict[str, Any]:
     return {
         "strategies": {sid: attr.to_dict() for sid, attr in snapshot.items()},
         "fill_count": tracker.fill_count(),
+    }
+
+
+@app.get(
+    "/strategies/gauntlet",
+    tags=["monitoring"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def get_strategy_gauntlet() -> dict[str, Any]:
+    """
+    Promotion-gauntlet status for every strategy with realized fills (v6).
+
+    Read-only and advisory: it reports which candidates *would* clear the
+    bar for live capital, and names the criteria each one still fails.
+    Nothing is promoted here — auto-discovery never auto-promotes, so
+    acting on this stays an explicit operator step.
+
+    Returns
+    -------
+    {
+        "criteria": {min_trades, min_days_running, min_sharpe, max_drawdown_pct},
+        "equity_usd": float,          # drawdown denominator used
+        "candidates": {strategy_id: {passed, failed_criteria, trade_count,
+                                     days_running, realized_sharpe,
+                                     realized_max_drawdown_pct}, ...},
+    }
+    """
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    tracker = get_attribution_tracker()
+    criteria = GauntletCriteria()
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    equity_usd = float(executor.equity_usd) if executor else 0.0
+
+    candidates: dict[str, Any] = {}
+    for strategy_id in tracker.snapshot():
+        observation = observation_from_fills(
+            strategy_id, tracker.fills_for(strategy_id), equity_usd
+        )
+        result = evaluate_gauntlet(observation, criteria)
+        candidates[strategy_id] = {
+            "passed": result.passed,
+            "failed_criteria": list(result.failed_criteria),
+            "trade_count": observation.trade_count,
+            "days_running": round(observation.days_running, 3),
+            "realized_sharpe": round(observation.realized_sharpe, 4),
+            "realized_max_drawdown_pct": round(observation.realized_max_drawdown_pct, 4),
+        }
+
+    return {
+        "criteria": {
+            "min_trades": criteria.min_trades,
+            "min_days_running": criteria.min_days_running,
+            "min_sharpe": criteria.min_sharpe,
+            "max_drawdown_pct": criteria.max_drawdown_pct,
+        },
+        "equity_usd": equity_usd,
+        "candidates": candidates,
     }
 
 
