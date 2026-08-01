@@ -37,23 +37,23 @@ def role_env():
 # ---------------------------------------------------------------------------
 
 
-def test_current_role_maps_trade_key(role_env) -> None:
-    from src.api.main import current_role
+def test_resolve_role_maps_trade_key(role_env) -> None:
+    from src.api.main import resolve_role
 
-    assert current_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
-
-
-def test_current_role_maps_readonly_key(role_env) -> None:
-    from src.api.main import current_role
-
-    assert current_role(_READ_KEY) is Role.READ_ONLY
+    assert resolve_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
 
 
-def test_current_role_rejects_unknown_key_with_401(role_env) -> None:
-    from src.api.main import current_role
+def test_resolve_role_maps_readonly_key(role_env) -> None:
+    from src.api.main import resolve_role
+
+    assert resolve_role(_READ_KEY) is Role.READ_ONLY
+
+
+def test_resolve_role_rejects_unknown_key_with_401(role_env) -> None:
+    from src.api.main import resolve_role
 
     with pytest.raises(HTTPException) as exc_info:
-        current_role("z" * 32)
+        resolve_role("z" * 32)
     assert exc_info.value.status_code == 401
 
 
@@ -89,11 +89,11 @@ def test_requires_allows_read_only_role_for_view_permissions() -> None:
 
 def test_single_key_deployment_resolves_as_trade_authorizing() -> None:
     """Without API_READONLY_KEY the one key is full access, as before RBAC."""
-    from src.api.main import current_role
+    from src.api.main import resolve_role
 
     with patch.dict(os.environ, {"API_SECRET_KEY": _TRADE_KEY}):
         os.environ.pop("API_READONLY_KEY", None)
-        assert current_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
+        assert resolve_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
 
 
 # ---------------------------------------------------------------------------

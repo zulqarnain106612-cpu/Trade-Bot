@@ -30,6 +30,7 @@ import structlog
 
 from src.api.metrics import update_metrics
 from src.config import (
+    EXCHANGE_BINANCE,
     TIMEFRAME_SECONDS,
     Timeframe,
     TradingMode,
@@ -45,12 +46,19 @@ from src.diagnostics.signal_debugger import (
 from src.engine.signal_engine import SignalEngine, SignalResult
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
+from src.execution.unified_ledger import VenuePosition, get_unified_ledger
 from src.features.pipeline import build_feature_matrix
+from src.intelligence.macro_indicators import build_macro_indicators
+from src.intelligence.macro_regime import classify_macro_regime
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
 from src.risk.kelly import compute_win_loss_stats
+from src.risk.macro_exposure_budget import (
+    MacroExposureBudget,
+    compute_macro_exposure_scalar,
+)
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.strategy_correlation import (
@@ -73,6 +81,57 @@ _HISTORY_BARS_FOR_TRAIN: int = 2000
 _REGIME_LOOKBACK_BARS: int = 500
 
 AnyExecutor = PaperExecutor | LiveExecutor
+
+
+def _aggregate_venue_positions(
+    venue: str, open_positions: list[dict[str, object]]
+) -> list[VenuePosition]:
+    """
+    Collapse an executor's position dicts into one VenuePosition per symbol.
+
+    UnifiedLedger is keyed by (venue, symbol), but one executor legitimately
+    holds several positions in the same symbol — one per timeframe. Recording
+    them individually would silently overwrite, leaving the ledger reporting
+    whichever timeframe happened to be enumerated last. Netting the signed
+    quantities is what a venue-level book actually means.
+
+    entry_price is the gross-quantity-weighted average, so it stays a
+    meaningful cost basis even when the legs disagree on direction; margin is
+    summed over notional, because capital committed to a hedged pair is still
+    committed.
+    """
+    signed_qty: dict[str, float] = {}
+    gross_qty: dict[str, float] = {}
+    notional: dict[str, float] = {}
+    qty_price: dict[str, float] = {}
+
+    for raw in open_positions:
+        symbol = str(raw.get("symbol") or "")
+        if not symbol:
+            continue
+        quantity = abs(float(cast("float", raw.get("quantity") or 0.0)))
+        if quantity <= 0.0:
+            continue
+        direction = 1.0 if raw.get("direction") == "long" else -1.0
+        price = float(cast("float", raw.get("entry_price") or 0.0))
+
+        signed_qty[symbol] = signed_qty.get(symbol, 0.0) + direction * quantity
+        gross_qty[symbol] = gross_qty.get(symbol, 0.0) + quantity
+        notional[symbol] = notional.get(symbol, 0.0) + float(
+            cast("float", raw.get("notional_usd") or 0.0)
+        )
+        qty_price[symbol] = qty_price.get(symbol, 0.0) + quantity * price
+
+    return [
+        VenuePosition(
+            venue=venue,
+            symbol=symbol,
+            quantity=signed_qty[symbol],
+            entry_price=qty_price[symbol] / gross_qty[symbol],
+            margin_used_usd=notional[symbol],
+        )
+        for symbol in signed_qty
+    ]
 
 
 class Orchestrator:
@@ -500,9 +559,17 @@ class Orchestrator:
                 self._last_close_for_corr[tf.value] = (ts, close)
 
             open_positions = await executor.open_positions_safe()
-            other_open_symbols = [
-                cast("str", p["symbol"]) for p in open_positions if p.get("symbol") != self._symbol
-            ]
+            # v3 unified ledger: publish this venue's book, then take the
+            # correlation input from the ledger rather than from this one
+            # executor. Each Orchestrator owns its own executor, so the
+            # executor-only view could not see a position another symbol's
+            # orchestrator held — the correlation ceiling was being computed
+            # against a book strictly smaller than the real one, which biases
+            # it toward "uncorrelated", i.e. toward sizing UP. The ledger is
+            # process-wide, matching PortfolioCorrelationTracker's own scope.
+            other_open_symbols = self._sync_and_read_ledger(
+                self._venue_for(executor), open_positions
+            )
             correlation_scalar = tracker.correlation_scalar(
                 new_symbol=self._symbol,
                 open_symbols=other_open_symbols,
@@ -539,6 +606,20 @@ class Orchestrator:
             )
             correlation_scalar = 1.0
 
+        # v7 macro overlay: shrink-only, computed independently of the
+        # correlation scalars above so a fault in either path cannot discard
+        # the other's ceiling. Fails to None (no overlay) rather than to a
+        # neutral scalar -- see _macro_exposure_budget.
+        macro_budget: MacroExposureBudget | None = None
+        try:
+            macro_budget = await self._macro_exposure_budget(tf)
+        except Exception as exc:
+            self._log.error(
+                "orchestrator.macro_exposure_budget_failed",
+                error=str(exc),
+                exc_info=True,
+            )
+
         # Run signal engine
         result: SignalResult = await engine.tick(
             capital_usd=capital_usd,
@@ -551,6 +632,7 @@ class Orchestrator:
             avg_loss_usd=avg_loss,
             paper_trading_days=paper_trading_days,
             correlation_scalar=correlation_scalar,
+            macro_budget=macro_budget,
         )
 
         # Persist regime snapshot
@@ -996,6 +1078,106 @@ class Orchestrator:
                     error=str(exc),
                     exc_info=True,
                 )
+
+    async def _macro_exposure_budget(self, tf: Timeframe) -> MacroExposureBudget | None:
+        """
+        v7 portfolio-level macro overlay for this tick.
+
+        Reads the recent intelligence-feature window for this symbol/timeframe,
+        classifies aggregate risk appetite, and converts it into a shrink-only
+        exposure scalar. Returns None -- meaning "apply no overlay" -- when the
+        overlay is disabled or the window carries no usable macro data.
+
+        None, not a neutral MacroIndicators: a neutral reading still maps to a
+        ~0.62 scalar, so defaulting to neutral would quietly cut every position
+        by a third whenever the intelligence table happens to be empty.
+        """
+        # self._cfg.risk directly, not effective_risk_settings: the macro
+        # overlay is not a self-tunable parameter, so overlaying the registry
+        # here would only imply an authority it does not have.
+        risk = self._cfg.risk
+        if not risk.macro_exposure_enabled:
+            return None
+
+        lookback = risk.macro_exposure_lookback_bars
+        latest_ts = await self._storage.latest_bar_ts(self._symbol, tf.value)
+        if latest_ts is None:
+            return None
+        # since_ts, not LIMIT: fetch_intelligence_features orders ascending, so
+        # a bare limit would return the OLDEST rows, not the most recent ones.
+        since_ts = latest_ts - lookback * TIMEFRAME_SECONDS[tf] * 1000
+
+        features = await self._storage.fetch_intelligence_features(
+            symbol=self._symbol,
+            timeframe=tf.value,
+            since_ts=since_ts,
+        )
+        indicators = build_macro_indicators(features)
+        if indicators is None:
+            return None
+        return compute_macro_exposure_scalar(classify_macro_regime(indicators))
+
+    def _venue_for(self, executor: AnyExecutor) -> str:
+        """
+        Ledger venue key for *executor*.
+
+        Paper fills are not exchange exposure and must not be netted against
+        live exposure on the same symbol, so they get their own venue. That
+        matters in live mode, where the non-primary timeframes run on a
+        separate paper executor alongside the real one.
+        """
+        return EXCHANGE_BINANCE if isinstance(executor, LiveExecutor) else "paper"
+
+    def _sync_and_read_ledger(
+        self, venue: str, open_positions: list[dict[str, object]]
+    ) -> list[str]:
+        """
+        Republish *venue*'s slice of the unified ledger, then return every
+        OTHER symbol currently carrying exposure anywhere in the book.
+
+        Self is excluded because correlating a symbol with itself always
+        reads 1.0 and would say nothing about diversification.
+
+        One executor owns exactly one venue, so the venue's rows are replaced
+        wholesale rather than merged — a position closed since the last tick
+        has to disappear, and an incremental update would leave it behind and
+        overstate exposure forever.
+
+        Falls back to the executor-only symbol list on any ledger fault: a
+        smaller book biases the correlation ceiling toward 1.0, so this path
+        must not also be able to raise and lose the ceiling entirely.
+        """
+        fallback = [
+            cast("str", p["symbol"]) for p in open_positions if p.get("symbol") != self._symbol
+        ]
+        try:
+            ledger = get_unified_ledger()
+            current = _aggregate_venue_positions(venue, open_positions)
+            live_symbols = {p.symbol for p in current}
+            for stale in ledger.all_positions:
+                if stale.venue == venue and stale.symbol not in live_symbols:
+                    ledger.clear_position(venue, stale.symbol)
+            for position in current:
+                ledger.record_position(position)
+
+            # gross, not net: a long on one venue and a short of the same size
+            # on another still means the book is exposed to that symbol's
+            # correlation structure, even though the net quantity is zero.
+            return sorted(
+                {
+                    p.symbol
+                    for p in ledger.all_positions
+                    if p.symbol != self._symbol and ledger.gross_exposure(p.symbol) > 0.0
+                }
+            )
+        except Exception as exc:
+            self._log.error(
+                "orchestrator.unified_ledger_sync_failed",
+                venue=venue,
+                error=str(exc),
+                exc_info=True,
+            )
+            return fallback
 
     def _strategy_correlation_scalar(self, open_positions: list[dict[str, object]]) -> float:
         """
