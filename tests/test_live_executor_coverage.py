@@ -86,9 +86,6 @@ def _make_executor(
         rate=executor._throttle_cfg.rate,
         burst=executor._throttle_cfg.burst,
     )
-    # submit_signal refuses to trade while startup reconciliation is unresolved.
-    # __init__ seeds this empty, and this factory bypasses __init__ on purpose.
-    executor._recovery_discrepancies = []
     executor._log = structlog.get_logger().bind(component="live_executor_test")
     return executor
 
