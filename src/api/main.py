@@ -1561,7 +1561,7 @@ async def recovery_status() -> dict[str, Any]:
                 "symbol": d.symbol,
                 "type": d.discrepancy_type.value,
                 "local_quantity": d.local_quantity,
-                "exchange_quantity": d.exchange_quantity,
+                "exchange_quantity": d.reference_quantity,
             }
             for d in discrepancies
         ],
@@ -1611,7 +1611,7 @@ async def recovery_acknowledge(
                     "symbol": d.symbol,
                     "type": d.discrepancy_type.value,
                     "local_quantity": d.local_quantity,
-                    "exchange_quantity": d.exchange_quantity,
+                    "exchange_quantity": d.reference_quantity,
                 }
                 for d in discrepancies
             ],
@@ -1680,7 +1680,11 @@ async def get_strategy_gauntlet() -> dict[str, Any]:
     candidates: dict[str, Any] = {}
     for strategy_id in tracker.snapshot():
         observation = observation_from_fills(
-            strategy_id, tracker.fills_for(strategy_id), equity_usd
+            strategy_id,
+            tracker.fills_for(strategy_id),
+            equity_usd,
+            first_entry_ms=tracker.first_entry_ts_for(strategy_id),
+            lifetime_trade_count=tracker.lifetime_trade_count(strategy_id),
         )
         result = evaluate_gauntlet(observation, criteria)
         candidates[strategy_id] = {

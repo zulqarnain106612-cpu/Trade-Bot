@@ -548,9 +548,13 @@ class PaperExecutor(AbstractExecutor):
         )
         return True
 
-    def pending_approvals(self) -> list[dict[str, object]]:
-        """Return all unresolved approval requests as dicts for the API.
-        H-05: prune resolved entries older than 1 hour to prevent unbounded growth.
+    def _pending_approvals_unsafe(self) -> list[dict[str, object]]:
+        """
+        Unresolved approvals, pruning resolved entries older than an hour.
+
+        H-05: the prune must live here, not in one of the two public
+        accessors, or the queue only shrinks when a caller happens to use
+        that one. No locking — call from a sync context or under self._lock.
         """
         cutoff = time.monotonic() - 3600.0
         to_prune = [
@@ -561,6 +565,10 @@ class PaperExecutor(AbstractExecutor):
         for rid in to_prune:
             self._approval_queue.pop(rid, None)
         return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
+
+    def pending_approvals(self) -> list[dict[str, object]]:
+        """Return all unresolved approval requests as dicts for the API."""
+        return self._pending_approvals_unsafe()
 
     async def open_positions_safe(self) -> list[dict[str, object]]:
         """
@@ -595,9 +603,17 @@ class PaperExecutor(AbstractExecutor):
             ]
 
     async def pending_approvals_safe(self) -> list[dict[str, object]]:
-        """Lock-safe snapshot for WS heartbeat (VUL-035)."""
+        """
+        Lock-safe snapshot for WS heartbeat (VUL-035).
+
+        Prunes too — this is the variant the dashboard and WS actually call,
+        so leaving the prune to pending_approvals() meant the queue only
+        shrank if an operator happened to hit GET /approvals. This mirrors
+        LiveExecutor, where both accessors already went through the pruning
+        path.
+        """
         async with self._lock:
-            return [req.to_dict() for req in self._approval_queue.values() if not req.resolved]
+            return self._pending_approvals_unsafe()
 
     # ------------------------------------------------------------------
     # State queries
