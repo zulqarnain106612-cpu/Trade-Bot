@@ -180,7 +180,7 @@ class TestGetReadonlyKey:
     def test_key_identical_to_secret_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         monkeypatch.setenv("API_READONLY_KEY", _TRADE_KEY)
-        with pytest.raises(RuntimeError, match="must differ"):
+        with pytest.raises(RuntimeError, match="identical to API_SECRET_KEY"):
             _get_readonly_key()
 
     def test_distinct_key_returned_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
