@@ -22,6 +22,7 @@ import re
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Union
 
@@ -373,6 +374,26 @@ class BarRecord:
         self.volume = volume
         self.quote_volume = quote_volume
         self.taker_buy_vol = taker_buy_vol
+
+
+@dataclass(frozen=True, slots=True)
+class BlendAudit:
+    """
+    The two inputs to one tick's ensemble blend, plus the weight that
+    combined them.
+
+    Carried as one value rather than three loose floats because they are only
+    ever meaningful together: a pre-blend probability without the ensemble
+    probability it was mixed with cannot be re-scored under a different
+    weight, which is the entire reason they are recorded.
+
+    Defined here, beside TradeRecord, so the execution layer can accept one
+    without importing from the engine layer.
+    """
+
+    pre_blend_p_long: float
+    ensemble_p_long: float
+    blend_weight: float
 
 
 class TradeRecord:
