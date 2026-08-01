@@ -1310,6 +1310,8 @@ def test_strategies_gauntlet_reports_failed_criteria(mock_state):
     with patch("src.api.main.get_attribution_tracker") as mock_tracker:
         mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
         mock_tracker.return_value.fills_for.return_value = fills
+        mock_tracker.return_value.first_entry_ts_for.return_value = fills[0].entry_ts
+        mock_tracker.return_value.lifetime_trade_count.return_value = len(fills)
         resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
     candidate = resp.json()["candidates"]["alpha"]
@@ -1470,3 +1472,21 @@ def test_reconcile_advances_the_offset_between_pages(mock_state):
     _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
     offsets = [c.kwargs["offset"] for c in mock_state.storage.fetch_trades.await_args_list]
     assert offsets == [0, _RECONCILE_PAGE]
+
+
+def test_strategies_gauntlet_uses_lifetime_facts_not_the_window(mock_state):
+    """A candidate whose oldest fills aged out must not read as newly started."""
+    import time
+
+    now_ms = int(time.time() * 1000)
+    day_ms = 86_400_000
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = _gauntlet_fills(2, now_ms - day_ms)
+        mock_tracker.return_value.first_entry_ts_for.return_value = now_ms - 90 * day_ms
+        mock_tracker.return_value.lifetime_trade_count.return_value = 500
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["trade_count"] == 500
+    assert candidate["days_running"] > 89.0

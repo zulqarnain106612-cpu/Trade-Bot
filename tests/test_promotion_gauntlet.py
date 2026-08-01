@@ -159,3 +159,45 @@ def test_default_now_ms_uses_wall_clock() -> None:
     fills = [AttributedFill(strategy_id="alpha", pnl_usd=1.0, entry_ts=now - _DAY_MS, exit_ts=now)]
     obs = observation_from_fills("alpha", fills, equity_usd=10_000.0)
     assert 0.9 < obs.days_running < 1.1
+
+
+def test_first_entry_override_beats_the_windowed_fills() -> None:
+    """Once old fills age out of the tracker's window, deriving age from the
+    window alone would reset a long-lived candidate's clock."""
+    recent = [_fill(10.0, 59)]
+    obs = observation_from_fills(
+        "alpha",
+        recent,
+        equity_usd=10_000.0,
+        now_ms=60 * _DAY_MS,
+        first_entry_ms=0,
+    )
+    assert obs.days_running == 60.0
+
+
+def test_lifetime_trade_count_override_beats_the_windowed_count() -> None:
+    obs = observation_from_fills(
+        "alpha",
+        [_fill(10.0, 1)],
+        equity_usd=10_000.0,
+        now_ms=60 * _DAY_MS,
+        lifetime_trade_count=400,
+    )
+    assert obs.trade_count == 400
+
+
+def test_overrides_absent_falls_back_to_the_fills() -> None:
+    obs = observation_from_fills(
+        "alpha", [_fill(10.0, 1), _fill(10.0, 2)], equity_usd=10_000.0, now_ms=11 * _DAY_MS
+    )
+    assert obs.trade_count == 2
+    assert obs.days_running == 10.0
+
+
+def test_first_entry_override_applies_even_with_no_retained_fills() -> None:
+    """A candidate whose entire window has aged out is still running."""
+    obs = observation_from_fills(
+        "alpha", [], equity_usd=10_000.0, now_ms=40 * _DAY_MS, first_entry_ms=0
+    )
+    assert obs.days_running == 40.0
+    assert obs.trade_count == 0
