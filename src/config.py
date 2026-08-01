@@ -317,7 +317,6 @@ class XGBoostSettings(BaseSettings):
     min_child_weight: int = Field(default=5, ge=1)
     reg_alpha: float = Field(default=0.1, ge=0.0)
     reg_lambda: float = Field(default=1.0, ge=0.0)
-    use_label_encoder: bool = Field(default=False)
     eval_metric: str = Field(default="logloss")
     tree_method: str = Field(default="hist")
     device: str = Field(default="cpu")
