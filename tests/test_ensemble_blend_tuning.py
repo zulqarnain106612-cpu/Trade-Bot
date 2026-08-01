@@ -151,6 +151,10 @@ def _samples(n: int, *, ensemble_is_right: bool) -> list[EnsembleBlendSample]:
     """
     n alternating-outcome samples where the ensemble either agrees with the
     realized outcome or contradicts it, and the XGBoost side is uninformative.
+
+    Callers pass 800: the default CPCV split is 10 folds with a 60-bar purge
+    gap, so anything at or below 600 makes _make_folds raise rather than
+    exercise the harness.
     """
     out: list[EnsembleBlendSample] = []
     for i in range(n):
@@ -178,13 +182,13 @@ class TestBlendBacktest:
 
     def test_reports_both_metrics(self) -> None:
         comparisons = run_ensemble_blend_backtest(
-            _samples(200, ensemble_is_right=True), champion_weight=0.15, challenger_weight=0.5
+            _samples(800, ensemble_is_right=True), champion_weight=0.15, challenger_weight=0.5
         )
         assert {c.metric_name for c in comparisons} == {"ensemble_calibration", "oos_sharpe"}
 
     def test_a_skilful_ensemble_favours_the_heavier_weight(self) -> None:
         comparisons = run_ensemble_blend_backtest(
-            _samples(200, ensemble_is_right=True), champion_weight=0.05, challenger_weight=0.9
+            _samples(800, ensemble_is_right=True), champion_weight=0.05, challenger_weight=0.9
         )
         calibration = next(c for c in comparisons if c.metric_name == "ensemble_calibration")
         assert calibration.challenger_mean > calibration.champion_mean
@@ -195,14 +199,14 @@ class TestBlendBacktest:
         score worse, or the tuner would ratchet the weight up on noise.
         """
         comparisons = run_ensemble_blend_backtest(
-            _samples(200, ensemble_is_right=False), champion_weight=0.05, challenger_weight=0.9
+            _samples(800, ensemble_is_right=False), champion_weight=0.05, challenger_weight=0.9
         )
         calibration = next(c for c in comparisons if c.metric_name == "ensemble_calibration")
         assert calibration.challenger_mean < calibration.champion_mean
 
     def test_identical_weights_compare_equal(self) -> None:
         comparisons = run_ensemble_blend_backtest(
-            _samples(200, ensemble_is_right=True), champion_weight=0.3, challenger_weight=0.3
+            _samples(800, ensemble_is_right=True), champion_weight=0.3, challenger_weight=0.3
         )
         for comparison in comparisons:
             assert comparison.champion_mean == pytest.approx(comparison.challenger_mean)
