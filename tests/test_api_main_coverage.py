@@ -37,6 +37,7 @@ def _make_state():
     orch._executor.open_positions_safe = AsyncMock(return_value=[])
     orch._executor.pending_approvals_safe = AsyncMock(return_value=[])
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch
@@ -266,6 +267,27 @@ def test_status_route_when_ready(mock_state):
     assert "cash_usd" in data
     assert "degradation_report" in data
     assert isinstance(data["degradation_report"], dict)
+    # No engine has a candidate under evaluation, so the map is empty rather
+    # than absent — an operator can tell "nothing in shadow" from "field gone".
+    assert data["shadow_models"] == {}
+
+
+def test_status_route_reports_a_shadow_model_under_evaluation(mock_state):
+    engine = AsyncMock()
+    engine.shadow_status = AsyncMock(
+        return_value={"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    )
+    idle_engine = AsyncMock()
+    idle_engine.shadow_status = AsyncMock(return_value=None)
+    mock_state.orchestrator._engines = {"15m": engine, "5m": idle_engine}
+
+    client = _get_client()
+    resp = client.get("/status", headers={"x-api-key": _API_KEY})
+
+    assert resp.status_code == 200
+    assert resp.json()["shadow_models"] == {
+        "15m": {"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    }
 
 
 def test_status_route_not_ready(mock_state):

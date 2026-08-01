@@ -110,7 +110,7 @@ fills, reconnects, and exchange-side rejections.
 |---|---|---|
 | GET | /health | Storage counts, trading/execution mode |
 | GET | /metrics | Prometheus metrics |
-| GET | /status | Equity, positions, regime, pending approvals |
+| GET | /status | Equity, positions, regime, pending approvals, shadow models |
 | GET | /trades | Paginated trade history |
 | GET | /missed-trades | Trades filtered out by a risk gate (audit trail) |
 | GET | /equity | Equity curve for charting |

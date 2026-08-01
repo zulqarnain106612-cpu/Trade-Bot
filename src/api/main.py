@@ -591,6 +591,21 @@ async def status() -> dict[str, Any]:
             "prob_volatile": regime_snap.prob_volatile,
         }
 
+    # v4 shadow-mode promotion: a retrained bundle under evaluation is not
+    # trading, so it is reported per timeframe rather than folded into the
+    # single model view above. Absent key = nothing under evaluation.
+    # Reported best-effort: /status is the operator's view of everything else
+    # on this page, and a failed read of an advisory evaluation must not take
+    # equity and open positions down with it.
+    shadow_models: dict[str, Any] = {}
+    try:
+        for tf_value, engine in _state.orchestrator._engines.items():
+            shadow = await engine.shadow_status()
+            if shadow is not None:
+                shadow_models[tf_value] = shadow
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("api.shadow_status_failed", error=str(exc), exc_info=True)
+
     return {
         "equity_usd": round(equity_usd, 2),
         "cash_usd": round(cash_usd, 2),
@@ -606,6 +621,7 @@ async def status() -> dict[str, Any]:
         "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
+        "shadow_models": shadow_models,
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
             tf: str(err)[:200]

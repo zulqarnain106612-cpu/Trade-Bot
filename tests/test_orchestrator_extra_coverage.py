@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -968,6 +968,9 @@ class TestTrainModelsRemainingBranches:
     @pytest.mark.asyncio
     async def test_hot_swap_models_called_when_engine_exists(self):
         orch = self._orch_for_train()
+        # v4 shadow mode off: this test pins the direct swap-on-retrain path.
+        # The shadow path is covered by test_orchestrator_shadow_routing.py.
+        orch._cfg.xgboost.shadow_mode_enabled = False
         existing_engine = AsyncMock()
         existing_engine.swap_models = AsyncMock(return_value=None)
         orch._engines[Timeframe.INTRADAY.value] = existing_engine
@@ -1004,17 +1007,25 @@ class TestTrainModelsRemainingBranches:
             await orch._train_models(Timeframe.INTRADAY)
 
         existing_engine.swap_models.assert_awaited_once_with(
-            new_dir, new_meta, detector, ensemble=trainer.train_ensemble.return_value
+            new_dir,
+            new_meta,
+            detector,
+            ensemble=trainer.train_ensemble.return_value,
+            model_id=ANY,
         )
 
     @pytest.mark.asyncio
-    async def test_ensemble_train_exception_falls_back_to_none_and_still_swaps(self):
+    async def test_ensemble_train_exception_falls_back_to_none_and_still_shadows(self):
         """train_ensemble()/save_ensemble() failing must not block the
         direction/meta models -- which already trained/saved successfully --
-        from being hot-swapped in with ensemble=None."""
+        from reaching the shadow slot with ensemble=None.
+
+        Shadow mode is on by default, so a bundle that clears the live gate is
+        shadowed rather than swapped; the ensemble fallback being carried
+        through is what this covers either way."""
         orch = self._orch_for_train()
         existing_engine = AsyncMock()
-        existing_engine.swap_models = AsyncMock(return_value=None)
+        existing_engine.set_shadow_bundle = AsyncMock(return_value=None)
         orch._engines[Timeframe.INTRADAY.value] = existing_engine
 
         fm = MagicMock()
@@ -1049,9 +1060,12 @@ class TestTrainModelsRemainingBranches:
         ):
             await orch._train_models(Timeframe.INTRADAY)  # must not raise
 
-        existing_engine.swap_models.assert_awaited_once_with(
-            new_dir, new_meta, detector, ensemble=None
-        )
+        existing_engine.set_shadow_bundle.assert_awaited_once()
+        bundle = existing_engine.set_shadow_bundle.await_args.args[0]
+        assert bundle.ensemble is None
+        assert bundle.direction_model is new_dir
+        assert bundle.meta_model is new_meta
+        assert bundle.detector is detector
 
 
 # ---------------------------------------------------------------------------

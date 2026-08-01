@@ -324,6 +324,37 @@ class XGBoostSettings(BaseSettings):
     random_state: int = Field(default=42, ge=0)
     early_stopping_rounds: int = Field(default=50, ge=5)
 
+    # v4 shadow-mode promotion (src/models/model_registry.py). A retrain that
+    # clears the absolute live gate (OOS Sharpe / max DD / trade count) has not
+    # yet shown it is better than the model already running. shadow_mode_enabled
+    # makes a fresh bundle earn the live slot by out-predicting the incumbent on
+    # live bars first; disabling it restores the previous swap-on-retrain
+    # behaviour.
+    shadow_mode_enabled: bool = Field(default=True)
+    shadow_min_evaluations: int = Field(
+        default=100,
+        ge=1,
+        description="Resolved shadow predictions required before promotion is considered",
+    )
+    shadow_max_evaluations: int = Field(
+        default=400,
+        ge=1,
+        description=(
+            "Resolved predictions after which a shadow that has not beaten the "
+            "incumbent is abandoned, so it cannot block the next candidate forever"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_shadow_window(self) -> XGBoostSettings:
+        if self.shadow_max_evaluations < self.shadow_min_evaluations:
+            raise ValueError(
+                f"shadow_max_evaluations ({self.shadow_max_evaluations}) must be >= "
+                f"shadow_min_evaluations ({self.shadow_min_evaluations}); otherwise a "
+                "shadow is abandoned before it is ever evaluated"
+            )
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Feature engineering constants — AFML Ch.3-5
@@ -429,6 +460,12 @@ class StorageSettings(BaseSettings):
     model_dir: Path = Field(default=Path("models/artifacts"))
     log_dir: Path = Field(default=Path("logs"))
     bar_cache_days: int = Field(default=90, ge=1)
+    # Append-only audit trail for automated structural changes (model
+    # promotions, strategy retirements). Defaults under log_dir rather than the
+    # repository's own DECISION_LOG.md: that file is hand-authored and version
+    # controlled, and a running process appending to it would put uncommitted
+    # machine writes into a tracked file.
+    decision_log_path: Path = Field(default=Path("logs/decision_log.md"))
 
     # Directory creation intentionally removed from this validator (VUL-031).
     # Having a Pydantic validator create filesystem directories is a side-effect
