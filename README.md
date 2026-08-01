@@ -56,20 +56,33 @@ provider health and field coverage.
 
 ## Risk Gates (hard limits — sequential, short-circuit on first fail)
 
-1. Daily drawdown halt: **2%** of starting equity
-2. Consecutive loss halt: **3 trades**
-3. Regime gate: no new positions when state = **volatile**
-4. Max position size: **5% of capital**
-5. Exchange-stress / whale-activity gates (intelligence-derived)
-6. Portfolio correlation gate (`src/risk/portfolio_correlation.py`)
-7. Slippage veto (`src/risk/slippage.py`)
-8. Paper minimum days: **30 days** before live is permitted
-9. Live gate: OOS Sharpe > 1.5 · max DD < 15% · 500+ trades
+Listed in the order `evaluate_all_gates()` evaluates them. The order is
+load-bearing: the stack stops at the first failure, so the gate that fires
+is the one reported to the operator and written to the audit trail.
+
+| # | Gate | Blocks when |
+|---|---|---|
+| 1 | Capital preservation floor (`capital_preservation_floor.py`) | Peak drawdown ≥ **30%**. Never auto-clears — requires explicit re-authorisation |
+| 2 | Slippage veto (`slippage.py`) | Estimated execution cost erases the signal's expected edge |
+| 3 | Daily drawdown halt | Daily PnL below **2%** of starting equity |
+| 4 | Consecutive loss halt | **3** losing trades in a row |
+| 5 | Regime gate | HMM state = **volatile** |
+| 6 | Max position size | Notional above **5%** of capital |
+| 7 | Paper minimum days *(live only)* | Fewer than **30 days** of paper history |
+| 8 | Live gate | OOS Sharpe < 1.5 · max DD > 15% · under 500 trades |
+| 9 | Performance drift *(live only)* | Live performance has drifted from the training baseline |
+| 10 | Exchange stress | Exchange-stress composite above threshold (fails open without data) |
+| 11 | Whale activity | Whale sell pressure — reduces size rather than halting |
+
+**Not a gate:** portfolio and strategy correlation
+(`portfolio_correlation.py`, `strategy_correlation.py`) produce a *sizing
+scalar*, not a halt. Correlated exposure is sized down, never blocked — the
+previous version of this list described it as a gate, which overstated it.
 
 Default: **paper** — live requires `TRADING_MODE=live` in `.env`.
-`src/risk/cognitive_engine.py` and `performance_drift.py` continuously
-monitor for behavioral drift and degrade sizing/confidence rather than
-hard-failing.
+`src/risk/cognitive_engine.py` degrades sizing and confidence rather than
+hard-failing. `performance_drift.py` does both: it continuously reports
+drift at `GET /performance-drift`, and gate 9 halts new live entries on it.
 
 ## Self-Tuning (optional, off by default)
 
@@ -128,6 +141,8 @@ fills, reconnects, and exchange-side rejections.
 | POST | /recovery/acknowledge | Clear the reconciliation block (requires OPERATOR_SECRET) |
 | GET | /strategies/stress-test | Replay historical crashes against the current allocation |
 | POST | /strategies/{id}/re-enable | Reinstate a kill-switched strategy (gauntlet-gated, requires OPERATOR_SECRET) |
+| GET | /strategies/attribution | Per-strategy P&L attribution |
+| GET | /strategies/allocation | Performance-weighted capital allocation |
 | GET | /performance-drift | Behavioral/performance drift snapshot |
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |
