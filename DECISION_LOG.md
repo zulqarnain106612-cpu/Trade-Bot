@@ -3,53 +3,348 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
-## 2026-07-31 — v4 shadow mode: a retrained model must earn the live slot
+## 2026-07-31 — TASK-008 online learner: producer, consumer, persistence
 
-`src/models/model_registry.py` had a complete shadow-evaluation and promotion
-API and no caller. Wiring it up exposed the reason it was written: retraining
-hot-swapped unconditionally.
+`src/models/online_trainer.py` had a complete incremental-SGD implementation
+and no caller. Nothing ever fed it a resolved bar, so its 50-sample warm-up
+was never reached and its blend never applied — the file was a fully-tested
+no-op sitting in the hot path's blast radius for no benefit.
 
-- **The bug.** `live_gate_pass` is an *absolute* test — OOS Sharpe > 1.5, max
-  DD < 15%, ≥ 500 trades. It says a candidate is good enough to trade; it says
-  nothing about whether it is better than the model already trading. Every
-  scheduled retrain swapped on the strength of that absolute test alone, so a
-  candidate that merely cleared the bar replaced an incumbent that had cleared
-  it by more. Model quality performed a random walk instead of ratcheting.
-- **Shadow first.** A passing candidate now runs in parallel and is scored
-  against the incumbent on live bars. It reaches the live slot only after
-  `xgboost.shadow_min_evaluations` resolved predictions *and* a higher hit
-  rate over the same window.
-- **Lagged by one bar, deliberately.** The outcome of a prediction made at bar
-  T does not exist until T+1, so each pair is held and resolved on the next
-  bar. A bar whose close is unchanged is dropped rather than scored — there
-  was no direction to have predicted, and crediting it to "short" would hand
-  both models a coin flip neither earned.
-- **Compared pre-blend.** The shadow is a direction model, so it is scored
-  against the direction model's raw `p_long`, not the ensemble-blended value.
-  Blending one side and not the other would measure the ensemble.
-- **The bundle promotes as a unit.** The meta model is fitted against its own
-  direction model's outputs; promoting a direction model without its meta
-  partner produces exactly the mismatched pair the engine's model lock exists
-  to prevent.
-- **Metrics are published on promotion, not on training.** `check_live_gate`
-  reads the *latest* metrics row for the timeframe. Inserting a candidate's
-  row while it sits in shadow would let a model that is not trading decide
-  whether live trading is permitted — in either direction.
-- **A failing candidate is discarded, not swapped and not recorded.** The
-  incumbent already passed the gate; replacing its metrics row with a failing
-  candidate's would halt live trading over a model that never went live.
-- **Bounded.** After `shadow_max_evaluations` a candidate that has not won is
-  abandoned, so a stale shadow cannot block every later candidate. A newer
-  candidate supersedes an older one, and any live swap drops the shadow — its
-  accumulated record answered "better than the model being replaced?", which
-  is no longer the question.
-- **Audited.** Each promotion appends to `storage.decision_log_path` via
-  `src/diagnostics/decision_log_writer.py` (also previously uncalled).
-  Default `logs/decision_log.md`, not this file: a running process appending
-  to a tracked, hand-authored file is not a good idea.
-- `GET /status` reports `shadow_models` per timeframe; absent means nothing is
-  under evaluation. `xgboost.shadow_mode_enabled=false` restores the previous
-  swap-on-retrain behaviour.
+- **Producer** — `SignalEngine._learn_online()` feeds the newest *resolved*
+  labelled bar each tick. Matched by index, not position: the triple-barrier
+  labeller cannot label the most recent bars, so `fm.labels` is shorter than
+  `fm.features` and taking the last feature row would pair a bar with some
+  other bar's label. A `0` label (barrier untouched) carries no directional
+  information and is dropped rather than coerced to short.
+- **Idempotence** — ticks arrive faster than bars close, so a
+  `_last_online_learn_ts` gate stops the same bar being learned repeatedly
+  and the SGD model overweighting whichever bar sat at the boundary.
+- **Consumer** — blended at two call sites, not one. `p_long` is blended
+  right after the ensemble blend, where it is final and is what every
+  downstream gate reads; `p_bet` after `predict_meta`, because it does not
+  exist before then. Each output is consumed where its batch input is
+  authoritative. Both re-derive their label from the blended probability, so
+  a large enough disagreement flips the decision rather than leaving it
+  pointing the other way.
+- **Column projection** — the live inference vector carries intelligence
+  columns the historical feature matrix does not. `_online_feature_cols`
+  records the fitted order and the live vector is projected onto it;
+  otherwise sklearn sees a different feature count than it was fitted with
+  and every blend fails open, permanently and silently.
+- **Persistence** — `Orchestrator._persist_online_trainers()` saves each
+  engine's learner on shutdown, per timeframe and best-effort. Losing a
+  restart's incremental state costs accuracy, never correctness, and must
+  not abort a shutdown that still has executors to close.
+- Blend weight stays at the module's 0.15 default. This is a drift detector,
+  not a replacement model; the batch models remain authoritative.
+
+## 2026-07-31 — v5 Greeks ceilings: enforced on the options-carry strategy
+
+`src/risk/greeks.py` had Black-Scholes Greeks and a portfolio cap check with
+no caller. `OptionsCarryStrategy` emitted premium-selling signals whose delta
+and vega were entirely unmeasured — and notional-based Kelly sizing cannot
+see that exposure, which is precisely why the module was written separately:
+a short option is small in notional terms and still carries unbounded
+directional and vol risk.
+
+- **Producer** — `OptionsCarryContext` gained the contract terms (spot,
+  strike, time to expiry, implied vol, call/put, contract count) and the
+  book's current delta/vega.
+- **Consumer** — `OptionsCarryStrategy._greeks_within_caps()` computes the
+  contract's Greeks, adds them to the book, and vetoes the signal on breach.
+- **Sign convention** — the strategy *sells* premium, so the position carries
+  the negative of the long-option Greeks. A short call is short delta, so an
+  existing long book nets it down rather than up; getting this backwards
+  would have turned the ceiling into an accelerator.
+- **Portfolio-level, not per-trade**: `portfolio_delta`/`portfolio_vega` are
+  included, so a contract that passes alone can still be vetoed by the book
+  it would join.
+- **Unmeasurable contracts are vetoed, not waved through.** No caps
+  configured means no check (the behaviour before the setting existed). Caps
+  configured but terms missing or unusable means veto — once an operator has
+  asked for a ceiling, letting through a position whose Greeks cannot be
+  computed defeats the point of asking.
+- **Config** — `STRATEGY_OPTIONS_MAX_ABS_DELTA` / `..._MAX_ABS_VEGA`, both
+  defaulting to None. Setting one leaves the other at `math.inf` rather than
+  borrowing an invented default; an unstated ceiling is not a ceiling anyone
+  agreed to.
+
+## 2026-07-31 — v10 decision log: the kill switch is its first producer
+
+`src/diagnostics/decision_log_writer.py` could format and append a
+structural-change record, but nothing ever produced one — every automated
+change to the strategy mix went unrecorded, which is precisely the
+tribal-knowledge gap the module was written to close.
+
+- **Producer** — `StrategyKillSwitchManager` records three transitions:
+  auto-disable on drift, the CUSUM structural-decay flag, and explicit
+  re-enable. The re-enable entry carries the reason the strategy was
+  originally pulled, since that is the context an auditor needs most.
+- **Written after the state change, never before.** A decision log that
+  cannot be written must not stop capital being pulled from a drifting
+  strategy; `_record_structural_change()` never raises.
+- **Gated on the transition, not the state.** `evaluate()` runs every tick
+  and both drift and CUSUM decay stay latched once tripped, so an
+  unguarded write would append the same entry forever. The disable path was
+  already guarded by `state.enabled`; decay needed a new `decay_logged` flag.
+- **Separate file from the hand-written log.** `STORAGE_DECISION_LOG_PATH`
+  defaults to `logs/AUTOMATED_DECISION_LOG.md`. `DECISION_LOG.md` is tracked
+  in git and edited by humans; a running process appending to it would dirty
+  the working tree and produce merge conflicts on every kill-switch trip.
+  Same format, so the two read together.
+
+## 2026-07-31 — v6 promotion gauntlet: enforced on kill-switch re-enable
+
+`src/tuning/promotion_gauntlet.py` evaluated a candidate's track record and
+nothing ever called it. `StrategyKillSwitchManager.re_enable()` documented
+that "callers are responsible for that validation" — and had no callers at
+all, so a strategy auto-disabled for drift could not be reinstated for the
+life of the process. Two inert pieces that turned out to be each other's
+missing half.
+
+- **`re_enable()` now runs the gauntlet itself** against the strategy's own
+  attributed track record, so the discipline is enforced where it is stated
+  rather than delegated to a caller that never existed.
+- **`build_gauntlet_observation()`** assembles that record from
+  `AttributionTracker`. No fills returns `None` — an absence of evidence, not
+  evidence of a passing record — and the caller treats it as a failure rather
+  than a zero-valued pass.
+- **Drawdown units.** The gauntlet is specified in percentage terms while
+  attribution reports USD, so drawdown is expressed as a fraction of the
+  strategy's own peak cumulative P&L. A strategy that never reached a
+  positive peak has no denominator and reports 1.0, failing the criterion —
+  the right answer to "never made money, and we are being asked to give it
+  capital again".
+- **`force=True` is the explicit override**, because `AttributionTracker` is
+  in-memory and a restart wipes it, so a healthy strategy can legitimately
+  look like it has no record. Loud rather than convenient: logged at warning
+  and reported as an override, never as a pass.
+- **`POST /strategies/{id}/re-enable`** is the operator path that was
+  missing entirely. 409 on a gauntlet failure, not 400: the request is
+  well-formed and the operator authorised — the strategy's record is what
+  does not qualify yet.
+- A failed re-enable never partially applies; the strategy keeps both its
+  disabled flag and its original disabled reason.
+
+## 2026-07-31 — v9 stress simulator: replayed against the live allocation
+
+`src/tuning/stress_simulator.py` could replay historical crash sequences
+against an allocation, but nothing ever called it — a reallocation could go
+out having been checked only against the period its own attribution data
+happened to cover.
+
+- **Consumer** — `GET /strategies/stress-test` runs the allocation that
+  `/strategies/allocation` would produce right now against every scenario in
+  `KNOWN_CRISIS_SCENARIOS`. Read-only, same as the allocation endpoint: the
+  reallocation decision is human-mediated through the API today, so an API
+  surface is the correct place for the check.
+- **The floor comes from `RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT`**, not
+  the simulator's own 0.30 default, so `breaches_floor` means "breaches the
+  halt that is actually armed" rather than a number that happens to agree
+  with it today.
+- **Units are reconciled at the boundary.** The config value and the
+  simulator's internal comparison are fractions (`..._PCT` is 0.30 despite
+  the name, validated `0 < x < 1`), while `StressTestResult` already
+  multiplies its drawdown by 100. The endpoint reports the floor as a percent
+  so the two are comparable — printing the raw 0.30 beside a 50.2 drawdown
+  reads as a comfortable margin and is in fact a 20-point breach.
+- **Every strategy is replayed against the same market-wide sequence.** The
+  simulator supports per-strategy scenario returns, but this bot has no
+  attributed crisis-period history per strategy, and assuming any strategy
+  hedges a crash it never traded through would understate exactly the tail
+  risk the test exists to find. Splitting capital across strategies is not
+  diversification against a market-wide crash, and the report must not imply
+  that it is.
+- Kill-switched strategies are excluded, matching `/strategies/allocation`.
+
+## 2026-07-31 — CVaR notional ceiling: risk_quantification enters the sizing path
+
+`src/intelligence/risk_quantification.py` was headed "EXPERIMENTAL — NOT
+wired into live signal path. Blocked on API key provisioning." That blocker
+never applied to `value_at_risk()`: it needs a returns array and nothing
+else. The note belonged to the metrics that consume paid provider data, and
+it kept a usable risk control shelved for the wrong reason.
+
+- **Why it matters.** Kelly sizes from win probability and payoff ratio and
+  is blind to tail *shape*. Two return series can look identical to Kelly and
+  differ entirely in how bad the bad days get, so a fat-tailed regime can
+  clear every Kelly check and still ruin the book.
+- **CVaR, not VaR.** VaR answers "how bad is the 5th percentile" and says
+  nothing about how much worse the other 5% get; a position sized to a VaR
+  limit is sized to the least bad outcome it was trying to survive.
+- **Composition** — `SignalEngine._cvar_notional_cap()` produces a notional
+  ceiling and takes the tighter of it and the existing Carver cap. Both are
+  ceilings; the binding one is whichever says less. Kelly remains the outer
+  ceiling either way.
+- **No estimate means no ceiling, not a zero one.** Too little history, a
+  tail estimate that finds no loss at all, or any error returns `None`. A
+  ceiling that cannot be computed must not collapse sizing to zero when Kelly
+  and Carver are both still in force.
+- **Config** — `RISK_CVAR_LIMIT_PCT` (None = disabled, so this is inert until
+  an operator opts in and can then only lower a notional),
+  `RISK_CVAR_CONFIDENCE`, `RISK_CVAR_LOOKBACK_BARS` (floor of 100, below
+  which the tail quantile is a handful of points and describes the sample
+  rather than the distribution).
+
+## 2026-07-31 — two config knobs that nothing read
+
+A scan of all 154 `*Settings` fields for references outside `config.py`
+turned up five with no reader anywhere. Two of them were load-bearing.
+
+**`SelfTuningSettings.min_trades_between_attempts`** — the tuning cadence
+guard has two halves and only one was enforced. `TuningRunner._cooldown_active`
+checked `min_hours_between_attempts` and nothing ever read the trade half, so
+an operator setting it believed tuning waited for 200 new closed trades when
+it waited only on wall-clock. A quiet market can let 24 hours pass on a
+handful of trades, and re-tuning on that little new evidence is how a tuner
+starts fitting noise.
+
+- The runner records `closed_trade_count` in the PROPOSED audit entry so the
+  next attempt has a baseline, and `AutoTuningScheduler` supplies the current
+  count once per cycle.
+- `None` (count unavailable) means "this guard cannot claim a verdict" and
+  falls back to wall-clock alone. `0` would have read as "no new evidence"
+  and blocked tuning indefinitely on a storage hiccup.
+- The bar-driven feature-window group deliberately does NOT pass the count:
+  its evidence is bar history, not trades, and gating it on trade flow would
+  stall it through any quiet period — repeating the cross-group coupling the
+  note at the top of `_attempt_all()` exists to prevent.
+
+**`StorageSettings.bar_cache_days`** — configured a retention window that
+`prune_old_bars()` implemented on *both* storage backends and that nothing
+ever called. Bars accumulated for the life of the deployment.
+`Orchestrator._prune_old_bars()` now runs on the same primary-timeframe
+cadence as retraining, prunes every active timeframe, and is best-effort per
+timeframe so a housekeeping failure cannot take down a healthy tick loop.
+
+The other three (`log_as_json`, `rate_limit_per_minute`,
+`rate_limit_per_second`) are genuinely decorative — ccxt's own
+`enableRateLimit` covers the last two — and are left alone rather than given
+invented behaviour.
+
+## 2026-08-01 — the audit chain is finally verified by something
+
+`src/diagnostics/audit_trail.py` hash-chains every entry to the previous one
+so tampering with history is detectable. `SignalEngine` writes to it on every
+tick. Nothing ever called `verify_chain_integrity()`, and nothing ever read
+the trail back — the SHA-256 cost was paid on every tick and the guarantee it
+buys was never collected. A tamper-evident log nobody checks is not
+tamper-evident; it is just a slower log.
+
+- **Consumer** — `GET /audit/integrity` verifies the chain, reports
+  `first_broken_sequence`, and returns the tail with each entry's hash so an
+  operator can re-verify independently rather than trusting the endpoint that
+  is reporting on itself.
+- **Distinct from `/debug/audit`**, which reads `TradeAuditor` — a
+  human-readable decision log with no integrity guarantee. Similar names,
+  different modules; conflating them is how the chain stayed unverified. A
+  test asserts the two endpoints read different sources.
+- **Reports, does not halt.** A broken chain means either a bug or tampering
+  and this endpoint cannot tell which, so halting on it would be a guess. It
+  logs at critical, because nobody may be looking at the dashboard at the
+  moment the chain breaks.
+- The verifier returns a *sequence*, not a list index — an index shifts the
+  moment an entry is removed, which is one of the tamper cases it exists to
+  catch.
+
+## 2026-08-01 — GAP-003: the drift gate was detected-but-not-enforced
+
+`check_performance_drift()` returns `HALT_DRIFT`, has tests, and was **not in
+`evaluate_all_gates()`**. The detector was fed on every closed trade, the
+metrics were reported at `GET /performance-drift`, and nothing stopped
+trading on the drifted model. Detection was wired; the gate was not. Every
+other `GateStatus` member has a producer inside the live stack — this was the
+only declared halt the stack could never emit.
+
+- **Live-only**, matching this gate's own contract and the paper-minimum-days
+  gate beside it. Halting the paper track on drift would stop the run that is
+  supposed to be gathering evidence about whether the drift persists.
+- **Ordered with `check_live_gate`**, because both answer "is the model still
+  good enough to trade" as opposed to the position-level checks above them,
+  and ahead of the intelligence gates so the stronger evidence names the halt.
+- **`drift_detector` is passed per tick, not injected at construction.** The
+  orchestrator builds its detector during startup *after* the engines exist,
+  so a constructor-injected engine would hold `None` for the process's life.
+- **Fails closed on a detector fault**, unlike the intelligence gates above
+  it. Those fail open because a third-party feed being down says nothing
+  about our model; this one measures our own realized performance, so a check
+  that cannot run means the model's state is unknown — and opening a position
+  on an unknown model is the hazard the gate exists for. `check_drift()`
+  already returns `drifted=False` when it merely lacks data, so reaching the
+  handler is a genuine fault rather than a cold start.
+- **Fails open on a missing detector** (`None`), so the change is inert for
+  any caller that does not supply one.
+
+## 2026-08-01 — the live loop now keeps the intelligence it fetches
+
+`SignalEngine` fetches the provider aggregator's 18 intelligence metrics on
+every tick, uses them for that one decision, and dropped them.
+`store_intelligence_features()` existed on *both* storage backends and had
+exactly one caller: `scripts/backfill_intelligence.py`, run by hand. So in a
+live deployment `intelligence_features_history` stayed empty.
+
+Two consumers quietly depend on that table being populated:
+
+- the trainer's intelligence feature matrix (GAP-015 step 4, documented in
+  `fetch_intelligence_features`'s own docstring), and
+- the v7 macro overlay, which reads funding / stablecoin / netflow history
+  from it. It correctly returns "no overlay" on an empty table — so the
+  overlay was wired, honest, and permanently inert for a reason that had
+  nothing to do with the overlay.
+
+The aggregator's `_NEUTRAL` key set is exactly the 18 storage columns, so the
+metrics dict is directly storable with no mapping layer.
+
+- **Keyed on the latest bar timestamp**, so the several ticks inside one bar
+  upsert a single row rather than accumulating duplicates. The aggregator
+  caches for 300s, so most of those writes carry identical values anyway.
+- **`confidence` goes in its own column, not into `features`.** It is the
+  aggregator's quality score for the merge, not a market measurement, and
+  writing it as a feature would hand the model a column describing how much
+  to trust the other columns.
+- **Best-effort.** A storage failure loses one bar of history, recoverable by
+  backfill; letting it break the tick would trade a recoverable data gap for
+  a missed trading decision.
+- Rows are tagged `source="live"` so they are distinguishable from
+  backfilled history.
+
+## 2026-08-01 — GAP-015: intelligence features never reached the model
+
+The intelligence layer was broken in three places at once, and each break
+hid the next.
+
+1. **Nothing wrote the table.** `store_intelligence_features()` had one
+   caller — a hand-run backfill script (fixed separately today).
+2. **Nothing set the coverage attribute.** The trainer resolves its column
+   set with `get_active_feature_columns(getattr(fm, "intelligence_coverage",
+   None))`. Nothing anywhere assigned `fm.intelligence_coverage`, so coverage
+   was always `None` and the active set was always the 8 base columns.
+3. **Inference injected the features anyway.** `build_inference_features`
+   appends up to 18 intelligence columns when metrics are present, and
+   `predict_direction` / `predict_meta` then slice the vector back down to
+   the model's `n_features_in_` — taking the *first* N columns, which are the
+   base ones. The intelligence columns were computed, injected, and silently
+   sliced off on every single tick.
+
+So the whole GAP-015 layer was decorative: providers fetched, metrics merged,
+confidence computed, features injected — and the model never saw any of it.
+The slicing logic is what made it invisible; without it there would have been
+a loud shape mismatch on the first inference.
+
+`Orchestrator._attach_intelligence_features()` fixes 2 and 3 together, which
+is the only way either works:
+
+- **Both halves are required.** Attaching coverage without joining the
+  columns only makes the trainer log "column in active set but absent from
+  FeatureMatrix" and drop them again. Joining without coverage leaves the
+  active set at the base 8 and ignores the joined columns.
+- **Left join on bar timestamp.** Bars are authoritative; a bar with no
+  intelligence row keeps its base features rather than being dropped from
+  training. The resulting NaNs are exactly what the coverage gate judges.
+- **The coverage gate still applies** — a column present but sparse (say sopr
+  at 20%) is joined onto the matrix and still excluded from the active set.
+- **Best-effort.** Intelligence is an enrichment; failing to attach it must
+  degrade training to base features, never abort the retrain.
 ## 2026-07-31 — GAP-015 notional cap: a ceiling that failed open
 
 `compute_position_size()` applied the Carver/AFML/Thorp notional cap by
@@ -193,6 +488,54 @@ single position.
 - **Config** — `RISK_MACRO_EXPOSURE_ENABLED` (default true, because the
   overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
   30). Deliberately not registered as a self-tunable parameter.
+
+## 2026-07-31 — v4 shadow mode: a retrained model must earn the live slot
+
+`src/models/model_registry.py` had a complete shadow-evaluation and promotion
+API and no caller. Wiring it up exposed the reason it was written: retraining
+hot-swapped unconditionally.
+
+- **The bug.** `live_gate_pass` is an *absolute* test — OOS Sharpe > 1.5, max
+  DD < 15%, ≥ 500 trades. It says a candidate is good enough to trade; it says
+  nothing about whether it is better than the model already trading. Every
+  scheduled retrain swapped on the strength of that absolute test alone, so a
+  candidate that merely cleared the bar replaced an incumbent that had cleared
+  it by more. Model quality performed a random walk instead of ratcheting.
+- **Shadow first.** A passing candidate now runs in parallel and is scored
+  against the incumbent on live bars. It reaches the live slot only after
+  `xgboost.shadow_min_evaluations` resolved predictions *and* a higher hit
+  rate over the same window.
+- **Lagged by one bar, deliberately.** The outcome of a prediction made at bar
+  T does not exist until T+1, so each pair is held and resolved on the next
+  bar. A bar whose close is unchanged is dropped rather than scored — there
+  was no direction to have predicted, and crediting it to "short" would hand
+  both models a coin flip neither earned.
+- **Compared pre-blend.** The shadow is a direction model, so it is scored
+  against the direction model's raw `p_long`, not the ensemble-blended value.
+  Blending one side and not the other would measure the ensemble.
+- **The bundle promotes as a unit.** The meta model is fitted against its own
+  direction model's outputs; promoting a direction model without its meta
+  partner produces exactly the mismatched pair the engine's model lock exists
+  to prevent.
+- **Metrics are published on promotion, not on training.** `check_live_gate`
+  reads the *latest* metrics row for the timeframe. Inserting a candidate's
+  row while it sits in shadow would let a model that is not trading decide
+  whether live trading is permitted — in either direction.
+- **A failing candidate is discarded, not swapped and not recorded.** The
+  incumbent already passed the gate; replacing its metrics row with a failing
+  candidate's would halt live trading over a model that never went live.
+- **Bounded.** After `shadow_max_evaluations` a candidate that has not won is
+  abandoned, so a stale shadow cannot block every later candidate. A newer
+  candidate supersedes an older one, and any live swap drops the shadow — its
+  accumulated record answered "better than the model being replaced?", which
+  is no longer the question.
+- **Audited.** Each promotion appends to `storage.decision_log_path` via
+  `src/diagnostics/decision_log_writer.py` (also previously uncalled).
+  Default `logs/decision_log.md`, not this file: a running process appending
+  to a tracked, hand-authored file is not a good idea.
+- `GET /status` reports `shadow_models` per timeframe; absent means nothing is
+  under evaluation. `xgboost.shadow_mode_enabled=false` restores the previous
+  swap-on-retrain behaviour.
 
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 
@@ -667,6 +1010,42 @@ locally per repo policy.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run locally.
 
+## 2026-08-01 — Meta-allocator wiring: rate-limited rebalancing
+
+`src/tuning/meta_allocator.py` was fully tested and had zero importers.
+Its `rate_limit_allocation_shift()` was the one capability the live path
+lacked: `performance_weighted_allocate()` is stateless, so every caller
+recomputed a target from scratch and a single noisy attribution window
+could reallocate the whole book in one step — the allocator itself
+becoming a source of instability.
+
+**Changes**:
+- `meta_allocator.py`: added `AllocationController` — holds the incumbent
+  allocation, steps toward a target by at most `max_shift_per_step` per
+  call, thread-safe, plus `get_allocation_controller()` singleton. The
+  singleton ignores a later, wider rate limit so no second caller can
+  loosen the limit protecting a live book. First step adopts the target
+  outright (creeping up from zero would starve the book for ten
+  rebalances after every restart).
+- `config.py` (`StrategyPortfolioSettings`): `max_allocation_shift_per_step`
+  (0.10) and `allocation_rebalance_interval_s` (3600).
+- `orchestrator.py`: new `_allocation_rebalance_loop` task alongside the
+  midnight-reset and position-monitor loops. The cadence lives here, not
+  in the API, so allocation advances at the operator's configured rate
+  rather than at whatever rate a dashboard polls.
+- `api/main.py`: `/strategies/allocation` now reports `allocations`
+  (applied) *and* `target_allocations`, plus `max_shift_per_step`; reading
+  it never advances state. `/strategies/stress-test` now stresses the
+  applied allocation — a crash tests the positions held today, not the
+  target being crept toward. Both fall back to the target before the first
+  rebalance.
+
+The softmax `compute_target_allocation()` in the same module stays unused:
+`capital_allocator.performance_weighted_allocate()` is the live policy and
+two competing allocation policies is a worse outcome than one dead helper.
+
+**Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
+locally per repo policy.
 ## 2026-07-31 — Wiring the inert institutional-grade modules
 
 Five modules landed fully tested with zero importers. Tested-but-unreachable

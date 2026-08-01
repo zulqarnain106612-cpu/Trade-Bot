@@ -48,7 +48,11 @@ from src.features.pipeline import (
     volume_zscore,
     vwap_deviation_zscore,
 )
-from src.models.trainer import ModelTrainer, oos_sharpe_and_drawdown
+from src.models.trainer import (
+    _FEATURE_COLUMNS_ATTR,
+    ModelTrainer,
+    oos_sharpe_and_drawdown,
+)
 from src.regime.garch import rolling_garch_forecast
 from src.tuning.bootstrap import XGBOOST_HYPERPARAM_FIELDS
 from src.tuning.evaluator import (
@@ -361,12 +365,22 @@ class UnknownFeatureWindowFieldError(ValueError):
 def _predict_direction_batch(model: XGBClassifier, features: pd.DataFrame) -> np.ndarray:
     """
     Vectorised counterpart of ModelTrainer.predict_direction's schema
-    slicing (GAP-015 backward compatibility): use model.n_features_in_ to
-    select the correct leading columns rather than assuming a fixed
-    7-column schema. `model.predict()` applies the same 0.5 threshold
+    reconciliation: prefer the column list the artifact recorded, falling
+    back to model.n_features_in_ for artifacts written before that field
+    existed (all of which were trained on BASE_FEATURE_COLUMNS, so the
+    positional slice is correct for them). `model.predict()` applies the same 0.5 threshold
     trainer.py's own CPCV fold evaluation (_run_cpcv) uses -- not a
     hand-rolled predict_proba threshold.
     """
+    named = getattr(model, _FEATURE_COLUMNS_ATTR, None)
+    if named:
+        # Name-first, matching predict_direction. This path scores the models
+        # whose metrics decide parameter promotion, so a positional mismatch
+        # here does not merely mis-predict -- it promotes a parameter on the
+        # strength of a backtest that fed features into the wrong slots.
+        arr = features.reindex(columns=list(named)).to_numpy(dtype=np.float64)
+        return model.predict(arr)
+
     n = getattr(model, "n_features_in_", features.shape[1])
     cols = list(features.columns[:n]) if features.shape[1] >= n else list(features.columns)
     arr = features.reindex(columns=cols).to_numpy(dtype=np.float64)

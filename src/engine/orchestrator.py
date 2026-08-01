@@ -23,6 +23,7 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
@@ -55,6 +56,7 @@ from src.execution.unified_ledger import VenuePosition, get_unified_ledger
 from src.features.pipeline import build_feature_matrix
 from src.intelligence.macro_indicators import build_macro_indicators
 from src.intelligence.macro_regime import classify_macro_regime
+from src.models.online_trainer import OnlineTrainer
 from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
@@ -71,11 +73,13 @@ from src.risk.strategy_correlation import (
     get_strategy_correlation,
 )
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
+from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.strategies.signal_engine_adapter import (
     STRATEGY_ID_SIGNAL_ENGINE,
     SignalEngineStrategy,
 )
+from src.tuning.meta_allocator import get_allocation_controller
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -354,6 +358,25 @@ class Orchestrator:
                 )
                 ensemble = None
 
+            # TASK-008 online learner. One instance per (symbol, timeframe),
+            # given its own directory so two timeframes never overwrite each
+            # other's SGD state. Additive and optional on exactly the same
+            # terms as the ensemble above: a load failure must not stop the
+            # engine coming up, it only means starting from a cold model.
+            try:
+                online_trainer = OnlineTrainer(
+                    model_dir=Path(model_dir)
+                    / f"online_{self._symbol.replace('/', '_')}_{tf.value}"
+                )
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.online_trainer_init_failed",
+                    timeframe=tf.value,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                online_trainer = None
+
             self._engines[tf.value] = SignalEngine(
                 symbol=self._symbol,
                 timeframe=tf,
@@ -364,6 +387,7 @@ class Orchestrator:
                 meta_model=meta_model,
                 trainer=trainer,
                 ensemble=ensemble,
+                online_trainer=online_trainer,
             )
 
         self._log.info(
@@ -392,6 +416,9 @@ class Orchestrator:
         ]
         tasks.append(asyncio.create_task(self._midnight_reset_loop(), name="midnight_reset"))
         tasks.append(asyncio.create_task(self._position_monitor_loop(), name="position_monitor"))
+        tasks.append(
+            asyncio.create_task(self._allocation_rebalance_loop(), name="allocation_rebalance")
+        )
 
         # Wait until stop event
         await self._stop_event.wait()
@@ -420,6 +447,26 @@ class Orchestrator:
         """
         if tf != self._primary_tf and self._non_primary_executor is not None:
             return self._non_primary_executor
+
+        # A non-primary timeframe must never reach a LiveExecutor. Today
+        # startup() always builds the paper executor when trading_mode=LIVE
+        # and any non-primary timeframe is active, so this branch is
+        # unreachable -- but the guard above was `is not None`, meaning any
+        # future path that left it unset (a partially-completed startup, a
+        # timeframe added after construction) would fall through to real
+        # money rather than to nothing.
+        #
+        # Skipping the tick is the correct failure: a paper-only stream that
+        # does not run costs a simulated trade, and the alternative costs a
+        # real one the spec forbids.
+        if tf != self._primary_tf and isinstance(self._executor, LiveExecutor):
+            self._log.error(
+                "orchestrator.non_primary_timeframe_has_no_paper_executor",
+                timeframe=tf.value,
+                reason="refusing to route a paper-only timeframe to the live executor",
+            )
+            return None
+
         return self._executor
 
     def _all_executors(self) -> list[AnyExecutor]:
@@ -436,9 +483,33 @@ class Orchestrator:
         for executor in self._all_executors():
             await executor.shutdown()
         await get_monitor().stop()  # Patch B: clean monitor shutdown
+        self._persist_online_trainers()
         # Shut down training thread pool cleanly — wait for any in-flight training job
         self._train_executor.shutdown(wait=True)
         self._log.info("orchestrator.shutdown_complete")
+
+    def _persist_online_trainers(self) -> None:
+        """
+        Save each engine's online learner so its SGD state survives a restart.
+
+        Best-effort per timeframe: the learner is a drift detector on top of
+        the batch models, so losing one restart's worth of incremental state
+        costs accuracy, never correctness — and it must not be able to abort
+        the rest of shutdown, which still has executors to close.
+        """
+        for tf_value, engine in self._engines.items():
+            trainer = getattr(engine, "_online_trainer", None)
+            if trainer is None:
+                continue
+            try:
+                trainer.save()
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.online_trainer_save_failed",
+                    timeframe=tf_value,
+                    error=str(exc),
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Timeframe loop
@@ -638,6 +709,11 @@ class Orchestrator:
             paper_trading_days=paper_trading_days,
             correlation_scalar=correlation_scalar,
             macro_budget=macro_budget,
+            # GAP-003: the drift detector is built during startup AFTER the
+            # engines exist, so it is supplied per tick rather than injected
+            # at construction -- an engine built before it existed would
+            # otherwise hold None for the life of the process.
+            drift_detector=self._drift_detector,
         )
 
         # Persist regime snapshot
@@ -791,6 +867,15 @@ class Orchestrator:
                     self._log.warning(
                         "orchestrator.missed_trade_log_failed", error=str(exc), exc_info=True
                     )
+
+        # Bar retention. StorageSettings.bar_cache_days configured a retention
+        # window and prune_old_bars() implemented it on both backends, but
+        # nothing ever called it -- bars accumulated for the life of the
+        # deployment. Runs on the same primary-timeframe cadence as retraining
+        # because it is the same kind of periodic housekeeping, and prunes
+        # every active timeframe rather than only the primary one.
+        if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
+            await self._prune_old_bars()
 
         # Scheduled retraining on primary timeframe — guard against overlap
         if tf == self._primary_tf and self._tick_counts[tf.value] % _RETRAIN_INTERVAL_TICKS == 0:
@@ -949,6 +1034,8 @@ class Orchestrator:
             self._log.error("orchestrator.feature_build_failed", error=str(exc), exc_info=True)
             return
 
+        await self._attach_intelligence_features(fm, tf)
+
         # HMM training — CPU bound
         detector = RegimeDetector(self._symbol, tf.value)
         try:
@@ -1059,6 +1146,56 @@ class Orchestrator:
                 break
             except Exception as exc:
                 self._log.error("orchestrator.midnight_reset_error", error=str(exc), exc_info=True)
+                await asyncio.sleep(60)
+
+    # ------------------------------------------------------------------
+    # v9 -- rate-limited capital rebalancing
+    # ------------------------------------------------------------------
+
+    async def _allocation_rebalance_loop(self) -> None:
+        """
+        Advance the book's capital allocation one rate-limited step toward
+        the performance-weighted target, on a fixed cadence.
+
+        The allocator itself (performance_weighted_allocate) is stateless: it
+        answers "given attribution as of right now, what split is optimal?".
+        Applied directly, that makes the allocator a source of instability —
+        a single unlucky window flips the split, and the next window flips it
+        back, churning capital on noise. The controller keeps the incumbent
+        allocation and moves at most max_allocation_shift_per_step toward the
+        target per rebalance (Domain Prior: the same "no runaway automation"
+        discipline that makes Kelly a ceiling rather than a target).
+
+        The cadence lives here rather than in the API layer so allocation
+        advances at a rate the operator configured, not at whatever rate a
+        dashboard happens to poll /strategies/allocation.
+        """
+        portfolio = self._cfg.strategy_portfolio
+        controller = get_allocation_controller(portfolio.max_allocation_shift_per_step)
+        while self._running:
+            try:
+                await asyncio.sleep(portfolio.allocation_rebalance_interval_s)
+                strategies = tuple(get_default_registry().all())
+                if not strategies:
+                    continue
+                enabled_ids = get_strategy_kill_switch_manager().enabled_ids(
+                    s.strategy_id for s in strategies
+                )
+                target = performance_weighted_allocate(strategies, enabled_ids)
+                applied = controller.step_toward(target.fractions)
+                self._log.info(
+                    "orchestrator.allocation_rebalance",
+                    method=target.method,
+                    target={sid: round(w, 4) for sid, w in target.fractions.items()},
+                    applied={sid: round(w, 4) for sid, w in applied.items()},
+                    max_shift_per_step=controller.max_shift_per_step,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self._log.error(
+                    "orchestrator.allocation_rebalance_error", error=str(exc), exc_info=True
+                )
                 await asyncio.sleep(60)
 
     # ------------------------------------------------------------------
@@ -1196,6 +1333,100 @@ class Orchestrator:
         if indicators is None:
             return None
         return compute_macro_exposure_scalar(classify_macro_regime(indicators))
+
+    async def _prune_old_bars(self) -> None:
+        """
+        Drop bars older than StorageSettings.bar_cache_days.
+
+        Best-effort per timeframe: a pruning failure is a housekeeping
+        problem, not a trading one, and must never take down a tick loop that
+        is otherwise healthy. Each timeframe is pruned independently so one
+        failure does not skip the rest.
+
+        Retention is deliberately checked against the configured window every
+        cycle rather than tracked incrementally -- prune_old_bars() is
+        idempotent, so a missed cycle self-heals on the next one instead of
+        leaving a permanent gap in what gets collected.
+        """
+        keep_days = int(self._cfg.storage.bar_cache_days)
+        for tf in self._timeframes:
+            try:
+                deleted = await self._storage.prune_old_bars(self._symbol, tf.value, keep_days)
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.prune_bars_failed",
+                    timeframe=tf.value,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                continue
+            if deleted:
+                self._log.info(
+                    "orchestrator.pruned_bars",
+                    timeframe=tf.value,
+                    deleted=deleted,
+                    keep_days=keep_days,
+                )
+
+    async def _attach_intelligence_features(self, fm: object, tf: Timeframe) -> None:
+        """
+        Join the stored intelligence history onto the training matrix (GAP-015).
+
+        The trainer resolves its column set with
+        ``get_active_feature_columns(coverage=getattr(fm, "intelligence_coverage", None))``.
+        Nothing ever set that attribute, so coverage was always None, the
+        active set was always the 8 base columns, and the 18 intelligence
+        features never reached training — while inference happily injected
+        them into the vector, where predict_direction/predict_meta sliced them
+        straight back off to match the model's ``n_features_in_``. Computed,
+        injected, and silently discarded.
+
+        Both halves are needed. Attaching coverage without joining the columns
+        would only make the trainer log "column in active set but absent from
+        FeatureMatrix" and drop them again; joining without coverage would
+        leave the active set at the base 8 and ignore the joined columns.
+
+        Left-join on bar timestamp: bars are authoritative, and a bar with no
+        intelligence row keeps its base features rather than being dropped
+        from training. The resulting NaNs are what the coverage gate is for.
+
+        Best-effort. Intelligence is an enrichment; failing to attach it must
+        degrade training to base features, never abort the retrain.
+        """
+        try:
+            coverage_report = await self._storage.intelligence_feature_coverage(
+                self._symbol, tf.value
+            )
+            coverage = coverage_report.get("coverage") if coverage_report else None
+            if not coverage:
+                return
+
+            intel = await self._storage.fetch_intelligence_features(
+                symbol=self._symbol, timeframe=tf.value
+            )
+            if intel is None or intel.empty:
+                return
+
+            features = getattr(fm, "features", None)
+            if features is None or features.empty:
+                return
+
+            joined = features.join(intel, how="left")
+            fm.features = joined  # type: ignore[attr-defined]
+            fm.intelligence_coverage = coverage  # type: ignore[attr-defined]
+            self._log.info(
+                "orchestrator.intelligence_attached",
+                timeframe=tf.value,
+                intelligence_columns=len(intel.columns),
+                rows_with_intelligence=int(intel.index.isin(features.index).sum()),
+            )
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.intelligence_attach_failed",
+                timeframe=tf.value,
+                error=str(exc),
+                exc_info=True,
+            )
 
     def _venue_for(self, executor: AnyExecutor) -> str:
         """

@@ -38,7 +38,6 @@ from dataclasses import dataclass
 import structlog
 
 from src.config import StrategyPortfolioSettings, get_settings
-from src.risk.greeks import GreeksExposureCaps
 from src.strategies.basis_trade import BasisTradeStrategy
 from src.strategies.breakout import BreakoutStrategy
 from src.strategies.cross_exchange_arb import CrossExchangeArbStrategy
@@ -74,19 +73,15 @@ class StrategySpec:
 
 def _build_options_carry(fraction: float, cfg: StrategyPortfolioSettings) -> OptionsCarryStrategy:
     """
-    Attach the book-level Greeks ceilings when both are configured.
+    Hand the strategy this registry's settings so it resolves its own
+    book-level Greeks ceilings.
 
     Kelly sizes on notional and cannot see the non-linear delta/vega a short
-    option adds, so this cap is the only thing bounding that exposure. The
-    config validator guarantees the two limits are set together, so checking
-    one for None is sufficient.
+    option adds, so that cap is the only thing bounding the exposure. Building
+    it here as well would give the same ceiling two construction sites that
+    could drift apart; options_carry._caps_from_config is the one.
     """
-    max_delta = cfg.options_carry_max_abs_delta
-    max_vega = cfg.options_carry_max_abs_vega
-    caps: GreeksExposureCaps | None = None
-    if max_delta is not None and max_vega is not None:
-        caps = GreeksExposureCaps(max_abs_delta=max_delta, max_abs_vega=max_vega)
-    return OptionsCarryStrategy(fraction, greeks_caps=caps)
+    return OptionsCarryStrategy(fraction, cfg=cfg)
 
 
 # Order is stable and meaningful: the model-driven signal engine is the

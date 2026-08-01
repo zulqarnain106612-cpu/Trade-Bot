@@ -62,15 +62,20 @@ from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
+from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.unified_ledger import get_unified_ledger
-from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
+from src.risk.strategy_kill_switch import (
+    GauntletNotPassedError,
+    get_strategy_kill_switch_manager,
+)
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
+from src.tuning.meta_allocator import get_allocation_controller
 from src.tuning.promotion_gauntlet import (
     GauntletCriteria,
     evaluate_gauntlet,
@@ -85,6 +90,10 @@ from src.tuning.state import (
     watchdog as tuning_watchdog,
 )
 from src.tuning.store import NoPriorVersionError, NoVersionsError
+from src.tuning.stress_simulator import (
+    KNOWN_CRISIS_SCENARIOS,
+    run_all_known_scenarios,
+)
 
 
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
@@ -498,6 +507,30 @@ class RecoveryAcknowledgeRequest(BaseModel):
         min_length=1,
         description="Must match OPERATOR_SECRET env var to authorise the acknowledgement",
     )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class StrategyReEnableRequest(BaseModel):
+    """
+    v6 — reinstate a kill-switched strategy.
+
+    force skips the promotion gauntlet. It exists because AttributionTracker
+    is in-memory: a restart wipes the track record, so a healthy strategy can
+    legitimately look like it has none. It is not a convenience flag — the
+    override is logged and reported as an override, never as a pass.
+    """
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise the re-enable",
+    )
+    force: bool = Field(default=False)
 
     @field_validator("operator")
     @classmethod
@@ -1291,6 +1324,64 @@ async def debug_audit(
     }
 
 
+@app.get("/audit/integrity", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def audit_chain_integrity(
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> dict[str, Any]:
+    """
+    Verify the hash-chained audit trail and return its tail.
+
+    src/diagnostics/audit_trail.py hash-chains every entry to the previous
+    one so tampering with history is detectable. SignalEngine writes to it on
+    every tick, and until this endpoint existed nothing ever verified the
+    chain or read it back — the hashing cost was paid on every tick and the
+    guarantee it buys was never collected. A tamper-evident log nobody checks
+    is not tamper-evident.
+
+    Distinct from /debug/audit, which reads TradeAuditor: that is a
+    human-readable decision log with no integrity guarantee, and the two are
+    different modules despite the similar name.
+
+    Reports rather than halts. A broken chain means a bug or tampering, and
+    which of those it is cannot be decided here — but it is logged at
+    critical so it cannot pass unnoticed while an operator is not looking at
+    the dashboard.
+
+    Returns
+    -------
+    {
+        "intact": bool,
+        "first_broken_sequence": int | None,   # None when intact
+        "entry_count": int,
+        "recent": [{sequence, ts_ms, event_type, reason_code, entry_hash}, ...],
+    }
+    """
+    trail = get_audit_trail()
+    intact, first_broken = trail.verify_chain_integrity()
+    entries = trail.entries()
+    if not intact:
+        log.critical(
+            "api.audit_chain_broken",
+            first_broken_sequence=first_broken,
+            entry_count=len(entries),
+        )
+    return {
+        "intact": intact,
+        "first_broken_sequence": first_broken,
+        "entry_count": len(entries),
+        "recent": [
+            {
+                "sequence": e.sequence,
+                "ts_ms": e.ts_ms,
+                "event_type": e.event_type,
+                "reason_code": e.reason_code,
+                "entry_hash": e.entry_hash,
+            }
+            for e in entries[-limit:]
+        ],
+    }
+
+
 @app.get("/debug/drift", dependencies=[Depends(api_key_header)])
 async def debug_drift() -> dict[str, Any]:
     """Feature drift (KS test vs training baseline) + model degradation report."""
@@ -1425,11 +1516,33 @@ async def debug_reconcile() -> dict[str, Any]:
     }
 
 
-@app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
-async def debug_selftest() -> dict[str, Any]:
-    """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
+@app.post(
+    "/debug/selftest",
+    dependencies=[Depends(api_key_header)],
+    responses={429: {"description": "Rate limit exceeded"}},
+)
+async def debug_selftest(request: Request) -> dict[str, Any]:
+    """
+    On-demand pipeline self-test — synthetic round-trip through the feature
+    pipeline.
+
+    Rate limited, unlike the other read-only diagnostics, because it is not
+    a read: it generates 800 synthetic bars and runs the full feature build
+    (fractional differentiation, GARCH, every rolling statistic) on a shared
+    executor. Every other mutating POST here is governed -- this one was the
+    exception, and it is the CPU-expensive one, so any valid key could have
+    kept the box busy building throwaway matrices while the live tick loop
+    waited for a thread.
+
+    Deliberately NOT role-gated: it changes no trading state, so a read-only
+    key running a diagnostic is legitimate. The cost is the problem, and a
+    rate limit is the control that matches it.
+    """
     from src.diagnostics.signal_debugger import run_pipeline_selftest
 
+    _state.check_endpoint_rate_limit(
+        "debug_selftest", request.client.host if request.client else ""
+    )
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_pipeline_selftest)
     return result
@@ -1731,20 +1844,38 @@ async def get_strategy_allocation() -> dict[str, Any]:
 
     Uses live Sharpe attribution data to compute Sharpe-weighted fractional
     allocations. Strategies with < 30 fills receive equal-weight share (warm-up
-    fallback). Read-only — reflects what the allocator would produce right now.
+    fallback). Read-only — reading this endpoint never advances the allocation.
+
+    `target_allocations` is what the allocator would pick from attribution as
+    it stands right now. `allocations` is what the book is actually running:
+    the orchestrator's rebalance loop moves it toward the target by at most
+    `max_shift_per_step` per rebalance, so the two differ whenever the target
+    has recently moved. Before the first rebalance (or with no orchestrator
+    running) there is no incumbent allocation and the two are identical.
 
     Returns
     -------
     {
-        "allocations": {strategy_id: float, ...},  # fractions summing to <= 1.0
+        "allocations": {strategy_id: float, ...},   # fractions summing to <= 1.0
+        "target_allocations": {strategy_id: float, ...},
+        "max_shift_per_step": float,
         "method": str,                              # "performance_weighted" or "equal_weight"
         "fill_count": int,                          # total fills tracked
     }
     """
     registry = get_default_registry()
     strategies = list(registry.all())
+    controller = get_allocation_controller(
+        get_settings().strategy_portfolio.max_allocation_shift_per_step
+    )
     if not strategies:
-        return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
+        return {
+            "allocations": {},
+            "target_allocations": {},
+            "max_shift_per_step": controller.max_shift_per_step,
+            "method": "equal_weight",
+            "fill_count": 0,
+        }
     # Kill-switched strategies are excluded, which the allocator turns into a
     # 0.0 share — previously every registered strategy was passed as enabled
     # unconditionally, so a strategy the kill switch had disabled for drift
@@ -1753,9 +1884,168 @@ async def get_strategy_allocation() -> dict[str, Any]:
     result = performance_weighted_allocate(tuple(strategies), enabled_ids)
     tracker = get_attribution_tracker()
     return {
-        "allocations": result.fractions,
+        "allocations": controller.applied() or result.fractions,
+        "target_allocations": result.fractions,
+        "max_shift_per_step": controller.max_shift_per_step,
         "method": result.method,
         "fill_count": tracker.fill_count(),
+    }
+
+
+@app.post(
+    "/strategies/{strategy_id}/re-enable",
+    tags=["monitoring"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        404: {"description": "No kill switch registered for this strategy"},
+        409: {"description": "Strategy has not passed the promotion gauntlet"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def re_enable_strategy(
+    strategy_id: str, body: StrategyReEnableRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Reinstate a strategy the kill switch disabled for drift (v2/v6).
+
+    Until this existed there was no path back: a strategy auto-disabled for
+    drift stayed disabled for the life of the process. The re-enable runs the
+    v6 promotion gauntlet against the strategy's own attributed track record,
+    so reinstatement clears the same bar as initial promotion.
+
+    409, not 400: the request is well-formed and the operator is authorised —
+    the strategy's record is what does not qualify yet.
+    """
+    _state.check_endpoint_rate_limit(
+        "re_enable_strategy", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "re_enable_strategy")
+
+    manager = get_strategy_kill_switch_manager()
+    if not manager.is_registered(strategy_id):
+        raise HTTPException(
+            status_code=404, detail=f"No kill switch registered for {strategy_id!r}."
+        )
+
+    try:
+        manager.re_enable(strategy_id, force=body.force)
+    except GauntletNotPassedError as exc:
+        log.warning(
+            "api.re_enable_rejected",
+            strategy_id=strategy_id,
+            operator=body.operator,
+            failed_criteria=list(exc.failed_criteria),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": str(exc), "failed_criteria": list(exc.failed_criteria)},
+        ) from exc
+
+    await _state.storage.insert_audit_event(
+        event_type="strategy_re_enabled",
+        operator=body.operator,
+        details={"strategy_id": strategy_id, "forced": body.force},
+    )
+    log.warning(
+        "api.strategy_re_enabled",
+        strategy_id=strategy_id,
+        operator=body.operator,
+        forced=body.force,
+    )
+    return {"strategy_id": strategy_id, "enabled": True, "forced": body.force}
+
+
+@app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_allocation_stress_test() -> dict[str, Any]:
+    """
+    Replay historical crisis periods against the current proposed allocation.
+
+    The allocator justifies a split from whatever period its attribution data
+    covers; this checks the same split against known crash sequences it was
+    never fitted to (src/tuning/stress_simulator.py). Read-only, like
+    /strategies/allocation — it reports what the current allocation would have
+    done, it does not change one.
+
+    Every strategy is replayed against the SAME market-wide crash sequence.
+    That is the conservative assumption on purpose: the simulator supports
+    per-strategy scenario returns, but this bot has no attributed
+    crisis-period history per strategy, and assuming any strategy hedges a
+    crash it has never traded through would understate exactly the tail risk
+    the test exists to find.
+
+    The floor comes from RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT, not the
+    simulator's own default, so `breaches_floor` means "breaches the halt that
+    is actually armed" rather than a number that happens to match today.
+
+    Units: everything reported here is a PERCENT. The config value and the
+    simulator's internal comparison are both FRACTIONS
+    (RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT is 0.30 despite its name,
+    validated 0 < x < 1), while StressTestResult already multiplies its
+    drawdown by 100. Reporting the floor raw would have put "drawdown 50.2"
+    next to "floor 0.30" in the same object, which reads as a comfortable
+    margin and is in fact a 20-point breach.
+
+    Returns
+    -------
+    {
+        "allocations": {strategy_id: float, ...},
+        "capital_preservation_floor_pct": float,   # percent, e.g. 30.0
+        "scenarios": [{scenario, max_drawdown_pct, final_return_pct,
+                       breaches_floor}, ...],      # percents
+        "breaches_any_floor": bool,
+    }
+    """
+    registry = get_default_registry()
+    strategies = list(registry.all())
+    # Fraction for the comparison, percent for the report -- see Units above.
+    floor = float(get_settings().risk.capital_preservation_max_drawdown_pct)
+    floor_pct = floor * 100.0
+    if not strategies:
+        return {
+            "allocations": {},
+            "capital_preservation_floor_pct": floor_pct,
+            "scenarios": [],
+            "breaches_any_floor": False,
+        }
+
+    enabled_ids = get_strategy_kill_switch_manager().enabled_ids(s.strategy_id for s in strategies)
+    # Stress the allocation the book is actually running, not the target it is
+    # still creeping toward -- a crash tests the positions you hold today. The
+    # target is the fallback only before the first rebalance, when there is no
+    # incumbent allocation yet.
+    controller = get_allocation_controller(
+        get_settings().strategy_portfolio.max_allocation_shift_per_step
+    )
+    allocation = (
+        controller.applied()
+        or performance_weighted_allocate(tuple(strategies), enabled_ids).fractions
+    )
+
+    by_scenario = {
+        name: dict.fromkeys(allocation, returns) for name, returns in KNOWN_CRISIS_SCENARIOS.items()
+    }
+    results = run_all_known_scenarios(
+        allocation,
+        by_scenario,
+        capital_preservation_floor_pct=floor,
+    )
+    return {
+        "allocations": allocation,
+        "capital_preservation_floor_pct": floor_pct,
+        "scenarios": [
+            {
+                "scenario": r.scenario_name,
+                "max_drawdown_pct": round(r.simulated_max_drawdown_pct, 4),
+                "final_return_pct": round(r.simulated_final_return_pct, 4),
+                "breaches_floor": r.breaches_capital_floor,
+            }
+            for r in results
+        ],
+        "breaches_any_floor": any(r.breaches_capital_floor for r in results),
     }
 
 
