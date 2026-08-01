@@ -3,6 +3,58 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-07-31 — v8 RBAC: key-to-role mapping + endpoint enforcement
+
+`src/api/access_control.py` documented its own non-wiring: the role table
+existed and was tested, but every authenticated key held every authority
+because no key-to-role convention had been decided.
+
+- **Convention** — additive and opt-in. `API_SECRET_KEY` authenticates as
+  `TRADE_AUTHORIZING` (unchanged); the optional `API_READONLY_KEY`
+  authenticates as `READ_ONLY`. A single-key deployment behaves exactly as
+  before, so this could not weaken an existing install — the only reachable
+  change is that a *newly added* key has less authority than the one already
+  there. That asymmetry is what made the decision safe to take unilaterally.
+- **Enforcement** — `main.requires(Permission)` builds a dependency that
+  resolves the role and answers 403 (not 401 — the caller authenticated
+  fine, it lacks authority) on `/approvals/{id}/resolve`, `/execution-mode`,
+  `/risk-controls`, and `/self-tuning/{pause,resume,rollback}`.
+- **Misconfiguration fails closed.** A read-only key shorter than 32 chars,
+  or identical to `API_SECRET_KEY`, makes the roles indistinguishable, so
+  every request answers 503 rather than guessing a role.
+- `verify_api_key` / `verify_ws_key` now return the resolved `Role`; the
+  raise-on-failure contract is unchanged, so existing callers are unaffected.
+- A test asserts the gate is actually attached to every mutating POST route —
+  a permission table nothing references is exactly the failure being fixed.
+
+## 2026-07-31 — v7 macro exposure overlay: producer + wiring
+
+`src/risk/macro_exposure_budget.py` and `src/intelligence/macro_regime.py`
+were both fully tested and entirely inert — nothing in the tree ever built a
+`MacroIndicators`, so the v7 portfolio-level macro overlay never influenced a
+single position.
+
+- **Producer** — new `src/intelligence/macro_indicators.py` derives the three
+  indicators from the intelligence-feature history already persisted by
+  `Storage.store_intelligence_features` (funding z-score, stablecoin-reserve
+  growth, exchange-netflow z-score). No new data source, and specifically no
+  paid one: Binance funding is free, and the rest is already being written.
+- **Wiring** — `Orchestrator._macro_exposure_budget()` builds the budget per
+  tick and passes it to `SignalEngine.tick(macro_budget=...)`, which folds it
+  into the scalar handed to `compute_position_size`. Multiplying the scalar is
+  arithmetically identical to shrinking the Kelly fraction, and keeps the
+  "budget can only shrink" invariant inside `macro_exposure_budget.py`.
+- **Absent data is None, not neutral.** A neutral `MacroIndicators` maps to a
+  ~0.62 scalar, so defaulting to it would have cut every position by a third
+  whenever the intelligence table was empty. `None` means "no overlay".
+- **Faults never widen exposure.** A macro failure in the orchestrator yields
+  `None`; a failure inside the engine leaves the already-computed
+  correlation/regime scalar intact. Failing to apply a ceiling must never
+  remove one — same posture as the strategy-correlation fix in #32.
+- **Config** — `RISK_MACRO_EXPOSURE_ENABLED` (default true, because the
+  overlay is shrink-only) and `RISK_MACRO_EXPOSURE_LOOKBACK_BARS` (default
+  30). Deliberately not registered as a self-tunable parameter.
+
 ## 2026-07-31 — v3 unified ledger: producer, consumer, and a real bug it fixes
 
 `src/execution/unified_ledger.py` had complete cross-venue accounting and no
