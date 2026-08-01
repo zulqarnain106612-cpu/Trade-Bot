@@ -16,6 +16,14 @@ Gates (all must pass for a trade to proceed):
 Gates are evaluated in order; first failure short-circuits the rest.
 All thresholds read from RiskSettings — never hard-coded here.
 
+Every gate that compares a number against a threshold rejects a non-finite
+measurement before comparing it (see _non_finite). IEEE-754 makes every
+comparison against NaN False, so an unguarded NaN does not trip a gate — it
+passes through it. "Cannot be measured" is treated as "blocked", never as
+"within limits"; the one gate whose failure is advisory rather than a halt
+(whale activity) reduces size instead. This is distinct from a `None` input,
+which means no data was fetched and continues to fail open by design.
+
 Authority:
   - López de Prado (2018) AFML Ch.3 (stop-loss barriers as risk gates)
   - Chan (2013) Algorithmic Trading Ch.7 (drawdown controls)
@@ -25,6 +33,7 @@ Authority:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -63,6 +72,24 @@ class GateStatus(StrEnum):
     HALT_EXCHANGE_STRESS = "halt_exchange_stress"  # GAP-015: exchange stress gate
     REDUCE_WHALE_ACTIVITY = "reduce_whale_activity"  # GAP-015: whale selling, size reduced
     HALT_CAPITAL_PRESERVATION = "halt_capital_preservation"  # v10 outermost drawdown floor
+
+
+def _non_finite(*values: float) -> bool:
+    """
+    True when any of *values* is NaN or an infinity.
+
+    Every threshold comparison in this module is of the form
+    ``measurement <op> limit``, and IEEE-754 makes *every* comparison against
+    NaN False. A NaN measurement therefore does not trip the gate — it slips
+    past it. `<= 0.0` guards do not help for the same reason, so the check has
+    to be explicit and has to come first.
+
+    This is the same defect class already closed one layer down in
+    src/risk/kelly.py (VF-024/026/027/028/029/030). The gates are the last
+    check before an order, so failing open here is worse: kelly.py can only
+    mis-size a trade the gates already approved.
+    """
+    return any(not math.isfinite(v) for v in values)
 
 
 @dataclass(frozen=True)
@@ -150,6 +177,24 @@ def check_slippage_veto(
     if slippage is None:
         return GateResult.pass_gate(details={"slippage_gate": "skipped_no_estimate"})
 
+    # None above means "no estimate was produced" and fails open by design.
+    # A non-finite number is the opposite: an estimate was produced and it is
+    # garbage. Passing it on would clear the negative-EV veto for a trade
+    # whose cost is unknown.
+    if _non_finite(expected_edge_bps, slippage.total_slippage_bps):
+        return GateResult.fail(
+            GateStatus.HALT_NEGATIVE_EV,
+            reason=(
+                "Non-finite edge or slippage estimate — net EV cannot be "
+                "evaluated, so the trade is blocked rather than assumed profitable."
+            ),
+            details={
+                "expected_edge_bps": expected_edge_bps,
+                "total_slippage_bps": slippage.total_slippage_bps,
+                "symbol": slippage.symbol,
+            },
+        )
+
     margin = cfg.slippage_veto_margin_bps
     net_edge_bps = expected_edge_bps - slippage.total_slippage_bps - margin
 
@@ -235,6 +280,20 @@ def check_daily_drawdown(
     """
     if cfg is None:
         cfg = get_settings().risk
+
+    # Checked before the `<= 0.0` guard, which NaN passes.
+    if _non_finite(daily_pnl_usd, starting_equity_usd):
+        return GateResult.fail(
+            GateStatus.HALT_DRAWDOWN,
+            reason=(
+                "Non-finite daily PnL or starting equity — drawdown cannot be "
+                "measured, so trading is halted rather than assumed within limits."
+            ),
+            details={
+                "daily_pnl_usd": daily_pnl_usd,
+                "starting_equity_usd": starting_equity_usd,
+            },
+        )
 
     if starting_equity_usd <= 0.0:
         return GateResult.fail(
@@ -367,6 +426,19 @@ def check_position_size(
     """
     if cfg is None:
         cfg = get_settings().risk
+
+    # Checked before the `<= 0.0` guard, which NaN passes. Without this a NaN
+    # notional produces a NaN position_pct, and `nan > max_pct` is False, so
+    # the position-size gate approves a position of unknown size.
+    if _non_finite(notional_usd, capital_usd):
+        return GateResult.fail(
+            GateStatus.HALT_POSITION_SIZE,
+            reason=(
+                "Non-finite notional or capital — position size cannot be "
+                "measured against the limit, so the trade is blocked."
+            ),
+            details={"notional_usd": notional_usd, "capital_usd": capital_usd},
+        )
 
     if capital_usd <= 0.0:
         return GateResult.fail(
@@ -857,6 +929,20 @@ def check_exchange_stress(
 
     score = float(exchange_stress_score)
 
+    # None (above) means the provider returned no data and is a deliberate
+    # fail-open. NaN means it returned data that is not a number — the stress
+    # composite arrived broken. `score > halt_threshold` is False for NaN, so
+    # without this the most stressed possible reading passes the halt.
+    if _non_finite(score):
+        return GateResult.fail(
+            GateStatus.HALT_EXCHANGE_STRESS,
+            reason=(
+                "Non-finite exchange stress score — contagion risk cannot be "
+                "assessed, so new positions are halted rather than assumed safe."
+            ),
+            details={"exchange_stress_score": exchange_stress_score},
+        )
+
     if score > stress_halt_threshold:
         return GateResult.fail(
             GateStatus.HALT_EXCHANGE_STRESS,
@@ -928,6 +1014,23 @@ def check_whale_activity(
         return GateResult.pass_gate(details={"whale_gate": "skipped_no_data"})
 
     ratio = float(whale_buy_sell_ratio)
+
+    # As with exchange stress: None is "no data" and fails open, a non-finite
+    # number is corrupt data. This gate's failure is advisory (halve the
+    # position), so an unreadable taker flow reduces size rather than
+    # silently reading as neutral.
+    if _non_finite(ratio):
+        return GateResult.fail(
+            GateStatus.REDUCE_WHALE_ACTIVITY,
+            reason=(
+                "Non-finite whale buy/sell ratio — taker flow cannot be read, "
+                "so position size is reduced rather than assumed neutral."
+            ),
+            details={
+                "whale_buy_sell_ratio": whale_buy_sell_ratio,
+                "whale_action": "reduce_50pct",
+            },
+        )
 
     if ratio < sell_threshold:
         return GateResult.fail(
@@ -1011,8 +1114,18 @@ def check_position_exit(
     Returns
     -------
     str | None -- one of "stop_loss", "trailing_stop", "profit_target",
-    "time_exit", or None if the position should remain open.
+    "time_exit", "invalid_mark", or None if the position should remain open.
     """
+    # A non-finite mark disables stop-loss, trailing stop and take-profit in
+    # one go — all three are comparisons against unrealized_pnl_pct, and all
+    # three are False for NaN. The position would then sit unprotected until
+    # the time exit, which is precisely the situation a stop-loss exists for.
+    # Closing is the conservative response: a position whose P&L cannot be
+    # read cannot be risk-managed, and it gets its own reason string so the
+    # trade record does not claim a stop-loss that was never measured.
+    if _non_finite(unrealized_pnl_pct):
+        return "invalid_mark"
+
     if stop_loss_enabled and unrealized_pnl_pct <= -abs(stop_loss_pct):
         return "stop_loss"
 
