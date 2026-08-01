@@ -161,16 +161,11 @@ def register_ensemble_blend_weight(
     propose/evaluate/gate/shadow-mode machinery as every other tunable
     parameter -- never a direct .env edit while the bot is live.
 
-    Registered but deliberately left UNSCHEDULED in
-    src/tuning/scheduler.py's _attempt_all() -- same documented state
-    hmm.entropy_threshold was in during Phase 4 before its backtest
-    harness existed (see scheduler.py's module docstring: "Any other
-    registered parameter with no evaluate_fn is intentionally left
-    unscheduled here"). A dedicated backtest harness comparing champion
-    vs. challenger blend weights against realized OOS trade outcomes is
-    future work; until it exists this parameter is visible/adjustable
-    manually (scripts/run_tuning_attempt.py, /self-tuning/status) but not
-    auto-tuned on a cycle.
+    Scheduled in src/tuning/scheduler.py's _attempt_all() via
+    run_ensemble_blend_backtest, which re-scores closed trades under the
+    champion and challenger weights. That requires trades carrying both
+    blend inputs (schema v7), so the attempt is skipped -- not failed --
+    until an ensemble has trained and blended on enough closed trades.
     """
     settings = settings or get_settings()
     default = settings.risk.ensemble_blend_weight
