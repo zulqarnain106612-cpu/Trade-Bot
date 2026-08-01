@@ -254,7 +254,7 @@ believed was flat.
 - **An unavailable snapshot blocks, it does not report clean.** The fetcher
   returns `None` rather than `[]` on failure, because `[]` is the assertion
   "the exchange holds nothing" and would make every local position look like a
-  `MISSING_ON_EXCHANGE` discrepancy. Failing to look is not the same as
+  `MISSING_IN_REFERENCE` discrepancy. Failing to look is not the same as
   looking and finding nothing.
 - **Teeth** — while discrepancies are unresolved, `submit_signal()` refuses to
   open new positions. Exits are deliberately unaffected, so an operator can
