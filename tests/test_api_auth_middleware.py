@@ -15,7 +15,6 @@ from src.api.auth import (
     _MIN_KEY_LENGTH,
     _get_configured_key,
     _get_readonly_key,
-    resolve_role,
     verify_api_key,
 )
 from src.api.middleware import validate_cors_config
@@ -193,31 +192,31 @@ class TestGetReadonlyKey:
 class TestResolveRole:
     def test_secret_key_is_trade_authorizing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
-        assert resolve_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
+        assert verify_api_key(_TRADE_KEY) is Role.TRADE_AUTHORIZING
 
     def test_readonly_key_is_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         monkeypatch.setenv("API_READONLY_KEY", _READ_KEY)
-        assert resolve_role(_READ_KEY) is Role.READ_ONLY
+        assert verify_api_key(_READ_KEY) is Role.READ_ONLY
 
     def test_secret_key_still_trade_authorizing_with_readonly_set(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         monkeypatch.setenv("API_READONLY_KEY", _READ_KEY)
-        assert resolve_role(_TRADE_KEY) is Role.TRADE_AUTHORIZING
+        assert verify_api_key(_TRADE_KEY) is Role.TRADE_AUTHORIZING
 
     def test_unknown_key_raises_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         monkeypatch.setenv("API_READONLY_KEY", _READ_KEY)
         with pytest.raises(HTTPException) as exc_info:
-            resolve_role("x" * _MIN_KEY_LENGTH)
+            verify_api_key("x" * _MIN_KEY_LENGTH)
         assert exc_info.value.status_code == 401
 
     def test_none_key_raises_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         with pytest.raises(HTTPException) as exc_info:
-            resolve_role(None)
+            verify_api_key(None)
         assert exc_info.value.status_code == 401
 
     def test_readonly_key_rejected_when_not_configured(
@@ -225,7 +224,7 @@ class TestResolveRole:
     ) -> None:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         with pytest.raises(HTTPException) as exc_info:
-            resolve_role(_READ_KEY)
+            verify_api_key(_READ_KEY)
         assert exc_info.value.status_code == 401
 
     def test_misconfigured_readonly_key_raises_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,7 +233,7 @@ class TestResolveRole:
         monkeypatch.setenv("API_SECRET_KEY", _TRADE_KEY)
         monkeypatch.setenv("API_READONLY_KEY", "weak")
         with pytest.raises(HTTPException) as exc_info:
-            resolve_role(_TRADE_KEY)
+            verify_api_key(_TRADE_KEY)
         assert exc_info.value.status_code == 503
 
     def test_verify_api_key_accepts_readonly_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
