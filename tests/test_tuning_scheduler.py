@@ -372,7 +372,10 @@ class TestAutoTuningSchedulerAttempts:
 
         monkeypatch.setattr(scheduler_module, "run_entropy_threshold_backtest", _spy_backtest)
 
-        def _fake_attempt(param_name, evaluate_fn, primary_metric):
+        # closed_trade_count is supplied by the trade-driven parameter groups so
+        # the runner can enforce min_trades_between_attempts. Accepted and
+        # ignored: this test isolates intra-cycle champion visibility.
+        def _fake_attempt(param_name, evaluate_fn, primary_metric, closed_trade_count=None):
             # Bypasses the real proposer/gate entirely -- this test isolates
             # ONLY the evaluate() closure's registry-read timing, not
             # promotion logic (already covered by tests/test_tuning_runner.py).
