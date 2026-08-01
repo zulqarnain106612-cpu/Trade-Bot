@@ -156,9 +156,22 @@ CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
         """ALTER TABLE regime_snapshots ADD COLUMN changepoint_probability REAL NOT NULL DEFAULT 0.0;
 ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.0;""",
     ),
+    # v7 — persist the two ensemble-blend inputs per trade so the self-tuning
+    # harness can re-score risk.ensemble_blend_weight against realized
+    # outcomes. Nullable with no default: NULL means "no blend happened", and
+    # that is a different statement from "blended with weight 0.0", which the
+    # harness must be able to tell apart. Every trade written before this
+    # migration is NULL and is simply not a sample.
+    (
+        7,
+        "add the ensemble-blend inputs to trades for the blend-weight tuning harness",
+        "ALTER TABLE trades ADD COLUMN pre_blend_p_long REAL;\n"
+        "ALTER TABLE trades ADD COLUMN ensemble_p_long REAL;\n"
+        "ALTER TABLE trades ADD COLUMN ensemble_blend_weight REAL;",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 6
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 7
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -224,6 +237,12 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,                 -- profit_target|stop_loss|time_exit|manual
     approved_by     TEXT,                 -- operator id or 'auto'
     raw_signal      REAL,                 -- XGBoost primary probability
+    -- The two inputs to the ensemble blend and the weight that combined them
+    -- (migration v7). NULL means no blend happened, which is distinct from a
+    -- blend at weight 0.0 — the tuning harness needs to tell those apart.
+    pre_blend_p_long      REAL,
+    ensemble_p_long       REAL,
+    ensemble_blend_weight REAL,
     created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 );
 CREATE INDEX IF NOT EXISTS idx_trades_sym_ts
@@ -362,6 +381,8 @@ class TradeRecord:
     __slots__ = (
         "approved_by",
         "direction",
+        "ensemble_blend_weight",
+        "ensemble_p_long",
         "entry_price",
         "entry_ts",
         "execution_mode",
@@ -375,6 +396,7 @@ class TradeRecord:
         "notional_usd",
         "pnl_pct",
         "pnl_usd",
+        "pre_blend_p_long",
         "quantity",
         "raw_signal",
         "regime_at_entry",
@@ -406,6 +428,13 @@ class TradeRecord:
         exit_reason: str | None,
         approved_by: str | None,
         raw_signal: float | None,
+        # The two inputs to the ensemble blend, so risk.ensemble_blend_weight
+        # can be re-scored against realized outcomes under any candidate
+        # weight. All three are None for a trade taken without a blend, and
+        # for every trade written before the v7 migration.
+        pre_blend_p_long: float | None = None,
+        ensemble_p_long: float | None = None,
+        ensemble_blend_weight: float | None = None,
     ) -> None:
         self.id = id
         self.symbol = symbol
@@ -428,6 +457,9 @@ class TradeRecord:
         self.exit_reason = exit_reason
         self.approved_by = approved_by
         self.raw_signal = raw_signal
+        self.pre_blend_p_long = pre_blend_p_long
+        self.ensemble_p_long = ensemble_p_long
+        self.ensemble_blend_weight = ensemble_blend_weight
 
 
 class MissedTradeRecord:
@@ -1128,9 +1160,10 @@ class StorageBackend:
                         direction, entry_price, exit_price, quantity, notional_usd,
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
-                        exit_reason, approved_by, raw_signal
+                        exit_reason, approved_by, raw_signal,
+                        pre_blend_p_long, ensemble_p_long, ensemble_blend_weight
                     ) VALUES (
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                     )
                     """,
                     (
@@ -1155,6 +1188,9 @@ class StorageBackend:
                         trade.exit_reason,
                         trade.approved_by,
                         trade.raw_signal,
+                        trade.pre_blend_p_long,
+                        trade.ensemble_p_long,
+                        trade.ensemble_blend_weight,
                     ),
                 )
                 await conn.commit()
@@ -1254,7 +1290,8 @@ class StorageBackend:
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
-                " exit_reason, approved_by, raw_signal"
+                " exit_reason, approved_by, raw_signal,"
+                " pre_blend_p_long, ensemble_p_long, ensemble_blend_weight"
                 " FROM trades WHERE "
                 + " AND ".join(clauses)
                 + " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
@@ -1265,7 +1302,8 @@ class StorageBackend:
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
-                " exit_reason, approved_by, raw_signal"
+                " exit_reason, approved_by, raw_signal,"
+                " pre_blend_p_long, ensemble_p_long, ensemble_blend_weight"
                 " FROM trades ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
             )
         params.append(limit)
@@ -1295,6 +1333,9 @@ class StorageBackend:
                 exit_reason=r["exit_reason"],
                 approved_by=r["approved_by"],
                 raw_signal=r["raw_signal"],
+                pre_blend_p_long=r["pre_blend_p_long"],
+                ensemble_p_long=r["ensemble_p_long"],
+                ensemble_blend_weight=r["ensemble_blend_weight"],
             )
             for r in rows
         ]

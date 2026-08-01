@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,
     approved_by     TEXT,
     raw_signal      DOUBLE PRECISION,
+    -- Migration v7; see the SQLite DDL for why NULL and 0.0 differ here.
+    pre_blend_p_long      DOUBLE PRECISION,
+    ensemble_p_long       DOUBLE PRECISION,
+    ensemble_blend_weight DOUBLE PRECISION,
     created_at      BIGINT  NOT NULL
         DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT
 );
@@ -295,9 +299,17 @@ CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
 ALTER TABLE regime_snapshots
     ADD COLUMN IF NOT EXISTS agreement_score DOUBLE PRECISION NOT NULL DEFAULT 1.0;""",
     ),
+    # v7 — parity with storage._MIGRATIONS v7.
+    (
+        7,
+        "add the ensemble-blend inputs to trades for the blend-weight tuning harness",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_blend_p_long DOUBLE PRECISION;\n"
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_p_long DOUBLE PRECISION;\n"
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_blend_weight DOUBLE PRECISION;",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 6
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 7
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (
@@ -764,10 +776,12 @@ class TimescaleBackend:
                         direction, entry_price, exit_price, quantity, notional_usd,
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
-                        exit_reason, approved_by, raw_signal
+                        exit_reason, approved_by, raw_signal,
+                        pre_blend_p_long, ensemble_p_long, ensemble_blend_weight
                     ) VALUES (
                         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+                        $22,$23,$24
                     )
                     """,
                     trade.id,
@@ -791,6 +805,9 @@ class TimescaleBackend:
                     trade.exit_reason,
                     trade.approved_by,
                     trade.raw_signal,
+                    trade.pre_blend_p_long,
+                    trade.ensemble_p_long,
+                    trade.ensemble_blend_weight,
                 )
         except asyncpg.UniqueViolationError as exc:
             raise ValueError(f"Trade id={trade.id!r} already exists") from exc
@@ -883,7 +900,8 @@ class TimescaleBackend:
             " direction, entry_price, exit_price, quantity, notional_usd,"
             " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
             " kelly_fraction, regime_at_entry, meta_label_prob,"
-            " exit_reason, approved_by, raw_signal"
+            " exit_reason, approved_by, raw_signal,"
+            " pre_blend_p_long, ensemble_p_long, ensemble_blend_weight"
             f" FROM trades{where}"
             f" ORDER BY entry_ts DESC LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         )
@@ -912,6 +930,9 @@ class TimescaleBackend:
                 exit_reason=r["exit_reason"],
                 approved_by=r["approved_by"],
                 raw_signal=r["raw_signal"],
+                pre_blend_p_long=r["pre_blend_p_long"],
+                ensemble_p_long=r["ensemble_p_long"],
+                ensemble_blend_weight=r["ensemble_blend_weight"],
             )
             for r in rows
         ]
