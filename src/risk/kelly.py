@@ -388,6 +388,83 @@ def size_position(
     return result
 
 
+def _apply_notional_cap(
+    result: KellyResult,
+    notional_cap_usd: float,
+    entry_price: float,
+    amount_precision: float,
+    min_amount: float,
+    min_cost: float,
+) -> KellyResult | None:
+    """
+    Shrink *result* to at most notional_cap_usd, or return None when the cap
+    cannot be honoured.
+
+    Returning None means "skip this trade". When the cap is smaller than what
+    the exchange will accept, the cap and the minimums are irreconcilable and
+    there is no valid position. Taking the trade at the *uncapped* size is the
+    one outcome a ceiling must never produce, so it is not an option here.
+
+    This mirrors size_position()'s three rejection conditions — zero after
+    quantisation, below min_amount, below min_cost — because the capped
+    quantity is a different quantity and has to clear the same exchange
+    filters the original one did.
+
+    adjusted_fraction is recomputed from the capped notional: it is written
+    into the trade record by both executors, so leaving the pre-cap value
+    would record a Kelly fraction the position never had.
+    """
+    decimal_places = int(amount_precision)
+    capped_qty = _floor_to_precision(notional_cap_usd / entry_price, decimal_places)
+
+    if capped_qty <= 0.0:
+        # The cap is tighter than one quantisation step. Previously the
+        # capped result was discarded here and the uncapped one returned.
+        log.info(
+            "kelly.carver_cap_below_precision",
+            cap_notional=round(notional_cap_usd, 2),
+            entry_price=entry_price,
+            decimal_places=decimal_places,
+        )
+        return None
+
+    capped_notional = capped_qty * entry_price
+
+    if min_amount > 0.0 and capped_qty < min_amount:
+        log.info(
+            "kelly.carver_cap_below_min_amount",
+            capped_qty=capped_qty,
+            min_amount=min_amount,
+            cap_notional=round(notional_cap_usd, 2),
+        )
+        return None
+
+    if min_cost > 0.0 and capped_notional < min_cost:
+        log.info(
+            "kelly.carver_cap_below_min_cost",
+            capped_notional=round(capped_notional, 2),
+            min_cost=min_cost,
+            cap_notional=round(notional_cap_usd, 2),
+        )
+        return None
+
+    log.info(
+        "kelly.carver_cap_applied",
+        kelly_notional=round(result.notional_usd, 2),
+        cap_notional=round(notional_cap_usd, 2),
+        capped_qty=capped_qty,
+    )
+    return KellyResult(
+        kelly_fraction=result.kelly_fraction,
+        adjusted_fraction=capped_notional / result.capital_usd,
+        capital_usd=result.capital_usd,
+        entry_price=result.entry_price,
+        quantity=capped_qty,
+        notional_usd=round(capped_notional, 2),
+        is_capped=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Full sizing pipeline — single entry point for executors
 # ---------------------------------------------------------------------------
@@ -456,6 +533,13 @@ def compute_position_size(
                      on the quantity after Kelly sizing, implementing
                      Carver (2019) 'whichever method gives the smaller position'.
                      None = no cap (no-op, backward compatible).
+
+                     Only None means "no cap". 0.0 does not: per UI-007,
+                     recommend_position_notional() returns exactly 0.0 to
+                     mean "every sizing method agrees there is no edge, do
+                     not trade", so a 0.0 cap returns None here rather than
+                     falling through at full Kelly size. A non-finite cap
+                     fails closed for the same reason the scalars above do.
     sample_uncertainty_scalar : UI-004 — shrink-only scalar in [0, 1] from
                      src.risk.kelly.uncertainty_scalar(posterior_std), where
                      posterior_std is compute_win_loss_stats()'s Beta-posterior
@@ -544,31 +628,26 @@ def compute_position_size(
     )
 
     # GAP-015: Carver/AFML/Thorp notional cap — shrink only, never expand.
-    if (
-        result is not None
-        and notional_cap_usd is not None
-        and notional_cap_usd > 0.0
-        and result.notional_usd > notional_cap_usd
-    ):
-        # Re-quantise at the capped notional.
-        capped_qty_raw = notional_cap_usd / entry_price
-        decimal_places = int(amount_precision)
-        capped_qty = _floor_to_precision(capped_qty_raw, decimal_places)
-        if capped_qty > 0.0:
-            log.info(
-                "kelly.carver_cap_applied",
-                kelly_notional=round(result.notional_usd, 2),
-                cap_notional=round(notional_cap_usd, 2),
-                capped_qty=capped_qty,
-            )
-            result = KellyResult(
-                kelly_fraction=result.kelly_fraction,
-                adjusted_fraction=result.adjusted_fraction,
-                capital_usd=result.capital_usd,
-                entry_price=result.entry_price,
-                quantity=capped_qty,
-                notional_usd=round(capped_qty * entry_price, 2),
-                is_capped=True,
+    if result is not None and notional_cap_usd is not None:
+        # A non-finite cap fails closed, matching the scalar clamps above. It
+        # cannot simply be ignored: `notional_cap_usd > 0.0` is False for NaN,
+        # so an unchecked NaN reads as "no cap" and silently removes a ceiling
+        # the caller asked for.
+        if not math.isfinite(notional_cap_usd):
+            log.error("kelly.invalid_notional_cap", notional_cap_usd=notional_cap_usd)
+            return None
+        if notional_cap_usd <= 0.0:
+            # A zero or negative ceiling admits no position at all.
+            log.info("kelly.notional_cap_blocks_position", notional_cap_usd=notional_cap_usd)
+            return None
+        if result.notional_usd > notional_cap_usd:
+            result = _apply_notional_cap(
+                result,
+                notional_cap_usd,
+                entry_price,
+                amount_precision,
+                min_amount,
+                min_cost,
             )
 
     return result
