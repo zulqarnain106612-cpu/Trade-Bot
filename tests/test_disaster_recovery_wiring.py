@@ -98,7 +98,7 @@ class TestReconcileOnInitialize:
         await executor.initialize()
         found = executor.recovery_discrepancies
         assert len(found) == 1
-        assert found[0].discrepancy_type is DiscrepancyType.MISSING_ON_EXCHANGE
+        assert found[0].discrepancy_type is DiscrepancyType.MISSING_IN_REFERENCE
 
     @pytest.mark.asyncio
     async def test_quantity_mismatch_is_flagged(self) -> None:
