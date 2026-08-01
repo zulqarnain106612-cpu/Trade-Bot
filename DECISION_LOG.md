@@ -3,6 +3,49 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-08-01 — seven risk controls that existed, were tested, and did not bind
+
+An audit of the modules no in-flight branch was touching turned up a
+recurring shape: a control is implemented, has tests, is wired into the
+engine, and still does nothing. Tests written against the control's own
+intermediate value rather than its effect are what let each one stand.
+
+- **A declared parameter that is never read is not a parameter.**
+  `BasisTradeContext.days_to_perp_funding_normalization` was documented as
+  the horizon the spot-perp gap closes over;
+  `compute_annualized_basis_pct` hardcoded 365/1. Every gap was annualised
+  as if it normalised within a day.
+- **A threshold commented "after fees" must subtract fees.** The
+  cross-exchange arb's 15bps floor was gross. A two-legged venue arb
+  crosses both books; 15–27bps spreads were signalled as opportunities and
+  were losses after ~12bps of round-trip cost.
+- **A poll is not an observation.** `StrategyKillSwitchManager.evaluate()`
+  fed the unchanged rolling Sharpe into the CUSUM decay detector on every
+  call, so structural decay accumulated at the orchestrator's tick rate
+  with zero new trades — the transient-vs-structural distinction the
+  detector exists to draw. It now advances once per live trade.
+- **Two inputs to one parameter must share a unit.** `SlippageModel`'s
+  config fallback is a half-spread; the live path passed the full quoted
+  width, doubling the modelled crossing cost and vetoing trades whose net
+  edge was positive.
+- **Apply the haircut to the winner, not to one candidate.**
+  `recommend_position_notional` adjusted the Thorp leg for book
+  correlation and *then* took a minimum, so the AFML Ch.16 concentration
+  control was inert whenever Carver or AFML was smaller — which is most of
+  the time.
+- **A cap in the wrong units is not the cap you designed.** The engine
+  passed a [-1, +1] probability where `carver_forecast_position` expects a
+  Carver-normalised forecast (E|f| = 10) and divides by that constant,
+  pinning the notional cap near 1% of capital regardless of edge. This is
+  the one fix here that *loosens* a control; Kelly, the drawdown gates,
+  Carver's own 25% ceiling and the correlation haircut all still bind.
+- **Deflate in the units the estimator is noisy in.**
+  `deflated_sharpe_ratio` scaled the multiple-testing correction by the
+  returns' standard deviation instead of the cross-trial dispersion of
+  Sharpe *estimates* (~1/sqrt(n)), under-penalising over-fitted challengers
+  and making the result depend on trade size. `factor_search.py`'s sibling
+  DSR already had this right.
+
 ## 2026-07-31 — v4 shadow mode: a retrained model must earn the live slot
 
 `src/models/model_registry.py` had a complete shadow-evaluation and promotion
