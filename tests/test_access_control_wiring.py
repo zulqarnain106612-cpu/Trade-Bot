@@ -122,6 +122,7 @@ class TestGatedEndpointsDeclareTheDependency:
         "/self-tuning/pause",
         "/self-tuning/resume",
         "/self-tuning/rollback/{param_name}",
+        "/recovery/acknowledge",
     }
 
     def test_every_mutating_post_route_is_permission_gated(self) -> None:

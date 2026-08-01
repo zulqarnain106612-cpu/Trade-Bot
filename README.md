@@ -125,6 +125,8 @@ fills, reconnects, and exchange-side rejections.
 | WS | /ws | Live push — equity, positions, signals |
 | GET | /orders/{order_id}/status | Order FSM status |
 | GET | /ledger | Cross-venue unified book (net/gross exposure, margin) |
+| GET | /recovery/status | Startup reconciliation state (live vs exchange) |
+| POST | /recovery/acknowledge | Clear the reconciliation block (requires OPERATOR_SECRET) |
 | GET | /performance-drift | Behavioral/performance drift snapshot |
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |
