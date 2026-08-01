@@ -447,6 +447,26 @@ class Orchestrator:
         """
         if tf != self._primary_tf and self._non_primary_executor is not None:
             return self._non_primary_executor
+
+        # A non-primary timeframe must never reach a LiveExecutor. Today
+        # startup() always builds the paper executor when trading_mode=LIVE
+        # and any non-primary timeframe is active, so this branch is
+        # unreachable -- but the guard above was `is not None`, meaning any
+        # future path that left it unset (a partially-completed startup, a
+        # timeframe added after construction) would fall through to real
+        # money rather than to nothing.
+        #
+        # Skipping the tick is the correct failure: a paper-only stream that
+        # does not run costs a simulated trade, and the alternative costs a
+        # real one the spec forbids.
+        if tf != self._primary_tf and isinstance(self._executor, LiveExecutor):
+            self._log.error(
+                "orchestrator.non_primary_timeframe_has_no_paper_executor",
+                timeframe=tf.value,
+                reason="refusing to route a paper-only timeframe to the live executor",
+            )
+            return None
+
         return self._executor
 
     def _all_executors(self) -> list[AnyExecutor]:
