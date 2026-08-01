@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from src.strategies.position_sizing import (
+    CARVER_FORECAST_SCALAR,
     afml_bet_size,
     carver_forecast_position,
     correlation_adjusted_notional,
@@ -25,6 +26,18 @@ class TestCarverForecastPosition:
             price=100.0,
         )
         assert notional > 0
+
+    def test_forecast_units_are_the_scalar_not_the_unit_interval(self):
+        """
+        A signal on a [-1, 1] scale must be multiplied by
+        CARVER_FORECAST_SCALAR before it reaches this sizer. Feeding the raw
+        value in undersizes by exactly that ratio — the trap that pinned the
+        engine's Carver notional cap near 1% of capital.
+        """
+        common = {"capital_usd": 10000.0, "daily_vol_pct": 0.02, "price": 100.0}
+        raw_probability_scale = carver_forecast_position(forecast=0.6, **common)
+        carver_scale = carver_forecast_position(forecast=0.6 * CARVER_FORECAST_SCALAR, **common)
+        assert carver_scale == pytest.approx(raw_probability_scale * CARVER_FORECAST_SCALAR)
 
     def test_zero_forecast_gives_zero(self):
         notional = carver_forecast_position(

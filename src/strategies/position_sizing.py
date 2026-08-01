@@ -41,6 +41,13 @@ _DEFAULT_DAILY_VOL_TARGET_PCT: Final[float] = 0.25  # 0.25% daily
 _FORECAST_SCALAR_MIN: Final[float] = -20.0
 _FORECAST_SCALAR_MAX: Final[float] = 20.0
 
+# Carver (2019) Ch.4 normalises a forecast so its expected absolute value is
+# 10, and divides by that same figure when sizing. Exported so callers that
+# have to map some other signal (a probability, a z-score) into forecast
+# units scale by the same constant the sizer divides by, instead of feeding
+# in a [-1, 1] number and silently getting a 10x-undersized position.
+CARVER_FORECAST_SCALAR: Final[float] = 10.0
+
 # AFML Ch.16 — correlation threshold above which to reduce new position
 _CORRELATION_REDUCE_THRESHOLD: Final[float] = 0.7
 
@@ -59,7 +66,7 @@ def carver_forecast_position(
     daily_vol_pct: float,
     price: float,
     daily_vol_target_pct: float = _DEFAULT_DAILY_VOL_TARGET_PCT,
-    forecast_scalar: float = 10.0,
+    forecast_scalar: float = CARVER_FORECAST_SCALAR,
 ) -> float:
     """
     Carver (2019) Ch.4 forecast-scaled position sizing.
@@ -68,7 +75,12 @@ def carver_forecast_position(
                  x forecast
 
     Where:
-      - forecast         : raw signal in (-20, 20), e.g. from ewm_trend_signal
+      - forecast         : Carver-normalised signal in (-20, 20) whose
+                           expected absolute value is `forecast_scalar`.
+                           Signals on a different scale (ewm_trend_signal
+                           clips to (-3, 3); a probability maps to (-1, 1))
+                           must be multiplied up to these units first, or
+                           the position comes out short by that ratio.
       - daily_vol_pct    : annualised vol / sqrt(252), expressed as decimal
       - forecast_scalar  : normalisation constant (Carver recommends 10 for EWMAC)
 
