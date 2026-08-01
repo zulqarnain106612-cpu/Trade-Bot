@@ -1,9 +1,11 @@
 """
 FastAPI dashboard API.
 
-Security: ALL endpoints require an X-API-Key header. API_SECRET_KEY carries the
-trade-authorizing role; the optional API_READONLY_KEY carries a view-only role
-that is rejected with 403 on the mutating routes (see src/api/access_control.py).
+Security: ALL endpoints require X-API-Key header matching API_SECRET_KEY env var.
+The mutating endpoints additionally require the trade-authorizing role — see
+requires() and src/api/access_control.py. With only API_SECRET_KEY configured
+every valid key holds that role, so the gates are inert until the optional
+API_READONLY_KEY is set.
 
 Endpoints:
   GET  /health                     — system health + storage counts
@@ -53,7 +55,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from src.api.access_control import Permission, Role, require_permission
-from src.api.auth import resolve_role, verify_api_key, verify_ws_key
+from src.api.auth import verify_api_key, verify_ws_key
 from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
@@ -63,6 +65,7 @@ from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.execution.unified_ledger import get_unified_ledger
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
@@ -340,33 +343,43 @@ def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key
     verify_api_key(x_api_key)
 
 
-def current_role(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> Role:
+def resolve_role(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> Role:
     """
-    Authenticate the caller and return the role their key carries.
+    FastAPI dependency — authenticate and return the caller's role.
 
-    Split out from `requires` so there is a single stable dependency object
-    for the role lookup: `requires` builds a fresh closure per permission,
-    which app.dependency_overrides cannot target. Overriding this one is how
-    a test bypasses authentication while still exercising authorization.
+    A named module-level function, not a closure inside requires(), so that
+    it is a single stable key in app.dependency_overrides. A per-permission
+    closure would be a different object for every route and could not be
+    overridden in tests at all.
     """
-    return resolve_role(x_api_key)
+    return verify_api_key(x_api_key)
 
 
 def requires(permission: Permission) -> Callable[..., None]:
     """
-    Build a FastAPI dependency enforcing `permission` for the caller's role.
+    Build a FastAPI dependency enforcing *permission* for the calling key.
 
-    Authentication (401) happens in `current_role`; this adds authorization
-    (403). Read-only keys hold VIEW_* only, so this is what keeps them off
-    the trade-authorizing and mode-changing routes. When no read-only key is
-    configured every caller is TRADE_AUTHORIZING and these are pass-throughs.
+    Layered on top of resolve_role rather than replacing authentication:
+    this only decides what an already-authenticated key may do. In a
+    single-key deployment every valid key resolves to
+    Role.TRADE_AUTHORIZING, so these dependencies are a no-op until a
+    read-only key is actually configured — they can restrict an endpoint,
+    never open one.
+
+    403, not 401: the caller authenticated correctly and is being denied on
+    authority, and conflating the two would tell a read-only holder their
+    key was wrong.
     """
 
-    def _dependency(role: Role = Depends(current_role)) -> None:
+    def _dependency(role: Role = Depends(resolve_role)) -> None:
         try:
             require_permission(role, permission)
         except PermissionError as exc:
-            log.warning("auth.permission_denied", role=role.value, permission=permission.value)
+            log.warning(
+                "api.permission_denied",
+                role=role.value,
+                permission=permission.value,
+            )
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     return _dependency
@@ -744,7 +757,10 @@ async def approvals() -> dict[str, Any]:
 
 @app.post(
     "/approvals/{request_id}/resolve",
-    dependencies=[Depends(requires(Permission.APPROVE_TRADE)), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.APPROVE_TRADE)),
+        Depends(require_ready),
+    ],
     responses={
         503: {"description": "Executor not initialized"},
         404: {"description": "Approval request not found or already resolved"},
@@ -1442,6 +1458,49 @@ async def get_order_status(
             )
         }
     return state.to_dict()
+
+
+@app.get("/ledger", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_unified_ledger_snapshot() -> dict[str, Any]:
+    """
+    Cross-venue book (v3 unified ledger).
+
+    Read-only view of src/execution/unified_ledger.py, republished by the
+    orchestrator each tick. Paper fills are carried under their own "paper"
+    venue and are never netted against live exchange exposure.
+
+    Returns
+    -------
+    {
+        "venues": [{venue, symbol, quantity, entry_price, margin_used_usd}, ...],
+        "by_symbol": {symbol: {net_exposure, gross_exposure, venues}, ...},
+        "total_margin_used_usd": float,
+    }
+    """
+    ledger = get_unified_ledger()
+    positions = ledger.all_positions
+    symbols = sorted({p.symbol for p in positions})
+    return {
+        "venues": [
+            {
+                "venue": p.venue,
+                "symbol": p.symbol,
+                "quantity": p.quantity,
+                "entry_price": round(p.entry_price, 4),
+                "margin_used_usd": round(p.margin_used_usd, 2),
+            }
+            for p in positions
+        ],
+        "by_symbol": {
+            symbol: {
+                "net_exposure": ledger.net_exposure(symbol),
+                "gross_exposure": ledger.gross_exposure(symbol),
+                "venues": ledger.venues_holding(symbol),
+            }
+            for symbol in symbols
+        },
+        "total_margin_used_usd": round(ledger.total_margin_used_usd(), 2),
+    }
 
 
 @app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])

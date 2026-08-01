@@ -68,6 +68,10 @@ from src.risk.gates import (
     evaluate_all_gates,
 )
 from src.risk.kelly import KellyResult, compute_position_size
+from src.risk.macro_exposure_budget import (
+    MacroExposureBudget,
+    apply_macro_budget_to_kelly_fraction,
+)
 from src.risk.slippage import SlippageModel
 from src.strategies.filters import apply_all_strategy_filters, ewm_trend_signal, mtf_trend_aligned
 from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
@@ -250,6 +254,7 @@ class SignalEngine:
         avg_loss_usd: float = 0.0,
         paper_trading_days: int = 0,
         correlation_scalar: float = 1.0,
+        macro_budget: MacroExposureBudget | None = None,
     ) -> SignalResult:
         """
         Run one full signal computation cycle.
@@ -271,6 +276,11 @@ class SignalEngine:
                                  tracked symbols' open positions. Defaults
                                  to 1.0 (no-op) — same backward-compatible
                                  contract as regime_scalar.
+        macro_budget          : v7 portfolio-level macro overlay from
+                                 src.risk.macro_exposure_budget, computed by
+                                 the orchestrator. None = no macro data (or
+                                 the overlay disabled), which is a no-op
+                                 rather than a neutral shrink.
 
         Returns
         -------
@@ -558,6 +568,33 @@ class SignalEngine:
         # HMM/changepoint disagreement reduces size proportionally rather than
         # being logged and discarded (auditor finding #2).
         combined_scalar = correlation_scalar * _regime_agreement_scalar
+
+        # v7 macro overlay. compute_position_size multiplies the Kelly
+        # fraction by correlation_scalar, so shrinking the scalar here is
+        # exactly equivalent to shrinking the resulting Kelly fraction --
+        # apply_macro_budget_to_kelly_fraction is applied to the scalar for
+        # that reason, and keeps the "budget can only shrink" invariant in
+        # one place. A failure leaves combined_scalar untouched: losing a
+        # ceiling must never be worse than never having had one.
+        # Snapshotted rather than read again at log time: the tradeable log
+        # line runs outside this guard, so re-reading the budget there would
+        # let the same fault escape the handler that was written to contain it.
+        _macro_scalar: float | None = None
+        _macro_reason: str | None = None
+        if macro_budget is not None:
+            try:
+                _macro_scalar = round(macro_budget.scalar, 3)
+                _macro_reason = macro_budget.reason
+                combined_scalar = apply_macro_budget_to_kelly_fraction(
+                    combined_scalar, macro_budget
+                )
+            except Exception as _macro_exc:
+                self._log.error(
+                    "signal.macro_budget_apply_failed",
+                    error=str(_macro_exc),
+                    retained_scalar=round(combined_scalar, 4),
+                    exc_info=True,
+                )
 
         # GARCH vol-targeting scalar (Carver 2019): scale position inversely with
         # realized conditional vol when it exceeds the configured threshold. This
@@ -866,6 +903,8 @@ class SignalEngine:
             correlation_scalar_applied=round(
                 correlation_scalar, 3
             ),  # GAP-005/015: IS applied (see kelly.py)
+            macro_exposure_scalar=_macro_scalar,
+            macro_exposure_reason=_macro_reason,
             hurst=round(cast("dict[str, float]", _filter_result["details"]).get("hurst", 0.5), 3),
             ensemble_point_estimate=(
                 round(_ensemble_point_estimate, 6) if _ensemble_point_estimate is not None else None
