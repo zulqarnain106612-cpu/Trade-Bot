@@ -261,6 +261,10 @@ Copy `.env.example` to `.env` and fill in credentials. Key sections:
 ### 3. Backend
 
 ```bash
+# Honours API_HOST / API_PORT / API_RELOAD from .env
+uv run python -m src.api
+
+# Or override them explicitly on the command line:
 uv run uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
