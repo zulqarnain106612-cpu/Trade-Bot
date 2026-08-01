@@ -39,14 +39,14 @@ def _rich_vol_context(**overrides) -> OptionsCarryContext:
 class TestNoCapsConfigured:
     def test_signal_is_unchanged_when_no_caps_are_set(self) -> None:
         """The behaviour that existed before the setting did."""
-        strategy = OptionsCarryStrategy(caps=None)
+        strategy = OptionsCarryStrategy(greeks_caps=None)
         signal = strategy.generate_signal(
             OptionsCarryContext(implied_vol_zscore=2.0, holding_direction=1)
         )
         assert signal.direction == 1
 
     def test_vol_not_rich_enough_is_still_flat(self) -> None:
-        strategy = OptionsCarryStrategy(caps=None)
+        strategy = OptionsCarryStrategy(greeks_caps=None)
         signal = strategy.generate_signal(
             OptionsCarryContext(implied_vol_zscore=0.2, holding_direction=1)
         )
@@ -58,25 +58,25 @@ class TestCapsEnforced:
     _TIGHT = GreeksExposureCaps(max_abs_delta=0.01, max_abs_vega=100.0)
 
     def test_within_caps_still_trades(self) -> None:
-        strategy = OptionsCarryStrategy(caps=self._GENEROUS)
+        strategy = OptionsCarryStrategy(greeks_caps=self._GENEROUS)
         assert strategy.generate_signal(_rich_vol_context()).direction == 1
 
     def test_delta_breach_vetoes_the_signal(self) -> None:
-        strategy = OptionsCarryStrategy(caps=self._TIGHT)
+        strategy = OptionsCarryStrategy(greeks_caps=self._TIGHT)
         signal = strategy.generate_signal(_rich_vol_context())
         assert signal.direction == 0
         assert signal.confidence == 0.0
 
     def test_vega_breach_vetoes_the_signal(self) -> None:
         strategy = OptionsCarryStrategy(
-            caps=GreeksExposureCaps(max_abs_delta=100.0, max_abs_vega=0.001)
+            greeks_caps=GreeksExposureCaps(max_abs_delta=100.0, max_abs_vega=0.001)
         )
         assert strategy.generate_signal(_rich_vol_context()).direction == 0
 
     def test_existing_book_exposure_counts_toward_the_cap(self) -> None:
         """The ceiling is portfolio-level, not per-trade."""
         strategy = OptionsCarryStrategy(
-            caps=GreeksExposureCaps(max_abs_delta=1.0, max_abs_vega=100.0)
+            greeks_caps=GreeksExposureCaps(max_abs_delta=1.0, max_abs_vega=100.0)
         )
         assert strategy.generate_signal(_rich_vol_context()).direction == 1
         crowded = _rich_vol_context(portfolio_delta=-0.9)
@@ -84,7 +84,7 @@ class TestCapsEnforced:
 
     def test_more_contracts_scale_the_exposure(self) -> None:
         strategy = OptionsCarryStrategy(
-            caps=GreeksExposureCaps(max_abs_delta=1.0, max_abs_vega=100.0)
+            greeks_caps=GreeksExposureCaps(max_abs_delta=1.0, max_abs_vega=100.0)
         )
         assert strategy.generate_signal(_rich_vol_context(contracts=1.0)).direction == 1
         assert strategy.generate_signal(_rich_vol_context(contracts=50.0)).direction == 0
@@ -96,7 +96,7 @@ class TestCapsEnforced:
         passes once the book offsets it.
         """
         caps = GreeksExposureCaps(max_abs_delta=0.6, max_abs_vega=100.0)
-        strategy = OptionsCarryStrategy(caps=caps)
+        strategy = OptionsCarryStrategy(greeks_caps=caps)
         # Short ATM call delta is about -0.55; alone that is within 0.6.
         assert strategy.generate_signal(_rich_vol_context()).direction == 1
         # A long book pushes the net the other way, back toward zero.
@@ -113,7 +113,7 @@ class TestUnmeasurableContracts:
         Once an operator asks for a ceiling, waving through a position whose
         Greeks cannot be measured defeats the point of asking.
         """
-        strategy = OptionsCarryStrategy(caps=self._CAPS)
+        strategy = OptionsCarryStrategy(greeks_caps=self._CAPS)
         signal = strategy.generate_signal(
             OptionsCarryContext(implied_vol_zscore=2.0, holding_direction=1)
         )
@@ -121,7 +121,7 @@ class TestUnmeasurableContracts:
 
     @pytest.mark.parametrize("field", ["spot", "strike", "time_to_expiry_years", "implied_vol"])
     def test_any_single_missing_term_vetoes(self, field: str) -> None:
-        strategy = OptionsCarryStrategy(caps=self._CAPS)
+        strategy = OptionsCarryStrategy(greeks_caps=self._CAPS)
         assert strategy.generate_signal(_rich_vol_context(**{field: None})).direction == 0
 
     @pytest.mark.parametrize(
@@ -130,7 +130,7 @@ class TestUnmeasurableContracts:
     )
     def test_unusable_terms_veto_rather_than_raise(self, field: str, value: float) -> None:
         """compute_greeks raises ValueError on these; a strategy must not."""
-        strategy = OptionsCarryStrategy(caps=self._CAPS)
+        strategy = OptionsCarryStrategy(greeks_caps=self._CAPS)
         assert strategy.generate_signal(_rich_vol_context(**{field: value})).direction == 0
 
 
