@@ -88,7 +88,7 @@ class TestReconcileOnInitialize:
         found = executor.recovery_discrepancies
         assert len(found) == 1
         assert found[0].discrepancy_type is DiscrepancyType.MISSING_LOCALLY
-        assert found[0].exchange_quantity == pytest.approx(0.5)
+        assert found[0].reference_quantity == pytest.approx(0.5)
 
     @pytest.mark.asyncio
     async def test_local_position_absent_on_exchange_is_flagged(self) -> None:

@@ -293,7 +293,7 @@ class LiveExecutor(AbstractExecutor):
                     symbol="*",
                     discrepancy_type=DiscrepancyType.MISSING_LOCALLY,
                     local_quantity=0.0,
-                    exchange_quantity=0.0,
+                    reference_quantity=0.0,
                 )
             ]
             self._log.critical("live.reconcile_snapshot_unavailable", entries_blocked=True)
@@ -330,7 +330,7 @@ class LiveExecutor(AbstractExecutor):
                     "symbol": d.symbol,
                     "type": d.discrepancy_type.value,
                     "local": d.local_quantity,
-                    "exchange": d.exchange_quantity,
+                    "exchange": d.reference_quantity,
                 }
                 for d in self._recovery_discrepancies
             ],
