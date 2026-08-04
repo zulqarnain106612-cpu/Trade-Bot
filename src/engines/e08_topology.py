@@ -79,7 +79,7 @@ class E08Topology:
 
             regime_break = False
             if len(self._w_dist_history) > 10:
-                hist = np.array(self._w_dist_history[:-1])
+                hist = np.array(list(self._w_dist_history)[:-1])
                 z = (w_dist - hist.mean()) / (hist.std() + 1e-9)
                 regime_break = z > _W_DIST_SIGMA_THRESHOLD
 
