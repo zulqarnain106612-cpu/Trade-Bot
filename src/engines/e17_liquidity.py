@@ -54,6 +54,27 @@ def depth_score(bids: list[dict], spot: float, n_bps: int = _DEPTH_BPS) -> float
     )
 
 
+def cascade_price_level(bids: list[dict], spot: float, depth_pct10: float) -> float:
+    """
+    Find the price level where cumulative bid depth first drops below the
+    10th-percentile of historical depth.  Bids are expected to be dicts with
+    "price" and "size" keys, sorted descending by price (best bid first).
+
+    Falls back to spot * 0.98 when insufficient data.
+    """
+    if not bids or spot <= 0 or depth_pct10 <= 0:
+        return spot * 0.98
+
+    cumulative = 0.0
+    for bid in sorted(bids, key=lambda b: float(b.get("price", 0)), reverse=True):
+        cumulative += float(bid.get("size", 0.0))
+        if cumulative >= depth_pct10:
+            price = float(bid.get("price", spot * 0.98))
+            return max(price, spot * 0.90)  # floor at -10% to avoid nonsense
+
+    return spot * 0.98  # bid wall exhausted before threshold
+
+
 class E17Liquidity:
     def __init__(self, horizon_hours: int = 1) -> None:
         self._horizon = horizon_hours
@@ -101,8 +122,11 @@ class E17Liquidity:
             )
             stress_flag = kyle_z > 2.0 and ds < depth_pct30
 
-            # Cascade price: find level where depth drops below 10th pct
-            cascade_level = spot * 0.98  # placeholder; needs full orderbook ladder
+            # Cascade price: first price level where cumulative bid depth < 10th pct
+            depth_pct10 = (
+                np.percentile(self._depth_history, 10) if len(self._depth_history) > 2 else 0.0
+            )
+            cascade_level = cascade_price_level(bids_raw, spot, depth_pct10)
             liquidity_score = float(np.clip(1.0 - ar * 1e6, 0.0, 1.0))
 
             return EngineOutput(

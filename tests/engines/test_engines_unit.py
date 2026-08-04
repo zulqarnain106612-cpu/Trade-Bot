@@ -516,6 +516,25 @@ def test_e17_amihud_positive():
     assert ar >= 0.0
 
 
+def test_e17_cascade_price_level_finds_thin_wall():
+    from src.engines.e17_liquidity import cascade_price_level
+
+    spot = 50_000.0
+    # 5 bid levels, each with size=10; depth_pct10=25 so needs cumulative ≥25
+    bids = [{"price": str(50_000 - i * 100), "size": "10"} for i in range(5)]
+    level = cascade_price_level(bids, spot, depth_pct10=25.0)
+    # After 3 bids (cumulative 30 ≥ 25) the level should be ~49800
+    assert 49_500 <= level <= 50_000
+
+
+def test_e17_cascade_price_level_fallback():
+    from src.engines.e17_liquidity import cascade_price_level
+
+    # No bids → fallback to spot * 0.98
+    level = cascade_price_level([], 50_000.0, 10.0)
+    assert level == pytest.approx(50_000.0 * 0.98)
+
+
 # ---------------------------------------------------------------------------
 # E-18 Network
 # ---------------------------------------------------------------------------
