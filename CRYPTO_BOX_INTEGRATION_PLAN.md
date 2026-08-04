@@ -896,8 +896,921 @@ All free, no paid APIs required. On-chain data uses existing DeFi Llama + CoinGe
 
 ## What This Plan Intentionally Excludes
 
-- **Part II of Crypto_Box** (Cryptographic Foundations): purely educational math reference.
-  No implementation items. The attack math (ECDSA nonce reuse, DPA, lattice attacks) has
-  zero integration points with a trading bot. Excluded deliberately.
 - **Live on-chain blockchain node**: G-12 fix uses free APIs instead.
+
+---
+
+# PART II · Cryptographic Foundations Integration
+
+> Every section of Part II maps to one or more concrete implementation areas.
+> Six integration pillars: (A) Security hardening, (B) Market signals from crypto-economic math,
+> (C) On-chain analysis upgrades, (D) Mathematical engine upgrades, (E) Attack defense layer,
+> (F) Future ZK/FHE computation capability + DIR-1/2/3 research tasks.
+
+---
+
+## Category 9 · Security Hardening (Infrastructure Layer)
+
+**Goal:** Apply Part II cryptographic primitives to Trade-Bot's own API, auth, and key management.
+
+### 9.1 · secp256k1 / ECDSA / Schnorr — API Request Signing
+
+**Source:** P1 (secp256k1 + ECDSA + Schnorr + BIP-32)
+**New file:** `src/security/api_signer.py`
+
+```python
+# Replace HMAC-SHA256 API signing with Ed25519 (see §9.2) or at minimum enforce RFC 6979
+# RFC 6979: deterministic nonce k = HMAC-DRBG(sk, message_hash)
+# Prevents k-reuse attack (A1): two sigs with same k → full private key recovery
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+class ApiSigner:
+    # deterministic: no random k → immune to entropy failures (Android 2013 / PS3 2010)
+    def sign_request(self, method: str, path: str, body: str, timestamp: int) -> str:
+        payload = f"{timestamp}{method}{path}{body}".encode()
+        return self._key.sign(payload).hex()
+```
+
+**Attack defended (from Cross-Layer Attack Surface table):**
+- `Entropy → k=const in ECDSA` (Sony PS3 2010, Android BTC wallets 2013)
+- `Modular Arith. → ECDSA k-reuse` → RFC 6979 deterministic k
+
+### 9.2 · Ed25519 / X25519 — Authentication Tokens
+
+**Source:** P2 (Ed25519 / X25519), P.II §4 Elliptic Curve Theory
+**New file:** `src/security/auth_keys.py`
+
+```python
+# Ed25519: complete addition law → no exceptional cases → constant-time guaranteed
+# Cofactor h=8: verify 8·S·B = 8·R + 8·H·A (cofactor clearing prevents small-subgroup)
+# Replace JWT HS256 → JWT EdDSA in src/api/auth.py
+
+# X25519: Diffie-Hellman for future mTLS between Trade-Bot services
+# Montgomery ladder → u-coordinate only → no branch on secret bit
+```
+
+**File change:** `src/api/auth.py` — swap HS256 to EdDSA via `python-jose[ed25519]`.
+
+### 9.3 · BIP-32 HD Key Derivation — Exchange API Credential Management
+
+**Source:** P1 BIP-32 HD KEYS section
+**New file:** `src/security/credential_vault.py`
+
+```python
+# Per-exchange API keys derived from a single master seed via BIP-32
+# Hardened derivation only (index >= 2^31): no normal child derivation
+# Prevents: "Normal child + parent xpub + any child xprv → parent xprv" (risk noted in P1)
+
+# m/44'/coin_type'/exchange_index'/0/key_index
+# Each exchange gets its own derivation path → compromise of one key ≠ all keys
+```
+
+### 9.4 · Constant-Time Implementations — Side-Channel Defense
+
+**Source:** §8 Statistics (DPA/CPA), Cross-Layer Attack Surface: Timing/DPA rows
+**New file:** `src/security/constant_time.py`
+
+```python
+# All secret comparisons must use hmac.compare_digest (not ==)
+# API key validation: hmac.compare_digest(provided, stored)
+# No branching on secret bytes: prevents Kocher timing attack (1996)
+# No early-exit loops over secret data
+
+import hmac
+
+def safe_compare(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())
+```
+
+**File changes:** audit all comparisons in `src/api/auth.py`, `src/api/access_control.py`.
+
+### 9.5 · Kyber-768 / ML-KEM — Quantum-Safe Key Exchange (Future Layer)
+
+**Source:** P6 (Kyber-768 Full Spec), §5 Lattice Theory, Quantum Threat Table
+**New file:** `src/security/pq_transport.py`
+
+```python
+# Not for immediate deployment — infrastructure stub + documentation
+# Quantum threat: ECDH/X25519 broken by Shor's algorithm on CRQC
+# HNDL risk: attacker stores Trade-Bot API traffic today, decrypts when CRQC exists
+# Timeline: consensus ~2030-2040
+
+# Kyber-768: n=256, k=3, q=3329; IND-CCA2 under Module-LWE in QROM
+# Implementation: liboqs Python bindings (open-quantum-safe.org)
+# Hybrid mode: X25519 + Kyber-768 (NIST recommendation during transition)
+
+# Stub:
+class PqTransport:
+    """Placeholder for Kyber hybrid key exchange. Wire when liboqs stable."""
+    MODE = "classical"  # flip to "hybrid" when ready
+```
+
+### 9.6 · Dilithium3 / ML-DSA — Quantum-Safe Signatures
+
+**Source:** §5 Lattice Theory (SIS hardness → Dilithium), Quantum Threat Table
+**New file:** (extend `src/security/api_signer.py`)
+
+```python
+# Dilithium3: Module-LWE+SIS; NIST ML-DSA standard; 128-bit PQ security
+# Future swap: Ed25519 signing → Dilithium3 signing when CRQC timeline firms up
+# Stub class with mode flag: "ed25519" | "dilithium3"
+```
+
+---
+
+## Category 10 · Market Signals from Crypto-Economic Math
+
+**Goal:** Extract price-predictive signals from the mathematical properties of blockchain protocols.
+These feed into existing engines (especially E-05, E-10, E-13, E-16) as additional features.
+
+### 10.1 · 51% Attack Cost Model → Network Security Signal
+
+**Source:** A6 (51% Attack Markov Chain Model), §12 Game Theory
+**New file:** `src/engines/signals/network_security.py`
+
+```python
+# 51% attack cost = hashrate_needed × time × electricity_price
+# Higher cost → more secure network → bullish long-term signal
+# Sudden cost drop (hashrate crash) → security risk → bearish signal
+
+# Nakamoto double-spend model:
+# Pr[attacker catches up from z deficit] = (q/p)^z if q < p
+# q = attacker fraction, p = 1-q
+
+def double_spend_risk(q: float, confirmations: int) -> float:
+    """Returns probability attacker successfully double-spends after k confirms."""
+    if q >= 0.5:
+        return 1.0
+    p = 1 - q
+    return (q / p) ** confirmations
+
+def network_security_score(hashrate_7d: float, hashrate_90d_avg: float,
+                            electricity_usd_per_kwh: float = 0.05) -> dict:
+    # hashrate drop > 20% vs 90d avg → security deteriorating
+    hashrate_ratio = hashrate_7d / max(hashrate_90d_avg, 1)
+    q_approx = max(0.0, 0.5 * (1 - hashrate_ratio))  # naive attacker share proxy
+    return {
+        "security_score": hashrate_ratio,  # > 1.0 = improving, < 0.8 = warning
+        "double_spend_risk_6conf": double_spend_risk(q_approx, 6),
+        "direction": 1 if hashrate_ratio > 1.05 else (-1 if hashrate_ratio < 0.8 else 0),
+    }
+```
+
+Wire into E-05 (on-chain) `metadata` field.
+
+### 10.2 · Selfish Mining Detection → MEV/Manipulation Signal
+
+**Source:** §12 Game Theory (Eyal-Sirer), A6, Cross-Layer Attack Surface
+**New file:** `src/engines/signals/selfish_mining.py`
+
+```python
+# Selfish mining profitable when pool α > 1/3 (γ=0 propagation)
+# Revenue ratio formula from A6: α(1-α)²(4α+γ(1-2α)) / (1-α(1+(2-α)α))
+# Signal: orphan rate spike → possible selfish mining → miner centralization risk
+# Feeds E-16 (adversarial detection) as additional manipulation vector
+
+def selfish_mining_threshold(gamma: float = 0.0) -> float:
+    """Minimum pool fraction at which selfish mining becomes profitable."""
+    return 1 / (3 + gamma)
+
+def orphan_rate_signal(orphan_rate_7d: float, baseline: float = 0.005) -> int:
+    # orphan_rate > 3× baseline → anomaly → manipulation flag
+    return -1 if orphan_rate_7d > 3 * baseline else 0
+```
+
+### 10.3 · MEV Quantification → E-02 Microstructure Upgrade
+
+**Source:** §12 Game Theory (MEV formula), Cross-Layer Attack Surface
+**Extend:** `src/engines/e02_microstructure.py`
+
+```python
+# MEV_block = Σ(arb + liquidation + sandwich profits)
+# MEV spike → validator ordering power → price impact unpredictable → E-02 confidence dampened
+# Source: public MEV-boost data (https://mevboost.pics API, no auth)
+
+def mev_signal(mev_usd_24h: float, mev_baseline_30d: float) -> dict:
+    ratio = mev_usd_24h / max(mev_baseline_30d, 1)
+    return {
+        "mev_ratio": ratio,
+        "confidence_penalty": min(0.5, (ratio - 1) * 0.2) if ratio > 1.5 else 0.0,
+        # high MEV → orderbook signals less reliable → dampen E-02 confidence
+    }
+```
+
+### 10.4 · Merkle Proof Integrity → On-Chain Data Verification
+
+**Source:** §10 Graph Theory (Merkle Tree: `h = H(hₗ ‖ hᵣ)`; O(log n) proofs)
+**New file:** `src/security/merkle_verify.py`
+
+```python
+# Verify on-chain data claims from providers using Merkle inclusion proofs
+# Prevents: feed manipulation of DeFi Llama / CoinGecko data
+# Applies to E-05, E-10 data integrity checks
+
+import hashlib
+
+def merkle_verify(leaf: bytes, proof: list[tuple[bytes, str]], root: bytes) -> bool:
+    current = hashlib.sha256(leaf).digest()
+    for sibling, direction in proof:
+        if direction == "left":
+            current = hashlib.sha256(sibling + current).digest()
+        else:
+            current = hashlib.sha256(current + sibling).digest()
+    return current == root
+```
+
+### 10.5 · Birthday Bound → Hash Collision Risk in Storage Keys
+
+**Source:** §11 Combinatorics (Birthday Bound), §7 Probability Theory
+**Existing file audit:** `src/data/storage.py`
+
+```
+Audit: any dict/cache key constructed from hash(symbol + timestamp)
+Birthday bound: collision at ≈ 1.17 × √n where n = keyspace size
+Risk: SHA-256 truncated to 64 bits → collision at 2^32 ≈ 4B entries
+Fix: use full SHA-256 (256-bit) as storage key — never truncate
+```
+
+### 10.6 · Chernoff Bound → Mining Difficulty / Block Time Analysis
+
+**Source:** §7 Probability Theory (Chernoff Bound: `Pr[X≥(1+δ)μ] ≤ e^{-δ²μ/3}`)
+**Extend:** `src/engines/e10_supply.py`
+
+```python
+# Bitcoin block time: 10 min target, recalibrates every 2016 blocks
+# Chernoff bound: probability of N consecutive fast blocks
+# Anomalous block timing → hashrate spike → difficulty adjustment incoming → price signal
+
+def block_time_anomaly(recent_block_times_sec: list[float]) -> dict:
+    mu = 600.0  # target 10 min
+    observed_mean = np.mean(recent_block_times_sec)
+    delta = abs(observed_mean - mu) / mu
+    chernoff_prob = np.exp(-delta**2 * len(recent_block_times_sec) / 3)
+    return {
+        "anomaly_score": 1 - chernoff_prob,  # high → significant deviation
+        "direction": 1 if observed_mean > mu * 1.2 else (-1 if observed_mean < mu * 0.8 else 0),
+        # slow blocks → hashrate drop → miner capitulation → bearish short-term
+    }
+```
+
+### 10.7 · HNDL Risk → BTC Address Reuse Signal
+
+**Source:** Quantum Threat Table (HNDL section), P1 BIP-32
+**New file:** `src/engines/signals/quantum_exposure.py`
+
+```python
+# P2PK outputs: pubkey exposed on-chain → vulnerable to future CRQC (Shor's)
+# P2PKH/P2WPKH: pubkey hidden until spend → safe until spent
+# Address reuse: spent P2PKH exposes pubkey → HNDL risk
+
+# Signal: if large BTC holder is reusing P2PK/spent P2PKH addresses →
+#         quantum exposure score elevated → long-term bearish overlay
+
+# Data source: public blockchain (via BlockCypher free API or local node)
+def quantum_exposure_score(p2pk_utxo_pct: float, reused_address_pct: float) -> float:
+    # Higher score → more BTC exposed to future quantum attack → risk factor
+    return 0.6 * p2pk_utxo_pct + 0.4 * reused_address_pct
+```
+
+Wire as metadata into E-05 and E-13 (long-horizon only).
+
+---
+
+## Category 11 · On-Chain Cryptographic Analysis Upgrades
+
+### 11.1 · Ring Signature Analysis → Monero/Privacy Coin Engine
+
+**Source:** P7 (Monero: CLSAG + Stealth Addresses + RingCT)
+**Extend:** `src/engines/e05_onchain.py`
+
+```python
+# XMR-specific on-chain signals despite confidential transactions:
+# - Ring size distribution: larger rings → more privacy-conscious activity → accumulation signal
+# - Transaction fee spikes → demand surge
+# - CLSAG vs MLSAG migration rate → protocol upgrade adoption
+# - Stealth address generation rate (proxy for new wallets)
+# Data: XMR explorer public APIs (xmrchain.net)
+
+def xmr_privacy_signal(avg_ring_size: float, fee_usd_24h: float) -> dict:
+    # ring_size < 11 (minimum) never seen post-2022; spikes indicate premium privacy demand
+    return {
+        "ring_size_signal": 1 if avg_ring_size > 16 else 0,  # above avg → accumulation
+        "fee_pressure": fee_usd_24h,
+    }
+```
+
+### 11.2 · UTXO Graph Analysis → Whale Movement Detection
+
+**Source:** §10 Graph Theory (DAG Blockchain, P2P Network), P7 Monero TX graph
+**Extend:** `src/engines/e05_onchain.py`
+
+```python
+# UTXO graph: directed edges (tx_in → tx_out)
+# Whale detection: UTXO cluster with value > 1000 BTC moving
+# Taint analysis: follow coinbase outputs through graph (chain depth ≤ 5)
+# Source: BlockCypher free API (limited), public mempool.space API
+
+def utxo_whale_signal(large_utxo_movements: list[dict]) -> dict:
+    total_btc_moving = sum(u['value_btc'] for u in large_utxo_movements if u['value_btc'] > 100)
+    # Large whale outflow from exchanges → accumulation → +1
+    # Large inflow to exchanges → distribution → -1
+    exchange_inflow = sum(u['value_btc'] for u in large_utxo_movements if u['to_exchange'])
+    exchange_outflow = sum(u['value_btc'] for u in large_utxo_movements if u['from_exchange'])
+    net = exchange_outflow - exchange_inflow
+    return {"net_exchange_flow_btc": net, "direction": 1 if net > 0 else (-1 if net < 0 else 0)}
+```
+
+### 11.3 · Nakamoto Consensus Markov Chain → Fork Risk Signal
+
+**Source:** §7 Probability Theory (Nakamoto double-spend model, random walk, martingale)
+**New file:** `src/engines/signals/fork_risk.py`
+
+```python
+# Stale block rate from public mempool data → approximates orphan rate
+# High orphan rate → network propagation issues → fork risk → price volatility signal
+# Martingale property: E[chain_length | current] = current (fair process)
+# Deviation from martingale → manipulation or network partition
+
+def fork_risk_score(orphan_count_24h: int, total_blocks_24h: int) -> float:
+    orphan_rate = orphan_count_24h / max(total_blocks_24h, 1)
+    # BTC normal orphan rate ≈ 0.1–0.5%; > 1% → concern
+    return min(orphan_rate / 0.01, 1.0)  # normalized 0-1
+```
+
+---
+
+## Category 12 · Mathematical Engine Upgrades from Part II
+
+### 12.1 · NTT (Number Theoretic Transform) → Polynomial Multiplication Upgrade
+
+**Source:** §9 Linear Algebra (NTT: O(n log n) polynomial multiplication)
+**Upgrade target:** `src/engines/e04_fourier.py`
+
+```python
+# Current FFT: scipy.fft (floating point) — numerical errors accumulate
+# NTT upgrade: exact arithmetic over finite field ℤq
+# Use q = NTT-friendly prime (e.g., q = 3329 from Kyber, or custom for signal length)
+# Benefit: exact cycle detection, no floating-point spectral leakage
+
+# NTT: â_k = Σ_{j=0}^{n-1} aⱼ·ωʲᵏ mod q; ω = primitive n-th root mod q
+# O(n log n) — same as FFT but exact
+
+def ntt(a: list[int], q: int, omega: int) -> list[int]:
+    n = len(a)
+    if n == 1:
+        return a
+    even = ntt(a[::2], q, omega * omega % q)
+    odd  = ntt(a[1::2], q, omega * omega % q)
+    factor = 1
+    result = [0] * n
+    for i in range(n // 2):
+        result[i]         = (even[i] + factor * odd[i]) % q
+        result[i + n//2]  = (even[i] - factor * odd[i]) % q
+        factor = factor * omega % q
+    return result
+```
+
+### 12.2 · DFA Hurst Exponent → Replace R/S in E-06
+
+**Source:** Advanced Calculations section of Crypto_Box.md (already in Part I plan)
+Already covered in §2.5 · E-06. No duplication needed.
+
+### 12.3 · LLL / BKZ → Lattice Basis Analysis for Correlation Matrix
+
+**Source:** §9 Linear Algebra (LLL Algorithm), §5 Lattice Theory
+**Extend:** `src/engines/e07_linear_algebra.py`
+
+```python
+# LLL application to correlation matrix:
+# Model correlation matrix as a lattice basis → LLL-reduce → find "short vectors"
+# Short vectors in correlation space = most independent factor directions
+# Superior to vanilla PCA: exploits integer structure of co-movement clusters
+
+# Note: fpylll library (Python LLL binding)
+# Apply: if correlation matrix eigenvalue gap > 0.3 → use LLL factors; else PCA
+```
+
+### 12.4 · Persistent Homology Wasserstein Distance → E-08 Upgrade
+
+**Source:** Advanced Calculations section, §18 Algebraic Topology
+Already covered in §2.7 · E-08 (Wasserstein distance signal). No duplication.
+
+### 12.5 · Transfer Entropy Upgrade → E-03
+
+**Source:** Advanced Calculations (Transfer Entropy formula), §6 Information Theory
+Already covered in §3.1 · E-03. No duplication.
+
+### 12.6 · Martingale / Optional Stopping → Signal Validity Test
+
+**Source:** §17 Measure Theory, §7 Probability Theory
+**New file:** `src/engines/signals/martingale_test.py`
+
+```python
+# Test whether price series exhibits martingale property (fair/unpredictable)
+# vs sub/super martingale (trending drift)
+# E[P_{t+1} | ℱ_t] = P_t → no predictability (suppress signals)
+# E[P_{t+1} | ℱ_t] > P_t → upward drift (bullish signal)
+
+# Statistical test: variance ratio test (Lo-MacKinlay)
+def variance_ratio_test(prices: np.ndarray, q: int = 5) -> dict:
+    # VR(q) = Var(q-period return) / (q × Var(1-period return))
+    # VR ≈ 1 → martingale (random walk)
+    # VR > 1 → positive autocorrelation (momentum)
+    # VR < 1 → negative autocorrelation (mean-reversion)
+    ret1 = np.diff(np.log(prices))
+    retq = np.log(prices[q:] / prices[:-q])
+    vr = np.var(retq) / (q * np.var(ret1))
+    return {"vr": vr, "signal": 1 if vr > 1.1 else (-1 if vr < 0.9 else 0)}
+```
+
+Wire into E-01 as additional feature.
+
+### 12.7 · Hybrid Argument → Security Proof Logging
+
+**Source:** §7 Probability Theory (Hybrid Argument), §6 Information Theory (Semantic Security)
+**Not code — documentation requirement:**
+
+`src/security/SECURITY_PROOFS.md` — document the security argument for each
+cryptographic component added (api_signer, auth_keys, credential_vault) using
+hybrid argument structure: Game₀ (real) → Game₁ → ... → Gameₙ (ideal).
+Follows the same structure as IND-CPA/IND-CCA proofs in Part II.
+
+---
+
+## Category 13 · Attack Defense Layer
+
+**Goal:** Implement defensive countermeasures for every attack in Part II §A1–A6 and
+the Cross-Layer Attack Surface table that applies to Trade-Bot.
+
+### 13.1 · A1 Defense — ECDSA k-Reuse Prevention
+
+**Already covered:** §9.1 (RFC 6979 deterministic k). No extra file needed.
+
+### 13.2 · A2 Defense — Pohlig-Hellman / Small Subgroup
+
+**Source:** A2 (Pohlig-Hellman in Detail), Cross-Layer Attack Surface (Algebra row)
+**New file:** `src/security/group_validation.py`
+
+```python
+# Validate that any DH key exchange uses prime-order groups
+# Small subgroup attack: if cofactor h > 1 → clear cofactor before use
+# secp256k1: h=1 → immune; Ed25519: h=8 → cofactor clearing required
+
+def validate_prime_order_group(group_order: int) -> bool:
+    """Reject if group order is not prime (Pohlig-Hellman exploits smooth order)."""
+    from sympy import isprime
+    return isprime(group_order)
+
+def cofactor_clear(point: tuple, cofactor: int, group_order: int) -> tuple:
+    """Multiply point by cofactor to land in prime-order subgroup."""
+    # Applied to Ed25519 verify: 8·S·B = 8·R + 8·H·A
+    return scalar_mul(point, cofactor, group_order)
+```
+
+### 13.3 · A3 Defense — Coppersmith / Weak RSA
+
+**Source:** A3 (Coppersmith/LLL → Weak RSA)
+**New file:** `src/security/key_validation.py`
+
+```python
+# Validate any RSA keys used (e.g., exchange webhook signatures)
+# Wiener attack: reject if d < n^0.25/3 (check via e/n continued fraction)
+# Fermat factoring: reject if |p-q| < 2^(n/4 - 100)
+# ROCA (CVE-2017-15361): reject Infineon-structured primes
+
+def validate_rsa_key(n: int, e: int) -> dict:
+    issues = []
+    # Check e not too small (low exponent attack)
+    if e < 65537:
+        issues.append("e too small — Hastad broadcast attack risk")
+    # Check n bit length
+    if n.bit_length() < 2048:
+        issues.append("n < 2048 bits — GNFS feasible")
+    return {"valid": len(issues) == 0, "issues": issues}
+```
+
+### 13.4 · A4 Defense — Differential Power Analysis (DPA)
+
+**Source:** A4 (DPA Full), Cross-Layer Attack Surface (Side-channel rows)
+**Applies to:** Any hardware wallet integration or HSM usage (future)
+**New file:** `src/security/SIDE_CHANNEL_NOTES.md`
+
+```
+- All secret operations: use constant-time libraries (cryptography, nacl)
+- No Hamming-weight-correlated branching on key bytes
+- Power analysis: not applicable to software-only bot (no physical side-channel access)
+- Timing: covered by §9.4 (hmac.compare_digest everywhere)
+- Hertzbleed (CVE-2022-27459): CPU frequency scaling leaks Kyber internals
+  → Mitigation: disable frequency scaling on signing machines when using PQ crypto
+```
+
+### 13.5 · A5 Defense — Lattice Sieving Parameter Floors
+
+**Source:** A5 (Lattice Sieving BKZ/BDGL), §5 Lattice Theory
+**New file:** `src/security/pq_parameter_check.py`
+
+```python
+# When E-15 RL training uses lattice-based operations, enforce parameter floors
+# BKZ-β cost: 2^{0.292β}; for 128-bit security → β ≥ 245
+# Kyber-768: Core-SVP β=245; concrete security ~161 bits (with primal/dual attacks)
+
+PQ_SECURITY_FLOORS = {
+    "kyber_512": 100,    # bits; below threshold → reject
+    "kyber_768": 161,    # NIST recommended level 3
+    "dilithium3": 128,
+    "falcon_512": 103,
+}
+
+def validate_pq_params(scheme: str, claimed_security_bits: int) -> bool:
+    floor = PQ_SECURITY_FLOORS.get(scheme, 128)
+    return claimed_security_bits >= floor
+```
+
+### 13.6 · A6 Defense — 51% Attack Monitoring
+
+**Source:** A6 (51% Attack Markov Chain), already partially covered in §10.1
+**Extend:** `src/engines/signals/network_security.py`
+
+```python
+# Selfish mining revenue surface: α(1-α)²(4α+γ(1-2α)) / (1-α(1+(2-α)α))
+# Monitor: if estimated attacker fraction α > 0.33 → alert + reduce position size
+
+def selfish_mining_revenue_ratio(alpha: float, gamma: float = 0.5) -> float:
+    num = alpha * (1-alpha)**2 * (4*alpha + gamma*(1 - 2*alpha))
+    den = 1 - alpha * (1 + (2-alpha)*alpha)
+    return num / max(den, 1e-9)
+
+def position_size_penalty(alpha: float) -> float:
+    # Scale down position when 51% risk elevated
+    if alpha > 0.33:
+        return max(0.0, 1.0 - (alpha - 0.33) * 3.0)
+    return 1.0
+```
+
+### 13.7 · Reentrancy / Integer Overflow — Smart Contract Audit (DeFi Data Sources)
+
+**Source:** Cross-Layer Attack Surface (Formal Logic rows: The DAO, BECToken CVE-2018-10299)
+**New file:** `src/data/defi_data_validator.py`
+
+```python
+# DeFi Llama TVL data can be corrupted by reentrancy exploits or integer overflow hacks
+# Validate: TVL change > 50% in single block → possible exploit → reject data point
+# Validate: TVL goes negative → integer overflow in protocol → reject
+
+def validate_defi_tvl(tvl_current: float, tvl_prev: float) -> bool:
+    if tvl_current < 0:
+        return False  # integer overflow in protocol
+    change_pct = abs(tvl_current - tvl_prev) / max(tvl_prev, 1)
+    if change_pct > 0.5:
+        return False  # > 50% single-block change → exploit signal, reject
+    return True
+```
+
+---
+
+## Category 14 · ZK / FHE Future Computation Layer
+
+**Goal:** Stub infrastructure for future private signal computation and ZK proof generation.
+Implement research items from DIR-1, DIR-2, DIR-3.
+
+### 14.1 · DIR-1A — secp256k1 from Axioms (Educational Implementation)
+
+**Source:** DIR-1 `1A`, P1, §4 Elliptic Curve Theory
+**New file:** `src/research/secp256k1_from_axioms.py`
+
+```python
+# Pure Python implementation of secp256k1 field → group → ECDSA → Schnorr → BIP-32
+# Purpose: verified understanding of the math underlying every BTC/ETH transaction
+# Not used in production — educational / audit reference
+
+P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+N  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+
+class FieldElement:
+    def __init__(self, val: int, mod: int = P): ...
+    def __add__(self, other): ...
+    def __mul__(self, other): ...
+    def inv(self): return pow(self.val, self.mod - 2, self.mod)  # Fermat's little theorem
+
+class ECPoint:
+    def __add__(self, other): ...   # chord-tangent law
+    def __rmul__(self, k: int): ... # Montgomery ladder (constant-time)
+
+def ecdsa_sign(msg_hash: int, privkey: int) -> tuple[int, int]: ...  # RFC 6979 k
+def ecdsa_verify(msg_hash: int, sig: tuple, pubkey: ECPoint) -> bool: ...
+def schnorr_sign(msg: bytes, privkey: int) -> tuple[int, int]: ...   # BIP-340
+def bip32_derive(seed: bytes, path: str) -> tuple[int, ECPoint]: ... # hardened only
+```
+
+### 14.2 · DIR-1B — Groth16 R1CS → QAP → Prove/Verify
+
+**Source:** DIR-1 `1B`, P3 (Groth16 → PLONK → STARK), §13 Algebraic Geometry
+**New file:** `src/research/groth16_minimal.py`
+
+```python
+# Minimal Groth16 over BN254 (not production — educational)
+# R1CS: Az∘Bz = Cz; z = (public‖witness‖1)
+# QAP: Lagrange interpolation → polynomial h(x)t(x)
+# CRS: trusted setup (simulated; τ←$ random for research)
+# Prove/Verify: 3 pairing equations
+# Purpose: understand ZK-SNARK math that underlies ZCash, StarkEx, Tornado
+```
+
+### 14.3 · DIR-1C — Kyber-768 NTT Ring → Enc/Dec → FO Transform
+
+**Source:** DIR-1 `1C`, P6 (Kyber-768 Full Spec), §5 Lattice Theory
+**New file:** `src/research/kyber768_reference.py`
+
+```python
+# Reference implementation of Kyber-768:
+# NTT ring: Rq = ℤ₃₃₂₉[x]/(x²⁵⁶+1); NTT via ω=17
+# KeyGen: A = Sam(ρ); s,e ← CBD_η₁; t = A∘NTT(s)+e
+# Encapsulate: u,v computed; K = H(m‖H(pk))
+# Decapsulate: m' recovered; FO re-encryption check
+# Purpose: verify parameter choices; future swap from X25519
+```
+
+### 14.4 · DIR-1D — BLS12-381 Miller Loop → BLS Sign/Aggregate/Verify
+
+**Source:** DIR-1 `1D`, P5 (BLS Signatures), §4 Elliptic Curve Theory (Optimal Ate)
+**New file:** `src/research/bls12381_aggregate.py`
+
+```python
+# BLS12-381: G₁ (381-bit), G₂ (twist), Gₜ (𝔽p¹²*); embedding degree k=12
+# Sign:      σ = sk·H(m) ∈ G₁
+# Verify:    e(σ,G₂) = e(H(m),pk)
+# Aggregate: σ_agg = Σσᵢ; verify Πᵢe(H(mᵢ),pkᵢ)
+# Application: verify ETH2 validator attestation aggregates in on-chain analysis
+# Library: py_ecc (Ethereum Foundation)
+```
+
+### 14.5 · DIR-1E — FROST t-of-n Threshold Signature
+
+**Source:** DIR-1 `1E`, P5 BLS + CLSAG concepts
+**New file:** `src/research/frost_threshold.py`
+
+```python
+# FROST (Flexible Round-Optimized Schnorr Threshold):
+# Pedersen DKG → share signing → aggregate
+# Application: multi-sig API key management (t-of-n signers must approve live orders)
+# Future production use in §9.3 credential vault
+```
+
+### 14.6 · DIR-1F — BGV FHE: Key Gen → Enc → Add/Mult → Bootstrapping
+
+**Source:** DIR-1 `1F`, P4 (FHE Full Mathematics)
+**New file:** `src/research/bgv_fhe_stub.py`
+
+```python
+# BGV parameters: Rq = ℤq[x]/(xⁿ+1); n=4096; q = product of primes
+# Enc: c = (a'b+e'+Δm, a'a+e'')
+# Add: pointwise; noise grows linearly
+# Mult: requires relinearization via eval keys
+# Bootstrap: refresh noise budget (costly: ~10⁴ NTTs)
+# Future use: compute ensemble consensus on encrypted engine outputs (private trading)
+# Library: OpenFHE Python bindings (open-fhe.org)
+```
+
+### 14.7 · DIR-1G — Bulletproof Range Proof
+
+**Source:** DIR-1 `1G`, P7 (Monero Bulletproofs)
+**New file:** `src/research/bulletproof_range.py`
+
+```python
+# Bulletproof: prove v ∈ [0, 2⁶⁴) without revealing v
+# Inner product argument: ⟨aL,aR⟩=0, aL∘aR=aL-1ⁿ
+# Proof size: 2·log₂(64)+13 = 25 group elements ≈ 675B
+# Application: prove position size is within risk limits without revealing exact size
+# (private order sizing — future ZK-based risk disclosure)
+```
+
+### 14.8 · DIR-1H — STARK: AIR → FRI → Merkle → Proof → Verify
+
+**Source:** DIR-1 `1H`, P3 STARK section
+**New file:** `src/research/stark_minimal.py`
+
+```python
+# AIR (Algebraic IOP): boundary + transition constraints as polynomials
+# FRI: prove degree < d; domain halves each round; O(log²n) hashes
+# Post-quantum: ✅ hash-based (Poseidon); no trusted setup
+# Application: verifiable computation proofs for backtesting results
+# (prove backtest was computed correctly without revealing strategy parameters)
+```
+
+---
+
+## Category 15 · DIR-2 Attack Implementations (Security Research)
+
+**Purpose:** Implement every attack from DIR-2 as a self-contained script in `scripts/security/`.
+These are audit tools — used to verify Trade-Bot's own implementations are not vulnerable.
+
+### 15.1 · 2A — ECDSA k-Reuse: Algebraic Recovery + LLL Partial Nonce
+
+**New file:** `scripts/security/ecdsa_krecovery.py`
+```
+Given two (r,s) signatures with same k:
+  k = (z₁-z₂)·(s₁-s₂)⁻¹ mod n
+  d = (s₁k-z₁)·r⁻¹ mod n
+LLL extension: partial nonce leakage (m=128 bits known, 256-bit key)
+  Lattice attack recovers d with O(n/m) signatures
+Test: verify Trade-Bot signing never produces same r value (RFC 6979 invariant)
+```
+
+### 15.2 · 2B — Pohlig-Hellman: Smooth Order Group DLP
+
+**New file:** `scripts/security/pohlig_hellman.py`
+```
+Group G order N = Π pᵢᵉⁱ
+BSGS in each prime-power subgroup: O(√pᵢ) per factor
+CRT reconstruction: x mod N
+Test: confirm all groups used in Trade-Bot have prime order (h=1)
+```
+
+### 15.3 · 2C — Coppersmith: LLL Small Roots → Wiener → Boneh-Durfee
+
+**New file:** `scripts/security/coppersmith_rsa.py`
+```
+Wiener: continued fraction attack on e/n → recover d if d < n^0.25/3
+Boneh-Durfee: d < n^0.292 via polynomial system + LLL
+Test: validate any RSA key used (exchange webhook pubkeys) against Wiener bound
+```
+
+### 15.4 · 2D — DPA on AES: Power Trace CPA Key Recovery
+
+**New file:** `scripts/security/dpa_aes_sim.py`
+```
+Simulated DPA: generate synthetic power traces T = HW(Sbox[p⊕k]) + noise
+CPA: ρ(k) = corr(H(d,k), T matrix column)
+k* = argmax ρ(k)
+Required traces: SNR⁻² (simulate at various SNR levels)
+Purpose: educational; verify AES masking countermeasures work on simulated traces
+```
+
+### 15.5 · 2E — Differential Cryptanalysis: Reduced-Round AES DDT
+
+**New file:** `scripts/security/differential_aes.py`
+```
+DDT[α][β] = #{x: Sbox[x⊕α]⊕Sbox[x] = β}
+AES S-box: δ=4 (optimal differential uniformity for 8-bit bijection)
+Compute full DDT, verify max entry = 4
+Compute 2-round differential characteristic probability
+Purpose: verify AES S-box properties; educational reference
+```
+
+### 15.6 · 2F — LLL on NTRU: Lattice Embedding Key Recovery
+
+**New file:** `scripts/security/ntru_lll.py`
+```
+NTRU: f·h ≡ g (mod q); privkey = f
+Lattice embedding: [[I, H], [0, qI]] where H = rot(h)
+LLL on embedding → recover f,g if parameters below security floor
+Test: demonstrate attack fails on Falcon-512 parameters (β=245 floor)
+```
+
+### 15.7 · 2G — 51% Markov Model: Profitability Surface
+
+**New file:** `scripts/security/selfish_mining_surface.py`
+```
+Compute revenue_ratio(α, γ) over α ∈ [0, 0.5], γ ∈ [0, 1]
+Plot 3D surface: where is selfish mining profitable?
+Profitable region: α > 1/(3+γ)
+For γ=0: α > 0.333; for γ=1: α > 0.25
+Output: PNG heatmap to scripts/security/selfish_mining_surface.png
+```
+
+### 15.8 · 2H — Fault Attack: RSA-CRT Glitch → Bellcore → Factor n
+
+**New file:** `scripts/security/rsa_crt_fault.py`
+```
+Bellcore attack: one correct sig s, one faulty sig s'
+  gcd(s - s', n) = p (one factor recovered)
+Requires: ability to inject fault during CRT signing
+Test: verify Trade-Bot never uses RSA-CRT for signing
+Mitigation documented: use Ed25519 (no CRT path exists)
+```
+
+---
+
+## Category 16 · DIR-3 Research Analysis (Notebooks + Scripts)
+
+**Purpose:** Implement DIR-3 research tasks as analysis scripts in `scripts/research/`.
+
+### 16.1 · 3A — SNARK Comparison Matrix
+
+**New file:** `scripts/research/snark_comparison.py`
+```
+Compare: Groth16 / PLONK / STARK / Bulletproof / Nova
+Dimensions: proof_size_bytes, prover_time_ms, verifier_time_ms, trusted_setup, post_quantum
+Output: markdown table + CSV
+Data sourced from: benchmarks.ethereum.org, zka.lc, public papers
+```
+
+### 16.2 · 3B — Quantum Timeline: Logical Qubit Estimates
+
+**New file:** `scripts/research/quantum_timeline.py`
+```
+Reproduce Roetteler et al. 2017 qubit estimates:
+  ECDSA-256: 9n+2⌈log n⌉+10 ≈ 2330 logical qubits; T-gates ≈ 2^40
+  RSA-2048: ~4096 logical qubits; T-gates ~10^10
+Error correction overhead: surface code, ~10^3:1 physical:logical ratio
+Timeline scenarios: optimistic (2030), consensus (2035), conservative (2040+)
+Output: table + risk calendar for Trade-Bot's cryptographic migration
+```
+
+### 16.3 · 3C — HNDL: BTC Address Reuse Exposure Model
+
+**New file:** `scripts/research/hndl_btc_exposure.py`
+```
+P2PK UTXO set (exposed pubkeys today): query via public API
+P2PKH reused addresses: scan public blockchain
+Compute: total BTC at HNDL risk by type
+Model: if CRQC arrives year Y, fraction of BTC supply attackable
+Output: risk table per address type + year
+```
+
+### 16.4 · 3D — SQISign Viability Analysis
+
+**New file:** `scripts/research/sqisign_analysis.py`
+```
+SQISign: quaternion algebra → Deuring correspondence → signing
+Signature size: 204 bytes (smallest PQ sig)
+Signing speed: ~seconds on modern CPU (vs ms for Ed25519)
+Verification: fast (~1ms)
+Analysis: when does signing latency become acceptable for Trade-Bot API auth?
+Threshold: if batch signing ≥ N orders → SQISign amortized cost acceptable
+```
+
+### 16.5 · 3E — Nova/Supernova: Folding → Recursive Proof → zkEVM
+
+**New file:** `scripts/research/nova_folding.py`
+```
+Relaxed R1CS folding: (u₁,w₁)+(u₂,w₂)→(u,w) with slack vector E
+Accumulate n steps in O(n) field ops; prove once at end
+Use case for Trade-Bot: recursively prove all trades in a session are valid
+Without revealing individual trade details (private P&L reporting)
+```
+
+### 16.6 · 3F — FHE On-Chain: CKKS Noise Budget Analysis
+
+**New file:** `scripts/research/ckks_noise_analysis.py`
+```
+CKKS: message space ℝ^{n/2}; encode → scale by Δ
+Noise budget after k multiplications: log₂Δ - k·log₂q_level
+Bootstrap cost: O(n log n) NTTs; ~10⁴ NTTs per bootstrap
+Analysis: can E-09 (ML inference) run under FHE with acceptable precision?
+Circuit depth needed for XGBoost inference → noise budget estimate
+```
+
+### 16.7 · 3G — iO from Lattices: Current Status 2026
+
+**New file:** `scripts/research/indistinguishability_obfuscation.md`
+```
+iO = "holy grail": all cryptography from one primitive
+Current constructions: multilinear maps (Lin-Matt, DQMS)
+Security status 2026: theoretical; no practical construction
+Crypto impact: iO → one-way permutations, PKE, FHE, ZK — all from iO
+For Trade-Bot: academic reference only; no near-term implementation path
+```
+
+---
+
+## Updated Implementation Order (All Categories)
+
+| Phase | Categories | Deliverables |
+|---|---|---|
+| P1 | CAT-1 | Data pipeline (orderbook, Deribit, sentiment, macro, RSS, quality gate) |
+| P2 | CAT-2 | Reuse engines E-01,02,04,05,06,07,08,09 |
+| P3 | CAT-5 math | Advanced math utilities (YZ vol, DFA, Transfer Entropy, Wasserstein) |
+| P4 | CAT-3 | Custom engines E-03,10,11,12,13,14,15,16,17,18 |
+| P5 | CAT-4 | Depth Detector v2 (9 regimes) |
+| P6 | CAT-5 | Consensus Layer v2 (Bayesian CI, Chauvenet, Kelly, TTL) |
+| P7 | CAT-6 | Risk Quantification + Signal Gate + Circuit Breaker |
+| P8 | CAT-7 | Backtesting framework (walk-forward, 9×18 accuracy matrix) |
+| P9 | CAT-8 | Wiring + orchestrator + audit trail integration |
+| P10 | CAT-9 | Security hardening (Ed25519, BIP-32, constant-time, Kyber stub) |
+| P11 | CAT-10+11 | Market signals from crypto-economic math (MEV, 51%, HNDL, UTXO) |
+| P12 | CAT-12 | Engine upgrades (NTT, LLL correlation, variance ratio test) |
+| P13 | CAT-13 | Attack defense layer (A1–A6 defenses, DeFi data validator) |
+| P14 | CAT-14 | ZK/FHE stubs + DIR-1 research implementations |
+| P15 | CAT-15 | DIR-2 attack scripts (security audit tools) |
+| P16 | CAT-16 | DIR-3 research analysis scripts + notebooks |
+
+---
+
+## Additional Dependencies (Part II)
+
+```toml
+# pyproject.toml additions for Part II
+cryptography = ">=42.0"        # Ed25519, X25519, constant-time ops
+python-jose = {extras=["ed25519"], version=">=3.3"}  # JWT EdDSA
+py_ecc = ">=7.0"               # BLS12-381, BN254 pairing
+fpylll = ">=0.6"               # LLL lattice reduction (CAT-12)
+sympy = ">=1.12"               # prime validation, number theory (CAT-13)
+# Optional / research only:
+open-quantum-safe = ">=0.9"    # liboqs: Kyber, Dilithium (CAT-9)
+open-fhe = ">=1.1"             # BGV/BFV/CKKS FHE (CAT-14)
+```
 - **giotto-tda training**: only inference on pre-computed complexes (keeps P8 < 10s SLA).
