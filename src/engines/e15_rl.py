@@ -108,6 +108,15 @@ class E15RL:
     def _select_action(self, state: np.ndarray) -> int:
         if self._model is None:
             return 0  # hold if no model
+        # Dict[int, Ridge] produced by train_offline / FQI path
+        if isinstance(self._model, dict):
+            q: dict[int, float] = {}
+            for a, reg in self._model.items():
+                try:
+                    q[a] = float(reg.predict(state.reshape(1, -1))[0])  # type: ignore[union-attr]
+                except Exception:
+                    q[a] = 0.0
+            return max(q, key=lambda k: q[k]) if q else 0
         try:
             # stable-baselines3 predict interface
             action, _ = self._model.predict(state, deterministic=True)  # type: ignore[union-attr]
@@ -116,8 +125,35 @@ class E15RL:
             return 0
 
     def train_offline(self, states: np.ndarray, actions: np.ndarray, rewards: np.ndarray) -> None:
-        """Offline DQN training — called by engine_backtest.py."""
+        """
+        Offline fitted Q-iteration via per-action Ridge regression.
+
+        Trains one Ridge model per action on (state → reward) pairs from the
+        action's subset. At inference time, the action with the highest predicted
+        Q-value wins.  This is a behavioural-cloning / FQI approximation that
+        works without stable-baselines3.
+        """
+        from sklearn.linear_model import Ridge
+
+        n_actions = 3
+        models: dict[int, object] = {}
+        for a in range(n_actions):
+            mask = actions == a
+            if mask.sum() < 5:
+                continue
+            reg = Ridge(alpha=1.0)
+            reg.fit(states[mask], rewards[mask])
+            models[a] = reg
+
+        if not models:
+            log.warning("e15_offline_train_no_data", n_samples=len(states))
+            return
+
+        self._model = models
         try:
-            log.info("e15_offline_train_stub", n_samples=len(states))
-        except ImportError:
-            log.warning("e15_stable_baselines3_not_installed")
+            _MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(_MODEL_PATH, "wb") as f:
+                pickle.dump(models, f)
+        except Exception as exc:
+            log.warning("e15_model_save_error", exc=str(exc))
+        log.info("e15_offline_trained", n_samples=len(states), n_actions=len(models))

@@ -427,6 +427,38 @@ async def test_e15_abstains_without_model():
     assert out.direction == 0  # hold when no model
 
 
+def test_e15_train_offline_builds_ridge_models(tmp_path, monkeypatch):
+    from src.engines import e15_rl
+    from src.engines.e15_rl import _STATE_DIM, E15RL
+
+    monkeypatch.setattr(e15_rl, "_MODEL_PATH", tmp_path / "e15_dqn.pkl")
+    e = E15RL()
+    rng = np.random.default_rng(0)
+    n = 60
+    states = rng.standard_normal((n, _STATE_DIM)).astype(np.float32)
+    actions = rng.integers(0, 3, n)
+    rewards = rng.standard_normal(n).astype(np.float32)
+    e.train_offline(states, actions, rewards)
+    assert isinstance(e._model, dict)
+    assert (tmp_path / "e15_dqn.pkl").exists()
+
+
+def test_e15_select_action_uses_ridge(tmp_path, monkeypatch):
+    from src.engines import e15_rl
+    from src.engines.e15_rl import _STATE_DIM, E15RL
+
+    monkeypatch.setattr(e15_rl, "_MODEL_PATH", tmp_path / "e15_dqn.pkl")
+    e = E15RL()
+    rng = np.random.default_rng(1)
+    n = 60
+    states = rng.standard_normal((n, _STATE_DIM)).astype(np.float32)
+    actions = rng.integers(0, 3, n)
+    rewards = rng.standard_normal(n).astype(np.float32)
+    e.train_offline(states, actions, rewards)
+    action = e._select_action(rng.standard_normal(_STATE_DIM).astype(np.float32))
+    assert action in (0, 1, 2)
+
+
 # ---------------------------------------------------------------------------
 # E-16 Adversarial
 # ---------------------------------------------------------------------------
