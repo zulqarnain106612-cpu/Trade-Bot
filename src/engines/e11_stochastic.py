@@ -48,10 +48,18 @@ def yang_zhang_vol(df: pd.DataFrame, window: int = 21) -> float:
     return float(np.sqrt(max(var, 0.0)) * np.sqrt(8760))
 
 
-def gbm_mc(s0: float, mu: float, sigma: float, t_hours: float, n: int = _MC_PATHS) -> np.ndarray:
+def gbm_mc(
+    s0: float,
+    mu: float,
+    sigma: float,
+    t_hours: float,
+    n: int = _MC_PATHS,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
     """GBM Monte Carlo: returns terminal price distribution."""
     dt = t_hours / 8760
-    z = np.random.standard_normal(n)
+    _rng = rng if rng is not None else np.random.default_rng()
+    z = _rng.standard_normal(n)
     return s0 * np.exp((mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * z)
 
 
