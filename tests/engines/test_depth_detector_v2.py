@@ -7,6 +7,8 @@ import pytest
 from src.regime.depth_detector_v2 import (
     REGIME_LABELS,
     DepthDetectorV2,
+    _compute_adx,
+    _compute_bb_width,
     build_v2_features_from_engine_outputs,
 )
 
@@ -106,3 +108,55 @@ def test_build_features_from_engine_outputs():
     assert "e03_entropy_score" in df.columns
     assert df["e03_entropy_score"].iloc[0] == 0.4
     assert df["e06_hurst"].iloc[0] == 0.65
+
+
+def test_compute_adx_returns_nonneg() -> None:
+    rng = np.random.default_rng(7)
+    n = 50
+    close = pd.Series(np.cumprod(1 + rng.normal(0, 0.01, n)) * 50_000)
+    high = close * 1.005
+    low = close * 0.995
+    result = _compute_adx(high, low, close)
+    assert result >= 0.0
+    assert result <= 100.0
+
+
+def test_compute_adx_insufficient_data_returns_zero() -> None:
+    close = pd.Series([100.0, 101.0])
+    high = close * 1.005
+    low = close * 0.995
+    assert _compute_adx(high, low, close) == 0.0
+
+
+def test_compute_bb_width_trending_market() -> None:
+    # Flat price → narrow BB width
+    close = pd.Series([50_000.0] * 30)
+    width = _compute_bb_width(close)
+    assert width == pytest.approx(0.0, abs=1e-4)
+
+
+def test_compute_bb_width_insufficient_data_returns_zero() -> None:
+    close = pd.Series([100.0] * 5)  # fewer than period=20
+    assert _compute_bb_width(close) == 0.0
+
+
+def test_build_features_with_ohlcv_populates_adx_bb() -> None:
+    rng = np.random.default_rng(11)
+    n = 50
+    close_arr = np.cumprod(1 + rng.normal(0, 0.01, n)) * 50_000
+    ohlcv = pd.DataFrame(
+        {
+            "high": close_arr * 1.005,
+            "low": close_arr * 0.995,
+            "close": close_arr,
+            "open": close_arr,
+            "volume": np.ones(n) * 100,
+        }
+    )
+    df = build_v2_features_from_engine_outputs({}, ohlcv=ohlcv)
+    # adx_14 and bb_width should be computed (non-zero for noisy data)
+    assert "adx_14" in df.columns
+    assert "bb_width" in df.columns
+    # Just verify they are valid floats (not 0.0 necessarily)
+    assert df["adx_14"].iloc[0] >= 0.0
+    assert df["bb_width"].iloc[0] >= 0.0

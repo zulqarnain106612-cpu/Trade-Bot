@@ -181,11 +181,65 @@ class DepthDetectorV2:
         return {int(state): REGIME_LABELS[i] for i, state in enumerate(sorted_states)}
 
 
-def build_v2_features_from_engine_outputs(engine_outputs: dict) -> pd.DataFrame:
+def _compute_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
+    """Compute ADX (Average Directional Index) — measures trend strength (0-100)."""
+    try:
+        n = len(close)
+        if n < period + 1:
+            return 0.0
+        tr = pd.concat(
+            [
+                high - low,
+                (high - close.shift(1)).abs(),
+                (low - close.shift(1)).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        dm_pos = (high.diff()).clip(lower=0)
+        dm_neg = (-low.diff()).clip(lower=0)
+        # Smooth with Wilder's EMA
+        alpha = 1.0 / period
+        atr = tr.ewm(alpha=alpha, adjust=False).mean()
+        di_pos = (
+            dm_pos.ewm(alpha=alpha, adjust=False).mean() / atr.replace(0, float("nan"))
+        ).fillna(0) * 100
+        di_neg = (
+            dm_neg.ewm(alpha=alpha, adjust=False).mean() / atr.replace(0, float("nan"))
+        ).fillna(0) * 100
+        dx = ((di_pos - di_neg).abs() / (di_pos + di_neg).replace(0, float("nan"))).fillna(0) * 100
+        adx = dx.ewm(alpha=alpha, adjust=False).mean()
+        return float(adx.iloc[-1]) if not pd.isna(adx.iloc[-1]) else 0.0
+    except Exception:
+        return 0.0
+
+
+def _compute_bb_width(close: pd.Series, period: int = 20) -> float:
+    """Bollinger Band width (upper - lower) / middle — measures volatility regime."""
+    try:
+        if len(close) < period:
+            return 0.0
+        roll = close.rolling(period)
+        mid = roll.mean()
+        std = roll.std()
+        upper = mid + 2 * std
+        lower = mid - 2 * std
+        width = (upper - lower) / mid.replace(0, float("nan"))
+        val = float(width.iloc[-1])
+        return val if not pd.isna(val) else 0.0
+    except Exception:
+        return 0.0
+
+
+def build_v2_features_from_engine_outputs(
+    engine_outputs: dict,
+    ohlcv: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """
     Build a single-row feature DataFrame from engine output metadata.
 
-    engine_outputs: dict keyed by engine_id → EngineOutput
+    engine_outputs : dict keyed by engine_id → EngineOutput
+    ohlcv          : optional OHLCV DataFrame (columns: high, low, close) used to
+                     compute adx_14 and bb_width; both default to 0.0 when absent.
     """
     from src.engines.schema import EngineOutput
 
@@ -201,6 +255,16 @@ def build_v2_features_from_engine_outputs(engine_outputs: dict) -> pd.DataFrame:
             return float(out.confidence)
         return 0.0
 
+    adx_14 = 0.0
+    bb_width = 0.0
+    if (
+        ohlcv is not None
+        and not ohlcv.empty
+        and all(c in ohlcv.columns for c in ("high", "low", "close"))
+    ):
+        adx_14 = _compute_adx(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        bb_width = _compute_bb_width(ohlcv["close"])
+
     row = {
         "e01_confidence": _conf("E-01"),
         "e03_entropy_score": _meta("E-03", "entropy_score"),
@@ -212,7 +276,7 @@ def build_v2_features_from_engine_outputs(engine_outputs: dict) -> pd.DataFrame:
         "e13_contagion_score": _meta("E-13", "contagion_score"),
         "e14_contrarian_signal": _meta("E-14", "contrarian_signal"),
         "e17_amihud_ratio": _meta("E-17", "amihud_ratio"),
-        "adx_14": 0.0,  # populated from OHLCV features when available
-        "bb_width": 0.0,  # populated from OHLCV features when available
+        "adx_14": adx_14,
+        "bb_width": bb_width,
     }
     return pd.DataFrame([row])

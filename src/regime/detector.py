@@ -550,6 +550,7 @@ class RegimeDetector:
         self,
         engine_outputs: dict[str, object],
         features: pd.DataFrame | None = None,
+        ohlcv: pd.DataFrame | None = None,
     ) -> str | None:
         """
         Return a 9-regime label from DepthDetectorV2 when CRYPTO_BOX=true.
@@ -559,7 +560,10 @@ class RegimeDetector:
         engine_outputs : dict keyed by engine_id (e.g. "E-03") → EngineOutput.
                          Used by build_v2_features_from_engine_outputs().
         features       : optional pre-built 12-col DataFrame; if None it is
-                         built from engine_outputs.
+                         built from engine_outputs (+ ohlcv when provided).
+        ohlcv          : optional OHLCV DataFrame; passed through to
+                         build_v2_features_from_engine_outputs() to populate
+                         adx_14 and bb_width columns.
 
         Returns None when CRYPTO_BOX is disabled or the v2 model is not fitted.
         """
@@ -574,7 +578,7 @@ class RegimeDetector:
             )
 
             if features is None:
-                features = build_v2_features_from_engine_outputs(engine_outputs)  # type: ignore[arg-type]
+                features = build_v2_features_from_engine_outputs(engine_outputs, ohlcv=ohlcv)  # type: ignore[arg-type]
             v2: DepthDetectorV2 = self._depth_v2  # type: ignore[assignment]
             if v2 is None or v2._model is None:
                 return None
