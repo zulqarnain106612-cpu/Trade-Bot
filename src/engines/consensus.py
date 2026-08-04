@@ -266,11 +266,12 @@ class CircuitBreaker:
         try:
             from datetime import UTC, datetime
 
-            from src.diagnostics.audit_trail import AuditTrail
+            from src.diagnostics.audit_trail import get_audit_trail
 
-            AuditTrail.instance().record(
-                "circuit_breaker_triggered",
-                {"ts": datetime.now(UTC).isoformat()},
+            get_audit_trail().record(
+                event_type="circuit_breaker_triggered",
+                reason_code="manipulation_flag",
+                details={"ts": datetime.now(UTC).isoformat()},
             )
         except Exception:
             pass
