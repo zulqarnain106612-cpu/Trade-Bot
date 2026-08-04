@@ -29,6 +29,8 @@ class E01Statistical:
         self._horizon = horizon_hours
 
     async def run(self, symbol: str, data: dict) -> EngineOutput:
+        import asyncio
+
         df: pd.DataFrame | None = data.get("ohlcv")
         spot: float = data.get("spot", 0.0)
         if df is None or len(df) < 30 or spot <= 0:
@@ -37,7 +39,8 @@ class E01Statistical:
             )
 
         try:
-            arima_pred = self._arima_predict(df, spot)
+            loop = asyncio.get_event_loop()
+            arima_pred = await loop.run_in_executor(None, self._arima_predict, df, spot)
             hmm_conf = self._hmm_confidence(data)
             confidence = max(0.0, min(1.0, hmm_conf))
             direction = 1 if arima_pred > spot * 1.001 else (-1 if arima_pred < spot * 0.999 else 0)
