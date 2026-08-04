@@ -313,7 +313,8 @@ def compute_consensus_price(
     # because subsequent engines slide into wrong index positions.
     def _engine_idx(eid: str) -> int:
         try:
-            return int(eid.split("-")[1]) - 1  # "E-03" → 2
+            idx = int(eid.split("-")[1]) - 1  # "E-03" → 2
+            return max(0, min(idx, len(full_weights) - 1))
         except (IndexError, ValueError):
             return 0
 
