@@ -267,6 +267,17 @@ def test_e06_hurst_dfa_range():
     assert 0.0 <= h <= 1.0
 
 
+def test_e06_hurst_dfa_constant_returns_half():
+    """Constant series → all DFA fluctuations are zero → should fallback to 0.5, not NaN."""
+    import math
+
+    from src.engines.e06_fractal import hurst_dfa
+
+    h = hurst_dfa(np.zeros(256))
+    assert math.isfinite(h)
+    assert h == 0.5  # fallback when no valid scale pairs remain
+
+
 @pytest.mark.asyncio
 async def test_e06_returns_engine_output():
     from src.engines.e06_fractal import E06Fractal
