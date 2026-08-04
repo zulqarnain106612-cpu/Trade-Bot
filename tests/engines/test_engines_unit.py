@@ -20,6 +20,48 @@ from src.engines.schema import EngineOutput
 
 
 # ---------------------------------------------------------------------------
+# Schema contract
+# ---------------------------------------------------------------------------
+
+
+def test_engine_output_clamps_nan_predicted_price():
+    """NaN / inf predicted_price must be sanitized to 0 at construction time."""
+    from datetime import UTC, datetime
+
+    from src.engines.schema import EngineOutput
+
+    out = EngineOutput(
+        engine_id="E-01",
+        symbol="BTC/USDT",
+        timestamp_utc=datetime.now(UTC),
+        predicted_price=float("nan"),
+        confidence=0.9,
+        direction=1,
+        horizon_hours=4,
+    )
+    assert out.predicted_price == 0.0
+    assert out.confidence == 0.0
+
+
+def test_engine_output_clamps_inf_predicted_price():
+    from datetime import UTC, datetime
+
+    from src.engines.schema import EngineOutput
+
+    out = EngineOutput(
+        engine_id="E-02",
+        symbol="BTC/USDT",
+        timestamp_utc=datetime.now(UTC),
+        predicted_price=float("inf"),
+        confidence=0.5,
+        direction=0,
+        horizon_hours=4,
+    )
+    assert out.predicted_price == 0.0
+    assert out.confidence == 0.0
+
+
+# ---------------------------------------------------------------------------
 # Synthetic data helpers
 # ---------------------------------------------------------------------------
 

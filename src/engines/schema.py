@@ -4,6 +4,7 @@ Shared output schema for all 18 Crypto-Box engines.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -24,6 +25,10 @@ class EngineOutput:
         self.confidence = max(0.0, min(1.0, self.confidence))
         if self.direction not in (-1, 0, 1):
             self.direction = 0
+        # Guard against NaN/inf which silently corrupt weighted consensus sums
+        if not math.isfinite(self.predicted_price) or self.predicted_price < 0:
+            self.predicted_price = 0.0
+            self.confidence = 0.0
 
     @classmethod
     def abstain(
