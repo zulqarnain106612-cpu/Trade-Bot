@@ -45,6 +45,12 @@ class DeribitProvider:
         if df is not None:
             self._cache[coin] = df
             self._persist(coin, df)
+            try:
+                from src.data.provider_cache import get_provider_cache
+
+                get_provider_cache().set_options(coin, df)
+            except Exception:
+                pass
         return self._cache.get(coin)
 
     async def run_loop(self, symbol: str) -> None:

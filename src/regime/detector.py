@@ -541,6 +541,48 @@ class RegimeDetector:
         return pred
 
     # ------------------------------------------------------------------
+    # 9-regime augmentation (Crypto-Box DepthDetectorV2)
+    # ------------------------------------------------------------------
+
+    def predict_current_v2(
+        self,
+        engine_outputs: dict[str, object],
+        features: pd.DataFrame | None = None,
+    ) -> str | None:
+        """
+        Return a 9-regime label from DepthDetectorV2 when CRYPTO_BOX=true.
+
+        Parameters
+        ----------
+        engine_outputs : dict keyed by engine_id (e.g. "E-03") → EngineOutput.
+                         Used by build_v2_features_from_engine_outputs().
+        features       : optional pre-built 12-col DataFrame; if None it is
+                         built from engine_outputs.
+
+        Returns None when CRYPTO_BOX is disabled or the v2 model is not fitted.
+        """
+        import os
+
+        if os.environ.get("CRYPTO_BOX", "").lower() not in ("1", "true", "yes"):
+            return None
+        try:
+            from src.regime.depth_detector_v2 import (
+                DepthDetectorV2,
+                build_v2_features_from_engine_outputs,
+            )
+
+            if features is None:
+                features = build_v2_features_from_engine_outputs(engine_outputs)  # type: ignore[arg-type]
+            v2: DepthDetectorV2 = getattr(self, "_depth_v2", None)  # type: ignore[assignment]
+            if v2 is None or v2._model is None:
+                return None
+            v2_pred = v2.predict(features)
+            return v2_pred.label
+        except Exception as exc:
+            self._log.debug("hmm.predict_v2_failed", exc=str(exc))
+            return None
+
+    # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 

@@ -49,6 +49,12 @@ class MacroProvider:
             result = await self.fetch_once()
             if result:
                 self._latest = result
+                try:
+                    from src.data.provider_cache import get_provider_cache
+
+                    get_provider_cache().set_macro(result)
+                except Exception:
+                    pass
             await asyncio.sleep(_POLL_INTERVAL)
 
     # ------------------------------------------------------------------

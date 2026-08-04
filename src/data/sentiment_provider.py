@@ -73,8 +73,19 @@ class SentimentProvider:
                     self._fg_score = float(entry["value"])
                     self._fg_label = entry["value_classification"]
                     self._persist_fg()
+                    self._update_cache()
         except Exception as exc:
             log.warning("fg_fetch_error", exc=str(exc))
+
+    def _update_cache(self) -> None:
+        try:
+            from src.data.provider_cache import get_provider_cache
+
+            recent = self._headlines[-20:] if self._headlines else []
+            vader_avg = sum(h["vader_compound"] for h in recent) / len(recent) if recent else 0.0
+            get_provider_cache().set_sentiment(self._fg_score, self._fg_label, vader_avg)
+        except Exception:
+            pass
 
     def _persist_fg(self) -> None:
         date_str = datetime.now(UTC).strftime("%Y-%m-%d")
@@ -113,6 +124,7 @@ class SentimentProvider:
                 if len(self._headlines) > 2000:
                     self._headlines = self._headlines[-2000:]
                 self._persist_headlines(rows)
+                self._update_cache()
         except Exception as exc:
             log.warning("rss_fetch_error", exc=str(exc))
 

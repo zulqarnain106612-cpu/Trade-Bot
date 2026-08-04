@@ -111,8 +111,27 @@ class OrderbookStream:
             spread_bps=spread_bps,
         )
         self._snapshots.append(snap)
+        try:
+            from src.data.provider_cache import get_provider_cache
+
+            get_provider_cache().set_orderbook(self.symbol, self._snapshots_as_df())
+        except Exception:
+            pass
         if len(self._snapshots) >= 1000:
             self._flush_orderbook()
+
+    def _snapshots_as_df(self) -> pd.DataFrame:
+        rows = [
+            {
+                "timestamp_utc": s.timestamp_utc,
+                "bids_json": s.bids_json,
+                "asks_json": s.asks_json,
+                "mid": s.mid,
+                "spread_bps": s.spread_bps,
+            }
+            for s in self._snapshots[-100:]  # last 100 snapshots for the cache
+        ]
+        return pd.DataFrame(rows)
 
     def _flush_orderbook(self) -> None:
         if not self._snapshots:
