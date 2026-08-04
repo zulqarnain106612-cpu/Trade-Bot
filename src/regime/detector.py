@@ -239,6 +239,8 @@ class RegimeDetector:
         self._train_hash: str = ""
         # M-08: initialise explicitly so mypy and predict_current() don't need getattr fallback
         self._convergence_failed: bool = False
+        # Crypto-Box 9-regime model (loaded lazily; None when not fitted/loaded)
+        self._depth_v2: object | None = None
         self._log = log.bind(
             component="regime_detector",
             symbol=symbol,
@@ -573,7 +575,7 @@ class RegimeDetector:
 
             if features is None:
                 features = build_v2_features_from_engine_outputs(engine_outputs)  # type: ignore[arg-type]
-            v2: DepthDetectorV2 = getattr(self, "_depth_v2", None)  # type: ignore[assignment]
+            v2: DepthDetectorV2 = self._depth_v2  # type: ignore[assignment]
             if v2 is None or v2._model is None:
                 return None
             v2_pred = v2.predict(features)
@@ -616,6 +618,11 @@ class RegimeDetector:
         }
         joblib.dump(payload, path, compress=3)
         _write_manifest(path)
+        if self._depth_v2 is not None:
+            try:
+                self._depth_v2.save(Path(model_dir))  # type: ignore[union-attr]
+            except Exception as _exc:
+                self._log.warning("hmm.depth_v2_save_failed", error=str(_exc))
         self._log.info("hmm.saved", path=str(path), train_hash=self._train_hash)
         return path
 
@@ -654,6 +661,18 @@ class RegimeDetector:
         # VF-018: restore convergence flag — defaults False for old payloads without
         # the key (backward compatible), correct for new payloads.
         detector._convergence_failed = bool(payload.get("convergence_failed", False))
+        # Attempt to restore DepthDetectorV2 (Crypto-Box 9-regime model)
+        try:
+            import os
+
+            if os.environ.get("CRYPTO_BOX", "").lower() in ("1", "true", "yes"):
+                from src.regime.depth_detector_v2 import DepthDetectorV2
+
+                v2 = DepthDetectorV2(symbol=symbol, timeframe=timeframe)
+                if v2.load(Path(model_dir)):
+                    detector._depth_v2 = v2
+        except Exception:
+            pass  # v2 model optional — predict_current_v2 returns None if absent
         log.info(
             "hmm.loaded",
             path=str(path),

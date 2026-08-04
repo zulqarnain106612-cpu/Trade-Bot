@@ -232,3 +232,76 @@ async def run_all_engine_backtests(
         results[eid] = await bt.run(df, symbol)
 
     return results
+
+
+async def retrain_e09_walkforward(df: pd.DataFrame, symbol: str = "BTC/USDT") -> int:
+    """
+    Walk-forward retrain for E-09 (ML meta-engine).
+
+    Runs E-01..E-08 on rolling 180-candle windows, builds the feature matrix
+    used by E09MlMeta._build_features(), labels each window by next-bar direction,
+    then calls E09MlMeta.train(X, y) on the full collected set.
+
+    Returns the number of training samples collected (0 = skipped/failed).
+    """
+    import os
+
+    if os.environ.get("CRYPTO_BOX", "").lower() not in ("1", "true", "yes"):
+        return 0
+
+    from src.engines.e01_statistical import E01Statistical
+    from src.engines.e02_microstructure import E02Microstructure
+    from src.engines.e03_information_theory import E03InformationTheory
+    from src.engines.e04_fourier import E04Fourier
+    from src.engines.e05_onchain import E05OnChain
+    from src.engines.e06_fractal import E06Fractal
+    from src.engines.e07_linear_algebra import E07LinearAlgebra
+    from src.engines.e08_topology import E08Topology
+    from src.engines.e09_ml_meta import E09MlMeta
+
+    feature_engines = [
+        E01Statistical(),
+        E02Microstructure(),
+        E03InformationTheory(),
+        E04Fourier(),
+        E05OnChain(),
+        E06Fractal(),
+        E07LinearAlgebra(),
+        E08Topology(),
+    ]
+    e09 = E09MlMeta()
+
+    X_rows: list[np.ndarray] = []
+    y_vals: list[int] = []
+
+    n = len(df)
+    min_start = _TRAIN_WINDOW + _GAP
+    for start in range(min_start, n - _TEST_WINDOW, _STEP):
+        train_end = start - _GAP
+        train_df = df.iloc[start - _TRAIN_WINDOW : train_end]
+        spot = float(train_df["close"].iloc[-1])
+        next_close = float(df["close"].iloc[start])
+        label = 1 if next_close > spot else 0
+
+        data = {"ohlcv": train_df, "spot": spot}
+        engine_outputs: dict[str, object] = {}
+        for eng in feature_engines:
+            try:
+                out = await eng.run(symbol, data)
+                engine_outputs[out.engine_id] = out
+            except Exception:
+                pass
+
+        feat = e09._build_features(engine_outputs, spot)  # type: ignore[arg-type]
+        X_rows.append(feat.flatten())
+        y_vals.append(label)
+
+    if len(X_rows) < 20:
+        log.warning("e09_retrain_insufficient_samples", n=len(X_rows))
+        return 0
+
+    X = np.array(X_rows, dtype=np.float32)
+    y = np.array(y_vals, dtype=np.int32)
+    e09.train(X, y)
+    log.info("e09_walkforward_retrain_done", n_samples=len(y))
+    return len(y)
