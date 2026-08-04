@@ -52,9 +52,7 @@ def btc_s2f(height: int) -> float:
     supply = btc_supply_at_block(height)
     halvings = height // _BTC_HALVING_BLOCKS
     subsidy = 50.0 / (2**halvings)
-    annual_new = 365 * 24 / _BTC_BLOCK_TIME_HOURS * subsidy / 3600
-    # blocks per year * subsidy
-    blocks_per_year = 365 * 24 * 60 / 10
+    blocks_per_year = 365 * 24 * 60 / 10  # ~52 560 blocks/year at 10-min block time
     annual_new = blocks_per_year * subsidy
     return supply / max(annual_new, 1.0)
 
