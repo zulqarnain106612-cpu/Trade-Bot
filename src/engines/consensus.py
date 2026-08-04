@@ -355,9 +355,9 @@ def chauvenet_outliers(outputs: list[EngineOutput]) -> list[str]:
 def compute_agreement_score(outputs: list[EngineOutput]) -> float:
     prices = np.array([o.predicted_price for o in outputs])
     mean = prices.mean()
-    if mean == 0:
+    if abs(mean) < 1e-9:
         return 1.0
-    return float(1.0 - prices.std() / mean)
+    return float(max(0.0, 1.0 - prices.std() / abs(mean)))
 
 
 def kelly_weight(confidence: float, backtest_gain_ratio: float) -> float:

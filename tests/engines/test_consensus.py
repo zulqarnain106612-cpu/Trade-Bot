@@ -145,6 +145,16 @@ def test_agreement_score_low_on_divergence():
     assert score < 0.5
 
 
+def test_agreement_score_never_negative():
+    """Extreme divergence must not produce negative agreement score."""
+    outputs = [
+        _make_output("E-01", price=1.0),
+        _make_output("E-02", price=1_000_000.0),
+    ]
+    score = compute_agreement_score(outputs)
+    assert score >= 0.0
+
+
 # -----------------------------------------------------------------------
 # Circuit breaker (Gap G-14)
 # -----------------------------------------------------------------------
