@@ -471,11 +471,6 @@ def _build_xgb(cfg: XGBoostSettings, scale_pos_weight: float = 1.0) -> XGBClassi
         min_child_weight=cfg.min_child_weight,
         reg_alpha=cfg.reg_alpha,
         reg_lambda=cfg.reg_lambda,
-        # Hardcoded, and no longer a setting: XGBoost >= 2.0 (the pinned
-        # range) removed this parameter, so True can never be valid. It
-        # was an XGBoostSettings field, which promised a choice that
-        # would have raised if anyone took it.
-        use_label_encoder=False,
         eval_metric=cfg.eval_metric,
         tree_method=cfg.tree_method,
         device=cfg.device,
