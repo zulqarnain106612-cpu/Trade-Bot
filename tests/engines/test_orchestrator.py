@@ -132,6 +132,48 @@ async def test_orchestrator_e16_circuit_breaker_suppresses():
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_crypto_box_circuit_breaker_sets_not_tradeable(monkeypatch):
+    """crypto-box manipulation_circuit_breaker must make result not tradeable even
+    when kelly_multiplier==0 (which was the pre-fix guard condition that caused the
+    tradeable flag to silently stay True).
+    """
+    import os
+
+    os.environ["CRYPTO_BOX"] = "true"
+    try:
+        from src.engines.signal_gate import TradeSignal
+
+        orch = EngineOrchestrator()
+
+        # Fake a cb_signal with kelly_multiplier=0 but manipulation_circuit_breaker warning
+        async def fake_cb_signal(symbol: str, data: dict) -> TradeSignal:
+            return TradeSignal(
+                symbol="BTC/USDT",
+                direction=0,
+                confidence=0.0,
+                kelly_multiplier=0.0,  # zero — old code would skip the block
+                regime="Trending",
+                ttl_hours=4,
+                warnings=["manipulation_circuit_breaker"],
+            )
+
+        orch._crypto_box.get_signal = fake_cb_signal  # type: ignore[method-assign]
+        # Force enabled flag
+        orch._crypto_box._orchestrator = object()  # non-None to pass .enabled check
+
+        data = {
+            "ohlcv": make_ohlcv(),
+            "spot": 50_000.0,
+            "regime": "Trending",
+        }
+        result = await orch.run("BTC/USDT", data)
+        assert result.tradeable is False
+        assert result.skip_reason == "crypto_box_circuit_breaker"
+    finally:
+        os.environ.pop("CRYPTO_BOX", None)
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_audit_log_written(tmp_path):
     """engine_outputs parquet audit log is written to data_root."""
     orch = EngineOrchestrator(data_root=tmp_path)
