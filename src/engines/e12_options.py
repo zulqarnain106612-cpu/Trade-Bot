@@ -24,14 +24,12 @@ _SUPPORTED_COINS = {"BTC", "ETH"}
 
 def compute_gex(options_df: pd.DataFrame, spot: float) -> float:
     """Gamma exposure: dealers stabilize (>0) or amplify (<0) moves."""
-    contract_size = 1.0  # BTC: 1 BTC/contract; ETH: 1 ETH
-    gex = 0.0
-    for _, row in options_df.iterrows():
-        gamma = float(row.get("gamma", 0.0))
-        oi = float(row.get("oi", 0.0))
-        sign = 1 if row.get("option_type") == "call" else -1
-        gex += sign * gamma * oi * contract_size * spot**2 / 100
-    return gex
+    if options_df.empty:
+        return 0.0
+    sign = options_df["option_type"].apply(lambda t: 1.0 if t == "call" else -1.0)
+    gamma = options_df.get("gamma", pd.Series(0.0, index=options_df.index)).astype(float)
+    oi = options_df.get("oi", pd.Series(0.0, index=options_df.index)).astype(float)
+    return float((sign * gamma * oi * spot**2 / 100).sum())
 
 
 def put_call_ratio(options_df: pd.DataFrame) -> float:
@@ -54,22 +52,29 @@ def iv_skew(options_df: pd.DataFrame) -> float:
 
 
 def max_pain(options_df: pd.DataFrame) -> float:
-    """Strike where aggregate option value destruction is maximum."""
+    """Strike where total in-the-money value of all options is minimized (max pain for buyers)."""
     strikes = options_df["strike"].unique()
     if len(strikes) == 0:
         return 0.0
-    pain: dict[float, float] = {}
-    for s in strikes:
-        total = 0.0
-        for _, row in options_df.iterrows():
-            k = float(row["strike"])
-            oi = float(row.get("oi", 0.0))
-            if row["option_type"] == "call":
-                total += max(0.0, s - k) * oi
-            else:
-                total += max(0.0, k - s) * oi
-        pain[s] = total
-    return float(min(pain, key=lambda x: pain[x]))
+
+    import numpy as np
+
+    strikes_arr = strikes.astype(float)
+    ks = options_df["strike"].astype(float).values
+    oi = options_df.get("oi", pd.Series(0.0, index=options_df.index)).astype(float).values
+    is_call = (options_df["option_type"] == "call").values
+
+    # Vectorised: for each candidate strike S, sum value of in-the-money options
+    pain_vals = np.array(
+        [
+            float(
+                np.sum(np.maximum(0.0, s - ks[is_call]) * oi[is_call])  # calls ITM
+                + np.sum(np.maximum(0.0, ks[~is_call] - s) * oi[~is_call])  # puts ITM
+            )
+            for s in strikes_arr
+        ]
+    )
+    return float(strikes_arr[np.argmin(pain_vals)])
 
 
 class E12Options:
