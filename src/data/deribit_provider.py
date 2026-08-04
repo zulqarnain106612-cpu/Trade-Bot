@@ -83,18 +83,30 @@ class DeribitProvider:
             return None
 
     async def _get_instruments(self, session: aiohttp.ClientSession, coin: str) -> list[dict]:
-        url = f"{_BASE}/get_instruments"
-        params = {"currency": coin, "kind": "option", "expired": False}
-        async with session.get(url, params=params) as resp:
-            data = await resp.json()
-            return data.get("result", [])
+        try:
+            url = f"{_BASE}/get_instruments"
+            params = {"currency": coin, "kind": "option", "expired": False}
+            async with session.get(
+                url, params=params, timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
+                data = await resp.json()
+                return data.get("result", [])
+        except Exception as exc:
+            log.warning("deribit_get_instruments_error", coin=coin, exc=str(exc))
+            return []
 
     async def _get_orderbook(self, session: aiohttp.ClientSession, instrument: str) -> dict | None:
-        url = f"{_BASE}/get_order_book"
-        params = {"instrument_name": instrument, "depth": 1}
-        async with session.get(url, params=params) as resp:
-            data = await resp.json()
-            return data.get("result")
+        try:
+            url = f"{_BASE}/get_order_book"
+            params = {"instrument_name": instrument, "depth": 1}
+            async with session.get(
+                url, params=params, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                data = await resp.json()
+                return data.get("result")
+        except Exception as exc:
+            log.debug("deribit_get_orderbook_error", instrument=instrument, exc=str(exc))
+            return None
 
     def _parse_row(self, inst: dict, ob: dict) -> dict | None:
         iv = ob.get("mark_iv", 0.0)
