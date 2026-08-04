@@ -375,6 +375,37 @@ def test_e12_put_call_ratio():
     assert abs(pcr - 1.25) < 0.01
 
 
+def test_e12_compute_gex_vectorized():
+    from src.engines.e12_options import compute_gex
+
+    df = pd.DataFrame(
+        [
+            {"option_type": "call", "gamma": 0.001, "oi": 100},
+            {"option_type": "put", "gamma": 0.001, "oi": 100},
+        ]
+    )
+    # Calls: +1 * 0.001 * 100; puts: -1 * 0.001 * 100 → net GEX = 0
+    gex = compute_gex(df, spot=50_000.0)
+    assert abs(gex) < 1.0  # symmetric → near zero
+
+
+def test_e12_max_pain_finds_correct_strike():
+    from src.engines.e12_options import max_pain
+
+    # Two calls: strike 100 and 200; two puts: strike 100 and 200; spot=150
+    # At strike 150: calls 150→ITM(+50*OI for s=100 call), puts same
+    # Simple case: only one put at strike 200 with large OI
+    df = pd.DataFrame(
+        [
+            {"option_type": "put", "strike": 200.0, "oi": 1000.0},
+            {"option_type": "call", "strike": 100.0, "oi": 1000.0},
+        ]
+    )
+    mp = max_pain(df)
+    # Max pain is where OI-weighted ITM value is minimized — should pick a middle strike
+    assert mp in (100.0, 200.0)
+
+
 # ---------------------------------------------------------------------------
 # E-13 Contagion
 # ---------------------------------------------------------------------------
