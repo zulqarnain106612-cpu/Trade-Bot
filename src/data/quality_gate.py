@@ -114,11 +114,11 @@ class DataQualityGate:
     @staticmethod
     def _try_audit(reason: str) -> None:
         try:
-            from src.diagnostics.audit_trail import AuditTrail
+            from src.diagnostics.audit_trail import get_audit_trail
 
-            AuditTrail.instance().record(
-                "data_quality_reject",
-                {"reason": reason, "ts": datetime.now(UTC).isoformat()},
+            get_audit_trail().record(
+                event_type="data_quality_reject",
+                reason_code=reason[:120],
             )
         except Exception:
-            pass  # audit trail not yet wired — don't block data validation
+            pass  # audit trail unavailable — don't block data validation
