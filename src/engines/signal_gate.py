@@ -63,8 +63,8 @@ def consensus_to_signal(
     if uncertainty_label == "suppress":
         dampened_conf = 0.0
 
-    # Gap G-10 fix: Kelly multiplier
-    suppress_flag = 0.0 if uncertainty_label == "suppress" else 1.0
+    # Gap G-10 fix: Kelly multiplier — also zero on manipulation or uncertainty suppress
+    suppress_flag = 0.0 if (uncertainty_label == "suppress" or e16_flag) else 1.0
     kelly_mult = float(agreement * (1.0 - tail_risk) * suppress_flag)
 
     if tail_risk > 0.3:

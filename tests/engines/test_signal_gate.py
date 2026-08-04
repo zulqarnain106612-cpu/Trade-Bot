@@ -62,3 +62,11 @@ def test_kelly_multiplier_positive_when_clean():
 def test_kelly_multiplier_zero_on_suppress():
     sig = _gate(uncertainty_label="suppress")
     assert sig.kelly_multiplier == 0.0
+
+
+def test_e16_flag_also_zeros_kelly_multiplier():
+    """Manipulation circuit breaker must zero kelly_multiplier, not just direction."""
+    sig = _gate(e16_flag=True, agreement=0.9, tail_risk=0.05, consensus=51_000.0, spot=50_000.0)
+    assert sig.direction == 0
+    assert sig.kelly_multiplier == 0.0
+    assert "manipulation_circuit_breaker" in sig.warnings
