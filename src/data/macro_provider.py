@@ -1,0 +1,105 @@
+"""
+Macro daily data provider for E-13 (cross-asset contagion engine).
+
+Sources: yfinance SPX / DXY / GLD / VIX — free, no auth.
+Polls once per 24h (market-close cadence).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pandas as pd
+import structlog
+
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+_TICKERS = {
+    "spx": "^GSPC",
+    "dxy": "DX-Y.NYB",
+    "gld": "GLD",
+    "vix": "^VIX",
+}
+_POLL_INTERVAL = 86_400  # 24 hours
+_STALE_LIMIT_DAYS = 2  # accept weekend gaps
+
+
+class MacroProvider:
+    def __init__(self, data_root: Path = Path("data")) -> None:
+        self._data_root = data_root
+        self._latest: dict | None = None
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def latest(self) -> dict | None:
+        if self._latest is not None:
+            return self._latest
+        return self._load_cached()
+
+    async def fetch_once(self) -> dict | None:
+        return await asyncio.get_event_loop().run_in_executor(None, self._fetch_sync)
+
+    async def run_loop(self) -> None:
+        while True:
+            result = await self.fetch_once()
+            if result:
+                self._latest = result
+            await asyncio.sleep(_POLL_INTERVAL)
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _fetch_sync(self) -> dict | None:
+        try:
+            import yfinance as yf  # type: ignore[import]
+
+            closes: dict[str, float] = {}
+            returns: dict[str, float] = {}
+            for key, ticker in _TICKERS.items():
+                hist = yf.download(ticker, period="2d", interval="1d", progress=False)
+                if hist.empty:
+                    continue
+                close_col = "Close"
+                if close_col not in hist.columns:
+                    continue
+                closes[f"{key}_close"] = float(hist[close_col].iloc[-1])
+                if len(hist) >= 2:
+                    prev = float(hist[close_col].iloc[-2])
+                    curr = float(hist[close_col].iloc[-1])
+                    returns[f"{key}_ret"] = (curr - prev) / prev if prev != 0 else 0.0
+
+            if not closes:
+                return None
+
+            row: dict = {"date": datetime.now(UTC).date().isoformat(), **closes, **returns}
+            self._persist(row)
+            return row
+        except Exception as exc:
+            log.warning("macro_fetch_error", exc=str(exc))
+            return None
+
+    def _persist(self, row: dict) -> None:
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+        path = self._data_root / "macro" / f"{date_str}.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([row]).to_parquet(path, index=False)
+
+    def _load_cached(self) -> dict | None:
+        macro_dir = self._data_root / "macro"
+        if not macro_dir.exists():
+            return None
+        files = sorted(macro_dir.glob("*.parquet"), reverse=True)
+        for f in files[:_STALE_LIMIT_DAYS]:
+            try:
+                df = pd.read_parquet(f)
+                if not df.empty:
+                    return df.iloc[-1].to_dict()
+            except Exception:
+                continue
+        return None
