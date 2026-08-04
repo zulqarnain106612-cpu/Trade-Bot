@@ -6,6 +6,7 @@ Kyle lambda, Amihud ratio, orderbook depth score.
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import UTC, datetime
 
 import numpy as np
@@ -78,8 +79,8 @@ def cascade_price_level(bids: list[dict], spot: float, depth_pct10: float) -> fl
 class E17Liquidity:
     def __init__(self, horizon_hours: int = 1) -> None:
         self._horizon = horizon_hours
-        self._kyle_history: list[float] = []
-        self._depth_history: list[float] = []
+        self._kyle_history: deque[float] = deque(maxlen=200)
+        self._depth_history: deque[float] = deque(maxlen=200)
 
     async def run(self, symbol: str, data: dict) -> EngineOutput:
         spot: float = data.get("spot", 0.0)
@@ -108,10 +109,6 @@ class E17Liquidity:
             # Track history
             self._kyle_history.append(abs(kl))
             self._depth_history.append(ds)
-            if len(self._kyle_history) > 200:
-                self._kyle_history.pop(0)
-            if len(self._depth_history) > 200:
-                self._depth_history.pop(0)
 
             # Stress flag: kyle > 2-sigma AND depth < 30th percentile
             kyle_std = np.std(self._kyle_history) if len(self._kyle_history) > 2 else 1.0

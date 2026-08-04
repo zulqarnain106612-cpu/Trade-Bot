@@ -8,6 +8,7 @@ Deps: giotto-tda (optional; graceful fallback).
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import UTC, datetime
 
 import numpy as np
@@ -57,7 +58,7 @@ def _persistence_entropy(diagrams: list) -> float:
 class E08Topology:
     def __init__(self, horizon_hours: int = 4) -> None:
         self._horizon = horizon_hours
-        self._w_dist_history: list[float] = []
+        self._w_dist_history: deque[float] = deque(maxlen=200)
 
     async def run(self, symbol: str, data: dict) -> EngineOutput:
         df: pd.DataFrame | None = data.get("ohlcv")
@@ -75,8 +76,6 @@ class E08Topology:
 
             # Detect regime break: Wasserstein spike
             self._w_dist_history.append(w_dist)
-            if len(self._w_dist_history) > 200:
-                self._w_dist_history.pop(0)
 
             regime_break = False
             if len(self._w_dist_history) > 10:

@@ -7,6 +7,7 @@ Contrarian signal: extreme fear → +1, extreme greed → -1.
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import UTC, datetime
 
 import structlog
@@ -42,7 +43,7 @@ def contrarian_signal(raw: float, window_min: float = 0.0, window_max: float = 1
 class E14Sentiment:
     def __init__(self, horizon_hours: int = 24) -> None:
         self._horizon = horizon_hours
-        self._raw_history: list[float] = []
+        self._raw_history: deque[float] = deque(maxlen=1000)
 
     async def run(self, symbol: str, data: dict) -> EngineOutput:
         spot: float = data.get("spot", 0.0)
@@ -57,8 +58,6 @@ class E14Sentiment:
         try:
             raw = raw_sentiment(fg_score, vader_compound, social_vol)
             self._raw_history.append(raw)
-            if len(self._raw_history) > 1000:
-                self._raw_history.pop(0)
 
             win_min = min(self._raw_history) if self._raw_history else 0.0
             win_max = max(self._raw_history) if self._raw_history else 1.0

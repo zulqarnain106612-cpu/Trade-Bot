@@ -67,23 +67,31 @@ class MacroProvider:
 
             closes: dict[str, float] = {}
             returns: dict[str, float] = {}
+            series: dict[str, list] = {}
             for key, ticker in _TICKERS.items():
-                hist = yf.download(ticker, period="2d", interval="1d", progress=False)
+                # 90-day window to support Granger causality in E-13
+                hist = yf.download(ticker, period="90d", interval="1d", progress=False)
                 if hist.empty:
                     continue
                 close_col = "Close"
                 if close_col not in hist.columns:
                     continue
-                closes[f"{key}_close"] = float(hist[close_col].iloc[-1])
-                if len(hist) >= 2:
-                    prev = float(hist[close_col].iloc[-2])
-                    curr = float(hist[close_col].iloc[-1])
-                    returns[f"{key}_ret"] = (curr - prev) / prev if prev != 0 else 0.0
+                close_vals = hist[close_col].dropna()
+                closes[f"{key}_close"] = float(close_vals.iloc[-1])
+                ret_series = close_vals.pct_change().dropna()
+                if len(ret_series) >= 2:
+                    returns[f"{key}_ret"] = float(ret_series.iloc[-1])
+                    series[f"{key}_series"] = ret_series.values.tolist()
 
             if not closes:
                 return None
 
-            row: dict = {"date": datetime.now(UTC).date().isoformat(), **closes, **returns}
+            row: dict = {
+                "date": datetime.now(UTC).date().isoformat(),
+                **closes,
+                **returns,
+                **series,
+            }
             self._persist(row)
             return row
         except Exception as exc:
