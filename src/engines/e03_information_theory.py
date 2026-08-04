@@ -59,7 +59,7 @@ def transfer_entropy(x: np.ndarray, y: np.ndarray, lag: int = 1, bins: int = 10)
         return float(-np.sum(probs * np.log2(probs + 1e-12)))
 
     h_yf_yp = _joint_entropy(yf, yp)
-    h_yp = _joint_entropy(yp.reshape(-1, 1))
+    h_yp = _joint_entropy(yp)
     h_yf_yp_xp = _joint_entropy(yf, yp, xp)
     h_yp_xp = _joint_entropy(yp, xp)
     te = h_yf_yp - h_yp - h_yf_yp_xp + h_yp_xp
