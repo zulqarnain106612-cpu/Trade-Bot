@@ -173,10 +173,22 @@ class DepthDetectorV2:
 
         States with lowest volatility → Ranging/Accumulation,
         highest → LiquidityCrisis/Capitulation.
+
+        Uses trace of the state's covariance matrix as the volatility proxy — this
+        measures actual spread of the Gaussian, not just variance of the mean vector.
+        For diagonal/spherical covariance types, falls back to sum of diagonal.
         """
-        means = model.means_  # (N_COMPONENTS, n_features)
-        # Proxy for volatility: variance of the state's mean feature vector
-        vol_proxy = np.var(means, axis=1)
+        covars = model.covars_  # shape depends on covariance_type
+        covar_type = model.covariance_type
+        if covar_type == "full":
+            # (N_COMPONENTS, n_features, n_features) — trace per state
+            vol_proxy = np.array([np.trace(c) for c in covars])
+        elif covar_type == "tied":
+            # Single covariance shared by all states; fall back to mean variance
+            vol_proxy = np.var(model.means_, axis=1)
+        else:
+            # "diag" or "spherical": covars shape (N_COMPONENTS, n_features) or (N_COMPONENTS,)
+            vol_proxy = np.array([float(np.sum(c)) for c in covars])
         sorted_states = np.argsort(vol_proxy)  # ascending vol
         return {int(state): REGIME_LABELS[i] for i, state in enumerate(sorted_states)}
 
