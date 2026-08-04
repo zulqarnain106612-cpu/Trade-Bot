@@ -58,8 +58,12 @@ def hurst_dfa(series: np.ndarray, min_scale: int = 4, max_scale: int = 64) -> fl
     if len(valid_scales) < 2:
         return 0.5
 
-    log_scales = np.log(valid_scales)
-    log_fluct = np.log(fluctuations)
+    # Filter out zero fluctuations to avoid log(0) = -inf corrupting polyfit
+    pairs = [(s, f) for s, f in zip(valid_scales, fluctuations, strict=True) if f > 0]
+    if len(pairs) < 2:
+        return 0.5
+    log_scales = np.log([s for s, _ in pairs])
+    log_fluct = np.log([f for _, f in pairs])
     slope, _ = np.polyfit(log_scales, log_fluct, 1)
     return float(np.clip(slope, 0.0, 1.0))
 
