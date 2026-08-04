@@ -73,6 +73,27 @@ def test_spoof_penalty_reduces_e02_weight():
     assert w_penalty[1] < w_no_penalty[1]
 
 
+def test_consensus_price_sparse_engines_use_correct_weights():
+    """When engines fail (sparse outputs), each engine must use its own regime weight.
+
+    Bug: old code used weights[:len(outputs)], assigning E-01's weight to E-03
+    when E-02 failed. Fixed: use engine_id to index into full_weights.
+    """
+    from src.engines.consensus import REGIME_WEIGHTS
+
+    # Only E-01 (idx 0) and E-18 (idx 17) survive
+    outputs_sparse = [_make_output("E-01", price=50_000.0), _make_output("E-18", price=50_000.0)]
+    _, w_sparse = compute_consensus_price(outputs_sparse, "Trending")
+    # Weights should reflect REGIME_WEIGHTS["Trending"][0] and [17], not [0] and [1]
+    full = REGIME_WEIGHTS["Trending"]
+    expected_ratio = full[0] / full[17]  # E-01 weight / E-18 weight
+    assert abs(w_sparse.sum() - 1.0) < 1e-6
+    # The ratio of normalized weights should reflect the underlying regime weights
+    if w_sparse[1] > 0:
+        actual_ratio = w_sparse[0] / w_sparse[1]
+        assert abs(actual_ratio - expected_ratio) < 0.01
+
+
 # -----------------------------------------------------------------------
 # Bootstrap CI
 # -----------------------------------------------------------------------

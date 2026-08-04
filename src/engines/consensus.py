@@ -301,14 +301,24 @@ class TtlManager:
 def compute_consensus_price(
     outputs: list[EngineOutput], regime: str, spoof_penalty: float = 0.0
 ) -> tuple[float, np.ndarray]:
-    weights = np.array(REGIME_WEIGHTS.get(regime, REGIME_WEIGHTS["Trending"]), dtype=float)
+    full_weights = np.array(REGIME_WEIGHTS.get(regime, REGIME_WEIGHTS["Trending"]), dtype=float)
 
     # Gap G-03 fix: spoof penalty applies to E-02 (idx 1) and E-17 (idx 16)
-    weights[1] *= 1.0 - spoof_penalty
-    weights[16] *= 1.0 - spoof_penalty
+    full_weights[1] *= 1.0 - spoof_penalty
+    full_weights[16] *= 1.0 - spoof_penalty
 
+    # Map each surviving engine to its correct regime-weight position by engine_id.
+    # Using positional truncation (weights[:len(outputs)]) is wrong when engines fail
+    # because subsequent engines slide into wrong index positions.
+    def _engine_idx(eid: str) -> int:
+        try:
+            return int(eid.split("-")[1]) - 1  # "E-03" → 2
+        except (IndexError, ValueError):
+            return 0
+
+    weights = np.array([full_weights[_engine_idx(o.engine_id)] for o in outputs], dtype=float)
     confs = np.array([o.confidence for o in outputs], dtype=float)
-    weights = weights[: len(outputs)] * confs
+    weights = weights * confs
     total = weights.sum()
     if total <= 0:
         weights = np.ones(len(outputs)) / len(outputs)
