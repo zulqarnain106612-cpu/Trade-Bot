@@ -816,13 +816,25 @@ async def regime(timeframe: str) -> dict[str, Any]:
     }
 
 
+_crypto_box_adapter: object | None = None
+
+
+def _get_crypto_box_adapter() -> object:
+    """Return a cached CryptoBoxSignalAdapter singleton (avoids re-init on every request)."""
+    global _crypto_box_adapter
+    if _crypto_box_adapter is None:
+        from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
+
+        _crypto_box_adapter = CryptoBoxSignalAdapter()
+    return _crypto_box_adapter
+
+
 @app.get("/crypto-box/status", dependencies=[Depends(api_key_header)])
 async def crypto_box_status() -> dict[str, Any]:
     """Crypto-Box 18-engine ensemble status and latest provider cache snapshot."""
     from src.data.provider_cache import get_provider_cache
-    from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
 
-    adapter = CryptoBoxSignalAdapter()
+    adapter = _get_crypto_box_adapter()
     cache = get_provider_cache()
     sentiment = cache.get_sentiment()
     macro = cache.get_macro()
