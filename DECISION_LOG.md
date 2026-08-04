@@ -1140,3 +1140,37 @@ before it has a writer would be designing against a guess.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+---
+
+## 2026-08-04 — Crypto-Box 18-engine ensemble integration
+
+**Crypto-Box** is an 18-engine parallel prediction ensemble (E-01 through
+E-18) covering statistical, microstructure, information-theory, Fourier,
+on-chain, fractal, linear-algebra, topology, meta-ML, supply/S2F,
+stochastic, options, contagion, sentiment, RL, adversarial, liquidity, and
+network-centrality signals.
+
+**Architecture**: all engines are independent `async def run(symbol, data)`
+coroutines returning `EngineOutput`. `EngineOrchestrator` runs all 18 in
+parallel via `asyncio.gather` with per-engine SLA timeouts (G-08).
+`ConsensusLayer` applies 9-regime REGIME_WEIGHTS, Chauvenet outlier removal,
+bootstrap CI, TTL hysteresis ±0.05 dead-band (G-04), E-16 circuit breaker
+(G-14), and spoof penalty to both E-02 and E-17 (G-03). `consensus_to_signal()`
+converts consensus price → direction/Kelly multiplier (G-09, G-10).
+
+**Wiring**: `CryptoBoxSignalAdapter` in `Orchestrator._tick()` when
+`CRYPTO_BOX=true`. Kelly multiplier scales (never replaces) existing sizing.
+Background provider loops (sentiment/macro/options) started in `Orchestrator.run()`.
+`ProviderCache` singleton gives zero-latency tick-path reads.
+
+**9-regime extension**: `DepthDetectorV2` (9-state HMM on 12 engine
+features) accessible via `RegimeDetector.predict_current_v2()`. Falls back
+to None when CRYPTO_BOX disabled or model unfitted.
+
+**Security**: Ed25519 signing, BIP-32 hardened HD keys, HMAC constant-time
+comparison, Kyber-768 stub — all in `src/security/`.
+
+**Gaps fixed**: G-01 through G-14 per `CRYPTO_BOX_INTEGRATION_PLAN.md`.
+
+**Validation**: pushed to CI — not run locally per repo policy.

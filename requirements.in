@@ -30,3 +30,4 @@ vaderSentiment>=3.3,<4.0    # E-14: NLP sentiment on RSS headlines
 yfinance>=0.2,<1.0           # E-13: macro daily data (SPX/DXY/GLD/VIX)
 networkx>=3.0,<4.0           # E-18: exchange flow graph centrality
 pmdarima>=2.0,<3.0           # E-01: auto_arima on rolling window
+cryptography>=42.0,<45.0     # E-security: Ed25519 signing, BIP-32 derivation
