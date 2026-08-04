@@ -420,6 +420,51 @@ async def test_e13_requires_macro():
     assert out.confidence == 0.0
 
 
+def test_e13_granger_skips_constant_series():
+    from src.engines.e13_contagion import E13Contagion
+
+    btc = np.random.randn(50)
+    # Constant SPX series → should return {} without crashing
+    macro = {"spx_series": np.ones(50)}
+    result = E13Contagion._granger_causality(btc, macro)
+    assert result == {}
+
+
+def test_e13_granger_returns_pvals_with_varying_series():
+    from src.engines.e13_contagion import E13Contagion
+
+    rng = np.random.default_rng(42)
+    btc = rng.standard_normal(60)
+    spx = rng.standard_normal(60)
+    macro = {"spx_series": spx}
+    result = E13Contagion._granger_causality(btc, macro)
+    # May return {} if statsmodels not installed, otherwise expects lag keys
+    assert isinstance(result, dict)
+    for v in result.values():
+        assert 0.0 <= v <= 1.0
+
+
+def test_e13_build_correlation_uses_series_when_available():
+    from src.engines.e13_contagion import E13Contagion
+
+    rng = np.random.default_rng(7)
+    btc = rng.standard_normal(50)
+    spx = btc * 0.8 + rng.standard_normal(50) * 0.1  # highly correlated
+    macro = {"spx_series": spx, "spx_ret": 0.01}
+    corr = E13Contagion._build_correlation_state(btc, macro, {})
+    # Real Pearson r should be much higher than the 0.5 sign-heuristic
+    assert corr["btc_spx"] > 0.7
+
+
+def test_e13_build_correlation_fallback_to_heuristic():
+    from src.engines.e13_contagion import E13Contagion
+
+    btc = np.ones(20) * 0.01  # positive mean
+    macro = {"spx_ret": 0.02}  # same sign → heuristic = 0.5
+    corr = E13Contagion._build_correlation_state(btc, macro, {})
+    assert corr["btc_spx"] == pytest.approx(0.5)
+
+
 # ---------------------------------------------------------------------------
 # E-14 Sentiment
 # ---------------------------------------------------------------------------

@@ -79,15 +79,38 @@ class E13Contagion:
         btc_returns: np.ndarray, macro: dict, data: dict
     ) -> dict[str, float]:
         corr: dict[str, float] = {}
-        # SPX
-        spx_ret = macro.get("spx_ret", 0.0) or 0.0
-        # DXY
-        dxy_ret = macro.get("dxy_ret", 0.0) or 0.0
+        if len(btc_returns) < 10:
+            return corr
 
-        if len(btc_returns) >= 10:
-            # Scalar proxy (single-period): use rolling from multi-asset df if available
+        def _pearson(a: np.ndarray, b_raw: object) -> float | None:
+            """Compute Pearson r between btc_returns tail and a macro series."""
+            if b_raw is None:
+                return None
+            b = np.asarray(b_raw, dtype=float)
+            n = min(len(a), len(b))
+            if n < 10:
+                return None
+            a_s, b_s = a[-n:], b[-n:]
+            if np.std(a_s) < 1e-10 or np.std(b_s) < 1e-10:
+                return None
+            return float(np.corrcoef(a_s, b_s)[0, 1])
+
+        r_spx = _pearson(btc_returns, macro.get("spx_series"))
+        r_dxy = _pearson(btc_returns, macro.get("dxy_series"))
+
+        # Fall back to sign heuristic when only a scalar is available
+        if r_spx is not None:
+            corr["btc_spx"] = r_spx
+        else:
+            spx_ret = float(macro.get("spx_ret", 0.0) or 0.0)
             corr["btc_spx"] = float(np.sign(np.mean(btc_returns[-5:]) * spx_ret)) * 0.5
+
+        if r_dxy is not None:
+            corr["btc_dxy"] = r_dxy
+        else:
+            dxy_ret = float(macro.get("dxy_ret", 0.0) or 0.0)
             corr["btc_dxy"] = float(np.sign(np.mean(btc_returns[-5:]) * dxy_ret)) * -0.3
+
         return corr
 
     def _contagion_index(self, corr: dict[str, float]) -> float:
@@ -98,18 +121,27 @@ class E13Contagion:
 
     @staticmethod
     def _granger_causality(btc_returns: np.ndarray, macro: dict) -> dict[str, float]:
+        # Requires a full SPX return series in macro["spx_series"] (list/array).
+        # A single scalar "spx_ret" cannot provide the temporal variation needed for
+        # Granger causality — a constant series produces a singular OLS matrix.
         try:
             from statsmodels.tsa.stattools import grangercausalitytests
 
-            spx_ret_scalar = macro.get("spx_ret", 0.0) or 0.0
-            # Build a proxy series — single scalar expanded to match btc length
-            spx_series = np.full(len(btc_returns), float(spx_ret_scalar))
-            data_pair = np.column_stack([btc_returns, spx_series])
-            if len(data_pair) < 10:
+            spx_series_raw = macro.get("spx_series")
+            if spx_series_raw is None:
                 return {}
+            spx_series = np.asarray(spx_series_raw, dtype=float)
+            n = min(len(btc_returns), len(spx_series))
+            if n < 10:
+                return {}
+            spx_slice = spx_series[-n:]
+            btc_slice = btc_returns[-n:]
+            # Skip if SPX series is constant — zero variance → singular OLS
+            if np.std(spx_slice) < 1e-10:
+                return {}
+            data_pair = np.column_stack([btc_slice, spx_slice])
             results = grangercausalitytests(data_pair, maxlag=2, verbose=False)
-            p_vals = {f"lag_{lag}": float(res[0]["ssr_ftest"][1]) for lag, res in results.items()}
-            return p_vals
+            return {f"lag_{lag}": float(res[0]["ssr_ftest"][1]) for lag, res in results.items()}
         except Exception:
             return {}
 
