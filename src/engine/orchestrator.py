@@ -779,26 +779,29 @@ class Orchestrator:
                 _cache_snap = get_provider_cache().snapshot(self._symbol)
                 _cb_data: dict[str, Any] = {"ohlcv": bars, "spot": spot, **_cache_snap}
                 cb_signal = await self._crypto_box.get_signal(self._symbol, _cb_data)
-                if cb_signal is not None and cb_signal.kelly_multiplier > 0.0:
-                    direction_match = (
-                        cb_signal.direction == 0 or cb_signal.direction == result.direction
-                    )
-                    scale = cb_signal.kelly_multiplier if direction_match else 0.5
-                    new_adj = max(
-                        0.0,
-                        min(
-                            result.kelly_result.adjusted_fraction * scale,
-                            result.kelly_result.adjusted_fraction,
-                        ),
-                    )
-                    new_kelly = _dc_replace(result.kelly_result, adjusted_fraction=new_adj)
-                    result = _dc_replace(result, kelly_result=new_kelly)
+                if cb_signal is not None:
+                    # Circuit breaker: always suppress even when kelly_multiplier==0
                     if "manipulation_circuit_breaker" in cb_signal.warnings:
                         result = _dc_replace(
                             result,
                             tradeable=False,
                             skip_reason="crypto_box_circuit_breaker",
                         )
+                    elif cb_signal.kelly_multiplier > 0.0:
+                        # Scale Kelly by crypto-box confidence; halve on direction conflict
+                        direction_match = (
+                            cb_signal.direction == 0 or cb_signal.direction == result.direction
+                        )
+                        scale = cb_signal.kelly_multiplier if direction_match else 0.5
+                        new_adj = max(
+                            0.0,
+                            min(
+                                result.kelly_result.adjusted_fraction * scale,
+                                result.kelly_result.adjusted_fraction,
+                            ),
+                        )
+                        new_kelly = _dc_replace(result.kelly_result, adjusted_fraction=new_adj)
+                        result = _dc_replace(result, kelly_result=new_kelly)
                     try:
                         from src.diagnostics.audit_trail import get_audit_trail
 
