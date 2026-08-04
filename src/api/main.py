@@ -819,7 +819,7 @@ async def regime(timeframe: str) -> dict[str, Any]:
 _crypto_box_adapter: object | None = None
 
 
-def _get_crypto_box_adapter() -> object:
+def _get_crypto_box_adapter() -> Any:
     """Return a cached CryptoBoxSignalAdapter singleton (avoids re-init on every request)."""
     global _crypto_box_adapter
     if _crypto_box_adapter is None:

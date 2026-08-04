@@ -91,7 +91,7 @@ class E18Network:
 
             dominant = max(
                 (n for n in nx.nodes(g)),
-                key=lambda n: g.out_degree(n, weight="weight"),
+                key=lambda n: g.out_degree(n, weight="weight"),  # type: ignore[attr-defined]
                 default="unknown",
             )
 

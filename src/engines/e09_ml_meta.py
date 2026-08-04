@@ -23,7 +23,8 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _ENGINE_ID = "E-09"
 _SLA_SECONDS = 10
 _MODEL_PATH = Path("models/e09_xgb_meta.pkl")
-_FEATURE_ENGINE_IDS = [f"E-{i:02d}" for i in range(1, 9)]
+# E-09 excluded from its own feature set to avoid circular dependency
+_FEATURE_ENGINE_IDS = [f"E-{i:02d}" for i in range(1, 19) if i != 9]
 
 
 class E09MlMeta:

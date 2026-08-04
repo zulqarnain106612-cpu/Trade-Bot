@@ -78,7 +78,7 @@ class OrchestratorResult:
 class EngineOrchestrator:
     def __init__(self, data_root: Path | None = None) -> None:
         self._data_root = data_root or Path("data")
-        self._engines = [
+        self._engines: list[Any] = [
             E01Statistical(),
             E02Microstructure(),
             E03InformationTheory(),

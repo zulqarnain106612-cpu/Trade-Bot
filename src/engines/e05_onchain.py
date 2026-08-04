@@ -63,11 +63,10 @@ class E05OnChain:
             from src.intelligence.onchain.defillama_provider import DeFiLlamaProvider
 
             provider = DeFiLlamaProvider()
-            coin = symbol.split("/")[0].lower()
-            metrics = await provider.get_metrics(coin)
-            if metrics and hasattr(metrics, "tvl"):
+            metrics = await provider.fetch_metrics()
+            if metrics and isinstance(metrics, dict) and "tvl" in metrics:
                 # Derive 24h change from two readings if available
-                return float(getattr(metrics, "tvl_change_pct", 0.0))
+                return float(metrics.get("tvl_change_pct", 0.0))
         except Exception:
             pass
         return 0.0

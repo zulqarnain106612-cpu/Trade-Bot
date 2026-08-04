@@ -624,7 +624,7 @@ class RegimeDetector:
         _write_manifest(path)
         if self._depth_v2 is not None:
             try:
-                self._depth_v2.save(Path(model_dir))  # type: ignore[union-attr]
+                self._depth_v2.save(Path(model_dir))  # type: ignore[union-attr,attr-defined]
             except Exception as _exc:
                 self._log.warning("hmm.depth_v2_save_failed", error=str(_exc))
         self._log.info("hmm.saved", path=str(path), train_hash=self._train_hash)

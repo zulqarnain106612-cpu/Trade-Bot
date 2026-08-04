@@ -32,7 +32,7 @@ class CryptoBoxSignalAdapter:
     """Thin wrapper that runs the full Crypto-Box engine cycle on demand."""
 
     def __init__(self) -> None:
-        self._orchestrator: object | None = None
+        self._orchestrator: Any | None = None
         if _ENABLED:
             self._init_orchestrator()
 

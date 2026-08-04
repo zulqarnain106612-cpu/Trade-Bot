@@ -85,7 +85,7 @@ class DeribitProvider:
     async def _get_instruments(self, session: aiohttp.ClientSession, coin: str) -> list[dict]:
         try:
             url = f"{_BASE}/get_instruments"
-            params = {"currency": coin, "kind": "option", "expired": False}
+            params = {"currency": coin, "kind": "option", "expired": "false"}
             async with session.get(
                 url, params=params, timeout=aiohttp.ClientTimeout(total=15)
             ) as resp:

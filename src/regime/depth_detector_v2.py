@@ -264,7 +264,7 @@ def build_v2_features_from_engine_outputs(
     def _conf(eid: str) -> float:
         out = engine_outputs.get(eid)
         if hasattr(out, "confidence"):
-            return float(out.confidence)
+            return float(out.confidence)  # type: ignore[union-attr]
         return 0.0
 
     adx_14 = 0.0

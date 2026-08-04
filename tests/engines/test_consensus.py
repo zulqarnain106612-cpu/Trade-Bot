@@ -176,7 +176,8 @@ def test_circuit_breaker_no_trigger_without_flag():
 
 def test_circuit_breaker_triggers_direction_zero():
     layer = ConsensusLayer()
-    outputs = [_make_output(f"E-{i + 1:02d}") for i in range(16)]
+    # E-01 through E-15 only — E-16 is added separately below with manipulation flag
+    outputs = [_make_output(f"E-{i + 1:02d}") for i in range(15)]
     # Build E-16 with manipulation flag
     e16 = EngineOutput(
         engine_id="E-16",

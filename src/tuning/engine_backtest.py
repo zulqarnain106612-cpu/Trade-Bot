@@ -204,7 +204,7 @@ async def run_all_engine_backtests(
     from src.engines.e17_liquidity import E17Liquidity
     from src.engines.e18_network import E18Network
 
-    engines = [
+    engines: list[Any] = [
         E01Statistical(),
         E02Microstructure(),
         E03InformationTheory(),
@@ -259,7 +259,7 @@ async def retrain_e09_walkforward(df: pd.DataFrame, symbol: str = "BTC/USDT") ->
     from src.engines.e08_topology import E08Topology
     from src.engines.e09_ml_meta import E09MlMeta
 
-    feature_engines = [
+    feature_engines: list[Any] = [
         E01Statistical(),
         E02Microstructure(),
         E03InformationTheory(),

@@ -793,6 +793,7 @@ class Orchestrator:
                             cb_signal.direction == 0 or cb_signal.direction == result.direction
                         )
                         scale = cb_signal.kelly_multiplier if direction_match else 0.5
+                        assert result.kelly_result is not None
                         new_adj = max(
                             0.0,
                             min(

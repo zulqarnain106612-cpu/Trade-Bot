@@ -119,7 +119,7 @@ class E15RL:
             return max(q, key=lambda k: q[k]) if q else 0
         try:
             # stable-baselines3 predict interface
-            action, _ = self._model.predict(state, deterministic=True)  # type: ignore[union-attr]
+            action, _ = self._model.predict(state, deterministic=True)  # type: ignore[union-attr,attr-defined]
             return int(action) % 3
         except Exception:
             return 0
