@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -75,7 +76,8 @@ class OrchestratorResult:
 
 
 class EngineOrchestrator:
-    def __init__(self) -> None:
+    def __init__(self, data_root: Path | None = None) -> None:
+        self._data_root = data_root or Path("data")
         self._engines = [
             E01Statistical(),
             E02Microstructure(),
@@ -195,13 +197,9 @@ class EngineOrchestrator:
             failed_engines=failed,
         )
 
-    @staticmethod
-    def _log_engine_outputs(symbol: str, engine_map: dict[str, EngineOutput]) -> None:
+    def _log_engine_outputs(self, symbol: str, engine_map: dict[str, EngineOutput]) -> None:
         """Persist engine outputs to parquet audit log (Gap G-13 fix)."""
         try:
-            from datetime import UTC, datetime
-            from pathlib import Path
-
             import pandas as pd
 
             rows = [
@@ -218,7 +216,7 @@ class EngineOrchestrator:
             if not rows:
                 return
             date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-            path = Path("data") / "engine_outputs" / f"{date_str}.parquet"
+            path = self._data_root / "engine_outputs" / f"{date_str}.parquet"
             path.parent.mkdir(parents=True, exist_ok=True)
             df = pd.DataFrame(rows)
             if path.exists():

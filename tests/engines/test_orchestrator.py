@@ -95,3 +95,57 @@ async def test_orchestrator_all_engines_fail():
     result = await orch.run("BTC/USDT", data)
     assert result.trade_signal.direction == 0
     assert result.trade_signal.kelly_multiplier == 0.0
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_e16_circuit_breaker_suppresses():
+    """E-16 manipulation_flag=True triggers circuit breaker: direction=0."""
+    from datetime import UTC, datetime
+
+    orch = EngineOrchestrator()
+
+    # Patch E-16 (index 15) to return manipulation_flag=True
+    async def manipulated(*a, **kw) -> EngineOutput:
+        return EngineOutput(
+            engine_id="E-16",
+            symbol="BTC/USDT",
+            timestamp_utc=datetime.now(UTC),
+            predicted_price=50000.0,
+            confidence=0.8,
+            direction=0,
+            horizon_hours=4,
+            metadata={"manipulation_flag": True},
+        )
+
+    orch._engines[15].run = manipulated
+
+    data = {
+        "ohlcv": make_ohlcv(),
+        "spot": 50_000.0,
+        "regime": "Trending",
+        "orderbook_events": [],
+        "trade_sizes": [],
+    }
+    result = await orch.run("BTC/USDT", data)
+    # Circuit breaker should suppress direction
+    assert result.trade_signal.direction == 0
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_audit_log_written(tmp_path):
+    """engine_outputs parquet audit log is written to data_root."""
+    orch = EngineOrchestrator(data_root=tmp_path)
+    data = {
+        "ohlcv": make_ohlcv(200),
+        "spot": 50_000.0,
+        "regime": "Ranging",
+    }
+    result = await orch.run("BTC/USDT", data)
+    assert len(result.engine_outputs) > 0
+    audit_files = list((tmp_path / "engine_outputs").glob("*.parquet"))
+    assert len(audit_files) == 1
+    import pandas as pd
+
+    df = pd.read_parquet(audit_files[0])
+    assert "engine_id" in df.columns
+    assert len(df) == len(result.engine_outputs)
