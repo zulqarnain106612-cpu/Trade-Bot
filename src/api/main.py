@@ -123,6 +123,7 @@ def _validate_operator(v: str) -> str:
 class AppState:
     storage: AnyStorageBackend
     orchestrator: Orchestrator | None
+    intel_adapter: Any | None  # IntelligenceAdapter (crypto-intel-v6); None when disabled
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
     _MODE_CHANGE_LIMIT: int = 3
@@ -132,6 +133,7 @@ class AppState:
 
     def __init__(self) -> None:
         self.ready = False
+        self.intel_adapter = None
         self.orchestrator: Orchestrator | None = None  # set in lifespan after startup()
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
@@ -288,6 +290,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             raise
         _state.ready = True  # NEW-001: mark ready only after full startup
 
+        # crypto-intel-v6: start IntelligenceAdapter when INTEL_ENABLED=true
+        if os.environ.get("INTEL_ENABLED", "false").lower() == "true":
+            try:
+                from src.intel import CryptoIntelligence
+                from src.intelligence.intelligence_adapter import IntelligenceAdapter
+
+                _intel = CryptoIntelligence()
+                _intel.start()
+                _state.intel_adapter = IntelligenceAdapter(_intel, _state.storage)
+                log.info("api.crypto_intel_v6_started")
+            except Exception as _exc:
+                log.warning("api.crypto_intel_v6_start_failed", exc=str(_exc))
+
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
@@ -310,6 +325,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
+        if _state.intel_adapter is not None:
+            try:
+                intel_obj = getattr(_state.intel_adapter, "_intel", None)
+                if intel_obj is not None:
+                    intel_obj.close()
+            except Exception as _exc:
+                log.warning("api.crypto_intel_close_failed", exc=str(_exc))
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
