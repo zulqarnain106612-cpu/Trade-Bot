@@ -1,4 +1,22 @@
 fastapi>=0.111,<1.0
+# ── crypto-intel-v6 additions ──────────────────────────────────────────────
+torch-geometric>=2.5,<3.0          # GAT asset graph (causal/asset_gnn.py)
+transformers>=4.40,<5.0            # CryptoBERT 110M NLP head
+river>=0.21,<1.0                   # ADWIN online drift detection
+mlflow>=2.13,<3.0                  # model registry + experiment tracking
+dvc>=3.50,<4.0                     # dataset + model versioning
+stable-baselines3>=2.3,<3.0        # PPO/SAC RL execution agent
+dowhy>=0.11,<1.0                   # DoWhy structural causal model
+ray[tune]>=2.20,<3.0               # distributed hyperparameter search
+prefect>=3.0,<4.0                  # workflow orchestration
+duckdb>=0.10,<2.0                  # OLAP / backtests store
+hopsworks>=3.7,<4.0                # feature store OSS
+py_ecc>=6.0,<7.0                   # bn128 pairing for zkSNARK
+web3>=6.0,<8.0                     # Ethereum interaction (Tornado Cash BFS)
+fastecdsa>=2.3,<3.0                # ECDSA r/s analysis
+bitcoin>=1.1,<2.0                  # bitcoin-lib-py Taproot/Schnorr parsing
+graphsense-lib>=23.9,<25.0         # address clustering (secp256k1)
+# ───────────────────────────────────────────────────────────────────────────
 uvicorn[standard]>=0.29,<1.0
 websockets>=12.0,<14.0
 ccxt>=4.3,<5.0
