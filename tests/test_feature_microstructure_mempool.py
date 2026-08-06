@@ -157,7 +157,7 @@ class TestFetchMempoolFeatures:
     def test_fetch_returns_mempool_features_on_bad_rpc(self) -> None:
         from src.features.mempool import MempoolFeatures, fetch_mempool_features
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             fetch_mempool_features(rpc_url="http://127.0.0.1:9999", rpc_user="x", rpc_pass="x")
         )
         assert isinstance(result, MempoolFeatures)
@@ -165,6 +165,6 @@ class TestFetchMempoolFeatures:
     def test_fetch_returns_mempool_features_default_args(self) -> None:
         from src.features.mempool import MempoolFeatures, fetch_mempool_features
 
-        result = asyncio.get_event_loop().run_until_complete(fetch_mempool_features())
+        result = asyncio.run(fetch_mempool_features())
         assert isinstance(result, MempoolFeatures)
         assert result.tx_count >= 0

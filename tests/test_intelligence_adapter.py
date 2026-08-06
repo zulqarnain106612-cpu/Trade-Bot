@@ -19,7 +19,7 @@ class TestIntelligenceAdapter:
         return IntelligenceAdapter(intel, storage), intel, storage
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_on_bar_none_signal_skips_storage(self) -> None:
         adapter, _intel, storage = self._make_adapter(signal=None)

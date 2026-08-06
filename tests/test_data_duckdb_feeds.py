@@ -132,7 +132,7 @@ class TestDuckDBStore:
 
 class TestRedpandaFeeds:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_init_no_crash(self) -> None:
         from src.data.feeds import RedpandaFeeds

@@ -74,7 +74,7 @@ class TestSmartOrderRouterInit:
 
 class TestSmartOrderRouterRoute:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_route_no_exchanges_returns_error_result(self) -> None:
         from src.execution.router import SmartOrderRouter

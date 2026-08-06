@@ -78,7 +78,7 @@ class TestCryptoIntelligenceLifecycle:
 
 class TestOnBarAsync:
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_on_bar_returns_signal_or_none(self, tmp_path) -> None:
         from src.intel import CryptoIntelligence
