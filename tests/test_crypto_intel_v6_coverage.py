@@ -511,10 +511,17 @@ class TestDoWhySCMExtended:
 
         scm = DoWhySCM()
         data = pd.DataFrame(
-            {"whale_selling": np.random.randn(30), "btc_return": np.random.randn(30)}
+            {
+                "liquidations": np.random.randn(30),
+                "whale_flow": np.random.randn(30),
+                "funding_rate": np.random.randn(30),
+                "sentiment": np.random.randn(30),
+                "price": np.random.randn(30),
+            }
         )
-        score = scm.causal_signal(data)
-        assert isinstance(score, float)
+        signal = scm.causal_signal(data)
+        assert isinstance(signal, dict)
+        assert all(isinstance(v, float) for v in signal.values())
 
 
 # ─── DuckDBStore extended ─────────────────────────────────────────────────────
@@ -671,9 +678,10 @@ class TestTFTExtended:
         from src.models.tft import VariableSelectionNetwork
 
         vsn = VariableSelectionNetwork(n_vars=5, hidden_dim=32)
-        x = torch.randn(2, 5)
+        # forward takes [B, T, n_vars, hidden_dim]
+        x = torch.randn(2, 4, 5, 32)
         out = vsn(x)
-        assert out.shape == (2, 32)
+        assert out.shape == (2, 4, 32)
 
     def test_tft_head_forward(self) -> None:
         from src.models.tft import TFTHead
@@ -773,15 +781,18 @@ class TestRLExecutionAgentExtended:
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
         for regime in [0, 1, 2]:
             state = RLExecutionState(n_horizons=2)
-            obs = state.build(
-                horizon_confidences=[0.7, 0.7],
-                regime_id=regime,
-                ecc_features={},
-                realized_pnl=0.0,
-                drawdown=0.0,
-                kyle_lambda=0.0,
+            assert (
+                state.build(
+                    horizon_confidences=[0.7, 0.7],
+                    regime_id=regime,
+                    ecc_features={},
+                    realized_pnl=0.0,
+                    drawdown=0.0,
+                    kyle_lambda=0.0,
+                ).ndim
+                == 1
             )
-            action, _meta = agent.predict(obs)
+            action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime)
             assert action in (0, 1, 2, 3)
 
     def test_obs_length_correct(self) -> None:

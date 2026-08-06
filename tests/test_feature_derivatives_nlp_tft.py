@@ -134,7 +134,8 @@ class TestTFTHead:
         from src.models.tft import VariableSelectionNetwork
 
         vsn = VariableSelectionNetwork(n_vars=8, hidden_dim=32)
-        x = torch.randn(2, 16, 8)
+        # forward takes [B, T, n_vars, hidden_dim]
+        x = torch.randn(2, 16, 8, 32)
         out = vsn(x)
         assert out.shape == (2, 16, 32)
 
