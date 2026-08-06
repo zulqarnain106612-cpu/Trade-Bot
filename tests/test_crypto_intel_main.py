@@ -14,7 +14,7 @@ class TestIntelSignal:
             direction=1,
             size_pct=0.02,
             confidence=0.75,
-            horizon_idx=2,
+            horizon_id=2,
             algo="IOC",
             ecc_anomaly=0.3,
             conflict=False,

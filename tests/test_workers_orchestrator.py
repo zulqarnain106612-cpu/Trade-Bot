@@ -39,7 +39,7 @@ class TestWorkerOrchestrator:
         from src.workers.orchestrator import WorkerOrchestrator, WorkerTask
 
         orch = WorkerOrchestrator(n_workers=2, ecc_interval=3600.0)
-        task = WorkerTask(horizon_idx=0, symbol="BTC/USDT", features={}, task_id="t1")
+        task = WorkerTask(horizon_id=0, symbol="BTC/USDT", features={}, task_id="t1")
         orch.submit(task)
         assert orch._started
         orch.shutdown()
@@ -100,8 +100,8 @@ class TestWorkerTask:
     def test_worker_task_dataclass(self) -> None:
         from src.workers.orchestrator import WorkerTask
 
-        task = WorkerTask(horizon_idx=3, symbol="ETH/USDT", features={"a": 1.0}, task_id="x")
-        assert task.horizon_idx == 3
+        task = WorkerTask(horizon_id=3, symbol="ETH/USDT", features={"a": 1.0}, task_id="x")
+        assert task.horizon_id == 3
         assert task.symbol == "ETH/USDT"
         assert task.task_id == "x"
 
@@ -110,7 +110,7 @@ class TestWorkerTask:
 
         res = WorkerResult(
             task_id="t1",
-            horizon_idx=0,
+            horizon_id=0,
             direction=1,
             confidence=0.8,
             magnitude_mu=0.02,

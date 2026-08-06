@@ -17,7 +17,7 @@ class TestRiskGateSizing:
             signal={"confidence": 0.4, "sharpe_est": 2.0, "edge": 0.01, "odds": 1.0},
             vol=0.02,
             cvar=0.02,
-            horizon_idx=0,
+            horizon_id=0,
         )
         assert result.suppressed
         assert result.size_pct == 0.0
@@ -28,7 +28,7 @@ class TestRiskGateSizing:
             signal={"confidence": 0.8, "sharpe_est": 0.5, "edge": 0.01, "odds": 1.0},
             vol=0.02,
             cvar=0.02,
-            horizon_idx=0,
+            horizon_id=0,
         )
         assert result.suppressed
         assert result.size_pct == 0.0
@@ -39,7 +39,7 @@ class TestRiskGateSizing:
             signal={"confidence": 0.8, "sharpe_est": 2.0, "edge": 0.05, "odds": 2.0},
             vol=0.02,
             cvar=0.01,
-            horizon_idx=0,
+            horizon_id=0,
         )
         assert not result.suppressed
         assert 0.0 < result.size_pct <= 0.05
@@ -51,7 +51,7 @@ class TestRiskGateSizing:
             signal={"confidence": 0.9, "sharpe_est": 5.0, "edge": 1.0, "odds": 10.0},
             vol=0.001,
             cvar=0.001,
-            horizon_idx=0,
+            horizon_id=0,
         )
         assert result.size_pct <= 0.05
 
@@ -59,8 +59,8 @@ class TestRiskGateSizing:
         gate = self._gate()
         signal = {"confidence": 0.8, "sharpe_est": 2.0, "edge": 0.05, "odds": 2.0}
         vol, cvar = 0.02, 0.01
-        r0 = gate.size(signal=signal, vol=vol, cvar=cvar, horizon_idx=0)
-        r5 = gate.size(signal=signal, vol=vol, cvar=cvar, horizon_idx=5)
+        r0 = gate.size(signal=signal, vol=vol, cvar=cvar, horizon_id=0)
+        r5 = gate.size(signal=signal, vol=vol, cvar=cvar, horizon_id=5)
         assert r0.size_pct >= r5.size_pct
 
     def test_from_config(self) -> None:

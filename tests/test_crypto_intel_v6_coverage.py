@@ -226,7 +226,7 @@ class TestMAMLOptimizerExtended:
         model = _MLP2()
         x = torch.randn(4, 4)
         y = torch.randint(0, 2, (4,))
-        result = adapter.adapt_on_drift(horizon_idx=0, model=model, recent_x=x, recent_y=y)
+        result = adapter.adapt_on_drift(horizon_id=0, model=model, recent_x=x, recent_y=y)
         assert result is model  # not adapted
 
     def test_horizon_maml_target_adapts(self, tmp_path) -> None:
@@ -236,7 +236,7 @@ class TestMAMLOptimizerExtended:
         model = _MLP2()
         x = torch.randn(4, 4)
         y = torch.randint(0, 2, (4,))
-        result = adapter.adapt_on_drift(horizon_idx=7, model=model, recent_x=x, recent_y=y)
+        result = adapter.adapt_on_drift(horizon_id=7, model=model, recent_x=x, recent_y=y)
         assert result is not None
         ckpt = tmp_path / "h8_adapted.pt"
         assert ckpt.exists()
@@ -465,14 +465,21 @@ class TestGrangerExtended:
 
         det = GrangerCausalityDetector()
         fv = det.to_feature_vector()
-        assert isinstance(fv, (list, np.ndarray))
+        assert isinstance(fv, list | np.ndarray)
 
     def test_granger_result_dataclass(self) -> None:
         from src.causal.granger import GrangerResult
 
-        r = GrangerResult(symbol="ETH", f_stat=3.5, p_value=0.02, is_causal=True, lag=2)
+        r = GrangerResult(
+            treatment="BTC",
+            outcome="ETH",
+            is_causal=True,
+            min_pvalue=0.02,
+            best_lag=2,
+            f_stat=3.5,
+        )
         assert r.is_causal
-        assert r.symbol == "ETH"
+        assert r.outcome == "ETH"
 
 
 # ─── DoWhySCM extended ────────────────────────────────────────────────────────
@@ -571,13 +578,20 @@ class TestMicrostructureExtended:
         assert est.lambda_ >= 0.0
 
     def test_build_microstructure_returns_all_fields(self) -> None:
-        from src.features.microstructure import build_microstructure_features
+        from src.features.microstructure import (
+            KyleLambdaEstimator,
+            VPINTracker,
+            build_microstructure_features,
+        )
 
         ft = build_microstructure_features(
-            price=50000.0,
-            volume=100.0,
             bids=[[49990.0, 2.0], [49980.0, 1.0]],
             asks=[[50010.0, 1.5], [50020.0, 0.5]],
+            vpin_tracker=VPINTracker(),
+            kyle_estimator=KyleLambdaEstimator(),
+            last_price=50000.0,
+            last_trade_volume=100.0,
+            last_trade_side="buy",
         )
         assert hasattr(ft, "ofi")
         assert hasattr(ft, "vpin")
@@ -756,16 +770,15 @@ class TestRLExecutionAgentExtended:
         from src.execution.rl_agent import RLExecutionAgent, RLExecutionState
 
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
-        for direction in [-1, 0, 1]:
+        for regime in [0, 1, 2]:
             state = RLExecutionState(n_horizons=2)
             obs = state.build(
-                signal={
-                    "direction": direction,
-                    "confidence": 0.7,
-                    "size_pct": 0.02,
-                    "horizon_idx": 1,
-                },
-                portfolio={"equity": 10000.0, "open_positions": 2},
+                horizon_confidences=[0.7, 0.7],
+                regime_id=regime,
+                ecc_features={},
+                realized_pnl=0.0,
+                drawdown=0.0,
+                kyle_lambda=0.0,
             )
             action, _meta = agent.predict(obs)
             assert action in (0, 1, 2, 3)
@@ -776,8 +789,12 @@ class TestRLExecutionAgentExtended:
         for n in [1, 5, 10]:
             state = RLExecutionState(n_horizons=n)
             obs = state.build(
-                signal={"direction": 1, "confidence": 0.8, "size_pct": 0.01, "horizon_idx": 0},
-                portfolio={"equity": 5000.0, "open_positions": 0},
+                horizon_confidences=[0.8] * n,
+                regime_id=0,
+                ecc_features={},
+                realized_pnl=0.0,
+                drawdown=0.0,
+                kyle_lambda=0.0,
             )
             assert obs.ndim == 1
             assert len(obs) > 0

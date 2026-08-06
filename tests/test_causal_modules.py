@@ -54,8 +54,15 @@ class TestGrangerCausalityDetector:
     def test_granger_result_fields(self) -> None:
         from src.causal.granger import GrangerResult
 
-        gr = GrangerResult(symbol="ETH", f_stat=3.5, p_value=0.02, is_causal=True, lag=1)
-        assert gr.symbol == "ETH"
+        gr = GrangerResult(
+            treatment="BTC",
+            outcome="ETH",
+            is_causal=True,
+            min_pvalue=0.02,
+            best_lag=1,
+            f_stat=3.5,
+        )
+        assert gr.outcome == "ETH"
         assert gr.is_causal is True
 
 

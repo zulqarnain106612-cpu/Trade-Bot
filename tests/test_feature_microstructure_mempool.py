@@ -113,11 +113,23 @@ class TestKyleLambdaEstimator:
 
 class TestBuildMicrostructureFeatures:
     def test_returns_namedtuple(self) -> None:
-        from src.features.microstructure import build_microstructure_features
+        from src.features.microstructure import (
+            KyleLambdaEstimator,
+            VPINTracker,
+            build_microstructure_features,
+        )
 
         bids = [[49990.0, 1.0]]
         asks = [[50010.0, 1.0]]
-        ft = build_microstructure_features(price=50000.0, volume=10.0, bids=bids, asks=asks)
+        ft = build_microstructure_features(
+            bids=bids,
+            asks=asks,
+            vpin_tracker=VPINTracker(),
+            kyle_estimator=KyleLambdaEstimator(),
+            last_price=50000.0,
+            last_trade_volume=10.0,
+            last_trade_side="buy",
+        )
         assert hasattr(ft, "ofi")
         assert hasattr(ft, "vpin")
         assert hasattr(ft, "kyle_lambda")

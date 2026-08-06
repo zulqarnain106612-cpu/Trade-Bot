@@ -15,28 +15,28 @@ class TestSelectAlgo:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_idx=0, kyle_lambda=0.001, size_usd=10.0)
+        algo = router._select_algo(horizon_id=0, kyle_lambda=0.001, size_usd=10.0)
         assert algo == "IOC"
 
     def test_medium_horizon_returns_iceberg(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_idx=2, kyle_lambda=0.001, size_usd=15.0)
+        algo = router._select_algo(horizon_id=2, kyle_lambda=0.001, size_usd=15.0)
         assert algo == "iceberg"
 
     def test_large_impact_returns_twap(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_idx=0, kyle_lambda=1.0, size_usd=100.0)
+        algo = router._select_algo(horizon_id=0, kyle_lambda=1.0, size_usd=100.0)
         assert algo == "TWAP"
 
     def test_long_horizon_returns_twap(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_idx=7, kyle_lambda=0.001, size_usd=5.0)
+        algo = router._select_algo(horizon_id=7, kyle_lambda=0.001, size_usd=5.0)
         assert algo == "TWAP"
 
 
@@ -108,8 +108,12 @@ class TestRLExecutionAgent:
         agent = RLExecutionAgent(model_path=tmp_path / "no_model.zip")
         state = RLExecutionState(n_horizons=3)
         obs = state.build(
-            signal={"direction": 1, "confidence": 0.8, "size_pct": 0.02, "horizon_idx": 0},
-            portfolio={"equity": 10000.0, "open_positions": 1},
+            horizon_confidences=[0.8, 0.5, 0.3],
+            regime_id=0,
+            ecc_features={},
+            realized_pnl=0.0,
+            drawdown=0.0,
+            kyle_lambda=0.0,
         )
         action, meta = agent.predict(obs)
         assert action in (0, 1, 2, 3)
@@ -120,8 +124,12 @@ class TestRLExecutionAgent:
 
         state = RLExecutionState(n_horizons=5)
         obs = state.build(
-            signal={"direction": -1, "confidence": 0.7, "size_pct": 0.01, "horizon_idx": 2},
-            portfolio={"equity": 5000.0, "open_positions": 0},
+            horizon_confidences=[0.7, 0.6, 0.5, 0.4, 0.3],
+            regime_id=2,
+            ecc_features={},
+            realized_pnl=0.0,
+            drawdown=0.0,
+            kyle_lambda=0.0,
         )
         assert isinstance(obs, np.ndarray)
         assert obs.ndim == 1
