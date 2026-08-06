@@ -1247,3 +1247,58 @@ nonzero elsewhere, which is a real modelling choice and left alone.
 
 **Validation**: pushed to CI — not run locally per repo policy. E-18's
 directional accuracy is *not* yet validated; its weight is a prior.
+
+## 2026-08-07 — E-10 was a constant bullish vote, not a sparsely-weighted engine
+
+Follow-up to the E-18 entry above. E-10 (stock-to-flow) was flagged for
+carrying weight in only 3 of 9 regimes, on the suspicion it was another
+partially-filled row. It was not. The zeros were fine; the **nonzeros** were
+the problem.
+
+**Units error.** `s2f_model_price` returned `exp(14.6) * SF^3.3`, which is
+PlanB's fit against *market capitalisation*, not unit price. At SF≈121 that
+is ~1.6e13 — a plausible cap and a nonsensical price. It was compared
+directly against spot, so `spot < fair * 0.8` was true for every coin at
+every price and `direction` was `+1` on every tick. `deviation_pct` pinned at
+−100% and `confidence` at exactly 0.5. Renamed to `s2f_model_cap`; the new
+`s2f_model_price` divides by circulating supply.
+
+**Uncalibrated across coins.** Dividing by supply is necessary but not
+sufficient: PlanB's coefficients are fitted on Bitcoin alone. Applied to
+other chains they gave ETH a $3.8M fair value and LTC $18,070 — category
+errors, not drift, since ETH is PoS with no halving. Even for BTC the model
+sat at $842k against a ~$120k spot, so direction stayed pinned bullish after
+the units fix. The absolute S2F level is simply not tradeable.
+
+**Resolution.** The signal is now the deviation's z-score against that coin's
+own trailing window (240 samples, per-coin, 30-sample warm-up during which
+the engine abstains). A rich deviation relative to its own norm is a short,
+a cheap one a long. This needs no cross-coin calibration and is how S2F
+deviation is normally used. `_zscore` guards near-zero variance with a
+*relative* epsilon — a constant series computes variance ~1e-27 rather than
+exactly 0, and an `== 0` guard would let a no-information series produce an
+arbitrarily large score.
+
+**Third dead data key.** `data["block_height"]` had no producer either — the
+same failure as E-18's `exchange_flows`, and E-04's halving overlay was
+reading it too, so both engines ran on height 0. `BlockHeightProvider`
+(blockchain.info, keyless, 10-minute poll) now fills it, with plausibility
+bounds so a parsed error page cannot silently shift the emission epoch.
+
+**Weights unchanged.** E-10 keeps 0.04 / 0.076 / 0.039 in Trending /
+Accumulation / Transition and zero elsewhere, now documented inline in
+`consensus.py`. Emission is a 24-hour structural anchor: it says something
+about position within a cycle and nothing about a short-horizon dislocation,
+and it does not change during a LiquidityCrisis or Capitulation. A
+constant-by-construction input must not vote there. The invariant added with
+E-18 requires every executed engine to be nonzero in *at least one* regime,
+not all of them, so this stays legal.
+
+The prior `test_e10_btc_s2f_reasonable` asserted only `price > 0`, which held
+throughout while the function returned a market cap — the same shape of weak
+assertion that let E-18's all-zero row through a row-sum check. It now bounds
+the value to a per-coin range.
+
+**Validation**: pushed to CI — not run locally per repo policy. E-10's
+directional accuracy is not backtested; the z-score threshold (1.0) and
+saturation (2.5) are priors.

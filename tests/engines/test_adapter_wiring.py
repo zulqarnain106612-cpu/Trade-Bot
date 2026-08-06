@@ -60,5 +60,13 @@ def test_provider_cache_snapshot_snapshot_keys():
 
     c = _ProviderCache()
     snap = c.snapshot("BTC/USDT")
-    expected = {"sentiment", "macro", "options", "orderbook", "onchain", "exchange_flows"}
+    expected = {
+        "sentiment",
+        "macro",
+        "options",
+        "orderbook",
+        "onchain",
+        "exchange_flows",
+        "block_height",
+    }
     assert set(snap.keys()) == expected

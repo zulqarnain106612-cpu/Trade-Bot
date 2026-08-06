@@ -29,6 +29,16 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # Regime weight table: 18 engines x 9 regimes
 # Each row must sum to 1.0 +-0.001 (Gap G-11 -- enforced by unit test)
 # E-00 column does not exist; indices 0-17 map to E-01 through E-18
+#
+# E-10 (stock-to-flow) is intentionally zero in six regimes. It is a 24-hour
+# structural valuation anchor: supply emission says something about where
+# price sits against its own cycle in Trending, Accumulation and Transition,
+# and nothing at all about a short-horizon dislocation. Emission does not
+# change during a LiquidityCrisis or a Capitulation, so a constant-by-
+# construction input must not be allowed to vote there. This is a modelling
+# choice, not an unfilled row -- see DECISION_LOG.md 2026-08-07.
+# Checked by test_no_executed_engine_is_dead_weight, which requires every
+# executed engine to be nonzero in at least one regime, not in all of them.
 # ---------------------------------------------------------------------------
 REGIME_WEIGHTS: dict[str, list[float]] = {
     "Trending": [

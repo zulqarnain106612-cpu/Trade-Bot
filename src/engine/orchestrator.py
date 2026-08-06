@@ -493,6 +493,7 @@ class Orchestrator:
         """Spawn background polling loops for all Crypto-Box data providers."""
         tasks: list[asyncio.Task[None]] = []
         try:
+            from src.data.block_height_provider import BlockHeightProvider
             from src.data.deribit_provider import DeribitProvider
             from src.data.exchange_flow_provider import ExchangeFlowProvider
             from src.data.macro_provider import MacroProvider
@@ -502,10 +503,12 @@ class Orchestrator:
             mp = MacroProvider()
             dp = DeribitProvider()
             xp = ExchangeFlowProvider()
+            bp = BlockHeightProvider()
             tasks.append(asyncio.create_task(sp.run_fg_loop(), name="cb_sentiment_fg"))
             tasks.append(asyncio.create_task(sp.run_rss_loop(), name="cb_sentiment_rss"))
             tasks.append(asyncio.create_task(mp.run_loop(), name="cb_macro"))
             tasks.append(asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"))
+            tasks.append(asyncio.create_task(bp.run_loop(), name="cb_block_height"))
             tasks.extend(
                 asyncio.create_task(dp.run_loop(f"{coin}/USDT"), name=f"cb_deribit_{coin}")
                 for coin in ("BTC", "ETH")

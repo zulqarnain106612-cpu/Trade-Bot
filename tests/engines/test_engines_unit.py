@@ -339,12 +339,91 @@ async def test_e09_abstains_without_model():
 
 
 def test_e10_btc_s2f_reasonable():
-    from src.engines.e10_supply import btc_s2f, s2f_model_price
+    from src.engines.e10_supply import btc_s2f, btc_supply_at_block, s2f_model_price
 
     sf = btc_s2f(840_000)  # 4th halving
-    price = s2f_model_price(sf)
+    price = s2f_model_price(sf, btc_supply_at_block(840_000))
     assert sf > 0
-    assert price > 0
+    # The old assertion was just `price > 0`, which passed while the function
+    # returned market cap (~1e13) rather than a price. Bound it to something
+    # that is actually a per-coin value.
+    assert 1_000 < price < 10_000_000
+
+
+def test_e10_model_cap_and_price_differ_by_supply():
+    from src.engines.e10_supply import btc_supply_at_block, s2f_model_cap, s2f_model_price
+
+    supply = btc_supply_at_block(840_000)
+    assert s2f_model_cap(50.0) / supply == pytest.approx(s2f_model_price(50.0, supply))
+
+
+@pytest.mark.asyncio
+async def test_e10_abstains_during_warmup():
+    from src.engines.e10_supply import E10Supply
+
+    e = E10Supply()
+    out = await e.run("BTC/USDT", {"spot": 50_000.0, "block_height": 900_000})
+    assert out.confidence == 0.0
+
+
+@pytest.mark.asyncio
+async def test_e10_direction_is_not_pinned_bullish():
+    """Regression: comparing spot to the raw S2F level gave +1 on every tick.
+
+    PlanB's coefficients are fitted on BTC market cap, so the absolute fair
+    value sits far above spot for every coin at every realistic price. The
+    signal has to come from the deviation relative to its own history.
+    """
+    from src.engines.e10_supply import E10Supply
+
+    data = {"block_height": 900_000}
+
+    async def _warmed():
+        e = E10Supply()
+        # Warm up with genuine variance — a flat series has zero standard
+        # deviation and every z-score would collapse to 0.
+        for i in range(40):
+            await e.run("BTC/USDT", {**data, "spot": 50_000.0 + (i % 5) * 200.0})
+        return e
+
+    rich = await (await _warmed()).run("BTC/USDT", {**data, "spot": 90_000.0})
+    cheap = await (await _warmed()).run("BTC/USDT", {**data, "spot": 20_000.0})
+
+    # Spot far above its own norm is rich → short; far below → long.
+    assert rich.direction == -1
+    assert cheap.direction == 1
+
+
+@pytest.mark.asyncio
+async def test_e10_flat_history_is_neutral():
+    from src.engines.e10_supply import E10Supply
+
+    e = E10Supply()
+    for _ in range(40):
+        out = await e.run("BTC/USDT", {"spot": 50_000.0, "block_height": 900_000})
+    assert out.direction == 0
+
+
+@pytest.mark.asyncio
+async def test_e10_history_is_per_coin():
+    from src.engines.e10_supply import E10Supply
+
+    e = E10Supply()
+    for _ in range(40):
+        await e.run("BTC/USDT", {"spot": 50_000.0, "block_height": 900_000})
+    # ETH has its own window and must still be warming up.
+    out = await e.run("ETH/USDT", {"spot": 3_000.0})
+    assert out.confidence == 0.0
+
+
+def test_e10_zscore_degenerate_cases():
+    from collections import deque
+
+    from src.engines.e10_supply import _zscore
+
+    assert _zscore(1.0, deque()) == 0.0
+    assert _zscore(1.0, deque([5.0])) == 0.0
+    assert _zscore(1.0, deque([5.0, 5.0, 5.0])) == 0.0  # zero variance
 
 
 def test_e10_btc_supply_capped():

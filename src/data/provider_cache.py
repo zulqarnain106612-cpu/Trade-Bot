@@ -46,6 +46,9 @@ class _ProviderCache:
     def set_exchange_flows(self, flows: list[dict[str, Any]]) -> None:
         self._data["exchange_flows"] = flows
 
+    def set_block_height(self, height: int) -> None:
+        self._data["block_height"] = int(height)
+
     # ------------------------------------------------------------------
     # Getters — called synchronously from _tick()
     # ------------------------------------------------------------------
@@ -68,6 +71,9 @@ class _ProviderCache:
     def get_exchange_flows(self) -> list[dict[str, Any]]:
         return self._data.get("exchange_flows", [])
 
+    def get_block_height(self) -> int:
+        return int(self._data.get("block_height", 0))
+
     def snapshot(self, symbol: str) -> dict[str, Any]:
         """Return a complete data snapshot suitable for passing to CryptoBoxSignalAdapter."""
         base = symbol.split("/")[0]
@@ -78,6 +84,7 @@ class _ProviderCache:
             "orderbook": self.get_orderbook(symbol),
             "onchain": self.get_onchain(),
             "exchange_flows": self.get_exchange_flows(),
+            "block_height": self.get_block_height(),
         }
 
 
