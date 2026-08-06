@@ -54,6 +54,46 @@ def test_regime_weights_length():
 
 
 # -----------------------------------------------------------------------
+# Every executed engine must be able to influence consensus.
+#
+# E-18 shipped with an all-zero weight row while the orchestrator ran it on
+# every tick, so its output was collected and silently discarded. Row sums
+# still came to 1.0, so no existing test noticed. These two tests tie the
+# weight table to the engine list the orchestrator actually executes.
+# -----------------------------------------------------------------------
+
+
+def _executed_engine_ids() -> list[str]:
+    from src.engines.orchestrator import EngineOrchestrator
+
+    orch = EngineOrchestrator()
+    return [f"E-{i:02d}" for i in range(1, len(orch._engines) + 1)]
+
+
+def test_no_executed_engine_is_dead_weight():
+    """An engine that runs must carry nonzero weight in at least one regime."""
+    dead = [
+        eid
+        for idx, eid in enumerate(_executed_engine_ids())
+        if all(weights[idx] == 0.0 for weights in REGIME_WEIGHTS.values())
+    ]
+    assert not dead, (
+        f"engines {dead} are executed every tick but have zero weight in all "
+        f"{len(REGIME_WEIGHTS)} regimes — they burn compute and cannot affect "
+        f"the consensus price. Either weight them or stop running them."
+    )
+
+
+def test_weight_table_covers_every_executed_engine():
+    """Guards the reverse drift: an engine added without a weight column."""
+    executed = _executed_engine_ids()
+    for regime, weights in REGIME_WEIGHTS.items():
+        assert len(weights) == len(executed), (
+            f"{regime} has {len(weights)} weights but the orchestrator runs {len(executed)} engines"
+        )
+
+
+# -----------------------------------------------------------------------
 # Consensus price
 # -----------------------------------------------------------------------
 
@@ -82,7 +122,7 @@ def test_consensus_price_sparse_engines_use_correct_weights():
     from src.engines.consensus import REGIME_WEIGHTS
 
     # Only E-01 (idx 0) and E-11 (idx 10) survive. E-11 is used rather than a
-    # tail engine because E-16..E-18 carry zero Trending weight, which would make
+    # tail engine because E-16/E-17 carry zero Trending weight, which would make
     # the ratio below undefined and the assertion vacuous.
     outputs_sparse = [_make_output("E-01", price=50_000.0), _make_output("E-11", price=50_000.0)]
     _, w_sparse = compute_consensus_price(outputs_sparse, "Trending")

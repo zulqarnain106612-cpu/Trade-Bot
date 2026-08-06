@@ -494,15 +494,18 @@ class Orchestrator:
         tasks: list[asyncio.Task[None]] = []
         try:
             from src.data.deribit_provider import DeribitProvider
+            from src.data.exchange_flow_provider import ExchangeFlowProvider
             from src.data.macro_provider import MacroProvider
             from src.data.sentiment_provider import SentimentProvider
 
             sp = SentimentProvider()
             mp = MacroProvider()
             dp = DeribitProvider()
+            xp = ExchangeFlowProvider()
             tasks.append(asyncio.create_task(sp.run_fg_loop(), name="cb_sentiment_fg"))
             tasks.append(asyncio.create_task(sp.run_rss_loop(), name="cb_sentiment_rss"))
             tasks.append(asyncio.create_task(mp.run_loop(), name="cb_macro"))
+            tasks.append(asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"))
             tasks.extend(
                 asyncio.create_task(dp.run_loop(f"{coin}/USDT"), name=f"cb_deribit_{coin}")
                 for coin in ("BTC", "ETH")

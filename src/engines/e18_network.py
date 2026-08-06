@@ -21,6 +21,15 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _ENGINE_ID = "E-18"
 _SLA_SECONDS = 5
 
+#: Mirrors src.data.exchange_flow_provider.SOURCE_TAG. Duplicated rather than
+#: imported to keep the engine layer free of data-layer imports.
+_NETFLOW_SOURCE = "defillama_cex_netflow"
+
+#: Net inflow to exchanges above this share of gross flow reads as sell
+#: pressure; the mirror value reads as accumulation. Provisional — see
+#: DECISION_LOG.md, pending out-of-sample validation.
+_IMBALANCE_THRESHOLD = 0.15
+
 
 def exchange_flow_graph(flow_data: list[dict]) -> object:
     """Build directed exchange flow graph."""
@@ -62,6 +71,51 @@ def whale_cluster_score(g: object, target: str) -> float:
         return 0.0
 
 
+# ---------------------------------------------------------------------------
+# Netflow mode (free aggregate data)
+#
+# The functions above assume labelled pairwise transfers, which only paid
+# providers supply. With free per-exchange netflow the graph is bipartite —
+# every edge touches the synthetic MARKET hub — and eigenvector centrality is
+# undefined there: networkx raises rather than returning a degenerate vector,
+# so centrality_signal() would silently return 0.0 and pin direction to -1 on
+# every tick. The functions below are the valid substitute for that topology.
+# ---------------------------------------------------------------------------
+
+
+def is_netflow_mode(flow_data: list[dict]) -> bool:
+    """True when every record came from an aggregate-netflow source."""
+    return bool(flow_data) and all(f.get("source") == _NETFLOW_SOURCE for f in flow_data)
+
+
+def flow_concentration(flow_data: list[dict], target: str) -> float:
+    """Share of total absolute exchange flow attributable to ``target``.
+
+    Bounded [0, 1] and well defined on a star graph, unlike eigenvector
+    centrality. High values mean flow is concentrated on one venue.
+    """
+    total = sum(abs(float(f.get("usd_volume", 0.0))) for f in flow_data)
+    if total <= 0.0:
+        return 0.0
+    hit = sum(
+        abs(float(f.get("usd_volume", 0.0))) for f in flow_data if f.get("exchange") == target
+    )
+    return float(min(1.0, hit / total))
+
+
+def netflow_imbalance(flow_data: list[dict]) -> float:
+    """Signed market-wide netflow as a fraction of gross flow, in [-1, 1].
+
+    Positive means net capital moving *into* exchanges (supply available to
+    sell); negative means net withdrawal to self-custody.
+    """
+    gross = sum(abs(float(f.get("net_usd", 0.0))) for f in flow_data)
+    if gross <= 0.0:
+        return 0.0
+    net = sum(float(f.get("net_usd", 0.0)) for f in flow_data)
+    return float(max(-1.0, min(1.0, net / gross)))
+
+
 class E18Network:
     def __init__(self, horizon_hours: int = 4) -> None:
         self._horizon = horizon_hours
@@ -75,6 +129,11 @@ class E18Network:
 
         if not flow_data:
             return EngineOutput.abstain(_ENGINE_ID, symbol, spot, self._horizon, "no_flow_data")
+
+        # Aggregate-netflow data needs no graph library; dispatch before the
+        # networkx import so this path survives networkx being absent.
+        if is_netflow_mode(flow_data):
+            return self._run_netflow(symbol, spot, flow_data, data)
 
         try:
             import networkx as nx  # type: ignore[import]
@@ -115,4 +174,57 @@ class E18Network:
             )
         except Exception as exc:
             log.warning("e18_error", exc=str(exc))
+            return EngineOutput.abstain(_ENGINE_ID, symbol, spot, self._horizon, str(exc))
+
+    def _run_netflow(
+        self, symbol: str, spot: float, flow_data: list[dict], data: dict
+    ) -> EngineOutput:
+        """Signal from aggregate per-exchange netflow (free data path).
+
+        Net inflow to exchanges is sell pressure (bearish); net withdrawal is
+        accumulation (bullish). Confidence scales with how decisive the
+        imbalance is, damped by how concentrated flow is on a single venue —
+        a market-wide move is more informative than one exchange's rebalance.
+        """
+        try:
+            target = str(data.get("primary_exchange", "Binance"))
+            imbalance = netflow_imbalance(flow_data)
+            concentration = flow_concentration(flow_data, target)
+
+            if imbalance >= _IMBALANCE_THRESHOLD:
+                direction = -1
+            elif imbalance <= -_IMBALANCE_THRESHOLD:
+                direction = 1
+            else:
+                direction = 0
+
+            # Single-venue dominance means the aggregate reads as one desk's
+            # internal transfer, so discount it rather than trusting it.
+            confidence = min(1.0, abs(imbalance)) * (1.0 - min(1.0, concentration))
+
+            dominant = max(
+                flow_data,
+                key=lambda f: abs(float(f.get("usd_volume", 0.0))),
+                default={},
+            ).get("exchange", "unknown")
+
+            return EngineOutput(
+                engine_id=_ENGINE_ID,
+                symbol=symbol,
+                timestamp_utc=datetime.now(UTC),
+                predicted_price=spot * (1 + direction * 0.001),
+                confidence=float(confidence),
+                direction=direction,
+                horizon_hours=self._horizon,
+                metadata={
+                    "mode": "netflow",
+                    "netflow_imbalance": imbalance,
+                    "flow_concentration": concentration,
+                    "target_exchange": target,
+                    "dominant_exchange": dominant,
+                    "venue_count": len(flow_data),
+                },
+            )
+        except Exception as exc:
+            log.warning("e18_netflow_error", exc=str(exc))
             return EngineOutput.abstain(_ENGINE_ID, symbol, spot, self._horizon, str(exc))

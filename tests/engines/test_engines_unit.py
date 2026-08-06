@@ -676,3 +676,127 @@ async def test_e18_abstains_without_flow_data():
     e = E18Network()
     out = await e.run("BTC/USDT", {"spot": 50000.0, "exchange_flows": []})
     assert out.confidence == 0.0
+
+
+def _netflow_records(*pairs):
+    """Build netflow-tagged edges: (exchange, net_usd) with sign = direction."""
+    from src.data.exchange_flow_provider import MARKET_NODE, SOURCE_TAG
+
+    out = []
+    for name, net in pairs:
+        src, dst = (MARKET_NODE, name) if net > 0 else (name, MARKET_NODE)
+        out.append(
+            {
+                "from": src,
+                "to": dst,
+                "usd_volume": abs(net),
+                "net_usd": float(net),
+                "exchange": name,
+                "source": SOURCE_TAG,
+            }
+        )
+    return out
+
+
+@pytest.mark.asyncio
+async def test_e18_netflow_inflow_is_bearish():
+    """Net capital moving into exchanges is sell pressure."""
+    from src.engines.e18_network import E18Network
+
+    flows = _netflow_records(("Binance", 5e8), ("OKX", 4e8), ("Bybit", 3e8))
+    out = await E18Network().run("BTC/USDT", {"spot": 50000.0, "exchange_flows": flows})
+    assert out.direction == -1
+    assert out.metadata["mode"] == "netflow"
+    assert out.predicted_price < 50000.0
+
+
+@pytest.mark.asyncio
+async def test_e18_netflow_outflow_is_bullish():
+    """Net withdrawal to self-custody is accumulation."""
+    from src.engines.e18_network import E18Network
+
+    flows = _netflow_records(("Binance", -5e8), ("OKX", -4e8), ("Bybit", -3e8))
+    out = await E18Network().run("BTC/USDT", {"spot": 50000.0, "exchange_flows": flows})
+    assert out.direction == 1
+    assert out.predicted_price > 50000.0
+
+
+@pytest.mark.asyncio
+async def test_e18_netflow_balanced_is_neutral():
+    from src.engines.e18_network import E18Network
+
+    flows = _netflow_records(("Binance", 5e8), ("OKX", -5e8))
+    out = await E18Network().run("BTC/USDT", {"spot": 50000.0, "exchange_flows": flows})
+    assert out.direction == 0
+
+
+@pytest.mark.asyncio
+async def test_e18_netflow_single_venue_dominance_is_discounted():
+    """One venue moving everything reads as an internal transfer, not a signal."""
+    from src.engines.e18_network import E18Network
+
+    solo = _netflow_records(("Binance", 9e8))
+    broad = _netflow_records(("Binance", 3e8), ("OKX", 3e8), ("Bybit", 3e8))
+    out_solo = await E18Network().run("BTC/USDT", {"spot": 50000.0, "exchange_flows": solo})
+    out_broad = await E18Network().run("BTC/USDT", {"spot": 50000.0, "exchange_flows": broad})
+    assert out_solo.confidence < out_broad.confidence
+
+
+@pytest.mark.asyncio
+async def test_e18_netflow_direction_is_not_pinned():
+    """Regression: the pairwise path returned a constant -1 on star topology."""
+    from src.engines.e18_network import E18Network
+
+    e = E18Network()
+    seen = set()
+    for net in (6e8, -6e8):
+        flows = _netflow_records(("Binance", net), ("OKX", net / 2))
+        out = await e.run("BTC/USDT", {"spot": 50000.0, "exchange_flows": flows})
+        seen.add(out.direction)
+    balanced = _netflow_records(("Binance", 5e8), ("OKX", -5e8))
+    seen.add((await e.run("BTC/USDT", {"spot": 50000.0, "exchange_flows": balanced})).direction)
+    assert seen == {-1, 0, 1}, f"direction never varied: {seen}"
+
+
+def test_e18_pairwise_path_preserved_for_labelled_data():
+    """The paid-data path must stay intact and must not claim netflow mode."""
+    from src.engines.e18_network import centrality_signal, exchange_flow_graph, is_netflow_mode
+
+    pairwise = [
+        {"from": "Binance", "to": "OKX", "usd_volume": 1e6},
+        {"from": "OKX", "to": "Kraken", "usd_volume": 2e6},
+        {"from": "Kraken", "to": "Binance", "usd_volume": 3e6},
+    ]
+    assert not is_netflow_mode(pairwise)
+    g = exchange_flow_graph(pairwise)
+    assert centrality_signal(g, "Binance") > 0.0
+
+
+def test_build_flow_records_from_defillama_payload():
+    from src.data.exchange_flow_provider import build_flow_records
+    from src.engines.e18_network import is_netflow_mode
+
+    payload = {
+        "cexs": [
+            {"name": "Binance", "currentTvl": 1e11, "inflows_24h": 2.5e8},
+            {"name": "OKX", "currentTvl": 2e10, "inflows_24h": -8e7},
+            {"name": "NoTvl", "inflows_24h": 5e8},  # unattributed → dropped
+            {"name": "Dust", "currentTvl": 1e9, "inflows_24h": 12.0},  # noise → dropped
+            {"name": "NullFlow", "currentTvl": 1e9, "inflows_24h": None},
+        ]
+    }
+    recs = build_flow_records(payload)
+    assert {r["exchange"] for r in recs} == {"Binance", "OKX"}
+    assert is_netflow_mode(recs)
+    binance = next(r for r in recs if r["exchange"] == "Binance")
+    assert binance["from"] == "MARKET" and binance["to"] == "Binance"
+    okx = next(r for r in recs if r["exchange"] == "OKX")
+    assert okx["from"] == "OKX" and okx["to"] == "MARKET"
+
+
+def test_build_flow_records_handles_junk():
+    from src.data.exchange_flow_provider import build_flow_records
+
+    assert build_flow_records({}) == []
+    assert build_flow_records({"cexs": "nonsense"}) == []
+    assert build_flow_records({"cexs": [None, 42, {"name": "X"}]}) == []

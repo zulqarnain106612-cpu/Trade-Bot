@@ -1174,3 +1174,76 @@ comparison, Kyber-768 stub — all in `src/security/`.
 **Gaps fixed**: G-01 through G-14 per `CRYPTO_BOX_INTEGRATION_PLAN.md`.
 
 **Validation**: pushed to CI — not run locally per repo policy.
+
+## 2026-08-07 — E-18 was executed on every tick and weighted zero everywhere
+
+`REGIME_WEIGHTS` index 17 (E-18, exchange flow graph) was `0.0` in all nine
+regimes while `EngineOrchestrator` ran the engine unconditionally. Row sums
+were still exactly 1.0, so `test_regime_weights_row_sums` passed and nothing
+flagged it. This was never a modelling judgement — E-16 and E-17 are both
+authored across 7-8 regimes (0.20 each in LiquidityCrisis); row 18 was simply
+never filled when the table and the engines landed together in `105b5cb`.
+
+Investigating turned up two further breaks upstream of the weight, making
+three in total, all of the same kind — E-18 was never wired end to end:
+
+1. **No producer.** `ProviderCache.set_exchange_flows` existed and *nothing
+   in `src/` ever called it*. Every sibling slot has exactly one producer
+   (`set_sentiment`, `set_macro`, `set_options`, `set_orderbook`).
+   `data["exchange_flows"]` was therefore always `[]`.
+2. **So E-18 always abstained** on `no_flow_data`, returning before the
+   `import networkx` line. It was not in fact burning compute — the cost was
+   two dict lookups — but a whole engine was silently absent from consensus.
+3. **Weight row all zeros**, so even a real output would have been discarded.
+
+**Data source.** Pairwise exchange→exchange edges need address labelling,
+which is only sold by paid providers (Arkham, Nansen); DefiLlama's bridges
+API now returns 402. The one free keyless source is DefiLlama `/cexs`: 91
+venues with reserves and net inflows, `name: "Binance"` matching E-18's
+default `primary_exchange`. It gives *aggregate netflow per exchange*, not
+pairwise transfers.
+
+**Why the old algorithm could not consume it.** Aggregate netflow yields a
+bipartite graph — every edge touches a synthetic `MARKET` hub. networkx
+*refuses* eigenvector centrality on that topology rather than returning a
+degenerate vector, so `centrality_signal` would hit its `except` and return
+`0.0` on every call. With `combined = (ec + ws) / 2` that caps the score at
+0.047–0.076 against a bearish threshold of 0.3, pinning `direction = -1` on
+every tick forever. A permanently bearish engine carrying real weight is
+strictly worse than one that abstains. The thresholds were calibrated for a
+dense pairwise graph.
+
+**Resolution.** Two paths, selected by a `source` tag on the records rather
+than guessed from topology:
+
+- The pairwise path (`exchange_flow_graph`, `centrality_signal`,
+  `whale_cluster_score`) is **retained unchanged** for when labelled paid
+  data is bought.
+- A netflow path (`netflow_imbalance`, `flow_concentration`) valid on a star
+  graph. Net inflow to exchanges reads as sell pressure, net withdrawal as
+  accumulation. Confidence is damped by single-venue concentration, since one
+  desk's internal transfer should not move the consensus. Dispatch happens
+  before the networkx import, so this path survives networkx being absent.
+- `ExchangeFlowProvider` (keyless, 15-minute poll) fills the empty slot and
+  **persists each snapshot per day**. `/cexs` is a snapshot with no historical
+  counterpart, so accumulating forward is the only way E-18 can ever be
+  validated out-of-sample.
+
+**Weights are provisional.** E-18 gets 0.01–0.06, highest in Capitulation and
+LiquidityCrisis (0.06) where exchange flow is most informative, and in
+Accumulation (0.05); the other 17 entries in each regime are scaled by
+`1 - w18` so every row still sums to 1.0. These are a domain prior, **not**
+an out-of-sample result — no history exists yet to fit them against. They are
+deliberately small enough that E-18 cannot dominate any regime.
+`_IMBALANCE_THRESHOLD = 0.15` is provisional on the same grounds. Revisit
+once `data/exchange_flows/` holds enough forward history to backtest.
+
+**Invariant added.** `test_no_executed_engine_is_dead_weight` cross-references
+the orchestrator's engine list against the weight table and fails if any
+executed engine is zero-weighted in every regime; a companion test guards the
+reverse drift (an engine added with no weight column). Per-regime zeros stay
+legal — E-10, E-16 and E-17 are each deliberately zero in some regimes and
+nonzero elsewhere, which is a real modelling choice and left alone.
+
+**Validation**: pushed to CI — not run locally per repo policy. E-18's
+directional accuracy is *not* yet validated; its weight is a prior.
