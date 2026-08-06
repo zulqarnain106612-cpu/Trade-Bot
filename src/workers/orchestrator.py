@@ -160,7 +160,23 @@ _ECC_NEUTRAL_FEATURES: dict[str, float] = {
     "p2tr_input_count": 0,
     "ecdsa_weaknesses": 0,
     "ecdsa_keys_recovered": 0,
+    # The five keys RLStateBuilder and ECCHead consume. They are read by name,
+    # so a producer that never emits them leaves those state slots pinned at
+    # zero and the agent silently trains on a constant. Kept alongside the raw
+    # diagnostics above rather than replacing them: the counts are useful in
+    # logs, the normalised signals are what the models take.
+    "ecdsa_weakness": 0.0,
+    "schnorr_divergence": 0.0,
 }
+
+# The ECC inputs RLStateBuilder.build reads, in its state-vector order.
+ECC_MODEL_FEATURES: tuple[str, ...] = (
+    "cluster_flow_score",
+    "ecdsa_weakness",
+    "schnorr_divergence",
+    "hodler_index",
+    "dark_pool_pressure",
+)
 
 
 def _utxos_with_ages(utxos: list[dict]) -> list[dict]:
@@ -320,6 +336,7 @@ def _run_ecc_cycle(
                 privacy_score=taproot.privacy_score,
                 smart_money_divergence=taproot.smart_money_divergence,
                 p2tr_input_count=taproot.p2tr_input_count,
+                schnorr_divergence=taproot.smart_money_divergence,
             )
     except Exception as exc:
         log.warning("ecc_taproot_failed", exc=str(exc))
@@ -327,6 +344,9 @@ def _run_ecc_cycle(
     try:
         weaknesses = 0
         keys_recovered = 0
+        # The models want severity, not volume: one recoverable key matters
+        # more than many low-confidence r-value collisions.
+        peak_risk = 0.0
         for tx in transactions:
             raw_hex = tx.get("hex")
             if not raw_hex:
@@ -334,9 +354,11 @@ def _run_ecc_cycle(
             for weakness in ecdsa_scanner.scan_transaction(raw_hex):
                 weaknesses += 1
                 keys_recovered += int(weakness.privkey_extracted)
+                peak_risk = max(peak_risk, float(weakness.risk_score))
         ecc_result.update(
             ecdsa_weaknesses=weaknesses,
             ecdsa_keys_recovered=keys_recovered,
+            ecdsa_weakness=peak_risk,
         )
     except Exception as exc:
         log.warning("ecc_ecdsa_scan_failed", exc=str(exc))

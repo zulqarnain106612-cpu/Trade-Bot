@@ -7,6 +7,8 @@ source from zeroing the whole feature set.
 
 from __future__ import annotations
 
+import inspect
+import re
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -14,8 +16,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.ecc.secp256k1_cluster import ClusteringResult
+from src.execution.rl_agent import RLExecutionState
 from src.workers.orchestrator import (
     _ECC_NEUTRAL_FEATURES,
+    ECC_MODEL_FEATURES,
     _fetch_recent_block_transactions,
     _run_ecc_cycle,
     _utxos_with_ages,
@@ -81,6 +85,37 @@ class TestFeatureContract:
         assert result["whale_count"] == 2
         assert result["dark_pool_pressure"] == 0.3
         assert result["tornado_deposits"] == 4
+
+
+class TestModelFeatureContract:
+    """RLExecutionState reads ECC features by name; a name the producer
+    never emits pins that state slot at zero forever."""
+
+    def test_the_pipeline_emits_every_feature_the_rl_state_reads(self) -> None:
+        assert set(ECC_MODEL_FEATURES) <= set(_ECC_NEUTRAL_FEATURES)
+
+    def test_the_declared_contract_matches_the_rl_state_builder(self) -> None:
+        source = inspect.getsource(RLExecutionState.build)
+        for feature in ECC_MODEL_FEATURES:
+            assert f'"{feature}"' in source
+
+    def test_the_rl_state_reads_exactly_five_ecc_features(self) -> None:
+        source = inspect.getsource(RLExecutionState.build)
+        read = set(re.findall(r'ecc_features\.get\(\s*"([^"]+)"', source))
+        assert read == set(ECC_MODEL_FEATURES)
+
+    def test_ecdsa_weakness_reports_peak_severity_not_volume(self) -> None:
+        scanner = MagicMock(
+            **{
+                "scan_transaction.return_value": [
+                    MagicMock(privkey_extracted=False, risk_score=0.7),
+                    MagicMock(privkey_extracted=True, risk_score=0.95),
+                ]
+            }
+        )
+        result = _cycle(ecdsa_scanner=scanner, transactions=[{"hex": "00"}])
+        assert result["ecdsa_weakness"] == pytest.approx(0.95)
+        assert result["ecdsa_weaknesses"] == 2
 
 
 class TestIsolation:
