@@ -81,12 +81,15 @@ def test_consensus_price_sparse_engines_use_correct_weights():
     """
     from src.engines.consensus import REGIME_WEIGHTS
 
-    # Only E-01 (idx 0) and E-18 (idx 17) survive
-    outputs_sparse = [_make_output("E-01", price=50_000.0), _make_output("E-18", price=50_000.0)]
+    # Only E-01 (idx 0) and E-11 (idx 10) survive. E-11 is used rather than a
+    # tail engine because E-16..E-18 carry zero Trending weight, which would make
+    # the ratio below undefined and the assertion vacuous.
+    outputs_sparse = [_make_output("E-01", price=50_000.0), _make_output("E-11", price=50_000.0)]
     _, w_sparse = compute_consensus_price(outputs_sparse, "Trending")
-    # Weights should reflect REGIME_WEIGHTS["Trending"][0] and [17], not [0] and [1]
+    # Weights should reflect REGIME_WEIGHTS["Trending"][0] and [10], not [0] and [1]
     full = REGIME_WEIGHTS["Trending"]
-    expected_ratio = full[0] / full[17]  # E-01 weight / E-18 weight
+    assert full[10] > 0, "test needs a second engine with nonzero regime weight"
+    expected_ratio = full[0] / full[10]  # E-01 weight / E-11 weight
     assert abs(w_sparse.sum() - 1.0) < 1e-6
     # The ratio of normalized weights should reflect the underlying regime weights
     if w_sparse[1] > 0:

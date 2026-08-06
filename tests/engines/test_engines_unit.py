@@ -410,7 +410,7 @@ def test_e12_ltc_abstains():
     from src.engines.e12_options import E12Options
 
     e = E12Options()
-    out = asyncio.get_event_loop().run_until_complete(e.run("LTC/USDT", {"spot": 90.0}))
+    out = asyncio.run(e.run("LTC/USDT", {"spot": 90.0}))
     assert out.confidence == 0.0
     assert out.metadata["abstain_reason"] == "no_options_market"
 
@@ -528,13 +528,13 @@ def test_e14_extreme_fear_gives_long():
 
     e = E14Sentiment()
     for _ in range(5):  # build history
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             e.run(
                 "BTC/USDT",
                 {"spot": 50000.0, "sentiment": {"fg_score": 90.0, "vader_compound": 0.8}},
             )
         )
-    out = asyncio.get_event_loop().run_until_complete(
+    out = asyncio.run(
         e.run("BTC/USDT", {"spot": 50000.0, "sentiment": {"fg_score": 5.0, "vader_compound": -0.9}})
     )
     # Extreme fear with greed history → contrarian long
@@ -614,7 +614,7 @@ def test_e16_manipulation_flag_suppresses_direction():
 
     e = E16Adversarial()
     sizes = np.full(200, 1.0)  # identical sizes -- high Benford deviation
-    out = asyncio.get_event_loop().run_until_complete(
+    out = asyncio.run(
         e.run("BTC/USDT", {"spot": 50000.0, "trade_sizes": sizes.tolist(), "orderbook_events": []})
     )
     assert out.direction == 0
