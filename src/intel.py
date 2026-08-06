@@ -139,6 +139,12 @@ class CryptoIntelligence:
             ),
         )
 
+        # Horizon architectures. Validated here so a bad model name in
+        # horizons.yaml fails at startup rather than at the first retrain.
+        from src.models.architectures import load_horizon_architectures
+
+        self._horizon_models = load_horizon_architectures(_HORIZONS_CONFIG)
+
         # State
         self._ecc_state: dict[str, float] = {}
         self._regime_id: int = 0
