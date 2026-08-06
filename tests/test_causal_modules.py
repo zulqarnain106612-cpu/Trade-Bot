@@ -114,8 +114,10 @@ class TestDoWhySCM:
                 "funding_rate": np.random.randn(100) * 0.001,
             }
         )
-        results = scm.batch_estimate(data)
+        pairs = [("whale_selling", "btc_return")]
+        results = scm.batch_estimate(data, pairs)
         assert isinstance(results, list)
+        assert len(results) == 1
 
     def test_causal_estimate_fields(self) -> None:
         from src.causal.dowhy_scm import CausalEstimate
