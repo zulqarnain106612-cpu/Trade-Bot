@@ -42,7 +42,7 @@ class MacroProvider:
         return self._load_cached()
 
     async def fetch_once(self) -> dict | None:
-        return await asyncio.get_event_loop().run_in_executor(None, self._fetch_sync)
+        return await asyncio.get_running_loop().run_in_executor(None, self._fetch_sync)
 
     async def run_loop(self) -> None:
         while True:
