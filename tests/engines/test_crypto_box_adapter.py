@@ -36,8 +36,10 @@ class TestEnabled:
             patch("src.engines.orchestrator.EngineOrchestrator") as orch,
         ):
             a = CryptoBoxSignalAdapter()
-        assert a.enabled
-        orch.assert_called_once()
+            # enabled re-reads the module global, so it must be asserted while
+            # the patch is still in place.
+            assert a.enabled
+            orch.assert_called_once()
 
     def test_init_failure_leaves_adapter_disabled(self):
         """A broken orchestrator must not raise out of the constructor."""
