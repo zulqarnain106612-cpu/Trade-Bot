@@ -110,7 +110,7 @@ class TFTHead(nn.Module):
         """
         B, T, _ = past.shape
         if cov is None:
-            cov = torch.zeros(B, T, 8, device=past.device)
+            cov = torch.zeros(B, T, self.embed_cov.in_features, device=past.device)
 
         ep = self.embed_past(past)  # [B, T, H]
         ec = self.embed_cov(cov)  # [B, T, H]

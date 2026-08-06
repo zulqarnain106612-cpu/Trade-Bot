@@ -630,11 +630,11 @@ class TestDerivativesExtended:
         assert ft.open_interest_usd == 0.0
 
     def test_to_feature_vector(self) -> None:
-        from src.features.derivatives import DerivativesFeatureExtractor, to_feature_vector
+        from src.features.derivatives import DerivativesFeatureExtractor
 
         ext = DerivativesFeatureExtractor()
         ft = ext.extract({"oi_usd": 1e9, "funding_rate": 0.005, "liquidations_usd": 5e5})
-        vec = to_feature_vector(ft)
+        vec = ext.to_feature_vector(ft)
         assert isinstance(vec, dict)
         assert "oi_usd" in vec
 
@@ -646,7 +646,7 @@ class TestTFTExtended:
     def test_grn_forward(self) -> None:
         from src.models.tft import GatedResidualNetwork
 
-        grn = GatedResidualNetwork(d_in=32, d_out=64)
+        grn = GatedResidualNetwork(input_dim=32, hidden_dim=48, output_dim=64)
         x = torch.randn(4, 32)
         out = grn(x)
         assert out.shape == (4, 64)
@@ -655,16 +655,17 @@ class TestTFTExtended:
         from src.models.tft import VariableSelectionNetwork
 
         vsn = VariableSelectionNetwork(n_vars=5, hidden_dim=32)
-        x = torch.randn(2, 5)
+        # forward expects [B, T, n_vars, hidden_dim]
+        x = torch.randn(2, 3, 5, 32)
         out = vsn(x)
-        assert out.shape == (2, 32)
+        assert out.shape == (2, 3, 32)
 
     def test_tft_head_forward(self) -> None:
         from src.models.tft import TFTHead
 
-        tft = TFTHead(n_past_features=10, n_cov_features=4, d_model=64)
+        tft = TFTHead(n_past_vars=10, n_cov_vars=4, d_model=64)
         past = torch.randn(2, 20, 10)
-        cov = torch.randn(2, 4)
+        cov = torch.randn(2, 20, 4)
         out = tft(past, cov)
         assert out.shape == (2, 64)
 
