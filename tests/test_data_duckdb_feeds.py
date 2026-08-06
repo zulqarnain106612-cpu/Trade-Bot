@@ -54,13 +54,11 @@ class TestDuckDBStore:
         store = DuckDBStore(path=None)
         store.write_horizon_metric(
             horizon_id=0,
-            ts=1700000000000,
-            direction=1,
+            label="30s",
+            sharpe=1.5,
             confidence=0.8,
-            magnitude_mu=0.02,
-            timing=0.5,
-            sharpe_est=1.5,
-            size_pct=0.02,
+            direction=1,
+            drift_detected=False,
         )
         store.close()
 
