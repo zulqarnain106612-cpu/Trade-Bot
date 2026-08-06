@@ -49,12 +49,16 @@ def fast_adapt(
         try:
             from torch.func import functional_call  # type: ignore[import]
         except ImportError:
-            from torch._functorch.eager_transforms import functional_call  # type: ignore[import]
+            from torch._functorch.eager_transforms import (
+                functional_call,  # type: ignore[import, attr-defined, no-redef]
+            )
 
-        pred = functional_call(model, adapted, (support_x,))
+        pred = functional_call(model, adapted, (support_x,))  # type: ignore[arg-type]
         loss = loss_fn(pred, support_y)
 
-        grads = torch.autograd.grad(loss, adapted.values(), create_graph=False, allow_unused=True)
+        grads = torch.autograd.grad(
+            loss, list(adapted.values()), create_graph=False, allow_unused=True
+        )
 
         adapted = {
             name: param - lr_inner * (grad if grad is not None else torch.zeros_like(param))
@@ -114,10 +118,10 @@ class MAMLOptimizer:
                 from torch.func import functional_call  # type: ignore[import]
             except ImportError:
                 from torch._functorch.eager_transforms import (
-                    functional_call,  # type: ignore[import]
+                    functional_call,  # type: ignore[import, attr-defined, no-redef]
                 )
 
-            pred_q = functional_call(self._model, adapted_params, (task["query_x"],))
+            pred_q = functional_call(self._model, adapted_params, (task["query_x"],))  # type: ignore[arg-type]
             outer_loss = outer_loss + self._loss_fn(pred_q, task["query_y"])
 
         outer_loss = outer_loss / max(len(tasks), 1)

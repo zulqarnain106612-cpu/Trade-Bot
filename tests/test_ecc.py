@@ -64,11 +64,11 @@ class TestECDSAScanner:
         sigs = extract_ecdsa_signatures("")
         assert sigs == []
 
-    def test_nonce_reuse_detection_different_r(self) -> None:
+    def test_nonce_reuse_detection_same_s_returns_none(self) -> None:
         from src.ecc.ecdsa_scan import _extract_privkey_from_nonce_reuse
 
-        # Different r values → no nonce reuse
-        result = _extract_privkey_from_nonce_reuse(r=111, s1=222, s2=333, z1=444, z2=555)
+        # s1 == s2 → s_diff == 0 → no key recoverable
+        result = _extract_privkey_from_nonce_reuse(r=111, s1=222, s2=222, z1=444, z2=555)
         assert result is None
 
 
@@ -107,8 +107,8 @@ class TestSchnorrTaproot:
         from src.ecc.schnorr_taproot import parse_taproot_block
 
         info = parse_taproot_block([])
-        assert hasattr(info, "n_p2tr_outputs")
-        assert info.n_p2tr_outputs == 0
+        assert hasattr(info, "p2tr_input_count")
+        assert info.p2tr_input_count == 0
 
 
 class TestUTXOCurve:
@@ -120,17 +120,23 @@ class TestUTXOCurve:
         assert 0.0 <= result.hodler_index <= 1.0
 
     def test_single_old_utxo(self) -> None:
+        import time
+
         from src.ecc.utxo_curve import compute_hodler_index
 
-        utxos = [{"value_btc": 10.0, "age_days": 365 * 5}]
+        old_ts = time.time() - 365 * 5 * 86400  # 5 years ago
+        utxos = [{"value_btc": 10.0, "timestamp": old_ts}]
         result = compute_hodler_index(utxos)
         # Very old UTXO → high hodler index
         assert result.hodler_index > 0.5
 
     def test_single_fresh_utxo(self) -> None:
+        import time
+
         from src.ecc.utxo_curve import compute_hodler_index
 
-        utxos = [{"value_btc": 10.0, "age_days": 1}]
+        fresh_ts = time.time() - 86400  # 1 day ago
+        utxos = [{"value_btc": 10.0, "timestamp": fresh_ts}]
         result = compute_hodler_index(utxos)
         # Very new UTXO → low hodler index
         assert result.hodler_index < 0.2

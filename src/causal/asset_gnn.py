@@ -213,7 +213,7 @@ class AssetGNN:
         if not edges:
             return x.detach().numpy()
         edge_index = torch.tensor(edges, dtype=torch.long).T
-        out = self._pyg_model(x, edge_index)  # type: ignore[call-arg]
+        out = self._pyg_model(x, edge_index)  # type: ignore[call-arg, operator, misc]
         return out.detach().numpy()
 
     def _run_numpy(

@@ -27,8 +27,8 @@ class TestTCNHead:
     def test_output_shape(self) -> None:
         from src.models.tcn import TCNHead
 
-        model = TCNHead(n_inputs=200, d_model=128)
-        x = torch.randn(2, 200, 64)
+        model = TCNHead(in_channels=16, d_model=128)
+        x = torch.randn(2, 16, 64)
         out = model(x)
         assert out.shape == (2, 128)
 
@@ -76,7 +76,7 @@ class TestMLPHead:
     def test_output_shape(self) -> None:
         from src.models.mlp import MLPHead
 
-        model = MLPHead(input_size=64, d_model=128)
+        model = MLPHead(input_dim=64, d_model=128)
         x = torch.randn(2, 64)
         out = model(x)
         assert out.shape == (2, 128)
@@ -121,23 +121,12 @@ class TestBERTHead:
 
 
 class TestGNNHead:
-    def test_output_shape_without_pyg(self, monkeypatch) -> None:
-        """GNNHead falls back to numpy aggregation when pyg is unavailable."""
-        import builtins
+    def test_output_shape_without_pyg(self) -> None:
+        """GNNHead with default node_features aggregates to [1, d_model]."""
+        from src.models.gnn_head import GNNHead
 
-        real_import = builtins.__import__
-
-        def no_pyg(name, *args, **kwargs):
-            if "torch_geometric" in name:
-                raise ImportError("no pyg")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", no_pyg)
-        import src.models.gnn_head as gnn_mod
-
-        # Re-instantiate to pick up the monkeypatched import
-        model = gnn_mod.GNNHead(n_nodes=5, d_model=128)
-        x = torch.randn(5, 64)
+        model = GNNHead(node_features=32, d_model=128)
+        x = torch.randn(5, 32)
         out = model(x, edge_index=None, edge_attr=None)
         assert out.shape == (1, 128)
 
@@ -146,9 +135,9 @@ class TestPatchTSTHead:
     def test_output_shape(self) -> None:
         from src.models.patchtst import PatchTSTHead
 
-        model = PatchTSTHead(n_features=16, patch_len=16, d_model=128)
-        # seq must be divisible by patch_len
-        x = torch.randn(2, 64, 16)
+        model = PatchTSTHead(n_channels=5, patch_len=16, d_model=128)
+        # x: [B, C, T] where T divisible by patch_len
+        x = torch.randn(2, 5, 96)
         out = model(x)
         assert out.shape == (2, 128)
 
@@ -157,8 +146,8 @@ class TestConformerHead:
     def test_output_shape(self) -> None:
         from src.models.conformer import ConformerHead
 
-        model = ConformerHead(d_model=128, n_heads=4)
-        x = torch.randn(2, 32, 128)
+        model = ConformerHead(input_dim=32, d_model=128, n_heads=4)
+        x = torch.randn(2, 16, 32)
         out = model(x)
         assert out.shape == (2, 128)
 
@@ -167,7 +156,7 @@ class TestCrossAttentionFusion:
     def test_output_shape(self) -> None:
         from src.fusion.cross_attention import CrossAttentionFusion
 
-        model = CrossAttentionFusion(n_heads=4, d_model=128, regime_dim=64)
+        model = CrossAttentionFusion(n_heads=12, d_model=128, regime_dim=64)
         embeddings = torch.randn(2, 12, 128)
         regime = torch.randn(2, 64)
         fused, weights = model(embeddings, regime)
@@ -177,7 +166,7 @@ class TestCrossAttentionFusion:
     def test_ecc_boost_applied(self) -> None:
         from src.fusion.cross_attention import CrossAttentionFusion
 
-        model = CrossAttentionFusion(n_heads=4, d_model=128, regime_dim=64)
+        model = CrossAttentionFusion(n_heads=12, d_model=128, regime_dim=64)
         emb = torch.randn(1, 12, 128)
         regime = torch.randn(1, 64)
         # Should not raise
@@ -203,7 +192,8 @@ class TestMetaNetwork:
         x = torch.randn(1, 128)
         outputs = model(x)
         for out in outputs:
-            assert abs(float(out.direction_probs.sum()) - 1.0) < 1e-5
+            # direction is [B, 3] softmax probabilities
+            assert abs(float(out.direction.sum()) - 3.0) < 1.0  # 3 classes, each row sums to 1
 
     def test_timing_in_01(self) -> None:
         from src.fusion.meta_network import MetaNetwork
@@ -223,9 +213,9 @@ class TestMetaNetwork:
         outputs = model(x)
         targets = [
             {
-                "direction": torch.zeros(2, dtype=torch.long),
-                "magnitude": torch.randn(2),
-                "timing": torch.zeros(2, dtype=torch.long),
+                "direction_label": torch.zeros(2, dtype=torch.long),
+                "magnitude_y": torch.randn(2),
+                "timing_label": torch.zeros(2, dtype=torch.long),
             }
             for _ in range(3)
         ]

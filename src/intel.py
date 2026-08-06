@@ -70,14 +70,17 @@ class CryptoIntelligence:
             KyleLambdaEstimator,
             VPINTracker,
         )
-        from src.features.onchain import OnChainFeatureExtractor
+        from src.features.onchain import BitcoinRPCClient, OnChainFeatureExtractor
 
         self._vpin = VPINTracker()
         self._kyle = KyleLambdaEstimator()
+        rpc_cfg = self._cfg.get("btc_node_rpc", {})
         self._onchain = OnChainFeatureExtractor(
-            rpc_url=self._cfg.get("btc_node_rpc", {}).get("url", "http://127.0.0.1:8332"),
-            rpc_user=self._cfg.get("btc_node_rpc", {}).get("user", "crypto"),
-            rpc_pass=self._cfg.get("btc_node_rpc", {}).get("pass", "crypto"),
+            rpc=BitcoinRPCClient(
+                url=rpc_cfg.get("url", "http://127.0.0.1:8332"),
+                user=rpc_cfg.get("user", "crypto"),
+                password=rpc_cfg.get("pass", "crypto"),
+            )
         )
         self._derivatives = DerivativesFeatureExtractor()
         self._scm = DoWhySCM()
@@ -120,7 +123,7 @@ class CryptoIntelligence:
         from src.data.duckdb_store import DuckDBStore
 
         self._duckdb = DuckDBStore(
-            path=str(self._cfg.get("duckdb_path", "./models/crypto_intel.duckdb"))
+            path=Path(self._cfg.get("duckdb_path", "./models/crypto_intel.duckdb"))
         )
 
         # Self-upgrade
@@ -187,8 +190,8 @@ class CryptoIntelligence:
 
         ofi = compute_ofi(bids or [], asks or [])
 
-        mempool_ft = self._fetch_mempool()
-        onchain_ft = self._onchain.compute(price, 0.0)
+        mempool_ft = await self._fetch_mempool()
+        onchain_ft = await self._onchain.compute(price, 0.0)
         deriv_ft = self._derivatives.extract(derivatives_data or {})
 
         # Check ECC output from dedicated thread
@@ -215,7 +218,7 @@ class CryptoIntelligence:
             "sopr": onchain_ft.sopr,
             "nvt": onchain_ft.nvt,
             "mvrv": onchain_ft.mvrv,
-            "oi_usd": deriv_ft.oi_usd,
+            "oi_usd": deriv_ft.open_interest_usd,
             "funding_rate": deriv_ft.funding_rate,
             "liquidation_pressure": deriv_ft.liquidation_pressure,
             "mempool_fee_p50": mempool_ft.fee_rate_p50_sat,
