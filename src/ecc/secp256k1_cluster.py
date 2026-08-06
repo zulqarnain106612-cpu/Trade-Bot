@@ -47,6 +47,10 @@ class ClusteringResult:
     whale_count: int
     total_whale_btc: float
     clusters: list[ClusterInfo] = field(default_factory=list)
+    # The UTXO set this result was derived from. Carried so downstream ECC
+    # analyses (UTXO age curve) reuse the fetch instead of repeating the
+    # listunspent round trip against the node.
+    utxos: list[dict] = field(default_factory=list)
 
 
 class AddressClusterer:
@@ -203,4 +207,5 @@ class Secp256k1ClusterWorker:
             whale_count=len(whale_clusters),
             total_whale_btc=sum(c.total_btc for c in whale_clusters),
             clusters=clusters,
+            utxos=utxos,
         )

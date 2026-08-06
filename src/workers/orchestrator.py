@@ -140,6 +140,80 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
     )
 
 
+# The full ECC feature set, at values that assert nothing. Every iteration
+# starts from these so a partially-failing pipeline emits a stable key set --
+# consumers index these by name and a missing key is a KeyError downstream.
+_ECC_NEUTRAL_FEATURES: dict[str, float] = {
+    "cluster_flow_score": 0.0,
+    "whale_count": 0,
+    "total_whale_btc": 0.0,
+    "dark_pool_pressure": 0.0,
+    "tornado_deposits": 0,
+    "hodler_index": 0.0,
+    "supply_shock_risk": 0.0,
+    "young_supply_pct": 0.0,
+    "aged_supply_pct": 0.0,
+    "mean_age_days": 0.0,
+    "musig2_count": 0,
+    "privacy_score": 0.0,
+    "smart_money_divergence": 0.0,
+    "p2tr_input_count": 0,
+    "ecdsa_weaknesses": 0,
+    "ecdsa_keys_recovered": 0,
+}
+
+
+def _utxos_with_ages(utxos: list[dict]) -> list[dict]:
+    """Give listunspent entries the ``timestamp`` the UTXO age curve needs.
+
+    ``listunspent`` reports ``confirmations``, not a creation time, so feeding
+    its output straight to ``compute_hodler_index`` would date every UTXO to
+    now and report a hodler index of zero regardless of the real age
+    distribution. Bitcoin targets 10-minute blocks, so confirmations are the
+    age estimate. Entries that already carry a timestamp are left alone.
+    """
+    now = time.time()
+    converted: list[dict] = []
+    for utxo in utxos:
+        if "timestamp" in utxo:
+            converted.append(utxo)
+            continue
+        confirmations = float(utxo.get("confirmations", 0) or 0)
+        converted.append({**utxo, "timestamp": now - confirmations * 600.0})
+    return converted
+
+
+def _fetch_recent_block_transactions(
+    rpc_url: str,
+    rpc_user: str,
+    rpc_pass: str,
+    timeout: float = 30.0,
+) -> list[dict]:
+    """Fetch the transactions of the current best block, with raw hex.
+
+    Verbosity 2 returns decoded transactions including ``hex``, which the ECDSA
+    scanner needs; the Taproot parser reads the decoded inputs from the same
+    payload, so one round trip serves both.
+    """
+    import requests
+
+    def _call(method: str, params: list) -> Any:
+        resp = requests.post(
+            rpc_url,
+            json={"jsonrpc": "1.0", "id": "ecc", "method": method, "params": params},
+            auth=(rpc_user, rpc_pass),
+            timeout=timeout,
+        )
+        payload = resp.json()
+        if payload.get("error"):
+            raise RuntimeError(f"{method} failed: {payload['error']}")
+        return payload["result"]
+
+    best_hash = _call("getbestblockhash", [])
+    block = _call("getblock", [best_hash, 2])
+    return list(block.get("tx") or [])
+
+
 def _ecc_worker(
     queue_out: mp.Queue[WorkerResult | dict],
     rpc_url: str,
@@ -158,47 +232,121 @@ def _ecc_worker(
     """
     log.info("ecc_worker_started", rpc_url=rpc_url)
 
+    from src.ecc.ecdsa_scan import ECDSAScanner
     from src.ecc.secp256k1_cluster import Secp256k1ClusterWorker
     from src.ecc.zksnark_detect import ZkSnarkDetector
 
     clusterer = Secp256k1ClusterWorker(rpc_url=rpc_url, rpc_user=rpc_user, rpc_pass=rpc_pass)
     zk_detector = ZkSnarkDetector()
+    # Stateful across iterations: nonce reuse is only detectable by comparing an
+    # r-value against ones seen in earlier blocks.
+    ecdsa_scanner = ECDSAScanner()
 
     while True:
-        try:
-            # secp256k1 clustering
-            cluster_result = clusterer.run()
-
-            # zkSNARK dark pool
-            zk_result = zk_detector.detect_mixing_flows(block_lookback=3)
-
-            ecc_result = {
-                "cluster_flow_score": cluster_result.flow_score,
-                "whale_count": cluster_result.whale_count,
-                "total_whale_btc": cluster_result.total_whale_btc,
-                "dark_pool_pressure": zk_result.dark_pool_pressure,
-                "tornado_deposits": zk_result.tornado_deposits_detected,
-            }
-
-            queue_out.put({"type": "ecc", "result": ecc_result})
-            log.info("ecc_pipeline_complete", flow_score=cluster_result.flow_score)
-
-        except Exception as exc:
-            log.warning("ecc_worker_error", exc=str(exc))
-            queue_out.put(
-                {
-                    "type": "ecc",
-                    "result": {
-                        "cluster_flow_score": 0.0,
-                        "whale_count": 0,
-                        "total_whale_btc": 0.0,
-                        "dark_pool_pressure": 0.0,
-                        "tornado_deposits": 0,
-                    },
-                }
-            )
-
+        ecc_result = _run_ecc_cycle(
+            clusterer=clusterer,
+            zk_detector=zk_detector,
+            ecdsa_scanner=ecdsa_scanner,
+            rpc_url=rpc_url,
+            rpc_user=rpc_user,
+            rpc_pass=rpc_pass,
+        )
+        queue_out.put({"type": "ecc", "result": ecc_result})
         time.sleep(interval_seconds)
+
+
+def _run_ecc_cycle(
+    clusterer: Any,
+    zk_detector: Any,
+    ecdsa_scanner: Any,
+    rpc_url: str,
+    rpc_user: str,
+    rpc_pass: str,
+) -> dict[str, float]:
+    """Run one pass of every ECC analysis and return the merged feature set.
+
+    Split out of the worker loop so the pipeline is testable without a thread,
+    a queue, or a live node.
+    """
+    from src.ecc.schnorr_taproot import parse_taproot_block
+    from src.ecc.utxo_curve import compute_hodler_index, utxo_curve_feature_vector
+
+    ecc_result = dict(_ECC_NEUTRAL_FEATURES)
+
+    # Each analysis is isolated: an unreachable Ethereum node must not
+    # discard the Bitcoin clustering features that did resolve.
+    try:
+        cluster_result = clusterer.run()
+        ecc_result.update(
+            cluster_flow_score=cluster_result.flow_score,
+            whale_count=cluster_result.whale_count,
+            total_whale_btc=cluster_result.total_whale_btc,
+        )
+    except Exception as exc:
+        log.warning("ecc_cluster_failed", exc=str(exc))
+        cluster_result = None
+
+    try:
+        zk_result = zk_detector.detect_mixing_flows(block_lookback=3)
+        ecc_result.update(
+            dark_pool_pressure=zk_result.dark_pool_pressure,
+            tornado_deposits=zk_result.tornado_deposits_detected,
+        )
+    except Exception as exc:
+        log.warning("ecc_zksnark_failed", exc=str(exc))
+
+    # UTXO age curve reuses the listunspent result the clusterer fetched.
+    try:
+        if cluster_result is not None and cluster_result.utxos:
+            ecc_result.update(
+                utxo_curve_feature_vector(
+                    compute_hodler_index(_utxos_with_ages(cluster_result.utxos))
+                )
+            )
+    except Exception as exc:
+        log.warning("ecc_utxo_curve_failed", exc=str(exc))
+
+    try:
+        transactions = _fetch_recent_block_transactions(rpc_url, rpc_user, rpc_pass)
+    except Exception as exc:
+        log.warning("ecc_block_fetch_failed", exc=str(exc))
+        transactions = []
+
+    try:
+        if transactions:
+            taproot = parse_taproot_block(transactions)
+            ecc_result.update(
+                musig2_count=taproot.musig2_count,
+                privacy_score=taproot.privacy_score,
+                smart_money_divergence=taproot.smart_money_divergence,
+                p2tr_input_count=taproot.p2tr_input_count,
+            )
+    except Exception as exc:
+        log.warning("ecc_taproot_failed", exc=str(exc))
+
+    try:
+        weaknesses = 0
+        keys_recovered = 0
+        for tx in transactions:
+            raw_hex = tx.get("hex")
+            if not raw_hex:
+                continue
+            for weakness in ecdsa_scanner.scan_transaction(raw_hex):
+                weaknesses += 1
+                keys_recovered += int(weakness.privkey_extracted)
+        ecc_result.update(
+            ecdsa_weaknesses=weaknesses,
+            ecdsa_keys_recovered=keys_recovered,
+        )
+    except Exception as exc:
+        log.warning("ecc_ecdsa_scan_failed", exc=str(exc))
+
+    log.info(
+        "ecc_pipeline_complete",
+        flow_score=ecc_result["cluster_flow_score"],
+        tx_scanned=len(transactions),
+    )
+    return ecc_result
 
 
 class WorkerOrchestrator:
