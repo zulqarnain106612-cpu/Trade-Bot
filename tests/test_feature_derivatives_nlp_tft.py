@@ -14,7 +14,7 @@ class TestDerivativesFeatureExtractor:
 
         ext = DerivativesFeatureExtractor()
         ft = ext.extract({})
-        assert ft.oi_usd == 0.0
+        assert ft.open_interest_usd == 0.0
         assert ft.funding_rate == 0.0
         assert ft.liquidations_usd == 0.0
 
@@ -24,7 +24,7 @@ class TestDerivativesFeatureExtractor:
         ext = DerivativesFeatureExtractor()
         data = {"oi_usd": 1e9, "funding_rate": 0.0001, "liquidations_usd": 5e6}
         ft = ext.extract(data)
-        assert ft.oi_usd == 1e9
+        assert ft.open_interest_usd == 1e9
         assert ft.funding_rate == 0.0001
 
     def test_to_feature_vector_returns_floats(self) -> None:
@@ -43,13 +43,19 @@ class TestDerivativesFeatureExtractor:
         ext = DerivativesFeatureExtractor()
         ft = ext.extract({"funding_rate": 0.0005})
         assert ft.funding_rate == 0.0005
-        assert ft.oi_usd == 0.0
+        assert ft.open_interest_usd == 0.0
 
     def test_derivatives_features_dataclass(self) -> None:
         from src.features.derivatives import DerivativesFeatures
 
-        ft = DerivativesFeatures(oi_usd=1e9, funding_rate=0.001, liquidations_usd=2e6)
-        assert ft.oi_usd > 0
+        ft = DerivativesFeatures(
+            open_interest_usd=1e9,
+            funding_rate=0.001,
+            liquidation_pressure=2e6,
+            oi_change_pct=0.0,
+            funding_premium=0.0,
+        )
+        assert ft.open_interest_usd > 0
         assert isinstance(ft.funding_rate, float)
 
 
@@ -102,7 +108,7 @@ class TestTFTHead:
     def test_output_shape_no_cov(self) -> None:
         from src.models.tft import TFTHead
 
-        model = TFTHead(n_past_features=16, d_model=128)
+        model = TFTHead(n_past_vars=16, d_model=128)
         x = torch.randn(2, 32, 16)
         out = model(x)
         assert out.shape == (2, 128)
@@ -110,7 +116,7 @@ class TestTFTHead:
     def test_output_shape_with_cov(self) -> None:
         from src.models.tft import TFTHead
 
-        model = TFTHead(n_past_features=16, n_cov_features=8, d_model=128)
+        model = TFTHead(n_past_vars=16, n_cov_vars=8, d_model=128)
         x = torch.randn(2, 32, 16)
         cov = torch.randn(2, 32, 8)
         out = model(x, cov)
@@ -119,7 +125,7 @@ class TestTFTHead:
     def test_no_nan_output(self) -> None:
         from src.models.tft import TFTHead
 
-        model = TFTHead(n_past_features=8, d_model=64)
+        model = TFTHead(n_past_vars=8, d_model=64)
         x = torch.randn(1, 16, 8)
         out = model(x)
         assert not torch.isnan(out).any()
@@ -135,7 +141,7 @@ class TestTFTHead:
     def test_gated_residual_network(self) -> None:
         from src.models.tft import GatedResidualNetwork
 
-        grn = GatedResidualNetwork(d_in=32, d_out=32, dropout=0.0)
+        grn = GatedResidualNetwork(input_dim=32, hidden_dim=32, output_dim=32, dropout=0.0)
         x = torch.randn(2, 16, 32)
         out = grn(x)
         assert out.shape == (2, 16, 32)

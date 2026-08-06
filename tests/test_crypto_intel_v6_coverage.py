@@ -631,11 +631,11 @@ class TestDerivativesExtended:
         assert ft.open_interest_usd == 0.0
 
     def test_to_feature_vector(self) -> None:
-        from src.features.derivatives import DerivativesFeatureExtractor, to_feature_vector
+        from src.features.derivatives import DerivativesFeatureExtractor
 
         ext = DerivativesFeatureExtractor()
         ft = ext.extract({"oi_usd": 1e9, "funding_rate": 0.005, "liquidations_usd": 5e5})
-        vec = to_feature_vector(ft)
+        vec = ext.to_feature_vector(ft)
         assert isinstance(vec, dict)
         assert "oi_usd" in vec
 
@@ -663,7 +663,7 @@ class TestTFTExtended:
     def test_tft_head_forward(self) -> None:
         from src.models.tft import TFTHead
 
-        tft = TFTHead(n_past_features=10, n_cov_features=4, d_model=64)
+        tft = TFTHead(n_past_vars=10, n_cov_vars=4, d_model=64)
         past = torch.randn(2, 20, 10)
         cov = torch.randn(2, 4)
         out = tft(past, cov)
