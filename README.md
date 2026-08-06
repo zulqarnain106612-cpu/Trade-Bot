@@ -268,8 +268,17 @@ Dependency files, and which one actually installs:
 | `requirements-optional.txt` | heavy extras imported lazily behind `try/except ImportError`; installed by nothing |
 
 Adding a runtime dep to `requirements.txt` alone does nothing — it is never
-installed. Put it in `requirements.in` and recompile:
-`pip-compile --allow-unsafe --generate-hashes requirements.in -o requirements.lock`
+installed. Put it in `requirements.in` and recompile **on Python 3.11**, the
+version CI uses:
+
+```bash
+python3.11 -m piptools compile --allow-unsafe --generate-hashes \
+    requirements.in -o requirements.lock
+```
+
+`pip-compile` resolves per interpreter. A lock built on a newer Python drops
+transitive deps that only 3.11 needs and pins wheels 3.11 cannot install — and
+nothing finds out until CI's `--require-hashes` install fails.
 
 `scripts/check_requirements_sync.py` fails CI on that drift.
 

@@ -10,9 +10,15 @@ with ModuleNotFoundError. Nothing caught it, so this does.
 Checks:
   1. every package in requirements.txt is also in requirements.in
   2. every package in requirements.in is pinned in requirements.lock
-  3. requirements-optional.txt does not overlap requirements.in (an extra is
+  3. every lock entry carries a --hash (CI installs with --require-hashes)
+  4. requirements-optional.txt does not overlap requirements.in (an extra is
      either optional or required, and the lazy-import fallbacks assume the
      former)
+
+None of this catches a lock compiled under the wrong interpreter: pip-compile
+resolves per Python version, so the lock must be built on the same 3.11 CI
+uses. Compiling on 3.14 silently drops 3.11-only transitive deps (coincurve)
+and pins 3.12+ wheels (numpy 2.5.0), both of which only fail in CI.
 
 Run: python scripts/check_requirements_sync.py
 """
@@ -48,6 +54,33 @@ def parse(path: Path) -> set[str]:
     return names
 
 
+def unhashed_lock_entries(path: Path) -> list[str]:
+    """Pinned lock entries carrying no --hash.
+
+    CI installs the lock with --require-hashes, which rejects the whole file if
+    a single requirement lacks a hash. Catch it here rather than in a CI run.
+    """
+    bad: list[str] = []
+    pending: str | None = None
+    hashed = False
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw.split("#", 1)[0].strip().rstrip("\\").strip()
+        if not stripped:
+            continue
+        if stripped.startswith("--hash="):
+            hashed = True
+            continue
+        if stripped.startswith("-"):  # --index-url and friends
+            continue
+        if "==" in stripped:
+            if pending is not None and not hashed:
+                bad.append(pending)
+            pending, hashed = stripped.split("==", 1)[0].strip(), False
+    if pending is not None and not hashed:
+        bad.append(pending)
+    return bad
+
+
 def main() -> int:
     req_in = parse(ROOT / "requirements.in")
     req_txt = parse(ROOT / "requirements.txt")
@@ -68,6 +101,13 @@ def main() -> int:
             "in requirements.in but absent from requirements.lock — re-run "
             "`pip-compile --generate-hashes requirements.in -o requirements.lock`: "
             f"{', '.join(unlocked)}"
+        )
+
+    if unhashed := unhashed_lock_entries(ROOT / "requirements.lock"):
+        errors.append(
+            "pinned in requirements.lock with no --hash — CI installs with "
+            "--require-hashes and rejects the entire file over one of these: "
+            f"{', '.join(sorted(unhashed))}"
         )
 
     if both := sorted(req_opt & req_in):
