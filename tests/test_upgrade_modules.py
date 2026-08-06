@@ -81,19 +81,29 @@ class TestMAMLOptimizer:
 
 
 class TestHorizonMAMLAdapter:
-    def test_adapt_on_drift_returns_none_no_checkpoint(self, tmp_path) -> None:
+    def test_adapt_on_drift_target_horizon_saves_checkpoint(self, tmp_path) -> None:
+
         from src.upgrade.maml import HorizonMAMLAdapter
 
-        adapter = HorizonMAMLAdapter(horizon_idx=8, checkpoint_dir=tmp_path)
-        result = adapter.adapt_on_drift(drift_detected=True)
-        assert result is None
+        # h8 = index 7, h10 = index 9 — target horizons
+        adapter = HorizonMAMLAdapter(checkpoint_dir=tmp_path, k_steps=1)
+        model = _TinyMLP()
+        x = torch.randn(8, 4)
+        y = torch.randint(0, 2, (8,))
+        adapted = adapter.adapt_on_drift(horizon_idx=7, model=model, recent_x=x, recent_y=y)
+        assert adapted is not None
+        assert (tmp_path / "h8_adapted.pt").exists()
 
-    def test_adapt_on_drift_skips_when_no_drift(self, tmp_path) -> None:
+    def test_adapt_on_drift_non_target_horizon_skips(self, tmp_path) -> None:
         from src.upgrade.maml import HorizonMAMLAdapter
 
-        adapter = HorizonMAMLAdapter(horizon_idx=8, checkpoint_dir=tmp_path)
-        result = adapter.adapt_on_drift(drift_detected=False)
-        assert result is None
+        adapter = HorizonMAMLAdapter(checkpoint_dir=tmp_path)
+        model = _TinyMLP()
+        x = torch.randn(4, 4)
+        y = torch.randint(0, 2, (4,))
+        result = adapter.adapt_on_drift(horizon_idx=0, model=model, recent_x=x, recent_y=y)
+        # horizon 0 is not in target horizons → returns the original model unchanged
+        assert result is model
 
 
 # ─── Optuna walk-forward ──────────────────────────────────────────────────────
