@@ -104,6 +104,9 @@ implementation details.
   `scripts/check_coverage_floors.py` after touching `src/execution/`,
   `src/engine/`, or `runtime_monitor`; the global % does not protect those
   individually. Read the CI run's output for this, don't run it locally.
+- Never use the Agent tool (sub-agents). For all auditing, search, and
+  exploration use Bash/Read/grep directly — sub-agents start cold, re-derive
+  context, and burn 3-5× the tokens of an equivalent inline search.
 - Never perform destructive operations without explicit authorization —
   this is never superseded by the Execution Contract above.
 

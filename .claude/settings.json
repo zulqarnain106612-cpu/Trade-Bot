@@ -11,6 +11,7 @@
       "Bash(docker-compose *)",
       "Bash(find *)",
       "Bash(gh pr *)",
+      "Bash(gh run watch *)",
       "Bash(gh secret list)",
       "Bash(git *)",
       "Bash(grep *)",
