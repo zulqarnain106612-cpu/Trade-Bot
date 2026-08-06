@@ -45,14 +45,14 @@ class TestSmartOrderRouterInit:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        assert router._exs == {}
+        assert router._exchanges == {}
 
     def test_init_unknown_exchange_skipped(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=["not_a_real_exchange_xyz"])
         # Unknown exchange should be skipped gracefully
-        assert "not_a_real_exchange_xyz" not in router._exs
+        assert "not_a_real_exchange_xyz" not in router._exchanges
 
     def test_route_result_dataclass(self) -> None:
         from src.execution.router import RouteResult

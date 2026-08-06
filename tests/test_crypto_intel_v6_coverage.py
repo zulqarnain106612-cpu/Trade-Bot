@@ -6,6 +6,7 @@ import asyncio
 import time
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 
@@ -455,8 +456,8 @@ class TestGrangerExtended:
         from src.causal.granger import GrangerCausalityDetector
 
         det = GrangerCausalityDetector(window=20, max_lag=2)
-        btc_ret = np.random.randn(30)
-        alt_prices = {"ETH": list(3000 + np.cumsum(np.random.randn(30)))}
+        btc_ret = pd.Series(np.random.randn(30))
+        alt_prices = {"ETH": pd.Series(3000 + np.cumsum(np.random.randn(30)))}
         for _ in range(3):
             det.update(btc_ret, alt_prices)
 
@@ -465,7 +466,7 @@ class TestGrangerExtended:
 
         det = GrangerCausalityDetector()
         fv = det.to_feature_vector()
-        assert isinstance(fv, list | np.ndarray)
+        assert isinstance(fv, dict)
 
     def test_granger_result_dataclass(self) -> None:
         from src.causal.granger import GrangerResult
