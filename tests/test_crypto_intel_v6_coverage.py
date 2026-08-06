@@ -412,9 +412,8 @@ class TestAssetGNNExtended:
     def test_build_correlation_graph(self) -> None:
         import pandas as pd
 
-        from src.causal.asset_gnn import AssetGNN
+        from src.causal.asset_gnn import build_correlation_graph
 
-        gnn = AssetGNN()
         prices = pd.DataFrame(
             {
                 "BTC": [50000 + i * 10 for i in range(50)],
@@ -422,7 +421,7 @@ class TestAssetGNNExtended:
                 "SOL": [100 + i for i in range(50)],
             }
         )
-        edges, weights = gnn.build_correlation_graph(prices, threshold=0.0)
+        edges, weights = build_correlation_graph(prices, threshold=0.0)
         assert isinstance(edges, list)
         assert isinstance(weights, list)
 

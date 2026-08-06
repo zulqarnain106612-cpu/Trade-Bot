@@ -23,11 +23,11 @@ class TestGrangerCausalityDetector:
         btc = np.random.randn(5)
         alt_prices = {"ETH": np.random.randn(5).tolist()}
         result = gcd.update(btc, alt_prices)
-        # Not enough data — should return empty or partial result
-        assert result is None or isinstance(result, list)
+        # Below _MIN_WINDOW the detector returns its (still empty) result cache.
+        assert result == {}
 
     def test_update_with_sufficient_data(self) -> None:
-        from src.causal.granger import GrangerCausalityDetector
+        from src.causal.granger import GrangerCausalityDetector, GrangerResult
 
         gcd = GrangerCausalityDetector(window=30, max_lag=2)
         n = 60
@@ -37,7 +37,8 @@ class TestGrangerCausalityDetector:
             "SOL": np.random.randn(n).tolist(),
         }
         result = gcd.update(btc, alt_prices)
-        assert result is None or isinstance(result, list)
+        assert isinstance(result, dict)
+        assert all(isinstance(r, GrangerResult) for r in result.values())
 
     def test_feature_vector_returns_floats(self) -> None:
         from src.causal.granger import GrangerCausalityDetector
@@ -54,8 +55,15 @@ class TestGrangerCausalityDetector:
     def test_granger_result_fields(self) -> None:
         from src.causal.granger import GrangerResult
 
-        gr = GrangerResult(symbol="ETH", f_stat=3.5, p_value=0.02, is_causal=True, lag=1)
-        assert gr.symbol == "ETH"
+        gr = GrangerResult(
+            treatment="BTC",
+            outcome="ETH",
+            is_causal=True,
+            min_pvalue=0.02,
+            best_lag=1,
+            f_stat=3.5,
+        )
+        assert gr.outcome == "ETH"
         assert gr.is_causal is True
 
 
