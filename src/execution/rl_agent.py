@@ -196,7 +196,7 @@ class _ExecutionEnv:
             )
             self.action_space = gym.spaces.Discrete(_N_ACTIONS)
         except ImportError:
-            pass
+            log.warning("gymnasium_not_installed_env_spaces_unset")
 
     def reset(self, **kwargs: Any) -> tuple[np.ndarray, dict]:
         self._current = (self._current + 1) % max(len(self._episodes), 1)

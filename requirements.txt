@@ -1,22 +1,15 @@
+# Version-range mirror of requirements.in, for the one consumer that cannot use
+# the lock: mutation-testing.yml runs on a Python older than the lock's
+# numpy==2.5.0 supports, so it installs ranges instead of hashes.
+#
+# INVARIANT: every package here must also be in requirements.in.
+# CI installs requirements.lock, which pip-compile builds from requirements.in
+# ONLY — a package declared here and nowhere else is never installed anywhere.
+# Enforced by scripts/check_requirements_sync.py.
+#
+# Optional, lazily-imported extras are NOT here; see requirements-optional.txt.
+
 fastapi>=0.111,<1.0
-# ── crypto-intel-v6 additions ──────────────────────────────────────────────
-torch-geometric>=2.5,<3.0          # GAT asset graph (causal/asset_gnn.py)
-transformers>=4.40,<5.0            # CryptoBERT 110M NLP head
-river>=0.21,<1.0                   # ADWIN online drift detection
-mlflow>=2.13,<3.0                  # model registry + experiment tracking
-dvc>=3.50,<4.0                     # dataset + model versioning
-stable-baselines3>=2.3,<3.0        # PPO/SAC RL execution agent
-dowhy>=0.11,<1.0                   # DoWhy structural causal model
-ray[tune]>=2.20,<3.0               # distributed hyperparameter search
-prefect>=3.0,<4.0                  # workflow orchestration
-duckdb>=0.10,<2.0                  # OLAP / backtests store
-hopsworks>=3.7,<4.0                # feature store OSS
-py_ecc>=6.0,<7.0                   # bn128 pairing for zkSNARK
-web3>=6.0,<8.0                     # Ethereum interaction (Tornado Cash BFS)
-fastecdsa>=2.3,<3.0                # ECDSA r/s analysis
-bitcoin>=1.1,<2.0                  # bitcoin-lib-py Taproot/Schnorr parsing
-graphsense-lib>=23.9,<25.0         # address clustering (secp256k1)
-# ───────────────────────────────────────────────────────────────────────────
 uvicorn[standard]>=0.29,<1.0
 websockets>=12.0,<14.0
 ccxt>=4.3,<5.0
@@ -29,8 +22,10 @@ numpy>=1.26,<3.0
 scipy>=1.13,<2.0
 statsmodels>=0.14,<1.0
 torch>=2.4,<3.0  # GAP-015: EnsemblePredictor LSTMPredictor — CPU-only, no CUDA needed
+river>=0.21,<1.0  # src/risk/gate.py — ADWIN drift detection in the sizing gate
 python-dotenv>=1.0,<2.0
 aiosqlite>=0.20,<1.0
+duckdb>=1.0,<2.0  # src/data/duckdb_store.py — OLAP store for horizon/ECC metrics
 asyncpg>=0.30,<1.0  # GAP-006: TimescaleBackend (local TimescaleDB container)
 httpx>=0.27,<1.0
 pydantic>=2.7,<3.0
@@ -40,4 +35,3 @@ rich>=13.7,<15.0
 joblib>=1.4,<2.0
 aiohttp>=3.9,<4.0
 prometheus_client>=0.20,<1.0
-# watchdog removed — never imported in src/ (was listed in error)

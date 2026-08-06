@@ -14,8 +14,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
 import torch
 import torch.nn as nn
+
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 class GNNHead(nn.Module):
@@ -49,7 +53,7 @@ class GNNHead(nn.Module):
             )
             self._pyg_available = True
         except ImportError:
-            pass
+            log.warning("torch_geometric_not_installed_using_mlp_fallback_head")
 
         self.fallback_mlp = nn.Sequential(
             nn.Linear(node_features, hidden_dim),
