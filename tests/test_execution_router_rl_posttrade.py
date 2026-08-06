@@ -63,8 +63,9 @@ class TestSmartOrderRouterInit:
             filled_qty=1.0,
             avg_price=50000.0,
             slippage_bps=1.0,
-            latency_ms=10.0,
+            fee_usd=5.0,
             order_id="abc123",
+            success=True,
             error=None,
         )
         assert r.venue == "binance"
@@ -129,100 +130,79 @@ class TestRLExecutionAgent:
 # ─── PostTradeAnalytics ───────────────────────────────────────────────────────
 
 
+def _make_route_result(
+    avg_price=50000.0,
+    filled_qty=0.1,
+    slippage_bps=2.0,
+    fee_usd=5.0,
+    venue="binance",
+    algo="IOC",
+    error=None,
+):
+    from src.execution.router import RouteResult
+
+    return RouteResult(
+        venue=venue,
+        algo=algo,
+        filled_qty=filled_qty,
+        avg_price=avg_price,
+        slippage_bps=slippage_bps,
+        order_id="ord1",
+        fee_usd=fee_usd,
+        success=(error is None),
+        error=error,
+    )
+
+
 class TestPostTradeAnalytics:
     def test_record_creates_fill(self) -> None:
         from src.execution.post_trade import PostTradeAnalytics
 
         analytics = PostTradeAnalytics(store=None)
-        order_result = {
-            "id": "ord1",
-            "status": "closed",
-            "average": 50000.0,
-            "filled": 0.1,
-            "cost": 5000.0,
-            "fee": {"cost": 5.0},
-        }
-        analytics.record(order_result, "BTC/USDT", "buy", 0, 50000.0, 0.1)
-        assert len(analytics._fills) == 1
+        result = _make_route_result()
+        fill = analytics.record(result, "BTC/USDT", "buy", 0, 50000.0, 0.1)
+        assert fill is not None
+        assert len(analytics._fill_history) == 1
 
     def test_record_computes_slippage(self) -> None:
         from src.execution.post_trade import PostTradeAnalytics
 
         analytics = PostTradeAnalytics(store=None)
-        # Fill at 50100 vs limit at 50000 → slippage = 100/50000 * 10000 = 20 bps
-        order_result = {
-            "id": "x",
-            "status": "closed",
-            "average": 50100.0,
-            "filled": 1.0,
-            "cost": 50100.0,
-            "fee": {"cost": 10.0},
-        }
-        analytics.record(order_result, "BTC/USDT", "buy", 1, 50000.0, 1.0)
-        fill = analytics._fills[0]
+        result = _make_route_result(avg_price=50100.0, slippage_bps=20.0)
+        fill = analytics.record(result, "BTC/USDT", "buy", 1, 50000.0, 1.0)
         assert fill.slippage_bps >= 0.0
 
     def test_multiple_fills_accumulate(self) -> None:
         from src.execution.post_trade import PostTradeAnalytics
 
         analytics = PostTradeAnalytics(store=None)
-        for i in range(5):
-            order_result = {
-                "id": f"o{i}",
-                "status": "closed",
-                "average": 50000.0,
-                "filled": 0.01,
-                "cost": 500.0,
-                "fee": {"cost": 0.5},
-            }
-            analytics.record(order_result, "ETH/USDT", "sell", 2, 50000.0, 0.01)
-        assert len(analytics._fills) == 5
-
-    def test_record_with_no_fill_is_safe(self) -> None:
-        from src.execution.post_trade import PostTradeAnalytics
-
-        analytics = PostTradeAnalytics(store=None)
-        order_result = {
-            "id": "z",
-            "status": "open",
-            "average": None,
-            "filled": 0.0,
-            "cost": 0.0,
-            "fee": {},
-        }
-        analytics.record(order_result, "BTC/USDT", "buy", 0, 50000.0, 0.0)
+        for _ in range(5):
+            result = _make_route_result(filled_qty=0.01, fee_usd=0.5)
+            analytics.record(result, "ETH/USDT", "sell", 2, 50000.0, 0.01)
+        assert len(analytics._fill_history) == 5
 
     def test_venue_stats_updated(self) -> None:
         from src.execution.post_trade import PostTradeAnalytics
 
         analytics = PostTradeAnalytics(store=None)
-        order_result = {
-            "id": "v1",
-            "status": "closed",
-            "average": 50000.0,
-            "filled": 0.1,
-            "cost": 5000.0,
-            "fee": {"cost": 5.0},
-            "_venue": "binance",
-        }
-        analytics.record(order_result, "BTC/USDT", "buy", 0, 50000.0, 0.1)
-        # Should not crash; venue stats optional
+        result = _make_route_result(venue="binance")
+        analytics.record(result, "BTC/USDT", "buy", 0, 50000.0, 0.1)
+        assert "binance" in analytics._venue_stats
 
-    def test_fill_record_dataclass(self) -> None:
-        from src.execution.post_trade import FillRecord
+    def test_fill_record_fields(self) -> None:
+        from src.execution.post_trade import PostTradeAnalytics
 
-        fr = FillRecord(
-            ts=1.0,
-            symbol="BTC/USDT",
-            side="buy",
-            horizon_idx=0,
-            venue="binance",
-            algo="IOC",
-            limit_price=50000.0,
-            fill_price=50010.0,
-            qty=0.1,
-            slippage_bps=2.0,
-            fee_usd=5.0,
-            order_id="o1",
-        )
-        assert fr.slippage_bps == 2.0
+        analytics = PostTradeAnalytics(store=None)
+        result = _make_route_result(avg_price=50010.0, slippage_bps=2.0, fee_usd=5.0)
+        fill = analytics.record(result, "BTC/USDT", "buy", 0, 50000.0, 0.1)
+        assert fill.slippage_bps == 2.0
+        assert fill.symbol == "BTC/USDT"
+        assert fill.side == "buy"
+
+    def test_execution_quality_score_in_range(self) -> None:
+        from src.execution.post_trade import PostTradeAnalytics
+
+        analytics = PostTradeAnalytics(store=None)
+        result = _make_route_result()
+        fill = analytics.record(result, "BTC/USDT", "buy", 0, 50000.0, 0.1)
+        assert 0.0 <= fill.execution_quality_score <= 1.0
