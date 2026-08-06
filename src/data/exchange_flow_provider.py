@@ -114,8 +114,10 @@ class ExchangeFlowProvider:
                 log.warning("exchange_flow_empty", window=self._window)
                 return
             self._flows = flows
-            self._persist()
+            # Cache first: the tick path reads it, and its freshness must not
+            # depend on the daily history write succeeding.
             self._update_cache()
+            self._persist()
         except Exception as exc:
             log.warning("exchange_flow_fetch_error", exc=str(exc))
 

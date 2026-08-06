@@ -86,15 +86,20 @@ class TestExchangeFlowProvider:
         assert len(p.latest_flows()) == 2
 
     @pytest.mark.asyncio
-    async def test_persist_failure_does_not_break_fetch(self, tmp_path):
+    async def test_persist_failure_does_not_lose_flows(self, tmp_path):
+        """A disk problem must not cost us the flows we already fetched."""
         p = ExchangeFlowProvider(data_root=tmp_path)
         with (
             patch("aiohttp.ClientSession", return_value=_mock_session(json_body=_PAYLOAD)),
             patch.object(ExchangeFlowProvider, "_persist", side_effect=OSError("disk full")),
         ):
-            # _persist raising is swallowed by _fetch's own guard
             await p.fetch_once()
-        assert p.latest_flows() == []
+        from src.data.provider_cache import get_provider_cache
+
+        # The cache is updated before the history write, so the tick path
+        # still sees the flows; only the forward history record is lost.
+        assert len(p.latest_flows()) == 2
+        assert len(get_provider_cache().get_exchange_flows()) == 2
 
     def test_window_selection_changes_records(self):
         payload = {
