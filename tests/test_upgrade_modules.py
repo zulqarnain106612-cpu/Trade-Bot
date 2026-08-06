@@ -90,7 +90,7 @@ class TestHorizonMAMLAdapter:
         model = _TinyMLP()
         x = torch.randn(8, 4)
         y = torch.randint(0, 2, (8,))
-        adapted = adapter.adapt_on_drift(horizon_id=7, model=model, recent_x=x, recent_y=y)
+        adapted = adapter.adapt_on_drift(horizon_idx=7, model=model, recent_x=x, recent_y=y)
         assert adapted is not None
         assert (tmp_path / "h8_adapted.pt").exists()
 
@@ -101,7 +101,7 @@ class TestHorizonMAMLAdapter:
         model = _TinyMLP()
         x = torch.randn(4, 4)
         y = torch.randint(0, 2, (4,))
-        result = adapter.adapt_on_drift(horizon_id=0, model=model, recent_x=x, recent_y=y)
+        result = adapter.adapt_on_drift(horizon_idx=0, model=model, recent_x=x, recent_y=y)
         # horizon 0 is not in target horizons → returns the original model unchanged
         assert result is model
 
@@ -249,7 +249,7 @@ class TestModelRegistry:
         model = _TinyMLP()
         run_id = reg.log_model(
             model=model,
-            horizon_id=0,
+            horizon_idx=0,
             params={"lr": 0.001},
             metrics={"sharpe": 1.5},
         )

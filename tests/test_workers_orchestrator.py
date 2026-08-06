@@ -114,7 +114,8 @@ class TestWorkerTask:
             direction=1,
             confidence=0.8,
             magnitude_mu=0.02,
-            magnitude_logsigma=-2.0,
+            magnitude_sigma=0.135,
+            algo="IOC",
             timing=0.5,
         )
         assert res.direction == 1

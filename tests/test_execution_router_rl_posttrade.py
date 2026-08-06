@@ -15,28 +15,28 @@ class TestSelectAlgo:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_id=0, kyle_lambda=0.001, size_usd=10.0)
+        algo = router._select_algo(horizon_idx=0, kyle_lambda=0.001, size_usd=10.0)
         assert algo == "IOC"
 
     def test_medium_horizon_returns_iceberg(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_id=2, kyle_lambda=0.001, size_usd=15.0)
+        algo = router._select_algo(horizon_idx=2, kyle_lambda=0.001, size_usd=15.0)
         assert algo == "iceberg"
 
     def test_large_impact_returns_twap(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_id=0, kyle_lambda=1.0, size_usd=100.0)
+        algo = router._select_algo(horizon_idx=0, kyle_lambda=1.0, size_usd=100.0)
         assert algo == "TWAP"
 
     def test_long_horizon_returns_twap(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        algo = router._select_algo(horizon_id=7, kyle_lambda=0.001, size_usd=5.0)
+        algo = router._select_algo(horizon_idx=7, kyle_lambda=0.001, size_usd=5.0)
         assert algo == "TWAP"
 
 

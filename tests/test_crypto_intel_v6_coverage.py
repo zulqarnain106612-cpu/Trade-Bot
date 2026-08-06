@@ -226,7 +226,7 @@ class TestMAMLOptimizerExtended:
         model = _MLP2()
         x = torch.randn(4, 4)
         y = torch.randint(0, 2, (4,))
-        result = adapter.adapt_on_drift(horizon_id=0, model=model, recent_x=x, recent_y=y)
+        result = adapter.adapt_on_drift(horizon_idx=0, model=model, recent_x=x, recent_y=y)
         assert result is model  # not adapted
 
     def test_horizon_maml_target_adapts(self, tmp_path) -> None:
@@ -236,7 +236,7 @@ class TestMAMLOptimizerExtended:
         model = _MLP2()
         x = torch.randn(4, 4)
         y = torch.randint(0, 2, (4,))
-        result = adapter.adapt_on_drift(horizon_id=7, model=model, recent_x=x, recent_y=y)
+        result = adapter.adapt_on_drift(horizon_idx=7, model=model, recent_x=x, recent_y=y)
         assert result is not None
         ckpt = tmp_path / "h8_adapted.pt"
         assert ckpt.exists()
