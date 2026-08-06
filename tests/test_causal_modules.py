@@ -80,8 +80,8 @@ class TestDoWhySCM:
             }
         )
         result = scm.estimate_effect(data, treatment="whale_selling", outcome="btc_return")
-        assert hasattr(result, "effect")
-        assert isinstance(result.effect, float)
+        assert hasattr(result, "ate")
+        assert isinstance(result.ate, float)
 
     def test_causal_signal_returns_dict(self) -> None:
         import pandas as pd
@@ -120,62 +120,86 @@ class TestDoWhySCM:
     def test_causal_estimate_fields(self) -> None:
         from src.causal.dowhy_scm import CausalEstimate
 
-        est = CausalEstimate(treatment="X", outcome="Y", effect=0.5, p_value=0.01, method="linear")
-        assert est.effect == 0.5
-        assert isinstance(est.p_value, float)
+        est = CausalEstimate(treatment="X", outcome="Y", ate=0.5, confidence=0.01, method="linear")
+        assert est.ate == 0.5
+        assert isinstance(est.confidence, float)
 
 
 # ─── AssetGNN ─────────────────────────────────────────────────────────────────
 
 
 class TestBuildCorrelationGraph:
-    def test_returns_asset_graph_result(self) -> None:
+    def test_returns_edge_list_and_weights(self) -> None:
+        import pandas as pd
+
         from src.causal.asset_gnn import build_correlation_graph
 
-        prices = {
-            "BTC": np.random.randn(60).tolist(),
-            "ETH": np.random.randn(60).tolist(),
-            "SOL": np.random.randn(60).tolist(),
-        }
-        result = build_correlation_graph(prices)
-        assert hasattr(result, "assets")
-        assert hasattr(result, "edges")
-        assert "BTC" in result.assets
+        np.random.seed(0)
+        price_df = pd.DataFrame(
+            {
+                "BTC": np.cumprod(1 + np.random.randn(80) * 0.01) * 50000,
+                "ETH": np.cumprod(1 + np.random.randn(80) * 0.01) * 3000,
+                "SOL": np.cumprod(1 + np.random.randn(80) * 0.01) * 100,
+            }
+        )
+        edges, weights = build_correlation_graph(price_df)
+        assert isinstance(edges, list)
+        assert isinstance(weights, list)
+        assert len(edges) == len(weights)
 
-    def test_empty_prices_returns_result(self) -> None:
+    def test_empty_df_returns_empty_graph(self) -> None:
+        import pandas as pd
+
         from src.causal.asset_gnn import build_correlation_graph
 
-        result = build_correlation_graph({})
-        assert hasattr(result, "assets")
+        edges, weights = build_correlation_graph(pd.DataFrame())
+        assert edges == []
+        assert weights == []
 
     def test_threshold_filters_edges(self) -> None:
+        import pandas as pd
+
         from src.causal.asset_gnn import build_correlation_graph
 
         np.random.seed(42)
-        prices = {
-            "A": np.random.randn(60).tolist(),
-            "B": np.random.randn(60).tolist(),
-        }
-        result_strict = build_correlation_graph(prices, corr_threshold=0.99)
-        result_loose = build_correlation_graph(prices, corr_threshold=0.0)
-        assert len(result_loose.edges) >= len(result_strict.edges)
+        btc = np.cumprod(1 + np.random.randn(80) * 0.01) * 50000
+        price_df = pd.DataFrame({"A": btc, "B": btc * 0.9})  # highly correlated
+        edges_strict, _ = build_correlation_graph(price_df, threshold=0.99)
+        edges_loose, _ = build_correlation_graph(price_df, threshold=0.0)
+        assert len(edges_loose) >= len(edges_strict)
 
 
 class TestAssetGNN:
-    def test_run_with_numpy_fallback(self) -> None:
+    def test_run_empty_dfs_returns_empty_result(self) -> None:
+        import pandas as pd
+
         from src.causal.asset_gnn import AssetGNN
 
-        gnn = AssetGNN(n_assets=3, d_in=4, d_out=8)
-        features = np.random.randn(3, 4)
-        edges = [(0, 1), (1, 2)]
-        result = gnn.run(features, edges)
-        assert hasattr(result, "embeddings")
+        gnn = AssetGNN()
+        result = gnn.run(pd.DataFrame(), pd.DataFrame())
+        assert hasattr(result, "asset_embeddings")
+        assert result.asset_embeddings == {}
+
+    def test_run_with_data(self) -> None:
+        import pandas as pd
+
+        from src.causal.asset_gnn import AssetGNN
+
+        np.random.seed(1)
+        price_df = pd.DataFrame(
+            {
+                "BTC": np.cumprod(1 + np.random.randn(80) * 0.01),
+                "ETH": np.cumprod(1 + np.random.randn(80) * 0.01),
+            }
+        )
+        node_df = pd.DataFrame(
+            {
+                "vol": [0.01, 0.015],
+                "momentum": [0.5, -0.3],
+            },
+            index=["BTC", "ETH"],
+        )
+        gnn = AssetGNN()
+        result = gnn.run(price_df, node_df)
+        assert hasattr(result, "asset_embeddings")
         assert hasattr(result, "contagion_scores")
-
-    def test_run_empty_edges(self) -> None:
-        from src.causal.asset_gnn import AssetGNN
-
-        gnn = AssetGNN(n_assets=2, d_in=4, d_out=8)
-        features = np.random.randn(2, 4)
-        result = gnn.run(features, [])
-        assert hasattr(result, "embeddings")
