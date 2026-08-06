@@ -66,8 +66,10 @@ class TestShadowDeployerExtended:
 
         dep = ShadowDeployer(lambda x: 1.0, lambda x: 1.0, shadow_hours=999)
         dep.start()
+        # evaluate() always returns an ABResult; with no recorded returns
+        # neither side can beat the other, so nothing is promoted.
         result = dep.evaluate()
-        assert result is None
+        assert result.promoted is False
 
     def test_evaluate_after_shadow_period(self) -> None:
         from src.upgrade.shadow_deploy import ShadowDeployer
@@ -329,7 +331,8 @@ class TestNBEATSHeadExtended:
         from src.models.nbeats import NBEATSHead
 
         model = NBEATSHead()
-        x = torch.randn(1, 48)
+        # default input_size is 96
+        x = torch.randn(1, 96)
         out = model(x)
         assert out.shape[-1] == 128
 
@@ -527,10 +530,10 @@ class TestDoWhySCMExtended:
 
 
 class TestDuckDBStoreExtended:
-    def test_write_multiple_horizon_metrics(self) -> None:
+    def test_write_multiple_horizon_metrics(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         for h in range(10):
             store.write_horizon_metric(
                 horizon_id=h,
@@ -544,10 +547,10 @@ class TestDuckDBStoreExtended:
         assert len(df) >= 1
         store.close()
 
-    def test_write_ecc_multiple(self) -> None:
+    def test_write_ecc_multiple(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         for i in range(5):
             store.write_ecc_signal(
                 {
@@ -560,10 +563,10 @@ class TestDuckDBStoreExtended:
         assert len(df) >= 5
         store.close()
 
-    def test_roundtrip_horizon(self) -> None:
+    def test_roundtrip_horizon(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         store.write_horizon_metric(
             horizon_id=3, label="5m", sharpe=2.1, confidence=0.9, direction=-1, drift_detected=True
         )

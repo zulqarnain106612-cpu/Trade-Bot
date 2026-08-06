@@ -53,6 +53,11 @@ class WFParams:
 
 def _sharpe(returns: np.ndarray) -> float:
     """Annualized Sharpe ratio from a returns array."""
+    # np.std([]) is nan and `nan < 1e-9` is False, so an empty series would
+    # fall through and propagate nan into the objective, poisoning every
+    # Optuna comparison made against it.
+    if len(returns) == 0:
+        return 0.0
     std = float(np.std(returns))
     if std < 1e-9:
         return 0.0
