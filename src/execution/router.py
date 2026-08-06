@@ -49,7 +49,10 @@ class SmartOrderRouter:
     def __init__(self, exchanges: list[str] | None = None) -> None:
         import ccxt.async_support as ccxt
 
-        self._exchange_names = exchanges or ["binance", "bybit", "okx"]
+        # `or` would treat an explicit empty list as "unset" and connect to all
+        # three live venues -- the opposite of what disabling every exchange
+        # asks for. Only None means "use the defaults".
+        self._exchange_names = ["binance", "bybit", "okx"] if exchanges is None else list(exchanges)
         self._exchanges: dict[str, Any] = {}
         for name in self._exchange_names:
             try:

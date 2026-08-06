@@ -16,7 +16,7 @@ class TestDerivativesFeatureExtractor:
         ft = ext.extract({})
         assert ft.open_interest_usd == 0.0
         assert ft.funding_rate == 0.0
-        assert ft.liquidations_usd == 0.0
+        assert ft.liquidation_pressure == 0.0
 
     def test_extract_with_data(self) -> None:
         from src.features.derivatives import DerivativesFeatureExtractor

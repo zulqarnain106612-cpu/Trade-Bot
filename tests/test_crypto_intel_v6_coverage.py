@@ -121,7 +121,7 @@ class TestWalkForwardStudy:
             return 1.0
 
         study = WalkForwardStudy("test", dummy_train, data=list(range(100)))
-        assert study.best_params is None
+        assert study.best_params() == {}
 
     def test_sharpe_computation(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
@@ -156,7 +156,7 @@ class TestWalkForwardStudy:
         )
         study.run()
         # After run, best_params might be set
-        assert study.best_params is None or isinstance(study.best_params, dict)
+        assert isinstance(study.best_params(), dict)
 
 
 # ─── ModelRegistry ─────────────────────────────────────────────────────────────
@@ -413,9 +413,8 @@ class TestAssetGNNExtended:
     def test_build_correlation_graph(self) -> None:
         import pandas as pd
 
-        from src.causal.asset_gnn import AssetGNN
+        from src.causal.asset_gnn import build_correlation_graph
 
-        gnn = AssetGNN()
         prices = pd.DataFrame(
             {
                 "BTC": [50000 + i * 10 for i in range(50)],
@@ -423,7 +422,7 @@ class TestAssetGNNExtended:
                 "SOL": [100 + i for i in range(50)],
             }
         )
-        edges, weights = gnn.build_correlation_graph(prices, threshold=0.0)
+        edges, weights = build_correlation_graph(prices, threshold=0.0)
         assert isinstance(edges, list)
         assert isinstance(weights, list)
 
@@ -669,7 +668,7 @@ class TestTFTExtended:
     def test_grn_forward(self) -> None:
         from src.models.tft import GatedResidualNetwork
 
-        grn = GatedResidualNetwork(d_in=32, d_out=64)
+        grn = GatedResidualNetwork(input_dim=32, hidden_dim=64, output_dim=64)
         x = torch.randn(4, 32)
         out = grn(x)
         assert out.shape == (4, 64)
@@ -688,7 +687,7 @@ class TestTFTExtended:
 
         tft = TFTHead(n_past_vars=10, n_cov_vars=4, d_model=64)
         past = torch.randn(2, 20, 10)
-        cov = torch.randn(2, 4)
+        cov = torch.randn(2, 20, 4)
         out = tft(past, cov)
         assert out.shape == (2, 64)
 

@@ -47,11 +47,11 @@ class TestWorkerOrchestrator:
     def test_collect_returns_none_on_empty(self) -> None:
         from src.workers.orchestrator import WorkerOrchestrator
 
+        # Deliberately not started: the ECC thread publishes a result as soon
+        # as it runs, so asserting an empty queue against a live orchestrator
+        # is a race, not a test of collect().
         orch = WorkerOrchestrator(n_workers=2, ecc_interval=3600.0)
-        orch.start()
-        result = orch.collect(timeout=0.05)
-        assert result is None
-        orch.shutdown()
+        assert orch.collect(timeout=0.05) is None
 
     def test_worker_count_property(self) -> None:
         from src.workers.orchestrator import WorkerOrchestrator

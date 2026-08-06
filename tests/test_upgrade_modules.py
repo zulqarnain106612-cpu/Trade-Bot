@@ -118,7 +118,10 @@ class TestSharpeHelper:
     def test_positive_returns_positive_sharpe(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
 
-        r = np.ones(252) * 0.01
+        # A constant series has zero volatility and an undefined Sharpe, which
+        # _sharpe deliberately reports as 0.0; use a series that actually varies.
+        rng = np.random.default_rng(0)
+        r = 0.01 + rng.normal(0.0, 0.001, 252)
         assert _sharpe(r) > 0.0
 
 
@@ -152,8 +155,8 @@ class TestWalkForwardStudy:
             n_trials=1,
             storage_path=tmp_path / "s.db",
         )
-        params = study.best_params
-        assert params is None or isinstance(params, dict)
+        # best_params is a method and returns {} before the study has run.
+        assert study.best_params() == {}
 
     def test_wf_params_defaults(self) -> None:
         from src.upgrade.optuna_wf import WFParams
