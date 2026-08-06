@@ -138,9 +138,9 @@ class TestWalkForwardStudy:
     def test_wf_params_dataclass(self) -> None:
         from src.upgrade.optuna_wf import WFParams
 
-        p = WFParams(params={"lr": 0.01}, sharpe=1.5, n_folds=3)
-        assert p.sharpe == 1.5
-        assert p.params["lr"] == 0.01
+        p = WFParams(lr_min=1e-4, lr_max=1e-2, dropout_max=0.3)
+        assert p.lr_min == 1e-4
+        assert p.batch_size_choices == (32, 64, 128, 256)
 
     def test_run_short_data_no_crash(self) -> None:
         from src.upgrade.optuna_wf import WalkForwardStudy
@@ -175,7 +175,7 @@ class TestModelRegistryExtended:
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
         model = _MLP2()
-        reg.log_model(model, run_name="test_run", metrics={"sharpe": 1.5})
+        reg.log_model(model, model_name="m", horizon_idx=0, metrics={"sharpe": 1.5})
 
     def test_load_model_missing_returns_none(self, tmp_path) -> None:
         from src.upgrade.registry import ModelRegistry

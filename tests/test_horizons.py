@@ -127,7 +127,7 @@ class TestGNNHead:
 
         model = GNNHead(node_features=32, d_model=128)
         x = torch.randn(5, 32)
-        out = model(x, edge_index=None, edge_attr=None)
+        out = model(x)
         assert out.shape == (1, 128)
 
 

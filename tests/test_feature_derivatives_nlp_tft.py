@@ -89,7 +89,7 @@ class TestNLPFeatures:
 
         from src.features.nlp import NLPFeatures
 
-        ft = NLPFeatures(sentiment_score=0.5, embedding=np.zeros(128))
+        ft = NLPFeatures(embedding=np.zeros(128), sentiment_score=0.5, confidence=0.9)
         assert ft.sentiment_score == 0.5
         assert ft.embedding.shape == (128,)
 

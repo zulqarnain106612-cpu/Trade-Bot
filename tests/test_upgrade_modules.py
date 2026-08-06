@@ -249,6 +249,7 @@ class TestModelRegistry:
         model = _TinyMLP()
         run_id = reg.log_model(
             model=model,
+            model_name="tiny_mlp",
             horizon_idx=0,
             params={"lr": 0.001},
             metrics={"sharpe": 1.5},
@@ -266,7 +267,7 @@ class TestModelRegistry:
         from src.upgrade.registry import ModelRegistry
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
-        result = reg.load_model("nonexistent_model", version=1)
+        result = reg.load_model("nonexistent_model", stage="Production")
         assert result is None
 
     def test_tag_dvc_returns_bool(self, tmp_path) -> None:
