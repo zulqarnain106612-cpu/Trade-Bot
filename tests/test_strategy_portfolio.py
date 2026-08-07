@@ -23,6 +23,7 @@ from src.engine.strategy_portfolio import (
     build_cross_exchange_context,
     build_funding_context,
     build_signal_engine_context,
+    build_xsec_momentum_context,
     default_context_builders,
     get_portfolio_runner,
     reset_portfolio_runner,
@@ -189,6 +190,7 @@ def test_default_builders_cover_the_families_with_feeds() -> None:
     assert "breakout_volume_v1" in builders
     assert "funding_carry_v1" in builders
     assert "cross_exchange_arb_v1" in builders
+    assert "xsec_momentum_v1" in builders
 
 
 # ---------------------------------------------------------------- runner
@@ -445,3 +447,57 @@ def test_cross_exchange_arb_votes_through_the_runner() -> None:
     assert verdict.signal is not None
     # venue_a richer than venue_b -> short venue_a.
     assert verdict.signal.direction == -1
+
+
+# ------------------------------------------------- cross-sectional builder
+
+
+def _universe(returns: dict[str, float], symbol: str = "BTC/USDT") -> PortfolioInputs:
+    return PortfolioInputs(symbol=symbol, timeframe="15m", universe_returns=returns)
+
+
+def test_xsec_builder_abstains_without_a_universe() -> None:
+    assert build_xsec_momentum_context(_INPUTS) is None
+    assert build_xsec_momentum_context(_universe({})) is None
+
+
+def test_xsec_builder_abstains_when_the_target_is_absent() -> None:
+    # A missing target has no percentile rank; inserting it at a neutral
+    # value would place it mid-universe, where a decile strategy will never
+    # notice its own asset was never measured.
+    assert build_xsec_momentum_context(_universe({"ETH/USDT": 0.1, "SOL/USDT": -0.2})) is None
+
+
+def test_xsec_builder_builds_when_the_target_is_ranked() -> None:
+    ctx = build_xsec_momentum_context(_universe({"BTC/USDT": 0.3, "ETH/USDT": 0.1}))
+    assert ctx is not None
+    assert ctx.target_symbol == "BTC/USDT"  # type: ignore[attr-defined]
+    assert len(ctx.trailing_returns) == 2  # type: ignore[attr-defined]
+
+
+def test_xsec_universe_size_guard_belongs_to_the_strategy() -> None:
+    # A too-small universe must read as the strategy declining, not as
+    # missing data — the builder deliberately does not second-guess it.
+    from src.strategies.xsec_momentum import CrossSectionalMomentumStrategy
+
+    reg = StrategyRegistry()
+    reg.register(CrossSectionalMomentumStrategy(0.15))
+    ev = StrategyPortfolioRunner(registry=reg).evaluate(
+        _universe({"BTC/USDT": 0.3, "ETH/USDT": 0.1})
+    )
+    (verdict,) = ev.verdicts
+    assert verdict.status is VerdictStatus.REGIME_GATED
+
+
+def test_xsec_momentum_votes_on_a_full_universe() -> None:
+    from src.strategies.xsec_momentum import CrossSectionalMomentumStrategy
+
+    universe = {f"S{i}/USDT": i * 0.01 for i in range(12)}
+    universe["BTC/USDT"] = 5.0  # decisively the top of the cross-section
+    reg = StrategyRegistry()
+    reg.register(CrossSectionalMomentumStrategy(0.15))
+    ev = StrategyPortfolioRunner(registry=reg).evaluate(_universe(universe))
+    (verdict,) = ev.verdicts
+    assert verdict.status is VerdictStatus.SIGNAL
+    assert verdict.signal is not None
+    assert verdict.signal.direction == 1

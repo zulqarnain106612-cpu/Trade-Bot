@@ -66,6 +66,7 @@ from src.strategies.cross_exchange_arb import CrossExchangeContext
 from src.strategies.funding_carry import FundingContext
 from src.strategies.registry import Signal, StrategyProtocol, StrategyRegistry, get_default_registry
 from src.strategies.signal_engine_adapter import STRATEGY_ID_SIGNAL_ENGINE
+from src.strategies.xsec_momentum import UniverseContext
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -211,6 +212,9 @@ class PortfolioInputs:
     funding_history_pct: Sequence[float] | None = None
     spot_price: float | None = None
     perp_price: float | None = None
+    # Trailing return per symbol across the traded universe. The target
+    # symbol must appear in it for the cross-sectional family to rank itself.
+    universe_returns: Mapping[str, float] = field(default_factory=dict)
     # Same-symbol last price per venue, insertion-ordered. Two or more
     # entries are what let the cross-exchange family see a basis at all.
     venue_prices: Mapping[str, float] = field(default_factory=dict)
@@ -319,16 +323,37 @@ def build_cross_exchange_context(inputs: PortfolioInputs) -> object | None:
     )
 
 
+def build_xsec_momentum_context(inputs: PortfolioInputs) -> object | None:
+    """
+    Rank this symbol against the universe's trailing returns.
+
+    Abstains when the symbol being traded is absent from the cross-section.
+    That is not a formality: the strategy ranks by percentile, so a missing
+    target has no rank at all, and adding it at a neutral value would place
+    it mid-universe — precisely where a decile strategy will never notice
+    that its own asset was never measured.
+
+    The universe size guard belongs to the strategy (_MIN_UNIVERSE_SIZE),
+    not here, so a too-small universe reads as the strategy declining rather
+    than as missing data.
+    """
+    returns = inputs.universe_returns
+    if not returns or inputs.symbol not in returns:
+        return None
+    return UniverseContext(
+        trailing_returns=pd.Series(dict(returns), dtype="float64"),
+        target_symbol=inputs.symbol,
+    )
+
+
 def default_context_builders() -> dict[str, ContextBuilder]:
     """
     Builders for the families whose data this process already has.
 
-    Families absent from this table (mean reversion, cross-sectional
-    momentum, options carry) abstain with an explicit
+    Families absent from this table (mean reversion, options carry) abstain with an explicit
     ``no_context_builder`` reason. They are not removed and not disabled:
     each needs a data source this process does not yet fetch — a cointegrated
-    pair series, a cross-sectional universe, an options surface — and the
-    honest report is "cannot feed it yet", visible
+    pair series, an options surface — and the honest report is "cannot feed it yet", visible
     every tick, rather than deletion or a fabricated context.
     """
     return {
@@ -337,6 +362,7 @@ def default_context_builders() -> dict[str, ContextBuilder]:
         "funding_carry_v1": build_funding_context,
         "basis_trade_v1": build_basis_trade_context,
         "cross_exchange_arb_v1": build_cross_exchange_context,
+        "xsec_momentum_v1": build_xsec_momentum_context,
     }
 
 
@@ -526,6 +552,7 @@ __all__ = [
     "build_breakout_context",
     "build_cross_exchange_context",
     "build_funding_context",
+    "build_xsec_momentum_context",
     "build_signal_engine_context",
     "default_context_builders",
     "get_portfolio_runner",

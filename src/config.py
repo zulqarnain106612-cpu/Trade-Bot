@@ -729,6 +729,32 @@ class StrategyPortfolioSettings(BaseSettings):
 
     xsec_momentum_enabled: bool = Field(default=False)
     xsec_momentum_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+    xsec_universe: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Symbols ranked against each other by the cross-sectional momentum "
+            "family. Empty (the default) leaves that family abstaining rather "
+            "than guessing a universe: which assets belong in a cross-section "
+            "is a trading decision, and a plausible-looking default would be "
+            "one the operator never made. The family needs at least 10 symbols "
+            "to rank a decile, so a shorter list still abstains."
+        ),
+    )
+    xsec_lookback_days: int = Field(
+        default=30,
+        ge=2,
+        description="Trailing-return window used to rank the universe.",
+    )
+    xsec_refresh_interval_s: float = Field(
+        default=3600.0,
+        gt=0.0,
+        description=(
+            "TTL on the universe snapshot. A 30-day trailing return does not "
+            "move between two 15m ticks, and refetching per tick would "
+            "multiply this bot's request rate by the universe size for "
+            "information that changes daily."
+        ),
+    )
 
     basis_trade_enabled: bool = Field(default=False)
     basis_trade_fraction: float = Field(default=0.10, gt=0.0, le=1.0)

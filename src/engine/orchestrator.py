@@ -56,6 +56,7 @@ from src.engine.strategy_portfolio import (
     PortfolioInputs,
     get_portfolio_runner,
 )
+from src.engine.universe_returns import UniverseReturnsCache
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
@@ -210,6 +211,16 @@ class Orchestrator:
         # ceiling derived from it. Reported, not yet applied to sizing.
         self._last_portfolio_peer_evaluation: dict[str, PortfolioEvaluation] = {}
         self._last_portfolio_agreement: dict[str, float] = {}
+        # Cross-sectional feed. Built unconditionally but inert with an empty
+        # universe — trailing_returns() short-circuits, so an unconfigured
+        # universe costs nothing and the family keeps abstaining honestly.
+        _portfolio_cfg = self._cfg.strategy_portfolio
+        self._universe_returns = UniverseReturnsCache(
+            fetcher,
+            tuple(_portfolio_cfg.xsec_universe),
+            lookback_days=_portfolio_cfg.xsec_lookback_days,
+            ttl_seconds=_portfolio_cfg.xsec_refresh_interval_s,
+        )
 
         # GAP-003: Performance drift detector (initialized in startup after models trained)
         self._drift_detector: PerformanceDriftDetector | None = None
@@ -1761,11 +1772,19 @@ class Orchestrator:
 
         venue_prices, venue_price_ts = await self._fetch_venue_prices()
 
+        # TTL-cached, so this is a dict copy on all but the refresh tick.
+        universe_returns: dict[str, float] = {}
+        try:
+            universe_returns = await self._universe_returns.trailing_returns()
+        except Exception as exc:
+            self._log.warning("orchestrator.universe_returns_failed", error=str(exc))
+
         return PortfolioInputs(
             symbol=self._symbol,
             timeframe=tf.value,
             venue_prices=venue_prices,
             venue_price_ts=venue_price_ts,
+            universe_returns=universe_returns,
             highs=highs,
             lows=lows,
             closes=closes,
