@@ -21,6 +21,26 @@ Exit codes:
 Integration:
     Add alongside the existing coverage-floor gate in ci.yml:
         python3 scripts/check_static_invariants.py
+
+Known limits — read these before trusting a clean run:
+
+  * No import-alias tracking. `from datetime import datetime as dt` then
+    `dt.now() - x` is not recognised as a wall-clock duration, and neither
+    is any other renamed import. Every check matches on the name as written.
+  * No cross-procedural analysis. A caller that exists but is itself dead
+    code still satisfies check_protocol_methods_are_called; a value that
+    reaches a sink through a helper is not traced.
+  * Name-based, not type-based. `.columns` on something that is not a
+    DataFrame matches; a DataFrame reached under another attribute name
+    does not.
+  * These are floors, not proofs. Six of the checks here were found, by
+    probing them with alternative spellings of their own defect, to miss the
+    most obvious variant of what they were written to detect — after having
+    reported clean for many commits. A passing run means the specific
+    patterns below were not found. It does not mean the defect is absent.
+
+    Probe a new check with the defect written three different ways before
+    trusting it.
 """
 
 from __future__ import annotations
@@ -109,6 +129,28 @@ def check_import_cycles() -> list[str]:
     return [f"import cycle: {c}" for c in cycles]
 
 
+def _slices_axis_labels(value: ast.AST) -> bool:
+    """
+    Whether `value` is a DataFrame/Series axis-label sequence.
+
+    Matches `.columns` / `.index` directly, and through the two wrappers that
+    produce the same positional list: `list(df.columns)` and
+    `df.columns.tolist()`. Both were invisible to this check until it was
+    probed with them, and both are the more natural spelling once a caller
+    wants a real list rather than an Index.
+    """
+    if isinstance(value, ast.Call):
+        func = value.func
+        # df.columns.tolist()
+        if isinstance(func, ast.Attribute) and func.attr in ("tolist", "to_list"):
+            return _slices_axis_labels(func.value)
+        # list(df.columns)
+        if isinstance(func, ast.Name) and func.id == "list" and value.args:
+            return _slices_axis_labels(value.args[0])
+        return False
+    return isinstance(value, ast.Attribute) and value.attr in ("index", "columns")
+
+
 def check_positional_column_slices() -> list[str]:
     """
     ``frame.columns[:n]`` / ``series.index[:n]`` reconciles by POSITION.
@@ -124,14 +166,14 @@ def check_positional_column_slices() -> list[str]:
         tree = _parse(path)
         owner = _enclosing_function(tree)
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute)):
+            if not (isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice)):
                 continue
-            if node.value.attr not in ("index", "columns") or not isinstance(node.slice, ast.Slice):
+            if not _slices_axis_labels(node.value):
                 continue
             key = (_rel(path), owner.get(node, "<module>"))
             if key not in _POSITIONAL_SLICE_ALLOWED:
                 problems.append(
-                    f"{_rel(path)}:{node.lineno} positional slice of .{node.value.attr} "
+                    f"{_rel(path)}:{node.lineno} positional slice of axis labels "
                     f"in {key[1]}() — select by name, or add to the allowlist with a reason"
                 )
     return problems
@@ -769,6 +811,9 @@ _WALL_CLOCK_ARITHMETIC_ALLOWED = {
     # Compared against a PERSISTED ISO timestamp read back from disk.
     # time.monotonic() has no meaning across process restarts.
     ("src/tuning/runner.py", "_cooldown_active"),
+    # Compared against an ISO timestamp returned by the Dune API. That is an
+    # absolute external instant; a monotonic clock has no relationship to it.
+    ("src/intelligence/onchain/dune_provider.py", "_results_fresh"),
 }
 
 
@@ -806,7 +851,12 @@ def check_durations_use_monotonic() -> list[str]:
         # throttle measured its interval that way and this check missed it
         # until the datetime form was added.
         if node.func.attr in ("now", "utcnow"):
-            return isinstance(node.func.value, ast.Name) and node.func.value.id == "datetime"
+            owner = node.func.value
+            # `from datetime import datetime` -> Name('datetime')
+            if isinstance(owner, ast.Name):
+                return owner.id == "datetime"
+            # `import datetime`              -> Attribute(Name('datetime'), 'datetime')
+            return isinstance(owner, ast.Attribute) and owner.attr == "datetime"
         return False
 
     problems: list[str] = []

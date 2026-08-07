@@ -802,3 +802,32 @@ def test_deque_default_is_flagged(invariants, fake_tree) -> None:
         "from collections import deque\ndef f(a=deque(maxlen=5)):\n    return a\n",
     )
     assert invariants.check_no_mutable_default_arguments() != []
+
+
+def test_datetime_module_qualified_duration_is_flagged(invariants, fake_tree) -> None:
+    # `import datetime` then datetime.datetime.now() — the owner is an
+    # Attribute, not a Name, and slipped past until probed for.
+    fake_tree(
+        "src/a.py",
+        "import datetime\n"
+        "def f(s):\n"
+        "    return (datetime.datetime.now() - s).total_seconds()\n",
+    )
+    assert invariants.check_durations_use_monotonic() != []
+
+
+def test_positional_slice_through_list_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "def f(df, n):\n    return list(df.columns)[:n]\n")
+    assert invariants.check_positional_column_slices() != []
+
+
+def test_positional_slice_through_tolist_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "def f(df, n):\n    return df.columns.tolist()[:n]\n")
+    assert invariants.check_positional_column_slices() != []
+
+
+def test_slicing_a_non_axis_list_is_not_flagged(invariants, fake_tree) -> None:
+    # The check is name-based; list() of something that is not .columns or
+    # .index must stay clean or every slice in the codebase lights up.
+    fake_tree("src/a.py", "def f(x, n):\n    return list(x.values)[:n]\n")
+    assert invariants.check_positional_column_slices() == []
