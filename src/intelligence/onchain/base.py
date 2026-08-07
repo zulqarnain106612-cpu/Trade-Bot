@@ -56,6 +56,22 @@ class RateLimiter:
                 sleep_s = (1.0 - self._tokens) * (self._window_s / self._rate)
                 await asyncio.sleep(sleep_s)
                 self._tokens = 0.0
+                # Advance the refill mark past the sleep. Without this,
+                # _last_refill still points at the instant BEFORE the wait, so
+                # the next acquire() computes elapsed across a window that has
+                # already been spent accruing the token just consumed — and
+                # credits it a second time.
+                #
+                # The effect is not subtle: the bucket runs at exactly twice
+                # its configured rate once it starts throttling. Simulated at
+                # rate=10/s, fifty throttled calls completed in 2.5s rather
+                # than 5.0s. For an API limiter that means 429s and bans, and
+                # exchange rate limits are a first-class constraint here.
+                #
+                # Set from the post-sleep instant rather than time.monotonic()
+                # so the accounting matches the sleep exactly and cannot drift
+                # with scheduler latency.
+                self._last_refill = now + sleep_s
             else:
                 self._tokens -= 1.0
 
