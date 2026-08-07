@@ -45,14 +45,14 @@ class TestSmartOrderRouterInit:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=[])
-        assert router._exs == {}
+        assert router._exchanges == {}
 
     def test_init_unknown_exchange_skipped(self) -> None:
         from src.execution.router import SmartOrderRouter
 
         router = SmartOrderRouter(exchanges=["not_a_real_exchange_xyz"])
         # Unknown exchange should be skipped gracefully
-        assert "not_a_real_exchange_xyz" not in router._exs
+        assert "not_a_real_exchange_xyz" not in router._exchanges
 
     def test_route_result_dataclass(self) -> None:
         from src.execution.router import RouteResult
@@ -108,8 +108,12 @@ class TestRLExecutionAgent:
         agent = RLExecutionAgent(model_path=tmp_path / "no_model.zip")
         state = RLExecutionState(n_horizons=3)
         obs = state.build(
-            signal={"direction": 1, "confidence": 0.8, "size_pct": 0.02, "horizon_idx": 0},
-            portfolio={"equity": 10000.0, "open_positions": 1},
+            horizon_confidences=[0.7, 0.6],
+            regime_id=1,
+            ecc_features={},
+            realized_pnl=0.0,
+            drawdown=0.0,
+            kyle_lambda=1e-6,
         )
         action, meta = agent.predict(obs)
         assert action in (0, 1, 2, 3)
@@ -120,8 +124,12 @@ class TestRLExecutionAgent:
 
         state = RLExecutionState(n_horizons=5)
         obs = state.build(
-            signal={"direction": -1, "confidence": 0.7, "size_pct": 0.01, "horizon_idx": 2},
-            portfolio={"equity": 5000.0, "open_positions": 0},
+            horizon_confidences=[0.7, 0.6],
+            regime_id=1,
+            ecc_features={},
+            realized_pnl=0.0,
+            drawdown=0.0,
+            kyle_lambda=1e-6,
         )
         assert isinstance(obs, np.ndarray)
         assert obs.ndim == 1

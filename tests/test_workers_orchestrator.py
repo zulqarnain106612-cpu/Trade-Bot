@@ -39,7 +39,7 @@ class TestWorkerOrchestrator:
         from src.workers.orchestrator import WorkerOrchestrator, WorkerTask
 
         orch = WorkerOrchestrator(n_workers=2, ecc_interval=3600.0)
-        task = WorkerTask(horizon_idx=0, symbol="BTC/USDT", features={}, task_id="t1")
+        task = WorkerTask(horizon_id=0, symbol="BTC/USDT", features={}, task_id="t1")
         orch.submit(task)
         assert orch._started
         orch.shutdown()
@@ -49,8 +49,11 @@ class TestWorkerOrchestrator:
 
         orch = WorkerOrchestrator(n_workers=2, ecc_interval=3600.0)
         orch.start()
+        # The ECC thread does one scan at startup regardless of ecc_interval,
+        # so the queue may hold that dict; no *task* was submitted, so no
+        # WorkerResult can appear.
         result = orch.collect(timeout=0.05)
-        assert result is None
+        assert result is None or (isinstance(result, dict) and result.get("type") == "ecc")
         orch.shutdown()
 
     def test_worker_count_property(self) -> None:
@@ -100,8 +103,8 @@ class TestWorkerTask:
     def test_worker_task_dataclass(self) -> None:
         from src.workers.orchestrator import WorkerTask
 
-        task = WorkerTask(horizon_idx=3, symbol="ETH/USDT", features={"a": 1.0}, task_id="x")
-        assert task.horizon_idx == 3
+        task = WorkerTask(horizon_id=3, symbol="ETH/USDT", features={"a": 1.0}, task_id="x")
+        assert task.horizon_id == 3
         assert task.symbol == "ETH/USDT"
         assert task.task_id == "x"
 
@@ -110,12 +113,13 @@ class TestWorkerTask:
 
         res = WorkerResult(
             task_id="t1",
-            horizon_idx=0,
+            horizon_id=0,
             direction=1,
             confidence=0.8,
             magnitude_mu=0.02,
-            magnitude_logsigma=-2.0,
+            magnitude_sigma=0.01,
             timing=0.5,
+            algo="IOC",
         )
         assert res.direction == 1
         assert 0.0 <= res.confidence <= 1.0

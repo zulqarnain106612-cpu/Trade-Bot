@@ -77,7 +77,11 @@ class RLExecutionState:
             confs + list(regime_onehot) + ecc_vec + [realized_pnl, drawdown, kyle_lambda],
             dtype=np.float32,
         )
-        return state[:_STATE_DIM]  # clip to 27 dims if slightly off
+        # The SB3 policy has a fixed observation size, so the vector must be
+        # exactly _STATE_DIM — clipping alone left it short for n_horizons < 10.
+        if state.size < _STATE_DIM:
+            return np.pad(state, (0, _STATE_DIM - state.size))
+        return state[:_STATE_DIM]
 
 
 class RLExecutionAgent:

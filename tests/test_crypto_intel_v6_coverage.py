@@ -756,28 +756,33 @@ class TestRLExecutionAgentExtended:
         from src.execution.rl_agent import RLExecutionAgent, RLExecutionState
 
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
-        for direction in [-1, 0, 1]:
-            state = RLExecutionState(n_horizons=2)
+        state = RLExecutionState(n_horizons=2)
+        for regime_id, pnl in [(0, -0.05), (4, 0.0), (8, 0.05)]:
             obs = state.build(
-                signal={
-                    "direction": direction,
-                    "confidence": 0.7,
-                    "size_pct": 0.02,
-                    "horizon_idx": 1,
-                },
-                portfolio={"equity": 10000.0, "open_positions": 2},
+                horizon_confidences=[0.7, 0.6],
+                regime_id=regime_id,
+                ecc_features={"cluster_flow_score": 0.3},
+                realized_pnl=pnl,
+                drawdown=abs(pnl),
+                kyle_lambda=1e-6,
             )
             action, _meta = agent.predict(obs)
             assert action in (0, 1, 2, 3)
 
     def test_obs_length_correct(self) -> None:
-        from src.execution.rl_agent import RLExecutionState
+        from src.execution.rl_agent import _STATE_DIM, RLExecutionState
 
-        for n in [1, 5, 10]:
+        # The SB3 policy is fixed-width, so every n_horizons must yield _STATE_DIM.
+        for n in [1, 5, 10, 20]:
             state = RLExecutionState(n_horizons=n)
             obs = state.build(
-                signal={"direction": 1, "confidence": 0.8, "size_pct": 0.01, "horizon_idx": 0},
-                portfolio={"equity": 5000.0, "open_positions": 0},
+                horizon_confidences=[0.7, 0.6],
+                regime_id=1,
+                ecc_features={},
+                realized_pnl=0.0,
+                drawdown=0.0,
+                kyle_lambda=1e-6,
             )
             assert obs.ndim == 1
+            assert obs.shape == (_STATE_DIM,)
             assert len(obs) > 0
