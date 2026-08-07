@@ -2009,8 +2009,24 @@ async def get_strategy_portfolio(timeframe: str | None = None) -> dict[str, Any]
     the narrow winner would hide the disagreement. `raw_direction` keeps the
     pre-gate winner for diagnosis.
 
-    Read-only and advisory: this reports the portfolio's opinion. Orders are
-    still routed only by the signal engine through Kelly and the risk gates.
+    Alongside the full evaluation each timeframe carries:
+
+      peer             — the same poll with the incumbent excluded, which is
+                         what "does the rest of the book agree?" actually
+                         means. Including signal_engine_v1 would let the
+                         incumbent confirm itself.
+      agreement_scalar — the shrink-only size ceiling in (0, 1] implied by
+                         the peer view of the incumbent's direction. 1.0
+                         means no reduction; agreement is never worth more
+                         than that, because a correlated cluster of
+                         strategies must not bid its own size up.
+
+    Read-only and advisory: this reports the portfolio's opinion and the
+    ceiling it implies. Orders are still routed only by the signal engine
+    through Kelly and the risk gates, and `agreement_scalar` is reported
+    rather than applied — folding it into sizing means re-running the
+    exchange min-amount/min-cost filters against the shrunk quantity, which
+    is a separate change to the sizing tail.
 
     Query parameters
     ----------------

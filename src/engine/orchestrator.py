@@ -73,6 +73,7 @@ from src.risk.macro_exposure_budget import (
     compute_macro_exposure_scalar,
 )
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
+from src.risk.portfolio_agreement import portfolio_agreement_scalar
 from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.strategy_correlation import (
     combined_correlation_scalar,
@@ -198,6 +199,10 @@ class Orchestrator:
         # Latest strategy-portfolio evaluation per timeframe. Advisory: read
         # by the API/debug surface, never by the order path.
         self._last_portfolio_evaluation: dict[str, PortfolioEvaluation] = {}
+        # Same poll with the incumbent excluded, and the shrink-only size
+        # ceiling derived from it. Reported, not yet applied to sizing.
+        self._last_portfolio_peer_evaluation: dict[str, PortfolioEvaluation] = {}
+        self._last_portfolio_agreement: dict[str, float] = {}
 
         # GAP-003: Performance drift detector (initialized in startup after models trained)
         self._drift_detector: PerformanceDriftDetector | None = None
@@ -1804,6 +1809,34 @@ class Orchestrator:
                 weights=weights or None,
             )
             self._last_portfolio_evaluation[tf.value] = evaluation
+
+            # Peer view: the same poll with the incumbent excluded, reusing
+            # the inputs already gathered so this costs no extra I/O.
+            #
+            # The agreement scalar is only defensible as *independent*
+            # evidence about a trade the incumbent wants to place. Computed
+            # over the full evaluation it would include the incumbent's own
+            # vote, so a lone strategy would be confirming itself and the
+            # scalar would read "agreement" precisely when there is none.
+            peers = set(enabled_ids) - {STRATEGY_ID_SIGNAL_ENGINE}
+            peer = runner.evaluate(inputs, enabled_ids=peers, weights=weights or None)
+            self._last_portfolio_peer_evaluation[tf.value] = peer
+            # Measured against the *incumbent's* direction specifically, not
+            # the whole portfolio's: the ceiling exists to size the trade the
+            # signal engine wants to place, and the full-portfolio direction
+            # already contains the peers whose independence is the point.
+            incumbent = next(
+                (v for v in evaluation.verdicts if v.strategy_id == STRATEGY_ID_SIGNAL_ENGINE),
+                None,
+            )
+            incumbent_dir = (
+                incumbent.signal.direction
+                if incumbent is not None and incumbent.signal is not None
+                else 0
+            )
+            self._last_portfolio_agreement[tf.value] = portfolio_agreement_scalar(
+                peer, incumbent_dir
+            )
             return evaluation
         except Exception as exc:
             self._log.error("orchestrator.strategy_portfolio_failed", error=str(exc), exc_info=True)
@@ -1811,10 +1844,20 @@ class Orchestrator:
 
     def portfolio_evaluation(self, timeframe: str | None = None) -> dict[str, object]:
         """Latest portfolio evaluation(s), for the API/debug surface."""
+        def _one(tf: str) -> dict[str, object]:
+            ev = self._last_portfolio_evaluation.get(tf)
+            if ev is None:
+                return {}
+            peer = self._last_portfolio_peer_evaluation.get(tf)
+            return {
+                **ev.as_dict(),
+                "peer": peer.as_dict() if peer is not None else {},
+                "agreement_scalar": self._last_portfolio_agreement.get(tf, 1.0),
+            }
+
         if timeframe is not None:
-            ev = self._last_portfolio_evaluation.get(timeframe)
-            return {} if ev is None else ev.as_dict()
-        return {tf: ev.as_dict() for tf, ev in self._last_portfolio_evaluation.items()}
+            return _one(timeframe)
+        return {tf: _one(tf) for tf in self._last_portfolio_evaluation}
 
     async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
         """Mark-to-market and stop-loss/take-profit/time-exit for one executor's positions."""

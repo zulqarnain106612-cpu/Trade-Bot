@@ -65,6 +65,8 @@ def _orchestrator(storage: object) -> Orchestrator:
     orch._storage = storage
     orch._symbol = "BTC/USDT"
     orch._last_portfolio_evaluation = {}
+    orch._last_portfolio_peer_evaluation = {}
+    orch._last_portfolio_agreement = {}
     orch._fetcher = _Fetcher({})
     return orch
 
@@ -267,3 +269,90 @@ async def test_build_inputs_carries_venue_prices():
     # Concurrent quotes must land close enough together for the builder's
     # staleness guard to accept them.
     assert abs(inputs.venue_price_ts["binance"] - inputs.venue_price_ts["okx"]) < 2.0
+
+
+# ------------------------------------------------- peer view / agreement
+
+
+class _TwoWay:
+    def __init__(self, sid: str, direction: int) -> None:
+        self.strategy_id = sid
+        self._direction = direction
+
+    def generate_signal(self, bar: object) -> object:
+        from src.strategies.registry import Signal
+
+        return Signal(direction=self._direction, confidence=0.9, regime_fit=0.9)
+
+    def required_capital_fraction(self) -> float:
+        return 0.3
+
+
+def _portfolio_orch(monkeypatch, registry: StrategyRegistry) -> Orchestrator:
+    from src.engine.strategy_portfolio import build_signal_engine_context
+
+    builders = {s.strategy_id: build_signal_engine_context for s in registry.all()}
+    monkeypatch.setattr(orch_mod, "get_default_registry", lambda: registry)
+    monkeypatch.setattr(
+        orch_mod,
+        "get_portfolio_runner",
+        lambda: StrategyPortfolioRunner(builders=builders),
+    )
+
+    class _KS:
+        def enabled_ids(self, ids):
+            return set(ids)
+
+    monkeypatch.setattr(orch_mod, "get_strategy_kill_switch_manager", lambda: _KS())
+
+    class _Ctl:
+        def applied(self):
+            return {}
+
+    monkeypatch.setattr(orch_mod, "get_allocation_controller", lambda *_a, **_k: _Ctl())
+
+    orch = _orchestrator(_Storage())
+    orch._cfg = _Cfg()
+    return orch
+
+
+async def test_peer_view_excludes_the_incumbent(monkeypatch):
+    # The incumbent must not confirm itself: with only signal_engine_v1
+    # registered, the peer view has no voters at all.
+    registry = StrategyRegistry()
+    registry.register(_TwoWay("signal_engine_v1", 1))
+    orch = _portfolio_orch(monkeypatch, registry)
+
+    await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
+
+    payload = orch.portfolio_evaluation("15m")
+    assert payload["direction"] == 1
+    assert payload["peer"]["voting"] == []
+    # No peers means no evidence, so no reduction.
+    assert payload["agreement_scalar"] == 1.0
+
+
+async def test_opposing_peers_produce_a_reduction(monkeypatch):
+    registry = StrategyRegistry()
+    registry.register(_TwoWay("signal_engine_v1", 1))
+    registry.register(_TwoWay("peer_a", -1))
+    registry.register(_TwoWay("peer_b", -1))
+    orch = _portfolio_orch(monkeypatch, registry)
+
+    await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
+
+    payload = orch.portfolio_evaluation("15m")
+    assert payload["peer"]["direction"] == -1
+    assert 0.0 < payload["agreement_scalar"] < 1.0
+
+
+async def test_agreeing_peers_produce_no_reduction(monkeypatch):
+    registry = StrategyRegistry()
+    registry.register(_TwoWay("signal_engine_v1", 1))
+    registry.register(_TwoWay("peer_a", 1))
+    registry.register(_TwoWay("peer_b", 1))
+    orch = _portfolio_orch(monkeypatch, registry)
+
+    await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
+
+    assert orch.portfolio_evaluation("15m")["agreement_scalar"] == 1.0
