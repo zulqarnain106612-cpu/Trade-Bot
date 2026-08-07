@@ -758,6 +758,17 @@ class StrategyPortfolioSettings(BaseSettings):
 
     basis_trade_enabled: bool = Field(default=False)
     basis_trade_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    basis_perp_symbol: str = Field(
+        default="",
+        description=(
+            "Perpetual contract quoted against primary_symbol's spot price by "
+            "the basis family (ccxt form, e.g. 'BTC/USDT:USDT'). Empty (the "
+            "default) leaves that family abstaining. Not derived from "
+            "primary_symbol on the fly: the spot/perp mapping is venue- and "
+            "settlement-specific, and a wrong guess would price the basis of "
+            "one instrument against another and call the difference an edge."
+        ),
+    )
 
     cross_exchange_arb_enabled: bool = Field(default=False)
     cross_exchange_arb_fraction: float = Field(default=0.10, gt=0.0, le=1.0)

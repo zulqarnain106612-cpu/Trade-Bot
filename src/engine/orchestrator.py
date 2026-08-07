@@ -1771,6 +1771,7 @@ class Orchestrator:
             self._log.warning("orchestrator.portfolio_funding_failed", error=str(exc))
 
         venue_prices, venue_price_ts = await self._fetch_venue_prices()
+        spot_price, spot_ts, perp_price, perp_ts = await self._fetch_basis_legs()
 
         # TTL-cached, so this is a dict copy on all but the refresh tick.
         universe_returns: dict[str, float] = {}
@@ -1785,6 +1786,10 @@ class Orchestrator:
             venue_prices=venue_prices,
             venue_price_ts=venue_price_ts,
             universe_returns=universe_returns,
+            spot_price=spot_price,
+            spot_price_ts=spot_ts,
+            perp_price=perp_price,
+            perp_price_ts=perp_ts,
             highs=highs,
             lows=lows,
             closes=closes,
@@ -1792,6 +1797,53 @@ class Orchestrator:
             funding_rate_pct=funding_rate,
             funding_history_pct=funding_history,
         )
+
+    async def _quote(self, symbol: str, venue: str) -> tuple[float, float] | None:
+        """
+        One (price, observed_at) quote, or None on any failure.
+
+        Returns rather than raises: every caller is assembling an optional
+        portfolio feed where a missing quote must abstain one family, not
+        abort the evaluation for the rest.
+        """
+        try:
+            price = await self._fetcher.fetch_ticker_price(symbol, venue)
+        except Exception as exc:
+            self._log.debug(
+                "orchestrator.quote_failed", symbol=symbol, venue=venue, error=str(exc)
+            )
+            return None
+        price = float(price)
+        if price <= 0.0:
+            return None
+        return price, datetime.now(tz=UTC).timestamp()
+
+    async def _fetch_basis_legs(
+        self,
+    ) -> tuple[float | None, float | None, float | None, float | None]:
+        """
+        Spot and perp price for the basis family, quoted together.
+
+        Returns (spot, spot_ts, perp, perp_ts). Both legs come from the same
+        venue: basis is a spread between two instruments, and pricing them on
+        different exchanges would fold a cross-venue spread into a number the
+        strategy reads as carry.
+
+        Unconfigured (STRATEGY_BASIS_PERP_SYMBOL empty) returns all None and
+        the family abstains, rather than this guessing a perp symbol from the
+        spot one — that mapping is venue- and settlement-specific.
+        """
+        perp_symbol = self._cfg.strategy_portfolio.basis_perp_symbol
+        if not perp_symbol:
+            return None, None, None, None
+
+        spot_q, perp_q = await asyncio.gather(
+            self._quote(self._symbol, EXCHANGE_BINANCE),
+            self._quote(perp_symbol, EXCHANGE_BINANCE),
+        )
+        if spot_q is None or perp_q is None:
+            return None, None, None, None
+        return spot_q[0], spot_q[1], perp_q[0], perp_q[1]
 
     async def _fetch_venue_prices(self) -> tuple[dict[str, float], dict[str, float]]:
         """
@@ -1814,25 +1866,17 @@ class Orchestrator:
         """
         venues = (EXCHANGE_BINANCE, EXCHANGE_OKX)
 
-        async def _quote(venue: str) -> tuple[str, float, float] | None:
-            try:
-                price = await self._fetcher.fetch_ticker_price(self._symbol, venue)
-                return venue, float(price), datetime.now(tz=UTC).timestamp()
-            except Exception as exc:
-                self._log.debug("orchestrator.venue_quote_failed", venue=venue, error=str(exc))
-                return None
-
-        results = await asyncio.gather(*(_quote(v) for v in venues), return_exceptions=True)
+        results = await asyncio.gather(
+            *(self._quote(self._symbol, v) for v in venues),
+            return_exceptions=True,
+        )
 
         prices: dict[str, float] = {}
         stamps: dict[str, float] = {}
-        for res in results:
+        for venue, res in zip(venues, results, strict=True):
             if isinstance(res, BaseException) or res is None:
                 continue
-            venue, price, ts = res
-            if price > 0.0:
-                prices[venue] = price
-                stamps[venue] = ts
+            prices[venue], stamps[venue] = res
         return prices, stamps
 
     async def _evaluate_strategy_portfolio(self, tf: Timeframe) -> PortfolioEvaluation | None:

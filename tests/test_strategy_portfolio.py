@@ -501,3 +501,29 @@ def test_xsec_momentum_votes_on_a_full_universe() -> None:
     assert verdict.status is VerdictStatus.SIGNAL
     assert verdict.signal is not None
     assert verdict.signal.direction == 1
+
+
+def test_basis_builder_rejects_skewed_legs() -> None:
+    # Basis is a difference between two separately fetched prices, so a leg
+    # quoted seconds late turns a market move into an apparent carry.
+    skewed = PortfolioInputs(
+        symbol="B",
+        timeframe="15m",
+        spot_price=100.0,
+        spot_price_ts=1_000.0,
+        perp_price=101.0,
+        perp_price_ts=1_010.0,
+    )
+    assert build_basis_trade_context(skewed) is None
+
+
+def test_basis_builder_accepts_near_simultaneous_legs() -> None:
+    fresh = PortfolioInputs(
+        symbol="B",
+        timeframe="15m",
+        spot_price=100.0,
+        spot_price_ts=1_000.0,
+        perp_price=101.0,
+        perp_price_ts=1_000.4,
+    )
+    assert build_basis_trade_context(fresh) is not None

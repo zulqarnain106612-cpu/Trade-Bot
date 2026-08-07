@@ -212,6 +212,11 @@ class PortfolioInputs:
     funding_history_pct: Sequence[float] | None = None
     spot_price: float | None = None
     perp_price: float | None = None
+    # Observation times for the two basis legs, same rationale as
+    # venue_price_ts: a spot/perp gap measured across a moving market is
+    # latency, not basis.
+    spot_price_ts: float | None = None
+    perp_price_ts: float | None = None
     # Trailing return per symbol across the traded universe. The target
     # symbol must appear in it for the cross-sectional family to rank itself.
     universe_returns: Mapping[str, float] = field(default_factory=dict)
@@ -284,10 +289,19 @@ def build_funding_context(inputs: PortfolioInputs) -> object | None:
 
 
 def build_basis_trade_context(inputs: PortfolioInputs) -> object | None:
+    """
+    Pair the spot and perp legs, subject to the same staleness rule as the
+    cross-exchange family — and for the same reason. Basis is the difference
+    between two separately fetched prices, so a leg quoted seconds late turns
+    a market move into an apparent carry.
+    """
     if inputs.spot_price is None or inputs.perp_price is None:
         return None
     if inputs.spot_price <= 0.0 or inputs.perp_price <= 0.0:
         return None
+    if inputs.spot_price_ts is not None and inputs.perp_price_ts is not None:
+        if abs(inputs.spot_price_ts - inputs.perp_price_ts) > _MAX_VENUE_QUOTE_SKEW_S:
+            return None
     return BasisTradeContext(spot_price=inputs.spot_price, perp_price=inputs.perp_price)
 
 

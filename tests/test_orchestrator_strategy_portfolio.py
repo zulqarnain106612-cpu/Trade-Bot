@@ -142,6 +142,7 @@ def _wire(monkeypatch, registry: StrategyRegistry, *, enabled: set[str] | None =
 class _Cfg:
     class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
         max_allocation_shift_per_step = 0.10
+        basis_perp_symbol = ""
 
 
 async def test_evaluate_polls_registered_strategies_and_records_the_result(monkeypatch):
@@ -405,3 +406,66 @@ async def test_funding_lookback_is_calendar_based_not_bar_based():
 
     # Same calendar span regardless of timeframe (allow a second of clock drift).
     assert abs(fast - storage2.intel_query["since_ts"]) < 2_000
+
+
+# ------------------------------------------------------------ basis legs
+
+
+class _CfgWithPerp:
+    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+        max_allocation_shift_per_step = 0.10
+        basis_perp_symbol = "BTC/USDT:USDT"
+
+
+class _CfgNoPerp:
+    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+        max_allocation_shift_per_step = 0.10
+        basis_perp_symbol = ""
+
+
+async def test_basis_legs_abstain_when_no_perp_is_configured():
+    # The spot/perp mapping is venue- and settlement-specific; guessing it
+    # would price one instrument's basis against another.
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgNoPerp()
+    orch._fetcher = _Fetcher({"binance": 100.0})
+    assert await orch._fetch_basis_legs() == (None, None, None, None)
+
+
+class _SymbolFetcher:
+    """Prices keyed by symbol rather than venue, for the basis path."""
+
+    def __init__(self, prices: dict[str, object]) -> None:
+        self._prices = prices
+        self.symbols: list[str] = []
+
+    async def fetch_ticker_price(self, symbol: str, exchange_id: str = "binance") -> float:
+        self.symbols.append(symbol)
+        value = self._prices.get(symbol)
+        if isinstance(value, Exception):
+            raise value
+        if value is None:
+            raise RuntimeError(f"no price for {symbol}")
+        return float(value)
+
+
+async def test_basis_legs_are_quoted_together_from_one_venue():
+    fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgWithPerp()
+    orch._fetcher = fetcher
+
+    spot, spot_ts, perp, perp_ts = await orch._fetch_basis_legs()
+    assert (spot, perp) == (100.0, 101.0)
+    assert sorted(fetcher.symbols) == ["BTC/USDT", "BTC/USDT:USDT"]
+    # Concurrent, so the builder's skew guard will accept the pair.
+    assert abs(spot_ts - perp_ts) < 2.0
+
+
+async def test_a_missing_leg_abstains_the_whole_pair():
+    # Half a basis is not a basis; returning the spot leg alone would let a
+    # later change pair it against something else.
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgWithPerp()
+    orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": RuntimeError("down")})
+    assert await orch._fetch_basis_legs() == (None, None, None, None)
