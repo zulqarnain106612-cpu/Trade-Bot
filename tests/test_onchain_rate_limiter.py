@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import time
 
+import pytest
+
 from src.intelligence.onchain.base import RateLimiter
 
 
@@ -70,3 +72,70 @@ async def test_concurrent_callers_are_serialised_by_the_lock() -> None:
     await asyncio.gather(*(limiter.acquire() for _ in range(10)))
     # Ten throttled acquisitions at 100/s cannot complete instantly.
     assert time.monotonic() - start >= 0.05
+
+
+# ---------------------------------------------------------------------------
+# CircuitBreaker — consecutive vs cumulative failures
+# ---------------------------------------------------------------------------
+
+
+async def test_a_success_clears_the_failure_run() -> None:
+    # The counter was only reset on the HALF_OPEN recovery path, making it
+    # cumulative: a healthy provider that fails occasionally still tripped.
+    from src.intelligence.onchain.base import CircuitBreaker
+
+    breaker = CircuitBreaker(failure_threshold=3, cooldown_s=999.0)
+
+    async def failing():
+        raise RuntimeError("transient")
+
+    async def ok():
+        return "ok"
+
+    for _ in range(10):
+        with pytest.raises(RuntimeError):
+            await breaker.call(failing)
+        for _ in range(5):
+            assert await breaker.call(ok) == "ok"
+
+    # Ten isolated failures, each followed by successes: still closed.
+    assert await breaker.call(ok) == "ok"
+
+
+async def test_consecutive_failures_still_open_the_circuit() -> None:
+    from src.intelligence.onchain.base import CircuitBreaker, CircuitOpenError
+
+    breaker = CircuitBreaker(failure_threshold=3, cooldown_s=999.0)
+
+    async def failing():
+        raise RuntimeError("down")
+
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            await breaker.call(failing)
+
+    with pytest.raises(CircuitOpenError):
+        await breaker.call(failing)
+
+
+async def test_a_success_partway_through_a_run_resets_the_count() -> None:
+    from src.intelligence.onchain.base import CircuitBreaker
+
+    breaker = CircuitBreaker(failure_threshold=3, cooldown_s=999.0)
+
+    async def failing():
+        raise RuntimeError("blip")
+
+    async def ok():
+        return "ok"
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            await breaker.call(failing)
+    await breaker.call(ok)  # clears the run of 2
+
+    # Two more failures must not reach the threshold of 3.
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            await breaker.call(failing)
+    assert await breaker.call(ok) == "ok"
