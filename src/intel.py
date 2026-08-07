@@ -19,10 +19,14 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 import yaml
+
+
+if TYPE_CHECKING:
+    from src.workers.orchestrator import WorkerResult
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -213,7 +217,7 @@ class CryptoIntelligence:
         # --- Submit inference tasks ---
         import uuid
 
-        from src.workers.orchestrator import WorkerResult, WorkerTask
+        from src.workers.orchestrator import WorkerTask
 
         features = {
             "price": price,
@@ -247,8 +251,8 @@ class CryptoIntelligence:
         results: list[WorkerResult] = []
         deadline = time.time() + 5.0
         while len(results) < n_horizons and time.time() < deadline:
-            r = self._orchestrator.collect(timeout=1.0)
-            if r is not None and not isinstance(r, dict):
+            r = self._drain_one(timeout=1.0)
+            if r is not None:
                 results.append(r)
 
         if not results:
@@ -329,17 +333,45 @@ class CryptoIntelligence:
             },
         )
 
-    def _collect_ecc(self) -> dict[str, float]:
-        """Non-blocking drain of the ECC results from the orchestrator output queue."""
-        latest = dict(self._ecc_state)
+    def _drain_one(self, timeout: float) -> WorkerResult | None:
+        """
+        Take one item off the shared output queue and keep whatever it is.
+
+        Model workers and the ECC thread publish to the same queue, so either
+        kind can be at the head. Both callers used to take an item and drop it
+        if it was the other kind — the fusion loop then waited out its full
+        deadline for an inference result it had already thrown away, and an
+        ECC scan landing mid-window was lost for good. ECC payloads are folded
+        into `_ecc_state` here; inference results are returned.
+        """
+        from src.workers.orchestrator import WorkerResult
+
         try:
-            r = self._orchestrator.collect(timeout=0.0)
-            if isinstance(r, dict) and r.get("type") == "ecc":
-                latest = dict(r.get("result", {}))
-                self._ecc_state = latest
-        except Exception:
-            pass
-        return latest
+            item = self._orchestrator.collect(timeout=timeout)
+        except Exception as exc:
+            log.debug("orchestrator_collect_failed", exc=str(exc))
+            return None
+
+        if isinstance(item, dict):
+            if item.get("type") == "ecc":
+                self._ecc_state = dict(item.get("result", {}))
+            return None
+        return item if isinstance(item, WorkerResult) else None
+
+    def _collect_ecc(self) -> dict[str, float]:
+        """
+        Non-blocking drain for the latest ECC features.
+
+        This runs before the bar's own tasks are submitted, so any inference
+        result still on the queue belongs to a previous bar that timed out.
+        It is dropped rather than fused — a prediction made against a stale
+        price is worse than one fewer horizon — but logged, because a queue
+        that is consistently behind means the worker pool is undersized.
+        """
+        stale = self._drain_one(timeout=0.0)
+        if stale is not None:
+            log.warning("stale_worker_result_dropped", horizon_id=stale.horizon_id)
+        return dict(self._ecc_state)
 
     async def route_signal(self, signal: IntelSignal, price: float, capital_usd: float) -> None:
         """Execute a signal via SmartOrderRouter and record fill analytics."""
