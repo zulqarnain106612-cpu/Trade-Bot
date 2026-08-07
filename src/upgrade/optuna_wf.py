@@ -53,6 +53,8 @@ class WFParams:
 
 def _sharpe(returns: np.ndarray) -> float:
     """Annualized Sharpe ratio from a returns array."""
+    if np.asarray(returns).size == 0:
+        return 0.0  # np.std([]) is nan, and `nan < 1e-9` is False — guard explicitly
     std = float(np.std(returns))
     if std < 1e-9:
         return 0.0

@@ -118,7 +118,9 @@ class TestSharpeHelper:
     def test_positive_returns_positive_sharpe(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
 
-        r = np.ones(252) * 0.01
+        rng = np.random.default_rng(0)
+        # constant returns have zero std and thus an undefined Sharpe — add noise
+        r = 0.01 + rng.normal(0.0, 0.005, 252)
         assert _sharpe(r) > 0.0
 
 
@@ -152,8 +154,8 @@ class TestWalkForwardStudy:
             n_trials=1,
             storage_path=tmp_path / "s.db",
         )
-        params = study.best_params
-        assert params is None or isinstance(params, dict)
+        # No study has been run, so there are no best params yet.
+        assert study.best_params == {}
 
     def test_wf_params_defaults(self) -> None:
         from src.upgrade.optuna_wf import WFParams
@@ -249,6 +251,7 @@ class TestModelRegistry:
         model = _TinyMLP()
         run_id = reg.log_model(
             model=model,
+            model_name="tiny_mlp",
             horizon_idx=0,
             params={"lr": 0.001},
             metrics={"sharpe": 1.5},
@@ -266,7 +269,7 @@ class TestModelRegistry:
         from src.upgrade.registry import ModelRegistry
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
-        result = reg.load_model("nonexistent_model", version=1)
+        result = reg.load_model("nonexistent_model")
         assert result is None
 
     def test_tag_dvc_returns_bool(self, tmp_path) -> None:

@@ -120,7 +120,7 @@ class TestWalkForwardStudy:
             return 1.0
 
         study = WalkForwardStudy("test", dummy_train, data=list(range(100)))
-        assert study.best_params is None
+        assert study.best_params == {}
 
     def test_sharpe_computation(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
@@ -137,25 +137,29 @@ class TestWalkForwardStudy:
     def test_wf_params_dataclass(self) -> None:
         from src.upgrade.optuna_wf import WFParams
 
-        p = WFParams(params={"lr": 0.01}, sharpe=1.5, n_folds=3)
-        assert p.sharpe == 1.5
-        assert p.params["lr"] == 0.01
+        p = WFParams(lr_min=1e-4, lr_max=1e-2)
+        assert p.lr_min < p.lr_max
+        assert 32 in p.batch_size_choices
 
-    def test_run_short_data_no_crash(self) -> None:
+    def test_run_short_data_no_crash(self, tmp_path) -> None:
         from src.upgrade.optuna_wf import WalkForwardStudy
 
         calls = []
 
-        def dummy_train(params, data):
+        def dummy_train(params, X_train, y_train, X_test, y_test, trial):
             calls.append(1)
-            return float(np.random.rand())
+            return np.random.default_rng(len(calls)).normal(0.001, 0.01, max(len(X_test), 1))
 
         study = WalkForwardStudy(
-            "short_test", dummy_train, data=list(range(20)), n_trials=2, n_folds=2
+            "short_test",
+            dummy_train,
+            data=list(range(20)),
+            n_trials=2,
+            n_folds=2,
+            storage_path=tmp_path / "study.db",
         )
         study.run()
-        # After run, best_params might be set
-        assert study.best_params is None or isinstance(study.best_params, dict)
+        assert isinstance(study.best_params, dict)
 
 
 # ─── ModelRegistry ─────────────────────────────────────────────────────────────
@@ -174,7 +178,7 @@ class TestModelRegistryExtended:
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
         model = _MLP2()
-        reg.log_model(model, run_name="test_run", metrics={"sharpe": 1.5})
+        reg.log_model(model, model_name="test_model", horizon_idx=0, metrics={"sharpe": 1.5})
 
     def test_load_model_missing_returns_none(self, tmp_path) -> None:
         from src.upgrade.registry import ModelRegistry

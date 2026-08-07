@@ -100,6 +100,10 @@ class MAMLOptimizer:
         Each task is a dict with keys: support_x, support_y, query_x, query_y.
         Returns the mean outer-loop loss.
         """
+        if not tasks:
+            # outer_loss would stay a non-grad leaf and .backward() would raise.
+            return 0.0
+
         self._outer_opt.zero_grad()
         outer_loss = torch.tensor(0.0)
 
