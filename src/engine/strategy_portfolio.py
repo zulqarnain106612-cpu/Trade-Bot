@@ -62,6 +62,7 @@ import structlog
 from src.risk.conflict_resolver import ConflictResolution, HorizonConflictResolver
 from src.strategies.basis_trade import BasisTradeContext
 from src.strategies.breakout import BreakoutContext
+from src.strategies.cross_exchange_arb import CrossExchangeContext
 from src.strategies.funding_carry import FundingContext
 from src.strategies.registry import Signal, StrategyProtocol, StrategyRegistry, get_default_registry
 from src.strategies.signal_engine_adapter import STRATEGY_ID_SIGNAL_ENGINE
@@ -84,6 +85,12 @@ _MIN_BREAKOUT_BARS: int = 60
 # A funding z-score needs enough observations to mean anything. Eight-hour
 # funding means 3 points/day, so 24 samples is ~8 days of history.
 _MIN_FUNDING_SAMPLES: int = 24
+
+# Maximum wall-clock gap between two venues' quotes before the pair is
+# treated as unusable. The cross-exchange family enters on 15 bps, and
+# crypto routinely moves that far in a second, so a wider window would let
+# fetch latency masquerade as a tradeable basis.
+_MAX_VENUE_QUOTE_SKEW_S: float = 2.0
 
 
 class VerdictStatus(str, Enum):
@@ -204,6 +211,13 @@ class PortfolioInputs:
     funding_history_pct: Sequence[float] | None = None
     spot_price: float | None = None
     perp_price: float | None = None
+    # Same-symbol last price per venue, insertion-ordered. Two or more
+    # entries are what let the cross-exchange family see a basis at all.
+    venue_prices: Mapping[str, float] = field(default_factory=dict)
+    # Wall-clock (epoch seconds, UTC) each venue price was observed. A basis
+    # computed across two quotes taken seconds apart is a latency artifact,
+    # not an arbitrage — see _MAX_VENUE_QUOTE_SKEW_S.
+    venue_price_ts: Mapping[str, float] = field(default_factory=dict)
     extra: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -273,16 +287,48 @@ def build_basis_trade_context(inputs: PortfolioInputs) -> object | None:
     return BasisTradeContext(spot_price=inputs.spot_price, perp_price=inputs.perp_price)
 
 
+def build_cross_exchange_context(inputs: PortfolioInputs) -> object | None:
+    """
+    Pair the two most recently quoted venues for this symbol.
+
+    Two guards, both of which abstain rather than emit a number:
+
+    * **Fewer than two venues.** One price is not a basis.
+    * **Quote skew.** The two legs are separate network round-trips, so a
+      price that moved between them shows up as a spread that was never
+      tradeable. At a 15 bps entry threshold on a 100k asset that is a 150
+      unit move — well inside what crypto does in a couple of seconds — so a
+      stale pair manufactures exactly the signal this family looks for. The
+      skew check is therefore load-bearing, not hygiene.
+    """
+    prices = {v: p for v, p in inputs.venue_prices.items() if p > 0.0}
+    if len(prices) < 2:
+        return None
+
+    venues = list(prices)[:2]
+    stamps = inputs.venue_price_ts
+    if all(v in stamps for v in venues):
+        if abs(stamps[venues[0]] - stamps[venues[1]]) > _MAX_VENUE_QUOTE_SKEW_S:
+            return None
+
+    return CrossExchangeContext(
+        venue_a=venues[0],
+        price_a=prices[venues[0]],
+        venue_b=venues[1],
+        price_b=prices[venues[1]],
+    )
+
+
 def default_context_builders() -> dict[str, ContextBuilder]:
     """
     Builders for the families whose data this process already has.
 
     Families absent from this table (mean reversion, cross-sectional
-    momentum, cross-exchange arb, options carry) abstain with an explicit
+    momentum, options carry) abstain with an explicit
     ``no_context_builder`` reason. They are not removed and not disabled:
     each needs a data source this process does not yet fetch — a cointegrated
-    pair series, a cross-sectional universe, a second venue's book, an
-    options surface — and the honest report is "cannot feed it yet", visible
+    pair series, a cross-sectional universe, an options surface — and the
+    honest report is "cannot feed it yet", visible
     every tick, rather than deletion or a fabricated context.
     """
     return {
@@ -290,6 +336,7 @@ def default_context_builders() -> dict[str, ContextBuilder]:
         "breakout_volume_v1": build_breakout_context,
         "funding_carry_v1": build_funding_context,
         "basis_trade_v1": build_basis_trade_context,
+        "cross_exchange_arb_v1": build_cross_exchange_context,
     }
 
 
@@ -477,6 +524,7 @@ __all__ = [
     "VerdictStatus",
     "build_basis_trade_context",
     "build_breakout_context",
+    "build_cross_exchange_context",
     "build_funding_context",
     "build_signal_engine_context",
     "default_context_builders",

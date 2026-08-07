@@ -32,6 +32,7 @@ import structlog
 from src.api.metrics import update_metrics
 from src.config import (
     EXCHANGE_BINANCE,
+    EXCHANGE_OKX,
     TIMEFRAME_SECONDS,
     Timeframe,
     TradingMode,
@@ -1717,9 +1718,13 @@ class Orchestrator:
         except Exception as exc:
             self._log.warning("orchestrator.portfolio_funding_failed", error=str(exc))
 
+        venue_prices, venue_price_ts = await self._fetch_venue_prices()
+
         return PortfolioInputs(
             symbol=self._symbol,
             timeframe=tf.value,
+            venue_prices=venue_prices,
+            venue_price_ts=venue_price_ts,
             highs=highs,
             lows=lows,
             closes=closes,
@@ -1727,6 +1732,48 @@ class Orchestrator:
             funding_rate_pct=funding_rate,
             funding_history_pct=funding_history,
         )
+
+    async def _fetch_venue_prices(self) -> tuple[dict[str, float], dict[str, float]]:
+        """
+        Quote this symbol on every configured venue, concurrently.
+
+        Concurrency here is correctness, not speed. The cross-exchange family
+        enters on a 15 bps spread; sequential round-trips would let the market
+        move between the two quotes and turn fetch latency into a basis that
+        was never tradeable. Issuing them together keeps the skew small enough
+        that the builder's own staleness guard is a backstop rather than the
+        only defence.
+
+        Each price carries the wall-clock time it was observed so the builder
+        can reject a pair that still drifted too far apart — a venue that is
+        merely slow must abstain the family, not feed it a phantom edge.
+
+        One venue failing is normal (an exchange is down, rate-limited, or
+        not configured); it drops out of the mapping and, with fewer than two
+        venues left, the family abstains on its own.
+        """
+        venues = (EXCHANGE_BINANCE, EXCHANGE_OKX)
+
+        async def _quote(venue: str) -> tuple[str, float, float] | None:
+            try:
+                price = await self._fetcher.fetch_ticker_price(self._symbol, venue)
+                return venue, float(price), datetime.now(tz=UTC).timestamp()
+            except Exception as exc:
+                self._log.debug("orchestrator.venue_quote_failed", venue=venue, error=str(exc))
+                return None
+
+        results = await asyncio.gather(*(_quote(v) for v in venues), return_exceptions=True)
+
+        prices: dict[str, float] = {}
+        stamps: dict[str, float] = {}
+        for res in results:
+            if isinstance(res, BaseException) or res is None:
+                continue
+            venue, price, ts = res
+            if price > 0.0:
+                prices[venue] = price
+                stamps[venue] = ts
+        return prices, stamps
 
     async def _evaluate_strategy_portfolio(self, tf: Timeframe) -> PortfolioEvaluation | None:
         """

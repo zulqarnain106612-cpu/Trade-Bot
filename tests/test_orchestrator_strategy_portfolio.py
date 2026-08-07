@@ -65,6 +65,7 @@ def _orchestrator(storage: object) -> Orchestrator:
     orch._storage = storage
     orch._symbol = "BTC/USDT"
     orch._last_portfolio_evaluation = {}
+    orch._fetcher = _Fetcher({})
     return orch
 
 
@@ -200,3 +201,69 @@ def test_portfolio_inputs_defaults_are_all_optional():
     assert inputs.closes is None
     assert inputs.funding_history_pct is None
     assert inputs.extra == {}
+
+
+# ------------------------------------------------------- venue quoting
+
+
+class _Fetcher:
+    """Fetcher stub: per-venue price, or an exception to simulate an outage."""
+
+    def __init__(self, prices: dict[str, object]) -> None:
+        self._prices = prices
+        self.calls: list[str] = []
+
+    async def fetch_ticker_price(self, symbol: str, exchange_id: str = "binance") -> float:
+        self.calls.append(exchange_id)
+        value = self._prices.get(exchange_id)
+        if isinstance(value, Exception):
+            raise value
+        if value is None:
+            raise RuntimeError(f"no price for {exchange_id}")
+        return float(value)
+
+
+def _orch_with_fetcher(fetcher: object) -> Orchestrator:
+    orch = _orchestrator(_Storage())
+    orch._fetcher = fetcher
+    return orch
+
+
+async def test_venue_prices_quote_every_configured_venue():
+    fetcher = _Fetcher({"binance": 100.0, "okx": 101.0})
+    prices, stamps = await _orch_with_fetcher(fetcher)._fetch_venue_prices()
+    assert prices == {"binance": 100.0, "okx": 101.0}
+    assert set(stamps) == {"binance", "okx"}
+    assert sorted(fetcher.calls) == ["binance", "okx"]
+
+
+async def test_one_venue_outage_drops_only_that_venue():
+    # An exchange being down must not abstain the whole evaluation, only
+    # leave too few venues for the cross-exchange family to pair.
+    fetcher = _Fetcher({"binance": 100.0, "okx": RuntimeError("503")})
+    prices, stamps = await _orch_with_fetcher(fetcher)._fetch_venue_prices()
+    assert prices == {"binance": 100.0}
+    assert set(stamps) == {"binance"}
+
+
+async def test_non_positive_quote_is_discarded():
+    fetcher = _Fetcher({"binance": 100.0, "okx": 0.0})
+    prices, _ = await _orch_with_fetcher(fetcher)._fetch_venue_prices()
+    assert prices == {"binance": 100.0}
+
+
+async def test_all_venues_down_yields_empty_mapping():
+    fetcher = _Fetcher({"binance": RuntimeError("x"), "okx": RuntimeError("y")})
+    prices, stamps = await _orch_with_fetcher(fetcher)._fetch_venue_prices()
+    assert prices == {}
+    assert stamps == {}
+
+
+async def test_build_inputs_carries_venue_prices():
+    orch = _orchestrator(_Storage(bars=[_Bar(i) for i in range(120)]))
+    orch._fetcher = _Fetcher({"binance": 100.0, "okx": 101.0})
+    inputs = await orch._build_portfolio_inputs(Timeframe.INTRADAY)
+    assert inputs.venue_prices == {"binance": 100.0, "okx": 101.0}
+    # Concurrent quotes must land close enough together for the builder's
+    # staleness guard to accept them.
+    assert abs(inputs.venue_price_ts["binance"] - inputs.venue_price_ts["okx"]) < 2.0

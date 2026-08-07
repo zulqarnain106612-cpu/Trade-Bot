@@ -20,6 +20,7 @@ from src.engine.strategy_portfolio import (
     VerdictStatus,
     build_basis_trade_context,
     build_breakout_context,
+    build_cross_exchange_context,
     build_funding_context,
     build_signal_engine_context,
     default_context_builders,
@@ -187,6 +188,7 @@ def test_default_builders_cover_the_families_with_feeds() -> None:
     assert "signal_engine_v1" in builders
     assert "breakout_volume_v1" in builders
     assert "funding_carry_v1" in builders
+    assert "cross_exchange_arb_v1" in builders
 
 
 # ---------------------------------------------------------------- runner
@@ -372,3 +374,74 @@ def test_real_breakout_strategy_votes_through_the_runner() -> None:
     assert verdict.signal is not None
     assert verdict.signal.direction == 1
     assert ev.direction == 1
+
+
+# ------------------------------------------------- cross-exchange builder
+
+
+def _venues(
+    prices: dict[str, float], stamps: dict[str, float] | None = None
+) -> PortfolioInputs:
+    return PortfolioInputs(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        venue_prices=prices,
+        venue_price_ts=stamps or {},
+    )
+
+
+def test_cross_exchange_builder_needs_two_venues() -> None:
+    assert build_cross_exchange_context(_venues({})) is None
+    assert build_cross_exchange_context(_venues({"binance": 100.0})) is None
+
+
+def test_cross_exchange_builder_ignores_non_positive_quotes() -> None:
+    # A zero/negative quote is a failed fetch that leaked through, not a
+    # price; counting it would pair a real venue against garbage.
+    assert build_cross_exchange_context(_venues({"binance": 100.0, "okx": 0.0})) is None
+
+
+def test_cross_exchange_builder_pairs_two_venues() -> None:
+    ctx = build_cross_exchange_context(_venues({"binance": 100.0, "okx": 101.0}))
+    assert ctx is not None
+    assert ctx.venue_a == "binance"  # type: ignore[attr-defined]
+    assert ctx.price_b == pytest.approx(101.0)  # type: ignore[attr-defined]
+
+
+def test_cross_exchange_builder_rejects_skewed_quotes() -> None:
+    # Two quotes taken 10s apart cannot be differenced: the market moved
+    # between them, so any spread found is latency, not arbitrage.
+    inputs = _venues(
+        {"binance": 100.0, "okx": 101.0},
+        {"binance": 1_000.0, "okx": 1_010.0},
+    )
+    assert build_cross_exchange_context(inputs) is None
+
+
+def test_cross_exchange_builder_accepts_near_simultaneous_quotes() -> None:
+    inputs = _venues(
+        {"binance": 100.0, "okx": 101.0},
+        {"binance": 1_000.0, "okx": 1_000.5},
+    )
+    assert build_cross_exchange_context(inputs) is not None
+
+
+def test_cross_exchange_builder_without_timestamps_still_builds() -> None:
+    # Absent stamps means the caller cannot vouch for skew; the strategy's
+    # own entry threshold remains the gate rather than blocking outright.
+    assert build_cross_exchange_context(_venues({"a": 100.0, "b": 101.0})) is not None
+
+
+def test_cross_exchange_arb_votes_through_the_runner() -> None:
+    from src.strategies.cross_exchange_arb import CrossExchangeArbStrategy
+
+    reg = StrategyRegistry()
+    reg.register(CrossExchangeArbStrategy(0.10))
+    ev = StrategyPortfolioRunner(registry=reg).evaluate(
+        _venues({"binance": 101.0, "okx": 100.0}, {"binance": 5.0, "okx": 5.1})
+    )
+    (verdict,) = ev.verdicts
+    assert verdict.status is VerdictStatus.SIGNAL
+    assert verdict.signal is not None
+    # venue_a richer than venue_b -> short venue_a.
+    assert verdict.signal.direction == -1
