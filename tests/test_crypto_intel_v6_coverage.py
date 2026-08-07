@@ -331,7 +331,7 @@ class TestNBEATSHeadExtended:
     def test_batch_size_one(self) -> None:
         from src.models.nbeats import NBEATSHead
 
-        model = NBEATSHead()
+        model = NBEATSHead(input_size=48)
         x = torch.randn(1, 48)
         out = model(x)
         assert out.shape[-1] == 128
@@ -468,14 +468,21 @@ class TestGrangerExtended:
 
         det = GrangerCausalityDetector()
         fv = det.to_feature_vector()
-        assert isinstance(fv, (list, np.ndarray))
+        assert isinstance(fv, dict)
 
     def test_granger_result_dataclass(self) -> None:
         from src.causal.granger import GrangerResult
 
-        r = GrangerResult(symbol="ETH", f_stat=3.5, p_value=0.02, is_causal=True, lag=2)
+        r = GrangerResult(
+            treatment="BTC",
+            outcome="ETH",
+            is_causal=True,
+            min_pvalue=0.02,
+            best_lag=2,
+            f_stat=3.5,
+        )
         assert r.is_causal
-        assert r.symbol == "ETH"
+        assert r.outcome == "ETH"
 
 
 # ─── DoWhySCM extended ────────────────────────────────────────────────────────
@@ -508,8 +515,9 @@ class TestDoWhySCMExtended:
         data = pd.DataFrame(
             {"whale_selling": np.random.randn(30), "btc_return": np.random.randn(30)}
         )
-        score = scm.causal_signal(data)
-        assert isinstance(score, float)
+        signals = scm.causal_signal(data)
+        assert isinstance(signals, dict)
+        assert all(isinstance(v, float) for v in signals.values())
 
 
 # ─── DuckDBStore extended ─────────────────────────────────────────────────────
@@ -549,10 +557,11 @@ class TestDuckDBStoreExtended:
         assert len(df) >= 5
         store.close()
 
-    def test_roundtrip_horizon(self) -> None:
+    def test_roundtrip_horizon(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        # Own file: the row-count assertion below must not see other tests' writes.
+        store = DuckDBStore(path=tmp_path / "roundtrip.duckdb")
         store.write_horizon_metric(
             horizon_id=3, label="5m", sharpe=2.1, confidence=0.9, direction=-1, drift_detected=True
         )
@@ -574,13 +583,20 @@ class TestMicrostructureExtended:
         assert est.lambda_ >= 0.0
 
     def test_build_microstructure_returns_all_fields(self) -> None:
-        from src.features.microstructure import build_microstructure_features
+        from src.features.microstructure import (
+            KyleLambdaEstimator,
+            VPINTracker,
+            build_microstructure_features,
+        )
 
         ft = build_microstructure_features(
-            price=50000.0,
-            volume=100.0,
             bids=[[49990.0, 2.0], [49980.0, 1.0]],
             asks=[[50010.0, 1.5], [50020.0, 0.5]],
+            vpin_tracker=VPINTracker(),
+            kyle_estimator=KyleLambdaEstimator(),
+            last_price=50000.0,
+            last_trade_volume=100.0,
+            last_trade_side="sell",
         )
         assert hasattr(ft, "ofi")
         assert hasattr(ft, "vpin")

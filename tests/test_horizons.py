@@ -127,7 +127,8 @@ class TestGNNHead:
 
         model = GNNHead(node_features=32, d_model=128)
         x = torch.randn(5, 32)
-        out = model(x, edge_index=None, edge_attr=None)
+        # No PyG installed → forward takes the plain-tensor fallback path.
+        out = model(x)
         assert out.shape == (1, 128)
 
 
@@ -192,8 +193,9 @@ class TestMetaNetwork:
         x = torch.randn(1, 128)
         outputs = model(x)
         for out in outputs:
-            # direction is [B, 3] softmax probabilities
-            assert abs(float(out.direction.sum()) - 3.0) < 1.0  # 3 classes, each row sums to 1
+            # direction is [B, 3] softmax probabilities — each row sums to 1
+            row_sums = out.direction.sum(dim=-1)
+            assert torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-5)
 
     def test_timing_in_01(self) -> None:
         from src.fusion.meta_network import MetaNetwork

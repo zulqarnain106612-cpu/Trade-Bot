@@ -259,7 +259,7 @@ class CryptoIntelligence:
         import numpy as np
 
         signals = [
-            {"direction": r.direction, "confidence": r.confidence, "horizon_idx": r.horizon_idx}
+            {"direction": r.direction, "confidence": r.confidence, "horizon_idx": r.horizon_id}
             for r in results
         ]
         rw = np.ones(len(results))
@@ -287,7 +287,7 @@ class CryptoIntelligence:
             },
             vol=vol,
             cvar=cvar,
-            horizon_idx=best.horizon_idx,
+            horizon_idx=best.horizon_id,
         )
 
         # Circuit breaker
@@ -299,11 +299,11 @@ class CryptoIntelligence:
             return None
 
         # --- ADWIN drift check per horizon ---
-        self._risk_gate.check_drift(best.horizon_idx, best.confidence)
+        self._risk_gate.check_drift(best.horizon_id, best.confidence)
 
         # --- Persist to DuckDB ---
         self._duckdb.write_horizon_metric(
-            horizon_id=best.horizon_idx,
+            horizon_id=best.horizon_id,
             label=resolution.direction,
             sharpe=resolution.weight * 2.0,
             confidence=best.confidence,
@@ -316,7 +316,7 @@ class CryptoIntelligence:
             direction=resolution.direction,
             size_pct=size_result.size_pct,
             confidence=best.confidence,
-            horizon_idx=best.horizon_idx,
+            horizon_idx=best.horizon_id,
             algo=best.algo,
             ecc_anomaly=ecc_anomaly,
             conflict=resolution.conflict,
