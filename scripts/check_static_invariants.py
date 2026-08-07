@@ -517,11 +517,11 @@ def check_protocol_methods_are_called() -> list[str]:
 # wrong. They are listed rather than deleted so the count cannot grow
 # silently: a NEW unread field is a wiring mistake and should fail here.
 _UNREAD_FIELD_ALLOWED = {
-    # TripleBarrierResult is declared and documented but never constructed:
-    # triple_barrier_labels() returns a bare pd.Series of labels, so the exit
-    # index and reason are computed and discarded. Recovering them enables
-    # AFML Ch.4 sample-uniqueness weighting — a modelling change needing
-    # out-of-sample validation, not a wiring fix.
+    # TripleBarrierResult remains unconstructed — the per-observation record
+    # is superseded by TripleBarrierComposition, which aggregates the same
+    # exit information. Kept because AFML Ch.4 sample-uniqueness weighting
+    # needs the per-observation form, which is a modelling change requiring
+    # out-of-sample validation rather than a wiring fix.
     "exit_index",
     # ProbabilisticPrediction has no consumer anywhere in src/. The whole
     # uncertainty layer is inert; these are its unconsumed outputs.

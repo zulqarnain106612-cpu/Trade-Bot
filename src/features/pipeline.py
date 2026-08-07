@@ -142,6 +142,12 @@ def get_active_feature_columns(
 
 # Label columns
 COL_LABEL: Final[str] = "label"
+
+# Share of time-exit labels above which the barriers are reported as
+# mis-calibrated. Two thirds is deliberately permissive — this is a
+# diagnostic that must fire on a genuinely broken configuration without
+# crying wolf on a merely quiet market.
+_TIME_EXIT_WARN_FRACTION: Final[float] = 0.66
 COL_META_LABEL: Final[str] = "meta_label"
 COL_RETURN: Final[str] = "log_return"
 
@@ -432,6 +438,49 @@ class TripleBarrierResult:
     exit_reason: str
 
 
+@dataclass(frozen=True)
+class TripleBarrierComposition:
+    """
+    How a labelled window resolved, in aggregate.
+
+    AFML Ch.3 warns that the barriers, not the labeller, are what make
+    triple-barrier labels informative. If almost every observation exits on
+    the time barrier, the vertical barrier is doing the labelling: the
+    horizontal barriers are too wide to be reached inside max_holding, and
+    the model is being trained to predict which side of a coin a drifting
+    price lands on. The labels still look well-formed and the label counts
+    still balance, so nothing downstream can tell.
+
+    profit_target / stop_loss / time_exit are counts. mean_holding_bars is
+    the average number of bars to exit, which reads directly against
+    max_holding: approaching it is the same warning from the other side.
+    """
+
+    profit_target: int
+    stop_loss: int
+    time_exit: int
+    mean_holding_bars: float
+
+    @property
+    def total(self) -> int:
+        return self.profit_target + self.stop_loss + self.time_exit
+
+    @property
+    def time_exit_fraction(self) -> float:
+        """Share of labels set by the vertical barrier. 0.0 when empty."""
+        return self.time_exit / self.total if self.total else 0.0
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "profit_target": self.profit_target,
+            "stop_loss": self.stop_loss,
+            "time_exit": self.time_exit,
+            "total": self.total,
+            "time_exit_fraction": round(self.time_exit_fraction, 4),
+            "mean_holding_bars": round(self.mean_holding_bars, 2),
+        }
+
+
 def _compute_daily_vol(log_returns: pd.Series, span: int = 63) -> pd.Series:
     """
     EWMA estimate of daily volatility from log returns.
@@ -441,13 +490,13 @@ def _compute_daily_vol(log_returns: pd.Series, span: int = 63) -> pd.Series:
     return log_returns.ewm(span=span, min_periods=span).std()
 
 
-def triple_barrier_labels(
+def triple_barrier_labels_with_offsets(
     close: pd.Series,
     pt_multiplier: float,
     sl_multiplier: float,
     max_holding: int,
     daily_vol: pd.Series | None = None,
-) -> pd.Series:
+) -> tuple[pd.Series, pd.Series]:
     """
     Apply triple-barrier labeling to a close price series.
 
@@ -474,8 +523,13 @@ def triple_barrier_labels(
 
     Returns
     -------
-    pd.Series of int labels aligned to close.index, NaN at tail where
-    the full holding window extends beyond available data.
+    (labels, exit_offsets), both aligned to close.index and NaN at the tail
+    where the full holding window extends beyond available data.
+
+    exit_offsets is the number of bars to the exit — the piece the caller
+    needs to tell "the barriers resolved this" from "the clock did", and
+    which this function previously computed and discarded. TripleBarrierResult
+    documented it as a field of a class nothing ever constructed.
     """
     prices = close.to_numpy(dtype=np.float64)
     n = len(prices)
@@ -500,8 +554,13 @@ def triple_barrier_labels(
     upper = np.where(valid_mask, entry_prices * (1.0 + pt_multiplier * vols), np.nan)
     lower = np.where(valid_mask, entry_prices * (1.0 - sl_multiplier * vols), np.nan)
 
-    # Initialize all valid rows as time-exit (-1)
+    # Initialize all valid rows as time-exit (-1), exiting at max_holding.
+    # The offset is recorded alongside the label rather than derived later:
+    # it is already known here, and recomputing it would mean replaying the
+    # barrier comparisons a second time.
     labels[valid_mask] = -1.0
+    offsets = np.full(n, np.nan, dtype=np.float64)
+    offsets[valid_mask] = float(max_holding)
 
     # first_hit[t] tracks the earliest offset k at which a barrier was hit.
     # We iterate k from 1 to max_holding and update only rows not yet resolved.
@@ -522,9 +581,53 @@ def triple_barrier_labels(
         hit_lower = in_bounds & ~resolved & (future_prices <= lower)
         labels[hit_upper] = 1.0
         labels[hit_lower] = 0.0
+        offsets[hit_upper | hit_lower] = float(k)
         resolved |= hit_upper | hit_lower
 
-    return pd.Series(labels, index=close.index, dtype=np.float64).rename(COL_LABEL)
+    label_series = pd.Series(labels, index=close.index, dtype=np.float64).rename(COL_LABEL)
+    offset_series = pd.Series(offsets, index=close.index, dtype=np.float64)
+    return label_series, offset_series
+
+
+def triple_barrier_labels(
+    close: pd.Series,
+    pt_multiplier: float,
+    sl_multiplier: float,
+    max_holding: int,
+    daily_vol: pd.Series | None = None,
+) -> pd.Series:
+    """
+    Labels only — the long-standing signature, unchanged.
+
+    Callers that also need to know *why* each observation exited should use
+    triple_barrier_labels_with_offsets; see TripleBarrierComposition for why
+    that distinction is worth having.
+    """
+    labels, _offsets = triple_barrier_labels_with_offsets(
+        close, pt_multiplier, sl_multiplier, max_holding, daily_vol
+    )
+    return labels
+
+
+def summarize_triple_barrier(
+    labels: pd.Series,
+    exit_offsets: pd.Series,
+) -> TripleBarrierComposition:
+    """
+    Aggregate a labelled window into its exit composition.
+
+    Rows where either series is NaN are excluded rather than counted as a
+    category: they are the unlabelled tail, not a fourth kind of exit.
+    """
+    mask = labels.notna() & exit_offsets.notna()
+    valid_labels = labels[mask]
+    valid_offsets = exit_offsets[mask]
+    return TripleBarrierComposition(
+        profit_target=int((valid_labels == 1.0).sum()),
+        stop_loss=int((valid_labels == 0.0).sum()),
+        time_exit=int((valid_labels == -1.0).sum()),
+        mean_holding_bars=float(valid_offsets.mean()) if len(valid_offsets) else 0.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -727,13 +830,31 @@ def build_feature_matrix(
     # ------------------------------------------------------------------ #
     # 9. Triple-barrier labels (AFML Ch.3)
     # ------------------------------------------------------------------ #
-    tb_labels = triple_barrier_labels(
+    tb_labels, tb_offsets = triple_barrier_labels_with_offsets(
         close,
         pt_multiplier=cfg.triple_barrier_pt_multiplier,
         sl_multiplier=cfg.triple_barrier_sl_multiplier,
         max_holding=cfg.triple_barrier_max_holding_bars,
         daily_vol=daily_vol,
     )
+
+    # Barrier calibration check. Labels dominated by the vertical barrier mean
+    # the horizontal ones are unreachable inside max_holding, so the clock is
+    # doing the labelling and the model is learning drift rather than the
+    # move the barriers were meant to capture. The label counts still balance
+    # and every downstream metric still looks healthy, which is exactly why
+    # this has to be said out loud at build time rather than inferred later.
+    composition = summarize_triple_barrier(tb_labels, tb_offsets)
+    if composition.time_exit_fraction > _TIME_EXIT_WARN_FRACTION:
+        log.warning(
+            "features.triple_barrier_dominated_by_time_exit",
+            max_holding_bars=cfg.triple_barrier_max_holding_bars,
+            pt_multiplier=cfg.triple_barrier_pt_multiplier,
+            sl_multiplier=cfg.triple_barrier_sl_multiplier,
+            **composition.as_dict(),
+        )
+    else:
+        log.info("features.triple_barrier_composition", **composition.as_dict())
 
     # ------------------------------------------------------------------ #
     # Assemble feature matrix — drop any row with NaN in features or label
