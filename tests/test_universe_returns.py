@@ -250,3 +250,30 @@ async def test_staleness_and_attempt_permission_are_independent() -> None:
 
     assert cache.is_stale() is True
     assert cache._may_attempt() is False
+
+
+# ------------------------------------------------------------ monotonic clock
+
+
+async def test_a_never_fetched_cache_is_stale_regardless_of_clock_origin() -> None:
+    # The TTL runs on time.monotonic(), whose epoch is arbitrary and on a
+    # freshly booted host can be far below the TTL itself. A 0.0 "never"
+    # sentinel would then make an unfetched cache read as FRESH and never
+    # populate — the sentinel has to be explicit, not rely on the origin.
+    cache = _cache(_Fetcher({}), ("A",), ttl_seconds=3600.0)
+    assert cache.is_stale() is True
+    assert cache.fetched_at == 0.0
+
+
+async def test_first_refresh_happens_even_with_a_long_ttl() -> None:
+    fetcher = _Fetcher({"A": _rising(100.0, 110.0)})
+    cache = _cache(fetcher, ("A",), ttl_seconds=86_400.0)
+    assert await cache.trailing_returns() == {"A": pytest.approx(0.10)}
+    assert fetcher.calls == ["A"]
+
+
+async def test_backoff_permits_the_first_attempt() -> None:
+    # _last_attempt_at starts unset; with no failures recorded the gate must
+    # be open rather than comparing against a sentinel.
+    cache = _cache(_Fetcher({}), ("A",))
+    assert cache._may_attempt() is True

@@ -41,7 +41,9 @@ class ModelRecord:
     predictions: list[float] = field(default_factory=list)
     actuals: list[float] = field(default_factory=list)
     returns: list[float] = field(default_factory=list)
-    start_ts: float = field(default_factory=time.time)
+    # Monotonic, not epoch: this is only ever read as an elapsed duration by
+    # age_hours(), never serialised or reported as a wall-clock time.
+    start_ts: float = field(default_factory=time.monotonic)
 
     def sharpe(self) -> float:
         arr = np.array(self.returns)
@@ -53,7 +55,15 @@ class ModelRecord:
         return float(np.mean(arr) / std * np.sqrt(252))
 
     def age_hours(self) -> float:
-        return (time.time() - self.start_ts) / 3600.0
+        """
+        Hours since this arm started, on the monotonic clock.
+
+        Wall clock made promotion hostage to NTP: a forward correction can
+        satisfy the shadow-period gate that promote_ready() checks before the
+        challenger has actually run for that long, and a backward one holds a
+        finished shadow open indefinitely.
+        """
+        return (time.monotonic() - self.start_ts) / 3600.0
 
 
 @dataclass
@@ -102,8 +112,8 @@ class ShadowDeployer:
         self._result: ABResult | None = None
 
     def start(self) -> None:
-        self._incumbent.start_ts = time.time()
-        self._challenger.start_ts = time.time()
+        self._incumbent.start_ts = time.monotonic()
+        self._challenger.start_ts = time.monotonic()
         self._active = True
         log.info(
             "shadow_deploy_started",

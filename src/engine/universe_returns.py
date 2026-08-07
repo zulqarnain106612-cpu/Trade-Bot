@@ -131,11 +131,17 @@ class UniverseReturnsCache:
         self._lock = asyncio.Lock()
         self._returns: dict[str, float] = {}
         self._closes: dict[str, tuple[float, ...]] = {}
-        self._fetched_at: float = 0.0
+        # None means "never", not 0.0. Under wall clock a 0.0 sentinel worked
+        # by accident: now - 0.0 is astronomically large, so an unfetched
+        # cache always read as stale. time.monotonic() has an arbitrary
+        # epoch that can be small, so the same sentinel would make a
+        # never-fetched cache look FRESH and never populate at all. The
+        # sentinel has to be explicit rather than rely on the clock's origin.
+        self._fetched_at: float | None = None
         # Attempt bookkeeping, kept separate from _fetched_at: the TTL is
         # about how old the DATA is, the backoff is about how recently we
         # last tried. Conflating them is what produced the retry storm.
-        self._last_attempt_at: float = 0.0
+        self._last_attempt_at: float | None = None
         self._consecutive_failures: int = 0
 
     @property
@@ -144,13 +150,23 @@ class UniverseReturnsCache:
 
     @property
     def fetched_at(self) -> float:
-        """Epoch seconds of the last successful refresh; 0.0 before any."""
-        return self._fetched_at
+        """
+        Monotonic timestamp of the last successful refresh; 0.0 before any.
+
+        Not an epoch time and not comparable to one — it is read as an age by
+        is_stale() and as a memoisation key by the orchestrator's pair
+        cointegration cache. Wall clock would put both at the mercy of an NTP
+        correction: a backward step makes a stale snapshot look fresh, and a
+        forward one expires the universe and reopens the retry path.
+        """
+        return 0.0 if self._fetched_at is None else self._fetched_at
 
     def is_stale(self, now: float | None = None) -> bool:
         """True when the DATA is older than the TTL. Says nothing about
         whether a refresh should be attempted — see _may_attempt."""
-        clock = time.time() if now is None else now
+        if self._fetched_at is None:
+            return True
+        clock = time.monotonic() if now is None else now
         return (clock - self._fetched_at) > self._ttl
 
     def _backoff_seconds(self) -> float:
@@ -172,9 +188,9 @@ class UniverseReturnsCache:
         alone re-fires the entire universe on every tick, hardest exactly
         when the exchange is least able to serve it.
         """
-        if self._consecutive_failures == 0:
+        if self._consecutive_failures == 0 or self._last_attempt_at is None:
             return True
-        clock = time.time() if now is None else now
+        clock = time.monotonic() if now is None else now
         return (clock - self._last_attempt_at) >= self._backoff_seconds()
 
     def snapshot(self) -> dict[str, float]:
@@ -203,6 +219,10 @@ class UniverseReturnsCache:
         strategy is least likely to notice something is wrong.
         """
         bars_needed = int(self._lookback_days * 86_400 / _UNIVERSE_TF_SECONDS) + 1
+        # Deliberately wall clock: this is an exchange API parameter and must
+        # be a real epoch time. Everything in this class that measures a
+        # DURATION uses time.monotonic(); this one measures a point in
+        # history, which is the distinction that decides between them.
         since_ms = int((time.time() - self._lookback_days * 86_400) * 1000)
         try:
             async with self._sem:
@@ -237,7 +257,7 @@ class UniverseReturnsCache:
         snapshot in place: an exchange-wide outage should cost freshness,
         not the entire cross-section.
         """
-        self._last_attempt_at = time.time()
+        self._last_attempt_at = time.monotonic()
         results = await asyncio.gather(
             *(self._trailing_return(s) for s in self._symbols),
             return_exceptions=True,
@@ -265,7 +285,7 @@ class UniverseReturnsCache:
         self._consecutive_failures = 0
         self._returns = resolved
         self._closes = closes
-        self._fetched_at = time.time()
+        self._fetched_at = time.monotonic()
         log.info(
             "universe.refreshed",
             resolved=len(resolved),
