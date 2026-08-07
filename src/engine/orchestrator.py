@@ -898,13 +898,19 @@ class Orchestrator:
             # than never having had one — but a reduction that falls below the
             # exchange minimum skips the trade rather than submitting it at
             # full size.
+            # Sized against current_price, NOT kelly_result.entry_price. The
+            # block immediately above exists precisely because entry_price can
+            # be zero, and resolves it by fetching a ticker (skipping the
+            # trade if even that fails). Passing the unresolved value here
+            # would hand apply_size_scalar a non-positive price, which it
+            # correctly refuses — silently skipping a valid trade and
+            # reporting it as an agreement reduction, which is the wrong
+            # diagnosis for a price that had already been fixed two lines up.
             kelly_result = result.kelly_result
             _agreement = self._last_portfolio_agreement.get(tf.value, 1.0)
             if _agreement < 1.0:
                 try:
-                    _reduced = apply_size_scalar(
-                        kelly_result, _agreement, kelly_result.entry_price
-                    )
+                    _reduced = apply_size_scalar(kelly_result, _agreement, current_price)
                 except Exception as exc:
                     self._log.error(
                         "orchestrator.portfolio_agreement_apply_failed",

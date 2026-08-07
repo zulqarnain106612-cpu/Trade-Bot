@@ -103,3 +103,26 @@ def test_scalars_compose_monotonically() -> None:
     quarter = apply_size_scalar(base, 0.25, 100.0)
     assert half is not None and quarter is not None
     assert quarter.notional_usd < half.notional_usd < base.notional_usd
+
+
+def test_a_zero_entry_price_on_the_result_must_not_be_used_for_sizing() -> None:
+    # KellyResult.entry_price can legitimately be 0.0 — the orchestrator has a
+    # block dedicated to resolving it from a ticker before submission. Sizing
+    # against the unresolved value refuses the reduction and skips a valid
+    # trade, reporting it as an agreement reduction: the wrong diagnosis for a
+    # price that was already fixed. The caller must pass the resolved price.
+    unpriced = KellyResult(
+        kelly_fraction=0.2,
+        adjusted_fraction=0.1,
+        capital_usd=10_000.0,
+        entry_price=0.0,
+        quantity=10.0,
+        notional_usd=1000.0,
+        is_capped=False,
+    )
+    assert apply_size_scalar(unpriced, 0.4, unpriced.entry_price) is None
+
+    resolved = apply_size_scalar(unpriced, 0.4, 100.0)
+    assert resolved is not None
+    assert resolved.notional_usd == pytest.approx(400.0, abs=0.01)
+    assert resolved.quantity == pytest.approx(4.0, abs=1e-6)
