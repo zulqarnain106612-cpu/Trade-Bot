@@ -1981,6 +1981,51 @@ async def re_enable_strategy(
     return {"strategy_id": strategy_id, "enabled": True, "forced": body.force}
 
 
+@app.get("/strategies/portfolio", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_portfolio(timeframe: str | None = None) -> dict[str, Any]:
+    """
+    What every registered strategy actually said on its last evaluation.
+
+    /strategies/allocation answers "how is capital split?"; this answers the
+    question that had no answer at all before the portfolio runner existed:
+    "was each strategy even asked, and what did it reply?".
+
+    Each verdict carries a status that distinguishes the cases that used to
+    be indistinguishable:
+
+      signal        — polled, voted directionally
+      flat          — polled, no directional opinion
+      regime_gated  — polled, returned regime_fit == 0 (a hard "not here")
+      abstained     — never polled: no context could be built from live data
+      disabled      — kill-switched out of the enabled set
+      error         — raised; recorded here, never raised into the trade path
+
+    A standing `abstained` with reason `no_context_builder` is the honest
+    report that a registered family has no data feed in this process yet —
+    it is a wiring gap to close, not a broken strategy.
+
+    The reported `direction` is 0 whenever `conflict` is true: a portfolio
+    whose members disagree has no direction worth acting on, and reporting
+    the narrow winner would hide the disagreement. `raw_direction` keeps the
+    pre-gate winner for diagnosis.
+
+    Read-only and advisory: this reports the portfolio's opinion. Orders are
+    still routed only by the signal engine through Kelly and the risk gates.
+
+    Query parameters
+    ----------------
+    timeframe : restrict to one timeframe (e.g. "15m"). Omitted returns every
+                timeframe keyed by its value.
+    """
+    orch = _state.orchestrator
+    if orch is None:
+        return {"evaluations": {}, "reason": "orchestrator_not_started"}
+    payload = orch.portfolio_evaluation(timeframe)
+    if timeframe is not None:
+        return {"timeframe": timeframe, "evaluation": payload}
+    return {"evaluations": payload}
+
+
 @app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])
 async def get_allocation_stress_test() -> dict[str, Any]:
     """

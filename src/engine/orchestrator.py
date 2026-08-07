@@ -50,6 +50,11 @@ from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
 )
 from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
+from src.engine.strategy_portfolio import (
+    PortfolioEvaluation,
+    PortfolioInputs,
+    get_portfolio_runner,
+)
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
@@ -88,6 +93,12 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
 _HISTORY_BARS_FOR_TRAIN: int = 2000
 _REGIME_LOOKBACK_BARS: int = 500
+# Bars handed to the strategy portfolio each tick. Wide enough for the
+# breakout family's lookback + ATR warmup, narrow enough that rebuilding it
+# every tick stays cheap next to the model path.
+_PORTFOLIO_BAR_WINDOW: int = 300
+# Funding observations kept for the carry family's z-score (~8h cadence).
+_PORTFOLIO_FUNDING_WINDOW: int = 120
 
 AnyExecutor = PaperExecutor | LiveExecutor
 
@@ -183,6 +194,9 @@ class Orchestrator:
         self._retrain_tasks: dict[str, asyncio.Task] = {}
         # SCAN2-003: track last retrain error per timeframe so /status can surface it
         self._last_retrain_error: dict[str, str] = {}
+        # Latest strategy-portfolio evaluation per timeframe. Advisory: read
+        # by the API/debug surface, never by the order path.
+        self._last_portfolio_evaluation: dict[str, PortfolioEvaluation] = {}
 
         # GAP-003: Performance drift detector (initialized in startup after models trained)
         self._drift_detector: PerformanceDriftDetector | None = None
@@ -738,6 +752,11 @@ class Orchestrator:
         # strategy's generate_signal() would answer Signal(0, 0, 0) forever,
         # making it look permanently flat to anything reading the registry.
         self._publish_signal_to_registry(result)
+
+        # Poll the rest of the strategy portfolio. Must run after the publish
+        # above, so the incumbent adapter votes on this tick's result rather
+        # than the previous one.
+        await self._evaluate_strategy_portfolio(tf)
 
         # TASK-007: push metrics snapshot to Prometheus gauges/counters
         try:
@@ -1656,6 +1675,99 @@ class Orchestrator:
             self._log.warning(
                 "orchestrator.registry_signal_publish_failed", error=str(exc), exc_info=True
             )
+
+    async def _build_portfolio_inputs(self, tf: Timeframe) -> PortfolioInputs:
+        """
+        Assemble this tick's market state in the forms the families need.
+
+        Every source is optional and independently guarded: a family whose
+        data is missing abstains, and the rest still vote. Failing the whole
+        evaluation because one optional feed is down would reintroduce the
+        all-or-nothing coupling that kept this layer unwired.
+        """
+        highs: list[float] | None = None
+        lows: list[float] | None = None
+        closes: list[float] | None = None
+        volumes: list[float] | None = None
+        try:
+            records = await self._storage.fetch_bars(
+                self._symbol, tf.value, since_ts=0, limit=_PORTFOLIO_BAR_WINDOW
+            )
+            # fetch_bars returns the *oldest* `limit` rows at or after
+            # since_ts, so slice the tail to get the window ending at now.
+            window = records[-_PORTFOLIO_BAR_WINDOW:]
+            if window:
+                highs = [r.high for r in window]
+                lows = [r.low for r in window]
+                closes = [r.close for r in window]
+                volumes = [r.volume for r in window]
+        except Exception as exc:
+            self._log.warning("orchestrator.portfolio_bars_failed", error=str(exc))
+
+        funding_rate: float | None = None
+        funding_history: list[float] | None = None
+        try:
+            intel = await self._storage.fetch_intelligence_features(self._symbol, tf.value)
+            col = "intelligence_binance_funding_rate_pct"
+            if col in intel.columns:
+                series = intel[col].dropna()
+                if not series.empty:
+                    funding_history = [float(v) for v in series.tail(_PORTFOLIO_FUNDING_WINDOW)]
+                    funding_rate = funding_history[-1]
+        except Exception as exc:
+            self._log.warning("orchestrator.portfolio_funding_failed", error=str(exc))
+
+        return PortfolioInputs(
+            symbol=self._symbol,
+            timeframe=tf.value,
+            highs=highs,
+            lows=lows,
+            closes=closes,
+            volumes=volumes,
+            funding_rate_pct=funding_rate,
+            funding_history_pct=funding_history,
+        )
+
+    async def _evaluate_strategy_portfolio(self, tf: Timeframe) -> PortfolioEvaluation | None:
+        """
+        Ask every registered strategy for its opinion on this tick.
+
+        Advisory only — the evaluation is recorded and exposed, and no order
+        is routed from it. Sizing stays with Kelly and the risk gates.
+
+        Never raises: this is the non-incumbent half of the portfolio, and a
+        fault here must not stop a valid signal_engine_v1 signal that has
+        already cleared its gates from reaching the executor.
+        """
+        try:
+            runner = get_portfolio_runner()
+            strategies = tuple(get_default_registry().all())
+            if not strategies:
+                return None
+            enabled_ids = get_strategy_kill_switch_manager().enabled_ids(
+                s.strategy_id for s in strategies
+            )
+            weights = get_allocation_controller(
+                self._cfg.strategy_portfolio.max_allocation_shift_per_step
+            ).applied()
+            inputs = await self._build_portfolio_inputs(tf)
+            evaluation = runner.evaluate(
+                inputs,
+                enabled_ids=set(enabled_ids),
+                weights=weights or None,
+            )
+            self._last_portfolio_evaluation[tf.value] = evaluation
+            return evaluation
+        except Exception as exc:
+            self._log.error("orchestrator.strategy_portfolio_failed", error=str(exc), exc_info=True)
+            return None
+
+    def portfolio_evaluation(self, timeframe: str | None = None) -> dict[str, object]:
+        """Latest portfolio evaluation(s), for the API/debug surface."""
+        if timeframe is not None:
+            ev = self._last_portfolio_evaluation.get(timeframe)
+            return {} if ev is None else ev.as_dict()
+        return {tf: ev.as_dict() for tf, ev in self._last_portfolio_evaluation.items()}
 
     async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
         """Mark-to-market and stop-loss/take-profit/time-exit for one executor's positions."""
