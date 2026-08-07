@@ -101,6 +101,13 @@ _REGIME_LOOKBACK_BARS: int = 500
 _PORTFOLIO_BAR_WINDOW: int = 300
 # Funding observations kept for the carry family's z-score (~8h cadence).
 _PORTFOLIO_FUNDING_WINDOW: int = 120
+# Calendar lookback for the funding sample. Funding steps every 8h, so a
+# bar-count window would span days at 15m and hours at 1m — a fixed calendar
+# span keeps the z-score's sample comparable across timeframes.
+_PORTFOLIO_FUNDING_LOOKBACK_DAYS: int = 45
+# Row ceiling on that lookback, so the query stays bounded on the fastest
+# timeframe (45d of 1m bars) instead of falling back to the 100_000 default.
+_PORTFOLIO_FUNDING_MAX_ROWS: int = 5_000
 
 AnyExecutor = PaperExecutor | LiveExecutor
 
@@ -1695,12 +1702,23 @@ class Orchestrator:
         lows: list[float] | None = None
         closes: list[float] | None = None
         volumes: list[float] | None = None
+        # fetch_bars is `ts >= since_ts ORDER BY ts ASC LIMIT n`, so since_ts
+        # is what selects the window — a limit alone would return the oldest
+        # n bars in the table and the portfolio would evaluate the start of
+        # history forever, on data years stale, without ever erroring.
+        # Over-fetch the cutoff to absorb OHLCV gaps (a real feature of crypto
+        # feeds, not an artifact) and take the tail.
+        tf_seconds = TIMEFRAME_SECONDS[tf]
+        cutoff_ts = int(
+            (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_BAR_WINDOW * 3 * tf_seconds) * 1000
+        )
         try:
             records = await self._storage.fetch_bars(
-                self._symbol, tf.value, since_ts=0, limit=_PORTFOLIO_BAR_WINDOW
+                self._symbol,
+                tf.value,
+                since_ts=max(0, cutoff_ts),
+                limit=_PORTFOLIO_BAR_WINDOW * 3,
             )
-            # fetch_bars returns the *oldest* `limit` rows at or after
-            # since_ts, so slice the tail to get the window ending at now.
             window = records[-_PORTFOLIO_BAR_WINDOW:]
             if window:
                 highs = [r.high for r in window]
@@ -1713,7 +1731,25 @@ class Orchestrator:
         funding_rate: float | None = None
         funding_history: list[float] | None = None
         try:
-            intel = await self._storage.fetch_intelligence_features(self._symbol, tf.value)
+            # Bounded for the same reason, and additionally because the
+            # default limit is 100_000 rows: unbounded, this rebuilt the
+            # entire intelligence history into a DataFrame on every tick of
+            # every timeframe to read the last ~120 funding observations.
+            #
+            # Its own cutoff, not the bar window's: intelligence rows are
+            # per-bar, but funding only steps every 8h, so a 300-bar window
+            # at 15m spans ~3 days and would hand the carry family a
+            # near-constant series whose z-score means nothing. A fixed
+            # calendar lookback keeps the sample wide regardless of timeframe.
+            funding_cutoff_ts = int(
+                (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_FUNDING_LOOKBACK_DAYS * 86400) * 1000
+            )
+            intel = await self._storage.fetch_intelligence_features(
+                self._symbol,
+                tf.value,
+                since_ts=max(0, funding_cutoff_ts),
+                limit=_PORTFOLIO_FUNDING_MAX_ROWS,
+            )
             col = "intelligence_binance_funding_rate_pct"
             if col in intel.columns:
                 series = intel[col].dropna()

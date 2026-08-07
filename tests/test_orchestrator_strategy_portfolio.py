@@ -10,6 +10,8 @@ portfolio is polled.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pandas as pd
 import pytest
 import structlog
@@ -44,9 +46,11 @@ class _Storage:
         self._intel = intel if intel is not None else pd.DataFrame()
 
     async def fetch_bars(self, symbol, timeframe, since_ts=0, limit=0):
+        self.bar_query = {"since_ts": since_ts, "limit": limit}
         return self._bars
 
-    async def fetch_intelligence_features(self, symbol, timeframe):
+    async def fetch_intelligence_features(self, symbol, timeframe, since_ts=0, limit=100_000):
+        self.intel_query = {"since_ts": since_ts, "limit": limit}
         return self._intel
 
 
@@ -356,3 +360,48 @@ async def test_agreeing_peers_produce_no_reduction(monkeypatch):
     await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
 
     assert orch.portfolio_evaluation("15m")["agreement_scalar"] == 1.0
+
+
+# --------------------------------------------------- query bounds
+
+
+async def test_bar_window_is_selected_by_since_ts_not_by_limit_alone():
+    # fetch_bars is `ts >= since_ts ORDER BY ts ASC LIMIT n`. A limit with
+    # since_ts=0 returns the OLDEST rows, so the portfolio would evaluate the
+    # start of history forever — stale by years, and never raising.
+    storage = _Storage(bars=[_Bar(i) for i in range(120)])
+    orch = _orchestrator(storage)
+    await orch._build_portfolio_inputs(Timeframe.INTRADAY)
+
+    now_ms = datetime.now(tz=UTC).timestamp() * 1000
+    assert storage.bar_query["since_ts"] > 0
+    # Window must reach back from now, not forward from epoch.
+    assert storage.bar_query["since_ts"] < now_ms
+    assert now_ms - storage.bar_query["since_ts"] < 400 * 24 * 3600 * 1000
+
+
+async def test_intelligence_query_is_bounded():
+    # Unbounded this rebuilt the whole intelligence history into a DataFrame
+    # every tick of every timeframe to read ~120 funding observations.
+    storage = _Storage(intel=pd.DataFrame({"intelligence_binance_funding_rate_pct": [0.01] * 5}))
+    orch = _orchestrator(storage)
+    await orch._build_portfolio_inputs(Timeframe.INTRADAY)
+
+    assert storage.intel_query["limit"] < 100_000
+    assert storage.intel_query["since_ts"] > 0
+
+
+async def test_funding_lookback_is_calendar_based_not_bar_based():
+    # Funding steps every 8h. A bar-count window would span ~3 days at 15m
+    # and hand the carry family a near-constant series.
+    storage = _Storage(intel=pd.DataFrame({"intelligence_binance_funding_rate_pct": [0.01] * 5}))
+    orch = _orchestrator(storage)
+    await orch._build_portfolio_inputs(Timeframe.INTRADAY)
+    fast = storage.intel_query["since_ts"]
+
+    storage2 = _Storage(intel=pd.DataFrame({"intelligence_binance_funding_rate_pct": [0.01] * 5}))
+    orch2 = _orchestrator(storage2)
+    await orch2._build_portfolio_inputs(Timeframe.SWING)
+
+    # Same calendar span regardless of timeframe (allow a second of clock drift).
+    assert abs(fast - storage2.intel_query["since_ts"]) < 2_000
