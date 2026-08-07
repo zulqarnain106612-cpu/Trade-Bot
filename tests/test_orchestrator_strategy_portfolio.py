@@ -72,6 +72,7 @@ def _orchestrator(storage: object) -> Orchestrator:
     orch._last_portfolio_peer_evaluation = {}
     orch._last_portfolio_agreement = {}
     orch._fetcher = _Fetcher({})
+    orch._quote_cache = {}
     return orch
 
 
@@ -580,3 +581,98 @@ def test_a_failing_cointegration_test_abstains_and_is_not_retried_per_tick():
     finally:
         mod.check_cointegration = original
     assert len(calls) == 1
+
+
+# --------------------------------------------------- quote memoisation
+
+
+class _CfgQuotes:
+    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+        max_allocation_shift_per_step = 0.10
+        basis_perp_symbol = "BTC/USDT:USDT"
+        mean_reversion_pair = []
+        mean_reversion_window = 30
+        basis_days_to_convergence = 1.0
+
+
+async def test_the_same_quote_is_not_requested_twice_in_one_tick():
+    # _fetch_venue_prices needs BTC/USDT on binance for the cross-exchange
+    # family; _fetch_basis_legs needed the identical quote for the basis
+    # spot leg. That was two round-trips per tick per timeframe against a
+    # rate limit shared with the order path.
+    fetcher = _SymbolFetcher(
+        {"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0}
+    )
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = fetcher
+
+    await orch._fetch_venue_prices()
+    await orch._fetch_basis_legs()
+
+    assert fetcher.symbols.count("BTC/USDT") == 1
+
+
+async def test_a_cached_quote_keeps_its_original_observation_time():
+    # This is what makes the cache safe rather than merely cheap: the skew
+    # guard measures the real age of the data, so a quote that ever did go
+    # stale abstains the family instead of being served as fresh.
+    fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = fetcher
+
+    first = await orch._quote("BTC/USDT", "binance")
+    second = await orch._quote("BTC/USDT", "binance")
+    assert first is not None and second is not None
+    assert second[1] == first[1]
+
+
+async def test_an_expired_quote_is_refetched():
+    fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = fetcher
+
+    await orch._quote("BTC/USDT", "binance")
+    # Age the entry past the TTL.
+    price, ts = orch._quote_cache[("BTC/USDT", "binance")]
+    orch._quote_cache[("BTC/USDT", "binance")] = (price, ts - 60.0)
+    await orch._quote("BTC/USDT", "binance")
+
+    assert fetcher.symbols.count("BTC/USDT") == 2
+
+
+async def test_different_venues_are_cached_separately():
+    # Same symbol, two venues, two distinct prices — collapsing them would
+    # make the cross-exchange basis identically zero.
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = _Fetcher({"binance": 100.0, "okx": 101.0})
+
+    prices, _ = await orch._fetch_venue_prices()
+    assert prices == {"binance": 100.0, "okx": 101.0}
+
+
+async def test_a_failed_quote_is_not_cached():
+    # Caching a failure would suppress the retry on the next tick.
+    fetcher = _SymbolFetcher({"BTC/USDT": RuntimeError("503")})
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = fetcher
+
+    assert await orch._quote("BTC/USDT", "binance") is None
+    assert await orch._quote("BTC/USDT", "binance") is None
+    assert fetcher.symbols.count("BTC/USDT") == 2
+
+
+async def test_the_quote_cache_is_bounded_by_symbol_and_venue():
+    # Keys are (symbol, venue), so the cache cannot grow with uptime.
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
+
+    for _ in range(50):
+        orch._quote_cache.clear()
+        await orch._fetch_basis_legs()
+    assert len(orch._quote_cache) <= 2

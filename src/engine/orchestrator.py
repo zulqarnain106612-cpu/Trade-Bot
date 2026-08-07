@@ -110,6 +110,11 @@ _PORTFOLIO_FUNDING_LOOKBACK_DAYS: int = 45
 # Row ceiling on that lookback, so the query stays bounded on the fastest
 # timeframe (45d of 1m bars) instead of falling back to the 100_000 default.
 _PORTFOLIO_FUNDING_MAX_ROWS: int = 5_000
+# Lifetime of a memoised ticker quote. Deliberately below
+# _MAX_VENUE_QUOTE_SKEW_S (2.0s), so a cached quote can only ever collapse
+# duplicate calls inside one tick's assembly — never survive long enough to
+# feed a later tick a stale price, which the skew guard would reject anyway.
+_QUOTE_CACHE_TTL_S: float = 1.0
 
 AnyExecutor = PaperExecutor | LiveExecutor
 
@@ -233,6 +238,10 @@ class Orchestrator:
         # (snapshot timestamp, hedge ratio or None) — memoises the pair's
         # cointegration test against the data it was computed from.
         self._pair_cointegration: tuple[float, float | None] | None = None
+        # (symbol, venue) -> (price, observed_at). Deduplicates the identical
+        # quotes that assembling one tick's portfolio inputs would otherwise
+        # request twice; see _quote.
+        self._quote_cache: dict[tuple[str, str], tuple[float, float]] = {}
 
         # GAP-003: Performance drift detector (initialized in startup after models trained)
         self._drift_detector: PerformanceDriftDetector | None = None
@@ -1933,7 +1942,28 @@ class Orchestrator:
         Returns rather than raises: every caller is assembling an optional
         portfolio feed where a missing quote must abstain one family, not
         abort the evaluation for the rest.
+
+        Memoised for _QUOTE_CACHE_TTL_S. The cache exists because assembling
+        one tick's inputs asked the same question twice: _fetch_venue_prices
+        quotes the primary symbol on Binance for the cross-exchange family,
+        and _fetch_basis_legs quoted it again, milliseconds later, for the
+        basis family's spot leg. Two identical round-trips per tick per
+        timeframe, against an exchange whose rate limit is a first-class
+        constraint and is shared with the order path.
+
+        The TTL is deliberately shorter than the quote-skew tolerance the
+        builders enforce. That is what makes caching safe here rather than
+        merely cheaper: a cached quote keeps the timestamp it was actually
+        observed at, so if it were ever old enough to matter, the skew guard
+        rejects the pair and the family abstains. The cache can therefore
+        only ever remove a duplicate call, never age a price into a decision.
         """
+        key = (symbol, venue)
+        now = datetime.now(tz=UTC).timestamp()
+        cached = self._quote_cache.get(key)
+        if cached is not None and (now - cached[1]) <= _QUOTE_CACHE_TTL_S:
+            return cached
+
         try:
             price = await self._fetcher.fetch_ticker_price(symbol, venue)
         except Exception as exc:
@@ -1944,7 +1974,11 @@ class Orchestrator:
         price = float(price)
         if price <= 0.0:
             return None
-        return price, datetime.now(tz=UTC).timestamp()
+        # Stamped when the price was observed, not when it was requested, so
+        # the skew guard measures the real age of the data.
+        quote = (price, datetime.now(tz=UTC).timestamp())
+        self._quote_cache[key] = quote
+        return quote
 
     async def _fetch_basis_legs(
         self,
