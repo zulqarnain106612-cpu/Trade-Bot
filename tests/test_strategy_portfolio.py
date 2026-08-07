@@ -593,3 +593,18 @@ def test_mean_reversion_votes_through_the_runner() -> None:
     assert verdict.signal is not None
     # Spread far above its mean -> fade it by shorting A.
     assert verdict.signal.direction == -1
+
+
+def test_basis_builder_threads_the_convergence_horizon() -> None:
+    ctx = build_basis_trade_context(
+        PortfolioInputs(
+            symbol="B",
+            timeframe="15m",
+            spot_price=100.0,
+            perp_price=101.0,
+            basis_days_to_convergence=7.0,
+        )
+    )
+    assert ctx is not None
+    horizon = ctx.days_to_perp_funding_normalization  # type: ignore[attr-defined]
+    assert horizon == pytest.approx(7.0)

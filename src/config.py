@@ -796,6 +796,18 @@ class StrategyPortfolioSettings(BaseSettings):
 
     basis_trade_enabled: bool = Field(default=False)
     basis_trade_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    basis_days_to_convergence: float = Field(
+        default=1.0,
+        gt=0.0,
+        description=(
+            "Days over which the spot-perp gap is assumed to converge. This "
+            "is the denominator of the basis annualization and sets the whole "
+            "scale of that signal: at the default 1 day a raw gap of 0.0137% "
+            "already clears the 5% entry threshold, which is routine for a "
+            "perp. Raise it to make the family require a wider gap. The "
+            "default reproduces the behaviour the code has always had."
+        ),
+    )
     basis_perp_symbol: str = Field(
         default="",
         description=(

@@ -218,6 +218,9 @@ class PortfolioInputs:
     # latency, not basis.
     spot_price_ts: float | None = None
     perp_price_ts: float | None = None
+    # Convergence horizon for the basis annualization; see
+    # compute_annualized_basis_pct. Sets the scale of that family's signal.
+    basis_days_to_convergence: float = 1.0
     # Trailing return per symbol across the traded universe. The target
     # symbol must appear in it for the cross-sectional family to rank itself.
     universe_returns: Mapping[str, float] = field(default_factory=dict)
@@ -310,7 +313,11 @@ def build_basis_trade_context(inputs: PortfolioInputs) -> object | None:
     if inputs.spot_price_ts is not None and inputs.perp_price_ts is not None:
         if abs(inputs.spot_price_ts - inputs.perp_price_ts) > _MAX_VENUE_QUOTE_SKEW_S:
             return None
-    return BasisTradeContext(spot_price=inputs.spot_price, perp_price=inputs.perp_price)
+    return BasisTradeContext(
+        spot_price=inputs.spot_price,
+        perp_price=inputs.perp_price,
+        days_to_perp_funding_normalization=inputs.basis_days_to_convergence,
+    )
 
 
 def build_cross_exchange_context(inputs: PortfolioInputs) -> object | None:

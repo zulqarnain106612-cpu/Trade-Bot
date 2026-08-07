@@ -1803,6 +1803,7 @@ class Orchestrator:
             spot_price_ts=spot_ts,
             perp_price=perp_price,
             perp_price_ts=perp_ts,
+            basis_days_to_convergence=self._cfg.strategy_portfolio.basis_days_to_convergence,
             pair_closes_a=pair_a,
             pair_closes_b=pair_b,
             pair_hedge_ratio=hedge_ratio,

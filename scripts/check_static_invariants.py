@@ -530,9 +530,6 @@ _UNREAD_FIELD_ALLOWED = {
     # shadow_deploy records these but nothing reads them back.
     "actuals",
     "evaluated_at",
-    # BasisTradeContext accepts it; compute_annualized_basis_pct hardcodes a
-    # 1-year normalisation instead of using it.
-    "days_to_perp_funding_normalization",
 }
 
 
