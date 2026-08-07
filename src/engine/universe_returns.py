@@ -74,6 +74,14 @@ _MAX_CONCURRENT_FETCHES: int = 4
 # minimum; below it the symbol has no return, not a zero return.
 _MIN_BARS_FOR_RETURN: int = 2
 
+# Backoff after a refresh that resolved nothing. Without it a failing
+# refresh never advances the success timestamp, so the TTL never suppresses
+# the next attempt and every tick re-fires the whole universe — the heaviest
+# possible request pattern, aimed at an exchange that has just demonstrated
+# it is unhealthy. Doubles per consecutive failure up to the ceiling.
+_FAILURE_BACKOFF_START_S: float = 30.0
+_FAILURE_BACKOFF_MAX_S: float = 900.0
+
 
 class _BarLike(Protocol):
     ts: int
@@ -124,6 +132,11 @@ class UniverseReturnsCache:
         self._returns: dict[str, float] = {}
         self._closes: dict[str, tuple[float, ...]] = {}
         self._fetched_at: float = 0.0
+        # Attempt bookkeeping, kept separate from _fetched_at: the TTL is
+        # about how old the DATA is, the backoff is about how recently we
+        # last tried. Conflating them is what produced the retry storm.
+        self._last_attempt_at: float = 0.0
+        self._consecutive_failures: int = 0
 
     @property
     def symbols(self) -> tuple[str, ...]:
@@ -135,8 +148,34 @@ class UniverseReturnsCache:
         return self._fetched_at
 
     def is_stale(self, now: float | None = None) -> bool:
+        """True when the DATA is older than the TTL. Says nothing about
+        whether a refresh should be attempted — see _may_attempt."""
         clock = time.time() if now is None else now
         return (clock - self._fetched_at) > self._ttl
+
+    def _backoff_seconds(self) -> float:
+        """Seconds to wait before retrying after consecutive failures."""
+        if self._consecutive_failures <= 0:
+            return 0.0
+        return min(
+            _FAILURE_BACKOFF_START_S * (2 ** (self._consecutive_failures - 1)),
+            _FAILURE_BACKOFF_MAX_S,
+        )
+
+    def _may_attempt(self, now: float | None = None) -> bool:
+        """
+        Whether a refresh is allowed to run right now.
+
+        Separate from is_stale() on purpose: stale data is a reason to WANT a
+        refresh, not permission to fire one. After a failure the data stays
+        stale by definition — nothing replaced it — so a check on staleness
+        alone re-fires the entire universe on every tick, hardest exactly
+        when the exchange is least able to serve it.
+        """
+        if self._consecutive_failures == 0:
+            return True
+        clock = time.time() if now is None else now
+        return (clock - self._last_attempt_at) >= self._backoff_seconds()
 
     def snapshot(self) -> dict[str, float]:
         """Last known trailing returns. Empty before the first refresh."""
@@ -198,6 +237,7 @@ class UniverseReturnsCache:
         snapshot in place: an exchange-wide outage should cost freshness,
         not the entire cross-section.
         """
+        self._last_attempt_at = time.time()
         results = await asyncio.gather(
             *(self._trailing_return(s) for s in self._symbols),
             return_exceptions=True,
@@ -212,13 +252,17 @@ class UniverseReturnsCache:
             closes[symbol] = series
 
         if not resolved:
+            self._consecutive_failures += 1
             log.warning(
                 "universe.refresh_empty",
                 universe_size=len(self._symbols),
                 retained=len(self._returns),
+                consecutive_failures=self._consecutive_failures,
+                retry_after_s=round(self._backoff_seconds(), 1),
             )
             return dict(self._returns)
 
+        self._consecutive_failures = 0
         self._returns = resolved
         self._closes = closes
         self._fetched_at = time.time()
@@ -242,8 +286,12 @@ class UniverseReturnsCache:
             return {}
         if not self.is_stale():
             return dict(self._returns)
+        if not self._may_attempt():
+            # In backoff: serve what we have. A momentum ranking an hour old
+            # beats both an empty universe and a request storm.
+            return dict(self._returns)
         async with self._lock:
-            if not self.is_stale():
+            if not self.is_stale() or not self._may_attempt():
                 return dict(self._returns)
             return await self.refresh()
 

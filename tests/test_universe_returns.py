@@ -9,6 +9,8 @@ rate by the universe size), and degrading per symbol rather than per universe
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from src.config import Timeframe
@@ -169,3 +171,82 @@ async def test_snapshot_and_staleness_are_reported() -> None:
     assert cache.is_stale() is False
     assert cache.fetched_at > 0.0
     assert cache.symbols == ("A",)
+
+
+# ------------------------------------------------------------ failure backoff
+
+
+async def test_a_failing_refresh_does_not_retry_on_every_call() -> None:
+    # The defect: a failed refresh never advances _fetched_at, so is_stale()
+    # stays True and every tick re-fires the whole universe — the heaviest
+    # request pattern possible, aimed at an exchange that has just shown it
+    # is unhealthy.
+    fetcher = _Fetcher({"A": RuntimeError("503"), "B": RuntimeError("503")})
+    cache = _cache(fetcher, ("A", "B"), ttl_seconds=0.01)
+
+    for _ in range(5):
+        assert await cache.trailing_returns() == {}
+
+    # One attempt, not five.
+    assert sorted(fetcher.calls) == ["A", "B"]
+
+
+async def test_backoff_grows_with_consecutive_failures() -> None:
+    fetcher = _Fetcher({"A": RuntimeError("503")})
+    cache = _cache(fetcher, ("A",), ttl_seconds=0.01)
+
+    await cache.trailing_returns()
+    first = cache._backoff_seconds()
+    # Force the backoff window open and fail again.
+    cache._last_attempt_at -= first + 1.0
+    await cache.trailing_returns()
+
+    assert cache._backoff_seconds() > first
+
+
+async def test_backoff_is_capped() -> None:
+    cache = _cache(_Fetcher({}), ("A",))
+    cache._consecutive_failures = 100
+    assert cache._backoff_seconds() <= 900.0
+
+
+async def test_a_success_clears_the_backoff() -> None:
+    series: dict[str, object] = {"A": RuntimeError("503")}
+    fetcher = _Fetcher(series)
+    cache = _cache(fetcher, ("A",), ttl_seconds=0.01)
+
+    await cache.trailing_returns()
+    assert cache._consecutive_failures == 1
+
+    series["A"] = _rising(100.0, 110.0)
+    cache._last_attempt_at -= 10_000.0
+    assert await cache.trailing_returns() == {"A": pytest.approx(0.10)}
+    assert cache._consecutive_failures == 0
+    assert cache._may_attempt() is True
+
+
+async def test_stale_data_is_still_served_while_in_backoff() -> None:
+    # Backoff must not cost the cross-section, only freshness. An empty
+    # universe would return the family to the inert state this module ends.
+    series: dict[str, object] = {"A": _rising(100.0, 110.0)}
+    fetcher = _Fetcher(series)
+    cache = _cache(fetcher, ("A",), ttl_seconds=0.01)
+    assert await cache.trailing_returns() == {"A": pytest.approx(0.10)}
+
+    series["A"] = RuntimeError("503")
+    cache._fetched_at = 0.0
+    await cache.trailing_returns()  # fails, enters backoff
+
+    for _ in range(3):
+        assert await cache.trailing_returns() == {"A": pytest.approx(0.10)}
+
+
+async def test_staleness_and_attempt_permission_are_independent() -> None:
+    # is_stale() asks how old the DATA is; _may_attempt() asks whether a
+    # refresh is allowed. Conflating them is what produced the retry storm.
+    cache = _cache(_Fetcher({}), ("A",), ttl_seconds=0.01)
+    cache._consecutive_failures = 1
+    cache._last_attempt_at = time.time()
+
+    assert cache.is_stale() is True
+    assert cache._may_attempt() is False
