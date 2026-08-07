@@ -493,7 +493,11 @@ def test_broad_except_that_returns_a_fallback_is_not_flagged(invariants, fake_tr
     # Returning a documented fallback is handling, not swallowing.
     fake_tree(
         "src/intel.py",
-        "def collect(o):\n    try:\n        return o.get()\n    except Exception:\n        return None\n",
+        "def collect(o):\n"
+        "    try:\n"
+        "        return o.get()\n"
+        "    except Exception:\n"
+        "        return None\n",
     )
     assert invariants.check_no_silent_broad_except() == []
 
@@ -517,12 +521,18 @@ def test_docstring_only_body_does_not_mask_the_pass(invariants, fake_tree) -> No
 
 
 def test_utcnow_is_flagged(invariants, fake_tree) -> None:
-    fake_tree("src/clock.py", "from datetime import datetime\ndef t():\n    return datetime.utcnow()\n")
+    fake_tree(
+        "src/clock.py",
+        "from datetime import datetime\ndef t():\n    return datetime.utcnow()\n",
+    )
     assert any("utcnow" in p for p in invariants.check_datetimes_are_timezone_aware())
 
 
 def test_naive_now_is_flagged(invariants, fake_tree) -> None:
-    fake_tree("src/clock.py", "from datetime import datetime\ndef t():\n    return datetime.now()\n")
+    fake_tree(
+        "src/clock.py",
+        "from datetime import datetime\ndef t():\n    return datetime.now()\n",
+    )
     assert invariants.check_datetimes_are_timezone_aware() != []
 
 
@@ -685,3 +695,110 @@ def test_a_synchronous_caller_is_not_flagged(invariants, fake_tree) -> None:
     # Blocking a sync function blocks only its caller; the loop is the issue.
     fake_tree("src/backtest.py", "def run(bars):\n    return build_feature_matrix(bars)\n")
     assert invariants.check_cpu_bound_work_is_offloaded() == []
+
+
+# ---------------------------------------------------------------------------
+# Blind-spot regressions
+#
+# Each check below was probed with an ALTERNATIVE SPELLING of the very defect
+# it was written to catch, and each let it through. A check that reports clean
+# while its defect sits in the tree is worse than no check, because it buys
+# confidence it has not earned — the datetime form of a wall-clock duration
+# did exactly that for ten iterations.
+# ---------------------------------------------------------------------------
+
+
+def test_broad_except_with_a_bare_return_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "def f(o):\n    try:\n        o.get()\n    except Exception:\n        return\n",
+    )
+    assert invariants.check_no_silent_broad_except() != []
+
+
+def test_broad_except_with_ellipsis_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "def f(o):\n    try:\n        o.get()\n    except Exception:\n        ...\n",
+    )
+    assert invariants.check_no_silent_broad_except() != []
+
+
+def test_broad_except_returning_a_value_is_still_not_flagged(invariants, fake_tree) -> None:
+    # `return None` explicitly is handling; a bare `return` is a swallow.
+    fake_tree(
+        "src/a.py",
+        "def f(o):\n"
+        "    try:\n"
+        "        return o.get()\n"
+        "    except Exception:\n"
+        "        return None\n",
+    )
+    assert invariants.check_no_silent_broad_except() == []
+
+
+def test_discarded_ensure_future_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "import asyncio\nasync def f():\n    asyncio.ensure_future(g())\n")
+    assert invariants.check_no_orphan_tasks() != []
+
+
+def test_retained_ensure_future_is_not_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "import asyncio\n"
+        "async def f():\n"
+        "    t = asyncio.ensure_future(g())\n"
+        "    t.add_done_callback(h)\n",
+    )
+    assert invariants.check_no_orphan_tasks() == []
+
+
+def test_generic_protocol_methods_are_checked(invariants, fake_tree) -> None:
+    # class P(Protocol[T]) has a Subscript base, not a Name.
+    fake_tree(
+        "src/a.py",
+        "from typing import Protocol, TypeVar\n"
+        "T = TypeVar('T')\n"
+        "class P(Protocol[T]):\n"
+        "    def never_called(self): ...\n",
+    )
+    problems = invariants.check_protocol_methods_are_called()
+    assert any("never_called" in p for p in problems)
+
+
+def test_cpu_bound_call_via_attribute_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "import pipeline\n"
+        "async def tick(b):\n"
+        "    return pipeline.build_feature_matrix(b)\n",
+    )
+    assert invariants.check_cpu_bound_work_is_offloaded() != []
+
+
+def test_cpu_bound_attribute_call_offloaded_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "import asyncio, pipeline\n"
+        "async def tick(b):\n"
+        "    return await asyncio.to_thread(pipeline.build_feature_matrix, b)\n",
+    )
+    assert invariants.check_cpu_bound_work_is_offloaded() == []
+
+
+def test_defaultdict_default_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "from collections import defaultdict\n"
+        "def f(a=defaultdict(list)):\n"
+        "    return a\n",
+    )
+    assert invariants.check_no_mutable_default_arguments() != []
+
+
+def test_deque_default_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/a.py",
+        "from collections import deque\ndef f(a=deque(maxlen=5)):\n    return a\n",
+    )
+    assert invariants.check_no_mutable_default_arguments() != []

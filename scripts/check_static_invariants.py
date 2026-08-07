@@ -153,7 +153,12 @@ def check_zip_is_strict() -> list[str]:
 
 
 def check_no_orphan_tasks() -> list[str]:
-    """A discarded create_task swallows its exception until garbage collection."""
+    """
+    A discarded create_task swallows its exception until garbage collection.
+
+    asyncio.ensure_future() has the identical failure mode and was invisible
+    to this check until probed for.
+    """
     problems: list[str] = []
     for path in _py_files(SRC):
         tree = _parse(path)
@@ -164,7 +169,7 @@ def check_no_orphan_tasks() -> list[str]:
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "create_task"
+            and node.func.attr in ("create_task", "ensure_future")
             and isinstance(parents.get(node), ast.Expr)
         )
     return problems
@@ -468,11 +473,16 @@ def check_protocol_methods_are_called() -> list[str]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            is_protocol = any(
-                (isinstance(base, ast.Name) and base.id == "Protocol")
-                or (isinstance(base, ast.Attribute) and base.attr == "Protocol")
-                for base in node.bases
-            )
+            def _names_protocol(base: ast.AST) -> bool:
+                # Protocol, typing.Protocol, Protocol[T] and typing.Protocol[T].
+                # The subscripted generic form was invisible until probed for.
+                if isinstance(base, ast.Subscript):
+                    base = base.value
+                if isinstance(base, ast.Name):
+                    return base.id == "Protocol"
+                return isinstance(base, ast.Attribute) and base.attr == "Protocol"
+
+            is_protocol = any(_names_protocol(base) for base in node.bases)
             if not is_protocol:
                 continue
             for item in node.body:
@@ -617,8 +627,10 @@ def check_no_silent_broad_except() -> list[str]:
     because Prometheus gives no feedback loop back into the process. That is
     the standard; this check is what keeps it from eroding.
 
-    `continue` in a loop counts as a pass — it discards the exception just
-    as completely.
+    `continue`, a bare `return`, and `...` all count as a pass — each
+    discards the exception just as completely. They were added after probing
+    this check with the alternative spellings of its own defect: it knew only
+    `pass`, so three ways of writing the same thing walked straight past it.
     """
     problems: list[str] = []
     for path in _py_files(SRC):
@@ -640,8 +652,21 @@ def check_no_silent_broad_except() -> list[str]:
                     and isinstance(stmt.value.value, str)
                 )
             ]
-            if len(body) == 1 and isinstance(body[0], (ast.Pass, ast.Continue)):
-                name = "bare except" if caught is None else f"except {caught.id}"  # type: ignore[union-attr]
+            swallowed = False
+            if len(body) == 1:
+                only = body[0]
+                swallowed = (
+                    isinstance(only, (ast.Pass, ast.Continue))
+                    or (isinstance(only, ast.Return) and only.value is None)
+                    or (
+                        isinstance(only, ast.Expr)
+                        and isinstance(only.value, ast.Constant)
+                        and only.value.value is Ellipsis
+                    )
+                )
+            if swallowed:
+                caught_name = getattr(caught, "id", None)
+                name = "bare except" if caught is None else f"except {caught_name}"
                 problems.append(
                     f"{_rel(path)}:{node.lineno} {name} with no handling — "
                     "log it, or narrow the exception type to say what was expected"
@@ -688,6 +713,11 @@ def check_datetimes_are_timezone_aware() -> list[str]:
     return problems
 
 
+_MUTABLE_FACTORIES = frozenset(
+    {"list", "dict", "set", "defaultdict", "OrderedDict", "Counter", "deque"}
+)
+
+
 def check_no_mutable_default_arguments() -> list[str]:
     """
     A mutable default is evaluated once, at definition, and shared forever.
@@ -702,6 +732,10 @@ def check_no_mutable_default_arguments() -> list[str]:
     Currently finds nothing — every default in src/ is immutable or built
     with field(default_factory=...). The check is here so the ignored rule
     still has a floor.
+
+    The factory list covers defaultdict/OrderedDict/Counter/deque as well as
+    the builtins: each is just as shared across calls, and each was invisible
+    to this check until it was probed with them.
     """
     problems: list[str] = []
     for path in _py_files(SRC):
@@ -714,7 +748,7 @@ def check_no_mutable_default_arguments() -> list[str]:
                 built = (
                     isinstance(default, ast.Call)
                     and isinstance(default.func, ast.Name)
-                    and default.func.id in ("list", "dict", "set")
+                    and default.func.id in _MUTABLE_FACTORIES
                 )
                 if literal or built:
                     problems.append(
@@ -843,7 +877,15 @@ def check_cpu_bound_work_is_offloaded() -> list[str]:
             for node in ast.walk(fn):
                 if id(node) in offloaded or not isinstance(node, ast.Call):
                     continue
-                name = node.func.id if isinstance(node.func, ast.Name) else None
+                # Both `build_feature_matrix(...)` and
+                # `pipeline.build_feature_matrix(...)`. Only the bare-name form
+                # was recognised until this check was probed with the other.
+                if isinstance(node.func, ast.Name):
+                    name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    name = node.func.attr
+                else:
+                    name = None
                 if name in _CPU_BOUND_FUNCTIONS:
                     problems.append(
                         f"{_rel(path)}:{node.lineno} {name}() called inline in "
