@@ -587,3 +587,62 @@ def test_default_factory_pattern_passes(invariants, fake_tree) -> None:
         "@dataclass\nclass C:\n    items: list = field(default_factory=list)\n",
     )
     assert invariants.check_no_mutable_default_arguments() == []
+
+
+# ---------------------------------------------------------------------------
+# check_durations_use_monotonic
+# ---------------------------------------------------------------------------
+
+
+def test_wall_clock_subtraction_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/age.py",
+        "import time\ndef age(start):\n    return (time.time() - start) / 3600.0\n",
+    )
+    problems = invariants.check_durations_use_monotonic()
+    assert any("used as a duration" in p for p in problems)
+
+
+def test_wall_clock_deadline_comparison_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/collect.py",
+        "import time\n"
+        "def collect(q):\n"
+        "    deadline = time.time() + 5.0\n"
+        "    while time.time() < deadline:\n"
+        "        q.get()\n",
+    )
+    assert invariants.check_durations_use_monotonic() != []
+
+
+def test_recording_a_timestamp_is_not_flagged(invariants, fake_tree) -> None:
+    # Wall clock is correct for WHEN something happened. Only arithmetic and
+    # comparison — the shape of "using this as a duration" — are flagged.
+    fake_tree(
+        "src/emit.py",
+        "import time\ndef emit(bus):\n    bus.send({'ts': int(time.time() * 1000)})\n",
+    )
+    assert invariants.check_durations_use_monotonic() == []
+
+
+def test_monotonic_arithmetic_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/age.py",
+        "import time\ndef age(start):\n    return time.monotonic() - start\n",
+    )
+    assert invariants.check_durations_use_monotonic() == []
+
+
+def test_allowlisted_epoch_arithmetic_is_not_flagged(invariants, fake_tree, monkeypatch) -> None:
+    # Computing a point in history by subtraction is real and correct; the
+    # exception is allowlisted rather than special-cased in the check.
+    monkeypatch.setattr(
+        invariants,
+        "_WALL_CLOCK_ARITHMETIC_ALLOWED",
+        {("src/feed.py", "_window")},
+    )
+    fake_tree(
+        "src/feed.py",
+        "import time\ndef _window(days):\n    return int((time.time() - days * 86400) * 1000)\n",
+    )
+    assert invariants.check_durations_use_monotonic() == []

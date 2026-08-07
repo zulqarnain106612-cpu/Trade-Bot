@@ -724,8 +724,74 @@ def check_no_mutable_default_arguments() -> list[str]:
     return problems
 
 
+# Sites where wall-clock arithmetic is correct because the result is a point
+# in history rather than an elapsed time. Keyed (file, enclosing function).
+_WALL_CLOCK_ARITHMETIC_ALLOWED = {
+    # since_ms is an exchange API parameter and must be a real epoch time.
+    ("src/engine/universe_returns.py", "_trailing_return"),
+}
+
+
+def check_durations_use_monotonic() -> list[str]:
+    """
+    time.time() subtracted or compared is a duration on the wrong clock.
+
+    Wall clock is correct for recording WHEN something happened and wrong for
+    measuring HOW LONG it took, because it is not monotonic: NTP steps it in
+    both directions. A backward correction holds a deadline open past its
+    timeout and keeps a stale cache alive; a forward one expires every TTL at
+    once and can satisfy an elapsed-time gate before the time has elapsed.
+    None of it raises, and none of it reproduces on a developer machine.
+
+    Four real instances existed when this was written: a 5s collection
+    deadline on the signal path, a provider TTL cache, the shadow-deployment
+    age gate that decides when a challenger model may be promoted, and the
+    universe cache's own TTL and backoff.
+
+    Recording a timestamp is untouched — `ts=int(time.time() * 1000)` is
+    right. Only arithmetic and comparison are flagged, which is the syntactic
+    shape of "using this as a duration". The one legitimate exception in this
+    repository is allowlisted rather than special-cased, because computing a
+    point in history by subtraction is a real and correct thing to do.
+    """
+
+    def _is_wall_clock(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "time"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "time"
+        )
+
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        tree = _parse(path)
+        owner = _enclosing_function(tree)
+        seen: set[int] = set()
+        for node in ast.walk(tree):
+            used_as_duration = False
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
+                used_as_duration = _is_wall_clock(node.left) or _is_wall_clock(node.right)
+            elif isinstance(node, ast.Compare):
+                used_as_duration = _is_wall_clock(node.left) or any(
+                    _is_wall_clock(c) for c in node.comparators
+                )
+            if not used_as_duration or node.lineno in seen:
+                continue
+            seen.add(node.lineno)
+            if (_rel(path), owner.get(node, "<module>")) in _WALL_CLOCK_ARITHMETIC_ALLOWED:
+                continue
+            problems.append(
+                f"{_rel(path)}:{node.lineno} time.time() used as a duration — "
+                "use time.monotonic(), or allowlist it if the result is a point in history"
+            )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("wall-clock durations", check_durations_use_monotonic),
     ("naive datetimes", check_datetimes_are_timezone_aware),
     ("mutable default arguments", check_no_mutable_default_arguments),
     ("silent broad except", check_no_silent_broad_except),
