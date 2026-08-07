@@ -337,8 +337,13 @@ class CryptoIntelligence:
             if isinstance(r, dict) and r.get("type") == "ecc":
                 latest = dict(r.get("result", {}))
                 self._ecc_state = latest
-        except Exception:
-            pass
+        except Exception as exc:
+            # collect() already returns None when the queue is empty, so the
+            # expected "nothing to drain" case never reaches here. Anything
+            # that does is a real fault, and swallowing it meant the ECC
+            # state silently froze at its last value for the life of the
+            # process with no way to tell that from a quiet queue.
+            log.warning("intel.ecc_collect_failed", error=str(exc), exc_info=True)
         return latest
 
     async def route_signal(self, signal: IntelSignal, price: float, capital_usd: float) -> None:

@@ -599,8 +599,59 @@ def check_dataclass_fields_are_read() -> list[str]:
     ]
 
 
+def check_no_silent_broad_except() -> list[str]:
+    """
+    A broad `except` whose whole body is `pass` erases the failure forever.
+
+    Narrow handlers are exempt and deliberately so — `except ImportError:
+    pass` around an optional dependency, or `except OSError: pass` around a
+    syscall that does not exist on every platform, is control flow, and the
+    exception type documents the intent. What this catches is the broad
+    kind: `except Exception: pass` names no expectation, so it swallows the
+    failure it was written for and every unrelated bug that ever lands in
+    the same block, with nothing to distinguish them.
+
+    The distinction matters most where this codebase already gets it right.
+    The orchestrator's metrics handler catches broadly and logs at warning,
+    with a comment saying a silent pass would hide a real bug indefinitely
+    because Prometheus gives no feedback loop back into the process. That is
+    the standard; this check is what keeps it from eroding.
+
+    `continue` in a loop counts as a pass — it discards the exception just
+    as completely.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            caught = node.type
+            is_broad = caught is None or (
+                isinstance(caught, ast.Name) and caught.id in ("Exception", "BaseException")
+            )
+            if not is_broad:
+                continue
+            body = [
+                stmt
+                for stmt in node.body
+                if not (
+                    isinstance(stmt, ast.Expr)
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                )
+            ]
+            if len(body) == 1 and isinstance(body[0], (ast.Pass, ast.Continue)):
+                name = "bare except" if caught is None else f"except {caught.id}"  # type: ignore[union-attr]
+                problems.append(
+                    f"{_rel(path)}:{node.lineno} {name} with no handling — "
+                    "log it, or narrow the exception type to say what was expected"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("silent broad except", check_no_silent_broad_except),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),
     ("positional column slices", check_positional_column_slices),

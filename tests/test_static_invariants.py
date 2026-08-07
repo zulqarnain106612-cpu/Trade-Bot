@@ -429,3 +429,83 @@ def test_allowlisted_fields_are_not_reported(invariants, fake_tree) -> None:
         "@dataclass\nclass TripleBarrierResult:\n    exit_index: int\n",
     )
     assert invariants.check_dataclass_fields_are_read() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_silent_broad_except
+# ---------------------------------------------------------------------------
+
+
+def test_broad_except_with_bare_pass_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/intel.py",
+        "def collect(o):\n    try:\n        return o.get()\n    except Exception:\n        pass\n",
+    )
+    problems = invariants.check_no_silent_broad_except()
+    assert any("except Exception with no handling" in p for p in problems)
+
+
+def test_bare_except_with_pass_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/intel.py",
+        "def collect(o):\n    try:\n        return o.get()\n    except:\n        pass\n",
+    )
+    assert any("bare except" in p for p in invariants.check_no_silent_broad_except())
+
+
+def test_broad_except_with_continue_is_flagged(invariants, fake_tree) -> None:
+    # continue discards the exception just as completely as pass.
+    fake_tree(
+        "src/fit.py",
+        "def fit(xs):\n"
+        "    for x in xs:\n"
+        "        try:\n"
+        "            score(x)\n"
+        "        except Exception:\n"
+        "            continue\n",
+    )
+    assert invariants.check_no_silent_broad_except() != []
+
+
+def test_narrow_except_with_pass_is_exempt(invariants, fake_tree) -> None:
+    # `except ImportError: pass` around an optional dependency is control
+    # flow, and the exception type documents the intent.
+    fake_tree(
+        "src/agent.py",
+        "def setup():\n    try:\n        import gym\n    except ImportError:\n        pass\n",
+    )
+    assert invariants.check_no_silent_broad_except() == []
+
+
+def test_broad_except_that_logs_is_not_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/intel.py",
+        "def collect(o):\n"
+        "    try:\n"
+        "        return o.get()\n"
+        "    except Exception as exc:\n"
+        "        log.warning('failed', error=str(exc))\n",
+    )
+    assert invariants.check_no_silent_broad_except() == []
+
+
+def test_broad_except_that_returns_a_fallback_is_not_flagged(invariants, fake_tree) -> None:
+    # Returning a documented fallback is handling, not swallowing.
+    fake_tree(
+        "src/intel.py",
+        "def collect(o):\n    try:\n        return o.get()\n    except Exception:\n        return None\n",
+    )
+    assert invariants.check_no_silent_broad_except() == []
+
+
+def test_docstring_only_body_does_not_mask_the_pass(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/intel.py",
+        "def collect(o):\n"
+        "    try:\n"
+        "        return o.get()\n"
+        "    except Exception:\n"
+        "        'why this is fine'\n"
+        "        pass\n",
+    )
+    assert invariants.check_no_silent_broad_except() != []
