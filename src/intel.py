@@ -213,7 +213,7 @@ class CryptoIntelligence:
         # --- Submit inference tasks ---
         import uuid
 
-        from src.workers.orchestrator import WorkerTask
+        from src.workers.orchestrator import WorkerResult, WorkerTask
 
         features = {
             "price": price,
@@ -244,7 +244,7 @@ class CryptoIntelligence:
             self._orchestrator.submit(task)
 
         # --- Collect results ---
-        results = []
+        results: list[WorkerResult] = []
         deadline = time.time() + 5.0
         while len(results) < n_horizons and time.time() < deadline:
             r = self._orchestrator.collect(timeout=1.0)
