@@ -122,6 +122,7 @@ class UniverseReturnsCache:
         self._sem = asyncio.Semaphore(max_concurrency)
         self._lock = asyncio.Lock()
         self._returns: dict[str, float] = {}
+        self._closes: dict[str, tuple[float, ...]] = {}
         self._fetched_at: float = 0.0
 
     @property
@@ -141,7 +142,20 @@ class UniverseReturnsCache:
         """Last known trailing returns. Empty before the first refresh."""
         return dict(self._returns)
 
-    async def _trailing_return(self, symbol: str) -> tuple[str, float] | None:
+    def close_series(self, symbol: str) -> tuple[float, ...] | None:
+        """
+        The close series the last refresh fetched for *symbol*, oldest first.
+
+        Retained because the pairs family needs the series itself, not the
+        summary statistic: a spread z-score cannot be reconstructed from two
+        trailing returns. Serving it from the same snapshot means the pair
+        and the cross-section are computed from identical bars — pricing
+        them from separate fetches would let the two families disagree about
+        what the market did.
+        """
+        return self._closes.get(symbol)
+
+    async def _trailing_return(self, symbol: str) -> tuple[str, float, tuple[float, ...]] | None:
         """
         One symbol's lookback return, or None when it cannot be computed.
 
@@ -168,13 +182,13 @@ class UniverseReturnsCache:
             return None
 
         ordered = sorted(bars, key=lambda b: b.ts)
-        first = float(ordered[0].close)
-        last = float(ordered[-1].close)
+        closes = tuple(float(b.close) for b in ordered)
+        first, last = closes[0], closes[-1]
         if first <= 0.0:
             # A non-positive close is corrupt data, not a 100% loss.
             log.warning("universe.symbol_bad_close", symbol=symbol, first_close=first)
             return None
-        return symbol, (last - first) / first
+        return symbol, (last - first) / first, closes
 
     async def refresh(self) -> dict[str, float]:
         """
@@ -189,11 +203,13 @@ class UniverseReturnsCache:
             return_exceptions=True,
         )
         resolved: dict[str, float] = {}
+        closes: dict[str, tuple[float, ...]] = {}
         for res in results:
             if isinstance(res, BaseException) or res is None:
                 continue
-            symbol, value = res
+            symbol, value, series = res
             resolved[symbol] = value
+            closes[symbol] = series
 
         if not resolved:
             log.warning(
@@ -204,6 +220,7 @@ class UniverseReturnsCache:
             return dict(self._returns)
 
         self._returns = resolved
+        self._closes = closes
         self._fetched_at = time.time()
         log.info(
             "universe.refreshed",

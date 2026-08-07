@@ -22,6 +22,7 @@ from src.engine.strategy_portfolio import (
     build_breakout_context,
     build_cross_exchange_context,
     build_funding_context,
+    build_mean_reversion_context,
     build_signal_engine_context,
     build_xsec_momentum_context,
     default_context_builders,
@@ -191,6 +192,7 @@ def test_default_builders_cover_the_families_with_feeds() -> None:
     assert "funding_carry_v1" in builders
     assert "cross_exchange_arb_v1" in builders
     assert "xsec_momentum_v1" in builders
+    assert "mean_reversion_pairs_v1" in builders
 
 
 # ---------------------------------------------------------------- runner
@@ -527,3 +529,67 @@ def test_basis_builder_accepts_near_simultaneous_legs() -> None:
         perp_price_ts=1_000.4,
     )
     assert build_basis_trade_context(fresh) is not None
+
+
+# ------------------------------------------------- mean-reversion builder
+
+
+def _pair(a: list[float], b: list[float], ratio: float | None = 1.0, window: int = 30):
+    return PortfolioInputs(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        pair_closes_a=a,
+        pair_closes_b=b,
+        pair_hedge_ratio=ratio,
+        pair_window=window,
+    )
+
+
+def test_pair_builder_abstains_without_legs() -> None:
+    assert build_mean_reversion_context(_INPUTS) is None
+
+
+def test_pair_builder_abstains_without_a_hedge_ratio() -> None:
+    # No hedge ratio is how a decohered pair reaches the builder: the
+    # cointegration test upstream simply declines to produce one.
+    series = [100.0 + i for i in range(60)]
+    assert build_mean_reversion_context(_pair(series, series, ratio=None)) is None
+
+
+def test_pair_builder_abstains_on_misaligned_series() -> None:
+    # The spread is elementwise a - beta*b, so unequal lengths would
+    # subtract one asset's price from the other's at a different time.
+    a = [100.0 + i for i in range(60)]
+    b = [50.0 + i for i in range(59)]
+    assert build_mean_reversion_context(_pair(a, b)) is None
+
+
+def test_pair_builder_abstains_when_shorter_than_the_window() -> None:
+    a = [100.0 + i for i in range(10)]
+    assert build_mean_reversion_context(_pair(a, a, window=30)) is None
+
+
+def test_pair_builder_builds_an_aligned_context() -> None:
+    a = [100.0 + i * 0.5 for i in range(60)]
+    b = [50.0 + i * 0.25 for i in range(60)]
+    ctx = build_mean_reversion_context(_pair(a, b, ratio=2.0, window=30))
+    assert ctx is not None
+    assert ctx.hedge_ratio == pytest.approx(2.0)  # type: ignore[attr-defined]
+    assert len(ctx.price_a) == len(ctx.price_b) == 60  # type: ignore[attr-defined]
+
+
+def test_mean_reversion_votes_through_the_runner() -> None:
+    from src.strategies.mean_reversion import MeanReversionPairsStrategy
+
+    # B tracks A until the last bar, where the spread blows out.
+    a = [100.0 + (i % 3) * 0.1 for i in range(80)]
+    b = [100.0 + (i % 3) * 0.1 for i in range(80)]
+    a[-1] = 130.0
+
+    reg = StrategyRegistry()
+    reg.register(MeanReversionPairsStrategy(0.15))
+    ev = StrategyPortfolioRunner(registry=reg).evaluate(_pair(a, b, ratio=1.0, window=30))
+    (verdict,) = ev.verdicts
+    assert verdict.signal is not None
+    # Spread far above its mean -> fade it by shorting A.
+    assert verdict.signal.direction == -1

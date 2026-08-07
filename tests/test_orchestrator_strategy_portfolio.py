@@ -469,3 +469,114 @@ async def test_a_missing_leg_abstains_the_whole_pair():
     orch._cfg = _CfgWithPerp()
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": RuntimeError("down")})
     assert await orch._fetch_basis_legs() == (None, None, None, None)
+
+
+# ------------------------------------------------------ pair cointegration
+
+
+class _Cache:
+    """UniverseReturnsCache stand-in exposing only what _pair_series reads."""
+
+    def __init__(self, series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) -> None:
+        self._series = series
+        self.fetched_at = fetched_at
+
+    def close_series(self, symbol: str):
+        return self._series.get(symbol)
+
+
+class _CfgPair:
+    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+        max_allocation_shift_per_step = 0.10
+        basis_perp_symbol = ""
+        mean_reversion_pair = ["A/USDT", "B/USDT"]
+        mean_reversion_window = 30
+
+
+def _pair_orch(series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) -> Orchestrator:
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgPair()
+    orch._universe_returns = _Cache(series, fetched_at)
+    orch._pair_cointegration = None
+    return orch
+
+
+def _cointegrated(n: int = 200) -> dict[str, tuple[float, ...]]:
+    # B is A plus a small stationary wobble: cointegrated by construction.
+    a = [100.0 + i * 0.1 for i in range(n)]
+    b = [x * 0.5 + (0.3 if i % 2 else -0.3) for i, x in enumerate(a)]
+    return {"A/USDT": tuple(a), "B/USDT": tuple(b)}
+
+
+def test_pair_series_abstains_when_unconfigured():
+    orch = _orchestrator(_Storage())
+    orch._cfg = _Cfg()
+    orch._cfg.strategy_portfolio.mean_reversion_pair = []
+    orch._universe_returns = _Cache({})
+    orch._pair_cointegration = None
+    assert orch._pair_series() == (None, None, None)
+
+
+def test_pair_series_abstains_before_the_first_refresh():
+    assert _pair_orch(_cointegrated(), fetched_at=0.0)._pair_series() == (None, None, None)
+
+
+def test_pair_series_abstains_when_a_leg_is_missing():
+    series = _cointegrated()
+    del series["B/USDT"]
+    assert _pair_orch(series)._pair_series() == (None, None, None)
+
+
+def test_pair_series_abstains_on_unequal_history():
+    # One leg listed later, or a gap on one venue. Truncating to the shorter
+    # would silently align two different date ranges.
+    series = _cointegrated()
+    series["B/USDT"] = series["B/USDT"][:-5]
+    assert _pair_orch(series)._pair_series() == (None, None, None)
+
+
+def test_pair_series_returns_legs_and_hedge_ratio_when_cointegrated():
+    a, b, ratio = _pair_orch(_cointegrated())._pair_series()
+    assert a is not None and b is not None
+    assert len(a) == len(b)
+    assert ratio is not None
+
+
+def test_cointegration_is_memoised_against_the_snapshot():
+    # One OLS per data refresh, not one per tick.
+    orch = _pair_orch(_cointegrated())
+    orch._pair_series()
+    first = orch._pair_cointegration
+    orch._pair_series()
+    assert orch._pair_cointegration is first
+
+
+def test_a_new_snapshot_retests_cointegration():
+    # Pair relationships decohere; assuming the test result forever is the
+    # characteristic way this family loses money.
+    orch = _pair_orch(_cointegrated())
+    orch._pair_series()
+    stamp_before = orch._pair_cointegration[0]
+    orch._universe_returns.fetched_at = stamp_before + 1.0
+    orch._pair_series()
+    assert orch._pair_cointegration[0] == stamp_before + 1.0
+
+
+def test_a_failing_cointegration_test_abstains_and_is_not_retried_per_tick():
+    orch = _pair_orch(_cointegrated())
+    import src.engine.orchestrator as mod
+
+    calls = []
+
+    def _boom(*_a, **_k):
+        calls.append(1)
+        raise RuntimeError("statsmodels exploded")
+
+    original = mod.check_cointegration
+    mod.check_cointegration = _boom
+    try:
+        assert orch._pair_series() == (None, None, None)
+        assert orch._pair_series() == (None, None, None)
+    finally:
+        mod.check_cointegration = original
+    assert len(calls) == 1

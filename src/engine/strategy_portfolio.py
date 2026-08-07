@@ -64,6 +64,7 @@ from src.strategies.basis_trade import BasisTradeContext
 from src.strategies.breakout import BreakoutContext
 from src.strategies.cross_exchange_arb import CrossExchangeContext
 from src.strategies.funding_carry import FundingContext
+from src.strategies.mean_reversion import PairContext
 from src.strategies.registry import Signal, StrategyProtocol, StrategyRegistry, get_default_registry
 from src.strategies.signal_engine_adapter import STRATEGY_ID_SIGNAL_ENGINE
 from src.strategies.xsec_momentum import UniverseContext
@@ -220,6 +221,13 @@ class PortfolioInputs:
     # Trailing return per symbol across the traded universe. The target
     # symbol must appear in it for the cross-sectional family to rank itself.
     universe_returns: Mapping[str, float] = field(default_factory=dict)
+    # Aligned close series for the mean-reversion pair, plus the hedge ratio
+    # from the cointegration test that admitted it. All three or none: a
+    # spread built from a stale hedge ratio is not the pair's spread.
+    pair_closes_a: Sequence[float] | None = None
+    pair_closes_b: Sequence[float] | None = None
+    pair_hedge_ratio: float | None = None
+    pair_window: int = 30
     # Same-symbol last price per venue, insertion-ordered. Two or more
     # entries are what let the cross-exchange family see a basis at all.
     venue_prices: Mapping[str, float] = field(default_factory=dict)
@@ -337,6 +345,34 @@ def build_cross_exchange_context(inputs: PortfolioInputs) -> object | None:
     )
 
 
+def build_mean_reversion_context(inputs: PortfolioInputs) -> object | None:
+    """
+    Assemble the pair's spread inputs.
+
+    Abstains unless both legs and a hedge ratio are present, and unless the
+    two series are the same length. Length is not a formality here: the
+    spread is ``a - beta * b`` computed elementwise, so misaligned series
+    would subtract one asset's price from another asset's price at a
+    different time and hand the strategy a z-score of pure noise that looks
+    exactly like a tradeable divergence.
+
+    Whether the pair is *still* cointegrated is decided upstream, at data
+    refresh, and reaches this function as the presence or absence of a hedge
+    ratio — a decohered pair simply has none.
+    """
+    a, b = inputs.pair_closes_a, inputs.pair_closes_b
+    if a is None or b is None or inputs.pair_hedge_ratio is None:
+        return None
+    if len(a) != len(b) or len(a) < inputs.pair_window + 1:
+        return None
+    return PairContext(
+        price_a=pd.Series(list(a), dtype="float64"),
+        price_b=pd.Series(list(b), dtype="float64"),
+        hedge_ratio=inputs.pair_hedge_ratio,
+        window=inputs.pair_window,
+    )
+
+
 def build_xsec_momentum_context(inputs: PortfolioInputs) -> object | None:
     """
     Rank this symbol against the universe's trailing returns.
@@ -364,10 +400,10 @@ def default_context_builders() -> dict[str, ContextBuilder]:
     """
     Builders for the families whose data this process already has.
 
-    Families absent from this table (mean reversion, options carry) abstain with an explicit
+    Families absent from this table (options carry) abstain with an explicit
     ``no_context_builder`` reason. They are not removed and not disabled:
-    each needs a data source this process does not yet fetch — a cointegrated
-    pair series, an options surface — and the honest report is "cannot feed it yet", visible
+    it needs a data source this process does not yet fetch — an options
+    implied-vol surface — and the honest report is "cannot feed it yet", visible
     every tick, rather than deletion or a fabricated context.
     """
     return {
@@ -377,6 +413,7 @@ def default_context_builders() -> dict[str, ContextBuilder]:
         "basis_trade_v1": build_basis_trade_context,
         "cross_exchange_arb_v1": build_cross_exchange_context,
         "xsec_momentum_v1": build_xsec_momentum_context,
+        "mean_reversion_pairs_v1": build_mean_reversion_context,
     }
 
 
@@ -566,6 +603,7 @@ __all__ = [
     "build_breakout_context",
     "build_cross_exchange_context",
     "build_funding_context",
+    "build_mean_reversion_context",
     "build_xsec_momentum_context",
     "build_signal_engine_context",
     "default_context_builders",

@@ -82,6 +82,7 @@ from src.risk.strategy_correlation import (
 )
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
 from src.strategies.capital_allocator import performance_weighted_allocate
+from src.strategies.mean_reversion import check_cointegration
 from src.strategies.registry import get_default_registry
 from src.strategies.signal_engine_adapter import (
     STRATEGY_ID_SIGNAL_ENGINE,
@@ -215,12 +216,23 @@ class Orchestrator:
         # universe — trailing_returns() short-circuits, so an unconfigured
         # universe costs nothing and the family keeps abstaining honestly.
         _portfolio_cfg = self._cfg.strategy_portfolio
+        # The pair's legs join the fetch set even when they are not in the
+        # cross-sectional universe: both families read the same snapshot, so
+        # a pair leg outside it would have no close series and the pairs
+        # family would abstain for a reason no config change could fix.
+        # Deduplicated with order preserved so the fetch set is stable.
+        _feed_symbols = dict.fromkeys(
+            (*_portfolio_cfg.xsec_universe, *_portfolio_cfg.mean_reversion_pair)
+        )
         self._universe_returns = UniverseReturnsCache(
             fetcher,
-            tuple(_portfolio_cfg.xsec_universe),
+            tuple(_feed_symbols),
             lookback_days=_portfolio_cfg.xsec_lookback_days,
             ttl_seconds=_portfolio_cfg.xsec_refresh_interval_s,
         )
+        # (snapshot timestamp, hedge ratio or None) — memoises the pair's
+        # cointegration test against the data it was computed from.
+        self._pair_cointegration: tuple[float, float | None] | None = None
 
         # GAP-003: Performance drift detector (initialized in startup after models trained)
         self._drift_detector: PerformanceDriftDetector | None = None
@@ -1772,6 +1784,7 @@ class Orchestrator:
 
         venue_prices, venue_price_ts = await self._fetch_venue_prices()
         spot_price, spot_ts, perp_price, perp_ts = await self._fetch_basis_legs()
+        pair_a, pair_b, hedge_ratio = self._pair_series()
 
         # TTL-cached, so this is a dict copy on all but the refresh tick.
         universe_returns: dict[str, float] = {}
@@ -1790,6 +1803,10 @@ class Orchestrator:
             spot_price_ts=spot_ts,
             perp_price=perp_price,
             perp_price_ts=perp_ts,
+            pair_closes_a=pair_a,
+            pair_closes_b=pair_b,
+            pair_hedge_ratio=hedge_ratio,
+            pair_window=self._cfg.strategy_portfolio.mean_reversion_window,
             highs=highs,
             lows=lows,
             closes=closes,
@@ -1797,6 +1814,74 @@ class Orchestrator:
             funding_rate_pct=funding_rate,
             funding_history_pct=funding_history,
         )
+
+    def _pair_series(self) -> tuple[list[float] | None, list[float] | None, float | None]:
+        """
+        Aligned close series and hedge ratio for the mean-reversion pair.
+
+        Cointegration is retested whenever the underlying snapshot changes,
+        not assumed once at startup. Pair relationships decohere — that is
+        the characteristic failure of the whole family — and trading a spread
+        whose legs stopped moving together is not mean reversion, it is a
+        directional bet nobody sized. The test result is cached against the
+        universe cache's fetch timestamp so it costs one OLS per refresh
+        rather than one per tick.
+
+        Returns (None, None, None) whenever the pair cannot be traded: not
+        configured, a leg missing from the snapshot, series of unequal
+        length, or the cointegration test rejecting it. The family then
+        abstains rather than trading a spread that is not one.
+        """
+        pair = self._cfg.strategy_portfolio.mean_reversion_pair
+        if len(pair) != 2:
+            return None, None, None
+
+        cache = self._universe_returns
+        stamp = cache.fetched_at
+        if stamp <= 0.0:
+            return None, None, None
+
+        series_a = cache.close_series(pair[0])
+        series_b = cache.close_series(pair[1])
+        if series_a is None or series_b is None:
+            return None, None, None
+        # Unequal history (one leg listed later, or a gap on one venue) makes
+        # the spread meaningless; truncating to the shorter would silently
+        # align two different date ranges.
+        if len(series_a) != len(series_b):
+            self._log.debug(
+                "orchestrator.pair_length_mismatch",
+                len_a=len(series_a),
+                len_b=len(series_b),
+            )
+            return None, None, None
+
+        cached = self._pair_cointegration
+        if cached is None or cached[0] != stamp:
+            try:
+                result = check_cointegration(
+                    pd.Series(series_a, dtype="float64"),
+                    pd.Series(series_b, dtype="float64"),
+                )
+            except Exception as exc:
+                self._log.warning("orchestrator.pair_cointegration_failed", error=str(exc))
+                self._pair_cointegration = (stamp, None)
+                return None, None, None
+            ratio = result.hedge_ratio if result.is_cointegrated else None
+            self._log.info(
+                "orchestrator.pair_cointegration",
+                pair=list(pair),
+                is_cointegrated=result.is_cointegrated,
+                pvalue=round(result.pvalue, 6),
+                hedge_ratio=round(result.hedge_ratio, 6),
+            )
+            self._pair_cointegration = (stamp, ratio)
+            cached = self._pair_cointegration
+
+        hedge_ratio = cached[1]
+        if hedge_ratio is None:
+            return None, None, None
+        return list(series_a), list(series_b), hedge_ratio
 
     async def _quote(self, symbol: str, venue: str) -> tuple[float, float] | None:
         """

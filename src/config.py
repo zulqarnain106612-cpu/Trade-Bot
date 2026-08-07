@@ -720,6 +720,31 @@ class StrategyPortfolioSettings(BaseSettings):
 
     mean_reversion_enabled: bool = Field(default=False)
     mean_reversion_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+    mean_reversion_pair: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exactly two symbols [A, B] traded as a cointegrated pair, or "
+            "empty (the default) to leave that family abstaining. Direction "
+            "is with respect to A. Cointegration is retested on every data "
+            "refresh rather than assumed once: pair relationships break, and "
+            "a pair that has decohered is the single most expensive input "
+            "this family can be given."
+        ),
+    )
+    mean_reversion_window: int = Field(
+        default=30,
+        ge=5,
+        description="Rolling window for the pair's spread z-score, in bars.",
+    )
+
+    @field_validator("mean_reversion_pair")
+    @classmethod
+    def _validate_pair(cls, v: list[str]) -> list[str]:
+        if v and len(v) != 2:
+            raise ValueError(f"mean_reversion_pair needs exactly two symbols, got {len(v)}")
+        if v and v[0] == v[1]:
+            raise ValueError("mean_reversion_pair must name two different symbols")
+        return v
 
     breakout_enabled: bool = Field(default=False)
     breakout_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
