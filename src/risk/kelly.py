@@ -653,6 +653,55 @@ def compute_position_size(
     return result
 
 
+def apply_size_scalar(
+    result: KellyResult,
+    scalar: float,
+    entry_price: float,
+    amount_precision: float = 8.0,
+    min_amount: float = 0.0,
+    min_cost: float = 0.0,
+) -> KellyResult | None:
+    """
+    Shrink a sized position by *scalar*, or return None if it cannot be.
+
+    This is the piece that lets a post-sizing ceiling actually reach the
+    order. Kelly runs before the risk gates, so any scalar those gates
+    produce — the whale gate's advisory reduction, the strategy portfolio's
+    disagreement ceiling — arrives after the quantity has already been
+    computed and quantised. Multiplying the fraction at that point is not
+    enough: the *quantity* has to be requantised to the exchange's precision
+    and rechecked against its minimums, because a shrunk order is a different
+    order and has to clear the same filters the original one did.
+
+    Returning None means "skip this trade", and that is the only correct
+    answer when the reduced size falls below what the exchange accepts. The
+    alternative — taking the trade at its unreduced size because the
+    reduction was inconvenient — is the one outcome a ceiling must never
+    produce. It is the same contract _apply_notional_cap already honours,
+    which this delegates to rather than reimplementing so the two cannot
+    drift apart.
+
+    scalar == 1.0 short-circuits: no reduction was asked for, so the result
+    is returned untouched rather than round-tripped through quantisation
+    that could only lose precision.
+    """
+    if not 0.0 < scalar <= 1.0:
+        raise ValueError(f"scalar must be in (0, 1], got {scalar}")
+    if scalar == 1.0:
+        return result
+    if entry_price <= 0.0:
+        log.error("kelly.size_scalar_invalid_price", entry_price=entry_price)
+        return None
+    return _apply_notional_cap(
+        result,
+        result.notional_usd * scalar,
+        entry_price,
+        amount_precision,
+        min_amount,
+        min_cost,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Historical win/loss statistics helper
 # ---------------------------------------------------------------------------

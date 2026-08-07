@@ -74,7 +74,7 @@ from src.risk.gates import (
     check_slippage_veto,
     evaluate_all_gates,
 )
-from src.risk.kelly import KellyResult, compute_position_size
+from src.risk.kelly import KellyResult, apply_size_scalar, compute_position_size
 from src.risk.macro_exposure_budget import (
     MacroExposureBudget,
     apply_macro_budget_to_kelly_fraction,
@@ -1157,6 +1157,35 @@ class SignalEngine:
         if kelly_result is None:
             _emit_audit("skipped", "kelly_size_zero", None, gate_result)
             return self._skip("kelly_size_zero")
+
+        # Advisory gates reduce size rather than vetoing. Applied here, after
+        # the gate stack has run and after the position-size gate has judged
+        # the UNREDUCED notional -- a gate that caps absolute exposure must
+        # not be talked out of firing by a reduction applied before it looked.
+        #
+        # Requantised rather than merely rescaled: a shrunk order is a
+        # different order and has to clear the exchange's minimums again.
+        # None means the reduced size is below what the exchange accepts, and
+        # the trade is skipped -- taking it at full size because the
+        # reduction was inconvenient is the one outcome a ceiling must never
+        # produce.
+        if gate_result.size_scalar < 1.0:
+            _scaled = apply_size_scalar(
+                kelly_result,
+                gate_result.size_scalar,
+                kelly_result.entry_price,
+            )
+            if _scaled is None:
+                _emit_audit("skipped", "advisory_scalar_below_minimum", kelly_result, gate_result)
+                return self._skip("advisory_scalar_below_minimum")
+            self._log.info(
+                "signal.advisory_size_reduction",
+                status=gate_result.status.value,
+                scalar=gate_result.size_scalar,
+                notional_before=round(kelly_result.notional_usd, 2),
+                notional_after=round(_scaled.notional_usd, 2),
+            )
+            kelly_result = _scaled
 
         # 9. Meta-label gate
         meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)

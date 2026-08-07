@@ -68,7 +68,7 @@ from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
-from src.risk.kelly import compute_win_loss_stats
+from src.risk.kelly import apply_size_scalar, compute_win_loss_stats
 from src.risk.macro_exposure_budget import (
     MacroExposureBudget,
     compute_macro_exposure_scalar,
@@ -878,11 +878,50 @@ class Orchestrator:
                     )
                     return
 
+            # Strategy-portfolio disagreement ceiling. The peer evaluation for
+            # this tick was computed above, so this is current rather than
+            # lagged, and it is shrink-only by construction: agreement returns
+            # 1.0 and short-circuits.
+            #
+            # Guarded rather than fatal — losing a ceiling must never be worse
+            # than never having had one — but a reduction that falls below the
+            # exchange minimum skips the trade rather than submitting it at
+            # full size.
+            kelly_result = result.kelly_result
+            _agreement = self._last_portfolio_agreement.get(tf.value, 1.0)
+            if _agreement < 1.0:
+                try:
+                    _reduced = apply_size_scalar(
+                        kelly_result, _agreement, kelly_result.entry_price
+                    )
+                except Exception as exc:
+                    self._log.error(
+                        "orchestrator.portfolio_agreement_apply_failed",
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                    _reduced = kelly_result
+                if _reduced is None:
+                    self._log.info(
+                        "orchestrator.signal_skipped_agreement_below_minimum",
+                        timeframe=tf.value,
+                        agreement_scalar=round(_agreement, 4),
+                    )
+                    return
+                self._log.info(
+                    "orchestrator.portfolio_agreement_reduction",
+                    timeframe=tf.value,
+                    scalar=round(_agreement, 4),
+                    notional_before=round(kelly_result.notional_usd, 2),
+                    notional_after=round(_reduced.notional_usd, 2),
+                )
+                kelly_result = _reduced
+
             trade_id, outcome = await executor.submit_signal(
                 symbol=self._symbol,
                 timeframe=tf.value,
                 direction=result.direction,
-                kelly_result=result.kelly_result,
+                kelly_result=kelly_result,
                 regime_state=result.regime.state if result.regime else 0,
                 meta_label_prob=result.p_bet,
                 raw_signal=result.p_long,
@@ -910,7 +949,10 @@ class Orchestrator:
                             timeframe=tf.value,
                             direction=result.direction,
                             reason=outcome,
-                            kelly_fraction=result.kelly_result.adjusted_fraction,
+                            # The submitted size, not the pre-reduction one:
+                            # a missed-trade record showing a fraction the
+                            # order never had is a misleading audit entry.
+                            kelly_fraction=kelly_result.adjusted_fraction,
                             meta_label_prob=result.p_bet,
                             raw_signal=result.p_long,
                             regime_at_entry=result.regime.state if result.regime else 0,
