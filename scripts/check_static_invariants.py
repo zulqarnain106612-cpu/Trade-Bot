@@ -226,7 +226,12 @@ def check_settings_are_read() -> list[str]:
     """
     known_decorative = {
         "log_as_json",
-        "rate_limit_per_minute",  # ccxt's own enableRateLimit governs this
+        # ccxt's own limiter governs these. Verified: enableRateLimit=True is
+        # set at every exchange construction site — _build_binance and
+        # _build_okx in src/data/fetcher.py, and the router's instance in
+        # src/execution/router.py — so these settings genuinely have no
+        # consumer rather than having lost one.
+        "rate_limit_per_minute",
         "rate_limit_per_second",
     }
     config = REPO / "src" / "config.py"
