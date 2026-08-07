@@ -649,8 +649,85 @@ def check_no_silent_broad_except() -> list[str]:
     return problems
 
 
+def check_datetimes_are_timezone_aware() -> list[str]:
+    """
+    Naive datetimes, on a codebase whose domain prior is "UTC timestamps".
+
+    A naive datetime is not wrong where it is created — it is wrong wherever
+    it is later compared, subtracted, or serialised next to an aware one. On
+    a machine running in UTC every test passes and the bug is latent until
+    the process runs somewhere else; comparing the two raises TypeError, and
+    subtracting them silently yields an offset-sized error in a duration.
+
+    This currently finds nothing: every site in src/ already passes a
+    timezone, several of them positionally as fromtimestamp(0, UTC). The
+    check exists to keep it that way, because the failure surfaces far from
+    its cause and nothing in ruff or mypy looks for it.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            attr = node.func.attr
+            has_tz_kwarg = any(k.arg == "tz" for k in node.keywords)
+            if attr == "utcnow":
+                problems.append(
+                    f"{_rel(path)}:{node.lineno} datetime.utcnow() is naive and deprecated "
+                    "— use datetime.now(tz=UTC)"
+                )
+            elif attr == "now" and not has_tz_kwarg and not node.args:
+                problems.append(
+                    f"{_rel(path)}:{node.lineno} datetime.now() without a timezone"
+                )
+            elif attr == "fromtimestamp" and not has_tz_kwarg and len(node.args) < 2:
+                # tz is the second POSITIONAL parameter, so two args is aware.
+                problems.append(
+                    f"{_rel(path)}:{node.lineno} datetime.fromtimestamp() without a timezone"
+                )
+    return problems
+
+
+def check_no_mutable_default_arguments() -> list[str]:
+    """
+    A mutable default is evaluated once, at definition, and shared forever.
+
+    ruff's B006 covers this and is in this project's ignore list, so nothing
+    else checks it. That was a reasonable call for the false-positive rate on
+    B008-style patterns, but it leaves the genuine version unguarded: a
+    default list or dict that one caller mutates is visible to every
+    subsequent caller, and in a long-running trading process that means
+    state leaking across ticks with no obvious source.
+
+    Currently finds nothing — every default in src/ is immutable or built
+    with field(default_factory=...). The check is here so the ignored rule
+    still has a floor.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            defaults = [*node.args.defaults, *[d for d in node.args.kw_defaults if d is not None]]
+            for default in defaults:
+                literal = isinstance(default, (ast.List, ast.Dict, ast.Set))
+                built = (
+                    isinstance(default, ast.Call)
+                    and isinstance(default.func, ast.Name)
+                    and default.func.id in ("list", "dict", "set")
+                )
+                if literal or built:
+                    problems.append(
+                        f"{_rel(path)}:{node.lineno} {node.name}() has a mutable default "
+                        "— use None and build inside the body"
+                    )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("naive datetimes", check_datetimes_are_timezone_aware),
+    ("mutable default arguments", check_no_mutable_default_arguments),
     ("silent broad except", check_no_silent_broad_except),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),

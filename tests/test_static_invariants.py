@@ -509,3 +509,81 @@ def test_docstring_only_body_does_not_mask_the_pass(invariants, fake_tree) -> No
         "        pass\n",
     )
     assert invariants.check_no_silent_broad_except() != []
+
+
+# ---------------------------------------------------------------------------
+# check_datetimes_are_timezone_aware
+# ---------------------------------------------------------------------------
+
+
+def test_utcnow_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/clock.py", "from datetime import datetime\ndef t():\n    return datetime.utcnow()\n")
+    assert any("utcnow" in p for p in invariants.check_datetimes_are_timezone_aware())
+
+
+def test_naive_now_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/clock.py", "from datetime import datetime\ndef t():\n    return datetime.now()\n")
+    assert invariants.check_datetimes_are_timezone_aware() != []
+
+
+def test_aware_now_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/clock.py",
+        "from datetime import UTC, datetime\ndef t():\n    return datetime.now(tz=UTC)\n",
+    )
+    assert invariants.check_datetimes_are_timezone_aware() == []
+
+
+def test_fromtimestamp_with_positional_tz_passes(invariants, fake_tree) -> None:
+    # tz is the second POSITIONAL parameter; this is how the real codebase
+    # writes it, and reading it as naive would be a false positive.
+    fake_tree(
+        "src/clock.py",
+        "from datetime import UTC, datetime\ndef t():\n    return datetime.fromtimestamp(0, UTC)\n",
+    )
+    assert invariants.check_datetimes_are_timezone_aware() == []
+
+
+def test_fromtimestamp_without_tz_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/clock.py",
+        "from datetime import datetime\ndef t():\n    return datetime.fromtimestamp(0)\n",
+    )
+    assert invariants.check_datetimes_are_timezone_aware() != []
+
+
+# ---------------------------------------------------------------------------
+# check_no_mutable_default_arguments
+# ---------------------------------------------------------------------------
+
+
+def test_mutable_list_default_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/acc.py", "def add(x, acc=[]):\n    acc.append(x)\n    return acc\n")
+    assert any("mutable default" in p for p in invariants.check_no_mutable_default_arguments())
+
+
+def test_mutable_dict_and_set_defaults_are_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/acc.py", "def a(d={}):\n    return d\ndef b(s=set()):\n    return s\n")
+    assert len(invariants.check_no_mutable_default_arguments()) == 2
+
+
+def test_keyword_only_mutable_default_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/acc.py", "def add(x, *, acc=[]):\n    return acc\n")
+    assert invariants.check_no_mutable_default_arguments() != []
+
+
+def test_immutable_defaults_pass(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/acc.py",
+        "def f(a=None, b=0, c=(), d='x', e=1.0):\n    return a, b, c, d, e\n",
+    )
+    assert invariants.check_no_mutable_default_arguments() == []
+
+
+def test_default_factory_pattern_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/acc.py",
+        "from dataclasses import dataclass, field\n\n"
+        "@dataclass\nclass C:\n    items: list = field(default_factory=list)\n",
+    )
+    assert invariants.check_no_mutable_default_arguments() == []
