@@ -350,3 +350,82 @@ def test_non_protocol_class_methods_are_not_checked(invariants, fake_tree) -> No
         "class Ordinary:\n    def never_called_anywhere(self):\n        return 1\n",
     )
     assert invariants.check_protocol_methods_are_called() == []
+
+
+# ---------------------------------------------------------------------------
+# check_dataclass_fields_are_read
+# ---------------------------------------------------------------------------
+
+
+_DATACLASS_SRC = '''
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class GateContext:
+    notional_usd: float
+    whale_scalar: float = 1.0
+    _cache: dict | None = None
+'''
+
+
+def test_unread_dataclass_field_is_flagged(invariants, fake_tree) -> None:
+    # The shape that hid RiskGateContext.whale_scalar: a field whose own
+    # comment described machinery that did not exist.
+    fake_tree("src/gates.py", _DATACLASS_SRC)
+    fake_tree("src/engine.py", "def run(ctx):\n    return ctx.notional_usd\n")
+    problems = invariants.check_dataclass_fields_are_read()
+    assert any("whale_scalar" in p and "never read" in p for p in problems)
+    assert not any("notional_usd" in p for p in problems)
+
+
+def test_read_dataclass_field_passes(invariants, fake_tree) -> None:
+    fake_tree("src/gates.py", _DATACLASS_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(ctx):\n    return ctx.notional_usd * ctx.whale_scalar\n",
+    )
+    assert invariants.check_dataclass_fields_are_read() == []
+
+
+def test_field_used_only_as_a_constructor_kwarg_counts_as_read(invariants, fake_tree) -> None:
+    # A field consumed as a kwarg or a serialisation key is genuinely used;
+    # this check exists to find fields with no consumer at all.
+    fake_tree("src/gates.py", _DATACLASS_SRC)
+    fake_tree(
+        "src/engine.py",
+        "from src.gates import GateContext\n"
+        "def run():\n"
+        "    return GateContext(notional_usd=1.0, whale_scalar=0.5)\n",
+    )
+    assert invariants.check_dataclass_fields_are_read() == []
+
+
+def test_a_field_read_only_by_tests_counts_as_read(invariants, fake_tree) -> None:
+    fake_tree("src/gates.py", _DATACLASS_SRC)
+    fake_tree("src/engine.py", "def run(ctx):\n    return ctx.notional_usd\n")
+    fake_tree(
+        "tests/test_gates.py",
+        "def test_it(ctx):\n    assert ctx.whale_scalar == 1.0\n",
+    )
+    assert invariants.check_dataclass_fields_are_read() == []
+
+
+def test_private_fields_are_exempt(invariants, fake_tree) -> None:
+    fake_tree("src/gates.py", _DATACLASS_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(ctx):\n    return ctx.notional_usd * ctx.whale_scalar\n",
+    )
+    assert not any("_cache" in p for p in invariants.check_dataclass_fields_are_read())
+
+
+def test_allowlisted_fields_are_not_reported(invariants, fake_tree) -> None:
+    # The allowlist records fields whose consumer does not exist yet, so the
+    # count cannot grow silently while the known ones stay visible.
+    fake_tree(
+        "src/labels.py",
+        "from dataclasses import dataclass\n\n"
+        "@dataclass\nclass TripleBarrierResult:\n    exit_index: int\n",
+    )
+    assert invariants.check_dataclass_fields_are_read() == []

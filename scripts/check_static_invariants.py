@@ -511,8 +511,100 @@ def check_protocol_methods_are_called() -> list[str]:
     return problems
 
 
+# Dataclass fields that nothing reads, each with the reason it is tolerated.
+# These are outputs of subsystems that are themselves not yet wired — the
+# field is dead because its consumer does not exist, not because the field is
+# wrong. They are listed rather than deleted so the count cannot grow
+# silently: a NEW unread field is a wiring mistake and should fail here.
+_UNREAD_FIELD_ALLOWED = {
+    # TripleBarrierResult is declared and documented but never constructed:
+    # triple_barrier_labels() returns a bare pd.Series of labels, so the exit
+    # index and reason are computed and discarded. Recovering them enables
+    # AFML Ch.4 sample-uniqueness weighting — a modelling change needing
+    # out-of-sample validation, not a wiring fix.
+    "exit_index",
+    # ProbabilisticPrediction has no consumer anywhere in src/. The whole
+    # uncertainty layer is inert; these are its unconsumed outputs.
+    "posterior_samples",
+    "model_uncertainty",
+    # shadow_deploy records these but nothing reads them back.
+    "actuals",
+    "evaluated_at",
+    # BasisTradeContext accepts it; compute_annualized_basis_pct hardcodes a
+    # 1-year normalisation instead of using it.
+    "days_to_perp_funding_normalization",
+}
+
+
+def check_dataclass_fields_are_read() -> list[str]:
+    """
+    A dataclass field nothing reads is data the software collects and drops.
+
+    Same connectivity shape as the Protocol check, one level down. It found
+    RiskGateContext.whale_scalar, whose own comment claimed it was set by
+    evaluate_all_gates() and returned in details — it was neither, and the
+    50% size reduction it promised had no implementation at all while the
+    gate hard-vetoed instead.
+
+    Reads are counted across src/ AND tests/, and keyword arguments and
+    string literals count too: a field consumed only as a constructor kwarg,
+    a serialisation key, or a dict lookup is genuinely used. That makes this
+    deliberately permissive — it catches fields with no consumer at all, not
+    fields with a weak one.
+
+    Private fields (leading underscore) are exempt as implementation detail.
+    """
+    declared: dict[str, str] = {}
+    for path in _py_files(SRC):
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            is_dataclass = any(
+                (isinstance(d, ast.Name) and d.id == "dataclass")
+                or (isinstance(d, ast.Attribute) and d.attr == "dataclass")
+                or (
+                    isinstance(d, ast.Call)
+                    and (
+                        (isinstance(d.func, ast.Name) and d.func.id == "dataclass")
+                        or (isinstance(d.func, ast.Attribute) and d.func.attr == "dataclass")
+                    )
+                )
+                for d in node.decorator_list
+            )
+            if not is_dataclass:
+                continue
+            for stmt in node.body:
+                if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+                    continue
+                name = stmt.target.id
+                if name.startswith("_"):
+                    continue
+                declared.setdefault(
+                    name, f"{_rel(path)}:{stmt.lineno} {node.name}.{name}"
+                )
+
+    read: set[str] = set()
+    for root in ("src", "tests"):
+        for path in _py_files(REPO / root):
+            for node in ast.walk(_parse(path)):
+                if isinstance(node, ast.Attribute):
+                    read.add(node.attr)
+                elif isinstance(node, ast.keyword) and node.arg:
+                    read.add(node.arg)
+                elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    read.add(node.value)
+
+    return [
+        f"{location} — dataclass field never read anywhere in src/ or tests/"
+        for name, location in sorted(declared.items())
+        if name not in read and name not in _UNREAD_FIELD_ALLOWED
+    ]
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),
     ("positional column slices", check_positional_column_slices),
     ("non-strict zip", check_zip_is_strict),
