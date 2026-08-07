@@ -19,6 +19,11 @@ class _Member:
     def __init__(self, value: float | None, rmse: float = 0.1) -> None:
         self._value = value
         self.rmse = rmse
+        self.model = object()  # fitted
+
+    @property
+    def is_fitted(self) -> bool:
+        return self.model is not None
 
     def predict(self, features):
         if self._value is None:
@@ -140,3 +145,62 @@ def test_prediction_carries_no_failures_by_default() -> None:
         ).failed_models
         == ()
     )
+
+
+class _Unfitted:
+    """A member that was never fitted — model is None, rmse is inf."""
+
+    model = None
+    rmse = float("inf")
+
+    @property
+    def is_fitted(self) -> bool:
+        return self.model is not None
+
+    def predict(self, features):
+        return 0.0  # the placeholder every real member returns when unfitted
+
+    def predict_with_uncertainty(self, features):
+        # rmse inf -> substituted with 0.1, which beats most fitted models.
+        return 0.0, 0.1 if self.rmse == float("inf") else self.rmse
+
+    def get_performance_metrics(self):
+        return {"rmse": self.rmse}
+
+
+def test_an_unfitted_member_does_not_vote() -> None:
+    # Its 0.0 is a placeholder, not a forecast of no move.
+    ens = _ensemble(
+        {"fitted": _Member(0.6), "never_fitted": _Unfitted()},
+        {"fitted": 0.5, "never_fitted": 0.5},
+    )
+    result = ens.predict_with_uncertainty(_FEATURES)
+    assert result.point_estimate == pytest.approx(0.6)
+    assert result.failed_models == ("never_fitted",)
+
+
+def test_an_unfitted_member_does_not_pollute_disagreement() -> None:
+    # _update_weights() zero-weights an unfitted model out of the point
+    # estimate, but model_disagreement is an UNWEIGHTED std, so the
+    # placeholder still moved the reported uncertainty.
+    ens = _ensemble(
+        {"a": _Member(0.6), "b": _Member(0.6), "unfit": _Unfitted()},
+        {"a": 0.4, "b": 0.4, "unfit": 0.0},
+    )
+    result = ens.predict_with_uncertainty(_FEATURES)
+    assert result.model_disagreement == pytest.approx(0.0, abs=1e-9)
+
+
+def test_an_unfitted_member_cannot_be_the_best_model() -> None:
+    # rmse=inf is substituted with 0.1, lower than this fitted model's 0.9.
+    ens = _ensemble(
+        {"fitted": _Member(0.6, rmse=0.9), "unfit": _Unfitted()},
+        {"fitted": 0.5, "unfit": 0.5},
+    )
+    assert ens.predict_with_uncertainty(_FEATURES).best_model == "fitted"
+
+
+def test_an_all_unfitted_ensemble_refuses() -> None:
+    ens = _ensemble({"a": _Unfitted(), "b": _Unfitted()}, {"a": 0.5, "b": 0.5})
+    with pytest.raises(RuntimeError, match="every ensemble member failed"):
+        ens.predict_with_uncertainty(_FEATURES)

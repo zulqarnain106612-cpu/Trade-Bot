@@ -131,6 +131,26 @@ class PredictionModel(ABC):
     Base class for ensemble members.
     """
 
+    @property
+    def is_fitted(self) -> bool:
+        """
+        Whether this member has a model to predict with.
+
+        Every member guards predict() with `if self.model is None: return 0.0`,
+        which is a finite, plausible number and therefore indistinguishable
+        from a real forecast of no move. An unfitted member consequently voted
+        zero on every call — and while _update_weights() zero-weights it out
+        of the point estimate, model_disagreement is an UNWEIGHTED standard
+        deviation across predictions, so the fabricated zero still moved the
+        ensemble's reported uncertainty. Worse, an unfitted member reports
+        rmse=inf, which predict_with_uncertainty() substitutes with 0.1 —
+        lower than most fitted models, so it could be selected as best_model.
+
+        Exposing this lets the ensemble skip the member entirely rather than
+        count a placeholder as an opinion.
+        """
+        return getattr(self, "model", None) is not None
+
     @abstractmethod
     def predict(self, features: pd.DataFrame) -> float:
         """Point prediction."""
@@ -297,6 +317,18 @@ class LSTMPredictor(PredictionModel):
             self.model = net
         except Exception as e:
             log.error("lstm_fit_failed", error=str(e), exc_info=True)
+
+    @property
+    def is_fitted(self) -> bool:
+        """
+        Mirrors this member's own predict() guard exactly.
+
+        torch being absent is a second way to have nothing to predict with,
+        and the two conditions must not be able to drift apart — that is how
+        a member starts answering 0.0 through a path the ensemble thinks it
+        has excluded.
+        """
+        return self.model is not None and _TORCH_AVAILABLE
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None or not _TORCH_AVAILABLE:
@@ -653,6 +685,12 @@ class EnsemblePredictor:
 
         # Get predictions from all models
         for name, model in self.models.items():
+            if not model.is_fitted:
+                # Never fitted, or its optional dependency is absent. It has
+                # no opinion; its placeholder 0.0 is not one either.
+                log.debug("ensemble_member_unfitted", model=name)
+                failed.append(name)
+                continue
             try:
                 point, uncertainty = model.predict_with_uncertainty(features)
             except Exception as e:
