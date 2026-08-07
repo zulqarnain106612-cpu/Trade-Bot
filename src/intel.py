@@ -126,8 +126,14 @@ class CryptoIntelligence:
         # Observability
         from src.data.duckdb_store import DuckDBStore
 
+        # DUCKDB_PATH is honoured before the built-in default so a test run or
+        # a sandboxed deployment can redirect the database without a config
+        # file; DuckDBStore reads the same variable for its own default.
         self._duckdb = DuckDBStore(
-            path=Path(self._cfg.get("duckdb_path", "./models/crypto_intel.duckdb"))
+            path=Path(
+                self._cfg.get("duckdb_path")
+                or os.environ.get("DUCKDB_PATH", "./models/crypto_intel.duckdb")
+            )
         )
 
         # Self-upgrade
@@ -401,5 +407,11 @@ class CryptoIntelligence:
     def close(self) -> None:
         """Shut down all subsystems cleanly."""
         self._orchestrator.shutdown()
+        # DuckDB holds a file lock, so leaving this open blocks the next
+        # process (or the next test) from opening the same database.
+        try:
+            self._duckdb.close()
+        except Exception as exc:
+            log.warning("duckdb_close_failed", exc=str(exc))
         self._started = False
         log.info("crypto_intelligence_closed")
