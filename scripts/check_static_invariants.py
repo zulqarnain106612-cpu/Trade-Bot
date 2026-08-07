@@ -729,6 +729,12 @@ def check_no_mutable_default_arguments() -> list[str]:
 _WALL_CLOCK_ARITHMETIC_ALLOWED = {
     # since_ms is an exchange API parameter and must be a real epoch time.
     ("src/engine/universe_returns.py", "_trailing_return"),
+    # _locked_until holds an operator-facing "locked until <calendar time>"
+    # deadline, which is a point in history by design.
+    ("src/tuning/watchdog.py", "_is_locked_unlocked"),
+    # Compared against a PERSISTED ISO timestamp read back from disk.
+    # time.monotonic() has no meaning across process restarts.
+    ("src/tuning/runner.py", "_cooldown_active"),
 }
 
 
@@ -756,13 +762,18 @@ def check_durations_use_monotonic() -> list[str]:
     """
 
     def _is_wall_clock(node: ast.AST) -> bool:
-        return (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "time"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "time"
-        )
+        """time.time() or datetime.now(...) — both are wall clocks."""
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            return False
+        if node.func.attr == "time":
+            return isinstance(node.func.value, ast.Name) and node.func.value.id == "time"
+        # datetime.now(UTC) - other is just as wall-clock as time.time() - other,
+        # and reads more innocently. The intelligence client's Glassnode
+        # throttle measured its interval that way and this check missed it
+        # until the datetime form was added.
+        if node.func.attr in ("now", "utcnow"):
+            return isinstance(node.func.value, ast.Name) and node.func.value.id == "datetime"
+        return False
 
     problems: list[str] = []
     for path in _py_files(SRC):
@@ -783,7 +794,7 @@ def check_durations_use_monotonic() -> list[str]:
             if (_rel(path), owner.get(node, "<module>")) in _WALL_CLOCK_ARITHMETIC_ALLOWED:
                 continue
             problems.append(
-                f"{_rel(path)}:{node.lineno} time.time() used as a duration — "
+                f"{_rel(path)}:{node.lineno} wall clock used as a duration — "
                 "use time.monotonic(), or allowlist it if the result is a point in history"
             )
     return problems
