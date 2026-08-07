@@ -1874,17 +1874,30 @@ class Orchestrator:
         if InputNeed.BASIS in wanted:
             spot_price, spot_ts, perp_price, perp_ts = await self._fetch_basis_legs()
 
+        # The universe snapshot backs BOTH the cross-sectional family (via the
+        # returns) and the pairs family (via the close series retained from the
+        # same fetch). They deliberately share one snapshot so the two cannot
+        # disagree about what the market did, which means the refresh has to
+        # run when EITHER is wanted — gating it on UNIVERSE alone left a book
+        # with only mean reversion enabled reading a cache nothing ever filled,
+        # abstaining forever for a reason no config change could fix.
+        #
+        # It also has to run BEFORE _pair_series(), which reads the snapshot it
+        # produces and memoises cointegration against its timestamp.
+        universe_returns: dict[str, float] = {}
+        if wanted & {InputNeed.UNIVERSE, InputNeed.PAIR}:
+            # TTL-cached, so this is a dict copy on all but the refresh tick.
+            try:
+                refreshed = await self._universe_returns.trailing_returns()
+            except Exception as exc:
+                self._log.warning("orchestrator.universe_returns_failed", error=str(exc))
+            else:
+                if InputNeed.UNIVERSE in wanted:
+                    universe_returns = refreshed
+
         pair_a = pair_b = hedge_ratio = None
         if InputNeed.PAIR in wanted:
             pair_a, pair_b, hedge_ratio = self._pair_series()
-
-        universe_returns: dict[str, float] = {}
-        if InputNeed.UNIVERSE in wanted:
-            # TTL-cached, so this is a dict copy on all but the refresh tick.
-            try:
-                universe_returns = await self._universe_returns.trailing_returns()
-            except Exception as exc:
-                self._log.warning("orchestrator.universe_returns_failed", error=str(exc))
 
         return PortfolioInputs(
             symbol=self._symbol,

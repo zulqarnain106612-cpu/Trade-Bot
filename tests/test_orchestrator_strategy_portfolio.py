@@ -746,3 +746,106 @@ async def test_omitting_needs_still_fetches_everything():
 
     assert storage.bar_calls == 1
     assert storage.intel_calls == 1
+
+
+class _SnapshotCache:
+    """Universe cache stub that records refresh order against _pair_series."""
+
+    def __init__(self, series: dict[str, tuple[float, ...]]) -> None:
+        self._series = series
+        self.fetched_at = 0.0
+        self.refreshes = 0
+
+    async def trailing_returns(self):
+        self.refreshes += 1
+        self.fetched_at = 100.0
+        return {k: 0.1 for k in self._series}
+
+    def close_series(self, symbol: str):
+        # Only readable once a refresh has populated the snapshot — which is
+        # exactly the dependency the needs gate has to express.
+        return self._series.get(symbol) if self.fetched_at > 0.0 else None
+
+
+class _CfgPairOnly:
+    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+        max_allocation_shift_per_step = 0.10
+        basis_perp_symbol = ""
+        basis_days_to_convergence = 1.0
+        mean_reversion_pair = ["A/USDT", "B/USDT"]
+        mean_reversion_window = 30
+
+
+def _pair_series_fixture() -> dict[str, tuple[float, ...]]:
+    a = [100.0 + i * 0.1 for i in range(200)]
+    b = [x * 0.5 + (0.3 if i % 2 else -0.3) for i, x in enumerate(a)]
+    return {"A/USDT": tuple(a), "B/USDT": tuple(b)}
+
+
+async def test_the_pair_family_alone_still_refreshes_the_shared_snapshot():
+    # Gating the refresh on UNIVERSE alone left a book with only mean
+    # reversion enabled reading a cache nothing ever filled — abstaining
+    # forever for a reason no config change could fix.
+    from src.engine.strategy_portfolio import required_inputs
+
+    cache = _SnapshotCache(_pair_series_fixture())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgPairOnly()
+    orch._universe_returns = cache
+    orch._pair_cointegration = None
+
+    inputs = await orch._build_portfolio_inputs(
+        Timeframe.INTRADAY, required_inputs(["mean_reversion_pairs_v1"])
+    )
+
+    assert cache.refreshes == 1
+    assert inputs.pair_closes_a is not None
+    assert inputs.pair_hedge_ratio is not None
+
+
+async def test_the_pair_reads_the_snapshot_on_the_very_first_tick():
+    # _pair_series memoises cointegration against the snapshot timestamp, so
+    # it must run after the refresh, not before it.
+    from src.engine.strategy_portfolio import required_inputs
+
+    cache = _SnapshotCache(_pair_series_fixture())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgPairOnly()
+    orch._universe_returns = cache
+    orch._pair_cointegration = None
+
+    inputs = await orch._build_portfolio_inputs(
+        Timeframe.INTRADAY, required_inputs(["mean_reversion_pairs_v1"])
+    )
+    # Would be None if _pair_series ran against an unpopulated cache.
+    assert inputs.pair_closes_b is not None
+
+
+async def test_pair_only_does_not_expose_universe_returns():
+    from src.engine.strategy_portfolio import required_inputs
+
+    cache = _SnapshotCache(_pair_series_fixture())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgPairOnly()
+    orch._universe_returns = cache
+    orch._pair_cointegration = None
+
+    inputs = await orch._build_portfolio_inputs(
+        Timeframe.INTRADAY, required_inputs(["mean_reversion_pairs_v1"])
+    )
+    assert inputs.universe_returns == {}
+
+
+async def test_neither_family_leaves_the_snapshot_untouched():
+    from src.engine.strategy_portfolio import required_inputs
+
+    cache = _SnapshotCache(_pair_series_fixture())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _CfgPairOnly()
+    orch._universe_returns = cache
+    orch._pair_cointegration = None
+
+    await orch._build_portfolio_inputs(
+        Timeframe.INTRADAY, required_inputs(["signal_engine_v1"])
+    )
+    assert cache.refreshes == 0
