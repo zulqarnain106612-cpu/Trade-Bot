@@ -97,16 +97,26 @@ class GateResult:
     """
     Outcome of evaluating the full risk gate stack.
 
-    status    : first gate that fired (or PASS)
-    passed    : True only when status == GateStatus.PASS
-    reason    : human-readable explanation
-    details   : structured context for logging / API
+    status      : first gate that fired (or PASS)
+    passed      : True only when status == GateStatus.PASS
+    reason      : human-readable explanation
+    details     : structured context for logging / API
+    size_scalar : multiplicative size ceiling in (0, 1] contributed by
+                  ADVISORY gates — those that reduce a position rather than
+                  veto it. 1.0 means no reduction.
+
+    The scalar exists because this type previously had only pass/fail, which
+    left an advisory gate no way to express "proceed, but smaller". The whale
+    gate was written as advisory, documented as advisory, and — having no
+    channel for a scalar — implemented as a hard fail, so it vetoed trades its
+    own design said should proceed at reduced size. See check_whale_activity.
     """
 
     status: GateStatus
     passed: bool
     reason: str
     details: dict[str, object]
+    size_scalar: float = 1.0
 
     @classmethod
     def pass_gate(cls, details: dict[str, object] | None = None) -> GateResult:
@@ -129,6 +139,31 @@ class GateResult:
             passed=False,
             reason=reason,
             details=details or {},
+        )
+
+    @classmethod
+    def reduce(
+        cls,
+        status: GateStatus,
+        scalar: float,
+        reason: str,
+        details: dict[str, object] | None = None,
+    ) -> GateResult:
+        """
+        An advisory outcome: the trade proceeds, at `scalar` times the size.
+
+        `passed` is True — an advisory gate is not a veto, and reporting it as
+        a failure is exactly the confusion this constructor exists to end.
+        The status is preserved so the reason still reaches the audit trail.
+        """
+        if not 0.0 < scalar <= 1.0:
+            raise ValueError(f"advisory scalar must be in (0, 1], got {scalar}")
+        return cls(
+            status=status,
+            passed=True,
+            reason=reason,
+            details={**(details or {}), "size_scalar": scalar},
+            size_scalar=scalar,
         )
 
 
@@ -614,11 +649,14 @@ class RiskGateContext:
     # never blocks trading.
     exchange_stress_score: float | None = None
     whale_buy_sell_ratio: float | None = None
-    # whale_scalar is set to 0.5 by evaluate_all_gates() when
-    # REDUCE_WHALE_ACTIVITY fires; callers should multiply Kelly
-    # fraction by this value.  Not consumed inside gates.py itself
-    # — it is returned in GateResult.details["whale_scalar"].
-    whale_scalar: float = 1.0
+    # The size multiplier applied when REDUCE_WHALE_ACTIVITY fires *and*
+    # RISK_WHALE_GATE_ADVISORY is on. Previously this field claimed to be set
+    # by evaluate_all_gates() and returned in details["whale_scalar"] — it was
+    # neither: nothing in the repository ever wrote it, read it, or emitted
+    # it, so the documented 50% reduction never happened and the gate blocked
+    # instead. It is now the gate's input, and the resulting reduction travels
+    # out on GateResult.size_scalar.
+    whale_scalar: float = 0.5
 
     # v10 — outermost capital preservation floor state. Defaults to False
     # (not halted) so existing call sites that have not yet wired a
@@ -688,9 +726,18 @@ def evaluate_all_gates(
         ),
         # GAP-015: intelligence gates — fail open (PASS) when data unavailable
         check_exchange_stress(ctx.exchange_stress_score),
-        check_whale_activity(ctx.whale_buy_sell_ratio),
+        check_whale_activity(
+            ctx.whale_buy_sell_ratio,
+            advisory=(cfg or get_settings().risk).whale_gate_advisory,
+            advisory_scalar=ctx.whale_scalar,
+        ),
     ]
 
+    # Advisory results pass, so they do not short-circuit; their scalars
+    # multiply into the ceiling carried by the final PASS. Only a genuine
+    # veto returns early.
+    advisory_scalar = 1.0
+    advisory_details: dict[str, object] = {}
     for result in ordered_results:
         if not result.passed:
             log.warning(
@@ -700,6 +747,15 @@ def evaluate_all_gates(
                 **dict(result.details.items()),
             )
             return result
+        if result.size_scalar < 1.0:
+            advisory_scalar *= result.size_scalar
+            advisory_details[f"{result.status.value}_scalar"] = result.size_scalar
+            log.info(
+                "risk.gate.reduced",
+                status=result.status.value,
+                scalar=result.size_scalar,
+                reason=result.reason,
+            )
 
     log.debug(
         "risk.gate.pass",
@@ -709,7 +765,15 @@ def evaluate_all_gates(
         if ctx.starting_equity_usd > 0
         else 0.0,
         notional_usd=ctx.notional_usd,
+        size_scalar=round(advisory_scalar, 4),
     )
+    if advisory_scalar < 1.0:
+        return GateResult.reduce(
+            GateStatus.PASS,
+            advisory_scalar,
+            reason="all gates passed; advisory gates reduced size",
+            details=advisory_details,
+        )
     return GateResult.pass_gate()
 
 
@@ -888,9 +952,10 @@ def check_performance_drift(drift_detector: Any) -> GateResult:
 # Sourced from BinanceIntelligenceProvider (free public API; no key required).
 # ExchangeStressGate: halt when composite stress (basis+funding+OI) exceeds
 #   threshold.  Protects against contagion/counterparty risk.
-# WhaleActivityGate: reduce position scalar when taker-sell pressure dominates.
-#   Returns REDUCE_WHALE_ACTIVITY (not HALT) — orchestrator applies the
-#   whale_scalar to correlation_scalar so sizing shrinks, never blocks fully.
+# WhaleActivityGate: taker-sell pressure dominates. Blocks by default; with
+#   RISK_WHALE_GATE_ADVISORY=true it instead passes with
+#   GateResult.size_scalar < 1.0 so sizing shrinks rather than blocking.
+#   Consuming that scalar in Kelly is still pending — see check_whale_activity.
 # Both gates fail open (PASS) when intelligence_metrics is None so the
 # signal path is never blocked by a provider failure.
 # ---------------------------------------------------------------------------
@@ -981,9 +1046,44 @@ def check_exchange_stress(
     )
 
 
+def _whale_outcome(
+    status: GateStatus,
+    advisory: bool,
+    scalar: float,
+    *,
+    reason: str,
+    details: dict[str, object],
+) -> GateResult:
+    """
+    Express a whale trigger as either a size reduction or a veto.
+
+    Advisory is what the gate was designed for and what its surrounding
+    documentation has always described. It is NOT the default, because for
+    the life of this gate the code has vetoed instead, and switching a live
+    risk control from "block" to "trade at half size" is a trading-policy
+    change an operator makes deliberately — not one that arrives inside a
+    bug fix. RISK_WHALE_GATE_ADVISORY=true opts in.
+    """
+    if advisory:
+        return GateResult.reduce(
+            status,
+            scalar,
+            reason=f"{reason} Size reduced to {scalar:.0%} rather than blocked.",
+            details={**details, "whale_action": f"reduce_to_{scalar:.0%}"},
+        )
+    return GateResult.fail(
+        status,
+        reason=f"{reason} Trade blocked (advisory mode off).",
+        details={**details, "whale_action": "block"},
+    )
+
+
 def check_whale_activity(
     whale_buy_sell_ratio: float | None,
     sell_threshold: float = 0.85,
+    *,
+    advisory: bool = False,
+    advisory_scalar: float = 0.5,
 ) -> GateResult:
     """
     Gate 10: taker-flow whale activity filter (sizing advisory).
@@ -1020,30 +1120,29 @@ def check_whale_activity(
     # position), so an unreadable taker flow reduces size rather than
     # silently reading as neutral.
     if _non_finite(ratio):
-        return GateResult.fail(
+        return _whale_outcome(
             GateStatus.REDUCE_WHALE_ACTIVITY,
+            advisory,
+            advisory_scalar,
             reason=(
                 "Non-finite whale buy/sell ratio — taker flow cannot be read, "
                 "so position size is reduced rather than assumed neutral."
             ),
-            details={
-                "whale_buy_sell_ratio": whale_buy_sell_ratio,
-                "whale_action": "reduce_50pct",
-            },
+            details={"whale_buy_sell_ratio": whale_buy_sell_ratio},
         )
 
     if ratio < sell_threshold:
-        return GateResult.fail(
+        return _whale_outcome(
             GateStatus.REDUCE_WHALE_ACTIVITY,
+            advisory,
+            advisory_scalar,
             reason=(
                 f"Whale taker sell pressure: buy/sell ratio {ratio:.3f} < "
-                f"threshold {sell_threshold:.2f}. "
-                "Net selling pressure detected — position size reduced by 50%."
+                f"threshold {sell_threshold:.2f}. Net selling pressure detected."
             ),
             details={
                 "whale_buy_sell_ratio": round(ratio, 4),
                 "sell_threshold": sell_threshold,
-                "whale_action": "reduce_50pct",
             },
         )
 

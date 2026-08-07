@@ -160,6 +160,19 @@ class RiskSettings(BaseSettings):
     max_drawdown_threshold: float = Field(default=15.0, ge=1.0, le=100.0)
     min_trades_live_gate: int = Field(default=500, ge=1)
 
+    # Gate 10 (whale taker-flow) posture. The gate is documented as advisory
+    # — reduce size, do not block — but shipped as a veto, and has vetoed for
+    # its whole life. Defaulting this to False preserves that behaviour;
+    # turning it on is a deliberate trading-policy change that lets trades
+    # through at whale_scalar of their size instead of being blocked.
+    whale_gate_advisory: bool = Field(
+        default=False,
+        description=(
+            "When true, REDUCE_WHALE_ACTIVITY passes with a size scalar "
+            "instead of blocking the trade."
+        ),
+    )
+
     # Restricted mode approval window
     notional_limit_usd: float = Field(
         default=100.0,
