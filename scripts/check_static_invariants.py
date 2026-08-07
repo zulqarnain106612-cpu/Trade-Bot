@@ -789,8 +789,61 @@ def check_durations_use_monotonic() -> list[str]:
     return problems
 
 
+# Functions this repository has itself documented as CPU-bound. Calling one
+# directly inside an async def puts it on the event loop.
+_CPU_BOUND_FUNCTIONS = frozenset({"build_feature_matrix"})
+
+
+def check_cpu_bound_work_is_offloaded() -> list[str]:
+    """
+    CPU-bound work called inline inside `async def` blocks the whole loop.
+
+    One event loop serves all three timeframe tasks, the FastAPI server, the
+    position monitor and the order path, so a slow synchronous call in the 1m
+    tick does not merely delay that tick — it delays the 15m tick, the API
+    and any order in flight. Execution latency is a domain prior here.
+
+    build_feature_matrix earns its place on this list from the repository's
+    own comments: the orchestrator hands it to a dedicated executor for
+    training, saying "Feature matrix — CPU bound" (NEW-002), and the
+    self-tuning scheduler's docstring explains it offloads so "a
+    multi-second-to-minutes retrain does not" block. Both were right about
+    the cost and both still called it inline on their hot paths — the signal
+    engine on every tick, the scheduler immediately before the executor call
+    it was already making.
+
+    Calls lexically inside a run_in_executor(...) or to_thread(...) argument
+    list are exempt, which is exactly what offloading looks like.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for fn in ast.walk(_parse(path)):
+            if not isinstance(fn, ast.AsyncFunctionDef):
+                continue
+            offloaded: set[int] = set()
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("run_in_executor", "to_thread")
+                ):
+                    for sub in ast.walk(node):
+                        offloaded.add(id(sub))
+            for node in ast.walk(fn):
+                if id(node) in offloaded or not isinstance(node, ast.Call):
+                    continue
+                name = node.func.id if isinstance(node.func, ast.Name) else None
+                if name in _CPU_BOUND_FUNCTIONS:
+                    problems.append(
+                        f"{_rel(path)}:{node.lineno} {name}() called inline in "
+                        f"async {fn.name}() — offload with to_thread/run_in_executor"
+                    )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),
     ("naive datetimes", check_datetimes_are_timezone_aware),
     ("mutable default arguments", check_no_mutable_default_arguments),

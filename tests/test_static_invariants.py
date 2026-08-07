@@ -646,3 +646,42 @@ def test_allowlisted_epoch_arithmetic_is_not_flagged(invariants, fake_tree, monk
         "import time\ndef _window(days):\n    return int((time.time() - days * 86400) * 1000)\n",
     )
     assert invariants.check_durations_use_monotonic() == []
+
+
+# ---------------------------------------------------------------------------
+# check_cpu_bound_work_is_offloaded
+# ---------------------------------------------------------------------------
+
+
+def test_inline_cpu_bound_call_in_async_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/engine.py",
+        "async def tick(bars):\n    fm = build_feature_matrix(bars)\n    return fm\n",
+    )
+    problems = invariants.check_cpu_bound_work_is_offloaded()
+    assert any("called inline in async tick()" in p for p in problems)
+
+
+def test_to_thread_offload_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/engine.py",
+        "import asyncio\n"
+        "async def tick(bars):\n"
+        "    return await asyncio.to_thread(build_feature_matrix, bars)\n",
+    )
+    assert invariants.check_cpu_bound_work_is_offloaded() == []
+
+
+def test_run_in_executor_offload_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/train.py",
+        "async def train(loop, bars):\n"
+        "    return await loop.run_in_executor(None, build_feature_matrix, bars)\n",
+    )
+    assert invariants.check_cpu_bound_work_is_offloaded() == []
+
+
+def test_a_synchronous_caller_is_not_flagged(invariants, fake_tree) -> None:
+    # Blocking a sync function blocks only its caller; the loop is the issue.
+    fake_tree("src/backtest.py", "def run(bars):\n    return build_feature_matrix(bars)\n")
+    assert invariants.check_cpu_bound_work_is_offloaded() == []

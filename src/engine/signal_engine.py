@@ -654,8 +654,20 @@ class SignalEngine:
         # SCAN2-007: prior code called build_feature_matrix + build_inference_features
         # separately, running fractional_differentiation + all rolling stats twice per tick.
         # Single call eliminates ~50% of hot-path feature pipeline CPU overhead.
+        # Off-loop: build_feature_matrix runs fractional differentiation, a
+        # rolling GARCH forecast and triple-barrier labelling over the whole
+        # bar window. The orchestrator already treats it as CPU-bound and
+        # hands it to a dedicated executor for training ("Feature matrix —
+        # CPU bound", NEW-002); running the same function inline here kept it
+        # on the event loop on the HOT path.
+        #
+        # That loop is shared by all three timeframe tasks, the FastAPI
+        # server, the position monitor and the order path, so a slow feature
+        # build in the 1m tick stalled the 15m tick, the API and any order in
+        # flight — not just this tick. Execution latency is a domain prior
+        # here, and this was the largest synchronous block on the signal path.
         try:
-            fm = build_feature_matrix(bars)
+            fm = await asyncio.to_thread(build_feature_matrix, bars)
         except Exception as exc:
             self._log.error("signal.feature_matrix_failed", error=str(exc), exc_info=True)
             return self._skip("feature_matrix_failed")
