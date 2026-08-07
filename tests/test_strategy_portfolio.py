@@ -14,7 +14,9 @@ import pandas as pd
 import pytest
 
 from src.engine.strategy_portfolio import (
+    BUILDER_NEEDS,
     NO_CONTEXT,
+    InputNeed,
     PortfolioInputs,
     StrategyPortfolioRunner,
     VerdictStatus,
@@ -27,6 +29,7 @@ from src.engine.strategy_portfolio import (
     build_xsec_momentum_context,
     default_context_builders,
     get_portfolio_runner,
+    required_inputs,
     reset_portfolio_runner,
 )
 from src.strategies.registry import Signal, StrategyRegistry
@@ -608,3 +611,40 @@ def test_basis_builder_threads_the_convergence_horizon() -> None:
     assert ctx is not None
     horizon = ctx.days_to_perp_funding_normalization  # type: ignore[attr-defined]
     assert horizon == pytest.approx(7.0)
+
+
+# ------------------------------------------------------- input needs
+
+
+def test_the_incumbent_alone_needs_no_feeds() -> None:
+    # The default configuration. Its builder consumes nothing, so assembling
+    # inputs for it must cost no database read and no exchange round-trip.
+    assert required_inputs(["signal_engine_v1"]) == frozenset()
+
+
+def test_needs_are_the_union_across_families() -> None:
+    needs = required_inputs(["breakout_volume_v1", "funding_carry_v1"])
+    assert needs == {InputNeed.BARS, InputNeed.FUNDING}
+
+
+def test_each_family_declares_the_feed_its_builder_reads() -> None:
+    assert required_inputs(["cross_exchange_arb_v1"]) == {InputNeed.VENUES}
+    assert required_inputs(["basis_trade_v1"]) == {InputNeed.BASIS}
+    assert required_inputs(["xsec_momentum_v1"]) == {InputNeed.UNIVERSE}
+    assert required_inputs(["mean_reversion_pairs_v1"]) == {InputNeed.PAIR}
+
+
+def test_an_unknown_strategy_requests_nothing() -> None:
+    # Safe direction: the family abstains for want of data rather than
+    # provoking fetches for something this module has never heard of.
+    assert required_inputs(["not_a_real_strategy"]) == frozenset()
+
+
+def test_no_families_needs_no_feeds() -> None:
+    assert required_inputs([]) == frozenset()
+
+
+def test_every_builder_has_a_declared_need() -> None:
+    # A builder without an entry would silently read None forever once the
+    # gate is applied, which is the failure this pairing exists to prevent.
+    assert set(default_context_builders()) <= set(BUILDER_NEEDS)

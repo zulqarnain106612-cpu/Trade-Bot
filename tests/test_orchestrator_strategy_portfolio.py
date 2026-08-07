@@ -676,3 +676,73 @@ async def test_the_quote_cache_is_bounded_by_symbol_and_venue():
         orch._quote_cache.clear()
         await orch._fetch_basis_legs()
     assert len(orch._quote_cache) <= 2
+
+
+# ------------------------------------------------- demand-driven assembly
+
+
+class _CountingStorage(_Storage):
+    def __init__(self, **kw) -> None:
+        super().__init__(**kw)
+        self.bar_calls = 0
+        self.intel_calls = 0
+
+    async def fetch_bars(self, symbol, timeframe, since_ts=0, limit=0):
+        self.bar_calls += 1
+        return await super().fetch_bars(symbol, timeframe, since_ts, limit)
+
+    async def fetch_intelligence_features(self, symbol, timeframe, since_ts=0, limit=100_000):
+        self.intel_calls += 1
+        return await super().fetch_intelligence_features(symbol, timeframe, since_ts, limit)
+
+
+async def test_the_default_configuration_costs_no_io():
+    # Only signal_engine_v1 is registered by default and its builder consumes
+    # nothing, so assembling inputs must touch neither the database nor the
+    # exchange. This runs in front of order routing on every tick.
+    from src.engine.strategy_portfolio import required_inputs
+
+    storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
+    fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
+    orch = _orchestrator(storage)
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = fetcher
+
+    await orch._build_portfolio_inputs(
+        Timeframe.INTRADAY, required_inputs(["signal_engine_v1"])
+    )
+
+    assert storage.bar_calls == 0
+    assert storage.intel_calls == 0
+    assert fetcher.symbols == []
+
+
+async def test_only_the_declared_feed_is_fetched():
+    from src.engine.strategy_portfolio import required_inputs
+
+    storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
+    orch = _orchestrator(storage)
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
+
+    inputs = await orch._build_portfolio_inputs(
+        Timeframe.INTRADAY, required_inputs(["breakout_volume_v1"])
+    )
+
+    assert storage.bar_calls == 1
+    assert storage.intel_calls == 0
+    assert inputs.closes is not None
+    assert inputs.venue_prices == {}
+
+
+async def test_omitting_needs_still_fetches_everything():
+    # Backwards compatible for any caller with no view of what is registered.
+    storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
+    orch = _orchestrator(storage)
+    orch._cfg = _CfgQuotes()
+    orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
+
+    await orch._build_portfolio_inputs(Timeframe.INTRADAY)
+
+    assert storage.bar_calls == 1
+    assert storage.intel_calls == 1

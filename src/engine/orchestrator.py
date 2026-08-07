@@ -52,9 +52,11 @@ from src.diagnostics.signal_debugger import (
 )
 from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
 from src.engine.strategy_portfolio import (
+    InputNeed,
     PortfolioEvaluation,
     PortfolioInputs,
     get_portfolio_runner,
+    required_inputs,
 )
 from src.engine.universe_returns import UniverseReturnsCache
 from src.execution.live import LiveExecutor
@@ -1763,7 +1765,11 @@ class Orchestrator:
                 "orchestrator.registry_signal_publish_failed", error=str(exc), exc_info=True
             )
 
-    async def _build_portfolio_inputs(self, tf: Timeframe) -> PortfolioInputs:
+    async def _build_portfolio_inputs(
+        self,
+        tf: Timeframe,
+        needs: frozenset[InputNeed] | None = None,
+    ) -> PortfolioInputs:
         """
         Assemble this tick's market state in the forms the families need.
 
@@ -1771,78 +1777,108 @@ class Orchestrator:
         data is missing abstains, and the rest still vote. Failing the whole
         evaluation because one optional feed is down would reintroduce the
         all-or-nothing coupling that kept this layer unwired.
+
+        `needs` restricts the work to the feeds the registered families
+        actually read. That is not a micro-optimisation. Assembling these
+        inputs costs two database reads and up to four exchange round-trips,
+        and it runs on the tick path in front of order routing — so on the
+        default configuration, where only signal_engine_v1 is registered and
+        its builder consumes nothing at all, every tick was paying network
+        latency to build data it then discarded. Latency on the execution
+        path is a domain prior here, not a nicety.
+
+        None means "fetch everything", which keeps the behaviour intact for
+        any caller with no view of what is registered.
         """
+        wanted = needs if needs is not None else frozenset(InputNeed)
+
         highs: list[float] | None = None
         lows: list[float] | None = None
         closes: list[float] | None = None
         volumes: list[float] | None = None
-        # fetch_bars is `ts >= since_ts ORDER BY ts ASC LIMIT n`, so since_ts
-        # is what selects the window — a limit alone would return the oldest
-        # n bars in the table and the portfolio would evaluate the start of
-        # history forever, on data years stale, without ever erroring.
-        # Over-fetch the cutoff to absorb OHLCV gaps (a real feature of crypto
-        # feeds, not an artifact) and take the tail.
-        tf_seconds = TIMEFRAME_SECONDS[tf]
-        cutoff_ts = int(
-            (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_BAR_WINDOW * 3 * tf_seconds) * 1000
-        )
-        try:
-            records = await self._storage.fetch_bars(
-                self._symbol,
-                tf.value,
-                since_ts=max(0, cutoff_ts),
-                limit=_PORTFOLIO_BAR_WINDOW * 3,
+        if InputNeed.BARS in wanted:
+            # fetch_bars is `ts >= since_ts ORDER BY ts ASC LIMIT n`, so
+            # since_ts is what selects the window — a limit alone would return
+            # the oldest n bars in the table and the portfolio would evaluate
+            # the start of history forever, on data years stale, without ever
+            # erroring. Over-fetch the cutoff to absorb OHLCV gaps, which are
+            # a real feature of crypto feeds rather than an artifact.
+            tf_seconds = TIMEFRAME_SECONDS[tf]
+            cutoff_ts = int(
+                (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_BAR_WINDOW * 3 * tf_seconds) * 1000
             )
-            window = records[-_PORTFOLIO_BAR_WINDOW:]
-            if window:
-                highs = [r.high for r in window]
-                lows = [r.low for r in window]
-                closes = [r.close for r in window]
-                volumes = [r.volume for r in window]
-        except Exception as exc:
-            self._log.warning("orchestrator.portfolio_bars_failed", error=str(exc))
+            try:
+                records = await self._storage.fetch_bars(
+                    self._symbol,
+                    tf.value,
+                    since_ts=max(0, cutoff_ts),
+                    limit=_PORTFOLIO_BAR_WINDOW * 3,
+                )
+                window = records[-_PORTFOLIO_BAR_WINDOW:]
+                if window:
+                    highs = [r.high for r in window]
+                    lows = [r.low for r in window]
+                    closes = [r.close for r in window]
+                    volumes = [r.volume for r in window]
+            except Exception as exc:
+                self._log.warning("orchestrator.portfolio_bars_failed", error=str(exc))
 
         funding_rate: float | None = None
         funding_history: list[float] | None = None
-        try:
-            # Bounded for the same reason, and additionally because the
-            # default limit is 100_000 rows: unbounded, this rebuilt the
-            # entire intelligence history into a DataFrame on every tick of
-            # every timeframe to read the last ~120 funding observations.
-            #
-            # Its own cutoff, not the bar window's: intelligence rows are
-            # per-bar, but funding only steps every 8h, so a 300-bar window
-            # at 15m spans ~3 days and would hand the carry family a
-            # near-constant series whose z-score means nothing. A fixed
-            # calendar lookback keeps the sample wide regardless of timeframe.
-            funding_cutoff_ts = int(
-                (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_FUNDING_LOOKBACK_DAYS * 86400) * 1000
-            )
-            intel = await self._storage.fetch_intelligence_features(
-                self._symbol,
-                tf.value,
-                since_ts=max(0, funding_cutoff_ts),
-                limit=_PORTFOLIO_FUNDING_MAX_ROWS,
-            )
-            col = "intelligence_binance_funding_rate_pct"
-            if col in intel.columns:
-                series = intel[col].dropna()
-                if not series.empty:
-                    funding_history = [float(v) for v in series.tail(_PORTFOLIO_FUNDING_WINDOW)]
-                    funding_rate = funding_history[-1]
-        except Exception as exc:
-            self._log.warning("orchestrator.portfolio_funding_failed", error=str(exc))
+        if InputNeed.FUNDING in wanted:
+            try:
+                # Bounded because the default limit is 100_000 rows:
+                # unbounded, this rebuilt the entire intelligence history into
+                # a DataFrame on every tick of every timeframe to read the
+                # last ~120 funding observations.
+                #
+                # Its own cutoff, not the bar window's: intelligence rows are
+                # per-bar, but funding only steps every 8h, so a 300-bar
+                # window at 15m spans ~3 days and would hand the carry family
+                # a near-constant series whose z-score means nothing. A fixed
+                # calendar lookback keeps the sample wide across timeframes.
+                funding_cutoff_ts = int(
+                    (
+                        datetime.now(tz=UTC).timestamp()
+                        - _PORTFOLIO_FUNDING_LOOKBACK_DAYS * 86400
+                    )
+                    * 1000
+                )
+                intel = await self._storage.fetch_intelligence_features(
+                    self._symbol,
+                    tf.value,
+                    since_ts=max(0, funding_cutoff_ts),
+                    limit=_PORTFOLIO_FUNDING_MAX_ROWS,
+                )
+                col = "intelligence_binance_funding_rate_pct"
+                if col in intel.columns:
+                    series = intel[col].dropna()
+                    if not series.empty:
+                        funding_history = [float(v) for v in series.tail(_PORTFOLIO_FUNDING_WINDOW)]
+                        funding_rate = funding_history[-1]
+            except Exception as exc:
+                self._log.warning("orchestrator.portfolio_funding_failed", error=str(exc))
 
-        venue_prices, venue_price_ts = await self._fetch_venue_prices()
-        spot_price, spot_ts, perp_price, perp_ts = await self._fetch_basis_legs()
-        pair_a, pair_b, hedge_ratio = self._pair_series()
+        venue_prices: dict[str, float] = {}
+        venue_price_ts: dict[str, float] = {}
+        if InputNeed.VENUES in wanted:
+            venue_prices, venue_price_ts = await self._fetch_venue_prices()
 
-        # TTL-cached, so this is a dict copy on all but the refresh tick.
+        spot_price = spot_ts = perp_price = perp_ts = None
+        if InputNeed.BASIS in wanted:
+            spot_price, spot_ts, perp_price, perp_ts = await self._fetch_basis_legs()
+
+        pair_a = pair_b = hedge_ratio = None
+        if InputNeed.PAIR in wanted:
+            pair_a, pair_b, hedge_ratio = self._pair_series()
+
         universe_returns: dict[str, float] = {}
-        try:
-            universe_returns = await self._universe_returns.trailing_returns()
-        except Exception as exc:
-            self._log.warning("orchestrator.universe_returns_failed", error=str(exc))
+        if InputNeed.UNIVERSE in wanted:
+            # TTL-cached, so this is a dict copy on all but the refresh tick.
+            try:
+                universe_returns = await self._universe_returns.trailing_returns()
+            except Exception as exc:
+                self._log.warning("orchestrator.universe_returns_failed", error=str(exc))
 
         return PortfolioInputs(
             symbol=self._symbol,
@@ -2063,7 +2099,10 @@ class Orchestrator:
             weights = get_allocation_controller(
                 self._cfg.strategy_portfolio.max_allocation_shift_per_step
             ).applied()
-            inputs = await self._build_portfolio_inputs(tf)
+            # Only the feeds the enabled families read. A kill-switched or
+            # unregistered family costs nothing, which is what makes leaving
+            # every non-incumbent family disabled by default genuinely free.
+            inputs = await self._build_portfolio_inputs(tf, required_inputs(enabled_ids))
             evaluation = runner.evaluate(
                 inputs,
                 enabled_ids=set(enabled_ids),

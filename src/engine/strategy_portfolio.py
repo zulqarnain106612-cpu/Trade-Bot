@@ -50,7 +50,7 @@ tick by tick before any capital follows it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -403,6 +403,53 @@ def build_xsec_momentum_context(inputs: PortfolioInputs) -> object | None:
     )
 
 
+class InputNeed(str, Enum):
+    """A kind of data some family's context builder consumes."""
+
+    BARS = "bars"
+    FUNDING = "funding"
+    VENUES = "venues"
+    BASIS = "basis"
+    UNIVERSE = "universe"
+    PAIR = "pair"
+
+
+# What each family actually reads. Declared next to the builders so the two
+# cannot drift: a builder that starts consuming a new feed and forgets to
+# declare it here will simply abstain, which is loud, rather than silently
+# reading None.
+BUILDER_NEEDS: dict[str, frozenset[InputNeed]] = {
+    STRATEGY_ID_SIGNAL_ENGINE: frozenset(),
+    "breakout_volume_v1": frozenset({InputNeed.BARS}),
+    "funding_carry_v1": frozenset({InputNeed.FUNDING}),
+    "basis_trade_v1": frozenset({InputNeed.BASIS}),
+    "cross_exchange_arb_v1": frozenset({InputNeed.VENUES}),
+    "xsec_momentum_v1": frozenset({InputNeed.UNIVERSE}),
+    "mean_reversion_pairs_v1": frozenset({InputNeed.PAIR}),
+}
+
+
+def required_inputs(strategy_ids: Iterable[str]) -> frozenset[InputNeed]:
+    """
+    The union of feeds the given strategies need — nothing more.
+
+    Assembling a tick's inputs is not free: it costs database reads and
+    exchange round-trips, and it sits in front of the order path. On the
+    default configuration only signal_engine_v1 is registered, and its
+    builder consumes nothing at all, so fetching bars, funding history and
+    two venue tickers every tick buys precisely nothing while adding network
+    latency to every trade.
+
+    An unknown strategy_id contributes no needs. That is the safe direction:
+    it abstains the family for want of data rather than provoking fetches
+    for a family this module has never heard of.
+    """
+    needs: set[InputNeed] = set()
+    for sid in strategy_ids:
+        needs |= BUILDER_NEEDS.get(sid, frozenset())
+    return frozenset(needs)
+
+
 def default_context_builders() -> dict[str, ContextBuilder]:
     """
     Builders for the families whose data this process already has.
@@ -600,7 +647,9 @@ def reset_portfolio_runner() -> None:
 
 __all__ = [
     "NO_CONTEXT",
+    "BUILDER_NEEDS",
     "ContextBuilder",
+    "InputNeed",
     "PortfolioEvaluation",
     "PortfolioInputs",
     "StrategyPortfolioRunner",
@@ -615,5 +664,6 @@ __all__ = [
     "build_signal_engine_context",
     "default_context_builders",
     "get_portfolio_runner",
+    "required_inputs",
     "reset_portfolio_runner",
 ]
