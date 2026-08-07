@@ -430,8 +430,90 @@ def check_keyword_arguments_match_signatures() -> list[str]:
     return problems
 
 
+def check_protocol_methods_are_called() -> list[str]:
+    """
+    Every method a Protocol declares must be called somewhere in src/.
+
+    This is the check that would have caught the largest defect this script's
+    own docstring describes. `StrategyProtocol` declared `generate_signal`,
+    seven families implemented it, a registry collected them, a capital
+    allocator weighted them and a kill switch could disable them — and
+    nothing in the process ever called it. The portfolio was inert on the one
+    axis that mattered while looking fully wired on every other.
+
+    A Protocol is a contract with two sides. Implementations are easy to spot
+    and easy to test in isolation, which is exactly why the missing side goes
+    unnoticed: every unit test passes, coverage is high, and the method is
+    simply never reached at runtime. Declaring a method nobody calls means
+    either the caller was never written or the Protocol outlived its purpose;
+    both are worth a line of output.
+
+    Deliberately permissive about *how* the call happens — any `.name(` on any
+    object counts, since a Protocol exists precisely so callers need not know
+    the concrete type. That means this cannot detect a caller that is itself
+    dead code, only one that does not exist at all. It is a floor, not a
+    guarantee.
+
+    Dunder methods are exempt: they are invoked by syntax (`len(x)`, `x in y`)
+    rather than by name, so an attribute-call scan cannot see them.
+
+    Properties are checked as attribute *accesses* rather than calls — a
+    Protocol property is consumed as `obj.name`, and demanding `obj.name()`
+    would report every one of them as dead.
+    """
+    # name -> (location, is_property)
+    declared: dict[str, tuple[str, bool]] = {}
+    for path in _py_files(SRC):
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            is_protocol = any(
+                (isinstance(base, ast.Name) and base.id == "Protocol")
+                or (isinstance(base, ast.Attribute) and base.attr == "Protocol")
+                for base in node.bases
+            )
+            if not is_protocol:
+                continue
+            for item in node.body:
+                if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if item.name.startswith("__"):
+                    continue
+                is_property = any(
+                    (isinstance(d, ast.Name) and d.id == "property")
+                    or (isinstance(d, ast.Attribute) and d.attr == "property")
+                    for d in item.decorator_list
+                )
+                declared.setdefault(
+                    item.name,
+                    (f"{_rel(path)}:{item.lineno} {node.name}.{item.name}", is_property),
+                )
+
+    called: set[str] = set()
+    accessed: set[str] = set()
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Attribute):
+                accessed.add(node.attr)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                called.add(node.func.attr)
+
+    problems: list[str] = []
+    for name, (location, is_property) in sorted(declared.items()):
+        used = accessed if is_property else called
+        if name in used:
+            continue
+        verb = "read" if is_property else "called"
+        problems.append(
+            f"{location} — declared on a Protocol but never {verb} anywhere in src/"
+        )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("uncalled protocol methods", check_protocol_methods_are_called),
     ("positional column slices", check_positional_column_slices),
     ("non-strict zip", check_zip_is_strict),
     ("orphan asyncio tasks", check_no_orphan_tasks),

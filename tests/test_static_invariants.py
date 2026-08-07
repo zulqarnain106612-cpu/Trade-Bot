@@ -254,3 +254,99 @@ def test_name_defined_twice_with_different_signatures_is_skipped(invariants, fak
     fake_tree("src/b.py", "def build(beta=None):\n    return beta\n")
     fake_tree("tests/test_build.py", "from src.b import build\ndef test_it():\n    build(beta=1)\n")
     assert invariants.check_keyword_arguments_match_signatures() == []
+
+
+# ---------------------------------------------------------------------------
+# check_protocol_methods_are_called
+# ---------------------------------------------------------------------------
+
+
+_PROTOCOL_SRC = '''
+from typing import Protocol
+
+
+class StrategyProtocol(Protocol):
+    def generate_signal(self, bar): ...
+
+    def required_capital_fraction(self): ...
+
+    @property
+    def strategy_id(self): ...
+
+    def __len__(self): ...
+'''
+
+
+def test_protocol_method_with_no_caller_is_flagged(invariants, fake_tree) -> None:
+    # The defect this check exists for: seven families implemented
+    # generate_signal, a registry collected them, and nothing ever called it.
+    fake_tree("src/registry.py", _PROTOCOL_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(registry):\n"
+        "    for s in registry.all():\n"
+        "        s.required_capital_fraction()\n",
+    )
+    problems = invariants.check_protocol_methods_are_called()
+    assert any("generate_signal" in p and "never called" in p for p in problems)
+    assert not any("required_capital_fraction" in p for p in problems)
+
+
+def test_protocol_method_with_a_caller_passes(invariants, fake_tree) -> None:
+    fake_tree("src/registry.py", _PROTOCOL_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(registry):\n"
+        "    for s in registry.all():\n"
+        "        s.generate_signal(None)\n"
+        "        s.required_capital_fraction()\n"
+        "        print(s.strategy_id)\n",
+    )
+    assert invariants.check_protocol_methods_are_called() == []
+
+
+def test_protocol_property_is_checked_as_an_access_not_a_call(invariants, fake_tree) -> None:
+    # A Protocol property is consumed as `obj.name`; demanding `obj.name()`
+    # would report every one of them as dead.
+    fake_tree("src/registry.py", _PROTOCOL_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(s):\n"
+        "    s.generate_signal(None)\n"
+        "    s.required_capital_fraction()\n"
+        "    return s.strategy_id\n",
+    )
+    assert invariants.check_protocol_methods_are_called() == []
+
+
+def test_unread_protocol_property_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/registry.py", _PROTOCOL_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(s):\n    s.generate_signal(None)\n    s.required_capital_fraction()\n",
+    )
+    problems = invariants.check_protocol_methods_are_called()
+    assert any("strategy_id" in p and "never read" in p for p in problems)
+
+
+def test_dunder_methods_are_exempt(invariants, fake_tree) -> None:
+    # __len__ is invoked by syntax (len(x)), which an attribute scan cannot see.
+    fake_tree("src/registry.py", _PROTOCOL_SRC)
+    fake_tree(
+        "src/engine.py",
+        "def run(s):\n"
+        "    s.generate_signal(None)\n"
+        "    s.required_capital_fraction()\n"
+        "    return s.strategy_id\n",
+    )
+    assert not any("__len__" in p for p in invariants.check_protocol_methods_are_called())
+
+
+def test_non_protocol_class_methods_are_not_checked(invariants, fake_tree) -> None:
+    # Only the Protocol contract is under scrutiny; ordinary classes have
+    # plenty of legitimately internal methods.
+    fake_tree(
+        "src/plain.py",
+        "class Ordinary:\n    def never_called_anywhere(self):\n        return 1\n",
+    )
+    assert invariants.check_protocol_methods_are_called() == []
