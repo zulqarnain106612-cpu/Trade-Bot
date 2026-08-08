@@ -223,6 +223,18 @@ def check_settings_are_read() -> list[str]:
 
     Two of these were load-bearing when first scanned: half of a self-tuning
     cadence guard, and a bar-retention window whose pruner had no caller.
+
+    Readers are src/ and scripts/ — deliberately NOT tests/. Counting a test
+    read let a setting satisfy this check while the software still ignored
+    it, which is precisely the promise the check exists to enforce: a test
+    asserting a default exists proves nothing about anything consuming it.
+    Verified before narrowing that every setting still resolves, so this
+    closes the loophole without a single false positive.
+
+    src/config.py counts as a reader. RuntimeConfig.__init__ seeds the
+    exit-control overlay (stop_loss_pct_default and its five siblings) from
+    the settings there, and the URL validators consume base_url/ws_url — all
+    genuine consumption that happens to live in the declaring module.
     """
     known_decorative = {
         "log_as_json",
@@ -246,7 +258,7 @@ def check_settings_are_read() -> list[str]:
                     declared[name] = cls.name
 
     used: set[str] = set()
-    for root in ("src", "tests", "scripts"):
+    for root in ("src", "scripts"):
         for path in _py_files(REPO / root):
             tree = _parse(path)
             # A field's own `name: type = Field(...)` line is a declaration,

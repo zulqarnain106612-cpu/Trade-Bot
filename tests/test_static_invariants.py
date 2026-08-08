@@ -972,3 +972,26 @@ def test_a_websocket_with_no_auth_at_all_is_flagged(invariants, fake_tree) -> No
 def test_non_route_functions_are_ignored(invariants, fake_tree) -> None:
     fake_tree("src/api/main.py", "def helper():\n    return 1\n")
     assert invariants.check_every_route_is_authenticated() == []
+
+
+def test_a_setting_read_only_by_a_test_is_still_flagged(invariants, fake_tree) -> None:
+    # The loophole this check used to have: counting tests/ as readers let a
+    # setting satisfy it while the software still ignored the value. A test
+    # asserting a default exists proves nothing about anything consuming it.
+    fake_tree(
+        "src/config.py",
+        "from pydantic import Field\nfrom pydantic_settings import BaseSettings\n\n"
+        "class DemoSettings(BaseSettings):\n    widget_size: int = Field(default=3)\n",
+    )
+    fake_tree("tests/test_widget.py", "def test_it(cfg):\n    assert cfg.widget_size == 3\n")
+    assert any("widget_size" in p for p in invariants.check_settings_are_read())
+
+
+def test_a_setting_read_in_src_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/config.py",
+        "from pydantic import Field\nfrom pydantic_settings import BaseSettings\n\n"
+        "class DemoSettings(BaseSettings):\n    widget_size: int = Field(default=3)\n",
+    )
+    fake_tree("src/use.py", "def f(cfg):\n    return cfg.widget_size\n")
+    assert invariants.check_settings_are_read() == []
