@@ -673,6 +673,14 @@ def apply_size_scalar(
     and rechecked against its minimums, because a shrunk order is a different
     order and has to clear the same filters the original one did.
 
+    The minimums are only as real as what the caller passes. They default to
+    0.0 here, matching compute_position_size, and for most of this codebase's
+    life nothing supplied anything else — fetch_symbol_precision existed,
+    was tested, and had no production caller, so the "recheck" was
+    quantisation alone. The orchestrator now passes the fetched filters at
+    the agreement-reduction site; a caller that leaves them at 0.0 gets a
+    weaker guarantee than this docstring otherwise implies.
+
     Returning None means "skip this trade", and that is the only correct
     answer when the reduced size falls below what the exchange accepts. The
     alternative — taking the trade at its unreduced size because the

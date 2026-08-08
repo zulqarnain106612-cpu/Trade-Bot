@@ -122,6 +122,14 @@ _QUOTE_CACHE_TTL_S: float = 1.0
 # bites during a genuine outage: the cache's own TTL is an hour and its
 # failure backoff caps at 15 minutes, well inside this.
 _MAX_PAIR_SNAPSHOT_AGE_S: float = 4 * 3600.0
+# What compute_position_size has always defaulted to, kept here so the
+# fallback when the exchange filters cannot be fetched is exactly today's
+# behaviour rather than a second, differing set of numbers.
+_DEFAULT_SYMBOL_PRECISION: dict[str, float] = {
+    "amount_precision": 8.0,
+    "min_amount": 0.0,
+    "min_cost": 0.0,
+}
 
 AnyExecutor = PaperExecutor | LiveExecutor
 
@@ -290,6 +298,8 @@ class Orchestrator:
           4. Build signal engines
         """
         self._log.info("orchestrator.startup", trading_mode=self._cfg.trading_mode.value)
+
+        await self._load_symbol_precision()
 
         # Create executor
         if self._cfg.trading_mode == TradingMode.LIVE:
@@ -915,7 +925,18 @@ class Orchestrator:
             _agreement = self._last_portfolio_agreement.get(tf.value, 1.0)
             if _agreement < 1.0:
                 try:
-                    _reduced = apply_size_scalar(kelly_result, _agreement, current_price)
+                    # Real exchange filters, not the zero defaults. A reduced
+                    # order is where a min-notional breach actually becomes
+                    # likely, so this is the call site that most needs them.
+                    _precision = getattr(self, "_symbol_precision", _DEFAULT_SYMBOL_PRECISION)
+                    _reduced = apply_size_scalar(
+                        kelly_result,
+                        _agreement,
+                        current_price,
+                        amount_precision=_precision["amount_precision"],
+                        min_amount=_precision["min_amount"],
+                        min_cost=_precision["min_cost"],
+                    )
                 except Exception as exc:
                     self._log.error(
                         "orchestrator.portfolio_agreement_apply_failed",
@@ -1925,6 +1946,48 @@ class Orchestrator:
             volumes=volumes,
             funding_rate_pct=funding_rate,
             funding_history_pct=funding_history,
+        )
+
+    async def _load_symbol_precision(self) -> None:
+        """
+        Fetch this symbol's exchange filters once, at startup.
+
+        fetch_symbol_precision has existed, been tested, and had no
+        production caller — so amount_precision, min_amount and min_cost have
+        always run on compute_position_size's defaults of 8, 0.0 and 0.0.
+        Zero minimums mean the sizing path never rejected an order below what
+        the venue accepts: live it is submitted and bounced, and in paper it
+        fills fictitiously, which makes paper results optimistic in exactly
+        the small-size regime the advisory reductions on this branch produce.
+
+        Fetched once rather than per tick: exchange filters change on the
+        scale of listings, not bars, and this runs before the first order.
+
+        Fails to today's defaults rather than raising. A missing filter must
+        not stop the bot from starting, and falling back reproduces the
+        existing behaviour exactly — so this can only ever tighten sizing,
+        never break it.
+        """
+        self._symbol_precision = dict(_DEFAULT_SYMBOL_PRECISION)
+        try:
+            fetched = await self._fetcher.fetch_symbol_precision(self._symbol)
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.symbol_precision_unavailable",
+                symbol=self._symbol,
+                error=str(exc),
+                using=self._symbol_precision,
+            )
+            return
+
+        for key in _DEFAULT_SYMBOL_PRECISION:
+            value = fetched.get(key)
+            if value is not None:
+                self._symbol_precision[key] = float(value)
+        self._log.info(
+            "orchestrator.symbol_precision_loaded",
+            symbol=self._symbol,
+            **self._symbol_precision,
         )
 
     def _pair_series(self) -> tuple[list[float] | None, list[float] | None, float | None]:

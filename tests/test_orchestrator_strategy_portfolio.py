@@ -942,3 +942,57 @@ def test_the_bound_does_not_bite_during_normal_backoff():
 
     a, _b, _r = orch._pair_series()
     assert a is not None
+
+
+# ------------------------------------------------- exchange filters
+
+
+class _PrecisionFetcher(_SymbolFetcher):
+    def __init__(self, precision: object) -> None:
+        super().__init__({})
+        self._precision = precision
+
+    async def fetch_symbol_precision(self, symbol: str, exchange_id: str = "binance"):
+        if isinstance(self._precision, Exception):
+            raise self._precision
+        return self._precision
+
+
+async def test_startup_loads_the_real_exchange_filters():
+    # fetch_symbol_precision was built, tested, and had no production caller,
+    # so min_amount/min_cost ran at 0.0 and sub-minimum orders were never
+    # rejected by the sizing path.
+    orch = _orchestrator(_Storage())
+    orch._fetcher = _PrecisionFetcher(
+        {"amount_precision": 3.0, "min_amount": 0.001, "min_cost": 10.0}
+    )
+
+    await orch._load_symbol_precision()
+
+    assert orch._symbol_precision["min_cost"] == 10.0
+    assert orch._symbol_precision["amount_precision"] == 3.0
+
+
+async def test_a_failed_precision_fetch_falls_back_to_todays_defaults():
+    # Must reproduce existing behaviour exactly, so the change can only ever
+    # tighten sizing and never break startup.
+    orch = _orchestrator(_Storage())
+    orch._fetcher = _PrecisionFetcher(RuntimeError("markets unavailable"))
+
+    await orch._load_symbol_precision()
+
+    assert orch._symbol_precision == {
+        "amount_precision": 8.0,
+        "min_amount": 0.0,
+        "min_cost": 0.0,
+    }
+
+
+async def test_a_partial_precision_response_keeps_defaults_for_missing_keys():
+    orch = _orchestrator(_Storage())
+    orch._fetcher = _PrecisionFetcher({"min_cost": 5.0})
+
+    await orch._load_symbol_precision()
+
+    assert orch._symbol_precision["min_cost"] == 5.0
+    assert orch._symbol_precision["amount_precision"] == 8.0
