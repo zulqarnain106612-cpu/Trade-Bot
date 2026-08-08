@@ -144,21 +144,26 @@ def portfolio_agreement_scalar(
     return 1.0
 
 
-def apply_portfolio_agreement(base_scalar: float, agreement_scalar: float) -> float:
-    """
-    Fold the agreement scalar into an existing size ceiling.
+# There was an apply_portfolio_agreement() here: a multiplicative fold of
+# this scalar into an existing size ceiling, written for a call site that
+# turned out not to exist. The plan was to apply the ceiling before
+# engine.tick(), folded into correlation_scalar — but the trade's direction
+# is not known until after the tick, and this scalar is directional, so that
+# call site was never viable.
+#
+# The ceiling reaches the order through risk.kelly.apply_size_scalar
+# instead, which shrinks the sized KellyResult, requantises it to the
+# exchange's precision and rechecks its minimums. A plain multiply cannot do
+# any of that.
+#
+# Removed rather than left in place, against the general rule of keeping
+# inert code and fixing it, because this was not an inert project feature —
+# it was an orphan created in this branch that duplicated a live mechanism
+# in a weaker form. Left exported and tested, its five green assertions
+# proved nothing about the running system, and the next person to reach for
+# it would have applied the ceiling without requantisation and without the
+# minimum-notional check, reintroducing exactly the defect that wiring
+# fetch_symbol_precision was meant to close.
 
-    Multiplicative and shrink-only, matching combined_correlation_scalar:
-    each ceiling is independent evidence, and none of them may lift another.
-    Both inputs are validated rather than clamped — a scalar above 1.0 here
-    would mean a caller computed something that grows a position, and
-    silently clamping it would hide that bug behind correct-looking sizing.
-    """
-    if not 0.0 <= base_scalar <= 1.0:
-        raise ValueError(f"base_scalar must be in [0, 1], got {base_scalar}")
-    if not 0.0 <= agreement_scalar <= 1.0:
-        raise ValueError(f"agreement_scalar must be in [0, 1], got {agreement_scalar}")
-    return base_scalar * agreement_scalar
 
-
-__all__ = ["EvaluationView", "apply_portfolio_agreement", "portfolio_agreement_scalar"]
+__all__ = ["EvaluationView", "portfolio_agreement_scalar"]

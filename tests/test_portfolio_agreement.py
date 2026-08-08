@@ -17,10 +17,7 @@ from src.engine.strategy_portfolio import (
     StrategyPortfolioRunner,
 )
 from src.risk.conflict_resolver import ConflictResolution
-from src.risk.portfolio_agreement import (
-    apply_portfolio_agreement,
-    portfolio_agreement_scalar,
-)
+from src.risk.portfolio_agreement import portfolio_agreement_scalar
 from src.strategies.registry import Signal, StrategyRegistry
 
 
@@ -85,25 +82,17 @@ def test_scalar_is_always_shrink_only(direction: int, portfolio_dir: int, confli
     assert 0.0 < scalar <= 1.0
 
 
-def test_apply_is_multiplicative() -> None:
-    assert apply_portfolio_agreement(0.8, 0.5) == pytest.approx(0.4)
+def test_the_module_exports_only_what_is_wired() -> None:
+    # apply_portfolio_agreement used to live here with five green assertions
+    # and no production caller. Its tests proved nothing about the running
+    # system, and it offered a plain multiply where the real path
+    # (risk.kelly.apply_size_scalar) requantises and rechecks exchange
+    # minimums. Pinning the export list keeps a second, weaker way to apply
+    # this ceiling from reappearing.
+    import src.risk.portfolio_agreement as mod
 
-
-def test_apply_can_only_reduce() -> None:
-    assert apply_portfolio_agreement(0.8, 1.0) == pytest.approx(0.8)
-    assert apply_portfolio_agreement(0.8, 0.4) < 0.8
-
-
-@pytest.mark.parametrize(
-    ("base", "agreement"),
-    [(1.5, 0.5), (0.5, 1.5), (-0.1, 0.5), (0.5, -0.1)],
-)
-def test_apply_rejects_out_of_range_scalars(base: float, agreement: float) -> None:
-    # Rejected rather than clamped: a scalar above 1.0 means a caller
-    # computed something that grows a position, and clamping would hide
-    # that behind correct-looking sizing.
-    with pytest.raises(ValueError):
-        apply_portfolio_agreement(base, agreement)
+    assert set(mod.__all__) == {"EvaluationView", "portfolio_agreement_scalar"}
+    assert not hasattr(mod, "apply_portfolio_agreement")
 
 
 class _Stub:
