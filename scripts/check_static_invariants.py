@@ -765,6 +765,73 @@ _MUTABLE_FACTORIES = frozenset(
 )
 
 
+_AUTH_CALL_NAMES = frozenset({"verify_ws_key", "api_key_header", "require_permission"})
+
+
+def check_every_route_is_authenticated() -> list[str]:
+    """
+    Every HTTP route and WebSocket must authenticate.
+
+    This one currently passes, and is here because the failure is silent in
+    the worst direction: a new endpoint added without `dependencies=` serves
+    to anyone who can reach the port, and nothing in the response, the logs
+    or the type checker distinguishes it from a guarded one. With ~30 routes
+    on this app, the omission is a plausible slip rather than a hypothetical.
+
+    Two spellings count as authenticated. Most routes declare
+    `dependencies=[Depends(api_key_header), ...]`. The WebSocket instead
+    awaits verify_ws_key() as its first statement, deliberately: auth has to
+    happen before add_ws_client(), or a raising auth leaks a client slot.
+    Demanding the decorator form would report that as unguarded and push
+    someone to "fix" a correct ordering.
+    """
+    main = SRC / "api" / "main.py"
+    if not main.exists():
+        return []
+
+    problems: list[str] = []
+    for node in ast.walk(_parse(main)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)):
+                continue
+            if dec.func.attr not in (
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch",
+                "websocket",
+            ):
+                continue
+            if any(kw.arg == "dependencies" for kw in dec.keywords):
+                continue
+            body_authenticates = any(
+                isinstance(call, ast.Call)
+                and (
+                    (isinstance(call.func, ast.Name) and call.func.id in _AUTH_CALL_NAMES)
+                    or (
+                        isinstance(call.func, ast.Attribute)
+                        and call.func.attr in _AUTH_CALL_NAMES
+                    )
+                )
+                for call in ast.walk(node)
+            )
+            if body_authenticates:
+                continue
+            route = (
+                dec.args[0].value
+                if dec.args and isinstance(dec.args[0], ast.Constant)
+                else "<unknown>"
+            )
+            problems.append(
+                f"{_rel(main)}:{node.lineno} {dec.func.attr.upper()} {route} has no "
+                "dependencies= guard and no in-body auth call — it serves unauthenticated"
+            )
+    return problems
+
+
 def check_docstrings_do_not_cite_missing_modules() -> list[str]:
     """
     A docstring naming a `*.py` that does not exist is a false map.
@@ -1057,6 +1124,7 @@ CHECKS = (
     ("mutable default arguments", check_no_mutable_default_arguments),
     ("mutable class attributes", check_no_mutable_class_attributes),
     ("docstrings citing missing modules", check_docstrings_do_not_cite_missing_modules),
+    ("unauthenticated routes", check_every_route_is_authenticated),
     ("silent broad except", check_no_silent_broad_except),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),

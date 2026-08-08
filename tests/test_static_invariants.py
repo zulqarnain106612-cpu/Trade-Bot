@@ -922,3 +922,53 @@ def test_a_glob_family_is_not_treated_as_a_filename(invariants, fake_tree) -> No
 def test_function_docstrings_are_checked_too(invariants, fake_tree) -> None:
     fake_tree("src/feat.py", 'def f():\n    """Calls ghost_module.py."""\n')
     assert invariants.check_docstrings_do_not_cite_missing_modules() != []
+
+
+# ---------------------------------------------------------------------------
+# check_every_route_is_authenticated
+# ---------------------------------------------------------------------------
+
+
+def test_an_unguarded_route_is_flagged(invariants, fake_tree) -> None:
+    # The failure is silent in the worst direction: nothing in the response,
+    # the logs or the type checker distinguishes an unguarded endpoint.
+    fake_tree("src/api/main.py", '@app.get("/secrets")\nasync def s():\n    return 1\n')
+    problems = invariants.check_every_route_is_authenticated()
+    assert any("/secrets" in p and "serves unauthenticated" in p for p in problems)
+
+
+def test_a_dependencies_guard_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/api/main.py",
+        '@app.get("/s", dependencies=[Depends(api_key_header)])\nasync def s():\n    return 1\n',
+    )
+    assert invariants.check_every_route_is_authenticated() == []
+
+
+def test_an_unguarded_mutating_route_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/api/main.py", '@app.post("/act")\nasync def a():\n    return 1\n')
+    assert invariants.check_every_route_is_authenticated() != []
+
+
+def test_in_body_websocket_auth_passes(invariants, fake_tree) -> None:
+    # The real /ws awaits verify_ws_key() first on purpose — auth must run
+    # before add_ws_client(), or a raising auth leaks a client slot.
+    # Demanding the decorator form would push someone to "fix" that ordering.
+    fake_tree(
+        "src/api/main.py",
+        '@app.websocket("/ws")\nasync def w(ws):\n    await verify_ws_key(ws)\n    return 1\n',
+    )
+    assert invariants.check_every_route_is_authenticated() == []
+
+
+def test_a_websocket_with_no_auth_at_all_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/api/main.py",
+        '@app.websocket("/ws")\nasync def w(ws):\n    await ws.accept()\n',
+    )
+    assert invariants.check_every_route_is_authenticated() != []
+
+
+def test_non_route_functions_are_ignored(invariants, fake_tree) -> None:
+    fake_tree("src/api/main.py", "def helper():\n    return 1\n")
+    assert invariants.check_every_route_is_authenticated() == []
