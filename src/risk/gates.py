@@ -1193,6 +1193,16 @@ def check_position_exit(
                             (matches PaperPosition.entry_ts / LivePosition.entry_ts).
     now_ts_ms             : current timestamp, epoch milliseconds.
     stop_loss_enabled     : runtime toggle (RuntimeConfig.get_risk_controls()).
+    All four thresholds are compared against unrealized_pnl_pct, which is
+    GROSS: the marked price move over notional, with no fee deducted. That
+    is the right basis for a mark-to-market — the entry fee has already left
+    cash and the exit fee is not owed until the position closes — but it
+    means a threshold is not the realised outcome. A 2.0 stop closes on a 2%
+    adverse move and books roughly 2.2% once both legs of a 0.1% taker fee
+    settle; a 1.0 profit target books roughly 0.8%. Operators sizing these
+    against a target net result should add the round trip themselves, and a
+    profit target below the round trip cannot be profitable at all.
+
     stop_loss_pct         : close when unrealized_pnl_pct <= -stop_loss_pct.
     take_profit_enabled   : runtime toggle.
     take_profit_pct       : close when unrealized_pnl_pct >= take_profit_pct.

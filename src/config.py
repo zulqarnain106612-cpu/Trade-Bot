@@ -268,14 +268,23 @@ class RiskSettings(BaseSettings):
         default=2.0,
         ge=0.1,
         le=50.0,
-        description="Close position when unrealized loss reaches this pct of notional",
+        description=(
+            "Close position when unrealized loss reaches this pct of notional. "
+            "Gross: fees are not deducted before the comparison, so the booked "
+            "loss is this plus the round trip (~0.2% at a 0.1% taker fee)."
+        ),
     )
     take_profit_enabled_default: bool = Field(default=True)
     take_profit_pct_default: float = Field(
         default=4.0,
         ge=0.1,
         le=200.0,
-        description="Close position when unrealized gain reaches this pct of notional",
+        description=(
+            "Close position when unrealized gain reaches this pct of notional. "
+            "Gross: the booked gain is this minus the round trip (~0.2% at a "
+            "0.1% taker fee), and a target below the round trip cannot be "
+            "profitable at all."
+        ),
     )
     max_holding_period_s_default: float = Field(
         default=86400.0,

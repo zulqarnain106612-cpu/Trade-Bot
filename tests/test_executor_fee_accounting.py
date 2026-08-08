@@ -62,3 +62,28 @@ def test_a_marginal_winner_can_become_a_loser_once_both_fees_apply() -> None:
     # gross gain does not cover its round trip was being recorded as a win.
     recorded, _cash, _total = _settle(1000.0, 1.0, 1.0, 1.5, 10_000.0)
     assert recorded < 0.0
+
+
+def test_a_profit_target_below_the_round_trip_cannot_be_profitable() -> None:
+    # Exit thresholds compare against GROSS unrealized pct, so a target
+    # smaller than the round trip books a loss every time it fires. The
+    # config description says so; this pins the arithmetic behind it.
+    notional, fee_pct = 1000.0, 0.001
+    round_trip_pct = fee_pct * 2 * 100.0  # 0.2%
+
+    target_pct = 0.1  # below the round trip
+    gross = notional * target_pct / 100.0
+    recorded, _cash, _total = _settle(notional, notional * fee_pct, notional * fee_pct, gross, 0.0)
+
+    assert target_pct < round_trip_pct
+    assert recorded < 0.0
+
+
+def test_a_stop_books_more_than_its_nominal_percentage() -> None:
+    # A 2.0 stop closes on a 2% adverse move and books ~2.2%.
+    notional, fee_pct, stop_pct = 1000.0, 0.001, 2.0
+    gross = -notional * stop_pct / 100.0
+    recorded, _cash, _total = _settle(notional, notional * fee_pct, notional * fee_pct, gross, 0.0)
+
+    booked_pct = -recorded / notional * 100.0
+    assert booked_pct == pytest.approx(stop_pct + 0.2, abs=1e-9)
