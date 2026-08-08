@@ -1391,6 +1391,11 @@ async def audit_chain_integrity(
         "intact": intact,
         "first_broken_sequence": first_broken,
         "entry_count": len(entries),
+        # entry_count is the RETAINED window, which is bounded. Reporting it
+        # alone would let a caller read "intact over 100k entries" as "intact
+        # over all history" once eviction has begun — different claims.
+        "total_recorded": trail.total_recorded(),
+        "evicted_count": trail.evicted_count(),
         "recent": [
             {
                 "sequence": e.sequence,
