@@ -25,9 +25,11 @@ State persistence enables:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Final
 
 import structlog
@@ -151,7 +153,10 @@ class OrderFSM:
     # Final prevents rebinding the dict; it does not prevent editing what is
     # inside it, and this is the table that decides whether an order may
     # legally move between states.
-    _VALID_TRANSITIONS: Final[dict[OrderStatus, frozenset[OrderStatus]]] = {
+    # MappingProxyType is what actually closes that hole: the values are
+    # already frozensets, so wrapping the outer dict makes the whole table
+    # unwritable rather than merely unrebindable.
+    _VALID_TRANSITIONS: Final[Mapping[OrderStatus, frozenset[OrderStatus]]] = MappingProxyType({
         OrderStatus.PENDING: frozenset(
             {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED}
         ),
@@ -169,7 +174,7 @@ class OrderFSM:
         OrderStatus.CANCELLED: frozenset(),  # Terminal
         OrderStatus.TIMEOUT: frozenset(),  # Terminal
         OrderStatus.FAILED: frozenset(),  # Terminal
-    }
+    })
 
     def __init__(self, state: OrderFSMState):
         """Initialize FSM with initial state."""
