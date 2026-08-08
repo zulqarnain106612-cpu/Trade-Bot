@@ -91,6 +91,13 @@ class PaperPosition:
     # Peak unrealized PnL % since entry — used by trailing stop logic.
     # Starts at 0.0 (entry); only ever increases (monotone maximum).
     peak_unrealized_pct: float = field(default=0.0)
+    # Liquidity context captured at entry, so the exit can be priced with the
+    # same model. close_position is not given these — it receives only a mark
+    # — and without them the exit leg had no impact estimate at all. Defaults
+    # of 0.0/2.0 mirror _open_position_internal, where adv_20d == 0.0 already
+    # means "unknown, skip the impact term".
+    adv_20d_at_entry: float = field(default=0.0)
+    spread_bps_at_entry: float = field(default=2.0)
 
     def mark(self, price: float) -> float:
         """Update unrealized PnL from current market price."""
@@ -368,6 +375,37 @@ class PaperExecutor(AbstractExecutor):
     # Position management
     # ------------------------------------------------------------------
 
+    def _slipped_exit_price(self, marked_price: float, pos: PaperPosition) -> float:
+        """
+        Adverse fill price for closing *pos* at *marked_price*.
+
+        Same SlippageModel the entry leg and gate 0 use, with the sign
+        reversed: closing a long sells and fills below the mark, closing a
+        short buys and fills above.
+
+        Falls back to the marked price when the liquidity context is unknown
+        (adv_20d == 0.0) or the model raises — matching the entry leg, where
+        an unavailable estimate means no adjustment rather than a guess. That
+        keeps the failure direction consistent: paper never invents a cost it
+        cannot estimate, and never silently drops one it can.
+        """
+        if pos.adv_20d_at_entry <= 0.0 or pos.quantity <= 0.0 or marked_price <= 0.0:
+            return marked_price
+        try:
+            estimate = SlippageModel().estimate(
+                symbol=pos.symbol,
+                qty=pos.quantity,
+                price=marked_price,
+                adv_20d=pos.adv_20d_at_entry,
+                spread_bps=pos.spread_bps_at_entry,
+            )
+        except Exception as exc:
+            self._log.warning("paper.exit_slippage_estimate_failed", error=str(exc), exc_info=True)
+            return marked_price
+
+        adjustment = marked_price * (estimate.total_slippage_bps / 10_000.0)
+        return marked_price - adjustment if pos.direction == 1 else marked_price + adjustment
+
     async def close_position(
         self,
         trade_id: str,
@@ -383,8 +421,15 @@ class PaperExecutor(AbstractExecutor):
         Parameters
         ----------
         trade_id    : UUID from open_position
-        exit_price  : simulated fill price at exit
+        exit_price  : marked price at exit, before slippage
         exit_reason : 'profit_target' | 'stop_loss' | 'time_exit' | 'manual'
+
+        Slippage is applied here rather than by the caller: the exit is a
+        market order like the entry and pays the same impact. GAP-011
+        modelled only the entry leg, so paper exits filled at the mark for
+        free and every round trip was understated by its exit slippage —
+        flattering the 30-day paper record the live gate reads, which is the
+        one thing GAP-011 said it existed to make credible.
 
         Returns
         -------
@@ -401,12 +446,21 @@ class PaperExecutor(AbstractExecutor):
             pos = self._positions.pop(trade_id)
             exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
 
-            if pos.direction == 1:  # long
-                gross_pnl = (exit_price - pos.entry_price) * pos.quantity
-            else:  # short
-                gross_pnl = (pos.entry_price - exit_price) * pos.quantity
+            # Exit slippage, mirroring the entry leg with the sign reversed:
+            # closing a long SELLS, so it fills below the mark; closing a
+            # short BUYS, so it fills above. Both directions are adverse,
+            # which is the point — an exit that filled at the mark was free
+            # market impact that no real order gets.
+            fill_price = self._slipped_exit_price(exit_price, pos)
 
-            exit_fee = exit_price * pos.quantity * _PAPER_FEE_PCT
+            if pos.direction == 1:  # long
+                gross_pnl = (fill_price - pos.entry_price) * pos.quantity
+            else:  # short
+                gross_pnl = (pos.entry_price - fill_price) * pos.quantity
+
+            # Charged on the actual fill, as at entry — the exchange bills the
+            # traded price, not the mark.
+            exit_fee = fill_price * pos.quantity * _PAPER_FEE_PCT
             total_fee = pos.fee_usd + exit_fee
 
             # The trade's economics are net of BOTH legs. Recording only the
@@ -441,7 +495,10 @@ class PaperExecutor(AbstractExecutor):
         # Persist exit to storage (outside lock to avoid blocking)
         await self._storage.update_trade_exit(
             trade_id=trade_id,
-            exit_price=exit_price,
+            # The fill, not the mark — mirroring entry, which persists
+            # simulated_fill_price. Recording the mark would make the trade
+            # row disagree with the PnL computed from it.
+            exit_price=fill_price,
             exit_ts=exit_ts,
             pnl_usd=round(net_pnl, 8),
             pnl_pct=round(pnl_pct, 8),
@@ -800,6 +857,8 @@ class PaperExecutor(AbstractExecutor):
                 fee_usd=entry_fee,
                 strategy_id=strategy_id,
                 current_price=current_price,
+                adv_20d_at_entry=adv_20d,
+                spread_bps_at_entry=spread_bps,
             )
             self._positions[trade_id] = pos
 

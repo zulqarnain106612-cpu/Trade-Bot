@@ -121,3 +121,43 @@ def test_the_estimator_is_unchanged_without_scratches() -> None:
     assert 0.0 < win_prob < 1.0
     assert avg_win == pytest.approx(7.0)
     assert avg_loss == pytest.approx(3.0)
+
+
+# ------------------------------------------------------- exit slippage
+
+
+def _slipped(mark: float, direction: int, bps: float) -> float:
+    """Mirror PaperExecutor._slipped_exit_price."""
+    adj = mark * (bps / 10_000.0)
+    return mark - adj if direction == 1 else mark + adj
+
+
+def test_closing_a_long_fills_below_the_mark() -> None:
+    # Closing a long sells into the book.
+    assert _slipped(100.0, 1, 20.0) < 100.0
+
+
+def test_closing_a_short_fills_above_the_mark() -> None:
+    # Closing a short buys from the book. Both directions are adverse.
+    assert _slipped(100.0, -1, 20.0) > 100.0
+
+
+def test_exit_slippage_reduces_pnl_in_both_directions() -> None:
+    # GAP-011 modelled only the entry leg, so paper exits filled at the mark
+    # for free — market impact no real order gets, on the record the live
+    # gate reads.
+    qty, mark, bps = 10.0, 100.0, 20.0
+
+    long_at_mark = (mark - 95.0) * qty
+    long_at_fill = (_slipped(mark, 1, bps) - 95.0) * qty
+    assert long_at_fill < long_at_mark
+
+    short_at_mark = (105.0 - mark) * qty
+    short_at_fill = (105.0 - _slipped(mark, -1, bps)) * qty
+    assert short_at_fill < short_at_mark
+
+
+def test_zero_slippage_leaves_the_fill_at_the_mark() -> None:
+    # An unknown liquidity context must not invent a cost.
+    assert _slipped(100.0, 1, 0.0) == 100.0
+    assert _slipped(100.0, -1, 0.0) == 100.0
