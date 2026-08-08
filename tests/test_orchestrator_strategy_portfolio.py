@@ -849,3 +849,59 @@ async def test_neither_family_leaves_the_snapshot_untouched():
         Timeframe.INTRADAY, required_inputs(["signal_engine_v1"])
     )
     assert cache.refreshes == 0
+
+
+# ------------------------------------------------- agreement staleness
+
+
+async def test_a_failed_evaluation_clears_last_tick_scalar(monkeypatch):
+    # The submission path reads _last_portfolio_agreement unconditionally, so
+    # a leftover value would shrink a NEW trade using peer opinions from an
+    # older bar — indefinitely, if evaluation kept failing.
+    def _boom():
+        raise RuntimeError("registry exploded")
+
+    monkeypatch.setattr(orch_mod, "get_default_registry", _boom)
+    monkeypatch.setattr(orch_mod, "get_portfolio_runner", lambda: StrategyPortfolioRunner())
+
+    orch = _orchestrator(_Storage())
+    orch._cfg = _Cfg()
+    orch._last_portfolio_agreement["15m"] = 0.4
+
+    assert await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY) is None
+    assert "15m" not in orch._last_portfolio_agreement
+
+
+async def test_an_empty_registry_clears_last_tick_scalar(monkeypatch):
+    _wire(monkeypatch, StrategyRegistry())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _Cfg()
+    orch._last_portfolio_agreement["15m"] = 0.4
+
+    assert await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY) is None
+    assert "15m" not in orch._last_portfolio_agreement
+
+
+async def test_a_cleared_scalar_reads_as_no_reduction(monkeypatch):
+    # Failing open: an absent scalar must mean 1.0 at the submission site.
+    _wire(monkeypatch, StrategyRegistry())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _Cfg()
+    orch._last_portfolio_agreement["15m"] = 0.4
+
+    await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
+
+    assert orch._last_portfolio_agreement.get("15m", 1.0) == 1.0
+
+
+async def test_one_timeframe_failing_does_not_clear_another(monkeypatch):
+    _wire(monkeypatch, StrategyRegistry())
+    orch = _orchestrator(_Storage())
+    orch._cfg = _Cfg()
+    orch._last_portfolio_agreement["15m"] = 0.4
+    orch._last_portfolio_agreement["4h"] = 0.7
+
+    await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
+
+    assert "15m" not in orch._last_portfolio_agreement
+    assert orch._last_portfolio_agreement["4h"] == 0.7

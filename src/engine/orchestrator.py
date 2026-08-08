@@ -2107,6 +2107,16 @@ class Orchestrator:
         fault here must not stop a valid signal_engine_v1 signal that has
         already cleared its gates from reaching the executor.
         """
+        # Drop last tick's scalar before anything can fail. Both early exits
+        # below — an empty registry, and the exception handler — used to leave
+        # the previous value in place, and the submission path reads it
+        # unconditionally: a reduction computed from peer opinions on an older
+        # bar would keep shrinking new trades, indefinitely if evaluation kept
+        # failing. Failing open is right for this one. The elsewhere-stated
+        # rule that losing a ceiling must never be worse than never having had
+        # one is about a fault discarding a ceiling computed for THIS tick; a
+        # stale peer view is not evidence about this trade at all.
+        self._last_portfolio_agreement.pop(tf.value, None)
         try:
             runner = get_portfolio_runner()
             strategies = tuple(get_default_registry().all())
