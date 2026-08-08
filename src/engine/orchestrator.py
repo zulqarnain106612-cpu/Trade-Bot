@@ -117,6 +117,11 @@ _PORTFOLIO_FUNDING_MAX_ROWS: int = 5_000
 # duplicate calls inside one tick's assembly — never survive long enough to
 # feed a later tick a stale price, which the skew guard would reject anyway.
 _QUOTE_CACHE_TTL_S: float = 1.0
+# Oldest universe snapshot the pairs family may compute a spread from. One
+# 4h bar — the timeframe those closes are sampled at — so the bound only
+# bites during a genuine outage: the cache's own TTL is an hour and its
+# failure backoff caps at 15 minutes, well inside this.
+_MAX_PAIR_SNAPSHOT_AGE_S: float = 4 * 3600.0
 
 AnyExecutor = PaperExecutor | LiveExecutor
 
@@ -1945,6 +1950,25 @@ class Orchestrator:
 
         cache = self._universe_returns
         stamp = cache.fetched_at
+
+        # The two families sharing this snapshot tolerate staleness very
+        # differently, and serving both from one cache hid that. A 30-day
+        # trailing return barely moves in an hour, so the cross-sectional
+        # ranking is still meaningful on an old snapshot — that is why the
+        # cache deliberately serves stale data through an outage rather than
+        # blanking the universe. A spread z-score is the opposite: it is a
+        # statement about where two prices are RIGHT NOW relative to their
+        # recent relationship, so on hours-old closes it can signal a
+        # divergence that has already closed, and the trade is entered into a
+        # move that is over.
+        if stamp > 0.0 and (time.monotonic() - stamp) > _MAX_PAIR_SNAPSHOT_AGE_S:
+            self._log.warning(
+                "orchestrator.pair_snapshot_too_stale",
+                age_s=round(time.monotonic() - stamp, 1),
+                max_age_s=_MAX_PAIR_SNAPSHOT_AGE_S,
+                pair=list(pair),
+            )
+            return None, None, None
         if stamp <= 0.0:
             return None, None, None
 

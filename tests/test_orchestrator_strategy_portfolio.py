@@ -905,3 +905,40 @@ async def test_one_timeframe_failing_does_not_clear_another(monkeypatch):
 
     assert "15m" not in orch._last_portfolio_agreement
     assert orch._last_portfolio_agreement["4h"] == 0.7
+
+
+# ------------------------------------------------- pair snapshot staleness
+
+
+def test_a_stale_snapshot_abstains_the_pair():
+    # The universe cache serves stale data through an outage on purpose — a
+    # 30-day trailing return survives that. A spread z-score does not: on
+    # hours-old closes it can signal a divergence that has already closed.
+    import time as _time
+
+    orch = _pair_orch(_cointegrated())
+    orch._universe_returns.fetched_at = _time.monotonic() - (5 * 3600)
+
+    assert orch._pair_series() == (None, None, None)
+
+
+def test_a_fresh_snapshot_still_serves_the_pair():
+    import time as _time
+
+    orch = _pair_orch(_cointegrated())
+    orch._universe_returns.fetched_at = _time.monotonic() - 60.0
+
+    a, b, ratio = orch._pair_series()
+    assert a is not None and b is not None and ratio is not None
+
+
+def test_the_bound_does_not_bite_during_normal_backoff():
+    # Cache TTL is an hour and its failure backoff caps at 15 minutes, so a
+    # degraded-but-working feed must still feed the pair.
+    import time as _time
+
+    orch = _pair_orch(_cointegrated())
+    orch._universe_returns.fetched_at = _time.monotonic() - (3600 + 900)
+
+    a, _b, _r = orch._pair_series()
+    assert a is not None
