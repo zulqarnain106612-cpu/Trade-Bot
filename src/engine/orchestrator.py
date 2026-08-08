@@ -2137,8 +2137,12 @@ class Orchestrator:
             # over the full evaluation it would include the incumbent's own
             # vote, so a lone strategy would be confirming itself and the
             # scalar would read "agreement" precisely when there is none.
-            peers = set(enabled_ids) - {STRATEGY_ID_SIGNAL_ENGINE}
-            peer = runner.evaluate(inputs, enabled_ids=peers, weights=weights or None)
+            # Derived from the evaluation above rather than re-polled: one
+            # poll, two resolutions. Re-polling rebuilt every context on the
+            # tick path and asked each strategy the same question twice, so
+            # the two views could disagree and the scalar would be sized
+            # against a vote that never happened.
+            peer = runner.resolve_excluding(evaluation, {STRATEGY_ID_SIGNAL_ENGINE})
             self._last_portfolio_peer_evaluation[tf.value] = peer
             # Measured against the *incumbent's* direction specifically, not
             # the whole portfolio's: the ceiling exists to size the trade the

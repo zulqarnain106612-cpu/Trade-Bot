@@ -51,7 +51,7 @@ tick by tick before any capital follows it.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
 
@@ -554,6 +554,54 @@ class StrategyPortfolioRunner:
 
         return StrategyVerdict(sid, VerdictStatus.SIGNAL, signal=signal, weight=weight)
 
+    def _resolve(self, verdicts: Sequence[StrategyVerdict]) -> ConflictResolution:
+        """Fold a set of verdicts into one direction. Pure — polls nothing."""
+        voting = [v for v in verdicts if v.votes and v.signal is not None]
+        if not voting:
+            # No voters is unanimity, not conflict: nobody disagreed.
+            return ConflictResolution(
+                direction=0, weight=0.0, conflict=False, agreement_ratio=1.0
+            )
+        payload = [
+            {"direction": v.signal.direction, "confidence": v.signal.confidence}
+            for v in voting
+            if v.signal is not None
+        ]
+        # regime_fit multiplies the allocation weight: a family that is a
+        # poor-but-permitted fit for the current regime should carry less of
+        # the vote than the same family in its home regime.
+        regime_weights = np.array(
+            [max(v.weight, 1e-9) * (v.signal.regime_fit if v.signal else 0.0) for v in voting],
+            dtype=float,
+        )
+        return self._resolver.resolve(payload, regime_weights=regime_weights)
+
+    def resolve_excluding(
+        self,
+        evaluation: PortfolioEvaluation,
+        exclude: set[str],
+    ) -> PortfolioEvaluation:
+        """
+        Re-resolve an existing evaluation with some strategies muted.
+
+        This is what the peer view needs, and re-polling was the wrong way to
+        get it. Calling evaluate() a second time rebuilt every context —
+        four pandas Series per breakout family, on the tick path — and, worse,
+        asked every strategy the same question twice. Nothing enforces that a
+        strategy is pure, so the two answers could differ, and then the
+        agreement scalar would be sized against a vote that never happened.
+
+        Polling once and resolving twice makes the peer view a strict subset
+        of the full one by construction. Excluded strategies keep their
+        verdicts — they were genuinely polled, and hiding that would misreport
+        who was asked — they simply do not vote.
+        """
+        kept = tuple(
+            v if v.strategy_id not in exclude else replace(v, status=VerdictStatus.DISABLED)
+            for v in evaluation.verdicts
+        )
+        return PortfolioEvaluation(verdicts=kept, resolution=self._resolve(kept))
+
     def evaluate(
         self,
         inputs: PortfolioInputs,
@@ -595,27 +643,9 @@ class StrategyPortfolioRunner:
             # inside the weighted average.
             verdicts.append(self._poll(strategy, inputs, max(0.0, weight)))
 
-        voting = [v for v in verdicts if v.votes and v.signal is not None]
-        if not voting:
-            resolution = ConflictResolution(
-                direction=0, weight=0.0, conflict=False, agreement_ratio=1.0
-            )
-        else:
-            payload = [
-                {"direction": v.signal.direction, "confidence": v.signal.confidence}
-                for v in voting
-                if v.signal is not None
-            ]
-            # regime_fit multiplies the allocation weight: a family that is a
-            # poor-but-permitted fit for the current regime should carry less
-            # of the vote than the same family in its home regime.
-            regime_weights = np.array(
-                [max(v.weight, 1e-9) * (v.signal.regime_fit if v.signal else 0.0) for v in voting],
-                dtype=float,
-            )
-            resolution = self._resolver.resolve(payload, regime_weights=regime_weights)
-
-        evaluation = PortfolioEvaluation(verdicts=tuple(verdicts), resolution=resolution)
+        evaluation = PortfolioEvaluation(
+            verdicts=tuple(verdicts), resolution=self._resolve(verdicts)
+        )
         log.info(
             "portfolio.evaluated",
             symbol=inputs.symbol,

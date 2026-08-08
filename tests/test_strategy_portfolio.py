@@ -648,3 +648,70 @@ def test_every_builder_has_a_declared_need() -> None:
     # A builder without an entry would silently read None forever once the
     # gate is applied, which is the failure this pairing exists to prevent.
     assert set(default_context_builders()) <= set(BUILDER_NEEDS)
+
+
+# ------------------------------------------------- peer view derivation
+
+
+def test_the_peer_view_polls_nothing_extra() -> None:
+    # Re-polling rebuilt every context on the tick path and asked each
+    # strategy the same question twice.
+    inc = _StubStrategy("signal_engine_v1", Signal(1, 0.9, 0.9))
+    a = _StubStrategy("peer_a", Signal(-1, 0.9, 0.9))
+    b = _StubStrategy("peer_b", Signal(-1, 0.9, 0.9))
+    runner = _runner(_registry(inc, a, b), ["signal_engine_v1", "peer_a", "peer_b"])
+
+    ev = runner.evaluate(_INPUTS)
+    runner.resolve_excluding(ev, {"signal_engine_v1"})
+
+    assert (inc.calls, a.calls, b.calls) == (1, 1, 1)
+
+
+def test_the_peer_view_excludes_the_incumbent_from_the_vote() -> None:
+    inc = _StubStrategy("signal_engine_v1", Signal(1, 0.9, 0.9))
+    a = _StubStrategy("peer_a", Signal(-1, 0.9, 0.9))
+    b = _StubStrategy("peer_b", Signal(-1, 0.9, 0.9))
+    runner = _runner(_registry(inc, a, b), ["signal_engine_v1", "peer_a", "peer_b"])
+
+    peer = runner.resolve_excluding(runner.evaluate(_INPUTS), {"signal_engine_v1"})
+
+    assert set(peer.voting_ids) == {"peer_a", "peer_b"}
+    assert peer.direction == -1
+
+
+def test_the_peer_view_still_reports_who_was_polled() -> None:
+    # Excluded strategies keep a verdict — they were genuinely asked, and
+    # dropping them would misreport the poll.
+    inc = _StubStrategy("signal_engine_v1", Signal(1, 0.9, 0.9))
+    a = _StubStrategy("peer_a", Signal(-1, 0.9, 0.9))
+    runner = _runner(_registry(inc, a), ["signal_engine_v1", "peer_a"])
+
+    ev = runner.evaluate(_INPUTS)
+    peer = runner.resolve_excluding(ev, {"signal_engine_v1"})
+
+    assert {v.strategy_id for v in peer.verdicts} == {v.strategy_id for v in ev.verdicts}
+    (incumbent,) = [v for v in peer.verdicts if v.strategy_id == "signal_engine_v1"]
+    assert incumbent.status is VerdictStatus.DISABLED
+
+
+def test_the_peer_view_is_a_subset_of_the_full_view() -> None:
+    inc = _StubStrategy("signal_engine_v1", Signal(1, 0.9, 0.9))
+    a = _StubStrategy("peer_a", Signal(1, 0.9, 0.9))
+    runner = _runner(_registry(inc, a), ["signal_engine_v1", "peer_a"])
+
+    ev = runner.evaluate(_INPUTS)
+    peer = runner.resolve_excluding(ev, {"signal_engine_v1"})
+
+    assert set(peer.voting_ids) <= set(ev.voting_ids)
+
+
+def test_excluding_every_voter_leaves_no_direction() -> None:
+    a = _StubStrategy("only", Signal(1, 0.9, 0.9))
+    runner = _runner(_registry(a), ["only"])
+
+    peer = runner.resolve_excluding(runner.evaluate(_INPUTS), {"only"})
+
+    assert peer.voting_ids == ()
+    assert peer.direction == 0
+    # No voters is unanimity, not conflict — nobody disagreed.
+    assert peer.conflict is False
