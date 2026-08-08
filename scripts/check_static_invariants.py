@@ -596,9 +596,15 @@ _UNREAD_FIELD_ALLOWED = {
     # uncertainty layer is inert; these are its unconsumed outputs.
     "posterior_samples",
     "model_uncertainty",
-    # shadow_deploy records these but nothing reads them back.
+    # shadow_deploy records these but nothing reads them back. `predictions`
+    # joined the list once bare string literals stopped counting as reads —
+    # it was never accessed as an attribute, only matched by a coincidental
+    # "predictions" elsewhere, which is precisely the masking that allowance
+    # permitted. All three belong to ModelRecord: the A/B harness fills them
+    # and no consumer exists.
     "actuals",
     "evaluated_at",
+    "predictions",
 }
 
 
@@ -658,8 +664,14 @@ def check_dataclass_fields_are_read() -> list[str]:
                     read.add(node.attr)
                 elif isinstance(node, ast.keyword) and node.arg:
                     read.add(node.arg)
-                elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    read.add(node.value)
+                # A bare string equal to the field name used to count as a
+                # read. It is too weak a proxy: any log key, dict key or
+                # message fragment that happens to match rescues a field
+                # nothing touches. Measured across all 530 fields, exactly
+                # one was surviving on that alone — ModelRecord.predictions,
+                # in a class whose two sibling fields were already known dead
+                # — so dropping it costs no real coverage and removes a way
+                # for a genuinely unread field to look read.
 
     return [
         f"{location} — dataclass field never read anywhere in src/ or tests/"

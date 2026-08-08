@@ -995,3 +995,25 @@ def test_a_setting_read_in_src_passes(invariants, fake_tree) -> None:
     )
     fake_tree("src/use.py", "def f(cfg):\n    return cfg.widget_size\n")
     assert invariants.check_settings_are_read() == []
+
+
+def test_a_bare_string_literal_no_longer_counts_as_a_field_read(invariants, fake_tree) -> None:
+    # Too weak a proxy: any log key or message fragment matching the field
+    # name rescued a field nothing touches. ModelRecord.predictions survived
+    # on exactly that, in a class whose two siblings were already known dead.
+    fake_tree(
+        "src/rec.py",
+        "from dataclasses import dataclass\n\n@dataclass\nclass Rec:\n    widget: int = 0\n",
+    )
+    fake_tree("src/log.py", 'MESSAGE = "widget"\n')
+    assert any("Rec.widget" in p for p in invariants.check_dataclass_fields_are_read())
+
+
+def test_kwarg_construction_still_counts_as_a_field_read(invariants, fake_tree) -> None:
+    # A field consumed only as a constructor kwarg is genuinely used.
+    fake_tree(
+        "src/rec.py",
+        "from dataclasses import dataclass\n\n@dataclass\nclass Rec:\n    widget: int = 0\n",
+    )
+    fake_tree("src/use.py", "from src.rec import Rec\ndef f():\n    return Rec(widget=1)\n")
+    assert invariants.check_dataclass_fields_are_read() == []
