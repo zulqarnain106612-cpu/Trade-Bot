@@ -882,3 +882,43 @@ def test_dataclass_fields_are_skipped(invariants, fake_tree) -> None:
         "@dataclass\nclass Rec:\n    items: list = field(default_factory=list)\n",
     )
     assert invariants.check_no_mutable_class_attributes() == []
+
+
+# ---------------------------------------------------------------------------
+# check_docstrings_do_not_cite_missing_modules
+# ---------------------------------------------------------------------------
+
+
+def test_docstring_citing_a_phantom_module_is_flagged(invariants, fake_tree) -> None:
+    # derivatives.py claimed to consolidate a Deribit provider that has never
+    # existed — and that absence is why options_carry_v1 is inert.
+    fake_tree("src/feat.py", '"""Consolidates deribit_provider.py."""\n')
+    problems = invariants.check_docstrings_do_not_cite_missing_modules()
+    assert any("deribit_provider.py" in p for p in problems)
+
+
+def test_a_real_sibling_module_passes(invariants, fake_tree) -> None:
+    fake_tree("src/feat.py", '"""See helper.py."""\n')
+    fake_tree("src/helper.py", "")
+    assert invariants.check_docstrings_do_not_cite_missing_modules() == []
+
+
+def test_a_real_file_under_scripts_passes(invariants, fake_tree, tmp_path) -> None:
+    # src/ and scripts/ reference each other; resolving against src/ alone
+    # produced six false positives on the first pass.
+    (tmp_path / "scripts").mkdir(exist_ok=True)
+    (tmp_path / "scripts" / "run_tuning_attempt.py").write_text("")
+    fake_tree("src/sched.py", '"""Spawns run_tuning_attempt.py."""\n')
+    assert invariants.check_docstrings_do_not_cite_missing_modules() == []
+
+
+def test_a_glob_family_is_not_treated_as_a_filename(invariants, fake_tree) -> None:
+    # `*_provider.py` names a family; capturing `_provider.py` out of it
+    # reports a file nobody claimed exists.
+    fake_tree("src/mac.py", '"""See providers/*_provider.py."""\n')
+    assert invariants.check_docstrings_do_not_cite_missing_modules() == []
+
+
+def test_function_docstrings_are_checked_too(invariants, fake_tree) -> None:
+    fake_tree("src/feat.py", 'def f():\n    """Calls ghost_module.py."""\n')
+    assert invariants.check_docstrings_do_not_cite_missing_modules() != []

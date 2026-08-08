@@ -765,6 +765,57 @@ _MUTABLE_FACTORIES = frozenset(
 )
 
 
+def check_docstrings_do_not_cite_missing_modules() -> list[str]:
+    """
+    A docstring naming a `*.py` that does not exist is a false map.
+
+    This found src/features/derivatives.py claiming to consolidate data from
+    deribit_provider.py, which has never existed here — and that absence is
+    exactly why options_carry_v1 is inert, since nothing in this process
+    fetches an implied-vol surface. A reader chasing that filename would
+    conclude the feed existed and the wiring was the problem.
+
+    Resolution spans src/ and scripts/ because the two reference each other
+    (scheduler cites scripts/run_tuning_attempt.py, which is real). Scoping
+    this to src/ alone produced six false positives on the first pass, and a
+    check that cries wolf on real files gets ignored rather than fixed.
+
+    Glob spellings like `*_provider.py` are skipped: they name a family, not
+    a file, and expanding them would re-introduce the same false positives.
+    """
+    known: set[str] = set()
+    for root in ("src", "scripts"):
+        directory = REPO / root
+        if directory.exists():
+            known |= {p.name for p in _py_files(directory)}
+
+    # (?<![*\w]) rejects the tail of a glob: `*_provider.py` names a family,
+    # and capturing `_provider.py` out of it reports a file nobody claimed
+    # exists. That was three of the first four hits.
+    cited = re.compile(r"(?<![*\w])([A-Za-z][A-Za-z0-9_]{2,})\.py\b")
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            if not isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                continue
+            doc = ast.get_docstring(node)
+            if not doc:
+                continue
+            for name in dict.fromkeys(cited.findall(doc)):
+                if name.startswith("*") or f"{name}.py" in known:
+                    continue
+                # ast.Module carries no lineno; its docstring is at the top.
+                line = getattr(node, "lineno", 1)
+                problems.append(
+                    f"{_rel(path)}:{line} docstring cites {name}.py, "
+                    "which does not exist in src/ or scripts/"
+                )
+    return problems
+
+
 def check_no_mutable_class_attributes() -> list[str]:
     """
     A mutable class attribute is one object shared by every instance.
@@ -1005,6 +1056,7 @@ CHECKS = (
     ("naive datetimes", check_datetimes_are_timezone_aware),
     ("mutable default arguments", check_no_mutable_default_arguments),
     ("mutable class attributes", check_no_mutable_class_attributes),
+    ("docstrings citing missing modules", check_docstrings_do_not_cite_missing_modules),
     ("silent broad except", check_no_silent_broad_except),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),
