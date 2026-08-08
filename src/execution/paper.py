@@ -408,10 +408,22 @@ class PaperExecutor(AbstractExecutor):
 
             exit_fee = exit_price * pos.quantity * _PAPER_FEE_PCT
             total_fee = pos.fee_usd + exit_fee
-            net_pnl = gross_pnl - exit_fee
+
+            # The trade's economics are net of BOTH legs. Recording only the
+            # exit fee overstated every trade by the entry fee — half the
+            # round-trip cost — and that number is not cosmetic: it feeds
+            # compute_win_loss_stats into the Kelly fraction, the Sharpe and
+            # Sortino used for capital allocation, and the out-of-sample bar
+            # the live gate checks. Overstated edge means oversizing, and a
+            # paper run clearing a Sharpe threshold it has not really met.
+            net_pnl = gross_pnl - total_fee
             pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
 
-            self._cash += pos.notional_usd + net_pnl
+            # Cash is a different quantity and must NOT use net_pnl: the
+            # entry fee left the balance at open (self._cash -= notional +
+            # entry_fee), so deducting it again here would charge it twice
+            # and slowly drain equity. Only the exit leg is settled now.
+            self._cash += pos.notional_usd + gross_pnl - exit_fee
             equity = self._equity_usd()
             self._peak_equity = max(self._peak_equity, equity)
             self._drawdown_tracker.update(equity)
@@ -434,7 +446,9 @@ class PaperExecutor(AbstractExecutor):
             pnl_usd=round(net_pnl, 8),
             pnl_pct=round(pnl_pct, 8),
             exit_reason=exit_reason,
-            fee_usd=exit_fee,
+            # Both legs, matching pnl_usd above. Storing only the exit fee
+            # made the persisted cost of a round trip look like half of it.
+            fee_usd=round(total_fee, 8),
         )
         # Write the pre-captured atomic snapshot (not a live re-read)
         await self._snapshot_equity_with_values(
