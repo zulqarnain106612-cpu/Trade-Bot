@@ -58,7 +58,12 @@ COL_GARCH_VOL: Final[str] = "garch_vol_forecast"
 # reads coverage from the DB and drops columns below the threshold.
 # This list (BASE_FEATURE_COLUMNS) is the fallback when no intelligence
 # history is available.
-BASE_FEATURE_COLUMNS: Final[list[str]] = [
+# A tuple, not a list: this is the feature contract every model is trained
+# against, and FEATURE_COLUMNS below aliases the same object, so a single
+# in-place mutation anywhere would silently change the feature vector's shape
+# and meaning for training and inference at once. Every consumer already
+# copies with list(...) or comprehends over it, so immutability costs nothing.
+BASE_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     COL_FRAC_DIFF,
     COL_VWAP_DEV,
     COL_OFI,
@@ -67,12 +72,12 @@ BASE_FEATURE_COLUMNS: Final[list[str]] = [
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
     COL_GARCH_VOL,
-]
+)
 
 # Backward-compat alias: existing imports of FEATURE_COLUMNS still work.
 # New code that needs the full 25-feature set should call
 # get_active_feature_columns() instead.
-FEATURE_COLUMNS: Final[list[str]] = BASE_FEATURE_COLUMNS
+FEATURE_COLUMNS: Final[tuple[str, ...]] = BASE_FEATURE_COLUMNS
 
 
 def get_active_feature_columns(
@@ -905,7 +910,9 @@ def build_feature_matrix(
     )
 
     return FeatureMatrix(
-        features=feature_df_dir[FEATURE_COLUMNS],
+        # list(...): DataFrame.__getitem__ reads a tuple as one key, not a
+        # column selection, so this must not be handed the constant directly.
+        features=feature_df_dir[list(FEATURE_COLUMNS)],
         labels=feature_df_dir[COL_LABEL].astype(np.int8),
         meta=ml_series_full,
         daily_vol=daily_vol.reindex(feature_df_dir.index),

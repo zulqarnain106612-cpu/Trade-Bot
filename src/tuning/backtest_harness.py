@@ -439,8 +439,11 @@ def run_feature_window_backtest(
     # production-window default -- align both variants to rows valid under
     # BOTH before folding, so champion and challenger see identical bars.
     valid = champion_features[column].notna() & challenger_features[column].notna()
-    champion_features = champion_features.loc[valid, FEATURE_COLUMNS]
-    challenger_features = challenger_features.loc[valid, FEATURE_COLUMNS]
+    # list(...) rather than the constant directly: .loc reads a tuple key as a
+    # MultiIndex lookup rather than a column selection, so this stays correct
+    # whichever sequence type FEATURE_COLUMNS is.
+    champion_features = champion_features.loc[valid, list(FEATURE_COLUMNS)]
+    challenger_features = challenger_features.loc[valid, list(FEATURE_COLUMNS)]
     log_ret = baseline.log_returns.reindex(idx).loc[valid].to_numpy(dtype=np.float64)
 
     champion_pred = _predict_direction_batch(direction_model, champion_features)
