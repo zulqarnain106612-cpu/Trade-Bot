@@ -87,3 +87,37 @@ def test_a_stop_books_more_than_its_nominal_percentage() -> None:
 
     booked_pct = -recorded / notional * 100.0
     assert booked_pct == pytest.approx(stop_pct + 0.2, abs=1e-9)
+
+
+# --------------------------------------------------- win/loss estimator
+
+
+def test_scratch_trades_do_not_dilute_the_win_rate() -> None:
+    # wins counts p > 0 and losses counts p < 0, so a zero belongs to
+    # neither. Dividing by the whole series charged it against the win rate
+    # while the payoff ratio ignored it, leaving Kelly two numbers estimated
+    # over different populations.
+    from src.risk.kelly import compute_win_loss_stats
+
+    decisive = [10.0] * 60 + [-5.0] * 40
+    with_scratches = decisive + [0.0] * 20
+
+    p_decisive, win_a, loss_a, _ = compute_win_loss_stats(decisive)
+    p_scratched, win_b, loss_b, _ = compute_win_loss_stats(with_scratches)
+
+    assert p_decisive == pytest.approx(p_scratched)
+    assert (win_a, loss_a) == (win_b, loss_b)
+
+
+def test_the_estimator_is_unchanged_without_scratches() -> None:
+    # The realistic case: net_pnl is gross minus both fee legs, so an exact
+    # 0.0 after rounding to 8dp is vanishingly unlikely. The fix must be a
+    # no-op on data that has none.
+    from src.risk.kelly import compute_win_loss_stats
+
+    series = [7.0] * 55 + [-3.0] * 45
+    win_prob, avg_win, avg_loss, _ = compute_win_loss_stats(series)
+
+    assert 0.0 < win_prob < 1.0
+    assert avg_win == pytest.approx(7.0)
+    assert avg_loss == pytest.approx(3.0)

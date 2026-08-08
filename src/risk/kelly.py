@@ -783,8 +783,20 @@ def compute_win_loss_stats(
     if not wins or not losses:
         return 0.5, 1.0, 1.0, 0.5
 
-    raw_win_prob = len(wins) / len(pnl_series)
-    win_prob, win_prob_std = shrink_probability(raw_win_prob, n_obs=len(pnl_series))
+    # Denominator is the decisive trades, not the whole series. wins counts
+    # p > 0 and losses counts p < 0, so an exactly-zero scratch belongs to
+    # neither — but dividing by len(pnl_series) still charged it against the
+    # win rate, leaving win_prob and the avg_win/avg_loss payoff ratio
+    # estimated over different populations and handing Kelly two numbers
+    # that do not describe the same sample.
+    #
+    # Latent rather than live: net_pnl is gross minus both fee legs, so an
+    # exact 0.0 after rounding to 8dp needs the price move to match the fees
+    # to within 5e-9. Corrected because a self-consistent estimator costs
+    # nothing, not because this was firing.
+    decisive = len(wins) + len(losses)
+    raw_win_prob = len(wins) / decisive
+    win_prob, win_prob_std = shrink_probability(raw_win_prob, n_obs=decisive)
     avg_win = sum(wins) / len(wins)
     avg_loss = sum(losses) / len(losses)
 
