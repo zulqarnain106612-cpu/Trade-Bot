@@ -765,6 +765,55 @@ _MUTABLE_FACTORIES = frozenset(
 )
 
 
+def check_no_mutable_class_attributes() -> list[str]:
+    """
+    A mutable class attribute is one object shared by every instance.
+
+    ruff's RUF012 covers this and is in the project ignore list — the same
+    gap that left B006 unguarded — so nothing else looks for it.
+
+    It found OrderFSM._VALID_TRANSITIONS, the table deciding whether an
+    order may legally change state. Its own comment said Final prevents
+    rebinding the dict but not editing what is inside it, and left it
+    writable regardless: one write anywhere in the process could have given
+    a terminal order state an exit, for every OrderFSM at once.
+
+    Empty literals are exempt — they are the conventional spelling of "this
+    class has no entries by default", and dataclasses are skipped because
+    field(default_factory=...) is their answer and is checked separately by
+    the mutable-defaults rule.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            is_dataclass = any(
+                "dataclass" in ast.dump(dec) for dec in node.decorator_list
+            )
+            if is_dataclass:
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.AnnAssign):
+                    target, value = stmt.target, stmt.value
+                elif isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                    target, value = stmt.targets[0], stmt.value
+                else:
+                    continue
+                if not isinstance(value, (ast.List, ast.Dict, ast.Set)):
+                    continue
+                populated = value.keys if isinstance(value, ast.Dict) else value.elts
+                if not populated:
+                    continue
+                name = getattr(target, "id", "<attr>")
+                problems.append(
+                    f"{_rel(path)}:{stmt.lineno} {node.name}.{name} is a mutable class "
+                    "attribute shared by every instance — wrap it in MappingProxyType, "
+                    "use a tuple/frozenset, or move it into __init__"
+                )
+    return problems
+
+
 def check_no_mutable_default_arguments() -> list[str]:
     """
     A mutable default is evaluated once, at definition, and shared forever.
@@ -955,6 +1004,7 @@ CHECKS = (
     ("wall-clock durations", check_durations_use_monotonic),
     ("naive datetimes", check_datetimes_are_timezone_aware),
     ("mutable default arguments", check_no_mutable_default_arguments),
+    ("mutable class attributes", check_no_mutable_class_attributes),
     ("silent broad except", check_no_silent_broad_except),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),

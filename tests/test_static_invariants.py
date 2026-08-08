@@ -831,3 +831,54 @@ def test_slicing_a_non_axis_list_is_not_flagged(invariants, fake_tree) -> None:
     # .index must stay clean or every slice in the codebase lights up.
     fake_tree("src/a.py", "def f(x, n):\n    return list(x.values)[:n]\n")
     assert invariants.check_positional_column_slices() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_mutable_class_attributes
+# ---------------------------------------------------------------------------
+
+
+def test_populated_class_dict_is_flagged(invariants, fake_tree) -> None:
+    # The shape that left OrderFSM._VALID_TRANSITIONS writable: Final stops
+    # rebinding, not mutation, and that table gates order state changes.
+    fake_tree(
+        "src/fsm.py",
+        "from typing import Final\nclass FSM:\n    T: Final[dict] = {'a': 1}\n",
+    )
+    problems = invariants.check_no_mutable_class_attributes()
+    assert any("FSM.T" in p and "mutable class attribute" in p for p in problems)
+
+
+def test_populated_class_list_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/fsm.py", "class FSM:\n    T = [1]\n")
+    assert invariants.check_no_mutable_class_attributes() != []
+
+
+def test_mappingproxy_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/fsm.py",
+        "from types import MappingProxyType\nclass FSM:\n    T = MappingProxyType({'a': 1})\n",
+    )
+    assert invariants.check_no_mutable_class_attributes() == []
+
+
+def test_immutable_containers_pass(invariants, fake_tree) -> None:
+    fake_tree("src/fsm.py", "class FSM:\n    A = (1, 2)\n    B = frozenset({1})\n")
+    assert invariants.check_no_mutable_class_attributes() == []
+
+
+def test_empty_literal_is_exempt(invariants, fake_tree) -> None:
+    # The conventional spelling of "no entries by default".
+    fake_tree("src/fsm.py", "class FSM:\n    T = {}\n")
+    assert invariants.check_no_mutable_class_attributes() == []
+
+
+def test_dataclass_fields_are_skipped(invariants, fake_tree) -> None:
+    # field(default_factory=...) is their answer; the mutable-defaults rule
+    # covers that separately.
+    fake_tree(
+        "src/rec.py",
+        "from dataclasses import dataclass, field\n\n"
+        "@dataclass\nclass Rec:\n    items: list = field(default_factory=list)\n",
+    )
+    assert invariants.check_no_mutable_class_attributes() == []
