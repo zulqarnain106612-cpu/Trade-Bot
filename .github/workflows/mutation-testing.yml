@@ -64,7 +64,7 @@ jobs:
       shard_count: ${{ steps.resolve.outputs.shard_count }}
       per_mutant_timeout_seconds: ${{ steps.resolve.outputs.per_mutant_timeout_seconds }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
@@ -142,7 +142,7 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.prepare.outputs.shard_matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
@@ -184,7 +184,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
