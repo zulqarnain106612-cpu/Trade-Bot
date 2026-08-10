@@ -5,6 +5,6 @@ ruff==0.16.1  # Debt-006: pinned to match .trunk/trunk.yaml, .pre-commit-config.
 mypy>=1.11  # required by CLAUDE.md validation gate (uv run mypy src/) — was referenced but never declared
 black>=24.10.0
 isort>=5.13.0
-detect-secrets>=1.4
+detect-secrets>=1.5.0
 pip-tools>=7.5.3
 # watchdog removed — never imported in src/ (was dead dependency in both req files)
