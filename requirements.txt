@@ -112,7 +112,7 @@ urllib3==2.7.0
 uvicorn[standard]==0.52.1
 uvloop==0.22.1
 watchfiles==1.2.0
-websockets==13.1
+websockets==17.0.1
 xgboost==2.1.4
 yarl==1.24.5
 zlib-ng==1.0.0
