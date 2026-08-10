@@ -1,9 +1,21 @@
 """
 Derivatives features: Open Interest, funding rate, liquidations.
 
-Consolidates data already scattered across deribit_provider.py and
-strategies/funding_carry.py into a single typed feature bundle for
-consumption by the neural ensemble.
+Consolidates the derivatives fields the exchange providers already return
+(src/intelligence/providers/*_provider.py) into a single typed bundle.
+
+This docstring previously said it consolidated a Deribit provider module
+that has never existed in this repository. That is worth stating rather
+than quietly deleting, because the missing module is the reason one
+strategy is inert: options_carry_v1 needs an implied-vol surface to compute
+OptionsCarryContext.implied_vol_zscore, and no provider here fetches one.
+The fields below — open interest, funding rate, liquidation pressure — are
+the derivatives data this process actually has, and none of them is an IV.
+
+Wiring options carry therefore needs a real options-venue provider (Deribit
+is the obvious source, and ccxt supports it), plus a rolling IV history for
+the z-score. Until that exists the family abstains with an explicit reason
+rather than being fed a fabricated vol.
 """
 
 from __future__ import annotations

@@ -255,8 +255,11 @@ class CryptoIntelligence:
 
         # --- Collect results ---
         results: list[WorkerResult] = []
-        deadline = time.time() + 5.0
-        while len(results) < n_horizons and time.time() < deadline:
+        # monotonic, not wall clock: an NTP correction during this window
+        # would either abandon the collection early or hold it open long past
+        # five seconds, and this runs on the signal path.
+        deadline = time.monotonic() + 5.0
+        while len(results) < n_horizons and time.monotonic() < deadline:
             r = self._drain_one(timeout=1.0)
             if r is not None:
                 results.append(r)

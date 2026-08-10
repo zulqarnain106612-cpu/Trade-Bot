@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol
+from typing import Final, Protocol
 
 import numpy as np
 import structlog
@@ -502,7 +502,13 @@ class BlockchainValidator:
 
     FUNDING_VETO_THRESHOLD = 0.0005  # 0.05% per 8h — unfavorable carry
     BASIS_VETO_THRESHOLD = 0.005  # 0.5% spot/perp divergence
-    TRUSTED_EXCHANGES = {"binance", "okx", "bybit", "kraken"}
+    # frozenset, not set: this is the allowlist behind a STRIDE-Spoofing
+    # veto, and a class-level mutable is shared by every instance for the
+    # life of the process. Nothing mutates it today; a frozenset means
+    # nothing can start to, and `in` behaves identically.
+    TRUSTED_EXCHANGES: Final[frozenset[str]] = frozenset(
+        {"binance", "okx", "bybit", "kraken"}
+    )
 
     def validate(self, ctx: SignalContext) -> ValidatorResult:
         metrics: dict = {}

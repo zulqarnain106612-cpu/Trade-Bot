@@ -74,7 +74,7 @@ from src.risk.gates import (
     check_slippage_veto,
     evaluate_all_gates,
 )
-from src.risk.kelly import KellyResult, compute_position_size
+from src.risk.kelly import KellyResult, apply_size_scalar, compute_position_size
 from src.risk.macro_exposure_budget import (
     MacroExposureBudget,
     apply_macro_budget_to_kelly_fraction,
@@ -654,8 +654,20 @@ class SignalEngine:
         # SCAN2-007: prior code called build_feature_matrix + build_inference_features
         # separately, running fractional_differentiation + all rolling stats twice per tick.
         # Single call eliminates ~50% of hot-path feature pipeline CPU overhead.
+        # Off-loop: build_feature_matrix runs fractional differentiation, a
+        # rolling GARCH forecast and triple-barrier labelling over the whole
+        # bar window. The orchestrator already treats it as CPU-bound and
+        # hands it to a dedicated executor for training ("Feature matrix —
+        # CPU bound", NEW-002); running the same function inline here kept it
+        # on the event loop on the HOT path.
+        #
+        # That loop is shared by all three timeframe tasks, the FastAPI
+        # server, the position monitor and the order path, so a slow feature
+        # build in the 1m tick stalled the 15m tick, the API and any order in
+        # flight — not just this tick. Execution latency is a domain prior
+        # here, and this was the largest synchronous block on the signal path.
         try:
-            fm = build_feature_matrix(bars)
+            fm = await asyncio.to_thread(build_feature_matrix, bars)
         except Exception as exc:
             self._log.error("signal.feature_matrix_failed", error=str(exc), exc_info=True)
             return self._skip("feature_matrix_failed")
@@ -1157,6 +1169,35 @@ class SignalEngine:
         if kelly_result is None:
             _emit_audit("skipped", "kelly_size_zero", None, gate_result)
             return self._skip("kelly_size_zero")
+
+        # Advisory gates reduce size rather than vetoing. Applied here, after
+        # the gate stack has run and after the position-size gate has judged
+        # the UNREDUCED notional -- a gate that caps absolute exposure must
+        # not be talked out of firing by a reduction applied before it looked.
+        #
+        # Requantised rather than merely rescaled: a shrunk order is a
+        # different order and has to clear the exchange's minimums again.
+        # None means the reduced size is below what the exchange accepts, and
+        # the trade is skipped -- taking it at full size because the
+        # reduction was inconvenient is the one outcome a ceiling must never
+        # produce.
+        if gate_result.size_scalar < 1.0:
+            _scaled = apply_size_scalar(
+                kelly_result,
+                gate_result.size_scalar,
+                kelly_result.entry_price,
+            )
+            if _scaled is None:
+                _emit_audit("skipped", "advisory_scalar_below_minimum", kelly_result, gate_result)
+                return self._skip("advisory_scalar_below_minimum")
+            self._log.info(
+                "signal.advisory_size_reduction",
+                status=gate_result.status.value,
+                scalar=gate_result.size_scalar,
+                notional_before=round(kelly_result.notional_usd, 2),
+                notional_after=round(_scaled.notional_usd, 2),
+            )
+            kelly_result = _scaled
 
         # 9. Meta-label gate
         meta_label, p_bet = self._trainer.predict_meta(meta_model, vec, p_long)
