@@ -18,13 +18,28 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from collections import defaultdict
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 
 import structlog
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+# Distinct r values held for nonce-reuse detection. Each entry is an int
+# plus a short tuple list, so 250k is on the order of tens of MB — large
+# enough to span a long scanning session, bounded enough that a worker fed
+# a transaction stream indefinitely cannot exhaust memory.
+_MAX_TRACKED_R: int = 250_000
+
+# Signatures retained per r value. Reuse is reported on the second sighting,
+# so beyond a handful this stores nothing that changes a detection.
+_MAX_SIGS_PER_R: int = 8
+
+# Detected weaknesses retained. Findings are logged at warning as they
+# occur, so this window is for the risk-score accessor rather than the
+# record of what was found.
+_MAX_RETAINED_WEAKNESSES: int = 10_000
 
 
 @dataclass
@@ -141,10 +156,27 @@ class ECDSAScanner:
     and emits a weakness alert.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_tracked_r: int = _MAX_TRACKED_R) -> None:
         # r → list of (s, pubkey_hex, txid, z_hash)
-        self._r_registry: defaultdict[int, list[tuple[int, str, str, int]]] = defaultdict(list)
-        self._weaknesses: list[ECDSAWeakness] = []
+        #
+        # Bounded LRU rather than an unbounded map. Detecting nonce reuse
+        # means remembering r values, so this structure grows by design —
+        # but the scanner is constructed once in a long-lived worker
+        # (src/workers/orchestrator.py) and fed a transaction stream, so
+        # unbounded it accumulates every r from every transaction ever seen
+        # and exhausts memory long before it detects anything on a real run.
+        #
+        # Evicting the least-recently-seen r trades completeness for
+        # survivability, and does so in the right direction: reused nonces
+        # come from one faulty signer and cluster in time, so the pairs this
+        # can still catch are the ones it was ever realistically going to.
+        # An eviction is not a clean loss, though — a later reuse of an
+        # evicted r goes undetected — so the count is tracked rather than
+        # dropped silently.
+        self._r_registry: OrderedDict[int, list[tuple[int, str, str, int]]] = OrderedDict()
+        self._max_tracked_r = max_tracked_r
+        self._evicted_r = 0
+        self._weaknesses: deque[ECDSAWeakness] = deque(maxlen=_MAX_RETAINED_WEAKNESSES)
 
     def scan_transaction(self, raw_tx_hex: str, tx_hash_z: int = 0) -> list[ECDSAWeakness]:
         """
@@ -160,7 +192,17 @@ class ECDSAScanner:
             pubkey_hex = pubkey.hex()
             z = tx_hash_z
 
-            registry_entry = self._r_registry[r]
+            registry_entry = self._r_registry.get(r)
+            if registry_entry is not None:
+                # Touch: this r is live again, so it should not be the next
+                # thing evicted.
+                self._r_registry.move_to_end(r)
+            else:
+                registry_entry = []
+                self._r_registry[r] = registry_entry
+                while len(self._r_registry) > self._max_tracked_r:
+                    self._r_registry.popitem(last=False)
+                    self._evicted_r += 1
             if registry_entry:
                 for s_prev, _pk_prev, txid_prev, z_prev in registry_entry:
                     # Same r value = same nonce k used → potential private key recovery
@@ -181,7 +223,12 @@ class ECDSAScanner:
                         privkey_extracted=weakness.privkey_extracted,
                     )
 
-            self._r_registry[r].append((s, pubkey_hex, txid, z))
+            # Capped per r as well as across r values. A single r recurring
+            # thousands of times is itself the weakness and is reported on
+            # the second sighting; retaining every later one adds no
+            # detection and is the shape a spam stream would exploit.
+            if len(registry_entry) < _MAX_SIGS_PER_R:
+                registry_entry.append((s, pubkey_hex, txid, z))
 
         return found
 

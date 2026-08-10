@@ -118,10 +118,16 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         self._log.info("binance_intelligence.initialized")
 
     async def close(self) -> None:
-        """Close underlying ccxt sessions."""
+        """
+        Close underlying ccxt sessions.
+
+        return_exceptions so one failing close cannot cancel the other and
+        leak its aiohttp session for the life of the process.
+        """
         await asyncio.gather(
             self._spot.close(),
             self._perp.close(),
+            return_exceptions=True,
         )
 
     # ------------------------------------------------------------------
@@ -401,12 +407,32 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
                     "limit": _KLINE_LIMIT,
                 }
             )
-        except Exception as exc:
-            self._log.warning("binance_intelligence.klines_failed", error=str(exc), exc_info=True)
-            self._set_cache(cache_key, 1.0)
-            return 1.0
+        except Exception:
+            # Deliberately not caught here. fetch_metrics() gathers this with
+            # return_exceptions=True and already has a failure branch for it:
+            # it logs binance_intelligence.whale_failed, applies the -0.02
+            # confidence penalty, and falls back to the neutral 1.0 itself.
+            #
+            # Swallowing the error here returned that same 1.0 as if it were a
+            # real reading, so isinstance(whale_result, float) was always true,
+            # that branch was dead code, the warning never fired and the
+            # confidence penalty never applied. A failed fetch was
+            # indistinguishable from genuinely balanced taker flow — and
+            # check_whale_activity draws exactly that distinction on purpose,
+            # reducing size when taker flow "cannot be read" rather than
+            # assuming neutral. Fabricating the neutral defeated the gate's
+            # own policy for unreadable data.
+            #
+            # It was also cached, so one transient failure served a neutral
+            # reading for the whole TTL.
+            raise
 
         if not raw:
+            # An empty response is not an error, but it is also not evidence
+            # of balanced flow. Cached deliberately: an empty kline window is
+            # a real, stable state rather than a transient fault.
+            self._log.warning("binance_intelligence.klines_empty", symbol=self._perp_symbol)
+            self._set_cache(cache_key, 1.0)
             return 1.0
 
         total_vol = sum(float(bar[5]) for bar in raw if bar[5] is not None)

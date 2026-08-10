@@ -13,6 +13,7 @@ Persists summaries to DuckDB via DuckDBStore.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -69,18 +70,63 @@ class VenueStats:
         self.avg_fill_ratio = self._fill_ratio_sum / self.total_fills
 
 
+@dataclass
+class AlgoStats:
+    """
+    Running per-algorithm aggregates.
+
+    Mirrors VenueStats deliberately. algo_breakdown() previously derived
+    these by iterating the entire fill history, which is what forced that
+    history to be retained forever; keeping running sums makes the breakdown
+    exact over all time while the raw records stay bounded.
+    """
+
+    algo: str
+    count: int = 0
+    _fill_ratio_sum: float = field(default=0.0, repr=False)
+    _slippage_sum: float = field(default=0.0, repr=False)
+    _eq_score_sum: float = field(default=0.0, repr=False)
+
+    def update(self, fill: FillRecord) -> None:
+        self.count += 1
+        self._fill_ratio_sum += fill.fill_ratio
+        self._slippage_sum += fill.slippage_bps
+        self._eq_score_sum += fill.execution_quality_score
+
+    def as_dict(self) -> dict[str, float]:
+        n = max(self.count, 1)
+        return {
+            "count": float(self.count),
+            "avg_fill_ratio": self._fill_ratio_sum / n,
+            "avg_slippage_bps": self._slippage_sum / n,
+            "avg_eq_score": self._eq_score_sum / n,
+        }
+
+
+# Raw FillRecords retained for the tail-window consumers (recent_fills,
+# execution_quality_trend). One record per fill, forever, was an unbounded
+# leak in a process designed to run for months: nothing trimmed it and
+# nothing needed more than the tail once the all-time aggregates existed.
+_MAX_FILL_HISTORY: int = 5_000
+
+
 class PostTradeAnalytics:
     """
     Consolidates fill analytics from SmartOrderRouter results.
 
-    Maintains in-memory VenueStats and optionally persists FillRecords
-    to DuckDB for later analysis and model retraining.
+    Maintains in-memory VenueStats and AlgoStats and optionally persists
+    FillRecords to DuckDB for later analysis and model retraining.
+
+    Aggregates are unbounded and exact; raw records are bounded to the last
+    _MAX_FILL_HISTORY. DuckDB remains the complete record when a store is
+    configured — this class is a live view, not the archive.
     """
 
     def __init__(self, store: DuckDBStore | None = None) -> None:
         self._store = store
         self._venue_stats: dict[str, VenueStats] = {}
-        self._fill_history: list[FillRecord] = []
+        self._algo_stats: dict[str, AlgoStats] = {}
+        self._fill_history: deque[FillRecord] = deque(maxlen=_MAX_FILL_HISTORY)
 
     def record(
         self,
@@ -128,6 +174,12 @@ class PostTradeAnalytics:
             self._venue_stats[result.venue] = VenueStats(venue=result.venue)
         self._venue_stats[result.venue].update(fill)
 
+        # Per-algo aggregates updated on the way past, so algo_breakdown()
+        # stays all-time exact without retaining every record to recompute it.
+        if result.algo not in self._algo_stats:
+            self._algo_stats[result.algo] = AlgoStats(algo=result.algo)
+        self._algo_stats[result.algo].update(fill)
+
         self._fill_history.append(fill)
 
         if self._store is not None:
@@ -170,27 +222,23 @@ class PostTradeAnalytics:
         return dict(self._venue_stats)
 
     def recent_fills(self, n: int = 100) -> list[FillRecord]:
-        """Return the last n FillRecords."""
-        return self._fill_history[-n:]
+        """Return the last n FillRecords, oldest first."""
+        return list(self._fill_history)[-n:]
 
     def execution_quality_trend(self, window: int = 50) -> float:
         """Mean execution quality score over the last `window` fills."""
-        recent = self._fill_history[-window:]
+        recent = list(self._fill_history)[-window:]
         if not recent:
             return 0.0
         return float(np.mean([f.execution_quality_score for f in recent]))
 
     def algo_breakdown(self) -> dict[str, dict[str, float]]:
-        """Aggregate metrics grouped by algorithm (IOC/iceberg/TWAP)."""
-        grouped: dict[str, list[FillRecord]] = {}
-        for fill in self._fill_history:
-            grouped.setdefault(fill.algo, []).append(fill)
-        return {
-            algo: {
-                "count": float(len(fills)),
-                "avg_fill_ratio": float(np.mean([f.fill_ratio for f in fills])),
-                "avg_slippage_bps": float(np.mean([f.slippage_bps for f in fills])),
-                "avg_eq_score": float(np.mean([f.execution_quality_score for f in fills])),
-            }
-            for algo, fills in grouped.items()
-        }
+        """
+        Aggregate metrics grouped by algorithm (IOC/iceberg/TWAP).
+
+        Covers every fill ever recorded, not merely the retained window: the
+        numbers come from running AlgoStats rather than from re-reducing the
+        history. Deriving them from the records is what previously required
+        keeping all of them.
+        """
+        return {algo: stats.as_dict() for algo, stats in self._algo_stats.items()}

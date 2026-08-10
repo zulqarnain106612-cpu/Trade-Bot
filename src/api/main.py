@@ -1391,6 +1391,11 @@ async def audit_chain_integrity(
         "intact": intact,
         "first_broken_sequence": first_broken,
         "entry_count": len(entries),
+        # entry_count is the RETAINED window, which is bounded. Reporting it
+        # alone would let a caller read "intact over 100k entries" as "intact
+        # over all history" once eviction has begun — different claims.
+        "total_recorded": trail.total_recorded(),
+        "evicted_count": trail.evicted_count(),
         "recent": [
             {
                 "sequence": e.sequence,
@@ -1979,6 +1984,67 @@ async def re_enable_strategy(
         forced=body.force,
     )
     return {"strategy_id": strategy_id, "enabled": True, "forced": body.force}
+
+
+@app.get("/strategies/portfolio", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_portfolio(timeframe: str | None = None) -> dict[str, Any]:
+    """
+    What every registered strategy actually said on its last evaluation.
+
+    /strategies/allocation answers "how is capital split?"; this answers the
+    question that had no answer at all before the portfolio runner existed:
+    "was each strategy even asked, and what did it reply?".
+
+    Each verdict carries a status that distinguishes the cases that used to
+    be indistinguishable:
+
+      signal        — polled, voted directionally
+      flat          — polled, no directional opinion
+      regime_gated  — polled, returned regime_fit == 0 (a hard "not here")
+      abstained     — never polled: no context could be built from live data
+      disabled      — kill-switched out of the enabled set
+      error         — raised; recorded here, never raised into the trade path
+
+    A standing `abstained` with reason `no_context_builder` is the honest
+    report that a registered family has no data feed in this process yet —
+    it is a wiring gap to close, not a broken strategy.
+
+    The reported `direction` is 0 whenever `conflict` is true: a portfolio
+    whose members disagree has no direction worth acting on, and reporting
+    the narrow winner would hide the disagreement. `raw_direction` keeps the
+    pre-gate winner for diagnosis.
+
+    Alongside the full evaluation each timeframe carries:
+
+      peer             — the same poll with the incumbent excluded, which is
+                         what "does the rest of the book agree?" actually
+                         means. Including signal_engine_v1 would let the
+                         incumbent confirm itself.
+      agreement_scalar — the shrink-only size ceiling in (0, 1] implied by
+                         the peer view of the incumbent's direction. 1.0
+                         means no reduction; agreement is never worth more
+                         than that, because a correlated cluster of
+                         strategies must not bid its own size up.
+
+    Read-only and advisory: this reports the portfolio's opinion and the
+    ceiling it implies. Orders are still routed only by the signal engine
+    through Kelly and the risk gates, and `agreement_scalar` is reported
+    rather than applied — folding it into sizing means re-running the
+    exchange min-amount/min-cost filters against the shrunk quantity, which
+    is a separate change to the sizing tail.
+
+    Query parameters
+    ----------------
+    timeframe : restrict to one timeframe (e.g. "15m"). Omitted returns every
+                timeframe keyed by its value.
+    """
+    orch = _state.orchestrator
+    if orch is None:
+        return {"evaluations": {}, "reason": "orchestrator_not_started"}
+    payload = orch.portfolio_evaluation(timeframe)
+    if timeframe is not None:
+        return {"timeframe": timeframe, "evaluation": payload}
+    return {"evaluations": payload}
 
 
 @app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])
