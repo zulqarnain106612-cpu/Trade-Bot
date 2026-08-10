@@ -532,6 +532,7 @@ def check_protocol_methods_are_called() -> list[str]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
+
             def _names_protocol(base: ast.AST) -> bool:
                 # Protocol, typing.Protocol, Protocol[T] and typing.Protocol[T].
                 # The subscripted generic form was invisible until probed for.
@@ -574,9 +575,7 @@ def check_protocol_methods_are_called() -> list[str]:
         if name in used:
             continue
         verb = "read" if is_property else "called"
-        problems.append(
-            f"{location} — declared on a Protocol but never {verb} anywhere in src/"
-        )
+        problems.append(f"{location} — declared on a Protocol but never {verb} anywhere in src/")
     return problems
 
 
@@ -652,9 +651,7 @@ def check_dataclass_fields_are_read() -> list[str]:
                 name = stmt.target.id
                 if name.startswith("_"):
                     continue
-                declared.setdefault(
-                    name, f"{_rel(path)}:{stmt.lineno} {node.name}.{name}"
-                )
+                declared.setdefault(name, f"{_rel(path)}:{stmt.lineno} {node.name}.{name}")
 
     read: set[str] = set()
     for root in ("src", "tests"):
@@ -773,9 +770,7 @@ def check_datetimes_are_timezone_aware() -> list[str]:
                     "— use datetime.now(tz=UTC)"
                 )
             elif attr == "now" and not has_tz_kwarg and not node.args:
-                problems.append(
-                    f"{_rel(path)}:{node.lineno} datetime.now() without a timezone"
-                )
+                problems.append(f"{_rel(path)}:{node.lineno} datetime.now() without a timezone")
             elif attr == "fromtimestamp" and not has_tz_kwarg and len(node.args) < 2:
                 # tz is the second POSITIONAL parameter, so two args is aware.
                 problems.append(
@@ -835,10 +830,7 @@ def check_every_route_is_authenticated() -> list[str]:
                 isinstance(call, ast.Call)
                 and (
                     (isinstance(call.func, ast.Name) and call.func.id in _AUTH_CALL_NAMES)
-                    or (
-                        isinstance(call.func, ast.Attribute)
-                        and call.func.attr in _AUTH_CALL_NAMES
-                    )
+                    or (isinstance(call.func, ast.Attribute) and call.func.attr in _AUTH_CALL_NAMES)
                 )
                 for call in ast.walk(node)
             )
@@ -930,9 +922,7 @@ def check_no_mutable_class_attributes() -> list[str]:
         for node in ast.walk(_parse(path)):
             if not isinstance(node, ast.ClassDef):
                 continue
-            is_dataclass = any(
-                "dataclass" in ast.dump(dec) for dec in node.decorator_list
-            )
+            is_dataclass = any("dataclass" in ast.dump(dec) for dec in node.decorator_list)
             if is_dataclass:
                 continue
             for stmt in node.body:
@@ -1137,6 +1127,145 @@ def check_cpu_bound_work_is_offloaded() -> list[str]:
                         f"{_rel(path)}:{node.lineno} {name}() called inline in "
                         f"async {fn.name}() — offload with to_thread/run_in_executor"
                     )
+
+
+def _dataclass_attributes() -> dict[str, set[str] | None]:
+    """
+    Attribute names reachable on each ``@dataclass`` defined under ``src``.
+
+    Fields plus anything the class defines itself. None means "do not check"
+    — the name is defined twice with different shapes, or the class has a
+    base other than ``object``, so inherited attributes are unknowable here.
+    """
+    known: dict[str, set[str] | None] = {}
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            decorators = {
+                d.id if isinstance(d, ast.Name) else d.func.id
+                for d in node.decorator_list
+                if isinstance(d, ast.Name)
+                or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name))
+            }
+            if "dataclass" not in decorators:
+                continue
+            if node.bases:  # inherited attributes are not visible from here
+                known[node.name] = None
+                continue
+            attrs = {
+                stmt.target.id
+                for stmt in node.body
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+            }
+            attrs |= {
+                stmt.name
+                for stmt in node.body
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            known[node.name] = None if node.name in known and known[node.name] != attrs else attrs
+    return known
+
+
+def _locals_typed_as_dataclasses(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef, known: dict[str, set[str] | None]
+) -> dict[str, str]:
+    """
+    Map local name → dataclass name, for bindings whose type is stated outright.
+
+    Only three unambiguous forms are read: ``x = Foo(...)``, ``x: Foo``/
+    ``x: list[Foo]``, and iterating or ``max``/``min``-ing a name already
+    known to hold ``list[Foo]``. Anything reassigned to something else is
+    dropped rather than guessed at.
+    """
+    holds: dict[str, str] = {}  # name → dataclass, for a single instance
+    lists: dict[str, str] = {}  # name → dataclass, for list[dataclass]
+    dropped: set[str] = set()
+
+    def elt_of(annotation: ast.expr) -> str | None:
+        """``list[Foo]`` → "Foo"."""
+        if (
+            isinstance(annotation, ast.Subscript)
+            and isinstance(annotation.value, ast.Name)
+            and annotation.value.id in ("list", "List")
+            and isinstance(annotation.slice, ast.Name)
+        ):
+            return annotation.slice.id
+        return None
+
+    def bind(target: ast.expr, dataclass_name: str | None) -> None:
+        if not isinstance(target, ast.Name):
+            return
+        if dataclass_name is None or known.get(dataclass_name) is None:
+            dropped.add(target.id)
+            holds.pop(target.id, None)
+            return
+        if target.id in holds and holds[target.id] != dataclass_name:
+            dropped.add(target.id)
+            return
+        holds[target.id] = dataclass_name
+
+    for node in ast.walk(fn):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            element = elt_of(node.annotation)
+            if element is not None:
+                lists[node.target.id] = element
+            elif isinstance(node.annotation, ast.Name):
+                bind(node.target, node.annotation.id)
+            else:
+                bind(node.target, None)
+        elif isinstance(node, ast.Assign):
+            value = node.value
+            if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+                if value.func.id in ("max", "min") and value.args:
+                    first = value.args[0]
+                    source = lists.get(first.id) if isinstance(first, ast.Name) else None
+                    for target in node.targets:
+                        bind(target, source)
+                else:
+                    for target in node.targets:
+                        bind(target, value.func.id if value.func.id in known else None)
+            else:
+                for target in node.targets:
+                    bind(target, None)
+        elif (isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.iter, ast.Name)) or (
+            isinstance(node, ast.comprehension) and isinstance(node.iter, ast.Name)
+        ):
+            bind(node.target, lists.get(node.iter.id))
+
+    return {name: cls for name, cls in holds.items() if name not in dropped}
+
+
+def check_dataclass_attributes_exist() -> list[str]:
+    """
+    ``instance.renamed_field`` raises AttributeError only when that line runs.
+
+    Same failure mode as the enum and keyword checks, one level down: a
+    dataclass field renamed in one module against readers in another that
+    nothing links. ``src.intel`` read ``best.horizon_idx`` off a
+    ``WorkerResult`` whose field is ``horizon_id``, which made every
+    ``on_bar()`` call raise after fusion — the live signal path could not
+    emit at all, and no test covered it.
+    """
+    known = _dataclass_attributes()
+    problems: list[str] = []
+    for root in (SRC, REPO / "tests"):
+        for path in _py_files(root):
+            for fn in ast.walk(_parse(path)):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                typed = _locals_typed_as_dataclasses(fn, known)
+                if not typed:
+                    continue
+                for node in ast.walk(fn):
+                    if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+                        continue
+                    cls = typed.get(node.value.id)
+                    attrs = known.get(cls) if cls else None
+                    if attrs is not None and node.attr not in attrs:
+                        problems.append(
+                            f"{_rel(path)}:{node.lineno}: {cls} has no attribute {node.attr!r}"
+                        )
     return problems
 
 
@@ -1160,6 +1289,7 @@ CHECKS = (
     ("migration versions", check_migration_versions),
     ("enum members", check_enum_members_exist),
     ("keyword arguments", check_keyword_arguments_match_signatures),
+    ("dataclass attributes", check_dataclass_attributes_exist),
 )
 
 

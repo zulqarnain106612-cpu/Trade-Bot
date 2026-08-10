@@ -89,7 +89,7 @@ class TestNLPFeatures:
 
         from src.features.nlp import NLPFeatures
 
-        ft = NLPFeatures(embedding=np.zeros(128), sentiment_score=0.5, confidence=0.9)
+        ft = NLPFeatures(sentiment_score=0.5, embedding=np.zeros(128), confidence=0.9)
         assert ft.sentiment_score == 0.5
         assert ft.embedding.shape == (128,)
 
@@ -134,7 +134,7 @@ class TestTFTHead:
         from src.models.tft import VariableSelectionNetwork
 
         vsn = VariableSelectionNetwork(n_vars=8, hidden_dim=32)
-        # forward takes [B, T, n_vars, hidden_dim]
+        # forward expects [B, T, n_vars, hidden_dim]
         x = torch.randn(2, 16, 8, 32)
         out = vsn(x)
         assert out.shape == (2, 16, 32)
