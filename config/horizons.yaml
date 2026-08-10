@@ -1,0 +1,105 @@
+---
+# Per-horizon configuration for crypto-intel-v6
+# Each entry corresponds to one temporal horizon with its own model, ECC op,
+# retrain schedule, and minimum worker count.
+
+horizons:
+  h1:
+    id: 0
+    label: "30s"
+    seconds: 30
+    models: [cnn, tcn]
+    ecc_op: secp256k1_cluster
+    retrain_schedule: hourly
+    min_workers: 2
+    max_bar_lookback: 300   # 2.5 hours of 30s bars
+
+  h2:
+    id: 1
+    label: "2m"
+    seconds: 120
+    models: [tcn, lstm]
+    ecc_op: ecdsa_r_s_scan
+    retrain_schedule: "2h"
+    min_workers: 2
+    max_bar_lookback: 200
+
+  h3:
+    id: 2
+    label: "5m"
+    seconds: 300
+    models: [tft, cnn]
+    ecc_op: secp256k1_schnorr
+    retrain_schedule: "4h"
+    min_workers: 1
+    max_bar_lookback: 200
+
+  h4:
+    id: 3
+    label: "15m"
+    seconds: 900
+    models: [tft, gru]
+    ecc_op: utxo_curvature
+    retrain_schedule: "6h"
+    min_workers: 1
+    max_bar_lookback: 200
+
+  h5:
+    id: 4
+    label: "1h"
+    seconds: 3600
+    models: [tft, patchtst]
+    ecc_op: schnorr_taproot
+    retrain_schedule: daily
+    min_workers: 1
+    max_bar_lookback: 168   # 1 week of 1h bars
+
+  h6:
+    id: 5
+    label: "4h"
+    seconds: 14400
+    models: [lstm, nbeats]
+    ecc_op: utxo_cluster
+    retrain_schedule: daily
+    min_workers: 1
+    max_bar_lookback: 180
+
+  h7:
+    id: 6
+    label: "1D"
+    seconds: 86400
+    models: [nbeats, mlp]
+    ecc_op: full_ecc_suite
+    retrain_schedule: weekly
+    min_workers: 1
+    max_bar_lookback: 365
+
+  h8:
+    id: 7
+    label: "3D"
+    seconds: 259200
+    models: [maml, mlp]
+    ecc_op: zksnark_flows
+    retrain_schedule: weekly
+    min_workers: 1
+    max_bar_lookback: 120
+
+  h9:
+    id: 8
+    label: "1W"
+    seconds: 604800
+    models: [conformer, gru]
+    ecc_op: full_ecc_addr_graph
+    retrain_schedule: biweekly
+    min_workers: 1
+    max_bar_lookback: 52
+
+  h10:
+    id: 9
+    label: "1M"
+    seconds: 2592000
+    models: [maml, mlp, gnn]
+    ecc_op: deep_ecc_struct
+    retrain_schedule: monthly
+    min_workers: 1
+    max_bar_lookback: 24

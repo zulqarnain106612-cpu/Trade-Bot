@@ -1,0 +1,95 @@
+"""
+GNN head — 3-layer Graph Attention Network (GAT) over asset correlation graph.
+
+Uses torch_geometric for graph operations.
+Nodes = crypto assets; edges = rolling Pearson correlation (abs(rho) > threshold).
+Each node holds a feature vector; GAT aggregates neighbor information with
+8 attention heads per layer and edge dropout 0.1.
+
+Input:  torch_geometric.data.Data with x=[N, F], edge_index=[2, E], batch=[N]
+Output: [B, 128] — global mean pool of node embeddings
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+import torch.nn as nn
+
+
+class GNNHead(nn.Module):
+    """
+    3-layer Graph Attention Network (GAT) for asset correlation graph.
+
+    Falls back gracefully to a simple MLP when torch_geometric is not installed.
+    """
+
+    def __init__(
+        self,
+        node_features: int = 32,
+        hidden_dim: int = 64,
+        n_heads: int = 8,
+        edge_dropout: float = 0.1,
+        d_model: int = 128,
+    ) -> None:
+        super().__init__()
+        self._pyg_available = False
+        try:
+            from torch_geometric.nn import GATConv  # type: ignore[import]
+
+            self.conv1 = GATConv(
+                node_features, hidden_dim, heads=n_heads, dropout=edge_dropout, concat=True
+            )
+            self.conv2 = GATConv(
+                hidden_dim * n_heads, hidden_dim, heads=n_heads, dropout=edge_dropout, concat=True
+            )
+            self.conv3 = GATConv(
+                hidden_dim * n_heads, hidden_dim, heads=1, dropout=edge_dropout, concat=False
+            )
+            self._pyg_available = True
+        except ImportError:
+            pass
+
+        self.fallback_mlp = nn.Sequential(
+            nn.Linear(node_features, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.proj = nn.Sequential(
+            nn.Linear(hidden_dim, d_model),
+            nn.LayerNorm(d_model),
+        )
+        self.elu = nn.ELU()
+
+    def forward(self, data: Any) -> torch.Tensor:  # type: ignore[override]
+        """
+        data: torch_geometric Data object with x, edge_index, batch
+              OR a plain tensor [B*N, F] (fallback path)
+        returns: [B, 128]
+        """
+        if self._pyg_available:
+            from torch_geometric.nn import global_mean_pool  # type: ignore[import]
+
+            x, edge_index, batch = data.x, data.edge_index, data.batch
+            x = self.elu(self.conv1(x, edge_index))
+            x = self.elu(self.conv2(x, edge_index))
+            x = self.elu(self.conv3(x, edge_index))
+            pooled = global_mean_pool(x, batch)  # [B, hidden_dim]
+            return self.proj(pooled)
+
+        # Fallback: treat data as [B, N, F] and mean-pool
+        if isinstance(data, torch.Tensor):
+            x = data
+            if x.dim() == 3:
+                pooled = self.fallback_mlp(x).mean(dim=1)
+            else:
+                pooled = self.fallback_mlp(x)
+            return self.proj(pooled)
+
+        x = data.x
+        if x.dim() == 2:
+            pooled = self.fallback_mlp(x).mean(dim=0, keepdim=True)
+        else:
+            pooled = self.fallback_mlp(x)
+        return self.proj(pooled)
