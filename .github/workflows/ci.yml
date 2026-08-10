@@ -51,6 +51,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
+      - name: Requirements drift check
+        # A package declared only in requirements.txt is never installed: the
+        # lock CI installs is compiled from requirements.in alone. duckdb sat
+        # in that state and every DuckDBStore test failed on ModuleNotFoundError.
+        # Runs before install so drift fails fast, on stdlib only.
+        run: python scripts/check_requirements_sync.py
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

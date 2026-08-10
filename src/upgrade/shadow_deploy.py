@@ -144,13 +144,25 @@ class ShadowDeployer:
     def ready_to_evaluate(self) -> bool:
         return self._active and self._incumbent.age_hours() >= self._shadow_hours
 
-    def evaluate(self) -> ABResult:
+    def evaluate(self) -> ABResult | None:
         """
         Compare Sharpe ratios and decide whether to promote challenger.
 
         If challenger Sharpe > incumbent Sharpe + epsilon, challenger is
         promoted (caller is responsible for swapping the live model).
+
+        Returns None until the shadow window has elapsed: judging a
+        challenger on a partial window — or on the -999 no-samples sentinel
+        both sides return — would promote a model on noise.
         """
+        if not self.ready_to_evaluate():
+            log.debug(
+                "shadow_deploy_not_ready",
+                age_hours=self._incumbent.age_hours(),
+                shadow_hours=self._shadow_hours,
+            )
+            return None
+
         inc_sharpe = self._incumbent.sharpe()
         cha_sharpe = self._challenger.sharpe()
         promote = cha_sharpe > inc_sharpe + self._sharpe_epsilon

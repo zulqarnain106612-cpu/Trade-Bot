@@ -84,6 +84,7 @@ class AssetGNNLayer:
 
             return True
         except ImportError:
+            log.warning("torch_geometric_not_installed_using_correlation_fallback")
             return False
 
     def aggregate(
@@ -168,7 +169,7 @@ class AssetGNN:
             self._pyg_model = _PYGModel()
             log.info("asset_gnn_pyg_model_ready")
         except ImportError:
-            pass
+            log.warning("torch_geometric_not_installed_gat_model_unavailable")
 
     def run(
         self,
