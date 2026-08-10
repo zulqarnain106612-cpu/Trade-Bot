@@ -1,5 +1,8 @@
 # Direct dependencies only — used by pip-compile to generate requirements.lock
-# Run: pip-compile --generate-hashes requirements.in -o requirements.lock
+# Run, ON PYTHON 3.11 to match CI (pip-compile resolves per interpreter — a lock
+# built on a newer Python drops 3.11-only transitive deps and pins wheels 3.11
+# cannot install, and only CI finds out):
+#   python3.11 -m piptools compile --allow-unsafe --generate-hashes requirements.in -o requirements.lock
 # Then commit requirements.lock and use in CI with: pip install --require-hashes -r requirements.lock
 
 fastapi>=0.139.0,<1.0
@@ -14,6 +17,7 @@ numpy>=1.26,<3.0
 scipy>=1.13,<2.0
 statsmodels>=0.14,<1.0
 torch>=2.4,<3.0  # GAP-015: EnsemblePredictor LSTMPredictor — CPU-only, no CUDA needed
+river>=0.21,<1.0            # src/risk/gate.py — ADWIN drift detection in the sizing gate
 python-dotenv>=1.0,<2.0
 aiosqlite>=0.20,<1.0
 duckdb>=1.0,<2.0            # src/data/duckdb_store.py — OLAP store for horizon/ECC metrics

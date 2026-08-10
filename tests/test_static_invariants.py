@@ -254,3 +254,116 @@ def test_name_defined_twice_with_different_signatures_is_skipped(invariants, fak
     fake_tree("src/b.py", "def build(beta=None):\n    return beta\n")
     fake_tree("tests/test_build.py", "from src.b import build\ndef test_it():\n    build(beta=1)\n")
     assert invariants.check_keyword_arguments_match_signatures() == []
+
+
+# ---------------------------------------------------------------------------
+# check_dataclass_attributes_exist
+# ---------------------------------------------------------------------------
+
+_RESULT_SRC = """
+from dataclasses import dataclass
+
+
+@dataclass
+class WorkerResult:
+    horizon_id: int
+    confidence: float
+
+    def label(self) -> str:
+        return str(self.horizon_id)
+
+
+@dataclass
+class Bag:
+    items: list
+
+
+@dataclass
+class Derived(Bag):
+    extra: int
+"""
+
+
+def test_renamed_dataclass_field_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/workers.py", _RESULT_SRC)
+    fake_tree(
+        "src/reader.py",
+        "from src.workers import WorkerResult\n"
+        "def read():\n"
+        "    r = WorkerResult(horizon_id=1, confidence=0.5)\n"
+        "    return r.horizon_idx\n",
+    )
+    problems = invariants.check_dataclass_attributes_exist()
+    assert len(problems) == 1
+    assert "WorkerResult has no attribute 'horizon_idx'" in problems[0]
+
+
+def test_existing_field_and_method_pass(invariants, fake_tree) -> None:
+    """Methods defined on the dataclass are reachable too, not just fields."""
+    fake_tree("src/workers.py", _RESULT_SRC)
+    fake_tree(
+        "src/reader.py",
+        "from src.workers import WorkerResult\n"
+        "def read():\n"
+        "    r = WorkerResult(horizon_id=1, confidence=0.5)\n"
+        "    return r.horizon_id, r.confidence, r.label()\n",
+    )
+    assert invariants.check_dataclass_attributes_exist() == []
+
+
+def test_field_reached_through_an_annotated_list_is_flagged(invariants, fake_tree) -> None:
+    """
+    The real defect took this shape: a list built up over a loop, then
+    ``max()``-ed, then read. Nothing in between states the type but the
+    annotation on the empty list.
+    """
+    fake_tree("src/workers.py", _RESULT_SRC)
+    fake_tree(
+        "src/reader.py",
+        "from src.workers import WorkerResult\n"
+        "def read(source):\n"
+        "    results: list[WorkerResult] = []\n"
+        "    for item in source:\n"
+        "        results.append(item)\n"
+        "    best = max(results, key=lambda r: r.confidence)\n"
+        "    return best.horizon_idx\n",
+    )
+    problems = invariants.check_dataclass_attributes_exist()
+    assert len(problems) == 1
+    assert "has no attribute 'horizon_idx'" in problems[0]
+
+
+def test_subclass_is_not_checked(invariants, fake_tree) -> None:
+    """Inherited attributes are invisible to an AST pass — do not guess."""
+    fake_tree("src/workers.py", _RESULT_SRC)
+    fake_tree(
+        "src/reader.py",
+        "from src.workers import Derived\n"
+        "def read():\n"
+        "    d = Derived(items=[], extra=1)\n"
+        "    return d.items\n",
+    )
+    assert invariants.check_dataclass_attributes_exist() == []
+
+
+def test_rebound_name_is_dropped(invariants, fake_tree) -> None:
+    """Once a name holds something else, nothing can be concluded about it."""
+    fake_tree("src/workers.py", _RESULT_SRC)
+    fake_tree(
+        "src/reader.py",
+        "from src.workers import WorkerResult\n"
+        "def read(other):\n"
+        "    r = WorkerResult(horizon_id=1, confidence=0.5)\n"
+        "    r = other\n"
+        "    return r.anything_at_all\n",
+    )
+    assert invariants.check_dataclass_attributes_exist() == []
+
+
+def test_non_dataclass_is_not_checked(invariants, fake_tree) -> None:
+    fake_tree("src/plain.py", "class Plain:\n    def __init__(self):\n        self.x = 1\n")
+    fake_tree(
+        "src/reader.py",
+        "from src.plain import Plain\ndef read():\n    p = Plain()\n    return p.whatever\n",
+    )
+    assert invariants.check_dataclass_attributes_exist() == []

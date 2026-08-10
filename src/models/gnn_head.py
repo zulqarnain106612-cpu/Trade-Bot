@@ -14,8 +14,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
 import torch
 import torch.nn as nn
+
+
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 class GNNHead(nn.Module):
@@ -49,7 +53,7 @@ class GNNHead(nn.Module):
             )
             self._pyg_available = True
         except ImportError:
-            pass
+            log.warning("torch_geometric_not_installed_using_mlp_fallback_head")
 
         self.fallback_mlp = nn.Sequential(
             nn.Linear(node_features, hidden_dim),
@@ -78,18 +82,11 @@ class GNNHead(nn.Module):
             pooled = global_mean_pool(x, batch)  # [B, hidden_dim]
             return self.proj(pooled)
 
-        # Fallback: treat data as [B, N, F] and mean-pool
-        if isinstance(data, torch.Tensor):
-            x = data
-            if x.dim() == 3:
-                pooled = self.fallback_mlp(x).mean(dim=1)
-            else:
-                pooled = self.fallback_mlp(x)
-            return self.proj(pooled)
+        # Fallback: mean-pool over nodes, mirroring global_mean_pool above.
+        x = data if isinstance(data, torch.Tensor) else data.x
+        return self.proj(self._pool_nodes(x))
 
-        x = data.x
-        if x.dim() == 2:
-            pooled = self.fallback_mlp(x).mean(dim=0, keepdim=True)
-        else:
-            pooled = self.fallback_mlp(x)
-        return self.proj(pooled)
+    def _pool_nodes(self, x: torch.Tensor) -> torch.Tensor:
+        """[B, N, F] → [B, hidden]; [N, F] (one graph) → [1, hidden]."""
+        h = self.fallback_mlp(x)
+        return h.mean(dim=1) if x.dim() == 3 else h.mean(dim=0, keepdim=True)

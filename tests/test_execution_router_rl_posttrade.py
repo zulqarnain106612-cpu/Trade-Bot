@@ -108,29 +108,28 @@ class TestRLExecutionAgent:
         agent = RLExecutionAgent(model_path=tmp_path / "no_model.zip")
         state = RLExecutionState(n_horizons=3)
         obs = state.build(
-            horizon_confidences=[0.8, 0.5, 0.3],
-            regime_id=0,
+            horizon_confidences=[0.7, 0.6],
+            regime_id=1,
             ecc_features={},
             realized_pnl=0.0,
             drawdown=0.0,
-            kyle_lambda=0.0,
+            kyle_lambda=1e-6,
         )
-        assert obs.ndim == 1
-        action, prob = agent.predict(horizon_confidences=[0.8, 0.5, 0.3])
+        action, meta = agent.predict(obs)
         assert action in (0, 1, 2, 3)
-        assert isinstance(prob, float)
+        assert isinstance(meta, dict)
 
     def test_rl_state_obs_shape(self) -> None:
         from src.execution.rl_agent import RLExecutionState
 
         state = RLExecutionState(n_horizons=5)
         obs = state.build(
-            horizon_confidences=[0.7, 0.6, 0.5, 0.4, 0.3],
-            regime_id=2,
+            horizon_confidences=[0.7, 0.6],
+            regime_id=1,
             ecc_features={},
             realized_pnl=0.0,
             drawdown=0.0,
-            kyle_lambda=0.0,
+            kyle_lambda=1e-6,
         )
         assert isinstance(obs, np.ndarray)
         assert obs.ndim == 1

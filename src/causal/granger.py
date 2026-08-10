@@ -14,6 +14,7 @@ Output:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -26,6 +27,16 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _MAX_LAG = 5  # test lags 1..5 bars
 _PVALUE_THRESHOLD = 0.05
 _MIN_WINDOW = 60  # minimum observations for reliable test
+
+
+_SeriesLike = pd.Series | np.ndarray | Sequence[float]
+
+
+def _as_series(values: _SeriesLike) -> pd.Series:
+    """Coerce any array-like of floats to a float64 Series."""
+    if isinstance(values, pd.Series):
+        return values.astype(float)
+    return pd.Series(np.asarray(values, dtype=float))
 
 
 @dataclass
@@ -53,17 +64,21 @@ class GrangerCausalityDetector:
 
     def update(
         self,
-        btc_returns: pd.Series,
-        alt_prices: dict[str, pd.Series],
+        btc_returns: _SeriesLike,
+        alt_prices: dict[str, _SeriesLike],
     ) -> dict[str, GrangerResult]:
         """
         Update Granger tests with new return data.
 
-        btc_returns: pd.Series of BTC log-returns
-        alt_prices:  dict symbol → pd.Series of prices
+        btc_returns: BTC log-returns as a pd.Series, ndarray or plain sequence
+        alt_prices:  dict symbol → prices in any of the same forms
+
+        The live caller (`src.intel`) holds raw numpy/list buffers rather than
+        pandas objects, so everything is coerced to a Series up front.
 
         Returns dict of GrangerResult per alt symbol.
         """
+        btc_returns = _as_series(btc_returns)
         if len(btc_returns) < _MIN_WINDOW:
             return self._results
 
@@ -75,8 +90,9 @@ class GrangerCausalityDetector:
 
         btc_ret = btc_returns.dropna().iloc[-self._window :]
 
-        for symbol, prices in alt_prices.items():
+        for symbol, raw_prices in alt_prices.items():
             try:
+                prices = _as_series(raw_prices)
                 alt_ret = np.log(prices / prices.shift(1)).dropna().iloc[-self._window :]
                 n = min(len(btc_ret), len(alt_ret))
                 if n < _MIN_WINDOW:
