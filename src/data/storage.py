@@ -731,12 +731,36 @@ class StorageBackend:
         The lock is held for the full duration of the bulk write.
         """
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute("PRAGMA synchronous=NORMAL")
             try:
                 yield
             finally:
                 await conn.execute("PRAGMA synchronous=FULL")
+
+    @asynccontextmanager
+    async def _write_ctx(self) -> AsyncIterator[None]:
+        """
+        Hold the write lock and never release it with a transaction open.
+
+        BUGFIX-001 (see insert_trade) established why: a statement that
+        raises inside the lock leaves the shared connection holding an open
+        transaction, which deadlocks every subsequent write including the WAL
+        checkpoint on close(). That reasoning was applied at exactly one of
+        the eleven write sites -- update_trade_exit, its direct twin, could
+        strand the connection on any UPDATE failure and take the whole
+        storage layer down with it.
+
+        Rolling back a connection with no open transaction is a no-op, so
+        this is safe to wrap around writes that handle their own errors.
+        """
+        conn = self._require_conn()
+        async with self._get_lock():
+            try:
+                yield
+            except BaseException:
+                await conn.rollback()
+                raise
 
     # ------------------------------------------------------------------
     # Bars
@@ -1096,7 +1120,7 @@ class StorageBackend:
         """
         conn = self._require_conn()
         cutoff_ms = int((datetime.now(tz=UTC).timestamp() - keep_days * 86400) * 1000)
-        async with self._get_lock():
+        async with self._write_ctx():
             cursor = await conn.execute(
                 "DELETE FROM bars WHERE symbol=? AND timeframe=? AND ts<?",
                 (symbol, timeframe, cutoff_ms),
@@ -1119,7 +1143,7 @@ class StorageBackend:
     async def insert_trade(self, trade: TradeRecord) -> None:
         """Insert a new trade record.  Raises ValueError if id already exists."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             try:
                 await conn.execute(
                     """
@@ -1184,7 +1208,7 @@ class StorageBackend:
     ) -> None:
         """Patch exit fields on an existing trade row."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             cursor = await conn.execute(
                 """
                 UPDATE trades
@@ -1350,7 +1374,7 @@ class StorageBackend:
     async def upsert_regime_snapshot(self, snap: RegimeSnapshotRecord) -> None:
         """Insert or replace regime state at a bar timestamp."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT OR REPLACE INTO regime_snapshots
@@ -1486,7 +1510,7 @@ class StorageBackend:
         wrap this in try/except, matching the metrics-push pattern
         elsewhere in the orchestrator."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT OR IGNORE INTO missed_trades (
@@ -1555,7 +1579,7 @@ class StorageBackend:
     async def insert_model_metrics(self, metrics: ModelMetricsRecord) -> None:
         """Persist a CPCV OOS evaluation result."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT OR REPLACE INTO model_metrics
@@ -1784,7 +1808,7 @@ class StorageBackend:
         """Persist an audit event (e.g. execution mode change) to audit_log."""
         conn = self._require_conn()
         details_json = json.dumps(details or {})
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT INTO audit_log (event_type, operator, details)
