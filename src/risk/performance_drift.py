@@ -167,6 +167,15 @@ class PerformanceDriftDetector:
         """Return training baseline (immutable)."""
         return self._baseline
 
+    @property
+    def total_live_trades(self) -> int:
+        """
+        Live trades recorded since construction — monotonic, unlike the
+        rolling windows. Lets a caller tell "new evidence arrived" from
+        "the same window was polled again".
+        """
+        return self._total_live_trades
+
     def record_trade_outcome(
         self,
         pnl_usd: float,

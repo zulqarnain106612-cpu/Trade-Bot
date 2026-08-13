@@ -1073,6 +1073,71 @@ class TestTask010FundingRateWiring:
         assert ctx.spread_bps > 0.0, "spread_bps must be positive when orderbook is live"
 
     @pytest.mark.asyncio
+    async def test_slippage_model_gets_half_the_quoted_spread(self):
+        """
+        SlippageModel is documented in half-spread units (mid -> touch), while
+        SignalContext.spread_bps carries the full quoted width. Feeding the
+        full width in would double the modelled crossing cost.
+        """
+        captured_spreads: list[float] = []
+        captured_ctx: list = []
+
+        def _capturing_cog():
+            cog = MagicMock()
+            res = MagicMock()
+            res.passed = True
+            res.veto_reason = ""
+            res.adjusted_size_fraction = 0.05
+            cog.evaluate = lambda ctx: (captured_ctx.append(ctx), res)[1]
+            return cog
+
+        class _CapturingSlippageModel:
+            def estimate(self, **kwargs):
+                captured_spreads.append(kwargs["spread_bps"])
+                raise RuntimeError("capture only — tick must survive this")
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_capturing_cog()),
+            patch("src.engine.signal_engine.SlippageModel", _CapturingSlippageModel),
+        ):
+            await e.tick(**_TICK)
+
+        assert captured_spreads, "SlippageModel.estimate must be called on a live orderbook"
+        assert captured_ctx, "CognitiveEngine.evaluate must be called"
+        assert captured_spreads[0] == pytest.approx(captured_ctx[0].spread_bps / 2.0)
+
+    @pytest.mark.asyncio
     async def test_funding_rate_defaults_zero_on_fetch_error(self):
         """fetch_funding_rate raising must not crash tick; funding_rate_8h falls back to 0.0."""
         e = _make_engine()
