@@ -102,9 +102,7 @@ def test_strategy_uses_the_context_horizon() -> None:
     from src.strategies.basis_trade import BasisTradeContext, BasisTradeStrategy
 
     strategy = BasisTradeStrategy(0.10)
-    near = strategy.generate_signal(
-        BasisTradeContext(spot_price=100.0, perp_price=100.05)
-    )
+    near = strategy.generate_signal(BasisTradeContext(spot_price=100.0, perp_price=100.05))
     far = strategy.generate_signal(
         BasisTradeContext(
             spot_price=100.0,
