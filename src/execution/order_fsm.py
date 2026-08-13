@@ -25,9 +25,11 @@ State persistence enables:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Final
 
 import structlog
@@ -143,21 +145,36 @@ class OrderFSM:
       - Timeout transition escalates PENDING→TIMEOUT or FILLING→TIMEOUT
     """
 
-    # Valid transitions: current_status -> list of valid next statuses
-    _VALID_TRANSITIONS: Final[dict[OrderStatus, set[OrderStatus]]] = {
-        OrderStatus.PENDING: {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED},
-        OrderStatus.FILLING: {
-            OrderStatus.FILLING,
-            OrderStatus.FILLED,
-            OrderStatus.CANCELLED,
-            OrderStatus.TIMEOUT,
-            OrderStatus.FAILED,
-        },  # FILLING self-transition = partial fill aggregation
-        OrderStatus.FILLED: set(),  # Terminal
-        OrderStatus.CANCELLED: set(),  # Terminal
-        OrderStatus.TIMEOUT: set(),  # Terminal
-        OrderStatus.FAILED: set(),  # Terminal
-    }
+    # Valid transitions: current_status -> set of valid next statuses.
+    #
+    # frozenset values, not set: transition_to() hands the caller a reference
+    # to the inner collection via .get(), so a mutable one would let any
+    # caller edit the transition table for every OrderFSM in the process.
+    # Final prevents rebinding the dict; it does not prevent editing what is
+    # inside it, and this is the table that decides whether an order may
+    # legally move between states.
+    # MappingProxyType is what actually closes that hole: the values are
+    # already frozensets, so wrapping the outer dict makes the whole table
+    # unwritable rather than merely unrebindable.
+    _VALID_TRANSITIONS: Final[Mapping[OrderStatus, frozenset[OrderStatus]]] = MappingProxyType({
+        OrderStatus.PENDING: frozenset(
+            {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED}
+        ),
+        # FILLING self-transition = partial fill aggregation
+        OrderStatus.FILLING: frozenset(
+            {
+                OrderStatus.FILLING,
+                OrderStatus.FILLED,
+                OrderStatus.CANCELLED,
+                OrderStatus.TIMEOUT,
+                OrderStatus.FAILED,
+            }
+        ),
+        OrderStatus.FILLED: frozenset(),  # Terminal
+        OrderStatus.CANCELLED: frozenset(),  # Terminal
+        OrderStatus.TIMEOUT: frozenset(),  # Terminal
+        OrderStatus.FAILED: frozenset(),  # Terminal
+    })
 
     def __init__(self, state: OrderFSMState):
         """Initialize FSM with initial state."""
@@ -194,7 +211,7 @@ class OrderFSM:
             )
 
         # Validate transition
-        valid_next = self._VALID_TRANSITIONS.get(self._state.status, set())
+        valid_next = self._VALID_TRANSITIONS.get(self._state.status, frozenset())
         if next_status not in valid_next:
             raise OrderFSMError(
                 f"Invalid transition: {self._state.status.value} → {next_status.value}. "

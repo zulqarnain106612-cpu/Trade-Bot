@@ -160,6 +160,19 @@ class RiskSettings(BaseSettings):
     max_drawdown_threshold: float = Field(default=15.0, ge=1.0, le=100.0)
     min_trades_live_gate: int = Field(default=500, ge=1)
 
+    # Gate 10 (whale taker-flow) posture. The gate is documented as advisory
+    # — reduce size, do not block — but shipped as a veto, and has vetoed for
+    # its whole life. Defaulting this to False preserves that behaviour;
+    # turning it on is a deliberate trading-policy change that lets trades
+    # through at whale_scalar of their size instead of being blocked.
+    whale_gate_advisory: bool = Field(
+        default=False,
+        description=(
+            "When true, REDUCE_WHALE_ACTIVITY passes with a size scalar "
+            "instead of blocking the trade."
+        ),
+    )
+
     # Restricted mode approval window
     notional_limit_usd: float = Field(
         default=100.0,
@@ -255,14 +268,23 @@ class RiskSettings(BaseSettings):
         default=2.0,
         ge=0.1,
         le=50.0,
-        description="Close position when unrealized loss reaches this pct of notional",
+        description=(
+            "Close position when unrealized loss reaches this pct of notional. "
+            "Gross: fees are not deducted before the comparison, so the booked "
+            "loss is this plus the round trip (~0.2% at a 0.1% taker fee)."
+        ),
     )
     take_profit_enabled_default: bool = Field(default=True)
     take_profit_pct_default: float = Field(
         default=4.0,
         ge=0.1,
         le=200.0,
-        description="Close position when unrealized gain reaches this pct of notional",
+        description=(
+            "Close position when unrealized gain reaches this pct of notional. "
+            "Gross: the booked gain is this minus the round trip (~0.2% at a "
+            "0.1% taker fee), and a target below the round trip cannot be "
+            "profitable at all."
+        ),
     )
     max_holding_period_s_default: float = Field(
         default=86400.0,
@@ -720,6 +742,31 @@ class StrategyPortfolioSettings(BaseSettings):
 
     mean_reversion_enabled: bool = Field(default=False)
     mean_reversion_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+    mean_reversion_pair: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exactly two symbols [A, B] traded as a cointegrated pair, or "
+            "empty (the default) to leave that family abstaining. Direction "
+            "is with respect to A. Cointegration is retested on every data "
+            "refresh rather than assumed once: pair relationships break, and "
+            "a pair that has decohered is the single most expensive input "
+            "this family can be given."
+        ),
+    )
+    mean_reversion_window: int = Field(
+        default=30,
+        ge=5,
+        description="Rolling window for the pair's spread z-score, in bars.",
+    )
+
+    @field_validator("mean_reversion_pair")
+    @classmethod
+    def _validate_pair(cls, v: list[str]) -> list[str]:
+        if v and len(v) != 2:
+            raise ValueError(f"mean_reversion_pair needs exactly two symbols, got {len(v)}")
+        if v and v[0] == v[1]:
+            raise ValueError("mean_reversion_pair must name two different symbols")
+        return v
 
     breakout_enabled: bool = Field(default=False)
     breakout_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
@@ -729,9 +776,58 @@ class StrategyPortfolioSettings(BaseSettings):
 
     xsec_momentum_enabled: bool = Field(default=False)
     xsec_momentum_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+    xsec_universe: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Symbols ranked against each other by the cross-sectional momentum "
+            "family. Empty (the default) leaves that family abstaining rather "
+            "than guessing a universe: which assets belong in a cross-section "
+            "is a trading decision, and a plausible-looking default would be "
+            "one the operator never made. The family needs at least 10 symbols "
+            "to rank a decile, so a shorter list still abstains."
+        ),
+    )
+    xsec_lookback_days: int = Field(
+        default=30,
+        ge=2,
+        description="Trailing-return window used to rank the universe.",
+    )
+    xsec_refresh_interval_s: float = Field(
+        default=3600.0,
+        gt=0.0,
+        description=(
+            "TTL on the universe snapshot. A 30-day trailing return does not "
+            "move between two 15m ticks, and refetching per tick would "
+            "multiply this bot's request rate by the universe size for "
+            "information that changes daily."
+        ),
+    )
 
     basis_trade_enabled: bool = Field(default=False)
     basis_trade_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    basis_days_to_convergence: float = Field(
+        default=1.0,
+        gt=0.0,
+        description=(
+            "Days over which the spot-perp gap is assumed to converge. This "
+            "is the denominator of the basis annualization and sets the whole "
+            "scale of that signal: at the default 1 day a raw gap of 0.0137% "
+            "already clears the 5% entry threshold, which is routine for a "
+            "perp. Raise it to make the family require a wider gap. The "
+            "default reproduces the behaviour the code has always had."
+        ),
+    )
+    basis_perp_symbol: str = Field(
+        default="",
+        description=(
+            "Perpetual contract quoted against primary_symbol's spot price by "
+            "the basis family (ccxt form, e.g. 'BTC/USDT:USDT'). Empty (the "
+            "default) leaves that family abstaining. Not derived from "
+            "primary_symbol on the fly: the spot/perp mapping is venue- and "
+            "settlement-specific, and a wrong guess would price the basis of "
+            "one instrument against another and call the difference an edge."
+        ),
+    )
 
     cross_exchange_arb_enabled: bool = Field(default=False)
     cross_exchange_arb_fraction: float = Field(default=0.10, gt=0.0, le=1.0)

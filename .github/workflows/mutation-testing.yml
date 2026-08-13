@@ -64,7 +64,7 @@ jobs:
       shard_count: ${{ steps.resolve.outputs.shard_count }}
       per_mutant_timeout_seconds: ${{ steps.resolve.outputs.per_mutant_timeout_seconds }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
@@ -89,10 +89,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # requirements.lock pins numpy==2.5.0 (needs Python>=3.12) and is
-          # broken against this workflow's Python 3.11 — same issue found in
-          # ci.yml's primary install path during local investigation, tracked
-          # separately. Use the version-range requirements.txt instead.
+          # NOTE: the numpy==2.5.0 claim this comment used to make was stale.
+          # The lock is compiled on Python 3.11 and pins numpy 2.4.6, which
+          # installs fine here. requirements.txt is a version-range mirror of
+          # requirements.in (enforced by scripts/check_requirements_sync.py) so
+          # this install is correct either way, but moving to
+          # `--require-hashes -r requirements.lock` would be strictly better.
           pip install -r requirements.txt -r requirements-dev.txt -e .
           pip install "cosmic-ray==${{ env.COSMIC_RAY_VERSION }}"
 
@@ -140,7 +142,7 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.prepare.outputs.shard_matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
@@ -150,10 +152,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # requirements.lock pins numpy==2.5.0 (needs Python>=3.12) and is
-          # broken against this workflow's Python 3.11 — same issue found in
-          # ci.yml's primary install path during local investigation, tracked
-          # separately. Use the version-range requirements.txt instead.
+          # NOTE: the numpy==2.5.0 claim this comment used to make was stale.
+          # The lock is compiled on Python 3.11 and pins numpy 2.4.6, which
+          # installs fine here. requirements.txt is a version-range mirror of
+          # requirements.in (enforced by scripts/check_requirements_sync.py) so
+          # this install is correct either way, but moving to
+          # `--require-hashes -r requirements.lock` would be strictly better.
           pip install -r requirements.txt -r requirements-dev.txt -e .
           pip install "cosmic-ray==${{ env.COSMIC_RAY_VERSION }}"
 
@@ -180,7 +184,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:

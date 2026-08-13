@@ -123,6 +123,7 @@ def _validate_operator(v: str) -> str:
 class AppState:
     storage: AnyStorageBackend
     orchestrator: Orchestrator | None
+    intel_adapter: Any | None  # IntelligenceAdapter (crypto-intel-v6); None when disabled
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
     _MODE_CHANGE_LIMIT: int = 3
@@ -132,6 +133,7 @@ class AppState:
 
     def __init__(self) -> None:
         self.ready = False
+        self.intel_adapter = None
         self.orchestrator: Orchestrator | None = None  # set in lifespan after startup()
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
@@ -288,6 +290,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             raise
         _state.ready = True  # NEW-001: mark ready only after full startup
 
+        # crypto-intel-v6: start IntelligenceAdapter when INTEL_ENABLED=true
+        if os.environ.get("INTEL_ENABLED", "false").lower() == "true":
+            try:
+                from src.intel import CryptoIntelligence
+                from src.intelligence.intelligence_adapter import IntelligenceAdapter
+
+                _intel = CryptoIntelligence()
+                _intel.start()
+                _state.intel_adapter = IntelligenceAdapter(_intel, _state.storage)
+                log.info("api.crypto_intel_v6_started")
+            except Exception as _exc:
+                log.warning("api.crypto_intel_v6_start_failed", exc=str(_exc))
+
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
@@ -310,6 +325,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
+        if _state.intel_adapter is not None:
+            try:
+                intel_obj = getattr(_state.intel_adapter, "_intel", None)
+                if intel_obj is not None:
+                    intel_obj.close()
+            except Exception as _exc:
+                log.warning("api.crypto_intel_close_failed", exc=str(_exc))
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
@@ -1404,6 +1426,11 @@ async def audit_chain_integrity(
         "intact": intact,
         "first_broken_sequence": first_broken,
         "entry_count": len(entries),
+        # entry_count is the RETAINED window, which is bounded. Reporting it
+        # alone would let a caller read "intact over 100k entries" as "intact
+        # over all history" once eviction has begun — different claims.
+        "total_recorded": trail.total_recorded(),
+        "evicted_count": trail.evicted_count(),
         "recent": [
             {
                 "sequence": e.sequence,
@@ -1992,6 +2019,67 @@ async def re_enable_strategy(
         forced=body.force,
     )
     return {"strategy_id": strategy_id, "enabled": True, "forced": body.force}
+
+
+@app.get("/strategies/portfolio", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_portfolio(timeframe: str | None = None) -> dict[str, Any]:
+    """
+    What every registered strategy actually said on its last evaluation.
+
+    /strategies/allocation answers "how is capital split?"; this answers the
+    question that had no answer at all before the portfolio runner existed:
+    "was each strategy even asked, and what did it reply?".
+
+    Each verdict carries a status that distinguishes the cases that used to
+    be indistinguishable:
+
+      signal        — polled, voted directionally
+      flat          — polled, no directional opinion
+      regime_gated  — polled, returned regime_fit == 0 (a hard "not here")
+      abstained     — never polled: no context could be built from live data
+      disabled      — kill-switched out of the enabled set
+      error         — raised; recorded here, never raised into the trade path
+
+    A standing `abstained` with reason `no_context_builder` is the honest
+    report that a registered family has no data feed in this process yet —
+    it is a wiring gap to close, not a broken strategy.
+
+    The reported `direction` is 0 whenever `conflict` is true: a portfolio
+    whose members disagree has no direction worth acting on, and reporting
+    the narrow winner would hide the disagreement. `raw_direction` keeps the
+    pre-gate winner for diagnosis.
+
+    Alongside the full evaluation each timeframe carries:
+
+      peer             — the same poll with the incumbent excluded, which is
+                         what "does the rest of the book agree?" actually
+                         means. Including signal_engine_v1 would let the
+                         incumbent confirm itself.
+      agreement_scalar — the shrink-only size ceiling in (0, 1] implied by
+                         the peer view of the incumbent's direction. 1.0
+                         means no reduction; agreement is never worth more
+                         than that, because a correlated cluster of
+                         strategies must not bid its own size up.
+
+    Read-only and advisory: this reports the portfolio's opinion and the
+    ceiling it implies. Orders are still routed only by the signal engine
+    through Kelly and the risk gates, and `agreement_scalar` is reported
+    rather than applied — folding it into sizing means re-running the
+    exchange min-amount/min-cost filters against the shrunk quantity, which
+    is a separate change to the sizing tail.
+
+    Query parameters
+    ----------------
+    timeframe : restrict to one timeframe (e.g. "15m"). Omitted returns every
+                timeframe keyed by its value.
+    """
+    orch = _state.orchestrator
+    if orch is None:
+        return {"evaluations": {}, "reason": "orchestrator_not_started"}
+    payload = orch.portfolio_evaluation(timeframe)
+    if timeframe is not None:
+        return {"timeframe": timeframe, "evaluation": payload}
+    return {"evaluations": payload}
 
 
 @app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])

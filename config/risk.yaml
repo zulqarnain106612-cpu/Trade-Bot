@@ -1,0 +1,26 @@
+---
+# Risk gate parameters — read by RiskGate and HorizonConflictResolver
+
+kelly_fraction: 0.5          # half-Kelly sizing ceiling
+conf_threshold: 0.65         # minimum confidence to pass signal gate
+sharpe_min: 1.0              # minimum estimated Sharpe to open position
+drawdown_floor: 0.10         # halt all execution at -10% drawdown
+max_daily_loss: 0.02         # halt at -2% daily P&L
+cvar_max_pct: 0.02           # max 2% portfolio CVaR per position
+max_position_pct: 0.05       # max 5% of capital per position
+horizon_size_decay: 0.1      # size multiplier decay per horizon index
+
+adwin:
+  delta: 0.002               # ADWIN sensitivity (lower = more sensitive)
+  grace_period: 100          # bars before ADWIN starts monitoring
+
+circuit_breaker:
+  enabled: true
+  daily_loss_pct: 0.02
+  drawdown_pct: 0.10
+  consecutive_losses: 5      # halt after N consecutive losses
+
+whale_alert:
+  cluster_flow_threshold: 0.85   # ECC cluster flow score → whale alert
+  ecdsa_weakness_threshold: 0.80 # ECDSA weakness score → short signal
+  hodler_supply_shock: 0.75      # hodler index → supply shock warning

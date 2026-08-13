@@ -416,7 +416,13 @@ class AutoTuningScheduler:
                 )
             else:
                 try:
-                    xgb_fm = build_feature_matrix(bars_df, cfg=self._settings.features)
+                    # Off-loop for the same reason the retrain below is: this
+                    # module's own docstring says the point is that "a
+                    # multi-second-to-minutes retrain does not" block the
+                    # loop, but the feature build feeding it ran inline.
+                    xgb_fm = await asyncio.to_thread(
+                        build_feature_matrix, bars_df, cfg=self._settings.features
+                    )
                 except ValueError as exc:
                     log.info("tuning.scheduler_xgboost_feature_matrix_unavailable", error=str(exc))
                 else:

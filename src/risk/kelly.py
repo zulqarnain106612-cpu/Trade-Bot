@@ -653,6 +653,63 @@ def compute_position_size(
     return result
 
 
+def apply_size_scalar(
+    result: KellyResult,
+    scalar: float,
+    entry_price: float,
+    amount_precision: float = 8.0,
+    min_amount: float = 0.0,
+    min_cost: float = 0.0,
+) -> KellyResult | None:
+    """
+    Shrink a sized position by *scalar*, or return None if it cannot be.
+
+    This is the piece that lets a post-sizing ceiling actually reach the
+    order. Kelly runs before the risk gates, so any scalar those gates
+    produce — the whale gate's advisory reduction, the strategy portfolio's
+    disagreement ceiling — arrives after the quantity has already been
+    computed and quantised. Multiplying the fraction at that point is not
+    enough: the *quantity* has to be requantised to the exchange's precision
+    and rechecked against its minimums, because a shrunk order is a different
+    order and has to clear the same filters the original one did.
+
+    The minimums are only as real as what the caller passes. They default to
+    0.0 here, matching compute_position_size, and for most of this codebase's
+    life nothing supplied anything else — fetch_symbol_precision existed,
+    was tested, and had no production caller, so the "recheck" was
+    quantisation alone. The orchestrator now passes the fetched filters at
+    the agreement-reduction site; a caller that leaves them at 0.0 gets a
+    weaker guarantee than this docstring otherwise implies.
+
+    Returning None means "skip this trade", and that is the only correct
+    answer when the reduced size falls below what the exchange accepts. The
+    alternative — taking the trade at its unreduced size because the
+    reduction was inconvenient — is the one outcome a ceiling must never
+    produce. It is the same contract _apply_notional_cap already honours,
+    which this delegates to rather than reimplementing so the two cannot
+    drift apart.
+
+    scalar == 1.0 short-circuits: no reduction was asked for, so the result
+    is returned untouched rather than round-tripped through quantisation
+    that could only lose precision.
+    """
+    if not 0.0 < scalar <= 1.0:
+        raise ValueError(f"scalar must be in (0, 1], got {scalar}")
+    if scalar == 1.0:
+        return result
+    if entry_price <= 0.0:
+        log.error("kelly.size_scalar_invalid_price", entry_price=entry_price)
+        return None
+    return _apply_notional_cap(
+        result,
+        result.notional_usd * scalar,
+        entry_price,
+        amount_precision,
+        min_amount,
+        min_cost,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Historical win/loss statistics helper
 # ---------------------------------------------------------------------------
@@ -726,8 +783,20 @@ def compute_win_loss_stats(
     if not wins or not losses:
         return 0.5, 1.0, 1.0, 0.5
 
-    raw_win_prob = len(wins) / len(pnl_series)
-    win_prob, win_prob_std = shrink_probability(raw_win_prob, n_obs=len(pnl_series))
+    # Denominator is the decisive trades, not the whole series. wins counts
+    # p > 0 and losses counts p < 0, so an exactly-zero scratch belongs to
+    # neither — but dividing by len(pnl_series) still charged it against the
+    # win rate, leaving win_prob and the avg_win/avg_loss payoff ratio
+    # estimated over different populations and handing Kelly two numbers
+    # that do not describe the same sample.
+    #
+    # Latent rather than live: net_pnl is gross minus both fee legs, so an
+    # exact 0.0 after rounding to 8dp needs the price move to match the fees
+    # to within 5e-9. Corrected because a self-consistent estimator costs
+    # nothing, not because this was firing.
+    decisive = len(wins) + len(losses)
+    raw_win_prob = len(wins) / decisive
+    win_prob, win_prob_std = shrink_probability(raw_win_prob, n_obs=decisive)
     avg_win = sum(wins) / len(wins)
     avg_loss = sum(losses) / len(losses)
 

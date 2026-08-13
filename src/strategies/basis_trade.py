@@ -26,19 +26,44 @@ _MAX_ANNUALIZED_BASIS_PCT_FOR_FULL_CONFIDENCE: float = 30.0
 class BasisTradeContext:
     spot_price: float
     perp_price: float
+    # Days over which the spot-perp gap is assumed to converge. This is the
+    # denominator of the annualization and therefore sets the entire scale of
+    # the signal — see compute_annualized_basis_pct. It was previously
+    # accepted here and ignored, with the horizon hardcoded to 1 day.
     days_to_perp_funding_normalization: float = 1.0
 
 
-def compute_annualized_basis_pct(spot_price: float, perp_price: float) -> float:
+def compute_annualized_basis_pct(
+    spot_price: float,
+    perp_price: float,
+    days_to_convergence: float = 1.0,
+) -> float:
     """
-    Simple annualized basis: (perp - spot) / spot * (365 / 1) — treats the
-    perp-spot gap as if it must close within a year for the annualization
-    to be comparable across venues; a simplification appropriate for a
-    carry-strength signal, not fair-value calendar-spread pricing.
+    Annualized basis: (perp - spot) / spot * 100 * (365 / days_to_convergence).
+
+    The horizon is the whole signal. A raw perp-spot gap is a few basis
+    points; what makes it a carry number is the assumption about how often
+    you capture it. At the default 1-day horizon the raw gap is multiplied by
+    365, so a 0.0137% gap already clears the strategy's 5% entry threshold
+    and a 0.082% gap saturates its 30% full-confidence ceiling — both routine
+    for a perp. That is a deliberate carry-strength convention, not fair-value
+    calendar-spread pricing, but it means the thresholds are only meaningful
+    relative to the horizon they were calibrated against.
+
+    The parameter exists so that horizon is stated rather than buried. It was
+    previously hardcoded to 1 while BasisTradeContext carried a field for it
+    that nothing read, and the docstring described a 365/365 = 1-year
+    convergence — off by a factor of 365 from what the code actually did.
+    The default preserves the existing behaviour exactly.
     """
     if spot_price <= 0:
         raise ValueError(f"spot_price must be positive, got {spot_price}")
-    return (perp_price - spot_price) / spot_price * 100.0 * 365.0
+    if days_to_convergence <= 0:
+        # A zero or negative horizon is not "instant convergence", it is a
+        # division by zero wearing a plausible name.
+        raise ValueError(f"days_to_convergence must be positive, got {days_to_convergence}")
+    raw_pct = (perp_price - spot_price) / spot_price * 100.0
+    return raw_pct * (365.0 / days_to_convergence)
 
 
 class BasisTradeStrategy:
@@ -61,7 +86,11 @@ class BasisTradeStrategy:
         if not isinstance(bar, BasisTradeContext):
             raise TypeError(f"BasisTradeStrategy requires a BasisTradeContext, got {type(bar)}")
 
-        basis_pct = compute_annualized_basis_pct(bar.spot_price, bar.perp_price)
+        basis_pct = compute_annualized_basis_pct(
+            bar.spot_price,
+            bar.perp_price,
+            bar.days_to_perp_funding_normalization,
+        )
         abs_basis = abs(basis_pct)
 
         if abs_basis < _MIN_ANNUALIZED_BASIS_PCT:
