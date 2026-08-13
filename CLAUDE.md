@@ -55,12 +55,13 @@ the change is wrong, not the law.
 - **Machine gate:** `scripts/arch_gate.sh` runs the law validator over `src/`
   and is wired into CI (`architecture` job, SARIF → code scanning) and
   pre-commit. It fails on HIGH+ findings.
-- **Baseline:** `config/arch_baseline.json` holds the 58 findings that
-  pre-date the gate, so only *new* violations fail. It is accepted debt, not
-  approval — the CRITICAL entries (missing idempotency keys across
-  `src/execution/`, no VaR/CVaR in `src/risk/cognitive_engine.py`, no
-  wash-trade guard anywhere) are real gaps to close, and closing them means
-  deleting lines from the baseline.
+- **Baseline:** `config/arch_baseline.json` holds the findings that pre-date
+  the gate (58 at install, 52 now), so only *new* violations fail. It is
+  accepted debt, not approval — the remaining CRITICAL entries (no VaR/CVaR in
+  `src/risk/cognitive_engine.py`, no wash-trade guard anywhere) are real gaps
+  to close, and closing them means deleting lines from the baseline. The LAW3
+  idempotency CRITICALs were closed that way: every order path now submits
+  through `src/execution/idempotency.py`.
 - **Never widen the baseline to make a red gate green.** Refresh it only with
   `scripts/arch_gate.sh --refresh-baseline` after a deliberate decision, and
   review the diff.

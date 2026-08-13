@@ -21,6 +21,12 @@ from typing import Any
 
 import structlog
 
+from src.execution.idempotency import (
+    IdempotencyRegistry,
+    client_order_id_params,
+    derive_idempotency_key,
+)
+
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -64,6 +70,17 @@ class SmartOrderRouter:
             except AttributeError:
                 log.warning("exchange_not_found", name=name)
 
+        # LAW3: one registry for the router, spanning every venue. Slices of a
+        # sliced algo are separate submissions and each needs its own key, but
+        # they must share a namespace so a re-routed order cannot replay a
+        # slice that already went out on a different venue.
+        self._idempotency = IdempotencyRegistry()
+
+    @property
+    def idempotency(self) -> IdempotencyRegistry:
+        """Registry of idempotency keys seen by this router."""
+        return self._idempotency
+
     async def route(
         self,
         signal: dict,
@@ -98,6 +115,72 @@ class SmartOrderRouter:
                 success=False,
                 error=str(exc),
             )
+
+    @staticmethod
+    def _route_id(signal: dict, size_usd: float) -> str:
+        """
+        Stable identity for one routing decision.
+
+        A caller-supplied ``signal_id`` is preferred: it survives a re-route to
+        a different venue or algorithm, which is exactly the case where the
+        same intent could otherwise reach two exchanges. Without one, fall back
+        to a time-bucketed hash of the signal's own content.
+        """
+        signal_id = signal.get("signal_id") or signal.get("id")
+        if signal_id:
+            return str(signal_id)
+        return derive_idempotency_key(
+            strategy_id="router",
+            symbol=str(signal.get("symbol", "BTC/USDT")),
+            side=str(signal.get("side", "buy")),
+            quantity=size_usd,
+            purpose="route",
+        )
+
+    async def _submit_slice(
+        self,
+        ex: Any,
+        *,
+        venue: str,
+        route_id: str,
+        slice_no: int,
+        symbol: str,
+        order_type: str,
+        side: str,
+        qty: float,
+        price: float | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict:
+        """
+        Submit one slice with an idempotency key attached (LAW3).
+
+        Each slice of a sliced algorithm is a distinct submission, so the key
+        is scoped by ``(route_id, slice_no)``: replaying slice 3 is refused
+        while slice 4 still goes out.
+        """
+        key = derive_idempotency_key(
+            strategy_id="router",
+            symbol=symbol,
+            side=side,
+            quantity=qty,
+            purpose=f"{order_type}:{venue}",
+            intent_id=f"{route_id}:{slice_no}",
+        )
+        await self._idempotency.reserve(key)
+
+        order_params = client_order_id_params(getattr(ex, "id", venue), key, params)
+        try:
+            order = await ex.create_order(symbol, order_type, side, qty, price, order_params)
+        except Exception as exc:
+            # The key stays claimed: ccxt raises the same exception type for
+            # "rejected, nothing placed" and "sent, response lost", and this
+            # layer cannot tell them apart. Refusing the retry is the safe
+            # direction -- an unfilled slice costs opportunity, a duplicated
+            # one costs real money.
+            await self._idempotency.fail(key, str(exc), retryable=False)
+            raise
+        await self._idempotency.complete(key, str(order.get("id") or ""), order)
+        return order
 
     def _select_algo(self, horizon_idx: int, kyle_lambda: float, size_usd: float) -> str:
         """Select execution algorithm based on horizon index and market impact."""
@@ -161,14 +244,27 @@ class SmartOrderRouter:
         side = signal.get("side", "buy")
         qty = size_usd / max(price, 1e-9)
 
+        route_id = self._route_id(signal, size_usd)
+
         if algo == "IOC":
-            order = await ex.create_order(symbol, "limit", side, qty, price, {"timeInForce": "IOC"})
+            order = await self._submit_slice(
+                ex,
+                venue=venue,
+                route_id=route_id,
+                slice_no=0,
+                symbol=symbol,
+                order_type="limit",
+                side=side,
+                qty=qty,
+                price=price,
+                params={"timeInForce": "IOC"},
+            )
             return self._order_to_result(venue, algo, order, price, size_usd)
 
         if algo == "iceberg":
-            return await self._iceberg(ex, venue, signal, qty, price)
+            return await self._iceberg(ex, venue, signal, qty, price, route_id)
 
-        return await self._twap(ex, venue, signal, size_usd, price)
+        return await self._twap(ex, venue, signal, size_usd, price, route_id)
 
     async def _iceberg(
         self,
@@ -177,6 +273,7 @@ class SmartOrderRouter:
         signal: dict,
         total_qty: float,
         price: float,
+        route_id: str,
     ) -> RouteResult:
         """Execute as iceberg: 10 equal-sized slices placed sequentially."""
         symbol = signal.get("symbol", "BTC/USDT")
@@ -188,7 +285,17 @@ class SmartOrderRouter:
 
         for i in range(n_slices):
             try:
-                order = await ex.create_order(symbol, "limit", side, slice_qty, price)
+                order = await self._submit_slice(
+                    ex,
+                    venue=venue,
+                    route_id=route_id,
+                    slice_no=i,
+                    symbol=symbol,
+                    order_type="limit",
+                    side=side,
+                    qty=slice_qty,
+                    price=price,
+                )
                 filled += float(order.get("filled", 0.0))
                 total_cost += float(order.get("filled", 0.0)) * float(order.get("average", price))
                 await asyncio.sleep(0.5)
@@ -215,6 +322,7 @@ class SmartOrderRouter:
         signal: dict,
         size_usd: float,
         price: float,
+        route_id: str,
     ) -> RouteResult:
         """Execute as TWAP: 12 equal slices over horizon_seconds."""
         symbol = signal.get("symbol", "BTC/USDT")
@@ -231,7 +339,16 @@ class SmartOrderRouter:
                 ob = await ex.fetch_order_book(symbol, limit=1)
                 current_price = ob["asks"][0][0] if side == "buy" else ob["bids"][0][0]
                 qty = slice_usd / max(current_price, 1e-9)
-                order = await ex.create_order(symbol, "market", side, qty)
+                order = await self._submit_slice(
+                    ex,
+                    venue=venue,
+                    route_id=route_id,
+                    slice_no=i,
+                    symbol=symbol,
+                    order_type="market",
+                    side=side,
+                    qty=qty,
+                )
                 filled += float(order.get("filled", 0.0))
                 total_cost += float(order.get("filled", 0.0)) * float(
                     order.get("average", current_price)

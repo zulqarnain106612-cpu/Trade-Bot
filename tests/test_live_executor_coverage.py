@@ -802,7 +802,7 @@ class TestPlaceMarketOrder:
         fsm.state.retry_count = 1
         confirmed = _filled_order(order_id="ord-42")
         ex._order_manager.place_order_with_fsm = AsyncMock(return_value=(fsm, confirmed))
-        result = await ex._place_market_order("BTC/USDT", "buy", 0.1)
+        result = await ex._place_market_order("BTC/USDT", "buy", 0.1, purpose="entry")
         assert result == confirmed
         assert ex._order_fsm_registry["ord-42"] is fsm.state
 
@@ -813,7 +813,7 @@ class TestPlaceMarketOrder:
         ex = _make_executor()
         ex._order_manager.place_order_with_fsm = AsyncMock(side_effect=TimeoutError("no fill"))
         with pytest.raises(ccxt.ExchangeError, match="did not confirm"):
-            await ex._place_market_order("BTC/USDT", "buy", 0.1)
+            await ex._place_market_order("BTC/USDT", "buy", 0.1, purpose="entry")
 
     @pytest.mark.asyncio
     async def test_exchange_error_propagates(self):
@@ -824,7 +824,7 @@ class TestPlaceMarketOrder:
             side_effect=ccxt.ExchangeError("rejected")
         )
         with pytest.raises(ccxt.ExchangeError, match="rejected"):
-            await ex._place_market_order("BTC/USDT", "buy", 0.1)
+            await ex._place_market_order("BTC/USDT", "buy", 0.1, purpose="entry")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1020,8 +1020,8 @@ class TestAwaitThrottleToken:
         ex._order_manager.place_order_with_fsm = AsyncMock(
             return_value=(fsm, _filled_order(order_id="ord-1"))
         )
-        await ex._place_market_order("BTC/USDT", "buy", 0.1)  # drains the bucket
-        await ex._place_market_order("BTC/USDT", "sell", 0.1, is_exit=True)
+        await ex._place_market_order("BTC/USDT", "buy", 0.1, purpose="entry")  # drains the bucket
+        await ex._place_market_order("BTC/USDT", "sell", 0.1, is_exit=True, purpose="close")
         assert ex._order_manager.place_order_with_fsm.await_count == 2
 
     @pytest.mark.asyncio
@@ -1037,8 +1037,8 @@ class TestAwaitThrottleToken:
         ex._order_manager.place_order_with_fsm = AsyncMock(
             return_value=(fsm, _filled_order(order_id="ord-1"))
         )
-        await ex._place_market_order("BTC/USDT", "buy", 0.1)
+        await ex._place_market_order("BTC/USDT", "buy", 0.1, purpose="entry")
         with pytest.raises(ccxt.ExchangeError, match="Order rate limit"):
-            await ex._place_market_order("BTC/USDT", "buy", 0.1)
+            await ex._place_market_order("BTC/USDT", "buy", 0.1, purpose="entry")
         # The refused order must never reach the exchange.
         assert ex._order_manager.place_order_with_fsm.await_count == 1

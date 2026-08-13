@@ -45,17 +45,25 @@ with `# noqa:arch` on the offending line — never by loosening a pattern.
 
 ## The baseline is debt, not approval
 
-`config/arch_baseline.json` records the 58 findings that existed when the gate
-was installed, so the gate can fail on *new* violations without blocking on
-pre-existing ones. Four of them are CRITICAL and are real, unresolved risks in
-a system that moves real money:
+`config/arch_baseline.json` records the findings that existed when the gate was
+installed, so the gate can fail on *new* violations without blocking on
+pre-existing ones. It started at 58; the six LAW3 idempotency entries have
+since been closed and deleted, leaving 52. Two CRITICALs remain, and they are
+real, unresolved risks in a system that moves real money:
 
 | Law | Finding | Location |
 |---|---|---|
-| LAW3 | No idempotency key on any order-submission path | `src/execution/{base,live,order_manager,router}.py` |
-| LAW3 | `place_order_with_fsm` takes no idempotency key | `src/execution/order_manager.py:41` |
 | LAW1 | Risk score computed without VaR/CVaR | `src/risk/cognitive_engine.py:456` |
 | LAW10 | No wash-trade guard anywhere in the codebase | `src/execution/{order_manager,router}.py` |
+
+**Closed:** LAW3 idempotency (both entries). `src/execution/idempotency.py`
+derives a deterministic key per order intent and sends it as the venue's
+client order id (Binance `newClientOrderId`, OKX `clOrdId`, Bybit
+`orderLinkId`); `IdempotencyRegistry` refuses a second submission of a claimed
+key. Both defences are needed — the registry is the cheap local check, and the
+client order id is the only one that survives a crash between submit and ack.
+Live, paper and the smart order router all submit through it. See
+`tests/test_idempotency.py`.
 
 Also outstanding at HIGH: no `correlation_id` propagation in the order path
 (LAW7), no flash-crash/market-halt handling in the risk gates (LAW13), no
@@ -63,7 +71,7 @@ confidence-threshold gate in `src/engine/signal_engine.py` (LAW4), and
 deprecated hash functions in use (LAW12).
 
 Closing any of these means deleting its line from the baseline in the same
-commit. Adding lines to the baseline is a deliberate decision that belongs in
+commit, as the LAW3 entries above were. Adding lines to the baseline is a deliberate decision that belongs in
 `DECISION_LOG.md`, not a way to turn a red gate green.
 
 ## Validator changes made during wiring

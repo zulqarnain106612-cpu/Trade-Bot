@@ -10,9 +10,25 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from src.execution.idempotency import IdempotencyRegistry
+
 
 class AbstractExecutor(ABC):
     """Common interface shared by LiveExecutor and PaperExecutor."""
+
+    @property
+    @abstractmethod
+    def idempotency(self) -> IdempotencyRegistry:
+        """
+        Registry of order idempotency keys this executor has submitted (LAW3).
+
+        Part of the abstract interface rather than a live-only detail: paper
+        and live must dedupe identically, or a duplicate-submission bug hides
+        in paper trading and only appears with real money. It is exposed so
+        reconciliation and recovery paths can ask "did this intent already go
+        out?" without reaching into a concrete executor.
+        """
+        ...
 
     @property
     @abstractmethod
