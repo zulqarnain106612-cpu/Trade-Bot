@@ -569,7 +569,40 @@ class LiveExecutor(AbstractExecutor):
                 raise
 
             actual_exit_price = float(order.get("average") or order.get("price") or exit_price)
-            filled_qty = float(order.get("filled") or pos.quantity)
+            # `or` collapses a reported fill of 0.0 into the fallback, so an
+            # order that filled nothing -- rejected, or cancelled immediately
+            # -- read as fully filled and the position was deleted from
+            # internal state while the exposure was still live on the
+            # exchange. Missing (None) is the only case the fallback is for.
+            _filled_raw = order.get("filled")
+            filled_qty = float(pos.quantity) if _filled_raw is None else float(_filled_raw)
+
+            if filled_qty <= 0.0:
+                self._log.error(
+                    "live.close_order_zero_fill",
+                    trade_id=trade_id,
+                    symbol=pos.symbol,
+                    order_id=str(order.get("id", "")),
+                    action="position left open — exposure is still live on the exchange",
+                )
+                raise RuntimeError(
+                    f"Close order for {pos.symbol} ({trade_id}) filled 0; position not closed."
+                )
+
+            if filled_qty < pos.quantity * 0.999:
+                # Booking the whole position closed on a partial fill leaves
+                # untracked residual exposure. Splitting the position is a
+                # larger change than this path can safely make mid-close, so
+                # the discrepancy is surfaced rather than buried.
+                self._log.critical(
+                    "live.close_order_partial_fill_UNTRACKED_RESIDUAL",
+                    trade_id=trade_id,
+                    symbol=pos.symbol,
+                    requested_qty=pos.quantity,
+                    filled_qty=filled_qty,
+                    residual_qty=pos.quantity - filled_qty,
+                    action="position booked closed at the filled size; residual is untracked",
+                )
             exchange_fee = self._extract_fee(order, actual_exit_price, filled_qty)
 
             exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
@@ -887,7 +920,13 @@ class LiveExecutor(AbstractExecutor):
                 return None
 
             actual_price = float(order.get("average") or order.get("price") or 0.0)
-            filled_qty = float(order.get("filled") or kelly_result.quantity)
+            # Same trap as the close leg: `or` turns a reported fill of 0.0
+            # into the requested size, so an order that filled nothing was
+            # recorded as a full position. Only a missing value falls back.
+            _filled_raw = order.get("filled")
+            filled_qty = (
+                float(kelly_result.quantity) if _filled_raw is None else float(_filled_raw)
+            )
             exchange_order_id = str(order.get("id", ""))
             entry_fee = self._extract_fee(order, actual_price, filled_qty)
 
