@@ -77,6 +77,20 @@ the change is wrong, not the law.
 - Validate signals out-of-sample; in-sample metrics alone are not sufficient.
 
 ## Hard Rules
+- **Never idle-wait for a started task.** Once a CI run, background job, or
+  long command is running, move immediately to the next useful work. Leave a
+  signal you can check later — `run_in_background`, a dispatched run id, a
+  marker file — and come back only after its expected completion time.
+  Polling in a tight loop, or sitting idle until something finishes, is a
+  defect.
+- **Never stop while the repo still has work.** If the active branch has
+  nothing left, move to the next branch and work there; if that one is clean
+  too, keep moving. Stop only when there is no outstanding work anywhere in
+  the project, and say so plainly.
+- **Read only the lines you need from any log — local or cloud, no
+  exceptions.** `gh run view --log-failed`, `grep -m5`, `tail -30`, `Read`
+  with `offset`/`limit`. Never load a whole log, job output, or file to find
+  a few lines.
 - `uv run` for Python execution; never bare `python3`, never `pip`.
 - Do not read: `.env`, `.venv/`, `data/`, `logs/`, `models/`, `requirements.lock`, `rag.db`.
 - **Never run tests, lint, type-check, or build locally.** CI only: push → `gh workflow run ci.yml --ref <branch>` → poll `gh run view`. Never `uv run pytest/ruff/mypy` locally.
