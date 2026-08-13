@@ -883,52 +883,58 @@ class StorageBackend:
             v = features.get(key)
             return float(v) if v is not None else None
 
-        await conn.execute(
-            """
-            INSERT OR REPLACE INTO intelligence_features_history (
-                symbol, timeframe, bar_ts, fetched_at,
-                exchange_netflow_7d_zscore, whale_buy_sell_ratio,
-                exchange_reserve_ratio, miner_netflow_signal,
-                staking_unlock_risk, entity_exchange_imbalance,
-                binance_funding_rate_pct, liquidation_pressure_24h_zscore,
-                futures_oi_change_pct, liquidation_cascade_risk_usd,
-                btc_dominance_regime, stablecoin_reserve_ratio,
-                network_activity_score, exchange_stress_score,
-                cross_exchange_basis_spread_bps,
-                defi_tvl_7d_change_pct, mvrv_z_score, sopr,
-                confidence, source
-            ) VALUES (
-                ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?,?,  ?,?
+        # This was the one write path that took no lock at all. Beyond the
+        # open-transaction hazard _write_ctx guards, an unlocked write can
+        # land while _bulk_write_ctx has lowered PRAGMA synchronous=NORMAL --
+        # the exact interleaving C-09 documents as the reason that PRAGMA is
+        # set inside the lock in the first place.
+        async with self._write_ctx():
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO intelligence_features_history (
+                    symbol, timeframe, bar_ts, fetched_at,
+                    exchange_netflow_7d_zscore, whale_buy_sell_ratio,
+                    exchange_reserve_ratio, miner_netflow_signal,
+                    staking_unlock_risk, entity_exchange_imbalance,
+                    binance_funding_rate_pct, liquidation_pressure_24h_zscore,
+                    futures_oi_change_pct, liquidation_cascade_risk_usd,
+                    btc_dominance_regime, stablecoin_reserve_ratio,
+                    network_activity_score, exchange_stress_score,
+                    cross_exchange_basis_spread_bps,
+                    defi_tvl_7d_change_pct, mvrv_z_score, sopr,
+                    confidence, source
+                ) VALUES (
+                    ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?,?,  ?,?
+                )
+                """,
+                (
+                    symbol,
+                    timeframe,
+                    bar_ts,
+                    fetched_at,
+                    _f("intelligence_exchange_netflow_7d_zscore"),
+                    _f("intelligence_whale_buy_sell_ratio"),
+                    _f("intelligence_exchange_reserve_ratio"),
+                    _f("intelligence_miner_netflow_signal"),
+                    _f("intelligence_staking_unlock_risk"),
+                    _f("intelligence_entity_exchange_imbalance"),
+                    _f("intelligence_binance_funding_rate_pct"),
+                    _f("intelligence_liquidation_pressure_24h_zscore"),
+                    _f("intelligence_futures_oi_change_pct"),
+                    _f("intelligence_liquidation_cascade_risk_usd"),
+                    _f("intelligence_btc_dominance_regime"),
+                    _f("intelligence_stablecoin_reserve_ratio"),
+                    _f("intelligence_network_activity_score"),
+                    _f("intelligence_exchange_stress_score"),
+                    _f("intelligence_cross_exchange_basis_spread_bps"),
+                    _f("intelligence_defi_tvl_7d_change_pct"),
+                    _f("intelligence_mvrv_z_score"),
+                    _f("intelligence_sopr"),
+                    float(confidence),
+                    source,
+                ),
             )
-            """,
-            (
-                symbol,
-                timeframe,
-                bar_ts,
-                fetched_at,
-                _f("intelligence_exchange_netflow_7d_zscore"),
-                _f("intelligence_whale_buy_sell_ratio"),
-                _f("intelligence_exchange_reserve_ratio"),
-                _f("intelligence_miner_netflow_signal"),
-                _f("intelligence_staking_unlock_risk"),
-                _f("intelligence_entity_exchange_imbalance"),
-                _f("intelligence_binance_funding_rate_pct"),
-                _f("intelligence_liquidation_pressure_24h_zscore"),
-                _f("intelligence_futures_oi_change_pct"),
-                _f("intelligence_liquidation_cascade_risk_usd"),
-                _f("intelligence_btc_dominance_regime"),
-                _f("intelligence_stablecoin_reserve_ratio"),
-                _f("intelligence_network_activity_score"),
-                _f("intelligence_exchange_stress_score"),
-                _f("intelligence_cross_exchange_basis_spread_bps"),
-                _f("intelligence_defi_tvl_7d_change_pct"),
-                _f("intelligence_mvrv_z_score"),
-                _f("intelligence_sopr"),
-                float(confidence),
-                source,
-            ),
-        )
-        await conn.commit()
+            await conn.commit()
 
     async def fetch_intelligence_features(
         self,
