@@ -109,6 +109,15 @@ listed because a job failing for one of these reasons is *not* a code defect.
   touch ~/actions-runner/_work/_tool/Python/$V/x64.complete   # the marker setup-python looks for
   ```
 
+  Then delete the `EXTERNALLY-MANAGED` marker from the copy, or every `pip
+  install` in CI dies with `error: externally-managed-environment` —
+  python-build-standalone ships it to stop you breaking a system Python, which
+  this copy is not:
+
+  ```bash
+  find "$D" -name EXTERNALLY-MANAGED -delete
+  ```
+
   Copy, don't symlink: CI installs packages into that tree, and a symlink would
   push them back into uv's managed toolchain. If a failed download left a
   partial version directory behind (`3.11.16` with a missing
