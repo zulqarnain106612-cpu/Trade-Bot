@@ -39,7 +39,12 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # window for responsiveness while keeping enough for stable estimates).
 _EWM_HALFLIFE: Final[int] = 500  # ~5 days of 15-min bars
 _MIN_OBSERVATIONS: Final[int] = 30  # bars needed before reporting correlation
-_CORRELATION_REDUCTION_THRESHOLD: Final[float] = 0.60  # match position_sizing.py
+# Deliberately tighter than position_sizing._CORRELATION_REDUCE_THRESHOLD
+# (0.70). This gate sees pairwise asset correlation measured over a 500-bar
+# EWM window and starts shrinking earlier; that module's threshold applies to
+# an already-aggregated average book correlation. The comment here used to
+# claim the two matched, which they never did.
+_CORRELATION_REDUCTION_THRESHOLD: Final[float] = 0.60
 
 # Shrinkage toward 0 (independence) for correlation estimates near the
 # _MIN_OBSERVATIONS floor: shrunk_r = raw_r * n / (n + _CORRELATION_SHRINKAGE_K).
