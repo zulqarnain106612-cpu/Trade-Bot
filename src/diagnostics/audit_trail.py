@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -60,11 +61,41 @@ def _compute_entry_hash(
 _GENESIS_HASH: str = "0" * 64
 
 
+# Entries retained in memory. The trail is written on every tick decision
+# from signal_engine._emit_audit, so on three timeframes with a 1m stream
+# this is thousands of entries a day, held by a process-wide singleton for
+# the life of the process — an unbounded list that nothing ever freed.
+#
+# 100k is deliberately generous: weeks of history at that rate, so an
+# operator reading the trail sees what they saw before, and only a run long
+# enough to have OOMed under the old behaviour reaches the bound.
+_MAX_RETAINED_ENTRIES: int = 100_000
+
+
 @dataclass
 class AuditTrail:
-    """Append-only, hash-chained audit log."""
+    """
+    Hash-chained audit log, append-only with a bounded memory window.
 
-    _entries: list[AuditEntry] = field(default_factory=list)
+    The chain is still append-only in the sense that matters: entries are
+    never rewritten, sequence numbers never repeat, and each entry commits
+    to its predecessor. What is bounded is how many are kept in RAM.
+
+    Sequence and the chain head are tracked independently of the retained
+    window, so eviction cannot renumber entries or break the link between
+    the last evicted entry and the first retained one.
+    """
+
+    _entries: deque[AuditEntry] = field(
+        default_factory=lambda: deque(maxlen=_MAX_RETAINED_ENTRIES)
+    )
+    # Next sequence number and the hash to chain from. Previously both were
+    # derived from _entries, which is exactly what made the list impossible
+    # to bound: dropping the head would have restarted numbering and
+    # re-anchored the chain to genesis.
+    _next_sequence: int = 0
+    _last_hash: str = _GENESIS_HASH
+    _evicted: int = 0
 
     def record(
         self,
@@ -73,8 +104,11 @@ class AuditTrail:
         details: dict[str, str | float | int | bool | None] | None = None,
         ts_ms: int | None = None,
     ) -> AuditEntry:
-        sequence = len(self._entries)
-        prev_hash = self._entries[-1].entry_hash if self._entries else _GENESIS_HASH
+        # From the counters, not from the retained window: len() would
+        # restart numbering once eviction begins, and [-1] would still be
+        # correct only by luck.
+        sequence = self._next_sequence
+        prev_hash = self._last_hash
         resolved_ts = ts_ms if ts_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
         resolved_details = details or {}
 
@@ -90,16 +124,31 @@ class AuditTrail:
             prev_hash=prev_hash,
             entry_hash=entry_hash,
         )
+        if len(self._entries) == self._entries.maxlen:
+            # deque drops the head silently on append; count it so nothing
+            # downstream can report a complete chain it no longer holds.
+            self._evicted += 1
         self._entries.append(entry)
+        self._next_sequence += 1
+        self._last_hash = entry_hash
         return entry
 
     def verify_chain_integrity(self) -> tuple[bool, int | None]:
         """
-        Returns (intact, first_broken_sequence). Recomputes every entry's
-        hash from its recorded fields and checks it matches both the
+        Returns (intact, first_broken_sequence). Recomputes every retained
+        entry's hash from its recorded fields and checks it matches both the
         stored hash and the next entry's prev_hash link.
+
+        Verification starts from the oldest RETAINED entry's recorded
+        prev_hash rather than from genesis. Once anything has been evicted
+        the genesis anchor is gone, and walking from it would report a break
+        at the first retained entry on every healthy trail — a check that
+        fails on correct behaviour gets ignored. Callers that need to know
+        how much of the chain is still covered should read evicted_count();
+        the API surface reports it alongside this result rather than
+        implying the whole history was verified.
         """
-        prev_hash = _GENESIS_HASH
+        prev_hash = self._entries[0].prev_hash if self._entries else _GENESIS_HASH
         for entry in self._entries:
             expected = _compute_entry_hash(
                 entry.sequence,
@@ -117,7 +166,22 @@ class AuditTrail:
     def entries(self) -> tuple[AuditEntry, ...]:
         return tuple(self._entries)
 
+    def evicted_count(self) -> int:
+        """
+        Entries dropped from the retained window. 0 until the bound is hit.
+
+        Exposed so a consumer can tell "the chain is intact" from "the part
+        of the chain I still hold is intact", which are different claims.
+        """
+        return self._evicted
+
+    def total_recorded(self) -> int:
+        """Every entry ever recorded, including evicted ones."""
+        return self._next_sequence
+
     def __len__(self) -> int:
+        """Retained entries — not the total ever recorded, which is
+        total_recorded(). len() is what the retained window costs in RAM."""
         return len(self._entries)
 
 
