@@ -38,6 +38,62 @@ class OrderManager:
     def __init__(self) -> None:
         self._log = log
 
+    def _record_incremental_fill(self, fsm: OrderFSM, confirmed: dict[str, Any]) -> None:
+        """
+        Feed one poll's newly-filled quantity into the FSM.
+
+        ccxt reports `filled` and `average` cumulatively on an open order,
+        while add_partial_fill takes an increment, so the delta is derived
+        against what the FSM already holds. The increment's price is backed
+        out of the two cumulative VWAPs rather than taken as `average`
+        directly -- using the running average as the price of the newest
+        piece would bias the FSM's own VWAP toward the earliest fills and
+        stop it reproducing the exchange's number.
+
+        Anything unusable (missing fields, no progress, a non-positive
+        derived price) is skipped rather than guessed at: this is
+        book-keeping alongside the poll, and it must never be the reason a
+        live order's confirmation loop dies.
+        """
+        if fsm.state.status != OrderStatus.FILLING:
+            return
+
+        raw_filled = confirmed.get("filled")
+        raw_avg = confirmed.get("average")
+        if raw_filled is None or raw_avg is None:
+            return
+        try:
+            cumulative_qty = float(raw_filled)
+            cumulative_avg = float(raw_avg)
+        except (TypeError, ValueError):
+            return
+
+        delta_qty = cumulative_qty - fsm.state.filled_qty
+        if delta_qty <= 0.0 or cumulative_avg <= 0.0:
+            return
+
+        # average_fill_price is None until the first piece is recorded.
+        prior_avg = fsm.state.average_fill_price or 0.0
+        prior_value = prior_avg * fsm.state.filled_qty
+        delta_price = (cumulative_avg * cumulative_qty - prior_value) / delta_qty
+        if delta_price <= 0.0:
+            return
+
+        try:
+            fsm.add_partial_fill(delta_qty, delta_price)
+        except OrderFSMError as exc:
+            # Overfill against the order's own quantity is the realistic
+            # case, and it means the exchange and the FSM disagree about the
+            # order -- worth surfacing, not worth aborting the poll over.
+            self._log.warning(
+                "order_manager.partial_fill_rejected",
+                order_id=fsm.state.order_id,
+                symbol=fsm.state.symbol,
+                delta_qty=delta_qty,
+                cumulative_qty=cumulative_qty,
+                error=str(exc),
+            )
+
     async def place_order_with_fsm(
         self,
         exchange: ccxt.async_support.Exchange,
@@ -170,7 +226,9 @@ class OrderManager:
                     # and explicitly-zero are both rejected below alongside a
                     # missing price, rather than one being quietly guessed.
                     filled_field = confirmed.get("filled")
-                    raw_filled = filled_field if filled_field is not None else confirmed.get("amount")
+                    raw_filled = (
+                        filled_field if filled_field is not None else confirmed.get("amount")
+                    )
                     # UI-009: check each field with `is None`, not `or` --
                     # `confirmed.get("average") or confirmed.get("price")`
                     # would treat an explicit 0.0 fill price exactly like a
@@ -264,6 +322,15 @@ class OrderManager:
                     else:
                         # Update with latest response
                         fsm.state.exchange_response = confirmed
+
+                    # OrderFSM has carried add_partial_fill/_calculate_vwap/
+                    # fill_percentage since it was written, and nothing ever
+                    # called them: the poll loop only ever looked at terminal
+                    # statuses, so an order that filled in pieces reported
+                    # filled_qty=0 and average_fill_price=0 for its whole
+                    # life, then jumped straight to FILLED. Feeding each
+                    # poll's increment here is what those fields were for.
+                    self._record_incremental_fill(fsm, confirmed)
 
                     self._log.debug(
                         "order_pending",
