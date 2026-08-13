@@ -86,19 +86,53 @@ Removing it: `./config.sh remove --token $(gh api -X POST .../remove-token --jq 
 These are differences from GitHub-hosted runners that will bite you. They are
 listed because a job failing for one of these reasons is *not* a code defect.
 
-- **The `backend` job needs Docker.** It declares a `services:` block for
-  TimescaleDB, which the runner starts as a Docker container. The daemon is
-  installed and active on this host, but the `fujitsu` user must be in the
-  `docker` group for the runner to use it:
+- **`actions/setup-python` cannot download Python on this host.** The CPU is an
+  Ivy Bridge i3-3110M, which tops out at the `x86-64-v2` microarchitecture
+  level; GitHub's prebuilt CPython 3.11 needs `x86-64-v3`. The symptom is a
+  `Set up Python` step failing with:
 
-  ```bash
-  sudo usermod -aG docker fujitsu && sudo ./svc.sh stop && sudo ./svc.sh start
+  ```
+  ./python: CPU ISA level is lower than required
   ```
 
-  Note that docker-group membership is effectively root on the host. Without
-  it, the `backend` job fails to start its service container while the other
-  three jobs run fine. Podman is also installed but Actions `services:` speaks
-  to the Docker socket specifically.
+  This is a property of the machine, not a misconfiguration — no amount of
+  workflow tweaking makes the hosted build run. It is worked around by
+  pre-populating the runner's tool cache with a baseline-compatible build (the
+  one `uv` manages), so `setup-python` finds it locally and never downloads:
+
+  ```bash
+  V=3.11.15
+  D=~/actions-runner/_work/_tool/Python/$V/x64
+  mkdir -p "$(dirname "$D")"
+  cp -aL ~/.local/share/uv/python/cpython-$V-linux-x86_64-gnu/ "$D"
+  ln -sf python3.11 "$D/bin/python"
+  touch ~/actions-runner/_work/_tool/Python/$V/x64.complete   # the marker setup-python looks for
+  ```
+
+  Copy, don't symlink: CI installs packages into that tree, and a symlink would
+  push them back into uv's managed toolchain. If a failed download left a
+  partial version directory behind (`3.11.16` with a missing
+  `libpython3.11.so.1.0`), delete it — `setup-python` prefers the highest
+  version present and will pick the broken one.
+
+- **The `backend` job needs a Docker API for its TimescaleDB `services:`
+  container**, supplied here by **rootless podman**, not Docker:
+
+  ```bash
+  systemctl --user enable --now podman.socket
+  sudo loginctl enable-linger fujitsu   # socket must exist with no login session
+  ```
+
+  `~/actions-runner/.env` sets `DOCKER_HOST` to the podman user socket, and the
+  runner reads that file into every job. Restart the service after editing it.
+
+  This is deliberately *not* `usermod -aG docker fujitsu`. Docker-group
+  membership is effectively root on the host, and this runner executes workflow
+  code from any pushed branch; rootless podman runs those containers as uid
+  1000 instead. Symptom if the socket is missing or `DOCKER_HOST` is unset:
+  `permission denied while trying to connect to the docker API at
+  unix:///var/run/docker.sock`, failing `Initialize containers` while the other
+  jobs pass.
 
 - **The workspace is not clean between runs.** Hosted runners get a fresh VM
   every time; this one reuses `~/actions-runner/_work`. A test that passes only
