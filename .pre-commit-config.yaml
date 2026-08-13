@@ -38,6 +38,18 @@ repos:
         pass_filenames: false
 
 
+  - repo: local
+    hooks:
+      - id: crypto-architect
+        name: crypto-architect governance gate
+        # Full scan, not per-file: the scoped law checks and the cross-file
+        # idempotency/PQC checks only mean anything over the whole tree.
+        entry: scripts/arch_gate.sh
+        language: script
+        pass_filenames: false
+        files: ^src/.*\.py$
+
+
   - repo: https://github.com/returntocorp/semgrep
     rev: v1.72.0
     hooks:

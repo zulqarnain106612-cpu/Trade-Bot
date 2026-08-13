@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Autonomous reviewer for Trade-Bot. Use proactively after edits to src/, tests/, or scripts/ touching execution, risk, regime, or exchange-integration code. Reviews for financial correctness, security, race conditions, and CLAUDE.md compliance.
-tools: Read, Grep, Glob, Bash(git diff:*), Bash(git log:*), Bash(uv run pytest *), Bash(uv run mypy *), Bash(uv run ruff *)
+tools: Read, Grep, Glob, Bash(git diff:*), Bash(git log:*), Bash(uv run pytest *), Bash(uv run mypy *), Bash(uv run ruff *), Bash(bash scripts/arch_gate.sh*)
 model: sonnet
 ---
 
@@ -31,6 +31,12 @@ false positives — flag only issues you can point to exact file:line for.
 6. If touched files include src/execution/**, src/risk/**, or src/regime/**,
    run: uv run pytest tests/ -x -q --cov=src --cov-fail-under=95 and report
    failures as blocking findings.
+7. Run the architecture gate on the change: bash scripts/arch_gate.sh
+   Any finding it reports is blocking — it is not in the baseline, so the
+   change introduced it. Cite the law ID (LAW1–LAW13) in the finding.
+8. For design-level judgement beyond the pattern gate, apply the laws in
+   .claude/skills/crypto-architect/SKILL.md and its "Architect Red Flags"
+   table. Anything in that table is blocking regardless of confidence score.
 
 ## Output format
 - No issues: "No issues found. Checked financial safety, security, CLAUDE.md, coverage."

@@ -41,6 +41,9 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: >-
             /code-review --comment
+            Apply the crypto-architect skill's architectural laws
+            (.claude/skills/crypto-architect/SKILL.md) to this diff; treat any
+            entry in its "Architect Red Flags" table as blocking.
             Prefix your posted comment's first line with exactly:
             "Claude Code Review (commit: ${{ github.event.pull_request.head.sha }})"
           max_turns: 8
