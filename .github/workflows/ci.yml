@@ -15,10 +15,25 @@ env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
 
+# Runner selection is cloud-first. Every job reads the `CI_RUNNER` repository
+# variable and falls back to GitHub-hosted runners when it is unset, so the
+# default path needs no local machine and no maintenance.
+#
+# Flip to the self-hosted runner ONLY when the cloud tier is unusable -- Actions
+# minutes exhausted, a billing block, or a runner-allocation outage (symptom:
+# every job, including ones your change cannot affect, fails in ~2s with a null
+# runner id). Self-hosted executes untrusted workflow code on a real machine, so
+# it is a fallback, not a default:
+#
+#   gh variable set CI_RUNNER --body trade-bot-selfhosted   # switch to local
+#   gh variable delete CI_RUNNER                            # back to cloud
+#
+# See docs/CI_RUNNERS.md for the runner's setup, service management and limits.
+
 jobs:
   backend:
     name: Backend (Python 3.11)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
 
@@ -142,7 +157,7 @@ jobs:
 
   architecture:
     name: Architecture Governance (crypto-architect)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
     permissions:
@@ -183,7 +198,7 @@ jobs:
 
   frontend:
     name: Frontend (Node 20)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
 
@@ -219,7 +234,7 @@ jobs:
 
   auto-fix:
     name: Auto-Fix and Re-trigger
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: [backend, frontend]
     if: |
       always() &&

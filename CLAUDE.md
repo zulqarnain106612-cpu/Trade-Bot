@@ -80,6 +80,7 @@ the change is wrong, not the law.
 - `uv run` for Python execution; never bare `python3`, never `pip`.
 - Do not read: `.env`, `.venv/`, `data/`, `logs/`, `models/`, `requirements.lock`, `rag.db`.
 - **Never run tests, lint, type-check, or build locally.** CI only: push → `gh workflow run ci.yml --ref <branch>` → poll `gh run view`. Never `uv run pytest/ruff/mypy` locally.
+- **CI runners are cloud-first with a self-hosted fallback.** `ci.yml` uses `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`. If the cloud tier is unusable — minutes exhausted, billing block, or every job failing in ~2s with `runner=null` — switch with `gh variable set CI_RUNNER --body trade-bot-selfhosted`, and switch back with `gh variable delete CI_RUNNER` once it recovers. Never leave CI pinned to the self-hosted runner. Setup, service commands and its limits (shared workspace, one job at a time, Docker needed for the `backend` job's TimescaleDB service): `docs/CI_RUNNERS.md`.
 - Coverage gate: 95% global (`--cov-fail-under=95`). Per-file floors enforced by `scripts/check_coverage_floors.py` in CI for `src/execution/`, `src/engine/`, `runtime_monitor`.
 - Never use the Agent tool (sub-agents) — burns 3-5× tokens; use Bash/Read/grep directly.
 - No destructive operations without explicit authorization.
