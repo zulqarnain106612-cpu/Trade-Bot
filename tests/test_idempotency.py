@@ -10,7 +10,7 @@ intent submitted twice", which is what these tests assert is refused.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import ccxt.async_support as ccxt
 import pytest
@@ -425,6 +425,10 @@ class TestRouterDeduplication:
 
     @pytest.mark.asyncio
     async def test_route_id_falls_back_to_signal_content(self):
+        # Time is frozen: the fallback is time-bucketed, so two real calls
+        # either side of a bucket boundary would differ and make this flaky.
         router, _ = self._router()
         signal = {"symbol": "BTC/USDT", "side": "buy"}
-        assert router._route_id(signal, 100.0) == router._route_id(dict(signal), 100.0)
+        with patch("src.execution.idempotency.time.time", return_value=1_000.0):
+            assert router._route_id(signal, 100.0) == router._route_id(dict(signal), 100.0)
+            assert router._route_id(signal, 100.0) != router._route_id(signal, 200.0)
