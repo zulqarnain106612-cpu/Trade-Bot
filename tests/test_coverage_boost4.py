@@ -169,10 +169,21 @@ class TestEnsemblePredictor:
         assert "xgboost" in ep.models
 
     def test_fit_calls_all_models(self):
+        """
+        The name promises fit reached the members; assert it, rather than
+        only that nothing raised. _feature_cols is None until fit() records
+        the column order, and the weights are recomputed from each member's
+        realised RMSE, so both being populated is evidence the members ran.
+        """
         ep = EnsemblePredictor()
         X, y = _make_X(), _make_y()
+        assert ep._feature_cols is None
+
         ep.fit(X, y)
-        # Should complete without error
+
+        assert ep._feature_cols == list(X.columns)
+        assert set(ep.weights) == set(ep.models)
+        assert ep.weights and all(w >= 0.0 for w in ep.weights.values())
 
     def test_predict_returns_ensemble_prediction(self):
         ep = EnsemblePredictor()
@@ -217,6 +228,10 @@ def _make_executor(starting_capital: float = 100_000.0, cash: float | None = Non
     ex._initialized = True
     ex._storage = AsyncMock()
     ex._fetcher = MagicMock()
+    # v8: initialize() reconciles against exchange truth; an unavailable
+    # snapshot blocks new entries, so give it an explicit empty book.
+    ex._fetcher.fetch_exchange_holdings = AsyncMock(return_value={})
+    ex._recovery_discrepancies = []
     ex._cfg = MagicMock()
     ex._risk_cfg = MagicMock(notional_limit_usd=10_000.0, approval_timeout_s=30.0)
     ex._log = structlog.get_logger().bind(component="test")

@@ -1217,10 +1217,16 @@ class StorageBackend:
         since_ts: int | None = None,
         limit: int = 500,
         offset: int = 0,
+        open_only: bool = False,
     ) -> list[TradeRecord]:
         """
         Fetch trades with optional filters.
         Returns list ordered by entry_ts descending.
+
+        `open_only` restricts the result to trades with no exit recorded.
+        After a crash these are the positions the database still believes
+        are live, which is what src/diagnostics/disaster_recovery.py
+        reconciles against the executor's in-memory book.
         """
         conn = self._require_conn()
         # Build parameterized query from fixed literal clause fragments only —
@@ -1236,6 +1242,9 @@ class StorageBackend:
         if since_ts is not None:
             clauses.append("entry_ts>=?")
             params.append(since_ts)
+        if open_only:
+            # No parameter: a literal IS NULL cannot be bound as a value.
+            clauses.append("exit_ts IS NULL")
         # VF-010: Replaced f-string SQL composition with explicit conditional
         # query building — no variable is ever interpolated into the SQL text.
         # All filter values flow through ? placeholders only.

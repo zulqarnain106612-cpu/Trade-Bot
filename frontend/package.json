@@ -24,24 +24,24 @@
     "reselect": "^5.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.19",
     "concurrently": "^9.1.0",
-    "electron": "^43.1.1",
+    "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
-    "eslint": "^8.57.0",
-    "eslint-config-prettier": "^9.0.0",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-config-standard": "^17.0.0",
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-jsx-a11y": "^6.8.1",
     "eslint-plugin-react": "^7.33.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "postcss": "^8.4.38",
-    "prettier": "^3.9.5",
-    "sharp": "^0.33.5",
-    "tailwindcss": "^3.4.4",
-    "vite": "^8.1.4",
-    "wait-on": "^8.0.1"
+    "prettier": "^3.9.6",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.1",
+    "wait-on": "^9.1.0"
   },
   "build": {
     "appId": "com.tradebot.dashboard",

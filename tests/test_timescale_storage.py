@@ -480,6 +480,27 @@ class TestTrades:
                 fee_usd=0.05,
             )
 
+    async def test_fetch_trades_open_only_excludes_closed(self, backend):
+        await backend.insert_trade(make_trade(trade_id="open1"))
+        await backend.insert_trade(make_trade(trade_id="closed1"))
+        await backend.update_trade_exit(
+            trade_id="closed1",
+            exit_price=120.0,
+            exit_ts=3000,
+            pnl_usd=20.0,
+            pnl_pct=0.2,
+            exit_reason="tp",
+            fee_usd=0.05,
+        )
+        rows = await backend.fetch_trades(open_only=True)
+        assert [r.id for r in rows] == ["open1"]
+
+    async def test_fetch_trades_open_only_combines_with_other_filters(self, backend):
+        await backend.insert_trade(make_trade(trade_id="btc_open", symbol="BTC/USDT"))
+        await backend.insert_trade(make_trade(trade_id="eth_open", symbol="ETH/USDT"))
+        rows = await backend.fetch_trades(symbol="BTC/USDT", open_only=True)
+        assert [r.id for r in rows] == ["btc_open"]
+
     async def test_fetch_trades_filter_by_symbol(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1", symbol="BTC/USDT"))
         await backend.insert_trade(make_trade(trade_id="t2", symbol="ETH/USDT"))

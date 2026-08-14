@@ -50,6 +50,7 @@ runner: TuningRunner = TuningRunner(
     proposer,
     gate,
     shadow_mode=_settings.shadow_mode,
+    decision_log_path=_settings.decision_log_path,
 )
 
 watchdog: PostPromotionWatchdog = PostPromotionWatchdog(version_store, audit_log, _settings)
