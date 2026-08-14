@@ -37,7 +37,7 @@ jobs:
           cache: pip
 
       - name: Install ruff
-        run: pip install ruff==0.15.21
+        run: pip install ruff==0.16.1
 
       - name: ruff fix
         run: ruff check src/ tests/ --fix || true

@@ -40,7 +40,7 @@ jobs:
 
       - name: Install tools
         run: |
-          pip install anthropic==0.25.0 ruff==0.15.21
+          pip install anthropic==0.25.0 ruff==0.16.1
           pip install -e ".[dev]" -r requirements-dev.txt || true
 
       - name: Collect CI failure logs
