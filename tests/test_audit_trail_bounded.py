@@ -11,6 +11,7 @@ derivation from len(_entries) and _entries[-1] would have done.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from collections import deque
 
 from src.diagnostics.audit_trail import AuditTrail
@@ -46,7 +47,7 @@ def test_the_chain_links_across_an_eviction_boundary() -> None:
         trail.record("tick", "ok", {"i": i})
 
     entries = trail.entries()
-    for earlier, later in zip(entries, entries[1:], strict=True):
+    for earlier, later in itertools.pairwise(entries):
         assert later.prev_hash == earlier.entry_hash
 
 
