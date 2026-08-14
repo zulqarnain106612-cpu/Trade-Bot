@@ -22,6 +22,35 @@ def test_compute_annualized_basis_pct_rejects_nonpositive_spot() -> None:
         compute_annualized_basis_pct(0.0, 100.0)
 
 
+def test_compute_annualized_basis_pct_rejects_nonpositive_perp() -> None:
+    with pytest.raises(ValueError, match="perp_price"):
+        compute_annualized_basis_pct(100.0, 0.0)
+
+
+def test_slow_normalizing_basis_is_a_weaker_signal() -> None:
+    """The same raw gap must not earn full confidence over a longer horizon."""
+    strat = BasisTradeStrategy()
+    fast = strat.generate_signal(BasisTradeContext(spot_price=100.0, perp_price=100.05))
+    slow = strat.generate_signal(
+        BasisTradeContext(
+            spot_price=100.0,
+            perp_price=100.05,
+            days_to_perp_funding_normalization=30.0,
+        )
+    )
+    assert fast.confidence > slow.confidence
+
+
+def test_long_horizon_can_fall_below_the_entry_threshold() -> None:
+    strat = BasisTradeStrategy()
+    ctx = BasisTradeContext(
+        spot_price=100.0,
+        perp_price=100.05,
+        days_to_perp_funding_normalization=365.0,
+    )
+    assert strat.generate_signal(ctx).direction == 0
+
+
 def test_rejects_non_basistradecontext_bar() -> None:
     strat = BasisTradeStrategy()
     with pytest.raises(TypeError, match="BasisTradeContext"):
@@ -102,9 +131,7 @@ def test_strategy_uses_the_context_horizon() -> None:
     from src.strategies.basis_trade import BasisTradeContext, BasisTradeStrategy
 
     strategy = BasisTradeStrategy(0.10)
-    near = strategy.generate_signal(
-        BasisTradeContext(spot_price=100.0, perp_price=100.05)
-    )
+    near = strategy.generate_signal(BasisTradeContext(spot_price=100.0, perp_price=100.05))
     far = strategy.generate_signal(
         BasisTradeContext(
             spot_price=100.0,

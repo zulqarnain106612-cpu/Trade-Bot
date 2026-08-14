@@ -21,7 +21,7 @@ env:
 jobs:
   gate:
     name: Gate - Verify release tag
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
 
@@ -51,7 +51,7 @@ jobs:
 
   build:
     name: Build Artifacts
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: gate
     if: needs.gate.outputs.should_release == 'true'
 
@@ -134,7 +134,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: [gate, build]
     if: needs.gate.outputs.should_release == 'true'
     permissions:

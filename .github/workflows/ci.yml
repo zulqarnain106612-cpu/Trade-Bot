@@ -18,7 +18,7 @@ env:
 jobs:
   backend:
     name: Backend (Python 3.11)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
 
@@ -142,7 +142,7 @@ jobs:
 
   frontend:
     name: Frontend (Node 20)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
 
@@ -178,7 +178,7 @@ jobs:
 
   auto-fix:
     name: Auto-Fix and Re-trigger
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: [backend, frontend]
     if: |
       always() &&

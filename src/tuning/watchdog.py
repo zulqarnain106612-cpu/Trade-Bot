@@ -14,9 +14,8 @@ proposals for a cooldown period -- this is the mechanism that makes
 
 from __future__ import annotations
 
-import time
-
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
