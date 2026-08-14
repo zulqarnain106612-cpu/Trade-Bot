@@ -34,11 +34,10 @@ joblib>=1.5.3,<2.0
 aiohttp>=3.9,<4.0          # onchain/base.py, providers/blockchain_provider.py, providers/coingecko_provider.py
 prometheus_client>=0.20,<1.0  # src/api/metrics.py
 optuna>=3.6,<5.0            # Bayesian (TPE) proposer strategy for src/tuning — see src/tuning/bayesian_proposer.py
-# Direct deps of the Crypto-Box provider/model layer. Present in
+# Direct deps of the Crypto-Box provider/model layer. pmdarima,
+# yfinance and vaderSentiment are NOT here -- they are lazily imported
+# with fallbacks, so they live in requirements-optional.txt. Present in
 # requirements.in, so they belong in this mirror too -- check_requirements_sync
 # only enforces txt ⊆ in, and mutation-testing.yml installs from this file.
 pyarrow>=15.0,<26.0         # parquet engine for the provider persistence layer
-yfinance>=0.2,<1.0          # E-13: macro daily data (SPX/DXY/GLD/VIX)
-pmdarima>=2.0,<3.0          # E-01: auto_arima on rolling window
-vaderSentiment>=3.3,<4.0    # E-14: NLP sentiment on RSS headlines
 cryptography>=42.0,<50.0    # E-security: Ed25519 signing, BIP-32 derivation

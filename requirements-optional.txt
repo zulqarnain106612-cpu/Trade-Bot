@@ -19,6 +19,9 @@ dvc>=3.50,<4.0               # src/upgrade/registry.py — invoked as a CLI subp
 stable-baselines3>=2.9.0,<3.0  # src/execution/rl_agent.py — PPO/SAC agent; falls back to the rule-based policy
 dowhy>=0.11,<1.0             # src/causal/dowhy_scm.py — structural causal model; causal layer disabled without it
 web3>=6.0,<8.0               # src/ecc/zksnark_detect.py — Ethereum RPC for Tornado Cash BFS
+vaderSentiment>=3.3,<4.0     # src/data/sentiment_provider.py — VADER headline scoring; falls back to a neutral scorer
+yfinance>=0.2,<1.0           # src/data/macro_provider.py — SPX/DXY/GLD/VIX dailies; the macro fetch yields nothing without it
+pmdarima>=2.0,<3.0           # src/engines/e01_statistical.py — auto_arima; falls back to a naive drift forecast
 
 # Deliberately NOT listed:
 #   graphsense-lib — src/ecc/secp256k1_cluster.py does `from graphsense import
