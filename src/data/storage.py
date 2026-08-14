@@ -1112,13 +1112,11 @@ class StorageBackend:
         )
         # count_exprs is built only from the hardcoded `columns` list literal
         # above, never from external/user input.
-        async with (
-            conn.execute(
-                f"SELECT COUNT(*) AS total, {count_exprs} "  # nosec B608
-                "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
-                (symbol, timeframe),
-            ) as cur
-        ):
+        async with conn.execute(
+            f"SELECT COUNT(*) AS total, {count_exprs} "  # nosec B608
+            "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
+            (symbol, timeframe),
+        ) as cur:
             _fetched = await cur.fetchone()
             row = dict(_fetched) if _fetched is not None else {}
 

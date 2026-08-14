@@ -28,7 +28,7 @@ class TestGrangerCausalityDetector:
         assert result == {}
 
     def test_update_with_sufficient_data(self) -> None:
-        from src.causal.granger import GrangerCausalityDetector, GrangerResult
+        from src.causal.granger import GrangerCausalityDetector
 
         gcd = GrangerCausalityDetector(window=30, max_lag=2)
         n = 60

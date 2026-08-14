@@ -747,7 +747,7 @@ def bar_gap_report(index: pd.Index) -> dict[str, float | int]:
     over = diffs[diffs > expected * 1.5]
     return {
         "expected_ms": expected,
-        "gap_count": int(len(over)),
+        "gap_count": len(over),
         "gap_pct": round(len(over) / len(diffs) * 100.0, 3),
         "max_gap_ms": int(over.max()) if len(over) else 0,
         "missing_bars": int((over // expected - 1).sum()) if len(over) else 0,
