@@ -244,7 +244,10 @@ def test_threshold_boundary():
 
 def test_feature_columns_backward_compat():
     """FEATURE_COLUMNS alias still equals BASE_FEATURE_COLUMNS."""
-    assert list(BASE_FEATURE_COLUMNS) == FEATURE_COLUMNS
+    assert FEATURE_COLUMNS == BASE_FEATURE_COLUMNS
+    # Immutable: this is the feature contract every model is trained against,
+    # and the two names share one object.
+    assert isinstance(BASE_FEATURE_COLUMNS, tuple)
 
 
 # ---------------------------------------------------------------------------

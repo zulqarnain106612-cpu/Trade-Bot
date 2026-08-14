@@ -80,17 +80,17 @@ class TestPerformanceWeightedAllocate:
         from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 
         tracker = get_attribution_tracker()
-        tracker._fills.clear()
+        tracker.reset()
         for strategy_id, pnls in fills_by_id.items():
             for i, pnl in enumerate(pnls):
-                tracker._fills.append(
+                tracker.record(
                     AttributedFill(strategy_id=strategy_id, pnl_usd=pnl, entry_ts=i, exit_ts=i + 1)
                 )
 
     def _clear_tracker(self) -> None:
         from src.diagnostics.attribution import get_attribution_tracker
 
-        get_attribution_tracker()._fills.clear()
+        get_attribution_tracker().reset()
 
     def test_no_enabled_strategies_all_zero(self) -> None:
         from src.strategies.capital_allocator import performance_weighted_allocate
@@ -231,17 +231,17 @@ class TestRiskParityAllocate:
         from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 
         tracker = get_attribution_tracker()
-        tracker._fills.clear()
+        tracker.reset()
         for sid, pnls in pnls_by_id.items():
             for i, pnl in enumerate(pnls):
-                tracker._fills.append(
+                tracker.record(
                     AttributedFill(strategy_id=sid, pnl_usd=pnl, entry_ts=i, exit_ts=i + 1)
                 )
 
     def _clear(self) -> None:
         from src.diagnostics.attribution import get_attribution_tracker
 
-        get_attribution_tracker()._fills.clear()
+        get_attribution_tracker().reset()
 
     def test_no_enabled_strategies_all_zero(self) -> None:
         from src.strategies.capital_allocator import risk_parity_allocate

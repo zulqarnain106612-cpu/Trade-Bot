@@ -1,8 +1,14 @@
 """
-EXPERIMENTAL — NOT wired into live signal path.
-Blocked on API key provisioning (see DECISION_LOG.md GAP-015).
-
 Risk quantification and uncertainty analysis.
+
+value_at_risk() IS wired into the live sizing path: SignalEngine uses its
+CVaR output as a notional ceiling (see _cvar_notional_cap). It needs only a
+returns array, so the "blocked on API key provisioning" note that used to
+head this file never applied to it — that blocker belongs to the metrics
+that consume paid provider data, not to VaR/CVaR over local bars.
+
+The remaining methods (stress_test, estimate_probability_of_ruin,
+uncertainty_decomposition) are still uncalled.
 
 Measures: VaR, CVaR, stress testing, uncertainty decomposition.
 

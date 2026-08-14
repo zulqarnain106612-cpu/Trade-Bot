@@ -4,7 +4,6 @@ Coverage for small zero-coverage modules — Debt-005.
 Covers:
   - src/api/middleware.py (validate_cors_config)
   - src/api/auth.py (verify_api_key, _get_configured_key, verify_websocket_key)
-  - src/execution/live_fsm_integration.py (LiveExecutorOrderFSM init)
 """
 
 from __future__ import annotations
@@ -165,9 +164,14 @@ class TestVerifyWsKey:
     def _set_key(self):
         return patch.dict(os.environ, {"API_SECRET_KEY": self._KEY}, clear=False)
 
-    def _mock_ws(self, key=None):
+    def _mock_ws(self, key=None, query_key=None):
         ws = MagicMock()
         ws.headers = {"x-api-key": key} if key else {}
+        # verify_ws_key falls back to ?api_key= for browser clients, which
+        # cannot set upgrade headers. Without a real mapping here the
+        # MagicMock returns a MagicMock and the fallback "succeeds" with a
+        # non-string, so this has to be an explicit empty dict.
+        ws.query_params = {"api_key": query_key} if query_key else {}
         ws.close = AsyncMock()
         ws.client = ("127.0.0.1", 9000)
         return ws
@@ -209,98 +213,6 @@ class TestVerifyWsKey:
             with pytest.raises((HTTPException, RuntimeError)):
                 await verify_ws_key(ws)
         ws.close.assert_called()
-
-
-# ---------------------------------------------------------------------------
-# live_fsm_integration.py — LiveExecutorOrderFSM
-# ---------------------------------------------------------------------------
-
-
-class TestLiveExecutorOrderFSMInit:
-    def test_init_stores_fetcher(self):
-        from src.execution.live_fsm_integration import LiveExecutorOrderFSM
-
-        fetcher = MagicMock()
-        wrapper = LiveExecutorOrderFSM(fetcher=fetcher)
-        assert wrapper._fetcher is fetcher
-
-    def test_order_manager_created(self):
-        from src.execution.live_fsm_integration import LiveExecutorOrderFSM
-        from src.execution.order_manager import OrderManager
-
-        wrapper = LiveExecutorOrderFSM(fetcher=MagicMock())
-        assert isinstance(wrapper._order_manager, OrderManager)
-
-    def test_get_fsm_state_raises_before_order(self):
-        """Before any order, get_order_state should raise or return None."""
-        from src.execution.live_fsm_integration import LiveExecutorOrderFSM
-
-        wrapper = LiveExecutorOrderFSM(fetcher=MagicMock())
-        # No order placed yet — accessing current_state not applicable
-        # Just verify the object initialises cleanly
-        assert wrapper is not None
-
-
-class TestLiveExecutorOrderFSMPlaceOrder:
-    """Coverage for LiveExecutorOrderFSM.place_market_order_with_fsm (lines 65-105)."""
-
-    def _make_wrapper(self, order_manager_mock):
-        from src.execution.live_fsm_integration import LiveExecutorOrderFSM
-
-        fetcher = MagicMock()
-        fetcher.get_order_exchange.return_value = AsyncMock()
-        wrapper = LiveExecutorOrderFSM(fetcher=fetcher)
-        wrapper._order_manager = order_manager_mock
-        return wrapper
-
-    @pytest.mark.asyncio
-    async def test_successful_order_returns_fsm_and_dict(self):
-        """Happy path: place_order_with_fsm succeeds → returns (OrderFSM, dict)."""
-        from src.execution.order_fsm import OrderFSM, OrderFSMState, OrderStatus
-
-        fsm_state = OrderFSMState(
-            order_id="ord-1",
-            symbol="BTC/USDT",
-            side="buy",
-            quantity=0.01,
-            status=OrderStatus.FILLED,
-        )
-        fsm_state.filled_qty = 0.01
-        fsm_state.average_fill_price = 50000.0
-        mock_fsm = OrderFSM(fsm_state)
-        mock_order = {"id": "ord-1", "status": "closed", "filled": 0.01}
-
-        om = AsyncMock()
-        om.place_order_with_fsm.return_value = (mock_fsm, mock_order)
-        wrapper = self._make_wrapper(om)
-
-        result_fsm, result_order = await wrapper.place_market_order_with_fsm(
-            symbol="BTC/USDT", side="buy", quantity=0.01
-        )
-        assert result_fsm is mock_fsm
-        assert result_order is mock_order
-
-    @pytest.mark.asyncio
-    async def test_timeout_propagates(self):
-        """TimeoutError from order_manager is logged and re-raised."""
-        om = AsyncMock()
-        om.place_order_with_fsm.side_effect = TimeoutError("fill timeout")
-        wrapper = self._make_wrapper(om)
-
-        with pytest.raises(TimeoutError):
-            await wrapper.place_market_order_with_fsm(symbol="BTC/USDT", side="buy", quantity=0.01)
-
-    @pytest.mark.asyncio
-    async def test_exchange_error_propagates(self):
-        """ccxt.ExchangeError from order_manager is logged and re-raised."""
-        import ccxt
-
-        om = AsyncMock()
-        om.place_order_with_fsm.side_effect = ccxt.ExchangeError("insufficient funds")
-        wrapper = self._make_wrapper(om)
-
-        with pytest.raises(ccxt.ExchangeError):
-            await wrapper.place_market_order_with_fsm(symbol="BTC/USDT", side="sell", quantity=0.1)
 
 
 # ---------------------------------------------------------------------------

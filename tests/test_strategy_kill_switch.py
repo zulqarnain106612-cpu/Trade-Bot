@@ -85,7 +85,10 @@ def test_re_enable_clears_disabled_state() -> None:
     mgr.evaluate("strat_a")
     assert not mgr.is_enabled("strat_a")
 
-    mgr.re_enable("strat_a")
+    # force=True: re_enable now runs the v6 promotion gauntlet, and this
+    # strategy has no attributed track record for it to evaluate. The
+    # gauntlet-enforced paths are covered in test_promotion_gauntlet_wiring.
+    mgr.re_enable("strat_a", force=True)
     assert mgr.is_enabled("strat_a")
     assert mgr.disabled_reason("strat_a") == ""
 
@@ -145,6 +148,34 @@ def test_is_structurally_decayed_true_after_sustained_underperformance() -> None
     # evidence) — CUSUM is additionally exposed so a caller can distinguish
     # "confirmed structural decay, route to gauntlet" from a one-off dip.
     assert mgr.is_structurally_decayed("strat_a")
+    _statistic, observations = mgr.decay_statistic("strat_a")
+    # One CUSUM observation per new trade that had a full rolling window,
+    # never one per evaluate() call.
+    assert 0 < observations <= 40
+
+
+def test_repeated_evaluate_without_new_trades_does_not_accumulate_decay() -> None:
+    """evaluate() is a poll: re-reading one window is not new CUSUM evidence."""
+    mgr = StrategyKillSwitchManager()
+    mgr.register_strategy("strat_a", _baseline(oos_sharpe=3.0))
+
+    for _ in range(30):
+        mgr.record_trade_outcome(
+            "strat_a",
+            pnl_usd=-10.0,
+            predicted_prob=0.4,
+            actual_direction=1,
+            current_equity=9000.0,
+            starting_equity=10000.0,
+        )
+    mgr.evaluate("strat_a")
+    after_first_poll = mgr.decay_statistic("strat_a")
+
+    for _ in range(200):
+        mgr.evaluate("strat_a")
+
+    assert mgr.decay_statistic("strat_a") == after_first_poll
+    assert after_first_poll[1] == 1
 
 
 def test_get_strategy_kill_switch_manager_singleton() -> None:
