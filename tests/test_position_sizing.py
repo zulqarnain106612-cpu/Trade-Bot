@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from src.strategies.position_sizing import (
+    CARVER_FORECAST_SCALAR,
     afml_bet_size,
     carver_forecast_position,
     correlation_adjusted_notional,
@@ -25,6 +26,18 @@ class TestCarverForecastPosition:
             price=100.0,
         )
         assert notional > 0
+
+    def test_forecast_units_are_the_scalar_not_the_unit_interval(self):
+        """
+        A signal on a [-1, 1] scale must be multiplied by
+        CARVER_FORECAST_SCALAR before it reaches this sizer. Feeding the raw
+        value in undersizes by exactly that ratio — the trap that pinned the
+        engine's Carver notional cap near 1% of capital.
+        """
+        common = {"capital_usd": 10000.0, "daily_vol_pct": 0.02, "price": 100.0}
+        raw_probability_scale = carver_forecast_position(forecast=0.6, **common)
+        carver_scale = carver_forecast_position(forecast=0.6 * CARVER_FORECAST_SCALAR, **common)
+        assert carver_scale == pytest.approx(raw_probability_scale * CARVER_FORECAST_SCALAR)
 
     def test_zero_forecast_gives_zero(self):
         notional = carver_forecast_position(
@@ -538,6 +551,40 @@ class TestRecommendPositionNotional:
             avg_book_correlation=0.95,
         )
         assert result_high_corr["correlation_adjusted"] <= result_low_corr["correlation_adjusted"]
+        # The haircut must reach the recommendation, not just the reported
+        # intermediate — it applies to the winning method whichever it is.
+        assert result_high_corr["recommended"] < result_low_corr["recommended"]
+
+    def test_correlation_haircut_binds_when_carver_is_the_minimum(self):
+        """A tiny forecast makes Carver the binding method; the correlation
+        haircut must still reduce the recommendation."""
+        kwargs = {
+            "capital_usd": 1_000_000.0,
+            "price": 100.0,
+            "p_long": 0.9,
+            "win_prob": 0.7,
+            "win_loss_ratio": 2.0,
+            "forecast": 0.5,
+            "daily_vol_pct": 0.02,
+        }
+        low = recommend_position_notional(**kwargs, avg_book_correlation=0.0)
+        high = recommend_position_notional(**kwargs, avg_book_correlation=0.95)
+        assert low["carver_forecast"] < low["thorp_kelly"]
+        assert low["carver_forecast"] < low["afml_bet_size"]
+        assert high["recommended"] < low["recommended"]
+
+    def test_perfect_correlation_recommends_zero(self):
+        result = recommend_position_notional(
+            capital_usd=10000.0,
+            price=100.0,
+            p_long=0.8,
+            win_prob=0.65,
+            win_loss_ratio=1.8,
+            forecast=15.0,
+            daily_vol_pct=0.02,
+            avg_book_correlation=1.0,
+        )
+        assert result["recommended"] == 0.0
 
     def test_all_values_are_floats(self):
         result = recommend_position_notional(

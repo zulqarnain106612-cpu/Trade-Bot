@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.diagnostics.attribution import (
     AttributedFill,
     AttributionTracker,
@@ -152,3 +154,114 @@ def test_to_dict_includes_sortino_and_calmar() -> None:
     d = compute_attribution("s", fills).to_dict()
     assert "sortino" in d
     assert "calmar" in d
+
+
+def test_fills_for_returns_only_that_strategy_in_record_order() -> None:
+    tracker = AttributionTracker()
+    a1 = AttributedFill("alpha", 10.0, 1, 2)
+    b1 = AttributedFill("beta", -3.0, 1, 2)
+    a2 = AttributedFill("alpha", 5.0, 3, 4)
+    for fill in (a1, b1, a2):
+        tracker.record(fill)
+
+    assert tracker.fills_for("alpha") == [a1, a2]
+    assert tracker.fills_for("beta") == [b1]
+
+
+def test_fills_for_unknown_strategy_is_empty() -> None:
+    tracker = AttributionTracker()
+    tracker.record(AttributedFill("alpha", 10.0, 1, 2))
+    assert tracker.fills_for("gamma") == []
+
+
+# ---------------------------------------------------------------------------
+# Bounded retention — memory and lifetime-scalar behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_retained_window_is_bounded_per_strategy() -> None:
+    tracker = AttributionTracker(max_fills_per_strategy=5)
+    for i in range(20):
+        tracker.record(AttributedFill("alpha", 1.0, i, i + 1))
+    assert len(tracker.fills_for("alpha")) == 5
+
+
+def test_eviction_keeps_the_most_recent_fills() -> None:
+    tracker = AttributionTracker(max_fills_per_strategy=3)
+    for i in range(6):
+        tracker.record(AttributedFill("alpha", float(i), i, i + 1))
+    assert [f.pnl_usd for f in tracker.fills_for("alpha")] == [3.0, 4.0, 5.0]
+
+
+def test_lifetime_totals_survive_eviction() -> None:
+    """Counts and P&L must not shrink when old fills age out of the window."""
+    tracker = AttributionTracker(max_fills_per_strategy=2)
+    for _ in range(10):
+        tracker.record(AttributedFill("alpha", 3.0, 1, 2))
+    attr = tracker.snapshot()["alpha"]
+    assert attr.trade_count == 10
+    assert attr.total_pnl_usd == pytest.approx(30.0)
+    assert tracker.lifetime_trade_count("alpha") == 10
+    assert tracker.fill_count() == 10
+
+
+def test_lifetime_win_rate_survives_eviction() -> None:
+    tracker = AttributionTracker(max_fills_per_strategy=2)
+    for _ in range(5):
+        tracker.record(AttributedFill("alpha", 1.0, 1, 2))
+    for _ in range(5):
+        tracker.record(AttributedFill("alpha", -1.0, 1, 2))
+    assert tracker.snapshot()["alpha"].win_rate == pytest.approx(0.5)
+
+
+def test_first_entry_ts_survives_eviction() -> None:
+    """A long-lived strategy must not look newly started once its oldest fills age out."""
+    tracker = AttributionTracker(max_fills_per_strategy=2)
+    tracker.record(AttributedFill("alpha", 1.0, 1_000, 1_001))
+    for i in range(5):
+        tracker.record(AttributedFill("alpha", 1.0, 90_000 + i, 90_001 + i))
+    assert tracker.first_entry_ts_for("alpha") == 1_000
+
+
+def test_first_entry_ts_tracks_out_of_order_fills() -> None:
+    tracker = AttributionTracker()
+    tracker.record(AttributedFill("alpha", 1.0, 5_000, 5_001))
+    tracker.record(AttributedFill("alpha", 1.0, 2_000, 2_001))
+    assert tracker.first_entry_ts_for("alpha") == 2_000
+
+
+def test_lifetime_accessors_on_unknown_strategy() -> None:
+    tracker = AttributionTracker()
+    assert tracker.first_entry_ts_for("nobody") is None
+    assert tracker.lifetime_trade_count("nobody") == 0
+    assert tracker.fills_for("nobody") == []
+
+
+def test_strategies_are_isolated_from_each_others_windows() -> None:
+    """One noisy strategy must not evict another's history."""
+    tracker = AttributionTracker(max_fills_per_strategy=3)
+    tracker.record(AttributedFill("beta", 7.0, 1, 2))
+    for i in range(50):
+        tracker.record(AttributedFill("alpha", 1.0, i, i + 1))
+    assert [f.pnl_usd for f in tracker.fills_for("beta")] == [7.0]
+
+
+def test_risk_ratios_are_window_scoped() -> None:
+    """Sharpe/drawdown reflect recent behaviour, not a strategy's first month forever."""
+    tracker = AttributionTracker(max_fills_per_strategy=4)
+    for _ in range(10):
+        tracker.record(AttributedFill("alpha", -50.0, 1, 2))
+    for _ in range(4):
+        tracker.record(AttributedFill("alpha", 10.0, 1, 2))
+    attr = tracker.snapshot()["alpha"]
+    assert attr.max_drawdown_usd == 0.0  # the loss run has aged out of the window
+    assert attr.total_pnl_usd == pytest.approx(-460.0)  # but it still counts against lifetime P&L
+
+
+def test_reset_clears_lifetime_state() -> None:
+    tracker = AttributionTracker()
+    tracker.record(AttributedFill("alpha", 1.0, 1, 2))
+    tracker.reset()
+    assert tracker.snapshot() == {}
+    assert tracker.fill_count() == 0
+    assert tracker.first_entry_ts_for("alpha") is None

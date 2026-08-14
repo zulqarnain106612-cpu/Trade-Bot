@@ -2,6 +2,10 @@
 FastAPI dashboard API.
 
 Security: ALL endpoints require X-API-Key header matching API_SECRET_KEY env var.
+The mutating endpoints additionally require the trade-authorizing role — see
+requires() and src/api/access_control.py. With only API_SECRET_KEY configured
+every valid key holds that role, so the gates are inert until the optional
+API_READONLY_KEY is set.
 
 Endpoints:
   GET  /health                     — system health + storage counts
@@ -12,6 +16,8 @@ Endpoints:
   GET  /approvals                  — pending approval requests
   POST /approvals/{id}/resolve     — approve or reject a pending trade
   POST /execution-mode             — switch AUTOMATIC/RESTRICTED/MANUAL at runtime
+  GET  /strategies/gauntlet        — promotion-gauntlet status per candidate
+  GET  /debug/reconcile            — in-memory book vs persisted open trades
   WS   /ws                         — live push of equity + positions + signals
 
 WebSocket push format (JSON):
@@ -29,7 +35,7 @@ import json
 import os
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
@@ -48,19 +54,33 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
+from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
 from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
-from src.data.storage import AnyStorageBackend, create_storage_backend
+from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
+from src.diagnostics.audit_trail import get_audit_trail
+from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.execution.unified_ledger import get_unified_ledger
+from src.risk.strategy_kill_switch import (
+    GauntletNotPassedError,
+    get_strategy_kill_switch_manager,
+)
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
 from src.tuning.audit import TuningEventType
+from src.tuning.meta_allocator import get_allocation_controller
+from src.tuning.promotion_gauntlet import (
+    GauntletCriteria,
+    evaluate_gauntlet,
+    observation_from_fills,
+)
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
     audit_log as tuning_audit_log,
@@ -70,6 +90,10 @@ from src.tuning.state import (
     watchdog as tuning_watchdog,
 )
 from src.tuning.store import NoPriorVersionError, NoVersionsError
+from src.tuning.stress_simulator import (
+    KNOWN_CRISIS_SCENARIOS,
+    run_all_known_scenarios,
+)
 
 
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
@@ -99,6 +123,7 @@ def _validate_operator(v: str) -> str:
 class AppState:
     storage: AnyStorageBackend
     orchestrator: Orchestrator | None
+    intel_adapter: Any | None  # IntelligenceAdapter (crypto-intel-v6); None when disabled
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
     _MODE_CHANGE_LIMIT: int = 3
@@ -108,6 +133,7 @@ class AppState:
 
     def __init__(self) -> None:
         self.ready = False
+        self.intel_adapter = None
         self.orchestrator: Orchestrator | None = None  # set in lifespan after startup()
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
@@ -264,6 +290,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             raise
         _state.ready = True  # NEW-001: mark ready only after full startup
 
+        # crypto-intel-v6: start IntelligenceAdapter when INTEL_ENABLED=true
+        if os.environ.get("INTEL_ENABLED", "false").lower() == "true":
+            try:
+                from src.intel import CryptoIntelligence
+                from src.intelligence.intelligence_adapter import IntelligenceAdapter
+
+                _intel = CryptoIntelligence()
+                _intel.start()
+                _state.intel_adapter = IntelligenceAdapter(_intel, _state.storage)
+                log.info("api.crypto_intel_v6_started")
+            except Exception as _exc:
+                log.warning("api.crypto_intel_v6_start_failed", exc=str(_exc))
+
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
@@ -286,6 +325,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
+        if _state.intel_adapter is not None:
+            try:
+                intel_obj = getattr(_state.intel_adapter, "_intel", None)
+                if intel_obj is not None:
+                    intel_obj.close()
+            except Exception as _exc:
+                log.warning("api.crypto_intel_close_failed", exc=str(_exc))
         _state.orchestrator.stop()
         try:
             await asyncio.wait_for(orch_task, timeout=10.0)
@@ -326,6 +372,48 @@ app.add_middleware(
 def api_key_header(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
     """FastAPI dependency — validates X-API-Key header on every request."""
     verify_api_key(x_api_key)
+
+
+def resolve_role(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> Role:
+    """
+    FastAPI dependency — authenticate and return the caller's role.
+
+    A named module-level function, not a closure inside requires(), so that
+    it is a single stable key in app.dependency_overrides. A per-permission
+    closure would be a different object for every route and could not be
+    overridden in tests at all.
+    """
+    return verify_api_key(x_api_key)
+
+
+def requires(permission: Permission) -> Callable[..., None]:
+    """
+    Build a FastAPI dependency enforcing *permission* for the calling key.
+
+    Layered on top of resolve_role rather than replacing authentication:
+    this only decides what an already-authenticated key may do. In a
+    single-key deployment every valid key resolves to
+    Role.TRADE_AUTHORIZING, so these dependencies are a no-op until a
+    read-only key is actually configured — they can restrict an endpoint,
+    never open one.
+
+    403, not 401: the caller authenticated correctly and is being denied on
+    authority, and conflating the two would tell a read-only holder their
+    key was wrong.
+    """
+
+    def _dependency(role: Role = Depends(resolve_role)) -> None:
+        try:
+            require_permission(role, permission)
+        except PermissionError as exc:
+            log.warning(
+                "api.permission_denied",
+                role=role.value,
+                permission=permission.value,
+            )
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    return _dependency
 
 
 def require_ready() -> None:
@@ -426,6 +514,52 @@ class SelfTuningPauseRequest(BaseModel):
         return _validate_operator(v)
 
 
+class RecoveryAcknowledgeRequest(BaseModel):
+    """
+    v8 -- clear the startup-reconciliation block on the live executor.
+
+    Operator-secret gated because acknowledging means asserting the book is
+    now understood; nothing else in the system can establish that, and a
+    wrong assertion lets the executor size against a book it does not know.
+    """
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise the acknowledgement",
+    )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class StrategyReEnableRequest(BaseModel):
+    """
+    v6 — reinstate a kill-switched strategy.
+
+    force skips the promotion gauntlet. It exists because AttributionTracker
+    is in-memory: a restart wipes the track record, so a healthy strategy can
+    legitimately look like it has none. It is not a convenience flag — the
+    override is logged and reported as an override, never as a pass.
+    """
+
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(
+        ...,
+        min_length=1,
+        description="Must match OPERATOR_SECRET env var to authorise the re-enable",
+    )
+    force: bool = Field(default=False)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
 class SelfTuningRollbackRequest(BaseModel):
     """Phase 6 -- manual forced revert of a tuned parameter to its
     previous version, bypassing the watchdog's own drift detection
@@ -512,6 +646,21 @@ async def status() -> dict[str, Any]:
             "prob_volatile": regime_snap.prob_volatile,
         }
 
+    # v4 shadow-mode promotion: a retrained bundle under evaluation is not
+    # trading, so it is reported per timeframe rather than folded into the
+    # single model view above. Absent key = nothing under evaluation.
+    # Reported best-effort: /status is the operator's view of everything else
+    # on this page, and a failed read of an advisory evaluation must not take
+    # equity and open positions down with it.
+    shadow_models: dict[str, Any] = {}
+    try:
+        for tf_value, engine in _state.orchestrator._engines.items():
+            shadow = await engine.shadow_status()
+            if shadow is not None:
+                shadow_models[tf_value] = shadow
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("api.shadow_status_failed", error=str(exc), exc_info=True)
+
     return {
         "equity_usd": round(equity_usd, 2),
         "cash_usd": round(cash_usd, 2),
@@ -527,6 +676,7 @@ async def status() -> dict[str, Any]:
         "execution_mode": (await runtime_config.get_execution_mode()).value,
         "primary_symbol": cfg.primary_symbol,
         "primary_timeframe": cfg.primary_timeframe.value,
+        "shadow_models": shadow_models,
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
             tf: str(err)[:200]
@@ -700,7 +850,10 @@ async def approvals() -> dict[str, Any]:
 
 @app.post(
     "/approvals/{request_id}/resolve",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.APPROVE_TRADE)),
+        Depends(require_ready),
+    ],
     responses={
         503: {"description": "Executor not initialized"},
         404: {"description": "Approval request not found or already resolved"},
@@ -755,7 +908,7 @@ async def resolve_approval(
 
 @app.post(
     "/execution-mode",
-    dependencies=[Depends(api_key_header)],
+    dependencies=[Depends(requires(Permission.CHANGE_EXECUTION_MODE))],
     responses={
         400: {"description": "Invalid execution mode"},
         401: {"description": "Invalid operator secret"},
@@ -830,7 +983,10 @@ async def get_risk_controls() -> dict[str, Any]:
 
 @app.post(
     "/risk-controls",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         400: {"description": "Invalid risk-control value"},
         401: {"description": "Invalid operator secret"},
@@ -998,7 +1154,10 @@ async def self_tuning_status() -> dict[str, Any]:
 
 @app.post(
     "/self-tuning/pause",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         429: {"description": "Rate limit exceeded"},
@@ -1021,7 +1180,10 @@ async def self_tuning_pause(body: SelfTuningPauseRequest, request: Request) -> d
 
 @app.post(
     "/self-tuning/resume",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         429: {"description": "Rate limit exceeded"},
@@ -1040,7 +1202,10 @@ async def self_tuning_resume(body: SelfTuningPauseRequest, request: Request) -> 
 
 @app.post(
     "/self-tuning/rollback/{param_name}",
-    dependencies=[Depends(api_key_header), Depends(require_ready)],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
     responses={
         401: {"description": "Invalid operator secret"},
         404: {"description": "Parameter has no version history"},
@@ -1181,6 +1346,69 @@ async def debug_audit(
     }
 
 
+@app.get("/audit/integrity", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def audit_chain_integrity(
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> dict[str, Any]:
+    """
+    Verify the hash-chained audit trail and return its tail.
+
+    src/diagnostics/audit_trail.py hash-chains every entry to the previous
+    one so tampering with history is detectable. SignalEngine writes to it on
+    every tick, and until this endpoint existed nothing ever verified the
+    chain or read it back — the hashing cost was paid on every tick and the
+    guarantee it buys was never collected. A tamper-evident log nobody checks
+    is not tamper-evident.
+
+    Distinct from /debug/audit, which reads TradeAuditor: that is a
+    human-readable decision log with no integrity guarantee, and the two are
+    different modules despite the similar name.
+
+    Reports rather than halts. A broken chain means a bug or tampering, and
+    which of those it is cannot be decided here — but it is logged at
+    critical so it cannot pass unnoticed while an operator is not looking at
+    the dashboard.
+
+    Returns
+    -------
+    {
+        "intact": bool,
+        "first_broken_sequence": int | None,   # None when intact
+        "entry_count": int,
+        "recent": [{sequence, ts_ms, event_type, reason_code, entry_hash}, ...],
+    }
+    """
+    trail = get_audit_trail()
+    intact, first_broken = trail.verify_chain_integrity()
+    entries = trail.entries()
+    if not intact:
+        log.critical(
+            "api.audit_chain_broken",
+            first_broken_sequence=first_broken,
+            entry_count=len(entries),
+        )
+    return {
+        "intact": intact,
+        "first_broken_sequence": first_broken,
+        "entry_count": len(entries),
+        # entry_count is the RETAINED window, which is bounded. Reporting it
+        # alone would let a caller read "intact over 100k entries" as "intact
+        # over all history" once eviction has begun — different claims.
+        "total_recorded": trail.total_recorded(),
+        "evicted_count": trail.evicted_count(),
+        "recent": [
+            {
+                "sequence": e.sequence,
+                "ts_ms": e.ts_ms,
+                "event_type": e.event_type,
+                "reason_code": e.reason_code,
+                "entry_hash": e.entry_hash,
+            }
+            for e in entries[-limit:]
+        ],
+    }
+
+
 @app.get("/debug/drift", dependencies=[Depends(api_key_header)])
 async def debug_drift() -> dict[str, Any]:
     """Feature drift (KS test vs training baseline) + model degradation report."""
@@ -1207,11 +1435,141 @@ async def debug_drift() -> dict[str, Any]:
     }
 
 
-@app.post("/debug/selftest", dependencies=[Depends(api_key_header)])
-async def debug_selftest() -> dict[str, Any]:
-    """On-demand pipeline self-test — synthetic round-trip through feature pipeline."""
+_RECONCILE_PAGE = 500
+_RECONCILE_MAX_PAGES = 20
+
+
+async def _fetch_all_open_trades(trading_mode: str) -> tuple[list[TradeRecord], bool]:
+    """
+    Page through every open trade. Returns (trades, truncated).
+
+    A single capped query would silently drop open positions past the cap and
+    then report them as discrepancies — a reconciliation that invents
+    differences is worse than none. The page bound keeps a runaway table from
+    turning this endpoint into an unbounded read; hitting it is reported as
+    `truncated` rather than passed off as a complete comparison.
+    """
+    trades: list[TradeRecord] = []
+    for page in range(_RECONCILE_MAX_PAGES):
+        batch = await _state.storage.fetch_trades(
+            trading_mode=trading_mode,
+            limit=_RECONCILE_PAGE,
+            offset=page * _RECONCILE_PAGE,
+            open_only=True,
+        )
+        trades.extend(batch)
+        if len(batch) < _RECONCILE_PAGE:
+            return trades, False
+    log.warning("api.reconcile_truncated", page_limit=_RECONCILE_MAX_PAGES, fetched=len(trades))
+    return trades, True
+
+
+def _net_by_symbol(pairs: Iterable[tuple[str, float]]) -> list[PositionSnapshot]:
+    """Collapse (symbol, signed_qty) pairs into one net snapshot per symbol."""
+    netted: dict[str, float] = {}
+    for symbol, quantity in pairs:
+        netted[symbol] = netted.get(symbol, 0.0) + quantity
+    return [PositionSnapshot(symbol=s, quantity=q) for s, q in sorted(netted.items())]
+
+
+@app.get(
+    "/debug/reconcile",
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def debug_reconcile() -> dict[str, Any]:
+    """
+    Reconcile the in-memory book against the persisted open-trade table.
+
+    This is the crash-recovery check: the trade table is what survives a
+    restart, so a position present in one side and not the other means the
+    process died between placing an order and recording its exit, or was
+    restarted without its book. Read-only — it reports discrepancies and
+    never closes, reopens, or rewrites anything.
+
+    Scope: the durable record is the reference here, not exchange truth. A
+    fill that happened while the process was down is invisible to both
+    sides and needs a venue query to detect.
+
+    Returns
+    -------
+    {
+        "consistent": bool,
+        "truncated": bool,          # True if the open-trade scan hit its page bound
+        "local_position_count": int,
+        "reference_position_count": int,
+        "discrepancies": [{symbol, discrepancy_type, local_quantity,
+                           reference_quantity}, ...],
+    }
+    """
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    cfg = get_settings()
+
+    local_positions = await executor.open_positions_safe()
+    local = _net_by_symbol(
+        (
+            str(p["symbol"]),
+            float(cast(float, p["quantity"])) * (1.0 if p["direction"] == "long" else -1.0),
+        )
+        for p in local_positions
+    )
+
+    open_trades, truncated = await _fetch_all_open_trades(cfg.trading_mode.value)
+    reference = _net_by_symbol(
+        (t.symbol, t.quantity * (1.0 if t.direction == 1 else -1.0)) for t in open_trades
+    )
+
+    discrepancies = reconcile(local, reference)
+    if discrepancies:
+        log.warning(
+            "api.reconcile_discrepancies",
+            count=len(discrepancies),
+            symbols=[d.symbol for d in discrepancies],
+        )
+    return {
+        "consistent": is_state_consistent(discrepancies),
+        "truncated": truncated,
+        "local_position_count": len(local_positions),
+        "reference_position_count": len(open_trades),
+        "discrepancies": [
+            {
+                "symbol": d.symbol,
+                "discrepancy_type": d.discrepancy_type.value,
+                "local_quantity": d.local_quantity,
+                "reference_quantity": d.reference_quantity,
+            }
+            for d in discrepancies
+        ],
+    }
+
+
+@app.post(
+    "/debug/selftest",
+    dependencies=[Depends(api_key_header)],
+    responses={429: {"description": "Rate limit exceeded"}},
+)
+async def debug_selftest(request: Request) -> dict[str, Any]:
+    """
+    On-demand pipeline self-test — synthetic round-trip through the feature
+    pipeline.
+
+    Rate limited, unlike the other read-only diagnostics, because it is not
+    a read: it generates 800 synthetic bars and runs the full feature build
+    (fractional differentiation, GARCH, every rolling statistic) on a shared
+    executor. Every other mutating POST here is governed -- this one was the
+    exception, and it is the CPU-expensive one, so any valid key could have
+    kept the box busy building throwaway matrices while the live tick loop
+    waited for a thread.
+
+    Deliberately NOT role-gated: it changes no trading state, so a read-only
+    key running a diagnostic is legitimate. The cost is the problem, and a
+    rate limit is the control that matches it.
+    """
     from src.diagnostics.signal_debugger import run_pipeline_selftest
 
+    _state.check_endpoint_rate_limit(
+        "debug_selftest", request.client.host if request.client else ""
+    )
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_pipeline_selftest)
     return result
@@ -1280,6 +1638,145 @@ async def get_order_status(
     return state.to_dict()
 
 
+@app.get("/ledger", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_unified_ledger_snapshot() -> dict[str, Any]:
+    """
+    Cross-venue book (v3 unified ledger).
+
+    Read-only view of src/execution/unified_ledger.py, republished by the
+    orchestrator each tick. Paper fills are carried under their own "paper"
+    venue and are never netted against live exchange exposure.
+
+    Returns
+    -------
+    {
+        "venues": [{venue, symbol, quantity, entry_price, margin_used_usd}, ...],
+        "by_symbol": {symbol: {net_exposure, gross_exposure, venues}, ...},
+        "total_margin_used_usd": float,
+    }
+    """
+    ledger = get_unified_ledger()
+    positions = ledger.all_positions
+    symbols = sorted({p.symbol for p in positions})
+    return {
+        "venues": [
+            {
+                "venue": p.venue,
+                "symbol": p.symbol,
+                "quantity": p.quantity,
+                "entry_price": round(p.entry_price, 4),
+                "margin_used_usd": round(p.margin_used_usd, 2),
+            }
+            for p in positions
+        ],
+        "by_symbol": {
+            symbol: {
+                "net_exposure": ledger.net_exposure(symbol),
+                "gross_exposure": ledger.gross_exposure(symbol),
+                "venues": ledger.venues_holding(symbol),
+            }
+            for symbol in symbols
+        },
+        "total_margin_used_usd": round(ledger.total_margin_used_usd(), 2),
+    }
+
+
+def _live_executor_or_none() -> Any:
+    """The live executor, or None when the process is paper-only/not ready."""
+    from src.execution.live import LiveExecutor
+
+    orchestrator = _state.orchestrator
+    if orchestrator is None:
+        return None
+    executor = orchestrator._executor
+    return executor if isinstance(executor, LiveExecutor) else None
+
+
+@app.get("/recovery/status", tags=["execution"], dependencies=[Depends(api_key_header)])
+async def recovery_status() -> dict[str, Any]:
+    """
+    Startup reconciliation state (v8 disaster recovery).
+
+    `blocked` true means the live executor found local state disagreeing with
+    exchange truth on startup and is refusing to open new positions until an
+    operator acknowledges. Exits are never blocked.
+
+    A paper-only process reports `applicable: false` — reconciliation is a
+    live-execution concern, and reporting "clean" there would imply a check
+    that never ran.
+    """
+    executor = _live_executor_or_none()
+    if executor is None:
+        return {"applicable": False, "blocked": False, "discrepancies": []}
+    discrepancies = executor.recovery_discrepancies
+    return {
+        "applicable": True,
+        "blocked": bool(discrepancies),
+        "discrepancies": [
+            {
+                "symbol": d.symbol,
+                "type": d.discrepancy_type.value,
+                "local_quantity": d.local_quantity,
+                "exchange_quantity": d.reference_quantity,
+            }
+            for d in discrepancies
+        ],
+    }
+
+
+@app.post(
+    "/recovery/acknowledge",
+    tags=["execution"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        409: {"description": "No live executor to acknowledge"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def recovery_acknowledge(
+    body: RecoveryAcknowledgeRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Clear the startup-reconciliation block after an operator resolves it.
+
+    409 when there is no live executor: silently reporting success would tell
+    an operator a block was lifted that never existed.
+    """
+    _state.check_endpoint_rate_limit(
+        "recovery_acknowledge", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "recovery_acknowledge")
+
+    executor = _live_executor_or_none()
+    if executor is None:
+        raise HTTPException(status_code=409, detail="No live executor is running.")
+
+    discrepancies = executor.recovery_discrepancies
+    cleared = executor.acknowledge_recovery(body.operator)
+    await _state.storage.insert_audit_event(
+        event_type="recovery_acknowledged",
+        operator=body.operator,
+        details={
+            "cleared": cleared,
+            "discrepancies": [
+                {
+                    "symbol": d.symbol,
+                    "type": d.discrepancy_type.value,
+                    "local_quantity": d.local_quantity,
+                    "exchange_quantity": d.reference_quantity,
+                }
+                for d in discrepancies
+            ],
+        },
+    )
+    log.warning("api.recovery_acknowledged", operator=body.operator, cleared=cleared)
+    return {"cleared": cleared, "blocked": False, "operator": body.operator}
+
+
 @app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])
 async def get_strategy_attribution() -> dict[str, Any]:
     """
@@ -1306,6 +1803,67 @@ async def get_strategy_attribution() -> dict[str, Any]:
     }
 
 
+@app.get(
+    "/strategies/gauntlet",
+    tags=["monitoring"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def get_strategy_gauntlet() -> dict[str, Any]:
+    """
+    Promotion-gauntlet status for every strategy with realized fills (v6).
+
+    Read-only and advisory: it reports which candidates *would* clear the
+    bar for live capital, and names the criteria each one still fails.
+    Nothing is promoted here — auto-discovery never auto-promotes, so
+    acting on this stays an explicit operator step.
+
+    Returns
+    -------
+    {
+        "criteria": {min_trades, min_days_running, min_sharpe, max_drawdown_pct},
+        "equity_usd": float,          # drawdown denominator used
+        "candidates": {strategy_id: {passed, failed_criteria, trade_count,
+                                     days_running, realized_sharpe,
+                                     realized_max_drawdown_pct}, ...},
+    }
+    """
+    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    tracker = get_attribution_tracker()
+    criteria = GauntletCriteria()
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    equity_usd = float(executor.equity_usd) if executor else 0.0
+
+    candidates: dict[str, Any] = {}
+    for strategy_id in tracker.snapshot():
+        observation = observation_from_fills(
+            strategy_id,
+            tracker.fills_for(strategy_id),
+            equity_usd,
+            first_entry_ms=tracker.first_entry_ts_for(strategy_id),
+            lifetime_trade_count=tracker.lifetime_trade_count(strategy_id),
+        )
+        result = evaluate_gauntlet(observation, criteria)
+        candidates[strategy_id] = {
+            "passed": result.passed,
+            "failed_criteria": list(result.failed_criteria),
+            "trade_count": observation.trade_count,
+            "days_running": round(observation.days_running, 3),
+            "realized_sharpe": round(observation.realized_sharpe, 4),
+            "realized_max_drawdown_pct": round(observation.realized_max_drawdown_pct, 4),
+        }
+
+    return {
+        "criteria": {
+            "min_trades": criteria.min_trades,
+            "min_days_running": criteria.min_days_running,
+            "min_sharpe": criteria.min_sharpe,
+            "max_drawdown_pct": criteria.max_drawdown_pct,
+        },
+        "equity_usd": equity_usd,
+        "candidates": candidates,
+    }
+
+
 @app.get("/strategies/allocation", tags=["monitoring"], dependencies=[Depends(api_key_header)])
 async def get_strategy_allocation() -> dict[str, Any]:
     """
@@ -1313,27 +1871,269 @@ async def get_strategy_allocation() -> dict[str, Any]:
 
     Uses live Sharpe attribution data to compute Sharpe-weighted fractional
     allocations. Strategies with < 30 fills receive equal-weight share (warm-up
-    fallback). Read-only — reflects what the allocator would produce right now.
+    fallback). Read-only — reading this endpoint never advances the allocation.
+
+    `target_allocations` is what the allocator would pick from attribution as
+    it stands right now. `allocations` is what the book is actually running:
+    the orchestrator's rebalance loop moves it toward the target by at most
+    `max_shift_per_step` per rebalance, so the two differ whenever the target
+    has recently moved. Before the first rebalance (or with no orchestrator
+    running) there is no incumbent allocation and the two are identical.
 
     Returns
     -------
     {
-        "allocations": {strategy_id: float, ...},  # fractions summing to <= 1.0
+        "allocations": {strategy_id: float, ...},   # fractions summing to <= 1.0
+        "target_allocations": {strategy_id: float, ...},
+        "max_shift_per_step": float,
         "method": str,                              # "performance_weighted" or "equal_weight"
         "fill_count": int,                          # total fills tracked
     }
     """
     registry = get_default_registry()
     strategies = list(registry.all())
+    controller = get_allocation_controller(
+        get_settings().strategy_portfolio.max_allocation_shift_per_step
+    )
     if not strategies:
-        return {"allocations": {}, "method": "equal_weight", "fill_count": 0}
-    enabled_ids = {s.strategy_id for s in strategies}
+        return {
+            "allocations": {},
+            "target_allocations": {},
+            "max_shift_per_step": controller.max_shift_per_step,
+            "method": "equal_weight",
+            "fill_count": 0,
+        }
+    # Kill-switched strategies are excluded, which the allocator turns into a
+    # 0.0 share — previously every registered strategy was passed as enabled
+    # unconditionally, so a strategy the kill switch had disabled for drift
+    # still showed a full allocation.
+    enabled_ids = get_strategy_kill_switch_manager().enabled_ids(s.strategy_id for s in strategies)
     result = performance_weighted_allocate(tuple(strategies), enabled_ids)
     tracker = get_attribution_tracker()
     return {
-        "allocations": result.fractions,
+        "allocations": controller.applied() or result.fractions,
+        "target_allocations": result.fractions,
+        "max_shift_per_step": controller.max_shift_per_step,
         "method": result.method,
         "fill_count": tracker.fill_count(),
+    }
+
+
+@app.post(
+    "/strategies/{strategy_id}/re-enable",
+    tags=["monitoring"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        401: {"description": "Invalid operator secret"},
+        404: {"description": "No kill switch registered for this strategy"},
+        409: {"description": "Strategy has not passed the promotion gauntlet"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def re_enable_strategy(
+    strategy_id: str, body: StrategyReEnableRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Reinstate a strategy the kill switch disabled for drift (v2/v6).
+
+    Until this existed there was no path back: a strategy auto-disabled for
+    drift stayed disabled for the life of the process. The re-enable runs the
+    v6 promotion gauntlet against the strategy's own attributed track record,
+    so reinstatement clears the same bar as initial promotion.
+
+    409, not 400: the request is well-formed and the operator is authorised —
+    the strategy's record is what does not qualify yet.
+    """
+    _state.check_endpoint_rate_limit(
+        "re_enable_strategy", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "re_enable_strategy")
+
+    manager = get_strategy_kill_switch_manager()
+    if not manager.is_registered(strategy_id):
+        raise HTTPException(
+            status_code=404, detail=f"No kill switch registered for {strategy_id!r}."
+        )
+
+    try:
+        manager.re_enable(strategy_id, force=body.force)
+    except GauntletNotPassedError as exc:
+        log.warning(
+            "api.re_enable_rejected",
+            strategy_id=strategy_id,
+            operator=body.operator,
+            failed_criteria=list(exc.failed_criteria),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": str(exc), "failed_criteria": list(exc.failed_criteria)},
+        ) from exc
+
+    await _state.storage.insert_audit_event(
+        event_type="strategy_re_enabled",
+        operator=body.operator,
+        details={"strategy_id": strategy_id, "forced": body.force},
+    )
+    log.warning(
+        "api.strategy_re_enabled",
+        strategy_id=strategy_id,
+        operator=body.operator,
+        forced=body.force,
+    )
+    return {"strategy_id": strategy_id, "enabled": True, "forced": body.force}
+
+
+@app.get("/strategies/portfolio", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_strategy_portfolio(timeframe: str | None = None) -> dict[str, Any]:
+    """
+    What every registered strategy actually said on its last evaluation.
+
+    /strategies/allocation answers "how is capital split?"; this answers the
+    question that had no answer at all before the portfolio runner existed:
+    "was each strategy even asked, and what did it reply?".
+
+    Each verdict carries a status that distinguishes the cases that used to
+    be indistinguishable:
+
+      signal        — polled, voted directionally
+      flat          — polled, no directional opinion
+      regime_gated  — polled, returned regime_fit == 0 (a hard "not here")
+      abstained     — never polled: no context could be built from live data
+      disabled      — kill-switched out of the enabled set
+      error         — raised; recorded here, never raised into the trade path
+
+    A standing `abstained` with reason `no_context_builder` is the honest
+    report that a registered family has no data feed in this process yet —
+    it is a wiring gap to close, not a broken strategy.
+
+    The reported `direction` is 0 whenever `conflict` is true: a portfolio
+    whose members disagree has no direction worth acting on, and reporting
+    the narrow winner would hide the disagreement. `raw_direction` keeps the
+    pre-gate winner for diagnosis.
+
+    Alongside the full evaluation each timeframe carries:
+
+      peer             — the same poll with the incumbent excluded, which is
+                         what "does the rest of the book agree?" actually
+                         means. Including signal_engine_v1 would let the
+                         incumbent confirm itself.
+      agreement_scalar — the shrink-only size ceiling in (0, 1] implied by
+                         the peer view of the incumbent's direction. 1.0
+                         means no reduction; agreement is never worth more
+                         than that, because a correlated cluster of
+                         strategies must not bid its own size up.
+
+    Read-only and advisory: this reports the portfolio's opinion and the
+    ceiling it implies. Orders are still routed only by the signal engine
+    through Kelly and the risk gates, and `agreement_scalar` is reported
+    rather than applied — folding it into sizing means re-running the
+    exchange min-amount/min-cost filters against the shrunk quantity, which
+    is a separate change to the sizing tail.
+
+    Query parameters
+    ----------------
+    timeframe : restrict to one timeframe (e.g. "15m"). Omitted returns every
+                timeframe keyed by its value.
+    """
+    orch = _state.orchestrator
+    if orch is None:
+        return {"evaluations": {}, "reason": "orchestrator_not_started"}
+    payload = orch.portfolio_evaluation(timeframe)
+    if timeframe is not None:
+        return {"timeframe": timeframe, "evaluation": payload}
+    return {"evaluations": payload}
+
+
+@app.get("/strategies/stress-test", tags=["monitoring"], dependencies=[Depends(api_key_header)])
+async def get_allocation_stress_test() -> dict[str, Any]:
+    """
+    Replay historical crisis periods against the current proposed allocation.
+
+    The allocator justifies a split from whatever period its attribution data
+    covers; this checks the same split against known crash sequences it was
+    never fitted to (src/tuning/stress_simulator.py). Read-only, like
+    /strategies/allocation — it reports what the current allocation would have
+    done, it does not change one.
+
+    Every strategy is replayed against the SAME market-wide crash sequence.
+    That is the conservative assumption on purpose: the simulator supports
+    per-strategy scenario returns, but this bot has no attributed
+    crisis-period history per strategy, and assuming any strategy hedges a
+    crash it has never traded through would understate exactly the tail risk
+    the test exists to find.
+
+    The floor comes from RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT, not the
+    simulator's own default, so `breaches_floor` means "breaches the halt that
+    is actually armed" rather than a number that happens to match today.
+
+    Units: everything reported here is a PERCENT. The config value and the
+    simulator's internal comparison are both FRACTIONS
+    (RISK_CAPITAL_PRESERVATION_MAX_DRAWDOWN_PCT is 0.30 despite its name,
+    validated 0 < x < 1), while StressTestResult already multiplies its
+    drawdown by 100. Reporting the floor raw would have put "drawdown 50.2"
+    next to "floor 0.30" in the same object, which reads as a comfortable
+    margin and is in fact a 20-point breach.
+
+    Returns
+    -------
+    {
+        "allocations": {strategy_id: float, ...},
+        "capital_preservation_floor_pct": float,   # percent, e.g. 30.0
+        "scenarios": [{scenario, max_drawdown_pct, final_return_pct,
+                       breaches_floor}, ...],      # percents
+        "breaches_any_floor": bool,
+    }
+    """
+    registry = get_default_registry()
+    strategies = list(registry.all())
+    # Fraction for the comparison, percent for the report -- see Units above.
+    floor = float(get_settings().risk.capital_preservation_max_drawdown_pct)
+    floor_pct = floor * 100.0
+    if not strategies:
+        return {
+            "allocations": {},
+            "capital_preservation_floor_pct": floor_pct,
+            "scenarios": [],
+            "breaches_any_floor": False,
+        }
+
+    enabled_ids = get_strategy_kill_switch_manager().enabled_ids(s.strategy_id for s in strategies)
+    # Stress the allocation the book is actually running, not the target it is
+    # still creeping toward -- a crash tests the positions you hold today. The
+    # target is the fallback only before the first rebalance, when there is no
+    # incumbent allocation yet.
+    controller = get_allocation_controller(
+        get_settings().strategy_portfolio.max_allocation_shift_per_step
+    )
+    allocation = (
+        controller.applied()
+        or performance_weighted_allocate(tuple(strategies), enabled_ids).fractions
+    )
+
+    by_scenario = {
+        name: dict.fromkeys(allocation, returns) for name, returns in KNOWN_CRISIS_SCENARIOS.items()
+    }
+    results = run_all_known_scenarios(
+        allocation,
+        by_scenario,
+        capital_preservation_floor_pct=floor,
+    )
+    return {
+        "allocations": allocation,
+        "capital_preservation_floor_pct": floor_pct,
+        "scenarios": [
+            {
+                "scenario": r.scenario_name,
+                "max_drawdown_pct": round(r.simulated_max_drawdown_pct, 4),
+                "final_return_pct": round(r.simulated_final_return_pct, 4),
+                "breaches_floor": r.breaches_capital_floor,
+            }
+            for r in results
+        ],
+        "breaches_any_floor": any(r.breaches_capital_floor for r in results),
     }
 
 

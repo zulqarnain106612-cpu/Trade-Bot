@@ -70,6 +70,12 @@ def _make_executor(
     executor._initialized = True
     executor._storage = AsyncMock()
     executor._fetcher = MagicMock()
+    # v8 startup reconciliation: initialize() compares local positions with
+    # exchange truth, and an unavailable snapshot deliberately blocks new
+    # entries. A bare MagicMock would make every test look like a crashed
+    # process with an unknown book.
+    executor._fetcher.fetch_exchange_holdings = AsyncMock(return_value={})
+    executor._recovery_discrepancies = []
     executor._cfg = MagicMock()
     executor._risk_cfg = MagicMock(
         notional_limit_usd=10_000.0,

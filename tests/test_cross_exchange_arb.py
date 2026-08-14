@@ -57,6 +57,35 @@ def test_confidence_capped_at_one() -> None:
     assert sig.confidence == 1.0
 
 
+def test_compute_basis_bps_rejects_nonpositive_price_a() -> None:
+    with pytest.raises(ValueError, match="price_a"):
+        compute_basis_bps(0.0, 100.0)
+
+
+def test_rejects_negative_round_trip_cost() -> None:
+    with pytest.raises(ValueError, match="round_trip_cost_bps"):
+        CrossExchangeArbStrategy(round_trip_cost_bps=-1.0)
+
+
+def test_flat_when_spread_clears_floor_but_not_the_round_trip_cost() -> None:
+    """20bps gross beats the 15bps floor but loses to a 12bps round trip."""
+    strat = CrossExchangeArbStrategy()
+    ctx = CrossExchangeContext("binance", 60120.0, "okx", 60000.0)
+    assert strat.generate_signal(ctx).direction == 0
+
+
+def test_zero_cost_venue_pair_takes_the_same_spread() -> None:
+    ctx = CrossExchangeContext("binance", 60120.0, "okx", 60000.0)
+    assert CrossExchangeArbStrategy(round_trip_cost_bps=0.0).generate_signal(ctx).direction == -1
+
+
+def test_higher_cost_lowers_confidence_on_the_same_spread() -> None:
+    ctx = CrossExchangeContext("binance", 60300.0, "okx", 60000.0)
+    cheap = CrossExchangeArbStrategy(round_trip_cost_bps=2.0).generate_signal(ctx)
+    dear = CrossExchangeArbStrategy(round_trip_cost_bps=20.0).generate_signal(ctx)
+    assert cheap.confidence > dear.confidence
+
+
 def test_registers_with_registry() -> None:
     registry = StrategyRegistry()
     registry.register(CrossExchangeArbStrategy())
