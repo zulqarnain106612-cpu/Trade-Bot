@@ -35,7 +35,7 @@ import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
-from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
+from src.data.storage import AnyStorageBackend, BlendAudit, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.diagnostics.disaster_recovery import (
     Discrepancy,
@@ -388,6 +388,7 @@ class LiveExecutor(AbstractExecutor):
         raw_signal: float,
         current_price: float,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> tuple[str | None, str]:
         """
         Route signal through execution mode and place live order if approved.
@@ -424,6 +425,7 @@ class LiveExecutor(AbstractExecutor):
                 raw_signal,
                 approved_by="auto",
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
 
         if mode == ExecutionMode.RESTRICTED:
@@ -438,6 +440,7 @@ class LiveExecutor(AbstractExecutor):
                     raw_signal,
                     approved_by="auto_below_limit",
                     strategy_id=strategy_id,
+                    blend_audit=blend_audit,
                 )
             return await self._submit_signal_with_approval(
                 symbol,
@@ -450,6 +453,7 @@ class LiveExecutor(AbstractExecutor):
                 timeout_s=self._risk_cfg.approval_timeout_s,
                 denied_outcome="skipped",
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
 
         if mode == ExecutionMode.MANUAL:
@@ -464,6 +468,7 @@ class LiveExecutor(AbstractExecutor):
                 timeout_s=None,
                 denied_outcome="rejected",
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
 
         raise RuntimeError(f"Unknown execution mode: {mode!r}")  # pragma: no cover
@@ -479,6 +484,7 @@ class LiveExecutor(AbstractExecutor):
         raw_signal: float,
         approved_by: str,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> tuple[str | None, str]:
         trade_id = await self._place_and_record(
             symbol,
@@ -490,6 +496,7 @@ class LiveExecutor(AbstractExecutor):
             raw_signal,
             approved_by=approved_by,
             strategy_id=strategy_id,
+            blend_audit=blend_audit,
         )
         return trade_id, "opened" if trade_id else "rejected"
 
@@ -505,6 +512,7 @@ class LiveExecutor(AbstractExecutor):
         timeout_s: float | None,
         denied_outcome: str,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> tuple[str | None, str]:
         req_id = await self._enqueue_approval(
             symbol,
@@ -528,6 +536,7 @@ class LiveExecutor(AbstractExecutor):
             raw_signal,
             approved_by=operator,
             strategy_id=strategy_id,
+            blend_audit=blend_audit,
         )
 
     # ------------------------------------------------------------------
@@ -868,6 +877,7 @@ class LiveExecutor(AbstractExecutor):
         raw_signal: float,
         approved_by: str,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> str | None:
         """Place market order, confirm fill, record position.
 
@@ -1057,6 +1067,9 @@ class LiveExecutor(AbstractExecutor):
                 exit_reason=None,
                 approved_by=approved_by,
                 raw_signal=raw_signal,
+                pre_blend_p_long=blend_audit.pre_blend_p_long if blend_audit else None,
+                ensemble_p_long=blend_audit.ensemble_p_long if blend_audit else None,
+                ensemble_blend_weight=blend_audit.blend_weight if blend_audit else None,
             )
             await self._storage.insert_trade(trade_record)
             await self._snapshot_equity()

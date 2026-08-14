@@ -186,6 +186,18 @@ class SignalResult:
     regime_agreement_scalar: HMM/changepoint agreement [0.5, 1.0]; 1.0 means
                              full agreement, <1.0 means disagreement already
                              reduced the kelly_result notional proportionally.
+    pre_blend_p_long       : XGBoost's P(long) *before* the ensemble blend, and
+                             ensemble_p_long is the probability the blend mixed
+                             in. Both None when no blend happened.
+    ensemble_blend_weight  : the weight in force at signal time.
+
+    The three blend fields exist so `risk.ensemble_blend_weight` can be
+    recalibrated against realized outcomes: a candidate weight w gives
+    ``(1-w)*pre_blend_p_long + w*ensemble_p_long`` directly, for any w, on
+    every trade. Recording only the post-blend p_long would make that
+    impossible — the value is perturbed again by the online-trainer blend
+    immediately afterwards, so the pre-blend input cannot be recovered by
+    inverting it.
     """
 
     tradeable: bool
@@ -198,6 +210,9 @@ class SignalResult:
     skip_reason: str
     regime_agreement_scalar: float = 1.0
     changepoint_probability: float = 0.0
+    pre_blend_p_long: float | None = None
+    ensemble_p_long: float | None = None
+    ensemble_blend_weight: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +874,12 @@ class SignalEngine:
         # until the orchestrator's first retrain cycle produces and hot-swaps one).
         _ensemble_blend_weight = effective_risk_settings(self._cfg.risk).ensemble_blend_weight
         _ensemble_point_estimate: float | None = None
+        # Captured for the self-tuning harness, which needs the two blend
+        # inputs to re-evaluate any candidate weight. They stay None unless a
+        # blend actually completed, so a failed predict_row() records nothing
+        # rather than a half-formed pair.
+        _pre_blend_p_long: float | None = None
+        _p_ensemble_long_recorded: float | None = None
         if ensemble is not None and _ensemble_blend_weight > 0.0:
             try:
                 _ens_pred = ensemble.predict_row(vec)
@@ -873,6 +894,8 @@ class SignalEngine:
                 # fm.log_returns already uses elsewhere in this trainer.
                 _z = _ensemble_point_estimate / max(_total_uncertainty, 1e-9)
                 _p_ensemble_long = 0.5 * (1.0 + math.tanh(_z))
+                _pre_blend_p_long = p_long
+                _p_ensemble_long_recorded = _p_ensemble_long
                 p_long = (
                     1.0 - _ensemble_blend_weight
                 ) * p_long + _ensemble_blend_weight * _p_ensemble_long
@@ -1453,6 +1476,11 @@ class SignalEngine:
             skip_reason="",
             regime_agreement_scalar=_regime_agreement_scalar,
             changepoint_probability=_cp_prob,
+            pre_blend_p_long=_pre_blend_p_long,
+            ensemble_p_long=_p_ensemble_long_recorded,
+            ensemble_blend_weight=(
+                _ensemble_blend_weight if _pre_blend_p_long is not None else None
+            ),
         )
 
     # ------------------------------------------------------------------

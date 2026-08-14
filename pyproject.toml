@@ -90,6 +90,13 @@ python_files  = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts       = "-v --tb=short -q --cov=src --cov-report=term-missing --cov-fail-under=95"
+# A hung test otherwise consumes the entire CI job and reports nothing: the
+# step never finishes and the log ends mid-suite with no indication of which
+# test is stuck. faulthandler is built into pytest (no plugin needed) and
+# dumps every thread's stack once a single test exceeds this, naming the
+# culprit and the line it is blocked on. 300s is well above the slowest real
+# test here (the XGBoost CPCV retrains) and well below the job timeout.
+faulthandler_timeout = 300
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
