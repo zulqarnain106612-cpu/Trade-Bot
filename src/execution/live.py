@@ -588,12 +588,21 @@ class LiveExecutor(AbstractExecutor):
             else:
                 gross_pnl = (pos.entry_price - actual_exit_price) * filled_qty
 
-            net_pnl = gross_pnl - exchange_fee
+            # Both legs. pos.fee_usd is the fee the exchange charged on entry;
+            # leaving it out overstated every recorded trade by half its
+            # round-trip cost, and that number drives compute_win_loss_stats
+            # into Kelly, the Sharpe and Sortino behind capital allocation,
+            # and the out-of-sample bar the live gate checks.
+            total_fee = pos.fee_usd + exchange_fee
+            net_pnl = gross_pnl - total_fee
             pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
 
             async with self._lock:
                 self._positions.pop(trade_id, None)
-                self._cash += pos.notional_usd + net_pnl
+                # Not net_pnl: the entry fee already left the balance at open
+                # (self._cash -= notional + entry_fee), so charging it again
+                # here would double-count it and drain equity over time.
+                self._cash += pos.notional_usd + gross_pnl - exchange_fee
                 equity = self._equity_usd()
                 self._peak_equity = max(self._peak_equity, equity)
                 self._drawdown_tracker.update(equity)
@@ -613,7 +622,8 @@ class LiveExecutor(AbstractExecutor):
                 pnl_usd=round(net_pnl, 8),
                 pnl_pct=round(pnl_pct, 8),
                 exit_reason=exit_reason,
-                fee_usd=exchange_fee,
+                # Both legs, matching pnl_usd above.
+                fee_usd=round(total_fee, 8),
             )
             await self._snapshot_equity_with_values(
                 equity=snap_equity,

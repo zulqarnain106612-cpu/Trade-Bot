@@ -1,0 +1,62 @@
+---
+# Crypto-Intel v6 main configuration
+# Source of truth for IntelligenceAdapter and CryptoIntelligence class.
+
+horizons: [0, 1, 2, 3, 4, 5]   # h1-h6: 30s to 4h (intraday bot default)
+n_workers: 12
+ecc_enabled: true
+exchanges:
+  - binance
+  - bybit
+  - okx
+
+btc_node_rpc: "http://127.0.0.1:8332"
+eth_node_rpc: "http://127.0.0.1:8545"
+
+risk:
+  kelly_fraction: 0.5
+  conf_threshold: 0.65
+  sharpe_min: 1.0
+  drawdown_floor: 0.10
+  max_daily_loss: 0.02
+  cvar_max_pct: 0.02        # max 2% portfolio CVaR per position
+  horizon_size_decay: 0.1   # size *= 1/(1 + idx * 0.1)
+
+retrain:
+  adwin_delta: 0.002
+  optuna_trials: 50
+  shadow_hours: 24
+  maml_adapt_steps: 5
+  maml_inner_lr: 0.01
+
+features:
+  microstructure:
+    vpin_bucket_size: 1000.0
+    vpin_n_buckets: 50
+    kyle_lambda_window: 200
+  nlp:
+    model: "ElKulako/cryptobert"
+    max_texts_per_batch: 8
+    max_length: 256
+  onchain:
+    rpc_url: "http://127.0.0.1:8332"
+    enabled: true
+  mempool:
+    enabled: true
+
+causal:
+  granger_window: 120
+  granger_max_lag: 5
+  correlation_threshold: 0.6
+  scm_method: "backdoor.linear_regression"
+
+observability:
+  grafana_port: 3000
+  mlflow_uri: "http://localhost:5000"
+  evidently_reports: "./reports"
+  prometheus_port: 8001
+
+data:
+  duckdb_path: "./data/crypto_intel.duckdb"
+  redpanda_brokers: "localhost:9092"
+  neo4j_uri: "bolt://localhost:7687"

@@ -18,6 +18,7 @@ Authority sources:
 from __future__ import annotations
 
 import asyncio
+import random
 import threading
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -188,6 +189,32 @@ def _build_okx(cfg: OKXSettings) -> ccxt.okx:
 _T = TypeVar("_T")
 
 
+def _jittered(delay: float) -> float:
+    """
+    Equal jitter: half the backoff, plus a random share of the other half.
+
+    Without it every concurrent caller backs off in lockstep. This process
+    hits Binance from three timeframe loops, the intelligence providers, the
+    universe cache and the venue-quote path, so one rate-limit event puts
+    several callers on the SAME retry schedule — they wake together, retry
+    together, re-trigger the limit together, and stay synchronised for the
+    rest of the backoff. Measured over twelve concurrent callers and four
+    attempts: 4 distinct retry instants with every caller colliding, versus
+    48 distinct instants and no collisions once jittered.
+
+    Equal jitter rather than full jitter (uniform over [0, delay]) because
+    the RateLimitExceeded path exists precisely because the exchange asked us
+    to slow down. Full jitter can draw a near-zero sleep and retry almost
+    immediately, which is the one thing that must not happen there. Halving
+    the floor keeps a guaranteed minimum backoff while still decorrelating.
+
+    The jitter applies to the sleep only, never to the stored `delay`, so the
+    exponential progression and its 60s ceiling stay exact rather than
+    compounding randomness across attempts.
+    """
+    return delay / 2.0 + random.random() * (delay / 2.0)
+
+
 async def _with_retry(
     coro_factory: Callable[[], Awaitable[_T]],
     label: str,
@@ -221,15 +248,17 @@ async def _with_retry(
                 )
                 raise
             wait = min(delay * 2, 60.0)
+            sleep_s = _jittered(wait)
             log.warning(
                 "fetch.rate_limited",
                 label=label,
                 attempt=attempt,
-                wait_s=wait,
+                wait_s=round(sleep_s, 3),
+                backoff_s=wait,
                 error=str(exc),
                 exc_info=True,
             )
-            await asyncio.sleep(wait)
+            await asyncio.sleep(sleep_s)
             delay = wait
         except (ccxt.NetworkError, ccxt.RequestTimeout) as exc:
             if attempt == attempts:
@@ -241,15 +270,17 @@ async def _with_retry(
                     exc_info=True,
                 )
                 raise
+            sleep_s = _jittered(delay)
             log.warning(
                 "fetch.retry",
                 label=label,
                 attempt=attempt,
-                delay_s=delay,
+                delay_s=round(sleep_s, 3),
+                backoff_s=delay,
                 error=str(exc),
                 exc_info=True,
             )
-            await asyncio.sleep(delay)
+            await asyncio.sleep(sleep_s)
             delay = min(delay * 2, 60.0)
         except ccxt.ExchangeError as exc:
             log.error("fetch.exchange_error", label=label, error=str(exc), exc_info=True)

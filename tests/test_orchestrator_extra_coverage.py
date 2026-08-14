@@ -808,7 +808,7 @@ class TestTickScheduledRetrain:
 
     @pytest.mark.asyncio
     async def test_scheduled_retrain_skipped_when_already_running(self):
-        prior = asyncio.get_event_loop().create_future()
+        prior = asyncio.get_running_loop().create_future()
         prior.done = MagicMock(return_value=False)  # simulate a still-running task
         orch, _executor = self._make_orch_at_interval(prior_task=prior)
 
@@ -858,7 +858,7 @@ class TestTickScheduledRetrain:
         ):
             await orch._tick(Timeframe.INTRADAY)
             original_task = orch._retrain_tasks[Timeframe.INTRADAY.value]
-            decoy = asyncio.get_event_loop().create_future()
+            decoy = asyncio.get_running_loop().create_future()
             orch._retrain_tasks[Timeframe.INTRADAY.value] = decoy  # type: ignore[assignment]
             await original_task
 
