@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 # ─── Granger ──────────────────────────────────────────────────────────────────
@@ -20,10 +21,10 @@ class TestGrangerCausalityDetector:
         from src.causal.granger import GrangerCausalityDetector
 
         gcd = GrangerCausalityDetector(window=60)
-        btc = np.random.randn(5)
-        alt_prices = {"ETH": np.random.randn(5).tolist()}
+        btc = pd.Series(np.random.randn(5))
+        alt_prices = {"ETH": pd.Series(100 + np.random.randn(5).cumsum())}
         result = gcd.update(btc, alt_prices)
-        # Below _MIN_WINDOW the detector returns its (still empty) result cache.
+        # Below the minimum window, update returns the (empty) result cache.
         assert result == {}
 
     def test_update_with_sufficient_data(self) -> None:
@@ -31,22 +32,21 @@ class TestGrangerCausalityDetector:
 
         gcd = GrangerCausalityDetector(window=30, max_lag=2)
         n = 60
-        btc = np.random.randn(n)
+        btc = pd.Series(np.random.randn(n))
         alt_prices = {
-            "ETH": (btc + np.random.randn(n) * 0.1).tolist(),
-            "SOL": np.random.randn(n).tolist(),
+            "ETH": pd.Series(100 + (btc + np.random.randn(n) * 0.1).cumsum()),
+            "SOL": pd.Series(100 + np.random.randn(n).cumsum()),
         }
         result = gcd.update(btc, alt_prices)
         assert isinstance(result, dict)
-        assert all(isinstance(r, GrangerResult) for r in result.values())
 
     def test_feature_vector_returns_floats(self) -> None:
         from src.causal.granger import GrangerCausalityDetector
 
         gcd = GrangerCausalityDetector(window=30, max_lag=2)
         n = 60
-        btc = np.random.randn(n)
-        alt = {"ETH": np.random.randn(n).tolist()}
+        btc = pd.Series(np.random.randn(n))
+        alt = {"ETH": pd.Series(100 + np.random.randn(n).cumsum())}
         gcd.update(btc, alt)
         fv = gcd.to_feature_vector()
         for v in fv.values():

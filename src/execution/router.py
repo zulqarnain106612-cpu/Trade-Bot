@@ -57,7 +57,7 @@ class SmartOrderRouter:
         import ccxt.async_support as ccxt
 
         # `is None` — an explicit [] means "no venues", not "give me the defaults".
-        self._exchange_names = ["binance", "bybit", "okx"] if exchanges is None else exchanges
+        self._exchange_names = ["binance", "bybit", "okx"] if exchanges is None else list(exchanges)
         self._exchanges: dict[str, Any] = {}
         for name in self._exchange_names:
             try:
