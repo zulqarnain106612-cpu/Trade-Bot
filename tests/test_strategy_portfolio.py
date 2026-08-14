@@ -64,7 +64,7 @@ def _registry(*strategies: _StubStrategy) -> StrategyRegistry:
 def _runner(reg: StrategyRegistry, ids: list[str]) -> StrategyPortfolioRunner:
     return StrategyPortfolioRunner(
         registry=reg,
-        builders={sid: build_signal_engine_context for sid in ids},
+        builders=dict.fromkeys(ids, build_signal_engine_context),
     )
 
 
@@ -386,9 +386,7 @@ def test_real_breakout_strategy_votes_through_the_runner() -> None:
 # ------------------------------------------------- cross-exchange builder
 
 
-def _venues(
-    prices: dict[str, float], stamps: dict[str, float] | None = None
-) -> PortfolioInputs:
+def _venues(prices: dict[str, float], stamps: dict[str, float] | None = None) -> PortfolioInputs:
     return PortfolioInputs(
         symbol="BTC/USDT",
         timeframe="15m",

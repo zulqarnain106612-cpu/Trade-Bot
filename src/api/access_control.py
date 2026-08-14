@@ -46,17 +46,19 @@ class Permission(Enum):
 # values are already frozensets, so only the outer mapping was writable —
 # and a single write anywhere in the process could grant a role a permission
 # it was never configured with, for every request thereafter.
-_ROLE_PERMISSIONS: Final[Mapping[Role, frozenset[Permission]]] = MappingProxyType({
-    Role.READ_ONLY: frozenset({Permission.VIEW_STATUS, Permission.VIEW_TRADES}),
-    Role.TRADE_AUTHORIZING: frozenset(
-        {
-            Permission.VIEW_STATUS,
-            Permission.VIEW_TRADES,
-            Permission.APPROVE_TRADE,
-            Permission.CHANGE_EXECUTION_MODE,
-        }
-    ),
-})
+_ROLE_PERMISSIONS: Final[Mapping[Role, frozenset[Permission]]] = MappingProxyType(
+    {
+        Role.READ_ONLY: frozenset({Permission.VIEW_STATUS, Permission.VIEW_TRADES}),
+        Role.TRADE_AUTHORIZING: frozenset(
+            {
+                Permission.VIEW_STATUS,
+                Permission.VIEW_TRADES,
+                Permission.APPROVE_TRADE,
+                Permission.CHANGE_EXECUTION_MODE,
+            }
+        ),
+    }
+)
 
 
 def role_has_permission(role: Role, permission: Permission) -> bool:
