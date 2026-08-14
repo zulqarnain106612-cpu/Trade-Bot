@@ -2,14 +2,20 @@
 Role-based access control primitives — v8 Institutional-Grade Operations.
 
 Defines the read-only vs. trade-authorizing role split and a pure
-permission-check function. Deliberately decoupled from key storage/
-verification (src/api/auth.py) — wiring this into live request
-dependencies requires deciding a new API-key-to-role mapping convention
-(e.g. a second env var for a read-only key), which touches the existing
-single-key auth model and env configuration. That's a security-sensitive
-config decision left for explicit follow-up rather than made unilaterally
-here; this module provides the tested role logic that follow-up will
-consume.
+permission-check function. Still decoupled from key storage/verification:
+src/api/auth.py owns the key-to-role mapping, this module owns only the
+role-to-permission table.
+
+The mapping convention is additive and opt-in: API_SECRET_KEY continues to
+authenticate as TRADE_AUTHORIZING, and the optional API_READONLY_KEY
+authenticates as READ_ONLY. A deployment that sets only the first is
+unaffected, so introducing this table cannot weaken an existing install —
+the only reachable change is that a newly-configured second key has *less*
+authority than the key that already exists.
+
+src/api/main.py's requires() dependency turns a missing permission into
+HTTP 403 on the mutating endpoints (approvals, execution mode, risk
+controls, self-tuning pause/resume/rollback).
 
 Authority:
   - Domain Prior: no hidden failures or skipped validation — a role check
@@ -18,7 +24,10 @@ Authority:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import Enum
+from types import MappingProxyType
+from typing import Final
 
 
 class Role(Enum):
@@ -33,17 +42,23 @@ class Permission(Enum):
     CHANGE_EXECUTION_MODE = "change_execution_mode"
 
 
-_ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
-    Role.READ_ONLY: frozenset({Permission.VIEW_STATUS, Permission.VIEW_TRADES}),
-    Role.TRADE_AUTHORIZING: frozenset(
-        {
-            Permission.VIEW_STATUS,
-            Permission.VIEW_TRADES,
-            Permission.APPROVE_TRADE,
-            Permission.CHANGE_EXECUTION_MODE,
-        }
-    ),
-}
+# MappingProxyType, not a bare dict: this is the authorization table. The
+# values are already frozensets, so only the outer mapping was writable —
+# and a single write anywhere in the process could grant a role a permission
+# it was never configured with, for every request thereafter.
+_ROLE_PERMISSIONS: Final[Mapping[Role, frozenset[Permission]]] = MappingProxyType(
+    {
+        Role.READ_ONLY: frozenset({Permission.VIEW_STATUS, Permission.VIEW_TRADES}),
+        Role.TRADE_AUTHORIZING: frozenset(
+            {
+                Permission.VIEW_STATUS,
+                Permission.VIEW_TRADES,
+                Permission.APPROVE_TRADE,
+                Permission.CHANGE_EXECUTION_MODE,
+            }
+        ),
+    }
+)
 
 
 def role_has_permission(role: Role, permission: Permission) -> bool:

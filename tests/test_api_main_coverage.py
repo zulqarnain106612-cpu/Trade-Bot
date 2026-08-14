@@ -37,6 +37,7 @@ def _make_state():
     orch._executor.open_positions_safe = AsyncMock(return_value=[])
     orch._executor.pending_approvals_safe = AsyncMock(return_value=[])
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch
@@ -266,6 +267,27 @@ def test_status_route_when_ready(mock_state):
     assert "cash_usd" in data
     assert "degradation_report" in data
     assert isinstance(data["degradation_report"], dict)
+    # No engine has a candidate under evaluation, so the map is empty rather
+    # than absent — an operator can tell "nothing in shadow" from "field gone".
+    assert data["shadow_models"] == {}
+
+
+def test_status_route_reports_a_shadow_model_under_evaluation(mock_state):
+    engine = AsyncMock()
+    engine.shadow_status = AsyncMock(
+        return_value={"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    )
+    idle_engine = AsyncMock()
+    idle_engine.shadow_status = AsyncMock(return_value=None)
+    mock_state.orchestrator._engines = {"15m": engine, "5m": idle_engine}
+
+    client = _get_client()
+    resp = client.get("/status", headers={"x-api-key": _API_KEY})
+
+    assert resp.status_code == 200
+    assert resp.json()["shadow_models"] == {
+        "15m": {"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    }
 
 
 def test_status_route_not_ready(mock_state):
@@ -1245,3 +1267,326 @@ def test_strategies_allocation_with_strategies(mock_state):
     assert "allocations" in data
     assert "method" in data
     assert "fill_count" in data
+
+
+def _allocation_strategy(strategy_id: str):
+    from unittest.mock import MagicMock
+
+    strategy = MagicMock()
+    strategy.strategy_id = strategy_id
+    strategy.required_capital_fraction.return_value = 1.0
+    return strategy
+
+
+def test_strategies_allocation_reports_applied_and_target(mock_state):
+    """
+    The endpoint reports the allocation the book is running alongside the
+    one the allocator currently wants. Reading it must not advance either.
+    """
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        controller = get_allocation_controller(0.10)
+        controller.step_toward({"a": 0.5, "b": 0.5})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+            second = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == {"a": 0.5, "b": 0.5}
+        assert data["target_allocations"] == pytest.approx({"a": 0.5, "b": 0.5})
+        assert data["max_shift_per_step"] == pytest.approx(0.10)
+        # Reading twice must not step the controller — the rebalance cadence
+        # belongs to the orchestrator, not to whoever polls the dashboard.
+        assert second.json()["allocations"] == data["allocations"]
+    finally:
+        reset_allocation_controller()
+
+
+def test_strategies_allocation_falls_back_to_target_before_first_rebalance(mock_state):
+    from src.tuning.meta_allocator import reset_allocation_controller
+
+    reset_allocation_controller()
+    try:
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [_allocation_strategy("a")]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == data["target_allocations"]
+        assert data["allocations"]["a"] == pytest.approx(1.0)
+    finally:
+        reset_allocation_controller()
+
+
+def test_allocation_stress_test_uses_the_applied_allocation(mock_state):
+    """A crash tests the positions held today, not the target being crept toward."""
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        get_allocation_controller(0.10).step_toward({"a": 1.0, "b": 0.0})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.performance_weighted_allocate") as mock_alloc,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            resp = client.get("/strategies/stress-test", headers={"x-api-key": _API_KEY})
+
+        assert resp.status_code == 200
+        assert resp.json()["allocations"] == {"a": 1.0, "b": 0.0}
+        mock_alloc.assert_not_called()
+    finally:
+        reset_allocation_controller()
+
+
+# ---------------------------------------------------------------------------
+# GET /strategies/gauntlet
+# ---------------------------------------------------------------------------
+
+
+def _gauntlet_fills(count: int, first_entry_ms: int):
+    from src.diagnostics.attribution import AttributedFill
+
+    day_ms = 86_400_000
+    return [
+        AttributedFill(
+            strategy_id="alpha",
+            pnl_usd=10.0,
+            entry_ts=first_entry_ms + i * day_ms,
+            exit_ts=first_entry_ms + (i + 1) * day_ms,
+        )
+        for i in range(count)
+    ]
+
+
+def test_strategies_gauntlet_empty_tracker(mock_state):
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["candidates"] == {}
+    assert data["criteria"]["min_trades"] == 30
+    assert data["equity_usd"] == 100_000.0
+
+
+def test_strategies_gauntlet_reports_failed_criteria(mock_state):
+    import time
+
+    now_ms = int(time.time() * 1000)
+    fills = _gauntlet_fills(3, now_ms - 3 * 86_400_000)
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = fills
+        mock_tracker.return_value.first_entry_ts_for.return_value = fills[0].entry_ts
+        mock_tracker.return_value.lifetime_trade_count.return_value = len(fills)
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["passed"] is False
+    assert candidate["trade_count"] == 3
+    # too few trades AND too few days running — both must be reported, not just the first
+    assert any("trade_count" in c for c in candidate["failed_criteria"])
+    assert any("days_running" in c for c in candidate["failed_criteria"])
+
+
+def test_strategies_gauntlet_requires_api_key(mock_state):
+    resp = _get_client().get("/strategies/gauntlet")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /debug/reconcile
+# ---------------------------------------------------------------------------
+
+
+def _open_trade(symbol: str, quantity: float, direction: int = 1):
+    from src.data.storage import TradeRecord
+
+    return TradeRecord(
+        id=f"t-{symbol}-{quantity}",
+        symbol=symbol,
+        timeframe="1h",
+        trading_mode="paper",
+        execution_mode="automatic",
+        direction=direction,
+        entry_price=100.0,
+        exit_price=None,
+        quantity=quantity,
+        notional_usd=100.0 * quantity,
+        entry_ts=1,
+        exit_ts=None,
+        pnl_usd=None,
+        pnl_pct=None,
+        fee_usd=0.0,
+        kelly_fraction=0.1,
+        regime_at_entry=0,
+        meta_label_prob=0.5,
+        exit_reason=None,
+        approved_by=None,
+        raw_signal=None,
+    )
+
+
+def _memory_position(symbol: str, quantity: float, direction: str = "long"):
+    return {"symbol": symbol, "quantity": quantity, "direction": direction}
+
+
+def test_reconcile_consistent_when_both_sides_empty(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["discrepancies"] == []
+
+
+def test_reconcile_flags_position_absent_from_the_durable_record(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_in_reference"
+    assert data["discrepancies"][0]["local_quantity"] == 0.1
+
+
+def test_reconcile_flags_orphan_open_trade_after_restart(mock_state):
+    """The classic crash case: the DB still has an open trade, memory has nothing."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(return_value=[])
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.1)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_locally"
+    assert data["discrepancies"][0]["reference_quantity"] == 0.1
+
+
+def test_reconcile_detects_quantity_mismatch(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.15)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["discrepancies"][0]["discrepancy_type"] == "quantity_mismatch"
+
+
+def test_reconcile_nets_multiple_positions_on_one_symbol(mock_state):
+    """Two in-memory legs on one symbol must net before comparison, not overwrite."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[
+            _memory_position("BTC/USDT", 0.1),
+            _memory_position("BTC/USDT", 0.05, direction="short"),
+        ]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        return_value=[_open_trade("BTC/USDT", 0.1), _open_trade("BTC/USDT", 0.05, direction=0)]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["local_position_count"] == 2
+    assert data["reference_position_count"] == 2
+
+
+def test_reconcile_requests_only_open_trades(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert mock_state.storage.fetch_trades.await_args.kwargs["open_only"] is True
+
+
+def test_reconcile_requires_api_key(mock_state):
+    assert _get_client().get("/debug/reconcile").status_code == 401
+
+
+def test_reconcile_pages_through_open_trades(mock_state):
+    """A single capped query would drop positions and then report them as
+    discrepancies — a reconciliation that invents differences is worse than none."""
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", float(_RECONCILE_PAGE) + 3.0)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        side_effect=[full_page, [_open_trade("BTC/USDT", 1.0) for _ in range(3)]]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["reference_position_count"] == _RECONCILE_PAGE + 3
+    assert data["consistent"] is True
+    assert data["truncated"] is False
+
+
+def test_reconcile_reports_truncation_at_the_page_bound(mock_state):
+    from src.api.main import _RECONCILE_MAX_PAGES, _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(return_value=full_page)
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["truncated"] is True
+    assert mock_state.storage.fetch_trades.await_count == _RECONCILE_MAX_PAGES
+
+
+def test_reconcile_advances_the_offset_between_pages(mock_state):
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(side_effect=[full_page, []])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    offsets = [c.kwargs["offset"] for c in mock_state.storage.fetch_trades.await_args_list]
+    assert offsets == [0, _RECONCILE_PAGE]
+
+
+def test_strategies_gauntlet_uses_lifetime_facts_not_the_window(mock_state):
+    """A candidate whose oldest fills aged out must not read as newly started."""
+    import time
+
+    now_ms = int(time.time() * 1000)
+    day_ms = 86_400_000
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = _gauntlet_fills(2, now_ms - day_ms)
+        mock_tracker.return_value.first_entry_ts_for.return_value = now_ms - 90 * day_ms
+        mock_tracker.return_value.lifetime_trade_count.return_value = 500
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["trade_count"] == 500
+    assert candidate["days_running"] > 89.0

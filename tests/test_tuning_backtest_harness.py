@@ -310,7 +310,7 @@ def test_predict_direction_batch_slices_extra_columns() -> None:
     cols = [*FEATURE_COLUMNS, "extra_intel_col"]
     X = pd.DataFrame(rng.standard_normal((20, len(cols))), columns=cols)
     pred = _predict_direction_batch(model, X)
-    expected = model.predict(X[FEATURE_COLUMNS].to_numpy(dtype=np.float64))
+    expected = model.predict(X[list(FEATURE_COLUMNS)].to_numpy(dtype=np.float64))
     assert np.array_equal(pred, expected)
 
 
