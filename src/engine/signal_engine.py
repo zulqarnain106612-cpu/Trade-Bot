@@ -81,7 +81,11 @@ from src.risk.macro_exposure_budget import (
 )
 from src.risk.slippage import SlippageModel
 from src.strategies.filters import apply_all_strategy_filters, ewm_trend_signal, mtf_trend_aligned
-from src.strategies.position_sizing import estimate_daily_vol, recommend_position_notional
+from src.strategies.position_sizing import (
+    CARVER_FORECAST_SCALAR,
+    estimate_daily_vol,
+    recommend_position_notional,
+)
 from src.tuning.live_overrides import effective_risk_settings
 
 
@@ -918,7 +922,15 @@ class SignalEngine:
                 p_long=p_long,
                 win_prob=_win_prob,
                 win_loss_ratio=_wl_ratio,
-                forecast=float(p_long * 2.0 - 1.0),  # map [0,1] p_long to [-1,+1] forecast
+                # p_long maps to [-1,+1], but carver_forecast_position expects
+                # a Carver-normalised forecast (E|f| = CARVER_FORECAST_SCALAR)
+                # and divides by that same constant. Passing the raw [-1,+1]
+                # value shrank the Carver leg by 10x, which made it the binding
+                # minimum on essentially every trade and pinned this cap near
+                # 0.75% of capital no matter how strong the edge — the "min of
+                # methods" cap was really "Carver, undersized". Scale into the
+                # units the sizer documents.
+                forecast=float((p_long * 2.0 - 1.0) * CARVER_FORECAST_SCALAR),
                 daily_vol_pct=_daily_vol,
                 avg_book_correlation=1.0 - correlation_scalar,  # higher correlation → more shrink
             )
@@ -1016,7 +1028,14 @@ class SignalEngine:
         )  # fallback: p_long proxy
 
         # TASK-009: Build SlippageEstimate using live spread (TASK-010) + ADV-20 from bars.
-        _spread_for_slippage = _live_ob_spread_bps if _live_ob_spread_bps is not None else None
+        # SlippageModel wants the *half*-spread — a single marketable order
+        # crosses from mid to one touch, not touch to touch, and the config
+        # fallback (slippage_default_spread_bps) is documented in that unit.
+        # _live_ob_spread_bps is the full quoted width, so halve it here; the
+        # unhalved value stays the one persisted to the trade audit trail.
+        _spread_for_slippage = (
+            _live_ob_spread_bps / 2.0 if _live_ob_spread_bps is not None else None
+        )
         _adv_20d_for_slip = (
             float(bars["volume"].rolling(20).mean().iloc[-1]) if "volume" in bars.columns else None
         )

@@ -168,6 +168,31 @@ def test_dsr_deflates_relative_to_plain_psr_as_trials_increase() -> None:
     assert dsr_100_trials <= dsr_10_trials
 
 
+def test_dsr_deflation_is_scale_invariant() -> None:
+    """
+    The multiple-testing deflation belongs in Sharpe units (cross-trial
+    dispersion ~ 1/sqrt(n)), not in return units. Two series with the same
+    Sharpe ratio and length must deflate identically no matter how the
+    returns are scaled — scaling by the returns' own stdev, as this did
+    before, made a low-volatility strategy look better corrected than a
+    high-volatility one with identical risk-adjusted performance.
+    """
+    rng = random.Random(11)
+    base = [rng.gauss(0.01, 0.01) for _ in range(200)]
+    scaled = [r * 10.0 for r in base]
+
+    assert deflated_sharpe_ratio(base, n_trials=50) == pytest.approx(
+        deflated_sharpe_ratio(scaled, n_trials=50)
+    )
+
+
+def test_dsr_deflation_is_strict_for_multiple_trials() -> None:
+    """The correction must actually bite, not round to nothing."""
+    rng = random.Random(12)
+    returns = [rng.gauss(0.002, 0.01) for _ in range(200)]
+    assert deflated_sharpe_ratio(returns, n_trials=50) < probabilistic_sharpe_ratio(returns)
+
+
 def test_dsr_with_one_trial_equals_plain_psr() -> None:
     rng = random.Random(5)
     returns = [rng.gauss(0.01, 0.01) for _ in range(100)]
