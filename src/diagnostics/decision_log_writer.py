@@ -9,6 +9,9 @@ interpretation of *why* a change is good or bad (that judgment stays with
 whatever system emits the record, e.g. v4's model promotion or v6's
 strategy gauntlet).
 
+First producer: src/tuning/runner.py appends a `parameter_promoted` record
+on every live (non-shadow) self-tuning promotion.
+
 Authority:
   - Domain Prior: no hidden failures or skipped validation — the
     justification for every automated structural change must be captured

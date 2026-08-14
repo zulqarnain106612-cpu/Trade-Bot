@@ -1187,7 +1187,7 @@ class TestTickCorrelationFallback:
 
         # A prior retrain task for this timeframe that never completes during
         # the test -- prior.done() must read False.
-        never_done: asyncio.Future = asyncio.get_event_loop().create_future()
+        never_done: asyncio.Future = asyncio.get_running_loop().create_future()
         orch._retrain_tasks[Timeframe.INTRADAY.value] = never_done  # type: ignore[assignment]
 
         train_called = []
@@ -1264,7 +1264,7 @@ class TestTickCorrelationFallback:
             # The task was created but has not run yet (create_task only
             # schedules it) -- swap in a decoy before it gets a chance to run.
             original_task = orch._retrain_tasks[Timeframe.INTRADAY.value]
-            decoy = asyncio.get_event_loop().create_future()
+            decoy = asyncio.get_running_loop().create_future()
             orch._retrain_tasks[Timeframe.INTRADAY.value] = decoy  # type: ignore[assignment]
             await original_task  # let it run to completion and fire its callback
 

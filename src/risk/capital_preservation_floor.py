@@ -17,6 +17,7 @@ Authority:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -52,7 +53,27 @@ class CapitalPreservationFloor:
         True if trading should proceed (not halted), False if halted.
         Once halted, repeated calls keep returning False regardless of
         equity recovery — recovery alone never auto-clears the halt.
+
+        Raises ValueError on a non-finite mark, which is *not* merely
+        defensive here — it is the difference between a one-tick fault and a
+        permanently disabled backstop:
+
+          - `equity_usd < 0.0` is False for NaN, so the existing guard does
+            not catch it, and `drawdown_pct` then computes to NaN.
+            `nan >= max_drawdown_pct` is False, so the floor does not fire.
+          - `inf` is worse and it persists. `max(peak, inf)` sets
+            `_peak_equity = inf`, and from then on every drawdown is
+            `(inf - equity) / inf = nan`, which never trips the floor again.
+            One bad mark silently disables the outermost backstop for the
+            life of the process.
+
+        Raising keeps a corrupt mark out of `_peak_equity` entirely. The
+        caller sees the fault instead of a floor that has quietly stopped
+        working — this instance holds the only copy of that state, so there
+        is nothing downstream that would notice.
         """
+        if not math.isfinite(equity_usd):
+            raise ValueError(f"equity_usd must be a finite number, got {equity_usd}")
         if equity_usd < 0.0:
             raise ValueError(f"equity_usd must be non-negative, got {equity_usd}")
 

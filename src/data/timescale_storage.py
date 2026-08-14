@@ -849,10 +849,14 @@ class TimescaleBackend:
         since_ts: int | None = None,
         limit: int = 500,
         offset: int = 0,
+        open_only: bool = False,
     ) -> list[TradeRecord]:
         """
         Fetch trades with optional filters.
         Returns list ordered by entry_ts descending.
+
+        `open_only` restricts the result to trades with no exit recorded —
+        the positions the database still believes are live after a crash.
         """
         pool = self._require_pool()
         # Build parameterized query from fixed literal clause fragments only —
@@ -868,6 +872,9 @@ class TimescaleBackend:
         if since_ts is not None:
             params.append(since_ts)
             clauses.append(f"entry_ts>=${len(params)}")
+        if open_only:
+            # No parameter: a literal IS NULL cannot be bound as a value.
+            clauses.append("exit_ts IS NULL")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         params.append(limit)
         params.append(offset)

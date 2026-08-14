@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+import pytest
+
+from src.diagnostics.attribution import AttributedFill
 from src.tuning.promotion_gauntlet import (
     GauntletCriteria,
     GauntletObservation,
     evaluate_gauntlet,
+    observation_from_fills,
 )
+
+
+_DAY_MS = 86_400_000
 
 
 def test_passes_when_all_criteria_met() -> None:
@@ -72,3 +81,123 @@ def test_custom_criteria_respected() -> None:
     )
     result = evaluate_gauntlet(obs, lenient)
     assert result.passed
+
+
+# ---------------------------------------------------------------------------
+# observation_from_fills — attribution -> gauntlet adapter
+# ---------------------------------------------------------------------------
+
+
+def _fill(pnl: float, entry_day: int, strategy_id: str = "alpha") -> AttributedFill:
+    return AttributedFill(
+        strategy_id=strategy_id,
+        pnl_usd=pnl,
+        entry_ts=entry_day * _DAY_MS,
+        exit_ts=(entry_day + 1) * _DAY_MS,
+    )
+
+
+def test_observation_counts_only_the_named_strategy() -> None:
+    fills = [_fill(10.0, 1), _fill(20.0, 2), _fill(-5.0, 3, strategy_id="beta")]
+    obs = observation_from_fills("alpha", fills, equity_usd=10_000.0, now_ms=10 * _DAY_MS)
+    assert obs.trade_count == 2
+
+
+def test_days_running_measured_from_first_entry_to_now() -> None:
+    """Not to the last exit — a candidate that went quiet has still been running."""
+    fills = [_fill(10.0, 1), _fill(10.0, 2)]
+    obs = observation_from_fills("alpha", fills, equity_usd=10_000.0, now_ms=31 * _DAY_MS)
+    assert obs.days_running == 30.0
+
+
+def test_no_fills_yields_zero_observation() -> None:
+    obs = observation_from_fills("alpha", [], equity_usd=10_000.0, now_ms=10 * _DAY_MS)
+    assert obs.trade_count == 0
+    assert obs.days_running == 0.0
+    assert obs.realized_sharpe == 0.0
+    assert obs.realized_max_drawdown_pct == 0.0
+
+
+def test_fills_only_for_other_strategies_yields_zero_observation() -> None:
+    obs = observation_from_fills(
+        "alpha", [_fill(10.0, 1, strategy_id="beta")], equity_usd=10_000.0, now_ms=10 * _DAY_MS
+    )
+    assert obs.trade_count == 0
+    assert obs.days_running == 0.0
+
+
+def test_drawdown_converted_to_fraction_of_equity() -> None:
+    # peak equity +100 then -40 -> 40 USD drawdown against 1000 USD book = 4%
+    fills = [_fill(100.0, 1), _fill(-40.0, 2)]
+    obs = observation_from_fills("alpha", fills, equity_usd=1_000.0, now_ms=10 * _DAY_MS)
+    assert obs.realized_max_drawdown_pct == pytest.approx(0.04)
+
+
+def test_non_positive_equity_fails_closed_at_full_drawdown() -> None:
+    """An unmeasurable denominator must not read as a flattering 0% drawdown."""
+    fills = [_fill(100.0, 1), _fill(-40.0, 2)]
+    obs = observation_from_fills("alpha", fills, equity_usd=0.0, now_ms=10 * _DAY_MS)
+    assert obs.realized_max_drawdown_pct == 1.0
+    assert not evaluate_gauntlet(obs).passed
+
+
+def test_clock_skew_cannot_produce_negative_days_running() -> None:
+    fills = [_fill(10.0, 5)]
+    obs = observation_from_fills("alpha", fills, equity_usd=10_000.0, now_ms=1 * _DAY_MS)
+    assert obs.days_running == 0.0
+
+
+def test_adapter_output_feeds_evaluate_gauntlet() -> None:
+    fills = [_fill(10.0, day) for day in range(40)]
+    obs = observation_from_fills("alpha", fills, equity_usd=10_000.0, now_ms=60 * _DAY_MS)
+    result = evaluate_gauntlet(obs, GauntletCriteria(min_sharpe=0.0))
+    assert result.passed, result.failed_criteria
+
+
+def test_default_now_ms_uses_wall_clock() -> None:
+    now = int(datetime.now(tz=UTC).timestamp() * 1000)
+    fills = [AttributedFill(strategy_id="alpha", pnl_usd=1.0, entry_ts=now - _DAY_MS, exit_ts=now)]
+    obs = observation_from_fills("alpha", fills, equity_usd=10_000.0)
+    assert 0.9 < obs.days_running < 1.1
+
+
+def test_first_entry_override_beats_the_windowed_fills() -> None:
+    """Once old fills age out of the tracker's window, deriving age from the
+    window alone would reset a long-lived candidate's clock."""
+    recent = [_fill(10.0, 59)]
+    obs = observation_from_fills(
+        "alpha",
+        recent,
+        equity_usd=10_000.0,
+        now_ms=60 * _DAY_MS,
+        first_entry_ms=0,
+    )
+    assert obs.days_running == 60.0
+
+
+def test_lifetime_trade_count_override_beats_the_windowed_count() -> None:
+    obs = observation_from_fills(
+        "alpha",
+        [_fill(10.0, 1)],
+        equity_usd=10_000.0,
+        now_ms=60 * _DAY_MS,
+        lifetime_trade_count=400,
+    )
+    assert obs.trade_count == 400
+
+
+def test_overrides_absent_falls_back_to_the_fills() -> None:
+    obs = observation_from_fills(
+        "alpha", [_fill(10.0, 1), _fill(10.0, 2)], equity_usd=10_000.0, now_ms=11 * _DAY_MS
+    )
+    assert obs.trade_count == 2
+    assert obs.days_running == 10.0
+
+
+def test_first_entry_override_applies_even_with_no_retained_fills() -> None:
+    """A candidate whose entire window has aged out is still running."""
+    obs = observation_from_fills(
+        "alpha", [], equity_usd=10_000.0, now_ms=40 * _DAY_MS, first_entry_ms=0
+    )
+    assert obs.days_running == 40.0
+    assert obs.trade_count == 0
