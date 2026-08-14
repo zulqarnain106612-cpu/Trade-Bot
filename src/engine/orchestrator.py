@@ -1870,10 +1870,7 @@ class Orchestrator:
                 # a near-constant series whose z-score means nothing. A fixed
                 # calendar lookback keeps the sample wide across timeframes.
                 funding_cutoff_ts = int(
-                    (
-                        datetime.now(tz=UTC).timestamp()
-                        - _PORTFOLIO_FUNDING_LOOKBACK_DAYS * 86400
-                    )
+                    (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_FUNDING_LOOKBACK_DAYS * 86400)
                     * 1000
                 )
                 intel = await self._storage.fetch_intelligence_features(
@@ -2109,9 +2106,7 @@ class Orchestrator:
         try:
             price = await self._fetcher.fetch_ticker_price(symbol, venue)
         except Exception as exc:
-            self._log.debug(
-                "orchestrator.quote_failed", symbol=symbol, venue=venue, error=str(exc)
-            )
+            self._log.debug("orchestrator.quote_failed", symbol=symbol, venue=venue, error=str(exc))
             return None
         price = float(price)
         if price <= 0.0:
@@ -2264,6 +2259,7 @@ class Orchestrator:
 
     def portfolio_evaluation(self, timeframe: str | None = None) -> dict[str, object]:
         """Latest portfolio evaluation(s), for the API/debug surface."""
+
         def _one(tf: str) -> dict[str, object]:
             ev = self._last_portfolio_evaluation.get(tf)
             if ev is None:
