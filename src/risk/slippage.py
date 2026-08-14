@@ -137,9 +137,12 @@ class SlippageModel:
                      must be > 0 (caller derives this from src/data/storage.py
                      bars; this module does not query storage itself so it
                      stays pure/testable)
-        spread_bps : observed quoted spread in bps from the live order book;
-                     falls back to cfg.slippage_default_spread_bps when not
-                     supplied (e.g. order book temporarily unavailable)
+        spread_bps : *half*-spread in bps — the distance from mid to the
+                     touch a single marketable order crosses, i.e. half the
+                     quoted width from the order book, not the full width.
+                     Falls back to cfg.slippage_default_spread_bps when not
+                     supplied (e.g. order book temporarily unavailable),
+                     which is documented in the same half-spread unit.
 
         Returns
         -------

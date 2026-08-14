@@ -156,25 +156,27 @@ class OrderFSM:
     # MappingProxyType is what actually closes that hole: the values are
     # already frozensets, so wrapping the outer dict makes the whole table
     # unwritable rather than merely unrebindable.
-    _VALID_TRANSITIONS: Final[Mapping[OrderStatus, frozenset[OrderStatus]]] = MappingProxyType({
-        OrderStatus.PENDING: frozenset(
-            {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED}
-        ),
-        # FILLING self-transition = partial fill aggregation
-        OrderStatus.FILLING: frozenset(
-            {
-                OrderStatus.FILLING,
-                OrderStatus.FILLED,
-                OrderStatus.CANCELLED,
-                OrderStatus.TIMEOUT,
-                OrderStatus.FAILED,
-            }
-        ),
-        OrderStatus.FILLED: frozenset(),  # Terminal
-        OrderStatus.CANCELLED: frozenset(),  # Terminal
-        OrderStatus.TIMEOUT: frozenset(),  # Terminal
-        OrderStatus.FAILED: frozenset(),  # Terminal
-    })
+    _VALID_TRANSITIONS: Final[Mapping[OrderStatus, frozenset[OrderStatus]]] = MappingProxyType(
+        {
+            OrderStatus.PENDING: frozenset(
+                {OrderStatus.FILLING, OrderStatus.TIMEOUT, OrderStatus.FAILED}
+            ),
+            # FILLING self-transition = partial fill aggregation
+            OrderStatus.FILLING: frozenset(
+                {
+                    OrderStatus.FILLING,
+                    OrderStatus.FILLED,
+                    OrderStatus.CANCELLED,
+                    OrderStatus.TIMEOUT,
+                    OrderStatus.FAILED,
+                }
+            ),
+            OrderStatus.FILLED: frozenset(),  # Terminal
+            OrderStatus.CANCELLED: frozenset(),  # Terminal
+            OrderStatus.TIMEOUT: frozenset(),  # Terminal
+            OrderStatus.FAILED: frozenset(),  # Terminal
+        }
+    )
 
     def __init__(self, state: OrderFSMState):
         """Initialize FSM with initial state."""

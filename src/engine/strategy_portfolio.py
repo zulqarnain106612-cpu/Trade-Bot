@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
@@ -95,7 +95,7 @@ _MIN_FUNDING_SAMPLES: int = 24
 _MAX_VENUE_QUOTE_SKEW_S: float = 2.0
 
 
-class VerdictStatus(str, Enum):
+class VerdictStatus(StrEnum):
     """Why a strategy did or did not contribute a vote this tick."""
 
     SIGNAL = "signal"
@@ -403,7 +403,7 @@ def build_xsec_momentum_context(inputs: PortfolioInputs) -> object | None:
     )
 
 
-class InputNeed(str, Enum):
+class InputNeed(StrEnum):
     """A kind of data some family's context builder consumes."""
 
     BARS = "bars"
@@ -559,9 +559,7 @@ class StrategyPortfolioRunner:
         voting = [v for v in verdicts if v.votes and v.signal is not None]
         if not voting:
             # No voters is unanimity, not conflict: nobody disagreed.
-            return ConflictResolution(
-                direction=0, weight=0.0, conflict=False, agreement_ratio=1.0
-            )
+            return ConflictResolution(direction=0, weight=0.0, conflict=False, agreement_ratio=1.0)
         payload = [
             {"direction": v.signal.direction, "confidence": v.signal.confidence}
             for v in voting
@@ -676,8 +674,8 @@ def reset_portfolio_runner() -> None:
 
 
 __all__ = [
-    "NO_CONTEXT",
     "BUILDER_NEEDS",
+    "NO_CONTEXT",
     "ContextBuilder",
     "InputNeed",
     "PortfolioEvaluation",
@@ -690,8 +688,8 @@ __all__ = [
     "build_cross_exchange_context",
     "build_funding_context",
     "build_mean_reversion_context",
-    "build_xsec_momentum_context",
     "build_signal_engine_context",
+    "build_xsec_momentum_context",
     "default_context_builders",
     "get_portfolio_runner",
     "required_inputs",
