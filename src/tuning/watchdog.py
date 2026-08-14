@@ -15,6 +15,7 @@ proposals for a cooldown period -- this is the mechanism that makes
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -36,7 +37,12 @@ class WatchdogOutcome(StrEnum):
 @dataclass
 class _ProbationState:
     detector: PerformanceDriftDetector
-    started_at: datetime
+    # Monotonic, not a calendar instant. This lives in memory alongside a
+    # live PerformanceDriftDetector, so it never survives a restart and is
+    # only ever read as an elapsed duration by the rollback check below. On
+    # the wall clock an NTP step forward can satisfy that duration gate
+    # before the time has actually passed.
+    started_at: float
     trades_recorded: int = 0
 
 
@@ -59,7 +65,7 @@ class PostPromotionWatchdog:
         with self._lock:
             self._probations[param_name] = _ProbationState(
                 detector=PerformanceDriftDetector(baseline),
-                started_at=datetime.now(UTC),
+                started_at=time.monotonic(),
             )
 
     def is_locked(self, param_name: str) -> bool:
@@ -121,7 +127,7 @@ class PostPromotionWatchdog:
                 )
                 return WatchdogOutcome.ROLLED_BACK
 
-            elapsed_hours = (datetime.now(UTC) - state.started_at).total_seconds() / 3600.0
+            elapsed_hours = (time.monotonic() - state.started_at) / 3600.0
             if (
                 state.trades_recorded >= self._settings.probation_trades
                 or elapsed_hours >= self._settings.probation_hours

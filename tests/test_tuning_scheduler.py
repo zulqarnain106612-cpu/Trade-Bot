@@ -322,7 +322,14 @@ class TestAutoTuningSchedulerAttempts:
         # this test only cares about which champion_floor value evaluate()
         # is built with.
         monkeypatch.setattr(runner._settings, "enabled", True)
-        monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+        monkeypatch.setattr(
+            runner,
+            # _cooldown_active now takes the closed-trade count as a second
+            # argument and returns (blocked, reason) so the caller can log WHICH
+            # half of the cadence guard fired.
+            "_cooldown_active",
+            lambda param_name, closed_trade_count=None: (False, ""),
+        )
 
         async def _run():
             scheduler.start()
@@ -365,7 +372,10 @@ class TestAutoTuningSchedulerAttempts:
 
         monkeypatch.setattr(scheduler_module, "run_entropy_threshold_backtest", _spy_backtest)
 
-        def _fake_attempt(param_name, evaluate_fn, primary_metric):
+        # closed_trade_count is supplied by the trade-driven parameter groups so
+        # the runner can enforce min_trades_between_attempts. Accepted and
+        # ignored: this test isolates intra-cycle champion visibility.
+        def _fake_attempt(param_name, evaluate_fn, primary_metric, closed_trade_count=None):
             # Bypasses the real proposer/gate entirely -- this test isolates
             # ONLY the evaluate() closure's registry-read timing, not
             # promotion logic (already covered by tests/test_tuning_runner.py).
@@ -671,7 +681,14 @@ def _enable_runner_for_test(monkeypatch) -> None:
     param can still be within min_hours_between_attempts=24h). Same pattern
     as test_attempt_all_uses_registry_champion_not_stale_settings above."""
     monkeypatch.setattr(runner._settings, "enabled", True)
-    monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+    monkeypatch.setattr(
+        runner,
+        # _cooldown_active now takes the closed-trade count as a second
+        # argument and returns (blocked, reason) so the caller can log WHICH
+        # half of the cadence guard fired.
+        "_cooldown_active",
+        lambda param_name, closed_trade_count=None: (False, ""),
+    )
 
 
 class TestSchedulerLifecycleBranches:

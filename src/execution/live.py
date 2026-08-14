@@ -37,6 +37,13 @@ from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
+from src.diagnostics.disaster_recovery import (
+    Discrepancy,
+    DiscrepancyType,
+    PositionSnapshot,
+    is_state_consistent,
+    reconcile,
+)
 from src.execution.base import AbstractExecutor
 from src.execution.order_manager import OrderManager
 from src.execution.order_throttler import OrderThrottler
@@ -57,6 +64,13 @@ _ORDER_FSM_REGISTRY_MAX_SIZE: Final[int] = 200
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _LIVE_FEE_FALLBACK: Final[float] = 0.001  # fallback if exchange fee missing
+
+# v8 reconciliation tolerances. Spot balances carry dust and fills round, so
+# an exact comparison would flag a correctly-tracked book on every restart.
+# The relative term scales with the position actually held; the absolute term
+# is the floor below which a balance is not a position at all.
+_RECONCILE_DUST_QTY: Final[float] = 1e-8
+_RECONCILE_TOLERANCE_PCT: Final[float] = 0.01  # 1% of the larger side
 _ORDER_CONFIRM_POLLS: Final[int] = 10  # max polls for order confirmation
 _ORDER_CONFIRM_INTERVAL: Final[float] = 0.5  # seconds between polls
 
@@ -207,6 +221,12 @@ class LiveExecutor(AbstractExecutor):
         # GET /orders/{order_id}/status had no registry to read from.
         self._order_fsm_registry: OrderedDict[str, Any] = OrderedDict()
         self._initialized: bool = False
+        # v8 disaster recovery: discrepancies found when initialize() compared
+        # local state against exchange truth. Non-empty means the process is
+        # not sure what it owns, so submit_signal() refuses to open anything
+        # new until an operator clears it -- explicit-only, like the strategy
+        # kill switch and the capital-preservation floor.
+        self._recovery_discrepancies: list[Discrepancy] = []
         self._log = log.bind(component="live_executor")
 
     # ------------------------------------------------------------------
@@ -228,7 +248,114 @@ class LiveExecutor(AbstractExecutor):
             )
         else:
             self._log.info("live.initialized_fresh", starting_capital=self._starting_capital)
+        await self._reconcile_with_exchange()
         self._initialized = True
+
+    async def _reconcile_with_exchange(self) -> None:
+        """
+        Compare local positions against exchange truth on startup (v8).
+
+        initialize() restores equity from storage but not positions, so after
+        a crash self._positions is empty while the exchange may still hold
+        real exposure. Trading on that assumption would size as though the
+        book were flat.
+
+        Any discrepancy is recorded and blocks new entries until an operator
+        acknowledges it. The reconciliation itself never places or cancels an
+        order — the module is deliberately advisory, and guessing how to
+        resolve an unexplained position is exactly the wrong instinct here.
+
+        A snapshot that could not be obtained is treated as unresolved, not
+        as "no discrepancies": failing to look is not the same as looking and
+        finding nothing.
+
+        Scoped to the symbols this executor is responsible for -- whatever the
+        local book holds, plus the configured primary symbol so a crashed
+        position in it is still caught when the local book came back empty.
+        An unrelated asset elsewhere in the account is not evidence that this
+        bot's book is wrong.
+
+        Comparison uses a relative tolerance because spot balances carry dust
+        and fills round. The consequence is deliberate: a manual balance in a
+        traded symbol does block startup, because the executor genuinely
+        cannot distinguish it from an untracked position of its own.
+        """
+        symbols = sorted({p.symbol for p in self._positions.values()} | {self._cfg.primary_symbol})
+        try:
+            holdings = await self._fetcher.fetch_exchange_holdings(symbols)
+        except Exception as exc:
+            holdings = None
+            self._log.error("live.reconcile_fetch_failed", error=str(exc), exc_info=True)
+
+        if holdings is None:
+            self._recovery_discrepancies = [
+                Discrepancy(
+                    symbol="*",
+                    discrepancy_type=DiscrepancyType.MISSING_LOCALLY,
+                    local_quantity=0.0,
+                    reference_quantity=0.0,
+                )
+            ]
+            self._log.critical("live.reconcile_snapshot_unavailable", entries_blocked=True)
+            return
+
+        # Net per symbol: several timeframes can hold the same symbol, and
+        # PositionSnapshot is one row per symbol.
+        netted: dict[str, float] = {}
+        for position in self._positions.values():
+            signed = position.quantity if position.direction == 1 else -position.quantity
+            netted[position.symbol] = netted.get(position.symbol, 0.0) + signed
+
+        local = [PositionSnapshot(symbol=sym, quantity=qty) for sym, qty in netted.items()]
+        exchange = [
+            PositionSnapshot(symbol=sym, quantity=qty)
+            for sym, qty in holdings.items()
+            if abs(qty) > _RECONCILE_DUST_QTY
+        ]
+        tolerance = max(
+            _RECONCILE_DUST_QTY,
+            _RECONCILE_TOLERANCE_PCT
+            * max((abs(q) for q in [*netted.values(), *holdings.values()]), default=0.0),
+        )
+        self._recovery_discrepancies = reconcile(local, exchange, quantity_tolerance=tolerance)
+
+        if is_state_consistent(self._recovery_discrepancies):
+            self._log.info("live.reconcile_consistent", symbols=symbols)
+            return
+        self._log.critical(
+            "live.reconcile_discrepancies",
+            count=len(self._recovery_discrepancies),
+            discrepancies=[
+                {
+                    "symbol": d.symbol,
+                    "type": d.discrepancy_type.value,
+                    "local": d.local_quantity,
+                    "exchange": d.reference_quantity,
+                }
+                for d in self._recovery_discrepancies
+            ],
+            entries_blocked=True,
+        )
+
+    @property
+    def recovery_discrepancies(self) -> list[Discrepancy]:
+        """Unresolved startup reconciliation discrepancies (empty = clean)."""
+        return list(self._recovery_discrepancies)
+
+    def acknowledge_recovery(self, operator: str) -> int:
+        """
+        Clear the reconciliation block after an operator has resolved it.
+
+        Explicit-only and never automatic: the discrepancies are cleared
+        because a human says the book is now understood, not because time
+        passed or a later snapshot happened to agree.
+
+        Returns the number of discrepancies cleared.
+        """
+        cleared = len(self._recovery_discrepancies)
+        self._recovery_discrepancies = []
+        self._log.warning("live.recovery_acknowledged", operator=operator, cleared=cleared)
+        return cleared
 
     async def shutdown(self) -> None:
         """Persist equity and log open positions on shutdown."""
@@ -264,6 +391,19 @@ class LiveExecutor(AbstractExecutor):
         outcome: 'opened' | 'queued' | 'skipped' | 'rejected'
         """
         self._require_initialized()
+        # v8: refuse new exposure while startup reconciliation is unresolved.
+        # Sizing assumes self._positions is the whole book; if the exchange
+        # disagrees, every gate downstream is reasoning about the wrong book.
+        # Exits are unaffected -- this blocks submit_signal only, so an
+        # operator can still flatten while the discrepancy is being resolved.
+        if self._recovery_discrepancies:
+            self._log.error(
+                "live.blocked_unreconciled_state",
+                symbol=symbol,
+                discrepancies=len(self._recovery_discrepancies),
+            )
+            return None, "rejected"
+
         # H-15: read runtime_config (live async-settable) not self._cfg.execution_mode
         # (frozen Settings). Without this, POST /execution-mode has no effect.
         mode = await runtime_config.get_execution_mode()
@@ -439,12 +579,21 @@ class LiveExecutor(AbstractExecutor):
             else:
                 gross_pnl = (pos.entry_price - actual_exit_price) * filled_qty
 
-            net_pnl = gross_pnl - exchange_fee
+            # Both legs. pos.fee_usd is the fee the exchange charged on entry;
+            # leaving it out overstated every recorded trade by half its
+            # round-trip cost, and that number drives compute_win_loss_stats
+            # into Kelly, the Sharpe and Sortino behind capital allocation,
+            # and the out-of-sample bar the live gate checks.
+            total_fee = pos.fee_usd + exchange_fee
+            net_pnl = gross_pnl - total_fee
             pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
 
             async with self._lock:
                 self._positions.pop(trade_id, None)
-                self._cash += pos.notional_usd + net_pnl
+                # Not net_pnl: the entry fee already left the balance at open
+                # (self._cash -= notional + entry_fee), so charging it again
+                # here would double-count it and drain equity over time.
+                self._cash += pos.notional_usd + gross_pnl - exchange_fee
                 equity = self._equity_usd()
                 self._peak_equity = max(self._peak_equity, equity)
                 self._drawdown_tracker.update(equity)
@@ -464,7 +613,8 @@ class LiveExecutor(AbstractExecutor):
                 pnl_usd=round(net_pnl, 8),
                 pnl_pct=round(pnl_pct, 8),
                 exit_reason=exit_reason,
-                fee_usd=exchange_fee,
+                # Both legs, matching pnl_usd above.
+                fee_usd=round(total_fee, 8),
             )
             await self._snapshot_equity_with_values(
                 equity=snap_equity,
