@@ -47,8 +47,12 @@ jobs:
           POSTGRES_USER: tradebot
           POSTGRES_PASSWORD: tradebot-local
           POSTGRES_DB: tradebot
+        # Ephemeral host port, not a fixed 5433. Self-hosted runners share one
+        # host, so two Backend jobs running concurrently would collide on any
+        # fixed mapping ("bind: address already in use"). The assigned port is
+        # read back via job.services.timescaledb.ports below.
         ports:
-          - 5433:5432
+          - 5432/tcp
         options: >-
           --health-cmd "pg_isready -U tradebot -d tradebot"
           --health-interval 5s
@@ -127,7 +131,7 @@ jobs:
         id: pytest
         env:
           TRADING_MODE: paper
-          STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot  # pragma: allowlist secret
+          STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:${{ job.services.timescaledb.ports['5432'] }}/tradebot  # pragma: allowlist secret
           BINANCE_API_KEY: dummy
           BINANCE_API_SECRET: dummy
           OKX_API_KEY: dummy
