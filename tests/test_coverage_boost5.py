@@ -234,7 +234,7 @@ class TestBinanceProvider:
             p._perp, "fetch_funding_rate_history", new=AsyncMock(return_value=history)
         ):
             result = await p._fetch_funding_data()
-        assert result["rate_pct"] == pytest.approx(0.0001)
+        assert result["rate_pct"] == pytest.approx(0.01)  # 0.0001 * 100 = 0.01%
         assert result["zscore"] == 0.0
 
     @pytest.mark.asyncio

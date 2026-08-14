@@ -35,6 +35,7 @@ from src.config import FeatureSettings, HMMSettings, XGBoostSettings
 from src.data.storage import TradeRecord
 from src.features.pipeline import (
     COL_ATR_MOMENTUM,
+    COL_GARCH_VOL,
     COL_OFI,
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
@@ -48,7 +49,12 @@ from src.features.pipeline import (
     volume_zscore,
     vwap_deviation_zscore,
 )
-from src.models.trainer import ModelTrainer, oos_sharpe_and_drawdown
+from src.models.trainer import (
+    _FEATURE_COLUMNS_ATTR,
+    ModelTrainer,
+    oos_sharpe_and_drawdown,
+)
+from src.regime.garch import rolling_garch_forecast
 from src.tuning.bootstrap import XGBOOST_HYPERPARAM_FIELDS
 from src.tuning.evaluator import (
     ChallengerEvaluator,
@@ -502,6 +508,12 @@ _FEATURE_WINDOW_RECOMPUTERS: dict[str, tuple[str, Callable[[pd.DataFrame, int], 
         COL_VOLUME_ZSCORE,
         lambda bars, window: volume_zscore(bars["volume"], window=window),
     ),
+    "garch_window": (
+        COL_GARCH_VOL,
+        lambda bars, window: rolling_garch_forecast(
+            bars["close"].pct_change().dropna(), window=window
+        ).reindex(bars.index),
+    ),
 }
 
 
@@ -513,12 +525,22 @@ class UnknownFeatureWindowFieldError(ValueError):
 def _predict_direction_batch(model: XGBClassifier, features: pd.DataFrame) -> np.ndarray:
     """
     Vectorised counterpart of ModelTrainer.predict_direction's schema
-    slicing (GAP-015 backward compatibility): use model.n_features_in_ to
-    select the correct leading columns rather than assuming a fixed
-    7-column schema. `model.predict()` applies the same 0.5 threshold
+    reconciliation: prefer the column list the artifact recorded, falling
+    back to model.n_features_in_ for artifacts written before that field
+    existed (all of which were trained on BASE_FEATURE_COLUMNS, so the
+    positional slice is correct for them). `model.predict()` applies the same 0.5 threshold
     trainer.py's own CPCV fold evaluation (_run_cpcv) uses -- not a
     hand-rolled predict_proba threshold.
     """
+    named = getattr(model, _FEATURE_COLUMNS_ATTR, None)
+    if named:
+        # Name-first, matching predict_direction. This path scores the models
+        # whose metrics decide parameter promotion, so a positional mismatch
+        # here does not merely mis-predict -- it promotes a parameter on the
+        # strength of a backtest that fed features into the wrong slots.
+        arr = features.reindex(columns=list(named)).to_numpy(dtype=np.float64)
+        return model.predict(arr)
+
     n = getattr(model, "n_features_in_", features.shape[1])
     cols = list(features.columns[:n]) if features.shape[1] >= n else list(features.columns)
     arr = features.reindex(columns=cols).to_numpy(dtype=np.float64)
@@ -534,7 +556,7 @@ def run_feature_window_backtest(
     features_cfg: FeatureSettings | None = None,
 ) -> list[MetricComparison]:
     """
-    Recalibrate one of the five rolling-window feature parameters (Phase 8
+    Recalibrate one of the rolling-window feature parameters (Phase 8
     item 3) against the currently deployed, FROZEN direction model's
     out-of-sample predictive quality -- this does NOT retrain. It measures
     the frozen model's sensitivity to a perturbed input feature, a
@@ -544,7 +566,7 @@ def run_feature_window_backtest(
     convention (src/tuning/bootstrap.py) keeps challengers close to the
     window the model was actually trained on.
 
-    Builds the baseline 7-column feature matrix once at production
+    Builds the baseline feature matrix once at production
     settings, then recomputes ONLY `field_name`'s column at the champion
     and challenger window sizes and swaps it in. Scores both variants with
     the same frozen model and folds oos_sharpe_and_drawdown's single-bar-
@@ -577,8 +599,11 @@ def run_feature_window_backtest(
     # production-window default -- align both variants to rows valid under
     # BOTH before folding, so champion and challenger see identical bars.
     valid = champion_features[column].notna() & challenger_features[column].notna()
-    champion_features = champion_features.loc[valid, FEATURE_COLUMNS]
-    challenger_features = challenger_features.loc[valid, FEATURE_COLUMNS]
+    # list(...) rather than the constant directly: .loc reads a tuple key as a
+    # MultiIndex lookup rather than a column selection, so this stays correct
+    # whichever sequence type FEATURE_COLUMNS is.
+    champion_features = champion_features.loc[valid, list(FEATURE_COLUMNS)]
+    challenger_features = challenger_features.loc[valid, list(FEATURE_COLUMNS)]
     log_ret = baseline.log_returns.reindex(idx).loc[valid].to_numpy(dtype=np.float64)
 
     champion_pred = _predict_direction_batch(direction_model, champion_features)

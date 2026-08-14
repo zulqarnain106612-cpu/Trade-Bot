@@ -207,3 +207,97 @@ class TestCorrelationScalarFailSafe:
         # No data pushed, no open positions → must return 1.0 without raising
         result = t.correlation_scalar("BTC/USDT", open_symbols=[])
         assert result == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Executor routing: non-primary timeframes must never reach a LiveExecutor
+# ---------------------------------------------------------------------------
+
+
+class TestExecutorRouting:
+    """
+    README documents scalping (1m) and swing (4h) as paper-only regardless
+    of the global trading mode; only primary_timeframe (intraday) is allowed
+    to trade real money. Orchestrator._executor_for()/_all_executors() are
+    what enforce that at runtime — tested here in isolation via
+    Orchestrator.__new__ so no full startup/bootstrap chain is needed.
+    """
+
+    def _make_orchestrator(self):
+        from src.engine.orchestrator import Orchestrator
+
+        return Orchestrator.__new__(Orchestrator)
+
+    def test_primary_timeframe_uses_live_executor(self):
+        from src.config import Timeframe
+        from src.execution.live import LiveExecutor
+        from src.execution.paper import PaperExecutor
+
+        orch = self._make_orchestrator()
+        live_executor = MagicMock(spec=LiveExecutor)
+        paper_executor = MagicMock(spec=PaperExecutor)
+        orch._executor = live_executor
+        orch._non_primary_executor = paper_executor
+        orch._primary_tf = Timeframe.INTRADAY
+
+        assert orch._executor_for(Timeframe.INTRADAY) is live_executor
+
+    def test_non_primary_timeframes_never_use_live_executor(self):
+        from src.config import Timeframe
+        from src.execution.live import LiveExecutor
+        from src.execution.paper import PaperExecutor
+
+        orch = self._make_orchestrator()
+        live_executor = MagicMock(spec=LiveExecutor)
+        paper_executor = MagicMock(spec=PaperExecutor)
+        orch._executor = live_executor
+        orch._non_primary_executor = paper_executor
+        orch._primary_tf = Timeframe.INTRADAY
+
+        assert orch._executor_for(Timeframe.SCALPING) is paper_executor
+        assert orch._executor_for(Timeframe.SWING) is paper_executor
+
+    def test_paper_mode_all_timeframes_share_single_executor(self):
+        """trading_mode=PAPER never creates a _non_primary_executor."""
+        from src.config import Timeframe
+        from src.execution.paper import PaperExecutor
+
+        orch = self._make_orchestrator()
+        paper_executor = MagicMock(spec=PaperExecutor)
+        orch._executor = paper_executor
+        orch._non_primary_executor = None
+        orch._primary_tf = Timeframe.INTRADAY
+
+        assert orch._executor_for(Timeframe.SCALPING) is paper_executor
+        assert orch._executor_for(Timeframe.INTRADAY) is paper_executor
+        assert orch._executor_for(Timeframe.SWING) is paper_executor
+
+    def test_all_executors_deduplicated_in_paper_mode(self):
+        """_all_executors() must not double-count when there's only one executor."""
+        from src.execution.paper import PaperExecutor
+
+        orch = self._make_orchestrator()
+        paper_executor = MagicMock(spec=PaperExecutor)
+        orch._executor = paper_executor
+        orch._non_primary_executor = None
+
+        assert orch._all_executors() == [paper_executor]
+
+    def test_all_executors_includes_both_in_live_mode(self):
+        from src.execution.live import LiveExecutor
+        from src.execution.paper import PaperExecutor
+
+        orch = self._make_orchestrator()
+        live_executor = MagicMock(spec=LiveExecutor)
+        paper_executor = MagicMock(spec=PaperExecutor)
+        orch._executor = live_executor
+        orch._non_primary_executor = paper_executor
+
+        assert orch._all_executors() == [live_executor, paper_executor]
+
+    def test_all_executors_empty_before_startup(self):
+        orch = self._make_orchestrator()
+        orch._executor = None
+        orch._non_primary_executor = None
+
+        assert orch._all_executors() == []

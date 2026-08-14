@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import time
+
 import pytest
 
 from src.intelligence.client import (
@@ -20,18 +22,18 @@ from src.intelligence.client import (
 
 
 def test_cache_entry_not_stale_fresh():
-    entry = CacheEntry(value=42, fetched_at=datetime.now(UTC), ttl_seconds=300)
+    entry = CacheEntry(value=42, fetched_at=time.monotonic(), ttl_seconds=300)
     assert entry.is_stale is False
 
 
 def test_cache_entry_stale_expired():
-    old_time = datetime.now(UTC) - timedelta(seconds=400)
+    old_time = time.monotonic() - 400.0
     entry = CacheEntry(value=42, fetched_at=old_time, ttl_seconds=300)
     assert entry.is_stale is True
 
 
 def test_cache_entry_exactly_at_boundary():
-    old_time = datetime.now(UTC) - timedelta(seconds=300)
+    old_time = time.monotonic() - 300.0
     entry = CacheEntry(value=42, fetched_at=old_time, ttl_seconds=300)
     # Edge: age == ttl → stale (>)
     assert entry.is_stale is True
@@ -82,7 +84,7 @@ def test_base_url_property():
 async def test_get_exchange_netflow_cache_hit():
     agg = _make_agg()
     cached = {"netflow": 1.0, "inflow": 1.0, "outflow": 0.0, "tscore": 0.5}
-    entry = CacheEntry(value=cached, fetched_at=datetime.now(UTC), ttl_seconds=300)
+    entry = CacheEntry(value=cached, fetched_at=time.monotonic(), ttl_seconds=300)
     agg._cache["exchange_netflow_BTC_all_7d"] = entry
 
     result = await agg.get_exchange_netflow("BTC", None, 7)
@@ -93,7 +95,7 @@ async def test_get_exchange_netflow_cache_hit():
 async def test_get_whale_activity_cache_hit():
     agg = _make_agg()
     cached = {"buy_volume": 10.0, "sell_volume": 5.0, "ratio": 2.0, "sentiment": "bullish"}
-    entry = CacheEntry(value=cached, fetched_at=datetime.now(UTC), ttl_seconds=300)
+    entry = CacheEntry(value=cached, fetched_at=time.monotonic(), ttl_seconds=300)
     agg._cache["whale_activity_BTC_1000000"] = entry
 
     result = await agg.get_whale_activity("BTC", 1_000_000)
@@ -104,7 +106,7 @@ async def test_get_whale_activity_cache_hit():
 async def test_get_funding_rate_cache_hit():
     agg = _make_agg()
     cached = {"rate_pct": 0.05, "rate_8h_avg": 0.04, "excessive": False}
-    entry = CacheEntry(value=cached, fetched_at=datetime.now(UTC), ttl_seconds=60)
+    entry = CacheEntry(value=cached, fetched_at=time.monotonic(), ttl_seconds=60)
     agg._cache["funding_rate_BTCUSDT"] = entry
 
     result = await agg.get_funding_rate()
@@ -155,7 +157,7 @@ async def test_get_funding_rate_error_returns_defaults():
 async def test_get_exchange_netflow_error_uses_stale_cache():
     agg = _make_agg()
     stale_data = {"netflow": -5.0, "inflow": 0.0, "outflow": 5.0, "tscore": -1.2}
-    old_time = datetime.now(UTC) - timedelta(seconds=999)
+    old_time = time.monotonic() - 999.0
     agg._cache["exchange_netflow_BTC_all_7d"] = CacheEntry(
         value=stale_data, fetched_at=old_time, ttl_seconds=60
     )
@@ -169,7 +171,7 @@ async def test_get_exchange_netflow_error_uses_stale_cache():
 async def test_get_whale_activity_error_uses_stale_cache():
     agg = _make_agg()
     stale = {"buy_volume": 2.0, "sell_volume": 3.0, "ratio": 0.67, "sentiment": "bearish"}
-    old_time = datetime.now(UTC) - timedelta(seconds=999)
+    old_time = time.monotonic() - 999.0
     agg._cache["whale_activity_BTC_1000000"] = CacheEntry(
         value=stale, fetched_at=old_time, ttl_seconds=60
     )
@@ -444,7 +446,7 @@ async def test_fetch_cryptoquant_funding_rate_no_timestamp():
 async def test_rate_limit_glassnode_waits_when_too_recent():
     agg = _make_agg()
     agg._glassnode_min_interval = 1.0
-    agg._last_glassnode_call = datetime.now(UTC)  # just called
+    agg._last_glassnode_call = time.monotonic()  # just called
 
     with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
         await agg._rate_limit_glassnode()
@@ -455,7 +457,7 @@ async def test_rate_limit_glassnode_waits_when_too_recent():
 async def test_rate_limit_glassnode_no_wait_if_old():
     agg = _make_agg()
     agg._glassnode_min_interval = 1.0
-    agg._last_glassnode_call = datetime.fromtimestamp(0, UTC)  # epoch
+    agg._last_glassnode_call = None  # never called
 
     with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
         await agg._rate_limit_glassnode()

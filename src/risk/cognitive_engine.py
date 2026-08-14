@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Protocol
+from enum import StrEnum
+from typing import Final, Protocol
 
 import numpy as np
 import structlog
@@ -46,7 +46,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # ── Result types ──────────────────────────────────────────────────────────────
 
 
-class ValidatorStatus(str, Enum):
+class ValidatorStatus(StrEnum):
     PASS = "pass"
     VETO = "veto"
     WARN = "warn"  # passes but logged as warning
@@ -148,6 +148,17 @@ class SignalContext:
     # down on WARN/VETO; it must never recompute size independently
     # (that created an uncontrolled rescale ratio vs. the entropy-gated
     # Kelly fraction — see _base_size() removal below).
+
+    # Optional enrichment — defaults allow callers that predate this field
+    # GARCH(1,1) one-step-ahead conditional volatility — Bollerslev (1986).
+    # Per-bar sigma in raw-return units (NOT annualized). 0.0 when the
+    # pipeline has not yet produced a valid forecast (warm-up period).
+    garch_vol_forecast: float = 0.0
+    # Regime ensemble agreement score in [0, 1] (Dietterich 2000).
+    # 1.0 = HMM and changepoint detector fully agree (low regime uncertainty).
+    # 0.0 = complete disagreement (HMM confident, changepoint screaming shift).
+    # Defaults to 1.0 so pre-ensemble callers are treated as fully agreeing.
+    regime_agreement_score: float = 1.0
 
 
 # ── Validator interface ────────────────────────────────────────────────────────
@@ -422,6 +433,8 @@ class RiskValidator:
         risk_score = self._compute_risk_score(ctx, dd_pct, vol_ratio)
         metrics["risk_score"] = round(risk_score, 4)
         metrics["open_positions"] = ctx.open_positions
+        metrics["garch_vol_forecast"] = round(ctx.garch_vol_forecast, 6)
+        metrics["regime_agreement_score"] = round(ctx.regime_agreement_score, 4)
 
         # Hard cap: risk score > 0.85 → veto even if individual gates pass
         if risk_score > 0.85:
@@ -443,18 +456,37 @@ class RiskValidator:
     def _compute_risk_score(ctx: SignalContext, dd_pct: float, vol_ratio: float) -> float:
         """
         Normalized risk score 0→1. Combines drawdown, vol, consecutive losses,
-        and open position concentration.
+        open position concentration, GARCH conditional vol, and regime
+        disagreement — six weights summing to exactly 1.0, so a fully
+        saturated context scores 1.0.
+
+        GARCH component: garch_vol_forecast normalized against a 1-sigma
+        daily move threshold (0.02 = 2% per bar). When GARCH vol is 0.0
+        (warm-up / not available) this component contributes 0.0.
         """
         cfg = get_settings().risk
         dd_component = min(abs(dd_pct) / cfg.daily_drawdown_halt_pct, 1.0)
         vol_component = min(vol_ratio / 2.0, 1.0)
         loss_component = min(ctx.consecutive_losses / cfg.consecutive_loss_halt, 1.0)
         pos_component = min(ctx.open_positions / 5, 1.0)  # >5 open = max risk
+        # GARCH: normalizes against the configurable threshold (RISK_GARCH_VOL_THRESHOLD).
+        # Weight 0.02 — supplementary, not primary risk factor.
+        garch_component = (
+            min(ctx.garch_vol_forecast / cfg.garch_vol_threshold, 1.0)
+            if ctx.garch_vol_forecast > 0.0
+            else 0.0
+        )
+        # Regime disagreement: 1 - agreement_score (Dietterich 2000 ensemble).
+        # When HMM is confident but changepoint detector fires, this is high.
+        # Weight 0.05 — catches mid-transition signals that Sharpe/vol miss.
+        regime_disagree_component = 1.0 - max(0.0, min(1.0, ctx.regime_agreement_score))
         return (
-            0.35 * dd_component
-            + 0.30 * vol_component
-            + 0.25 * loss_component
-            + 0.10 * pos_component
+            0.33 * dd_component
+            + 0.28 * vol_component
+            + 0.24 * loss_component
+            + 0.08 * pos_component
+            + 0.02 * garch_component
+            + 0.05 * regime_disagree_component
         )
 
 
@@ -470,7 +502,13 @@ class BlockchainValidator:
 
     FUNDING_VETO_THRESHOLD = 0.0005  # 0.05% per 8h — unfavorable carry
     BASIS_VETO_THRESHOLD = 0.005  # 0.5% spot/perp divergence
-    TRUSTED_EXCHANGES = {"binance", "okx", "bybit", "kraken"}
+    # frozenset, not set: this is the allowlist behind a STRIDE-Spoofing
+    # veto, and a class-level mutable is shared by every instance for the
+    # life of the process. Nothing mutates it today; a frozenset means
+    # nothing can start to, and `in` behaves identically.
+    TRUSTED_EXCHANGES: Final[frozenset[str]] = frozenset(
+        {"binance", "okx", "bybit", "kraken"}
+    )
 
     def validate(self, ctx: SignalContext) -> ValidatorResult:
         metrics: dict = {}
@@ -496,8 +534,8 @@ class BlockchainValidator:
                 return ValidatorResult(
                     self.NAME,
                     ValidatorStatus.VETO,
-                    f"Funding rate {ctx.funding_rate_8h*100:.4f}% per 8h unfavorable "
-                    f"for {direction} position (threshold ±{self.FUNDING_VETO_THRESHOLD*100:.3f}%)",
+                    f"Funding rate {ctx.funding_rate_8h * 100:.4f}% per 8h unfavorable "
+                    f"for {direction} position (threshold ±{self.FUNDING_VETO_THRESHOLD * 100:.3f}%)",
                     {**metrics, "funding_rate_8h": ctx.funding_rate_8h, "direction": direction},
                 )
         metrics["funding_rate_8h"] = ctx.funding_rate_8h
@@ -508,7 +546,7 @@ class BlockchainValidator:
                 self.NAME,
                 ValidatorStatus.VETO,
                 f"Basis divergence {ctx.basis_pct:.3f}% > "
-                f"{self.BASIS_VETO_THRESHOLD*100:.2f}% threshold — "
+                f"{self.BASIS_VETO_THRESHOLD * 100:.2f}% threshold — "
                 f"spot/perp pricing inconsistent",
                 {**metrics, "basis_pct": ctx.basis_pct},
             )
@@ -527,7 +565,7 @@ class BlockchainValidator:
             return ValidatorResult(
                 self.NAME,
                 ValidatorStatus.WARN,
-                f"Participation rate {participation*100:.4f}% of ADV — "
+                f"Participation rate {participation * 100:.4f}% of ADV — "
                 f"market impact will be material; slippage model active",
                 metrics,
             )
@@ -535,8 +573,8 @@ class BlockchainValidator:
         return ValidatorResult(
             self.NAME,
             ValidatorStatus.PASS,
-            f"exchange=ok funding={ctx.funding_rate_8h*100:.4f}%/8h "
-            f"basis={ctx.basis_pct:.3f}% participation={participation*100:.5f}%",
+            f"exchange=ok funding={ctx.funding_rate_8h * 100:.4f}%/8h "
+            f"basis={ctx.basis_pct:.3f}% participation={participation * 100:.5f}%",
             metrics,
         )
 
@@ -566,8 +604,7 @@ class RegimeValidator:
             return ValidatorResult(
                 self.NAME,
                 ValidatorStatus.VETO,
-                f"Regime state = volatile (state {ctx.regime_state}) — "
-                f"no new positions allowed",
+                f"Regime state = volatile (state {ctx.regime_state}) — no new positions allowed",
                 {"regime_state": ctx.regime_state},
             )
 

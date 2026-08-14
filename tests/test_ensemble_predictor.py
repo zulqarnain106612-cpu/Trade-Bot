@@ -299,6 +299,25 @@ class TestGaussianProcessPredictor:
         assert point == 0.0
         assert unc == 0.2
 
+    def test_fit_subsamples_to_max_train_samples(self):
+        """Exact GP inference is O(n^3) -- large live-retrain sample counts
+        (~1800 rows) made a single fit take minutes. fit() must cap to the
+        most recent max_train_samples rows, not the full input."""
+        p = GaussianProcessPredictor(max_train_samples=20)
+        X = _make_features(50)
+        y = pd.Series(X["a"] * 1.5)
+        p.fit(X, y)
+        assert p.model is not None
+        assert len(p.model.X_train_) == 20
+
+    def test_fit_below_max_train_samples_uses_all_rows(self):
+        p = GaussianProcessPredictor(max_train_samples=500)
+        X = _make_features(20)
+        y = pd.Series(X["a"] * 1.5)
+        p.fit(X, y)
+        assert p.model is not None
+        assert len(p.model.X_train_) == 20
+
 
 # ---------------------------------------------------------------------------
 # TreeEnsemblePredictor
@@ -489,3 +508,101 @@ class TestEnsemblePredictor:
         ):
             result = ep.predict(_make_features(1))
         assert result.individual_predictions["xgboost"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# predict_row() + save()/load() persistence
+# ---------------------------------------------------------------------------
+
+
+class TestPredictRow:
+    def test_raises_before_fit(self):
+        ep = EnsemblePredictor()
+        with pytest.raises(RuntimeError, match="before fit"):
+            ep.predict_row({"a": 1.0, "b": 2.0})
+
+    def test_builds_correctly_ordered_row_from_dict(self):
+        ep = EnsemblePredictor()
+        X = _make_features(60)
+        y = pd.Series(X["a"] * 2.0)
+        ep.fit(X, y)
+        result = ep.predict_row({"b": 1.0, "a": 0.5})  # deliberately out of order
+        assert isinstance(result, EnsemblePrediction)
+
+    def test_accepts_a_pandas_series(self):
+        ep = EnsemblePredictor()
+        X = _make_features(60)
+        y = pd.Series(X["a"] * 2.0)
+        ep.fit(X, y)
+        row = X.iloc[-1]
+        result = ep.predict_row(row)
+        assert isinstance(result, EnsemblePrediction)
+
+
+class TestEnsemblePersistence:
+    def test_save_and_load_round_trip(self, tmp_path):
+        ep = EnsemblePredictor()
+        X = _make_features(60)
+        y = pd.Series(X["a"] * 2.0)
+        ep.fit(X, y)
+
+        path = ep.save(tmp_path, "BTC/USDT", "15m")
+        assert path.exists()
+        assert path.with_suffix(".sha256").exists()
+
+        loaded = EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
+        row = X.iloc[-1]
+        original = ep.predict_row(row)
+        restored = loaded.predict_row(row)
+        assert restored.point_estimate == pytest.approx(original.point_estimate)
+        assert restored.model_weights == pytest.approx(original.model_weights)
+
+    def test_save_before_fit_still_persists_cold_start_state(self, tmp_path):
+        """save()/load() don't require a prior fit() -- an unfit ensemble
+        just round-trips its cold-start equal weights and None feature_cols."""
+        ep = EnsemblePredictor()
+        ep.save(tmp_path, "ETH/USDT", "1h")
+        loaded = EnsemblePredictor.load(tmp_path, "ETH/USDT", "1h")
+        assert loaded._feature_cols is None
+        assert loaded.weights == ep.weights
+
+    def test_load_missing_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            EnsemblePredictor.load(tmp_path, "NO/SUCH", "1h")
+
+    def test_load_tampered_file_raises(self, tmp_path):
+        ep = EnsemblePredictor()
+        path = ep.save(tmp_path, "BTC/USDT", "15m")
+        with path.open("ab") as f:
+            f.write(b"tampered-bytes")
+        with pytest.raises(RuntimeError, match="integrity check FAILED"):
+            EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
+
+    def test_load_missing_manifest_raises(self, tmp_path):
+        ep = EnsemblePredictor()
+        path = ep.save(tmp_path, "BTC/USDT", "15m")
+        path.with_suffix(".sha256").unlink()
+        with pytest.raises(RuntimeError, match="manifest missing"):
+            EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
+
+    def test_symbol_with_slash_is_sanitized_in_filename(self, tmp_path):
+        ep = EnsemblePredictor()
+        path = ep.save(tmp_path, "BTC/USDT", "15m")
+        assert "/" not in path.name
+
+    def test_lstm_member_survives_pickling_after_fit(self, tmp_path):
+        """Regression: _LSTMNet used to be defined inside LSTMPredictor.fit(),
+        which pickle/joblib cannot serialize (PicklingError). It is now
+        module-level specifically so a fitted LSTM survives save()/load()."""
+        from src.intelligence.ensemble_predictor import _TORCH_AVAILABLE
+
+        if not _TORCH_AVAILABLE:
+            pytest.skip("torch not installed")
+        ep = EnsemblePredictor()
+        X = _make_features(60)
+        y = pd.Series(X["a"] * 2.0)
+        ep.fit(X, y)
+        assert ep.models["lstm"].model is not None  # confirms LSTM actually fitted
+        ep.save(tmp_path, "BTC/USDT", "15m")  # must not raise PicklingError
+        loaded = EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
+        assert loaded.models["lstm"].model is not None

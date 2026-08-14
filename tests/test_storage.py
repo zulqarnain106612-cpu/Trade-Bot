@@ -176,6 +176,34 @@ class TestInitializeAndClose:
         sb = StorageBackend(db_path=path)
         await sb.close()  # should not raise
 
+    @pytest.mark.asyncio
+    async def test_get_lock_double_checked_race_reuses_winner(self):
+        """VF-004-style guard: if a second caller acquires the init guard
+        after a first caller already set self._lock, the inner re-check
+        must skip creating a second asyncio.Lock and reuse the winner."""
+        import asyncio as _asyncio
+        import threading
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        os.remove(path)
+        sb = StorageBackend(db_path=path)
+        winner = _asyncio.Lock()
+        real_lock = threading.Lock()
+
+        class _RacingLock:
+            def __enter__(self):
+                real_lock.__enter__()
+                sb._lock = winner  # another "thread" wins the race first
+                return self
+
+            def __exit__(self, *exc_info):
+                return real_lock.__exit__(*exc_info)
+
+        sb._lock_init_guard = _RacingLock()  # type: ignore[assignment]
+        lock = sb._get_lock()
+        assert lock is winner
+
 
 class TestOpenStorageContextManager:
     """open_storage() async context manager."""
@@ -273,6 +301,17 @@ class TestBars:
         await backend.upsert_bars([make_bar(ts=t) for t in range(5)])
         count = await backend.bar_count("BTC/USDT", "15m")
         assert count == 5
+
+    @pytest.mark.asyncio
+    async def test_latest_close_returns_ts_and_close(self, backend):
+        await backend.upsert_bars([make_bar(ts=1000, close=100.0), make_bar(ts=5000, close=250.5)])
+        result = await backend.latest_close("BTC/USDT", "15m")
+        assert result == (5000, 250.5)
+
+    @pytest.mark.asyncio
+    async def test_latest_close_none_when_empty(self, backend):
+        result = await backend.latest_close("BTC/USDT", "15m")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_bar_count_zero_when_empty(self, backend):
@@ -418,6 +457,43 @@ class TestTrades:
             )
 
     @pytest.mark.asyncio
+    async def test_fetch_trades_open_only_excludes_closed(self, backend):
+        await backend.insert_trade(make_trade(trade_id="open1"))
+        await backend.insert_trade(make_trade(trade_id="closed1"))
+        await backend.update_trade_exit(
+            trade_id="closed1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
+        )
+        rows = await backend.fetch_trades(open_only=True)
+        assert [r.id for r in rows] == ["open1"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_trades_open_only_defaults_off(self, backend):
+        await backend.insert_trade(make_trade(trade_id="t1"))
+        await backend.update_trade_exit(
+            trade_id="t1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
+        )
+        assert len(await backend.fetch_trades()) == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_trades_open_only_combines_with_other_filters(self, backend):
+        await backend.insert_trade(make_trade(trade_id="btc_open", symbol="BTC/USDT"))
+        await backend.insert_trade(make_trade(trade_id="eth_open", symbol="ETH/USDT"))
+        rows = await backend.fetch_trades(symbol="BTC/USDT", open_only=True)
+        assert [r.id for r in rows] == ["btc_open"]
+
+    @pytest.mark.asyncio
     async def test_fetch_trades_filter_by_symbol(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1", symbol="BTC/USDT"))
         await backend.insert_trade(make_trade(trade_id="t2", symbol="ETH/USDT"))
@@ -524,6 +600,24 @@ class TestRegimeSnapshots:
         await backend.upsert_regime_snapshot(make_regime(ts=1000, state=2))
         latest = await backend.latest_regime("BTC/USDT", "15m")
         assert latest.regime_state == 2
+
+    @pytest.mark.asyncio
+    async def test_regime_ensemble_fields_round_trip(self, backend):
+        snap = RegimeSnapshotRecord(
+            symbol="BTC/USDT",
+            timeframe="15m",
+            ts=3000,
+            regime_state=1,
+            prob_ranging=0.1,
+            prob_trending=0.8,
+            prob_volatile=0.1,
+            changepoint_probability=0.35,
+            agreement_score=0.72,
+        )
+        await backend.upsert_regime_snapshot(snap)
+        latest = await backend.latest_regime("BTC/USDT", "15m")
+        assert latest.changepoint_probability == pytest.approx(0.35)
+        assert latest.agreement_score == pytest.approx(0.72)
 
 
 class TestModelMetrics:
@@ -729,6 +823,22 @@ class TestSchemaMigrations:
         assert version == _SCHEMA_VERSION
 
     @pytest.mark.asyncio
+    async def test_run_migrations_direct_call_short_circuits_when_current(
+        self, backend: StorageBackend
+    ) -> None:
+        """_run_migrations() itself (not just the outer initialize() guard)
+        must return early when PRAGMA user_version already matches
+        _SCHEMA_VERSION -- initialize()'s own `if self._conn is not None:
+        return` guard prevents test_migration_is_idempotent above from ever
+        reaching this inner early-return, so it needs a direct call."""
+        from src.data.storage import _SCHEMA_VERSION
+
+        await backend._run_migrations()  # must not raise, must not re-apply anything
+        row = await backend._conn.execute("PRAGMA user_version")
+        version = (await row.fetchone())[0]
+        assert version == _SCHEMA_VERSION
+
+    @pytest.mark.asyncio
     async def test_migration_applies_missing_column(self, tmp_path: pathlib.Path) -> None:
         """Simulate a v1 DB (user_version=1, no spread_bps column) being migrated to v2."""
         import aiosqlite
@@ -915,3 +1025,44 @@ class TestMissedTrades:
         await backend.upsert_regime_snapshot(make_regime(ts=5000))
         snap = await backend.regime_snapshot_before("BTC/USDT", "15m", 1000)
         assert snap is None
+
+
+# ---------------------------------------------------------------------------
+# create_storage_backend — GAP-006 backend selection
+# ---------------------------------------------------------------------------
+
+
+class TestCreateStorageBackend:
+    def test_explicit_db_path_always_forces_sqlite(self):
+        from unittest.mock import MagicMock, patch
+
+        from src.data.storage import create_storage_backend
+
+        mock_settings = MagicMock()
+        mock_settings.storage.backend = "timescale"
+        with patch("src.data.storage.get_settings", return_value=mock_settings):
+            backend = create_storage_backend(db_path="/tmp/explicit.db")
+        assert isinstance(backend, StorageBackend)
+
+    def test_no_db_path_and_sqlite_backend_returns_sqlite(self):
+        from unittest.mock import MagicMock, patch
+
+        from src.data.storage import create_storage_backend
+
+        mock_settings = MagicMock()
+        mock_settings.storage.backend = "sqlite"
+        with patch("src.data.storage.get_settings", return_value=mock_settings):
+            backend = create_storage_backend()
+        assert isinstance(backend, StorageBackend)
+
+    def test_no_db_path_and_timescale_backend_returns_timescale(self):
+        from unittest.mock import MagicMock, patch
+
+        from src.data.storage import create_storage_backend
+        from src.data.timescale_storage import TimescaleBackend
+
+        mock_settings = MagicMock()
+        mock_settings.storage.backend = "timescale"
+        with patch("src.data.storage.get_settings", return_value=mock_settings):
+            backend = create_storage_backend()
+        assert isinstance(backend, TimescaleBackend)

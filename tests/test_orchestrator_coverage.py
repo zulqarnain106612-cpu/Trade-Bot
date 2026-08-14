@@ -245,6 +245,54 @@ class TestOrchestratorStartup:
                 await orch.startup()
         assert Timeframe.INTRADAY.value in orch._engines
 
+    @pytest.mark.asyncio
+    async def test_startup_missing_ensemble_falls_back_to_none(self):
+        """No saved ensemble file yet (fresh deployment) -- FileNotFoundError
+        must not block bringing up the direction/meta-driven engine."""
+        storage = _make_storage()
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+        captured_kwargs: dict = {}
+
+        def _capture_signal_engine(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        with _orch_patches() as (_, __, ___):
+            with (
+                patch(
+                    "src.engine.orchestrator.ModelTrainer.load_ensemble",
+                    side_effect=FileNotFoundError("no ensemble yet"),
+                ),
+                patch("src.engine.orchestrator.SignalEngine", side_effect=_capture_signal_engine),
+            ):
+                await orch.startup()
+        assert captured_kwargs["ensemble"] is None
+
+    @pytest.mark.asyncio
+    async def test_startup_ensemble_load_error_logs_and_falls_back_to_none(self):
+        """A corrupt/tampered ensemble file (manifest mismatch etc.) must
+        degrade to no-ensemble, not block startup."""
+        storage = _make_storage()
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+        captured_kwargs: dict = {}
+
+        def _capture_signal_engine(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        with _orch_patches() as (_, __, ___):
+            with (
+                patch(
+                    "src.engine.orchestrator.ModelTrainer.load_ensemble",
+                    side_effect=RuntimeError("integrity check FAILED"),
+                ),
+                patch("src.engine.orchestrator.SignalEngine", side_effect=_capture_signal_engine),
+            ):
+                await orch.startup()
+        assert captured_kwargs["ensemble"] is None
+
 
 # ---------------------------------------------------------------------------
 # Tests: stop / shutdown
@@ -994,6 +1042,104 @@ class TestTickCorrelationFallback:
             orch = Orchestrator(storage, fetcher)
         return orch
 
+    def _make_orch_live(self):
+        from src.engine.orchestrator import Orchestrator
+
+        storage = _make_storage()
+        storage.latest_close = AsyncMock(return_value=None)
+        storage.latest_bar_ts = AsyncMock(return_value=None)
+        storage.upsert_regime_snapshot = AsyncMock(return_value=None)
+        storage.earliest_equity_ts = AsyncMock(return_value=None)
+        fetcher = _make_fetcher()
+        with patch("src.engine.orchestrator.get_settings") as mock_cfg:
+            cfg = MagicMock()
+            cfg.primary_symbol = "BTC/USDT"
+            cfg.active_timeframes = [Timeframe.INTRADAY]
+            cfg.primary_timeframe = Timeframe.INTRADAY
+            cfg.trading_mode = TradingMode.LIVE
+            cfg.starting_capital_usd = 1000.0
+            cfg.storage.model_dir = "/tmp/models"
+            mock_cfg.return_value = cfg
+            orch = Orchestrator(storage, fetcher)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_tick_live_mode_no_paper_equity_history_yet(self):
+        """TRADING_MODE=live with no recorded paper-equity history
+        (earliest_equity_ts returns None) must not crash paper_trading_days
+        computation -- it simply stays 0."""
+        orch = self._make_orch_live()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = False
+        signal.regime = None
+        signal.p_long = 0.5
+        signal.p_bet = 0.5
+        signal.kelly_result = None
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+            patch("src.engine.orchestrator.update_metrics"),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+
+        call_kwargs = engine.tick.call_args.kwargs
+        assert call_kwargs["paper_trading_days"] == 0
+
+    @pytest.mark.asyncio
+    async def test_tick_correlation_first_tick_no_prior_close(self):
+        """First-ever tick for this timeframe: _last_close_for_corr has no
+        entry yet, so the bar-return push must be skipped (prev is None)
+        while the close still gets cached for the next tick."""
+        orch = self._make_orch()
+        orch._storage.latest_close = AsyncMock(return_value=(1_700_000_000_000, 30_000.0))
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = False
+        signal.regime = None
+        signal.p_long = 0.5
+        signal.p_bet = 0.5
+        signal.kelly_result = None
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+        assert Timeframe.INTRADAY.value not in orch._last_close_for_corr
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+            patch("src.engine.orchestrator.update_metrics"),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+
+        tracker.push_bar_returns.assert_not_called()  # no prior close to diff against
+        assert orch._last_close_for_corr[Timeframe.INTRADAY.value] == (
+            1_700_000_000_000,
+            30_000.0,
+        )
+
     @pytest.mark.asyncio
     async def test_tick_correlation_error_falls_back_to_1(self):
         """get_portfolio_correlation() crash must not block the tick."""
@@ -1117,3 +1263,162 @@ class TestTickCorrelationFallback:
         # Retrain must have been triggered
         assert len(train_called) == 1, "drift should trigger one retrain task"
         assert train_called[0] == Timeframe.INTRADAY
+
+    @pytest.mark.asyncio
+    async def test_drift_retrain_skipped_when_prior_task_still_running(self):
+        """Overlap guard: a still-running retrain task must not be duplicated
+        by a second drift trigger on the same timeframe."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = True
+        signal.regime = None
+        signal.p_long = 0.8
+        signal.p_bet = 0.8
+        signal.kelly_result = MagicMock()
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        # A prior retrain task for this timeframe that never completes during
+        # the test -- prior.done() must read False.
+        never_done: asyncio.Future = asyncio.get_running_loop().create_future()
+        orch._retrain_tasks[Timeframe.INTRADAY.value] = never_done  # type: ignore[assignment]
+
+        train_called = []
+
+        async def _fake_train(tf):
+            train_called.append(tf)
+
+        orch._train_models = _fake_train
+
+        try:
+            with (
+                patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+                patch(
+                    "src.engine.orchestrator.compute_win_loss_stats",
+                    return_value=(0, 0.0, 0.0, 0.0),
+                ),
+                patch("src.engine.orchestrator.update_metrics"),
+                patch.object(
+                    orch._drift_adapter,
+                    "check_drift",
+                    return_value={"drifted": True, "metric": "sharpe", "reason": "below floor"},
+                ),
+            ):
+                await orch._tick(Timeframe.INTRADAY)
+                await asyncio.sleep(0)
+        finally:
+            never_done.cancel()
+
+        assert train_called == []  # no new retrain scheduled -- prior still running
+        assert orch._retrain_tasks[Timeframe.INTRADAY.value] is never_done
+
+    @pytest.mark.asyncio
+    async def test_drift_retrain_done_callback_skips_del_when_task_already_replaced(self):
+        """If _retrain_tasks[tf] has already been reassigned to a different
+        task by the time this (now-finished) task's done-callback fires,
+        the callback must not delete the newer task's registration."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = True
+        signal.regime = None
+        signal.p_long = 0.8
+        signal.p_bet = 0.8
+        signal.kelly_result = MagicMock()
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        async def _fast_train(tf):
+            return None
+
+        orch._train_models = _fast_train
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+            patch("src.engine.orchestrator.update_metrics"),
+            patch.object(
+                orch._drift_adapter,
+                "check_drift",
+                return_value={"drifted": True, "metric": "sharpe", "reason": "below floor"},
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            # The task was created but has not run yet (create_task only
+            # schedules it) -- swap in a decoy before it gets a chance to run.
+            original_task = orch._retrain_tasks[Timeframe.INTRADAY.value]
+            decoy = asyncio.get_running_loop().create_future()
+            orch._retrain_tasks[Timeframe.INTRADAY.value] = decoy  # type: ignore[assignment]
+            await original_task  # let it run to completion and fire its callback
+
+        # The decoy must still be registered -- the stale callback must not
+        # have deleted it.
+        assert orch._retrain_tasks[Timeframe.INTRADAY.value] is decoy
+        decoy.cancel()
+
+    @pytest.mark.asyncio
+    async def test_drift_retrain_failure_records_last_error(self):
+        """A failed drift-triggered retrain's done-callback must record the
+        error and clear the (now-finished) task slot."""
+        orch = self._make_orch()
+        executor = _make_executor()
+        executor.open_positions_safe = AsyncMock(return_value=[])
+        orch._executor = executor
+
+        signal = MagicMock()
+        signal.tradeable = True
+        signal.regime = None
+        signal.p_long = 0.8
+        signal.p_bet = 0.8
+        signal.kelly_result = MagicMock()
+        engine = AsyncMock()
+        engine.tick = AsyncMock(return_value=signal)
+        orch._engines[Timeframe.INTRADAY.value] = engine
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        async def _failing_train(tf):
+            raise RuntimeError("retrain blew up")
+
+        orch._train_models = _failing_train
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+            patch("src.engine.orchestrator.update_metrics"),
+            patch.object(
+                orch._drift_adapter,
+                "check_drift",
+                return_value={"drifted": True, "metric": "sharpe", "reason": "below floor"},
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            # Let the scheduled task run to completion and its done-callback fire.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        assert "retrain blew up" in orch._last_retrain_error[Timeframe.INTRADAY.value]
+        assert Timeframe.INTRADAY.value not in orch._retrain_tasks

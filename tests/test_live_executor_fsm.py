@@ -81,7 +81,7 @@ class TestOrderManagerMock:
         # Simulate: first poll returns pending, second returns filled
         mock_exchange.fetch_order = AsyncMock(side_effect=[pending_order, filled_order])
 
-        fsm, order = await manager.place_order_with_fsm(
+        fsm, _order = await manager.place_order_with_fsm(
             exchange=mock_exchange,
             symbol="BTC/USDT",
             side="buy",
@@ -144,7 +144,7 @@ class TestOrderManagerMock:
             ]
         )
 
-        fsm, order = await manager.place_order_with_fsm(
+        fsm, _order = await manager.place_order_with_fsm(
             exchange=mock_exchange,
             symbol="BTC/USDT",
             side="buy",

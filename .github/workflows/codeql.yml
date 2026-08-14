@@ -31,10 +31,10 @@ jobs:
         language: [python, javascript]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: +security-and-quality,security-extended
@@ -50,10 +50,10 @@ jobs:
                   problem.severity: recommendation
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           upload: true
@@ -69,7 +69,7 @@ jobs:
       security-events: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fetch code scanning alerts
         id: alerts
@@ -84,7 +84,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Open issues for new critical alerts
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const alerts = JSON.parse(process.env.ALERTS_JSON || '[]');

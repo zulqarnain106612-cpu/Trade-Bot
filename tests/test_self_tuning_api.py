@@ -53,6 +53,12 @@ def api_client():
     api_main.tuning_pause_state._paused = False  # -- test isolation reset
 
     api_main.app.dependency_overrides[api_main.api_key_header] = lambda: None
+    # The mutating endpoints now also depend on resolve_role (RBAC).
+    # Overriding api_key_header alone leaves that dependency live and
+    # every POST answers 401 with no API_SECRET_KEY configured.
+    api_main.app.dependency_overrides[api_main.resolve_role] = lambda: (
+        api_main.Role.TRADE_AUTHORIZING
+    )
     api_main.app.dependency_overrides[api_main.require_ready] = lambda: None
 
     client = TestClient(api_main.app)
@@ -92,6 +98,20 @@ class TestSelfTuningStatus:
         resp = client.get("/self-tuning/status")
         assert resp.status_code == 200
 
+    def test_status_includes_current_version_when_promoted(self, api_client) -> None:
+        client, _storage, api_main = api_client
+        _register_test_param(api_main)
+        api_main.tuning_version_store.promote(
+            "hmm.entropy_threshold", 0.55, evidence={}, promoted_by="alice"
+        )
+        resp = client.get("/self-tuning/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        param = next(p for p in body["parameters"] if p["name"] == "hmm.entropy_threshold")
+        assert param["current_version"] is not None
+        assert param["current_version"]["value"] == pytest.approx(0.55)
+        assert param["current_version"]["promoted_by"] == "alice"
+
 
 class TestSelfTuningPauseResume:
     def test_pause_requires_operator_secret(self, api_client) -> None:
@@ -100,6 +120,17 @@ class TestSelfTuningPauseResume:
             "/self-tuning/pause", json={"operator": "alice", "operator_secret": _WRONG_SECRET}
         )
         assert resp.status_code == 401
+
+    def test_pause_returns_503_when_operator_secret_not_configured(self, api_client) -> None:
+        client, _storage, _main = api_client
+        del os.environ["OPERATOR_SECRET"]
+        try:
+            resp = client.post(
+                "/self-tuning/pause", json={"operator": "alice", "operator_secret": _TEST_SECRET}
+            )
+        finally:
+            os.environ["OPERATOR_SECRET"] = _TEST_SECRET
+        assert resp.status_code == 503
 
     def test_pause_then_resume_round_trip(self, api_client) -> None:
         client, _storage, api_main = api_client
@@ -136,7 +167,7 @@ class TestSelfTuningRollback:
         assert resp.status_code == 401
 
     def test_rollback_with_no_history_returns_404(self, api_client) -> None:
-        client, _storage, api_main = api_client
+        client, _storage, _api_main = api_client
         resp = client.post(
             "/self-tuning/rollback/does.not.exist",
             json={"operator": "alice", "operator_secret": _TEST_SECRET},

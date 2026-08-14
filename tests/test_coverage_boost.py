@@ -346,6 +346,7 @@ def _make_api_state():
     orch._executor.pending_approvals_safe = AsyncMock(return_value=[])
     orch._executor._order_fsm_registry = {}
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch
@@ -389,7 +390,7 @@ def test_reject_trade(api_client_and_state):
 
 
 def test_ws_route_returns_upgrade_required(api_client_and_state):
-    client, state = api_client_and_state
+    client, _state = api_client_and_state
     resp = client.get("/ws", headers={"x-api-key": _API_KEY})
     # WS endpoint returns 403 or 426 when not a proper WS upgrade
     assert resp.status_code in (101, 403, 404, 422, 426, 500)
@@ -420,13 +421,13 @@ def test_intelligence_coverage_with_storage_error(api_client_and_state):
 
 
 def test_regime_route_invalid_timeframe(api_client_and_state):
-    client, state = api_client_and_state
+    client, _state = api_client_and_state
     resp = client.get("/regime/invalid", headers={"x-api-key": _API_KEY})
     assert resp.status_code in (200, 400, 404, 422)
 
 
 def test_debug_selftest_returns_json(api_client_and_state):
-    client, state = api_client_and_state
+    client, _state = api_client_and_state
     resp = client.post("/debug/selftest", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
     data = resp.json()

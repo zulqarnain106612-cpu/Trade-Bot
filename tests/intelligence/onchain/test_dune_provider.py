@@ -85,6 +85,21 @@ def test_mvrv_zscore_raw_passthrough() -> None:
     # tested in integration tests below
 
 
+def test_results_fresh_wrong_state_returns_false() -> None:
+    r = {"state": "QUERY_STATE_FAILED", "execution_ended_at": _now_iso()}
+    assert _results_fresh(r, 3600) is False
+
+
+def test_results_fresh_missing_timestamp_returns_false() -> None:
+    r = {"state": "QUERY_STATE_COMPLETED"}
+    assert _results_fresh(r, 3600) is False
+
+
+def test_results_fresh_malformed_timestamp_fails_closed() -> None:
+    r = {"state": "QUERY_STATE_COMPLETED", "execution_ended_at": "not-a-timestamp"}
+    assert _results_fresh(r, 3600) is False
+
+
 def test_sopr_normalization() -> None:
     # sopr=1.0 → (1-1)*2=0
     # sopr=1.5 → (0.5)*2=1.0 (clamped)
@@ -258,3 +273,69 @@ async def test_stale_cache_used_when_execution_fails() -> None:
     # Stale cache rows used → not neutral (rows have non-zero values but std=0 → zscore=0)
     assert "miner_netflow_signal" in metrics
     assert metrics["confidence"] >= 0.0
+
+
+def test_exchange_id() -> None:
+    assert _make_provider().exchange_id == "dune_analytics"
+
+
+@pytest.mark.asyncio
+async def test_initialize_is_a_noop() -> None:
+    provider = _make_provider()
+    await provider.initialize()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_close_delegates_to_base() -> None:
+    provider = _make_provider()
+    await provider.close()  # must not raise
+
+
+def test_budget_remaining_resets_on_day_rollover() -> None:
+    provider = _make_provider()
+    provider._daily_executions = 999  # exhausted for "today"
+    provider._exec_day -= 1  # simulate yesterday
+    assert provider._budget_remaining() is True
+    assert provider._daily_executions == 0
+
+
+@pytest.mark.asyncio
+async def test_all_queries_return_none_reduces_confidence() -> None:
+    """Every field's own confidence-penalty branch (not just the first)
+    must independently fire when its query returns nothing at all."""
+    provider = _make_provider()
+
+    async def mock_get(url: str, headers: Any = None, params: Any = None) -> Any:
+        return None
+
+    async def mock_post(url: str, headers: Any = None, json: Any = None) -> Any:
+        return None
+
+    provider._get = mock_get  # type: ignore[assignment]
+    provider._post = mock_post  # type: ignore[assignment]
+    metrics = await provider.fetch_metrics()
+    assert metrics["confidence"] < 1.0
+
+
+@pytest.mark.asyncio
+async def test_execute_response_missing_execution_id_returns_none() -> None:
+    provider = _make_provider()
+    miner_rows = [{"miner_outflow_btc_7d": 100}] * 5
+    stale = _stale_results(miner_rows)
+
+    async def mock_get(url: str, headers: Any = None, params: Any = None) -> Any:
+        if str(DUNE_QUERY_MINER_OUTFLOW) in url:
+            return stale
+        return (
+            _fresh_results([{"mvrv_z": 0.0}])
+            if "mvrv" in url.lower()
+            else _fresh_results([{"sopr_7d_ma": 1.0}])
+        )
+
+    async def mock_post(url: str, headers: Any = None, json: Any = None) -> Any:
+        return {}  # no execution_id key
+
+    provider._get = mock_get  # type: ignore[assignment]
+    provider._post = mock_post  # type: ignore[assignment]
+    rows = await provider._get_query_rows(DUNE_QUERY_MINER_OUTFLOW)
+    assert rows is None

@@ -40,7 +40,7 @@ from __future__ import annotations
 import asyncio
 import statistics
 import time
-from typing import Final
+from typing import Any, Final
 
 import ccxt.async_support as ccxt
 import structlog
@@ -102,7 +102,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         self._perp = ccxt.binance({"options": {"defaultType": "future"}})
 
         # In-memory cache: key → (timestamp_s, value)
-        self._cache: dict[str, tuple[float, object]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         self._log = log.bind(
             component="binance_intelligence",
             symbol=symbol,
@@ -118,10 +118,16 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         self._log.info("binance_intelligence.initialized")
 
     async def close(self) -> None:
-        """Close underlying ccxt sessions."""
+        """
+        Close underlying ccxt sessions.
+
+        return_exceptions so one failing close cannot cancel the other and
+        leak its aiohttp session for the life of the process.
+        """
         await asyncio.gather(
             self._spot.close(),
             self._perp.close(),
+            return_exceptions=True,
         )
 
     # ------------------------------------------------------------------
@@ -167,7 +173,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
             funding_rate_pct = funding_result.get("rate_pct", 0.0)
             funding_zscore = funding_result.get("zscore", 0.0)
         else:
-            self._log.warning("binance_intelligence.funding_failed", error=str(funding_result))
+            self._log.warning(
+                "binance_intelligence.funding_failed", error=str(funding_result), exc_info=True
+            )
             confidence -= 0.05
 
         # Unpack OI
@@ -177,7 +185,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
             oi_change_pct = oi_result.get("change_pct", 0.0)
             oi_value_usd = oi_result.get("value_usd", 0.0)
         else:
-            self._log.warning("binance_intelligence.oi_failed", error=str(oi_result))
+            self._log.warning("binance_intelligence.oi_failed", error=str(oi_result), exc_info=True)
             confidence -= 0.05
 
         # Unpack basis
@@ -185,7 +193,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         if isinstance(basis_result, float):
             basis_bps = basis_result
         else:
-            self._log.warning("binance_intelligence.basis_failed", error=str(basis_result))
+            self._log.warning(
+                "binance_intelligence.basis_failed", error=str(basis_result), exc_info=True
+            )
             confidence -= 0.05
 
         # Unpack whale ratio
@@ -193,7 +203,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         if isinstance(whale_result, float):
             whale_ratio = whale_result
         else:
-            self._log.warning("binance_intelligence.whale_failed", error=str(whale_result))
+            self._log.warning(
+                "binance_intelligence.whale_failed", error=str(whale_result), exc_info=True
+            )
             confidence -= 0.02
 
         # Composite exchange stress score [0, 1]
@@ -229,6 +241,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
             "btc_dominance_regime": 0.0,  # CoinGecko (rate-limited)
             "stablecoin_reserve_ratio": 0.5,  # no real-time free source
             "network_activity_score": 0.0,  # Glassnode transactions
+            "defi_tvl_7d_change_pct": 0.0,  # DeFiLlama (no free real-time binance source)
+            "mvrv_z_score": 0.0,  # Dune Analytics paid tier (OCI-007)
+            "sopr": 0.0,  # Spent Output Profit Ratio, Dune Analytics paid tier
             # ── Metadata ───────────────────────────────────────────────────
             "confidence": confidence,
             "timestamp": ts,
@@ -260,7 +275,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"funding:{self._perp_symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         # Fetch history for z-score baseline
         history = await self._perp.fetch_funding_rate_history(
@@ -271,7 +286,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
 
         rates = [r["fundingRate"] for r in history if r.get("fundingRate") is not None]
         if len(rates) < 2:
-            return {"rate_pct": rates[-1] if rates else 0.0, "zscore": 0.0}
+            return {"rate_pct": (rates[-1] * 100.0) if rates else 0.0, "zscore": 0.0}
 
         current = rates[-1]
         mu = statistics.mean(rates)
@@ -294,7 +309,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"oi:{self._perp_symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         history = await self._perp.fetch_open_interest_history(
             self._perp_symbol, "1h", limit=_OI_HISTORY_HOURS
@@ -302,9 +317,9 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         if not history or len(history) < 2:
             return {"change_pct": 0.0, "value_usd": 0.0}
 
-        oi_now = history[-1]["openInterestAmount"]
-        oi_24h = history[0]["openInterestAmount"]
-        oi_val = history[-1].get("openInterestValue") or 0.0
+        oi_now = float(history[-1]["openInterestAmount"])
+        oi_24h = float(history[0]["openInterestAmount"])
+        oi_val = float(history[-1].get("openInterestValue") or 0.0)
 
         change_pct = ((oi_now - oi_24h) / oi_24h * 100.0) if oi_24h > 0 else 0.0
 
@@ -324,7 +339,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"basis:{self._symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         spot_ticker, perp_ticker = await asyncio.gather(
             self._spot.fetch_ticker(self._symbol),
@@ -358,7 +373,7 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         cache_key = f"whale:{self._perp_symbol}"
         cached = self._get_cache(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         # BUG FIX (found + verified live this session): ccxt's unified
         # fetch_ohlcv() normalizes every exchange to the standard 6-field
@@ -383,15 +398,41 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
         #
         # Fix: call the raw/implicit ccxt method (bypasses normalization)
         # and read the correct index.
-        market = self._perp.market(self._perp_symbol)
-        raw = await self._perp.fapiPublicGetKlines(
-            {
-                "symbol": market["id"],
-                "interval": self._kline_tf,
-                "limit": _KLINE_LIMIT,
-            }
-        )
+        try:
+            market = self._perp.market(self._perp_symbol)
+            raw = await self._perp.fapiPublicGetKlines(
+                {
+                    "symbol": market["id"],
+                    "interval": self._kline_tf,
+                    "limit": _KLINE_LIMIT,
+                }
+            )
+        except Exception:
+            # Deliberately not caught here. fetch_metrics() gathers this with
+            # return_exceptions=True and already has a failure branch for it:
+            # it logs binance_intelligence.whale_failed, applies the -0.02
+            # confidence penalty, and falls back to the neutral 1.0 itself.
+            #
+            # Swallowing the error here returned that same 1.0 as if it were a
+            # real reading, so isinstance(whale_result, float) was always true,
+            # that branch was dead code, the warning never fired and the
+            # confidence penalty never applied. A failed fetch was
+            # indistinguishable from genuinely balanced taker flow — and
+            # check_whale_activity draws exactly that distinction on purpose,
+            # reducing size when taker flow "cannot be read" rather than
+            # assuming neutral. Fabricating the neutral defeated the gate's
+            # own policy for unreadable data.
+            #
+            # It was also cached, so one transient failure served a neutral
+            # reading for the whole TTL.
+            raise
+
         if not raw:
+            # An empty response is not an error, but it is also not evidence
+            # of balanced flow. Cached deliberately: an empty kline window is
+            # a real, stable state rather than a transient fault.
+            self._log.warning("binance_intelligence.klines_empty", symbol=self._perp_symbol)
+            self._set_cache(cache_key, 1.0)
             return 1.0
 
         total_vol = sum(float(bar[5]) for bar in raw if bar[5] is not None)
@@ -440,22 +481,6 @@ class BinanceIntelligenceProvider(ExchangeIntelligenceProvider):
 
         score = _W_BASIS * basis_stress + _W_FR_Z * funding_stress + _W_OI * oi_stress
         return round(min(max(score, 0.0), 1.0), 4)
-
-    # ------------------------------------------------------------------
-    # Cache helpers
-    # ------------------------------------------------------------------
-
-    def _get_cache(self, key: str) -> object | None:
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        ts, value = entry
-        if time.time() - ts > self._cache_ttl:
-            return None
-        return value
-
-    def _set_cache(self, key: str, value: object) -> None:
-        self._cache[key] = (time.time(), value)
 
 
 # ---------------------------------------------------------------------------

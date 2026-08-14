@@ -1,0 +1,264 @@
+"""Tests for src/execution/order_throttler.py"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.execution.order_throttler import OrderThrottler, ThrottleResult
+
+
+# ---------------------------------------------------------------------------
+# Construction validation
+# ---------------------------------------------------------------------------
+
+
+def test_init_zero_rate_raises():
+    with pytest.raises(ValueError, match="rate"):
+        OrderThrottler(rate=0.0, burst=10)
+
+
+def test_init_negative_rate_raises():
+    with pytest.raises(ValueError, match="rate"):
+        OrderThrottler(rate=-1.0, burst=10)
+
+
+def test_init_zero_burst_raises():
+    with pytest.raises(ValueError, match="burst"):
+        OrderThrottler(rate=10.0, burst=0)
+
+
+def test_init_properties():
+    t = OrderThrottler(rate=5.0, burst=15)
+    assert t.rate == 5.0
+    assert t.burst == 15
+
+
+# ---------------------------------------------------------------------------
+# acquire — basic contracts
+# ---------------------------------------------------------------------------
+
+
+def test_acquire_allowed_on_fresh_bucket():
+    t = OrderThrottler(rate=10.0, burst=5)
+    result = t.acquire("binance")
+    assert result.allowed is True
+    assert result.wait_s == 0.0
+    assert result.reject_reason == ""
+
+
+def test_acquire_returns_throttle_result():
+    t = OrderThrottler(rate=10.0, burst=5)
+    result = t.acquire("okx")
+    assert isinstance(result, ThrottleResult)
+
+
+def test_acquire_decrements_tokens():
+    t = OrderThrottler(rate=10.0, burst=5)
+    before = t.tokens_remaining("ex")
+    t.acquire("ex")
+    after = t.tokens_remaining("ex")
+    assert after < before
+
+
+def test_acquire_exhausts_bucket():
+    t = OrderThrottler(rate=0.01, burst=3)  # very slow refill
+    for _ in range(3):
+        r = t.acquire("ex")
+        assert r.allowed is True
+    r = t.acquire("ex")
+    assert r.allowed is False
+    assert r.wait_s > 0
+
+
+def test_acquire_rejected_has_reason():
+    t = OrderThrottler(rate=0.001, burst=1)
+    t.acquire("ex")  # drain
+    result = t.acquire("ex")
+    assert result.allowed is False
+    assert "rate_limit" in result.reject_reason
+    assert result.wait_s > 0
+
+
+def test_acquire_result_frozen():
+    t = OrderThrottler(rate=10.0, burst=5)
+    r = t.acquire("ex")
+    with pytest.raises((AttributeError, TypeError)):
+        r.allowed = False  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Per-exchange isolation
+# ---------------------------------------------------------------------------
+
+
+def test_separate_buckets_per_exchange():
+    t = OrderThrottler(rate=0.001, burst=2)
+    t.acquire("binance")
+    t.acquire("binance")
+    # binance exhausted; okx should still have tokens
+    assert t.tokens_remaining("okx") == pytest.approx(2.0)
+    r = t.acquire("okx")
+    assert r.allowed is True
+
+
+def test_n_exchanges_tracks_new_exchanges():
+    t = OrderThrottler()
+    assert t.n_exchanges == 0
+    t.acquire("binance")
+    assert t.n_exchanges == 1
+    t.acquire("okx")
+    assert t.n_exchanges == 2
+
+
+# ---------------------------------------------------------------------------
+# tokens_remaining
+# ---------------------------------------------------------------------------
+
+
+def test_tokens_remaining_full_on_first_access():
+    t = OrderThrottler(rate=10.0, burst=10)
+    assert t.tokens_remaining("new_exchange") == pytest.approx(10.0)
+
+
+def test_tokens_remaining_decreases_after_acquire():
+    # Use very low refill rate so elapsed-time refill between acquire() and
+    # tokens_remaining() is negligible (tokens_remaining calls _refill internally)
+    t = OrderThrottler(rate=0.001, burst=10)
+    t.acquire("ex")
+    assert t.tokens_remaining("ex") == pytest.approx(9.0, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# reset
+# ---------------------------------------------------------------------------
+
+
+def test_reset_single_exchange():
+    t = OrderThrottler(rate=0.001, burst=3)
+    t.acquire("ex")
+    t.acquire("ex")
+    t.reset("ex")
+    assert t.tokens_remaining("ex") == pytest.approx(3.0)
+
+
+def test_reset_all_exchanges():
+    t = OrderThrottler(rate=0.001, burst=3)
+    t.acquire("binance")
+    t.acquire("okx")
+    t.reset()
+    assert t.tokens_remaining("binance") == pytest.approx(3.0)
+    assert t.tokens_remaining("okx") == pytest.approx(3.0)
+
+
+def test_reset_nonexistent_no_error():
+    t = OrderThrottler()
+    t.reset("ghost")  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# set_rate
+# ---------------------------------------------------------------------------
+
+
+def test_set_rate_updates_rate():
+    t = OrderThrottler(rate=5.0, burst=10)
+    t.set_rate(20.0)
+    assert t.rate == 20.0
+
+
+def test_set_rate_zero_raises():
+    t = OrderThrottler()
+    with pytest.raises(ValueError):
+        t.set_rate(0.0)
+
+
+def test_set_rate_updates_burst():
+    t = OrderThrottler(rate=5.0, burst=10)
+    t.set_rate(5.0, burst=50)
+    assert t.burst == 50
+
+
+def test_set_rate_zero_burst_raises():
+    t = OrderThrottler()
+    with pytest.raises(ValueError):
+        t.set_rate(5.0, burst=0)
+
+
+def test_set_rate_rejects_bad_burst_without_mutating_rate():
+    # Both arguments are validated before anything is written, so a rejected
+    # call leaves the limiter on its previous (known-safe) settings rather
+    # than half-applying a new rate.
+    t = OrderThrottler(rate=5.0, burst=10)
+    with pytest.raises(ValueError):
+        t.set_rate(50.0, burst=0)
+    assert t.rate == 5.0
+    assert t.burst == 10
+
+
+def test_concurrent_acquire_never_overdraws_bucket():
+    # Two threads racing on the same bucket must not both be granted the last
+    # token — overdrawing is exactly the burst the exchange rate-limits on.
+    import threading
+
+    t = OrderThrottler(rate=0.001, burst=50)
+    granted: list[bool] = []
+    granted_lock = threading.Lock()
+
+    def worker() -> None:
+        for _ in range(20):
+            result = t.acquire("binance")
+            if result.allowed:
+                with granted_lock:
+                    granted.append(True)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+
+    # 160 attempts against a 50-token bucket refilling at 0.001/s.
+    assert len(granted) == 50
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+
+def test_status_structure():
+    t = OrderThrottler(rate=5.0, burst=10)
+    t.acquire("binance")
+    s = t.status()
+    assert "rate" in s
+    assert "burst" in s
+    assert "exchanges" in s
+    assert "binance" in s["exchanges"]
+
+
+# ---------------------------------------------------------------------------
+# Refill over time (smoke test — not timing-dependent)
+# ---------------------------------------------------------------------------
+
+
+def test_tokens_refill_after_drain():
+    from unittest.mock import patch
+
+    # Use very low refill so two acquires reliably drain the bucket.
+    t = OrderThrottler(rate=0.0001, burst=2)  # near-zero refill
+    t.acquire("ex")
+    t.acquire("ex")
+    # Bucket should be empty (epsilon refill over microseconds at 0.0001/s)
+    assert t.tokens_remaining("ex") < 0.01
+
+    # Verify refill by anchoring _last_refill to a known fixed value, then
+    # patching time.monotonic to return fixed+1s — fully deterministic.
+    t2 = OrderThrottler(rate=5.0, burst=2)
+    t2.acquire("ex")
+    t2.acquire("ex")
+    bucket = t2._get_bucket("ex")
+    fixed = 1_000_000.0
+    bucket._last_refill = fixed  # anchor last_refill so elapsed is exactly 1s
+    with patch("src.execution.order_throttler.time") as mock_time:
+        mock_time.monotonic.return_value = fixed + 1.0  # +1s → +5 tokens at rate=5/s
+        assert t2.tokens_remaining("ex") > 0.5

@@ -20,12 +20,12 @@ import json
 import threading
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 
-class TuningEventType(str, Enum):
+class TuningEventType(StrEnum):
     PROPOSED = "proposed"
     EVALUATED = "evaluated"
     WOULD_PROMOTE = "would_promote"

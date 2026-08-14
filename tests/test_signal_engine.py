@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
-from src.config import Settings, Timeframe
+from src.config import RiskSettings, Settings, Timeframe
 from src.engine.signal_engine import SignalEngine, SignalResult
 from src.features.pipeline import FEATURE_COLUMNS, FeatureMatrix
 from src.intelligence.ensemble_predictor import EnsemblePrediction
@@ -94,7 +94,7 @@ def _make_engine(
     direction_model=None,
     meta_model=None,
     detector=None,
-    ensemble_predictor=None,
+    ensemble=None,
 ) -> SignalEngine:
     storage = AsyncMock()
     storage.fetch_bars.return_value = bars if bars is not None else _make_bars()
@@ -124,7 +124,7 @@ def _make_engine(
         direction_model=direction_model or _fitted_xgb(),
         meta_model=meta_model or _fitted_xgb(),
         trainer=trainer,
-        ensemble_predictor=ensemble_predictor,
+        ensemble=ensemble,
     )
 
 
@@ -314,6 +314,65 @@ class TestSkipPaths:
         assert mock_kelly.call_args is not None, "compute_position_size was never called"
         assert mock_kelly.call_args.kwargs["regime_scalar"] == pytest.approx(0.6, abs=1e-9)
 
+    async def _kelly_kwargs_for_macro(self, macro_budget):
+        """Drive one tick with *macro_budget* and return compute_position_size kwargs."""
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch(
+                "src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()
+            ) as mock_kelly,
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_mock_cognitive()),
+        ):
+            await e.tick(**dict(_TICK, macro_budget=macro_budget))
+
+        assert mock_kelly.call_args is not None, "compute_position_size was never called"
+        return mock_kelly.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_macro_budget_none_leaves_scalar_untouched(self):
+        """No macro data must be a no-op, never a neutral haircut."""
+        from src.risk.macro_exposure_budget import MacroExposureBudget
+
+        baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
+        shrunk = (
+            await self._kelly_kwargs_for_macro(
+                MacroExposureBudget(scalar=0.25, reason="max risk-off")
+            )
+        )["correlation_scalar"]
+        assert shrunk == pytest.approx(baseline * 0.25, abs=1e-9)
+
+    @pytest.mark.asyncio
+    async def test_macro_budget_fault_retains_the_unshrunk_scalar(self):
+        """
+        A broken budget must not remove the correlation/regime ceiling that was
+        already computed — failing to apply a ceiling is not a licence to widen.
+        """
+
+        class _BrokenBudget:
+            reason = "broken"
+
+            @property
+            def scalar(self) -> float:
+                raise RuntimeError("boom")
+
+        baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
+        kwargs = await self._kelly_kwargs_for_macro(_BrokenBudget())
+        assert kwargs["correlation_scalar"] == pytest.approx(baseline, abs=1e-9)
+
     @pytest.mark.asyncio
     async def test_direction_gate_not_passed(self):
         e = _make_engine()
@@ -483,6 +542,274 @@ class TestTradeablePath:
         assert r.tradeable is True
         assert r.direction == 0  # p_long=0.2 → short; signal_engine uses 0 not -1 for short
 
+    @pytest.mark.asyncio
+    async def test_tick_appends_to_hash_chained_audit_trail(self):
+        """v8: every _emit_audit call also appends to AuditTrail (src/diagnostics/audit_trail.py)."""
+        from src.diagnostics.audit_trail import get_audit_trail
+
+        trail = get_audit_trail()
+        len_before = len(trail)
+
+        e = _make_engine()
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            await e.tick(**_TICK)
+
+        assert len(trail) == len_before + 1
+        latest = trail.entries()[-1]
+        assert latest.event_type == "opened"
+        intact, broken_at = trail.verify_chain_integrity()
+        assert intact
+        assert broken_at is None
+
+
+# ---------------------------------------------------------------------------
+# Ensemble blend (src/intelligence/ensemble_predictor.py wired into p_long)
+# ---------------------------------------------------------------------------
+
+
+def _mock_ensemble_prediction(point_estimate: float, uncertainty: float = 0.01):
+    from src.intelligence.ensemble_predictor import EnsemblePrediction
+
+    return EnsemblePrediction(
+        point_estimate=point_estimate,
+        credible_lower=point_estimate - 1.96 * uncertainty,
+        credible_upper=point_estimate + 1.96 * uncertainty,
+        model_disagreement=uncertainty,
+        aleatoric_uncertainty=uncertainty,
+        epistemic_uncertainty=0.0,
+        best_model="xgboost",
+        model_weights={"xgboost": 1.0},
+        individual_predictions={"xgboost": point_estimate},
+    )
+
+
+class TestEnsembleBlend:
+    @pytest.mark.asyncio
+    async def test_no_ensemble_leaves_p_long_unchanged(self):
+        """self._ensemble is None (default, before any retrain cycle has
+        produced one) -> XGBoost-only p_long/direction, unchanged."""
+        e = _make_engine(ensemble=None)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+        e._load_bars = lambda: _make_bars(n=320)  # type: ignore[method-assign,assignment]
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        assert r.p_long == pytest.approx(0.8)
+        assert r.direction == 1
+
+    @pytest.mark.asyncio
+    async def test_zero_blend_weight_skips_ensemble_even_when_present(self):
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.return_value = _mock_ensemble_prediction(1.0)  # extreme bullish
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = RiskSettings(ensemble_blend_weight=0.0)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.55)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        assert r.p_long == pytest.approx(0.55)  # untouched -- weight 0 short-circuits the block
+        mock_ensemble.predict_row.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bullish_ensemble_pulls_p_long_up(self):
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.return_value = _mock_ensemble_prediction(0.5, uncertainty=0.01)
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = RiskSettings(ensemble_blend_weight=0.5)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.55)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        # Strongly bullish, low-uncertainty ensemble pulls the 50/50-weighted
+        # blend well above the raw XGBoost p_long=0.55.
+        assert r.p_long > 0.55
+        assert r.direction == 1
+        mock_ensemble.predict_row.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bearish_ensemble_can_flip_direction(self):
+        """A confident-enough bearish ensemble blended at high enough weight
+        must flip the re-derived direction, not just shrink position size."""
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.return_value = _mock_ensemble_prediction(-0.5, uncertainty=0.01)
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = RiskSettings(ensemble_blend_weight=0.9)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.55)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)
+
+        assert r.p_long < 0.5
+        assert r.direction == 0
+
+    @pytest.mark.asyncio
+    async def test_ensemble_exception_fails_open_to_xgboost_only(self):
+        mock_ensemble = MagicMock()
+        mock_ensemble.predict_row.side_effect = RuntimeError("boom")
+        e = _make_engine(ensemble=mock_ensemble)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+
+        async def _lb():
+            return _make_bars(n=320)
+
+        e._load_bars = _lb
+        mock_risk = RiskSettings(ensemble_blend_weight=0.5)
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch("src.engine.signal_engine.effective_risk_settings", return_value=mock_risk),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            r = await e.tick(**_TICK)  # must not raise despite the ensemble erroring
+
+        assert r.p_long == pytest.approx(0.8)  # unchanged -- fails open
+        assert r.tradeable is True
+
 
 # ---------------------------------------------------------------------------
 # RiskSettings.ensemble_blend_weight -- EnsemblePredictor blending
@@ -503,7 +830,7 @@ def _ensemble_prediction(point_estimate: float) -> EnsemblePrediction:
     )
 
 
-class TestEnsembleBlend:
+class TestEnsembleBlendPersistence:
     async def _run(self, e, monkeypatch, blend_weight, predict_direction_return=(1, 0.8)):
         settings = Settings(risk={"ensemble_blend_weight": blend_weight})
         monkeypatch.setattr(e, "_cfg", settings)
@@ -539,7 +866,7 @@ class TestEnsembleBlend:
 
     @pytest.mark.asyncio
     async def test_no_predictor_injected_leaves_p_long_unblended(self, monkeypatch):
-        e = _make_engine(ensemble_predictor=None)
+        e = _make_engine(ensemble=None)
         r = await self._run(e, monkeypatch, blend_weight=0.5)
         assert r.p_long == pytest.approx(0.8)
         assert r.ensemble_point_estimate is None
@@ -549,7 +876,7 @@ class TestEnsembleBlend:
     async def test_zero_blend_weight_ignores_injected_predictor(self, monkeypatch):
         predictor = MagicMock()
         predictor.predict.return_value = _ensemble_prediction(0.2)
-        e = _make_engine(ensemble_predictor=predictor)
+        e = _make_engine(ensemble=predictor)
         r = await self._run(e, monkeypatch, blend_weight=0.0)
         assert r.p_long == pytest.approx(0.8)
         assert r.ensemble_point_estimate is None
@@ -559,12 +886,10 @@ class TestEnsembleBlend:
     async def test_nonzero_blend_weight_blends_p_long_and_rederives_direction(self, monkeypatch):
         predictor = MagicMock()
         predictor.predict.return_value = _ensemble_prediction(0.2)
-        e = _make_engine(ensemble_predictor=predictor)
+        e = _make_engine(ensemble=predictor)
         # raw p_long=0.8 (long), ensemble point_estimate=0.2, weight=0.5
         # -> blended = 0.5*0.8 + 0.5*0.2 = 0.5 -> direction stays long (>=0.5)
-        r = await self._run(
-            e, monkeypatch, blend_weight=0.5, predict_direction_return=(1, 0.8)
-        )
+        r = await self._run(e, monkeypatch, blend_weight=0.5, predict_direction_return=(1, 0.8))
         assert r.p_long == pytest.approx(0.5)
         assert r.ensemble_point_estimate == pytest.approx(0.2)
         assert r.ensemble_blend_weight == pytest.approx(0.5)
@@ -573,12 +898,10 @@ class TestEnsembleBlend:
     async def test_blend_can_flip_direction(self, monkeypatch):
         predictor = MagicMock()
         predictor.predict.return_value = _ensemble_prediction(0.1)
-        e = _make_engine(ensemble_predictor=predictor)
+        e = _make_engine(ensemble=predictor)
         # raw p_long=0.6 (long), ensemble point_estimate=0.1, weight=0.8
         # -> blended = 0.2*0.6 + 0.8*0.1 = 0.2 -> direction flips to short
-        r = await self._run(
-            e, monkeypatch, blend_weight=0.8, predict_direction_return=(1, 0.6)
-        )
+        r = await self._run(e, monkeypatch, blend_weight=0.8, predict_direction_return=(1, 0.6))
         assert r.p_long == pytest.approx(0.2)
         assert r.direction == 0
 
@@ -586,7 +909,7 @@ class TestEnsembleBlend:
     async def test_predictor_exception_falls_back_to_unblended_p_long(self, monkeypatch):
         predictor = MagicMock()
         predictor.predict.side_effect = RuntimeError("model not fitted")
-        e = _make_engine(ensemble_predictor=predictor)
+        e = _make_engine(ensemble=predictor)
         r = await self._run(e, monkeypatch, blend_weight=0.5)
         assert r.p_long == pytest.approx(0.8)
         assert r.ensemble_point_estimate is None
@@ -747,6 +1070,23 @@ class TestModelSwap:
         assert e._detector is new_det
 
     @pytest.mark.asyncio
+    async def test_swap_with_ensemble_replaces_it(self):
+        e = _make_engine()
+        new_ensemble = MagicMock()
+        await e.swap_models(_fitted_xgb(), _fitted_xgb(), _fitted_detector(), ensemble=new_ensemble)
+        assert e._ensemble is new_ensemble
+
+    @pytest.mark.asyncio
+    async def test_swap_without_ensemble_leaves_existing_one_untouched(self):
+        """ensemble=None (the default) must not clobber a previously-swapped
+        ensemble -- e.g. an orchestrator retrain that only touches direction/
+        meta (ensemble train failed) must not silently drop a working one."""
+        existing_ensemble = MagicMock()
+        e = _make_engine(ensemble=existing_ensemble)
+        await e.swap_models(_fitted_xgb(), _fitted_xgb(), _fitted_detector())
+        assert e._ensemble is existing_ensemble
+
+    @pytest.mark.asyncio
     async def test_concurrent_swap_and_tick_no_crash(self):
         """Concurrent swap + tick must not raise (lock protects torn reads)."""
         e = _make_engine(bars=_make_bars(n=3))  # thin bars → quick skip
@@ -831,11 +1171,76 @@ class TestTask010FundingRateWiring:
 
         assert len(captured) == 1, "CognitiveEngine.evaluate must be called exactly once"
         ctx = captured[0]
-        assert (
-            abs(ctx.funding_rate_8h - 0.0003) < 1e-9
-        ), f"Expected funding_rate_8h=0.0003, got {ctx.funding_rate_8h}"
+        assert abs(ctx.funding_rate_8h - 0.0003) < 1e-9, (
+            f"Expected funding_rate_8h=0.0003, got {ctx.funding_rate_8h}"
+        )
         # spread_bps: ob.spread/ob.mid_price*10_000 = 0.1/105.0*10_000 ≈ 9.52 bps
         assert ctx.spread_bps > 0.0, "spread_bps must be positive when orderbook is live"
+
+    @pytest.mark.asyncio
+    async def test_slippage_model_gets_half_the_quoted_spread(self):
+        """
+        SlippageModel is documented in half-spread units (mid -> touch), while
+        SignalContext.spread_bps carries the full quoted width. Feeding the
+        full width in would double the modelled crossing cost.
+        """
+        captured_spreads: list[float] = []
+        captured_ctx: list = []
+
+        def _capturing_cog():
+            cog = MagicMock()
+            res = MagicMock()
+            res.passed = True
+            res.veto_reason = ""
+            res.adjusted_size_fraction = 0.05
+            cog.evaluate = lambda ctx: (captured_ctx.append(ctx), res)[1]
+            return cog
+
+        class _CapturingSlippageModel:
+            def estimate(self, **kwargs):
+                captured_spreads.append(kwargs["spread_bps"])
+                raise RuntimeError("capture only — tick must survive this")
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_capturing_cog()),
+            patch("src.engine.signal_engine.SlippageModel", _CapturingSlippageModel),
+        ):
+            await e.tick(**_TICK)
+
+        assert captured_spreads, "SlippageModel.estimate must be called on a live orderbook"
+        assert captured_ctx, "CognitiveEngine.evaluate must be called"
+        assert captured_spreads[0] == pytest.approx(captured_ctx[0].spread_bps / 2.0)
 
     @pytest.mark.asyncio
     async def test_funding_rate_defaults_zero_on_fetch_error(self):
@@ -1202,3 +1607,275 @@ class TestLoadBars:
         assert len(result) == 310
         assert list(result.index) == sorted(result.index)
         assert "close" in result.columns
+
+
+# ---------------------------------------------------------------------------
+# Regime agreement scalar — pure unit tests (no async infrastructure needed)
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeAgreementScalar:
+    """Verify that SignalResult carries regime_agreement_scalar and defaults to 1.0."""
+
+    def test_signal_result_default_scalar_is_one(self) -> None:
+        from src.engine.signal_engine import SignalResult
+
+        result = SignalResult(
+            tradeable=False,
+            direction=0,
+            p_long=0.5,
+            p_bet=0.0,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
+            skip_reason="test",
+        )
+        assert result.regime_agreement_scalar == 1.0
+
+    def test_signal_result_accepts_explicit_scalar(self) -> None:
+        from src.engine.signal_engine import SignalResult
+
+        result = SignalResult(
+            tradeable=False,
+            direction=0,
+            p_long=0.5,
+            p_bet=0.0,
+            kelly_result=None,
+            regime=None,
+            gate_result=None,
+            skip_reason="test",
+            regime_agreement_scalar=0.65,
+        )
+        assert result.regime_agreement_scalar == pytest.approx(0.65)
+
+    def test_regime_agreement_scalar_floor_via_combine(self) -> None:
+        """agreement_score below 0.5 should clamp to 0.5, not go lower."""
+        from src.regime.ensemble import RegimeEnsembleVote, combine_regime_votes
+
+        vote = RegimeEnsembleVote(
+            hmm_prob_trending=0.8,
+            hmm_prob_ranging=0.1,
+            hmm_prob_volatile=0.1,
+            changepoint_probability=0.05,  # strong disagreement with trending HMM
+        )
+        result = combine_regime_votes(vote)
+        scalar = max(0.5, result.agreement_score)
+        assert 0.5 <= scalar <= 1.0
+
+    def test_combined_scalar_never_exceeds_correlation_scalar(self) -> None:
+        """combined = correlation * agreement — must never exceed either input."""
+        correlation_scalar = 0.8
+        regime_agreement_scalar = 0.7
+        combined = correlation_scalar * regime_agreement_scalar
+        assert combined <= correlation_scalar
+        assert combined <= regime_agreement_scalar
+
+
+# ---------------------------------------------------------------------------
+# GARCH vol wiring into SignalContext
+# ---------------------------------------------------------------------------
+
+
+class TestGARCHVolWiring:
+    """Verify garch_vol_forecast from the feature matrix reaches SignalContext."""
+
+    def _make_fm_with_garch(self, garch_val: float) -> FeatureMatrix:
+        from src.features.pipeline import COL_GARCH_VOL
+
+        fm = _fm()
+        fm.features[COL_GARCH_VOL] = garch_val
+        return fm
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_positive_reaches_signal_context(self) -> None:
+        """Positive GARCH forecast from feature matrix must be passed to CogEng ctx."""
+
+        captured: list = []
+
+        def _cog():
+            m = MagicMock()
+            r = MagicMock()
+            r.passed = True
+            r.veto_reason = ""
+            r.adjusted_size_fraction = 0.05
+
+            def _ev(ctx):
+                captured.append(ctx)
+                return r
+
+            m.evaluate = _ev
+            return m
+
+        e = _make_engine()
+        expected_garch = 0.015
+
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        fm = self._make_fm_with_garch(expected_garch)
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_cog()),
+        ):
+            await e.tick(**_TICK)
+
+        assert len(captured) == 1
+        ctx = captured[0]
+        assert abs(ctx.garch_vol_forecast - expected_garch) < 1e-9
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_zero_or_missing_defaults_to_zero(self) -> None:
+        """When feature matrix lacks GARCH column, garch_vol_forecast must be 0.0."""
+        captured: list = []
+
+        def _cog():
+            m = MagicMock()
+            r = MagicMock()
+            r.passed = True
+            r.veto_reason = ""
+            r.adjusted_size_fraction = 0.05
+
+            def _ev(ctx):
+                captured.append(ctx)
+                return r
+
+            m.evaluate = _ev
+            return m
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+
+        # Feature matrix without garch_vol_forecast column
+        fm_no_garch = MagicMock(spec=FeatureMatrix)
+        fm_no_garch.features = pd.DataFrame(
+            np.random.rand(120, 5), columns=[f"col_{i}" for i in range(5)]
+        )
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm_no_garch),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_cog()),
+        ):
+            await e.tick(**_TICK)
+
+        assert len(captured) == 1
+        ctx = captured[0]
+        assert ctx.garch_vol_forecast == 0.0
+
+    @pytest.mark.asyncio
+    async def test_garch_vol_scalar_applied_when_above_threshold(self) -> None:
+        """When GARCH vol > threshold, compute_position_size must receive scalar < 1."""
+        from src.config import get_settings
+
+        captured_kwargs: list = []
+        threshold = get_settings().risk.garch_vol_threshold  # default 0.02
+        high_garch = threshold * 4.0  # 4x threshold → scalar should be 0.25
+
+        def _mock_cps(*args, **kwargs):
+            captured_kwargs.append(kwargs)
+            return _mock_kelly()
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        fm = self._make_fm_with_garch(high_garch)
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=fm),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", side_effect=_mock_cps),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=MagicMock(
+                    evaluate=MagicMock(
+                        return_value=MagicMock(
+                            passed=True,
+                            veto_reason="",
+                            adjusted_size_fraction=0.05,
+                        )
+                    )
+                ),
+            ),
+        ):
+            await e.tick(**_TICK)
+
+        assert captured_kwargs, "compute_position_size was never called"
+        scalar = captured_kwargs[0].get("garch_vol_scalar", 1.0)
+        assert scalar == pytest.approx(threshold / high_garch, rel=1e-5)
+        assert scalar < 1.0

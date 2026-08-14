@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import os
 import time
@@ -10,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+
+from src.config import StrategyPortfolioSettings
 
 
 # We need a valid API key for the tests
@@ -34,6 +37,7 @@ def _make_state():
     orch._executor.open_positions_safe = AsyncMock(return_value=[])
     orch._executor.pending_approvals_safe = AsyncMock(return_value=[])
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch
@@ -261,6 +265,29 @@ def test_status_route_when_ready(mock_state):
     data = resp.json()
     assert "equity_usd" in data
     assert "cash_usd" in data
+    assert "degradation_report" in data
+    assert isinstance(data["degradation_report"], dict)
+    # No engine has a candidate under evaluation, so the map is empty rather
+    # than absent — an operator can tell "nothing in shadow" from "field gone".
+    assert data["shadow_models"] == {}
+
+
+def test_status_route_reports_a_shadow_model_under_evaluation(mock_state):
+    engine = AsyncMock()
+    engine.shadow_status = AsyncMock(
+        return_value={"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    )
+    idle_engine = AsyncMock()
+    idle_engine.shadow_status = AsyncMock(return_value=None)
+    mock_state.orchestrator._engines = {"15m": engine, "5m": idle_engine}
+
+    client = _get_client()
+    resp = client.get("/status", headers={"x-api-key": _API_KEY})
+
+    assert resp.status_code == 200
+    assert resp.json()["shadow_models"] == {
+        "15m": {"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    }
 
 
 def test_status_route_not_ready(mock_state):
@@ -675,6 +702,9 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
     fake_cfg.api.cors_origins = []
     fake_cfg.trading_mode.value = "paper"
     fake_cfg.self_tuning.enabled = False
+    # Real settings object: the lifespan registers the strategy portfolio,
+    # which reads float capital ceilings off this attribute.
+    fake_cfg.strategy_portfolio = StrategyPortfolioSettings()
 
     class _FetcherCtx:
         async def __aenter__(self):
@@ -700,6 +730,105 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
                 pass
 
     asyncio.run(_run())
+
+
+def test_lifespan_no_insecure_bind_warning_when_tls_configured(monkeypatch):
+    """Non-loopback host + HTTPS_CERT set -> the insecure-bind critical log
+    must be skipped (has_tls=True branch)."""
+    import asyncio
+
+    import src.api.main as main_mod
+
+    fake_storage = AsyncMock()
+    fake_fetcher = AsyncMock()
+    fake_orch = MagicMock()
+    fake_orch.startup = AsyncMock()
+    fake_orch.run = AsyncMock(return_value=None)
+    fake_orch.stop = MagicMock()
+    fake_orch.shutdown = AsyncMock()
+
+    fake_cfg = MagicMock()
+    fake_cfg.api.host = "0.0.0.0"
+    fake_cfg.api.cors_origins = []
+    fake_cfg.trading_mode.value = "paper"
+    fake_cfg.self_tuning.enabled = False
+    # Real settings object: the lifespan registers the strategy portfolio,
+    # which reads float capital ceilings off this attribute.
+    fake_cfg.strategy_portfolio = StrategyPortfolioSettings()
+
+    class _FetcherCtx:
+        async def __aenter__(self):
+            return fake_fetcher
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def _run():
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "API_SECRET_KEY": _API_KEY,
+                    "OPERATOR_SECRET": "y" * 32,
+                    "HTTPS_CERT": "/etc/tls/cert.pem",
+                },
+                clear=True,
+            ),
+            patch("src.api.main.get_settings", return_value=fake_cfg),
+            patch("src.api.main.validate_cors_config"),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
+            patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
+            patch("src.api.main.Orchestrator", return_value=fake_orch),
+            patch("src.api.main.log") as mock_log,
+        ):
+            async with main_mod.lifespan(main_mod.app):
+                pass
+            mock_log.critical.assert_not_called()
+
+    asyncio.run(_run())
+
+
+def test_lifespan_startup_failure_and_fetcher_close_also_fails():
+    """SCAN2-013 counterpart in main.py's lifespan: when startup() fails AND
+    the subsequent fetcher.close() also raises, the secondary close error
+    must be logged (not replace the original exception) and the original
+    startup exception must still propagate."""
+    import asyncio
+
+    import src.api.main as main_mod
+
+    fake_storage = AsyncMock()
+    fake_fetcher = AsyncMock()
+    fake_fetcher.close = AsyncMock(side_effect=RuntimeError("close also failed"))
+    fake_orch = MagicMock()
+    fake_orch.startup = AsyncMock(side_effect=RuntimeError("boom"))
+
+    class _FetcherCtx:
+        async def __aenter__(self):
+            return fake_fetcher
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def _run():
+        with (
+            patch.dict(
+                os.environ,
+                {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": "y" * 32},
+                clear=True,
+            ),
+            patch("src.api.main.create_storage_backend", return_value=fake_storage),
+            patch("src.api.main.open_fetcher", return_value=_FetcherCtx()),
+            patch("src.api.main.Orchestrator", return_value=fake_orch),
+            pytest.raises(
+                RuntimeError, match="boom"
+            ),  # original exception, not "close also failed"
+        ):
+            async with main_mod.lifespan(main_mod.app):
+                pass
+
+    asyncio.run(_run())
+    fake_fetcher.close.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -833,6 +962,132 @@ def test_websocket_full_tick_cycle(mock_state):
             # coverage is that the handler body executed at least once.
             pass
     assert verify_ws_key is not None  # sanity: import didn't fail
+
+
+def _fake_ws():
+    ws = AsyncMock()
+    ws.client = "test-client"
+    return ws
+
+
+async def _run_ws_endpoint_iterations(mock_state, n_sleeps, orchestrator=None, executor=None):
+    """Drive websocket_endpoint() directly with a controlled fake sleep that
+    stops the `while True` loop after n_sleeps iterations by raising
+    WebSocketDisconnect on the (n_sleeps+1)th call -- avoids the real
+    TestClient WS transport's timing flakiness entirely."""
+    from starlette.websockets import WebSocketDisconnect
+
+    import src.api.main as main_mod
+
+    mock_state.orchestrator = orchestrator
+    ws = _fake_ws()
+    call_count = 0
+
+    async def _fake_sleep(_s):
+        nonlocal call_count
+        call_count += 1
+        if call_count > n_sleeps:
+            raise WebSocketDisconnect
+
+    async def _allow_ws(_ws):
+        return None
+
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
+    ):
+        await main_mod.websocket_endpoint(ws)
+    return ws
+
+
+def test_websocket_orchestrator_none_skips_tick(mock_state):
+    """orchestrator is None (server still starting) -> heartbeat loop must
+    `continue` rather than crash on None._executor."""
+    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=None))
+    ws.send_text.assert_not_called()
+
+
+def test_websocket_executor_none_skips_tick(mock_state):
+    """orchestrator exists but has no executor yet -> same skip-tick contract."""
+    fake_orch = MagicMock()
+    fake_orch._executor = None
+    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=fake_orch))
+    ws.send_text.assert_not_called()
+
+
+def test_websocket_tick_includes_regime_snapshot(mock_state):
+    """When storage.latest_regime() returns a snapshot, the tick payload
+    must include a "regime" block built from it."""
+    from starlette.websockets import WebSocketDisconnect
+
+    import src.api.main as main_mod
+
+    snap = MagicMock()
+    snap.regime_state = 1
+    snap.prob_ranging = 0.1
+    snap.prob_trending = 0.8
+    snap.prob_volatile = 0.1
+    mock_state.storage.latest_regime = AsyncMock(return_value=snap)
+
+    ws = _fake_ws()
+    call_count = 0
+
+    async def _fake_sleep(_s):
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise WebSocketDisconnect
+
+    async def _allow_ws(_ws):
+        return None
+
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
+    ):
+        asyncio.run(main_mod.websocket_endpoint(ws))
+
+    sent = ws.send_text.call_args.args[0]
+    assert '"regime"' in sent
+    assert '"trending"' in sent
+
+
+def test_websocket_generic_exception_logged_not_raised(mock_state):
+    """Any non-WebSocketDisconnect exception inside the loop must be caught
+    and logged, not propagate out of the handler."""
+    import src.api.main as main_mod
+
+    fake_orch = MagicMock()
+    fake_executor = AsyncMock()
+    fake_executor.equity_usd = 1000.0
+    fake_executor.cash_usd = 500.0
+    fake_executor.open_positions_safe = AsyncMock(return_value=[])
+    fake_executor.pending_approvals_safe = AsyncMock(return_value=[])
+    fake_orch._executor = fake_executor
+    mock_state.orchestrator = fake_orch
+    mock_state.storage.latest_regime = AsyncMock(side_effect=RuntimeError("db exploded"))
+
+    ws = _fake_ws()
+
+    async def _allow_ws(_ws):
+        return None
+
+    async def _one_sleep_then_ok(_s):
+        return None
+
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        patch("asyncio.sleep", side_effect=_one_sleep_then_ok),
+    ):
+        # storage.latest_regime raising propagates out of the try body ->
+        # caught by `except Exception` -> handler returns normally.
+        asyncio.run(main_mod.websocket_endpoint(ws))
 
 
 def test_websocket_capacity_rejected(mock_state):
@@ -973,3 +1228,365 @@ def test_intelligence_providers_exception(mock_state):
         resp = client.get("/intelligence/providers", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
     assert "error" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# /strategies/allocation — new performance-weighted allocation endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_strategies_allocation_empty_registry(mock_state):
+    client = _get_client()
+    with patch("src.api.main.get_default_registry") as mock_reg:
+        mock_reg.return_value.all.return_value = []
+        resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["allocations"] == {}
+    assert data["method"] == "equal_weight"
+
+
+def test_strategies_allocation_with_strategies(mock_state):
+    from unittest.mock import MagicMock
+
+    strategy = MagicMock()
+    strategy.strategy_id = "signal_engine_v1"
+    strategy.required_capital_fraction.return_value = 1.0
+
+    client = _get_client()
+    with (
+        patch("src.api.main.get_default_registry") as mock_reg,
+        patch("src.api.main.get_attribution_tracker") as mock_tracker,
+    ):
+        mock_reg.return_value.all.return_value = [strategy]
+        mock_tracker.return_value.fill_count.return_value = 0
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "allocations" in data
+    assert "method" in data
+    assert "fill_count" in data
+
+
+def _allocation_strategy(strategy_id: str):
+    from unittest.mock import MagicMock
+
+    strategy = MagicMock()
+    strategy.strategy_id = strategy_id
+    strategy.required_capital_fraction.return_value = 1.0
+    return strategy
+
+
+def test_strategies_allocation_reports_applied_and_target(mock_state):
+    """
+    The endpoint reports the allocation the book is running alongside the
+    one the allocator currently wants. Reading it must not advance either.
+    """
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        controller = get_allocation_controller(0.10)
+        controller.step_toward({"a": 0.5, "b": 0.5})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+            second = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == {"a": 0.5, "b": 0.5}
+        assert data["target_allocations"] == pytest.approx({"a": 0.5, "b": 0.5})
+        assert data["max_shift_per_step"] == pytest.approx(0.10)
+        # Reading twice must not step the controller — the rebalance cadence
+        # belongs to the orchestrator, not to whoever polls the dashboard.
+        assert second.json()["allocations"] == data["allocations"]
+    finally:
+        reset_allocation_controller()
+
+
+def test_strategies_allocation_falls_back_to_target_before_first_rebalance(mock_state):
+    from src.tuning.meta_allocator import reset_allocation_controller
+
+    reset_allocation_controller()
+    try:
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [_allocation_strategy("a")]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == data["target_allocations"]
+        assert data["allocations"]["a"] == pytest.approx(1.0)
+    finally:
+        reset_allocation_controller()
+
+
+def test_allocation_stress_test_uses_the_applied_allocation(mock_state):
+    """A crash tests the positions held today, not the target being crept toward."""
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        get_allocation_controller(0.10).step_toward({"a": 1.0, "b": 0.0})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.performance_weighted_allocate") as mock_alloc,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            resp = client.get("/strategies/stress-test", headers={"x-api-key": _API_KEY})
+
+        assert resp.status_code == 200
+        assert resp.json()["allocations"] == {"a": 1.0, "b": 0.0}
+        mock_alloc.assert_not_called()
+    finally:
+        reset_allocation_controller()
+
+
+# ---------------------------------------------------------------------------
+# GET /strategies/gauntlet
+# ---------------------------------------------------------------------------
+
+
+def _gauntlet_fills(count: int, first_entry_ms: int):
+    from src.diagnostics.attribution import AttributedFill
+
+    day_ms = 86_400_000
+    return [
+        AttributedFill(
+            strategy_id="alpha",
+            pnl_usd=10.0,
+            entry_ts=first_entry_ms + i * day_ms,
+            exit_ts=first_entry_ms + (i + 1) * day_ms,
+        )
+        for i in range(count)
+    ]
+
+
+def test_strategies_gauntlet_empty_tracker(mock_state):
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["candidates"] == {}
+    assert data["criteria"]["min_trades"] == 30
+    assert data["equity_usd"] == 100_000.0
+
+
+def test_strategies_gauntlet_reports_failed_criteria(mock_state):
+    import time
+
+    now_ms = int(time.time() * 1000)
+    fills = _gauntlet_fills(3, now_ms - 3 * 86_400_000)
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = fills
+        mock_tracker.return_value.first_entry_ts_for.return_value = fills[0].entry_ts
+        mock_tracker.return_value.lifetime_trade_count.return_value = len(fills)
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["passed"] is False
+    assert candidate["trade_count"] == 3
+    # too few trades AND too few days running — both must be reported, not just the first
+    assert any("trade_count" in c for c in candidate["failed_criteria"])
+    assert any("days_running" in c for c in candidate["failed_criteria"])
+
+
+def test_strategies_gauntlet_requires_api_key(mock_state):
+    resp = _get_client().get("/strategies/gauntlet")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /debug/reconcile
+# ---------------------------------------------------------------------------
+
+
+def _open_trade(symbol: str, quantity: float, direction: int = 1):
+    from src.data.storage import TradeRecord
+
+    return TradeRecord(
+        id=f"t-{symbol}-{quantity}",
+        symbol=symbol,
+        timeframe="1h",
+        trading_mode="paper",
+        execution_mode="automatic",
+        direction=direction,
+        entry_price=100.0,
+        exit_price=None,
+        quantity=quantity,
+        notional_usd=100.0 * quantity,
+        entry_ts=1,
+        exit_ts=None,
+        pnl_usd=None,
+        pnl_pct=None,
+        fee_usd=0.0,
+        kelly_fraction=0.1,
+        regime_at_entry=0,
+        meta_label_prob=0.5,
+        exit_reason=None,
+        approved_by=None,
+        raw_signal=None,
+    )
+
+
+def _memory_position(symbol: str, quantity: float, direction: str = "long"):
+    return {"symbol": symbol, "quantity": quantity, "direction": direction}
+
+
+def test_reconcile_consistent_when_both_sides_empty(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["discrepancies"] == []
+
+
+def test_reconcile_flags_position_absent_from_the_durable_record(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_in_reference"
+    assert data["discrepancies"][0]["local_quantity"] == 0.1
+
+
+def test_reconcile_flags_orphan_open_trade_after_restart(mock_state):
+    """The classic crash case: the DB still has an open trade, memory has nothing."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(return_value=[])
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.1)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_locally"
+    assert data["discrepancies"][0]["reference_quantity"] == 0.1
+
+
+def test_reconcile_detects_quantity_mismatch(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.15)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["discrepancies"][0]["discrepancy_type"] == "quantity_mismatch"
+
+
+def test_reconcile_nets_multiple_positions_on_one_symbol(mock_state):
+    """Two in-memory legs on one symbol must net before comparison, not overwrite."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[
+            _memory_position("BTC/USDT", 0.1),
+            _memory_position("BTC/USDT", 0.05, direction="short"),
+        ]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        return_value=[_open_trade("BTC/USDT", 0.1), _open_trade("BTC/USDT", 0.05, direction=0)]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["local_position_count"] == 2
+    assert data["reference_position_count"] == 2
+
+
+def test_reconcile_requests_only_open_trades(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert mock_state.storage.fetch_trades.await_args.kwargs["open_only"] is True
+
+
+def test_reconcile_requires_api_key(mock_state):
+    assert _get_client().get("/debug/reconcile").status_code == 401
+
+
+def test_reconcile_pages_through_open_trades(mock_state):
+    """A single capped query would drop positions and then report them as
+    discrepancies — a reconciliation that invents differences is worse than none."""
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", float(_RECONCILE_PAGE) + 3.0)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        side_effect=[full_page, [_open_trade("BTC/USDT", 1.0) for _ in range(3)]]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["reference_position_count"] == _RECONCILE_PAGE + 3
+    assert data["consistent"] is True
+    assert data["truncated"] is False
+
+
+def test_reconcile_reports_truncation_at_the_page_bound(mock_state):
+    from src.api.main import _RECONCILE_MAX_PAGES, _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(return_value=full_page)
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["truncated"] is True
+    assert mock_state.storage.fetch_trades.await_count == _RECONCILE_MAX_PAGES
+
+
+def test_reconcile_advances_the_offset_between_pages(mock_state):
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(side_effect=[full_page, []])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    offsets = [c.kwargs["offset"] for c in mock_state.storage.fetch_trades.await_args_list]
+    assert offsets == [0, _RECONCILE_PAGE]
+
+
+def test_strategies_gauntlet_uses_lifetime_facts_not_the_window(mock_state):
+    """A candidate whose oldest fills aged out must not read as newly started."""
+    import time
+
+    now_ms = int(time.time() * 1000)
+    day_ms = 86_400_000
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = _gauntlet_fills(2, now_ms - day_ms)
+        mock_tracker.return_value.first_entry_ts_for.return_value = now_ms - 90 * day_ms
+        mock_tracker.return_value.lifetime_trade_count.return_value = 500
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["trade_count"] == 500
+    assert candidate["days_running"] > 89.0

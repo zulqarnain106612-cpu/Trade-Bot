@@ -111,6 +111,23 @@ def test_learn_direction_does_not_raise_on_bad_input():
     trainer.learn_direction(np.array([]), label=0)
 
 
+def test_learn_direction_with_predicted_records_outcome():
+    trainer = OnlineTrainer()
+    trainer.learn_direction(_random_vec(), label=1, predicted=1)
+    assert trainer._dir_model.n_samples == 1
+
+
+def test_learn_meta_with_predicted_records_outcome():
+    trainer = OnlineTrainer()
+    trainer.learn_meta(_random_vec(), p_long=0.6, label=1, predicted=1)
+    assert trainer._meta_model.n_samples == 1
+
+
+def test_learn_meta_does_not_raise_on_bad_input():
+    trainer = OnlineTrainer()
+    trainer.learn_meta(np.array([np.nan, np.inf, 1.0]), p_long=0.5, label=1)
+
+
 # ---------------------------------------------------------------------------
 # 4. Accuracy tracking
 # ---------------------------------------------------------------------------
@@ -194,6 +211,33 @@ def test_reset_deletes_persisted_files():
         assert (path / "online_direction.pkl").exists()
         trainer.reset()
         assert not (path / "online_direction.pkl").exists()
+
+
+def test_reset_without_model_dir_skips_file_cleanup():
+    trainer = OnlineTrainer()  # no model_dir configured
+    _warm_up(trainer)
+    trainer.reset()  # must not raise despite no target directory
+    assert trainer._dir_model.n_samples == 0
+
+
+def test_save_without_model_dir_is_a_noop():
+    trainer = OnlineTrainer()  # no model_dir configured
+    _warm_up(trainer)
+    trainer.save()  # must not raise; nothing to persist to
+
+
+def test_save_exception_is_caught_and_logged(monkeypatch):
+    import src.models.online_trainer as ot_mod
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir)
+        trainer = OnlineTrainer(model_dir=path)
+        _warm_up(trainer)
+
+        monkeypatch.setattr(
+            ot_mod.joblib, "dump", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full"))
+        )
+        trainer.save()  # must not raise despite joblib.dump failing
 
 
 # ---------------------------------------------------------------------------

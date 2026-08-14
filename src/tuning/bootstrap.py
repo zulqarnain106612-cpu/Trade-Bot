@@ -149,9 +149,7 @@ def register_ensemble_blend_weight(
     current = _resume_current("risk.ensemble_blend_weight", default, floor, ceiling, store)
     param = TunableParameter(
         name="risk.ensemble_blend_weight",
-        description=(
-            "Blend weight for EnsemblePredictor's point_estimate into XGBoost's p_long."
-        ),
+        description=("Blend weight for EnsemblePredictor's point_estimate into XGBoost's p_long."),
         floor=floor,
         ceiling=ceiling,
         current=current,
@@ -191,6 +189,48 @@ def register_slippage_impact_coeff(
     return param
 
 
+def register_ensemble_blend_weight(
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
+) -> TunableParameter:
+    """
+    RiskSettings.ensemble_blend_weight -- how much of signal_engine.py's
+    p_long comes from the diversified prediction ensemble
+    (src/intelligence/ensemble_predictor.py) vs. the XGBoost direction
+    model. Registered so this weight can only move via the same
+    propose/evaluate/gate/shadow-mode machinery as every other tunable
+    parameter -- never a direct .env edit while the bot is live.
+
+    Registered but deliberately left UNSCHEDULED in
+    src/tuning/scheduler.py's _attempt_all() -- same documented state
+    hmm.entropy_threshold was in during Phase 4 before its backtest
+    harness existed (see scheduler.py's module docstring: "Any other
+    registered parameter with no evaluate_fn is intentionally left
+    unscheduled here"). A dedicated backtest harness comparing champion
+    vs. challenger blend weights against realized OOS trade outcomes is
+    future work; until it exists this parameter is visible/adjustable
+    manually (scripts/run_tuning_attempt.py, /self-tuning/status) but not
+    auto-tuned on a cycle.
+    """
+    settings = settings or get_settings()
+    default = settings.risk.ensemble_blend_weight
+    floor, ceiling = _symmetric_bounds(default)
+    floor = max(0.0, floor)
+    ceiling = min(1.0, ceiling)
+    current = _resume_current("risk.ensemble_blend_weight", default, floor, ceiling, store)
+    param = TunableParameter(
+        name="risk.ensemble_blend_weight",
+        description="Weight of the prediction ensemble's implied probability in p_long.",
+        floor=floor,
+        ceiling=ceiling,
+        current=current,
+        eval_strategy="ensemble_blend_oos_accuracy",
+    )
+    registry.register(param)
+    return param
+
+
 # Phase 8 item 3 -- the five rolling-window feature parameters, all with the
 # same `ge=2` Pydantic floor (src/config.py FeatureSettings) and all consumed
 # by backtest_harness.run_feature_window_backtest.
@@ -201,10 +241,15 @@ FEATURE_WINDOW_FIELDS: frozenset[str] = frozenset(
         "atr_window",
         "sharpe_window",
         "volume_zscore_window",
+        "garch_window",
     }
 )
 
-_FEATURE_WINDOW_MIN_VALUE = 2.0  # matches FeatureSettings' `ge=2` on each field
+_FEATURE_WINDOW_MIN_VALUE = 2.0  # matches FeatureSettings' `ge=2` on most fields
+# garch_window has ge=50 in FeatureSettings (needs enough obs for GARCH MLE)
+_FEATURE_WINDOW_FLOOR_OVERRIDES: dict[str, float] = {
+    "garch_window": 50.0,
+}
 
 
 def register_feature_window_param(
@@ -230,7 +275,8 @@ def register_feature_window_param(
     settings = settings or get_settings()
     default = float(getattr(settings.features, field_name))
     floor, ceiling = _symmetric_bounds(default)
-    floor = max(_FEATURE_WINDOW_MIN_VALUE, floor)
+    min_val = _FEATURE_WINDOW_FLOOR_OVERRIDES.get(field_name, _FEATURE_WINDOW_MIN_VALUE)
+    floor = max(min_val, floor)
     param_name = f"features.{field_name}"
     current = _resume_current(param_name, default, floor, ceiling, store)
     param = TunableParameter(
@@ -281,6 +327,47 @@ _XGB_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
     "reg_alpha": (0.0, 100.0),
     "reg_lambda": (0.0, 100.0),
 }
+
+
+def register_garch_vol_threshold(
+    registry: ParameterRegistry,
+    settings: Settings | None = None,
+    store: VersionedConfigStore | None = None,
+) -> TunableParameter:
+    """
+    RiskSettings.garch_vol_threshold — the per-bar conditional-vol level above
+    which the GARCH vol-targeting scalar (Carver 2019) begins scaling position
+    size down. Below the threshold, no reduction is applied (scalar = 1.0).
+
+    A higher threshold is more permissive (fewer reductions); a lower threshold
+    is more aggressive (earlier and deeper reductions in high-vol regimes).
+    Evaluated using cpcv_oos_sharpe: the impact flows through position sizing,
+    so a frozen-model OOS Sharpe comparison captures whether the threshold
+    improves risk-adjusted returns without a full XGBoost retrain.
+
+    Registered but intentionally left unscheduled in scheduler.py until a
+    dedicated backtest harness measuring the vol-targeting scalar's sensitivity
+    to threshold changes exists (same pattern as register_ensemble_blend_weight).
+    """
+    settings = settings or get_settings()
+    default = settings.risk.garch_vol_threshold
+    floor, ceiling = _symmetric_bounds(default)
+    floor = max(0.001, floor)  # RiskSettings enforces gt=0.0; keep a safe margin
+    ceiling = min(0.50, ceiling)  # RiskSettings enforces le=0.50
+    current = _resume_current("risk.garch_vol_threshold", default, floor, ceiling, store)
+    param = TunableParameter(
+        name="risk.garch_vol_threshold",
+        description=(
+            "GARCH vol-targeting threshold (Carver 2019): per-bar sigma above which "
+            "position size is scaled down proportionally."
+        ),
+        floor=floor,
+        ceiling=ceiling,
+        current=current,
+        eval_strategy="cpcv_oos_sharpe",
+    )
+    registry.register(param)
+    return param
 
 
 def register_xgboost_hyperparam_param(

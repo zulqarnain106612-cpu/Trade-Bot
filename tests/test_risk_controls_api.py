@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from src.config import RuntimeConfig, get_settings
+from src.config import ExecutionMode, RuntimeConfig, get_settings
 from src.risk.gates import check_position_exit
 
 
@@ -146,6 +146,112 @@ class TestCheckPositionExit:
         )
         assert reason == "stop_loss"
 
+    def test_trailing_stop_triggers_when_peak_surpassed_by_threshold(self) -> None:
+        # Position peaked at +3%, dropped to +1% — drawdown from peak = 2% >= 1.5% threshold.
+        reason = check_position_exit(
+            unrealized_pnl_pct=1.0,
+            entry_ts_ms=_NOW_MS - 1_000,
+            now_ts_ms=_NOW_MS,
+            stop_loss_enabled=True,
+            stop_loss_pct=2.0,
+            take_profit_enabled=True,
+            take_profit_pct=4.0,
+            max_holding_period_s=86400.0,
+            trailing_stop_enabled=True,
+            trailing_stop_pct=1.5,
+            peak_unrealized_pct=3.0,
+        )
+        assert reason == "trailing_stop"
+
+    def test_trailing_stop_does_not_trigger_when_drawdown_below_threshold(self) -> None:
+        # Peak +3%, current +2% — drawdown from peak = 1% < 1.5% threshold.
+        reason = check_position_exit(
+            unrealized_pnl_pct=2.0,
+            entry_ts_ms=_NOW_MS - 1_000,
+            now_ts_ms=_NOW_MS,
+            stop_loss_enabled=True,
+            stop_loss_pct=2.0,
+            take_profit_enabled=True,
+            take_profit_pct=4.0,
+            max_holding_period_s=86400.0,
+            trailing_stop_enabled=True,
+            trailing_stop_pct=1.5,
+            peak_unrealized_pct=3.0,
+        )
+        assert reason is None
+
+    def test_trailing_stop_not_active_when_peak_is_zero(self) -> None:
+        # Position never went into profit — trailing stop should not trigger
+        # even if enabled, since we only trail from a positive peak.
+        reason = check_position_exit(
+            unrealized_pnl_pct=-0.5,
+            entry_ts_ms=_NOW_MS - 1_000,
+            now_ts_ms=_NOW_MS,
+            stop_loss_enabled=False,
+            stop_loss_pct=2.0,
+            take_profit_enabled=False,
+            take_profit_pct=4.0,
+            max_holding_period_s=86400.0,
+            trailing_stop_enabled=True,
+            trailing_stop_pct=1.5,
+            peak_unrealized_pct=0.0,
+        )
+        assert reason is None
+
+    def test_trailing_stop_disabled_does_not_trigger(self) -> None:
+        # Even with a large peak-to-current drawdown, disabled trailing stop is a no-op.
+        reason = check_position_exit(
+            unrealized_pnl_pct=-1.0,
+            entry_ts_ms=_NOW_MS - 1_000,
+            now_ts_ms=_NOW_MS,
+            stop_loss_enabled=False,
+            stop_loss_pct=2.0,
+            take_profit_enabled=False,
+            take_profit_pct=4.0,
+            max_holding_period_s=86400.0,
+            trailing_stop_enabled=False,
+            trailing_stop_pct=1.5,
+            peak_unrealized_pct=5.0,
+        )
+        assert reason is None
+
+    def test_stop_loss_takes_precedence_over_trailing_stop(self) -> None:
+        # Both stop_loss and trailing_stop would fire; stop_loss is checked first.
+        reason = check_position_exit(
+            unrealized_pnl_pct=-2.5,
+            entry_ts_ms=_NOW_MS - 1_000,
+            now_ts_ms=_NOW_MS,
+            stop_loss_enabled=True,
+            stop_loss_pct=2.0,
+            take_profit_enabled=True,
+            take_profit_pct=4.0,
+            max_holding_period_s=86400.0,
+            trailing_stop_enabled=True,
+            trailing_stop_pct=1.5,
+            peak_unrealized_pct=3.0,
+        )
+        assert reason == "stop_loss"
+
+    def test_trailing_stop_fires_before_take_profit(self) -> None:
+        # Trailing stop drawdown from peak triggers before take-profit threshold.
+        # Peak = 5%, current = 3%, trailing pct = 1.5% → fires trailing_stop.
+        # take_profit_pct = 4% but current is 3% so profit target wouldn't fire anyway.
+        # This verifies ordering: stop_loss → trailing_stop → profit_target.
+        reason = check_position_exit(
+            unrealized_pnl_pct=3.0,
+            entry_ts_ms=_NOW_MS - 1_000,
+            now_ts_ms=_NOW_MS,
+            stop_loss_enabled=True,
+            stop_loss_pct=2.0,
+            take_profit_enabled=True,
+            take_profit_pct=4.0,
+            max_holding_period_s=86400.0,
+            trailing_stop_enabled=True,
+            trailing_stop_pct=1.5,
+            peak_unrealized_pct=5.0,
+        )
+        assert reason == "trailing_stop"
+
     def test_negative_pct_inputs_normalized_via_abs(self) -> None:
         # stop_loss_pct/take_profit_pct should be treated as magnitudes
         # even if a caller mistakenly passes a negative stop_loss_pct.
@@ -180,6 +286,8 @@ class TestRuntimeConfigRiskControls:
         assert snap["take_profit_enabled"] == cfg.risk.take_profit_enabled_default
         assert snap["take_profit_pct"] == cfg.risk.take_profit_pct_default
         assert snap["max_holding_period_s"] == cfg.risk.max_holding_period_s_default
+        assert snap["trailing_stop_enabled"] == cfg.risk.trailing_stop_enabled_default
+        assert snap["trailing_stop_pct"] == cfg.risk.trailing_stop_pct_default
 
     def test_partial_update_leaves_other_fields_unchanged(self) -> None:
         async def _run() -> dict[str, Any]:
@@ -194,6 +302,67 @@ class TestRuntimeConfigRiskControls:
         assert after["stop_loss_enabled"] == before["stop_loss_enabled"]
         assert after["take_profit_enabled"] == before["take_profit_enabled"]
         assert after["max_holding_period_s"] == before["max_holding_period_s"]
+        assert after["trailing_stop_enabled"] == before["trailing_stop_enabled"]
+        assert after["trailing_stop_pct"] == before["trailing_stop_pct"]
+
+    def test_trailing_stop_update_roundtrips(self) -> None:
+        async def _run() -> dict[str, Any]:
+            rc = RuntimeConfig()
+            return await rc.set_risk_controls(trailing_stop_enabled=True, trailing_stop_pct=2.5)
+
+        snap = asyncio.run(_run())
+        assert snap["trailing_stop_enabled"] is True
+        assert snap["trailing_stop_pct"] == 2.5
+
+    def test_get_lock_double_checked_race_reuses_winner(self) -> None:
+        """VF-004-style guard: if a second caller acquires the init guard
+        after a first caller already set self._lock, the inner re-check
+        must skip creating a second asyncio.Lock and reuse the winner."""
+        import threading
+
+        rc = RuntimeConfig()
+        winner = asyncio.Lock()
+        real_lock = threading.Lock()
+
+        class _RacingLock:
+            def __enter__(self):
+                real_lock.__enter__()
+                rc._lock = winner  # another "thread" wins the race first
+                return self
+
+            def __exit__(self, *exc_info):
+                return real_lock.__exit__(*exc_info)
+
+        rc._init_guard = _RacingLock()  # type: ignore[assignment]
+        lock = rc._get_lock()
+        assert lock is winner
+
+    def test_execution_mode_get_and_set_round_trip(self) -> None:
+        async def _run() -> ExecutionMode:
+            rc = RuntimeConfig()
+            await rc.set_execution_mode(ExecutionMode.MANUAL)
+            return await rc.get_execution_mode()
+
+        result = asyncio.run(_run())
+        assert result == ExecutionMode.MANUAL
+
+    def test_update_all_fields_at_once(self) -> None:
+        async def _run() -> dict[str, Any]:
+            rc = RuntimeConfig()
+            return await rc.set_risk_controls(
+                stop_loss_enabled=False,
+                stop_loss_pct=4.0,
+                take_profit_enabled=False,
+                take_profit_pct=6.0,
+                max_holding_period_s=3600.0,
+            )
+
+        after = asyncio.run(_run())
+        assert after["stop_loss_enabled"] is False
+        assert after["stop_loss_pct"] == 4.0
+        assert after["take_profit_enabled"] is False
+        assert after["take_profit_pct"] == 6.0
+        assert after["max_holding_period_s"] == 3600.0
 
     def test_toggle_disable_then_enable(self) -> None:
         async def _run() -> tuple[bool, bool]:
@@ -272,6 +441,12 @@ def api_client():
     api_main._state.ready = True
 
     api_main.app.dependency_overrides[api_main.api_key_header] = lambda: None
+    # The mutating endpoints now also depend on resolve_role (RBAC).
+    # Overriding api_key_header alone leaves that dependency live and
+    # every POST answers 401 with no API_SECRET_KEY configured.
+    api_main.app.dependency_overrides[api_main.resolve_role] = lambda: (
+        api_main.Role.TRADE_AUTHORIZING
+    )
     api_main.app.dependency_overrides[api_main.require_ready] = lambda: None
 
     client = TestClient(api_main.app)
@@ -378,3 +553,58 @@ class TestRiskControlsEndpoints:
         client, _storage, _main = api_client
         resp = client.get("/risk-controls")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# PaperPosition peak_unrealized_pct tracking
+# ---------------------------------------------------------------------------
+
+
+class TestPaperPositionPeakTracking:
+    """Verify the trailing-stop peak tracking in PaperPosition.mark()."""
+
+    def _make_position(self, direction: int = 1) -> object:
+        from src.execution.paper import PaperPosition
+
+        return PaperPosition(
+            trade_id="tid-1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=direction,
+            entry_price=30_000.0,
+            quantity=0.01,
+            notional_usd=300.0,
+            entry_ts=0,
+            kelly_fraction=0.05,
+            regime_at_entry=0,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="AUTOMATIC",
+            fee_usd=0.30,
+        )
+
+    def test_peak_rises_with_profitable_marks(self) -> None:
+        pos = self._make_position(direction=1)
+        pos.mark(30_300.0)  # +1%
+        assert pos.peak_unrealized_pct == pytest.approx(1.0, abs=0.01)
+        pos.mark(30_600.0)  # +2%
+        assert pos.peak_unrealized_pct == pytest.approx(2.0, abs=0.01)
+
+    def test_peak_does_not_decrease_on_pullback(self) -> None:
+        pos = self._make_position(direction=1)
+        pos.mark(30_600.0)  # +2%
+        pos.mark(30_300.0)  # pulls back to +1%
+        assert pos.peak_unrealized_pct == pytest.approx(2.0, abs=0.01)
+
+    def test_peak_stays_zero_when_position_in_loss(self) -> None:
+        pos = self._make_position(direction=1)
+        pos.mark(29_700.0)  # -1%
+        assert pos.peak_unrealized_pct == 0.0
+
+    def test_peak_tracked_correctly_for_short_positions(self) -> None:
+        pos = self._make_position(direction=-1)
+        pos.mark(29_700.0)  # short profits when price falls: +1%
+        assert pos.peak_unrealized_pct == pytest.approx(1.0, abs=0.01)
+        pos.mark(30_000.0)  # back to entry — unrealised pct = 0
+        assert pos.peak_unrealized_pct == pytest.approx(1.0, abs=0.01)

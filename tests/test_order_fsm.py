@@ -177,8 +177,156 @@ class TestOrderFSMTransitions:
             fsm.transition(OrderStatus.CANCELLED)
 
 
+class TestOrderFSMStateToDict:
+    def test_to_dict_serializes_core_fields(self):
+        state = OrderFSMState(
+            order_id="d1", symbol="BTC/USDT", side="buy", quantity=1.5, status=OrderStatus.PENDING
+        )
+        d = state.to_dict()
+        assert d["order_id"] == "d1"
+        assert d["symbol"] == "BTC/USDT"
+        assert d["status"] == "pending"
+
+
+class TestTransitionsWithEmptyContext:
+    """Each _transition_to_* handler's `if "key" in context:` guards, hit
+    with a context missing that key entirely (not just None/falsy)."""
+
+    def test_pending_to_filling_empty_context(self):
+        state = OrderFSMState(
+            order_id="e1", symbol="BTC/USDT", side="buy", quantity=1.0, status=OrderStatus.PENDING
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.FILLING, {})
+        assert fsm.state.status == OrderStatus.FILLING
+        assert fsm.state.exchange_response == {}
+
+    def test_filling_to_filled_empty_context(self):
+        state = OrderFSMState(
+            order_id="e2",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            status=OrderStatus.FILLING,
+            first_confirmed_at_ms=int(datetime.now(tz=UTC).timestamp() * 1000),
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.FILLED, {})
+        assert fsm.state.status == OrderStatus.FILLED
+        assert fsm.state.filled_qty == 0.0  # unchanged -- no "filled_qty" key supplied
+
+    def test_filling_to_cancelled_empty_context(self):
+        state = OrderFSMState(
+            order_id="e3",
+            symbol="BTC/USDT",
+            side="sell",
+            quantity=1.0,
+            status=OrderStatus.FILLING,
+            first_confirmed_at_ms=int(datetime.now(tz=UTC).timestamp() * 1000),
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.CANCELLED, {})
+        assert fsm.state.status == OrderStatus.CANCELLED
+
+    def test_pending_to_timeout_empty_context(self):
+        state = OrderFSMState(
+            order_id="e4", symbol="BTC/USDT", side="buy", quantity=1.0, status=OrderStatus.PENDING
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.TIMEOUT, {})
+        assert fsm.state.status == OrderStatus.TIMEOUT
+        assert "timeout" in fsm.state.last_error.lower()
+
+    def test_pending_to_failed_empty_context(self):
+        state = OrderFSMState(
+            order_id="e5", symbol="BTC/USDT", side="buy", quantity=1.0, status=OrderStatus.PENDING
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.FAILED, {})
+        assert fsm.state.status == OrderStatus.FAILED
+        assert fsm.state.last_error == ""  # unchanged -- no "error" key supplied
+
+    def test_failed_with_error_key_records_it(self):
+        state = OrderFSMState(
+            order_id="e6", symbol="BTC/USDT", side="buy", quantity=1.0, status=OrderStatus.PENDING
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.FAILED, {"error": "exchange rejected order"})
+        assert fsm.state.last_error == "exchange rejected order"
+
+    def test_timeout_with_exchange_response_records_it(self):
+        state = OrderFSMState(
+            order_id="e7", symbol="BTC/USDT", side="buy", quantity=1.0, status=OrderStatus.PENDING
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.TIMEOUT, {"exchange_response": {"status": "open"}})
+        assert fsm.state.exchange_response == {"status": "open"}
+
+    def test_filling_self_transition_does_not_reset_first_confirmed_at(self):
+        """FILLING -> FILLING (partial fill aggregation) must not overwrite
+        an already-set first_confirmed_at_ms."""
+        original_ts = 12345
+        state = OrderFSMState(
+            order_id="e8",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            status=OrderStatus.FILLING,
+            first_confirmed_at_ms=original_ts,
+        )
+        fsm = OrderFSM(state)
+        fsm.transition(OrderStatus.FILLING, {"exchange_response": {"status": "open"}})
+        assert fsm.state.first_confirmed_at_ms == original_ts
+
+    def test_filled_with_invalid_qty_raises(self):
+        state = OrderFSMState(
+            order_id="e9",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            status=OrderStatus.FILLING,
+            first_confirmed_at_ms=int(datetime.now(tz=UTC).timestamp() * 1000),
+        )
+        fsm = OrderFSM(state)
+        with pytest.raises(OrderFSMError, match="Invalid filled qty"):
+            fsm.transition(OrderStatus.FILLED, {"filled_qty": 5.0})  # exceeds quantity=1.0
+
+
 class TestPartialFills:
     """Test partial fill aggregation and VWAP calculation."""
+
+    def test_calculate_vwap_no_fills_returns_zero(self):
+        state = OrderFSMState(
+            order_id="v1", symbol="BTC/USDT", side="buy", quantity=1.0, status=OrderStatus.FILLING
+        )
+        fsm = OrderFSM(state)
+        assert fsm._calculate_vwap() == 0.0
+
+    def test_add_partial_fill_non_positive_qty_raises(self):
+        state = OrderFSMState(
+            order_id="v2",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            status=OrderStatus.FILLING,
+            first_confirmed_at_ms=int(datetime.now(tz=UTC).timestamp() * 1000),
+        )
+        fsm = OrderFSM(state)
+        with pytest.raises(OrderFSMError, match="qty must be > 0"):
+            fsm.add_partial_fill(qty=0.0, price=100.0)
+
+    def test_add_partial_fill_non_positive_price_raises(self):
+        state = OrderFSMState(
+            order_id="v3",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            status=OrderStatus.FILLING,
+            first_confirmed_at_ms=int(datetime.now(tz=UTC).timestamp() * 1000),
+        )
+        fsm = OrderFSM(state)
+        with pytest.raises(OrderFSMError, match="price must be > 0"):
+            fsm.add_partial_fill(qty=0.5, price=0.0)
 
     def test_add_partial_fill_single(self):
         """Add single partial fill to FILLING order."""

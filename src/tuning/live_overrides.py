@@ -48,7 +48,11 @@ _FEATURE_WINDOW_FIELDS = (
     "atr_window",
     "sharpe_window",
     "volume_zscore_window",
+    "garch_window",
 )
+
+# Per-field minimum values for feature window fields. Fields not listed here use 2.
+_FEATURE_WINDOW_FLOOR_OVERRIDES: dict[str, int] = {"garch_window": 50}
 
 _XGBOOST_FIELDS = (
     "n_estimators",
@@ -81,30 +85,33 @@ def effective_hmm_settings(base: HMMSettings | None = None) -> HMMSettings:
 
 
 def effective_risk_settings(base: RiskSettings | None = None) -> RiskSettings:
-    """RiskSettings with risk.slippage_impact_coeff_bps overlaid from the
-    registry when self-tuning has promoted a value. All other RiskSettings
-    fields (Kelly sizing, drawdown halts, ...) are permanently excluded
-    from self-tuning (see registry.EXCLUDED_PARAMS) and are never
-    overlaid here."""
+    """RiskSettings with risk.slippage_impact_coeff_bps, risk.ensemble_blend_weight,
+    and risk.garch_vol_threshold overlaid from the registry when self-tuning has
+    promoted a value. All other RiskSettings fields (Kelly sizing, drawdown halts,
+    ...) are permanently excluded from self-tuning (see registry.EXCLUDED_PARAMS)
+    and are never overlaid here."""
     base = base or get_settings().risk
-    value = _current_override("risk.slippage_impact_coeff_bps")
-    if value is None:
-        return base
-    return base.model_copy(update={"slippage_impact_coeff_bps": value})
+    overrides: dict[str, float] = {}
+    for field_name in ("slippage_impact_coeff_bps", "ensemble_blend_weight", "garch_vol_threshold"):
+        value = _current_override(f"risk.{field_name}")
+        if value is not None:
+            overrides[field_name] = value
+    return base.model_copy(update=overrides) if overrides else base
 
 
 def effective_feature_settings(base: FeatureSettings | None = None) -> FeatureSettings:
-    """FeatureSettings with the five features.*_window fields overlaid
+    """FeatureSettings with the six features.*_window fields overlaid
     from the registry. Values are stored as float in the registry
     (TunableParameter.current); rounded to int here to match
-    FeatureSettings' int fields, clamped to the same >=2 floor the
-    scheduler's own backtest evaluation uses."""
+    FeatureSettings' int fields, clamped to per-field floors (garch_window
+    >= 50, all others >= 2) matching the scheduler's own backtest evaluation."""
     base = base or get_settings().features
     overrides: dict[str, int] = {}
     for field_name in _FEATURE_WINDOW_FIELDS:
         value = _current_override(f"features.{field_name}")
         if value is not None:
-            overrides[field_name] = max(2, round(value))
+            floor = _FEATURE_WINDOW_FLOOR_OVERRIDES.get(field_name, 2)
+            overrides[field_name] = max(floor, round(value))
     return base.model_copy(update=overrides) if overrides else base
 
 

@@ -19,22 +19,14 @@ import pytest
 from xgboost import XGBClassifier
 
 from src.config import FeatureSettings, XGBoostSettings
-from src.features.pipeline import FeatureMatrix
+from src.features.pipeline import BASE_FEATURE_COLUMNS, FeatureMatrix
 from src.models.trainer import ModelTrainer, TrainingResult
 from src.risk.kelly import compute_win_loss_stats
 
 
-# Exact column names from src/features/pipeline.py
-FEATURES = [
-    "frac_diff",
-    "vwap_dev_zscore",
-    "ofi",
-    "realized_vol_ratio",
-    "atr_momentum",
-    "rolling_sharpe",
-    "volume_zscore",
-]
-N = len(FEATURES)  # 7
+# Derived from BASE_FEATURE_COLUMNS so the count stays in sync as features are added.
+FEATURES = list(BASE_FEATURE_COLUMNS)
+N = len(FEATURES)  # 8 after garch_vol_forecast added as 8th base feature
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +226,7 @@ class TestPredictDirection:
     def test_boundary_p_long_half_is_long(self):
         dm = _fitted_dir()
         with patch.object(dm, "predict_proba", return_value=np.array([[0.5, 0.5]])):
-            d, p = _trainer().predict_direction(dm, _vec())
+            d, _p = _trainer().predict_direction(dm, _vec())
         assert d == 1  # >= 0.5 → long
 
 
@@ -260,7 +252,7 @@ class TestPredictMeta:
     def test_meta_0_when_p_bet_low(self):
         mm = _fitted_meta()
         with patch.object(mm, "predict_proba", return_value=np.array([[0.9, 0.1]])):
-            meta, p = _trainer().predict_meta(mm, _vec(), p_long=0.3)
+            meta, _p = _trainer().predict_meta(mm, _vec(), p_long=0.3)
         assert meta == 0
 
     def test_shape_mismatch_raises(self):
@@ -313,12 +305,12 @@ class TestComputeWinLossStats:
         assert len(result) == 4
 
     def test_empty_list_returns_defaults(self):
-        wp, aw, al, _std = compute_win_loss_stats([])
+        wp, _aw, _al, _std = compute_win_loss_stats([])
         assert wp == pytest.approx(0.5)
 
     def test_all_wins_returns_defaults(self):
         # No losses → safe default
-        wp, aw, al, _std = compute_win_loss_stats([10.0] * 60)
+        wp, _aw, _al, _std = compute_win_loss_stats([10.0] * 60)
         assert wp == pytest.approx(0.5)
 
     def test_balanced_pnl_correct_stats(self):
@@ -652,7 +644,7 @@ class TestOosSharpeAndDrawdown:
 
         returns = np.array([0.01])
         y_pred = np.array([1])
-        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, _dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert sharpe == 0.0  # sigma=0 → fallback
 
     def test_nan_returns_zero_sharpe(self):
@@ -660,7 +652,7 @@ class TestOosSharpeAndDrawdown:
 
         returns = np.array([np.nan, np.nan])
         y_pred = np.array([1, 0])
-        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, _dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert np.isfinite(sharpe)
 
     def test_max_drawdown_capped_at_100(self):
@@ -864,6 +856,16 @@ class TestTrainDirection:
         result = trainer.train_direction(fm)
         assert isinstance(result, TrainingResult)
 
+    def test_small_train_fold_skips_early_stopping_eval_set(self):
+        """VF-021: when a fold's inner 10% validation split is too small
+        (<5 rows) or single-class, _run_cpcv must fit without an eval_set
+        (early_stopping_rounds=None) rather than pass an unusable one."""
+        trainer = _fast_trainer()
+        fm = _feature_matrix(n=45, seed=13)
+        result = trainer.train_direction(fm)
+        assert isinstance(result, TrainingResult)
+        assert result.fold_metrics != []
+
     def test_drift_baseline_push_failure_is_caught(self):
         trainer = _fast_trainer()
         fm = _feature_matrix(n=400)
@@ -917,7 +919,80 @@ class TestPredictMetaEdgeCases:
         assert 0.0 <= p <= 1.0
 
     def test_available_base_cols_fewer_than_expected_raises(self):
-        mm = _fitted_meta()  # trained on N + 2 = 9 features
+        mm = _fitted_meta()  # trained on N + 2 features
         short_vec = _vec()[:2]  # only 2 base columns available
         with pytest.raises(ValueError, match="feature schema"):
             _trainer().predict_meta(mm, short_vec, p_long=0.5)
+
+
+# ---------------------------------------------------------------------------
+# train_ensemble / save_ensemble / load_ensemble
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def _fitted_ensemble():
+    """Fit once and reuse across assertions -- fitting five real ensemble
+    members (ARIMA/XGBoost/LSTM/GP/TreeEnsemble) is too slow to redo per
+    test. n=150 is small enough to keep total suite time reasonable while
+    still exercising every member's real fit path (all five have their own
+    internal minimum-sample guards, satisfied well below this size)."""
+    from src.intelligence.ensemble_predictor import EnsemblePredictor
+
+    fm = _feature_matrix(n=150, seed=11)
+    trainer = ModelTrainer("BTC/USDT", "15m")
+    ensemble = trainer.train_ensemble(fm)
+    assert isinstance(ensemble, EnsemblePredictor)
+    return trainer, ensemble, fm
+
+
+class TestTrainEnsemble:
+    def test_returns_fitted_ensemble_with_populated_weights(self, _fitted_ensemble):
+        _trainer_obj, ensemble, _fm = _fitted_ensemble
+        assert ensemble._feature_cols == FEATURES
+        assert set(ensemble.weights) == {"arima", "xgboost", "lstm", "gp", "tree_ensemble"}
+        assert abs(sum(ensemble.weights.values()) - 1.0) < 1e-6
+
+    def test_predict_row_works_on_fitted_ensemble(self, _fitted_ensemble):
+        _trainer_obj, ensemble, fm = _fitted_ensemble
+        row = fm.features[FEATURES].iloc[-1]
+        pred = ensemble.predict_row(row)
+        assert isinstance(pred.point_estimate, float)
+        assert pred.credible_lower <= pred.point_estimate <= pred.credible_upper
+
+    def test_save_and_load_round_trip(self, _fitted_ensemble):
+        trainer, ensemble, fm = _fitted_ensemble
+        with tempfile.TemporaryDirectory() as d:
+            path = trainer.save_ensemble(ensemble, d)
+            assert path.exists()
+            loaded = ModelTrainer.load_ensemble(d, "BTC/USDT", "15m")
+            row = fm.features[FEATURES].iloc[-1]
+            original_pred = ensemble.predict_row(row)
+            loaded_pred = loaded.predict_row(row)
+            assert loaded_pred.point_estimate == pytest.approx(original_pred.point_estimate)
+
+    def test_load_ensemble_missing_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            with pytest.raises(FileNotFoundError):
+                ModelTrainer.load_ensemble(d, "ETH/USDT", "1h")
+
+    def test_load_ensemble_rejects_path_traversal_timeframe(self):
+        with tempfile.TemporaryDirectory() as d:
+            with pytest.raises(ValueError, match="Invalid timeframe"):
+                ModelTrainer.load_ensemble(d, "BTC/USDT", "../../etc/passwd")
+
+    def test_train_ensemble_uses_same_active_columns_as_direction(self, _fitted_ensemble):
+        """Regression: the ensemble must be trained on the identical
+        coverage-gated column set train_direction() uses, so signal_engine
+        can feed the same feature row to both models."""
+        from src.features.pipeline import get_active_feature_columns
+
+        _trainer_obj, ensemble, fm = _fitted_ensemble
+        expected_cols = [
+            c
+            for c in get_active_feature_columns(
+                coverage=getattr(fm, "intelligence_coverage", None), min_coverage=0.6
+            )
+            if c in fm.features.columns
+        ]
+        assert ensemble._feature_cols == expected_cols

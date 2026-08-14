@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -237,7 +237,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_with_dir_meta_metrics_not_none(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
 
         # dir_metrics and meta_metrics are both not None
         dir_metrics = MagicMock()
@@ -265,7 +265,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_with_latest_close_updates_correlation(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
         # Set previous close so bar_return is computed
         orch._last_close_for_corr[Timeframe.INTRADAY.value] = (999_000, 40_000.0)
         orch._storage.latest_close = AsyncMock(return_value=(1_000_000, 41_000.0))
@@ -291,7 +291,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_with_regime_not_none_persists_snapshot(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
 
         regime = MagicMock()
         regime.state = 1
@@ -373,7 +373,7 @@ class TestTickUncoveredBranches:
 
     @pytest.mark.asyncio
     async def test_tick_live_mode_checks_paper_equity(self):
-        orch, executor = self._make_orch_with_state()
+        orch, _executor = self._make_orch_with_state()
         orch._cfg.trading_mode = TradingMode.LIVE
         orch._storage.earliest_equity_ts = AsyncMock(return_value=1_700_000_000_000)
 
@@ -437,7 +437,7 @@ def _startup_common_patches(executor):
 class TestStartupLiveModeAndDriftDetector:
     @pytest.mark.asyncio
     async def test_startup_live_mode_creates_live_executor(self):
-        orch, storage, fetcher = _make_orch_cfg(trading_mode=TradingMode.LIVE)
+        orch, _storage, _fetcher = _make_orch_cfg(trading_mode=TradingMode.LIVE)
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
         with (
@@ -453,7 +453,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_drift_detector_initialized_on_success(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -483,7 +483,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_drift_detector_init_failure_continues(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -510,7 +510,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_engine_skip_when_detector_or_trainer_missing(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -530,7 +530,7 @@ class TestStartupLiveModeAndDriftDetector:
 
     @pytest.mark.asyncio
     async def test_startup_engine_skip_on_filenotfound(self):
-        orch, storage, fetcher = _make_orch_cfg()
+        orch, _storage, _fetcher = _make_orch_cfg()
         executor = _make_executor()
         p1, p2 = _startup_common_patches(executor)
 
@@ -778,7 +778,7 @@ class TestTickScheduledRetrain:
 
     @pytest.mark.asyncio
     async def test_scheduled_retrain_fires_at_interval(self):
-        orch, executor = self._make_orch_at_interval()
+        orch, _executor = self._make_orch_at_interval()
         result = _make_skip_result()
         mock_engine = MagicMock()
         mock_engine.tick = AsyncMock(return_value=result)
@@ -808,9 +808,9 @@ class TestTickScheduledRetrain:
 
     @pytest.mark.asyncio
     async def test_scheduled_retrain_skipped_when_already_running(self):
-        prior = asyncio.get_event_loop().create_future()
+        prior = asyncio.get_running_loop().create_future()
         prior.done = MagicMock(return_value=False)  # simulate a still-running task
-        orch, executor = self._make_orch_at_interval(prior_task=prior)
+        orch, _executor = self._make_orch_at_interval(prior_task=prior)
 
         result = _make_skip_result()
         mock_engine = MagicMock()
@@ -832,6 +832,70 @@ class TestTickScheduledRetrain:
         # Prior task is still "running" → same task object must remain registered
         assert orch._retrain_tasks[Timeframe.INTRADAY.value] is prior
         prior.cancel()
+
+    @pytest.mark.asyncio
+    async def test_scheduled_retrain_done_callback_skips_del_when_task_already_replaced(self):
+        orch, _executor = self._make_orch_at_interval()
+        result = _make_skip_result()
+        mock_engine = MagicMock()
+        mock_engine.tick = AsyncMock(return_value=result)
+        orch._engines = {Timeframe.INTRADAY.value: mock_engine}
+
+        async def _fast_train(tf):
+            return None
+
+        orch._train_models = _fast_train
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            original_task = orch._retrain_tasks[Timeframe.INTRADAY.value]
+            decoy = asyncio.get_running_loop().create_future()
+            orch._retrain_tasks[Timeframe.INTRADAY.value] = decoy  # type: ignore[assignment]
+            await original_task
+
+        assert orch._retrain_tasks[Timeframe.INTRADAY.value] is decoy
+        decoy.cancel()
+
+    @pytest.mark.asyncio
+    async def test_scheduled_retrain_failure_records_last_error(self):
+        """SCAN2-003: an exception from the periodic (non-drift) retrain task
+        must be logged/recorded via its done-callback, not vanish silently."""
+        orch, _executor = self._make_orch_at_interval()
+        result = _make_skip_result()
+        mock_engine = MagicMock()
+        mock_engine.tick = AsyncMock(return_value=result)
+        orch._engines = {Timeframe.INTRADAY.value: mock_engine}
+
+        async def _failing_train(tf):
+            raise RuntimeError("scheduled retrain blew up")
+
+        orch._train_models = _failing_train
+
+        tracker = MagicMock()
+        tracker.correlation_scalar = MagicMock(return_value=1.0)
+        tracker.push_bar_returns = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.get_portfolio_correlation", return_value=tracker),
+            patch(
+                "src.engine.orchestrator.compute_win_loss_stats", return_value=(0, 0.0, 0.0, 0.0)
+            ),
+        ):
+            await orch._tick(Timeframe.INTRADAY)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        assert "scheduled retrain blew up" in orch._last_retrain_error[Timeframe.INTRADAY.value]
+        assert Timeframe.INTRADAY.value not in orch._retrain_tasks
 
 
 # ---------------------------------------------------------------------------
@@ -904,6 +968,9 @@ class TestTrainModelsRemainingBranches:
     @pytest.mark.asyncio
     async def test_hot_swap_models_called_when_engine_exists(self):
         orch = self._orch_for_train()
+        # v4 shadow mode off: this test pins the direct swap-on-retrain path.
+        # The shadow path is covered by test_orchestrator_shadow_routing.py.
+        orch._cfg.xgboost.shadow_mode_enabled = False
         existing_engine = AsyncMock()
         existing_engine.swap_models = AsyncMock(return_value=None)
         orch._engines[Timeframe.INTRADAY.value] = existing_engine
@@ -939,7 +1006,72 @@ class TestTrainModelsRemainingBranches:
         ):
             await orch._train_models(Timeframe.INTRADAY)
 
-        existing_engine.swap_models.assert_awaited_once_with(new_dir, new_meta, detector)
+        existing_engine.swap_models.assert_awaited_once_with(
+            new_dir,
+            new_meta,
+            detector,
+            ensemble=trainer.train_ensemble.return_value,
+            model_id=ANY,
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensemble_train_exception_falls_back_to_none_and_still_shadows(self):
+        """train_ensemble()/save_ensemble() failing must not block the
+        direction/meta models -- which already trained/saved successfully --
+        from reaching the shadow slot with ensemble=None.
+
+        Shadow mode is on by default, so a bundle that clears the live gate is
+        shadowed rather than swapped; the ensemble fallback being carried
+        through is what this covers either way."""
+        orch = self._orch_for_train()
+        existing_engine = AsyncMock()
+        existing_engine.set_shadow_bundle = AsyncMock(return_value=None)
+        orch._engines[Timeframe.INTRADAY.value] = existing_engine
+
+        fm = MagicMock()
+        fm.features = MagicMock()
+        dir_result = MagicMock()
+        dir_result.oos_sharpe = 1.5
+        dir_result.live_gate_pass = True
+        dir_result.model = MagicMock()
+        dir_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        meta_result = MagicMock()
+        meta_result.oos_sharpe = 1.2
+        meta_result.live_gate_pass = True
+        meta_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        trainer = MagicMock()
+        trainer.train_direction = MagicMock(return_value=dir_result)
+        trainer.train_meta_label = MagicMock(return_value=meta_result)
+        trainer.train_ensemble = MagicMock(side_effect=RuntimeError("ensemble blew up"))
+        trainer.save = MagicMock()
+        detector = MagicMock()
+        detector.fit = MagicMock()
+        detector.save = MagicMock()
+
+        new_dir = MagicMock()
+        new_meta = MagicMock()
+
+        with (
+            patch("src.engine.orchestrator.build_feature_matrix", return_value=fm),
+            patch("src.engine.orchestrator.ModelTrainer", return_value=trainer),
+            patch("src.engine.orchestrator.RegimeDetector", return_value=detector),
+            patch("src.engine.orchestrator.ModelTrainer.load_direction", return_value=new_dir),
+            patch("src.engine.orchestrator.ModelTrainer.load_meta", return_value=new_meta),
+        ):
+            await orch._train_models(Timeframe.INTRADAY)  # must not raise
+
+        # Retraining no longer swaps directly: with shadow_mode_enabled (the
+        # default) a passing candidate is shadowed until it out-predicts the
+        # incumbent. The property this test exists for is unchanged -- an
+        # ensemble failure must not stop the direction/meta bundle from being
+        # routed -- so it now asserts the routing, and that the bundle
+        # carries ensemble=None rather than a half-built one.
+        existing_engine.set_shadow_bundle.assert_awaited_once()
+        bundle = existing_engine.set_shadow_bundle.await_args.args[0]
+        assert bundle.direction_model is new_dir
+        assert bundle.meta_model is new_meta
+        assert bundle.detector is detector
+        assert bundle.ensemble is None
 
 
 # ---------------------------------------------------------------------------
