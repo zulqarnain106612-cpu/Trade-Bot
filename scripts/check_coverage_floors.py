@@ -51,6 +51,13 @@ COVERAGE_FLOORS: dict[str, int] = {
     "src/risk/gates.py": 70,
     "src/risk/cognitive_engine.py": 65,
     "src/risk/kelly.py": 70,
+    # Crypto-Box ensemble — manipulations and consensus are safety-critical.
+    "src/engines/consensus.py": 80,
+    "src/engines/signal_gate.py": 85,
+    "src/engines/risk_quantifier.py": 85,
+    "src/engines/schema.py": 90,
+    "src/regime/depth_detector_v2.py": 75,
+    "src/engine/crypto_box_adapter.py": 70,
 }
 
 
@@ -147,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
         status = "OK  " if actual_pct >= min_pct else "FAIL"
         marker = "✓" if status == "OK  " else "✗"
-        print(f"  [{status}] {marker} {pattern:<55} {actual_pct:5.1f}% " f"(floor={min_pct}%)")
+        print(f"  [{status}] {marker} {pattern:<55} {actual_pct:5.1f}% (floor={min_pct}%)")
 
         if actual_pct < min_pct:
             violations.append(f"{pattern}: {actual_pct:.1f}% < required {min_pct}%")

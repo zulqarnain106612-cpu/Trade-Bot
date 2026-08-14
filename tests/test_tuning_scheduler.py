@@ -1001,3 +1001,46 @@ class TestSchedulerHelperEdgeCases:
         scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
         samples = asyncio.run(scheduler._build_trade_samples())
         assert len(samples) == 1
+
+
+class TestMaybeRetrainE09:
+    """_maybe_retrain_e09 skips gracefully in various conditions."""
+
+    def test_skips_when_crypto_box_disabled(self, monkeypatch) -> None:
+        monkeypatch.delenv("CRYPTO_BOX", raising=False)
+        settings = get_settings()
+        scheduler = AutoTuningScheduler(_FakeStorage([], {}), settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        # Should complete without calling retrain (no CRYPTO_BOX env var)
+        asyncio.run(scheduler._maybe_retrain_e09())  # must not raise
+
+    def test_skips_when_not_on_cycle(self, monkeypatch) -> None:
+        monkeypatch.setenv("CRYPTO_BOX", "true")
+        settings = get_settings()
+        scheduler = AutoTuningScheduler(_FakeStorage([], {}), settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        scheduler._cycle_count = 1  # not a multiple of 48
+        asyncio.run(scheduler._maybe_retrain_e09())  # must not raise, just return
+
+    def test_skips_when_insufficient_bars(self, monkeypatch) -> None:
+        monkeypatch.setenv("CRYPTO_BOX", "true")
+        settings = get_settings()
+        bars = [make_bar(ts=i * 1000, close=100.0) for i in range(10)]  # far fewer than 230
+        storage = _FakeStorage([], {}, bars=bars)
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        scheduler._cycle_count = 0  # on-cycle
+        asyncio.run(scheduler._maybe_retrain_e09())  # must log and return without raising
+
+
+class TestRetrainE09WalkforwardSkip:
+    """retrain_e09_walkforward returns 0 when CRYPTO_BOX is not set."""
+
+    def test_returns_zero_without_crypto_box(self, monkeypatch) -> None:
+        import pandas as pd
+
+        from src.tuning.engine_backtest import retrain_e09_walkforward
+
+        monkeypatch.delenv("CRYPTO_BOX", raising=False)
+        df = pd.DataFrame(
+            {"open": [1.0], "high": [1.0], "low": [1.0], "close": [1.0], "volume": [1.0]}
+        )
+        result = asyncio.run(retrain_e09_walkforward(df))
+        assert result == 0
