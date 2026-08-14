@@ -20,6 +20,7 @@ import pytest
 
 from src.features.pipeline import bar_gap_report
 
+
 _HOUR = 3_600_000
 
 

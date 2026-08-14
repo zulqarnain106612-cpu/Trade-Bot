@@ -37,7 +37,11 @@ def _detector() -> PerformanceDriftDetector:
 
 def _feed(det, equity: float, start: float = 10_000.0) -> None:
     det.record_trade_outcome(
-        pnl_usd=1.0, predicted_prob=0.6, actual_direction=1, current_equity=equity, starting_equity=start
+        pnl_usd=1.0,
+        predicted_prob=0.6,
+        actual_direction=1,
+        current_equity=equity,
+        starting_equity=start,
     )
 
 
