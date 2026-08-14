@@ -924,9 +924,7 @@ class LiveExecutor(AbstractExecutor):
             # into the requested size, so an order that filled nothing was
             # recorded as a full position. Only a missing value falls back.
             _filled_raw = order.get("filled")
-            filled_qty = (
-                float(kelly_result.quantity) if _filled_raw is None else float(_filled_raw)
-            )
+            filled_qty = float(kelly_result.quantity) if _filled_raw is None else float(_filled_raw)
             exchange_order_id = str(order.get("id", ""))
             entry_fee = self._extract_fee(order, actual_price, filled_qty)
 
