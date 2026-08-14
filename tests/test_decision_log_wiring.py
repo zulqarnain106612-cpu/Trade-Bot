@@ -109,6 +109,9 @@ class TestStructuralDecay:
         manager = _manager(drifted=False)
         state = manager._states["mean_reversion_v1"]
         state.detector.current_rolling_sharpe.return_value = 0.1
+        # evaluate() only feeds the CUSUM when the live-trade count has
+        # advanced, so this has to be a real number, not a MagicMock.
+        state.detector.total_live_trades = 30
         state.decay_detector = MagicMock()
         state.decay_detector.is_decayed = True
         state.decay_detector.cusum_statistic = 3.21
@@ -121,9 +124,16 @@ class TestStructuralDecay:
         assert "3.21" in text
 
     def test_decay_is_recorded_once_not_every_tick(self, log_path: Path) -> None:
-        """The CUSUM statistic stays above threshold once crossed."""
+        """
+        The CUSUM statistic stays above threshold once crossed. The trade
+        count is advanced on every tick so the CUSUM genuinely re-evaluates
+        each time — otherwise this would pass on evaluate()'s new-evidence
+        gate rather than on the decay_logged flag it is meant to cover.
+        """
         manager = self._decayed_manager()
-        for _ in range(5):
+        detector = manager._states["mean_reversion_v1"].detector
+        for tick in range(5):
+            detector.total_live_trades = 31 + tick
             manager.evaluate("mean_reversion_v1")
         assert log_path.read_text(encoding="utf-8").count("strategy_structural_decay") == 1
 

@@ -58,6 +58,10 @@ def compute_annualized_basis_pct(
     """
     if spot_price <= 0:
         raise ValueError(f"spot_price must be positive, got {spot_price}")
+    if perp_price <= 0:
+        # A non-positive perp mark is bad data, not deep backwardation: it
+        # would yield a <= -100% raw gap and a confidently-saturated long.
+        raise ValueError(f"perp_price must be positive, got {perp_price}")
     if days_to_convergence <= 0:
         # A zero or negative horizon is not "instant convergence", it is a
         # division by zero wearing a plausible name.
