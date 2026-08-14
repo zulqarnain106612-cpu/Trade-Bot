@@ -28,7 +28,7 @@ permissions:
 jobs:
   bandit:
     name: Bandit — Python security lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -58,7 +58,7 @@ jobs:
 
   semgrep:
     name: Semgrep — semantic security scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     container:
       image: returntocorp/semgrep:latest
 
@@ -87,7 +87,7 @@ jobs:
 
   pip-audit:
     name: pip-audit — Python CVE scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -185,7 +185,7 @@ jobs:
 
   npm-audit:
     name: npm audit — Frontend CVE scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -213,7 +213,7 @@ jobs:
 
   trufflehog:
     name: TruffleHog — git secret scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
         with:

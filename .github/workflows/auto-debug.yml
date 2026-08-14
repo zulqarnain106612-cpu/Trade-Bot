@@ -21,7 +21,7 @@ permissions:
 jobs:
   ai-debug:
     name: AI failure analysis + Vulner-Fix.md
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     if: |
       github.event.workflow_run.conclusion == 'failure' ||
       github.event_name == 'workflow_dispatch'
