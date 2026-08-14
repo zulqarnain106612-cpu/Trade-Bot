@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
@@ -95,7 +95,7 @@ _MIN_FUNDING_SAMPLES: int = 24
 _MAX_VENUE_QUOTE_SKEW_S: float = 2.0
 
 
-class VerdictStatus(str, Enum):
+class VerdictStatus(StrEnum):
     """Why a strategy did or did not contribute a vote this tick."""
 
     SIGNAL = "signal"
@@ -403,7 +403,7 @@ def build_xsec_momentum_context(inputs: PortfolioInputs) -> object | None:
     )
 
 
-class InputNeed(str, Enum):
+class InputNeed(StrEnum):
     """A kind of data some family's context builder consumes."""
 
     BARS = "bars"
