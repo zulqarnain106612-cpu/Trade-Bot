@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
-description: Autonomous reviewer for Trade-Bot. Use proactively after edits to src/, tests/, or scripts/ touching execution, risk, regime, or exchange-integration code. Reviews for financial correctness, security, race conditions, and CLAUDE.md compliance.
-tools: Read, Grep, Glob, Bash(git diff:*), Bash(git log:*), Bash(uv run pytest *), Bash(uv run mypy *), Bash(uv run ruff *)
+description: Autonomous reviewer for Trade-Bot. Use after edits to src/, tests/, or scripts/ touching execution, risk, regime, or exchange-integration code. Reviews for financial correctness, security, race conditions, and CLAUDE.md compliance.
+tools: Read, Grep, Glob, Bash(git diff:*), Bash(git log:*)
 model: sonnet
 ---
 

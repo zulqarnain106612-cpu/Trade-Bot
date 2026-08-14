@@ -61,12 +61,12 @@
       "Bash(python3 -c \"*\" *)",
       "Bash(rm -rf src/execution/*)",
       "Bash(rm -rf src/risk/*)",
-      "Agent",
+      "Task",
       "Read(.env*)",
       "Read(.venv/**)",
-      "Read(/data/**)",
-      "Read(/logs/**)",
-      "Read(/models/**)",
+      "Read(data/**)",
+      "Read(logs/**)",
+      "Read(models/**)",
       "Write(.env*)"
     ],
     "ask": [
