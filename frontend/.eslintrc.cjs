@@ -21,7 +21,9 @@ module.exports = {
     "eslint:recommended",
     "plugin:react/recommended",
     "plugin:react-hooks/recommended",
-    "standard",
+    // eslint-config-standard was dropped: it pins peer eslint ^8.0.1 and has no
+    // eslint 10 release, so `npm ci` could not resolve the tree at all. Its
+    // rules were almost entirely stylistic and are already covered by prettier.
     "prettier"
   ],
   plugins: ["react", "react-hooks"],
