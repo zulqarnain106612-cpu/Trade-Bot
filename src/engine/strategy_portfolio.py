@@ -559,9 +559,7 @@ class StrategyPortfolioRunner:
         voting = [v for v in verdicts if v.votes and v.signal is not None]
         if not voting:
             # No voters is unanimity, not conflict: nobody disagreed.
-            return ConflictResolution(
-                direction=0, weight=0.0, conflict=False, agreement_ratio=1.0
-            )
+            return ConflictResolution(direction=0, weight=0.0, conflict=False, agreement_ratio=1.0)
         payload = [
             {"direction": v.signal.direction, "confidence": v.signal.confidence}
             for v in voting
@@ -676,8 +674,8 @@ def reset_portfolio_runner() -> None:
 
 
 __all__ = [
-    "NO_CONTEXT",
     "BUILDER_NEEDS",
+    "NO_CONTEXT",
     "ContextBuilder",
     "InputNeed",
     "PortfolioEvaluation",
@@ -690,8 +688,8 @@ __all__ = [
     "build_cross_exchange_context",
     "build_funding_context",
     "build_mean_reversion_context",
-    "build_xsec_momentum_context",
     "build_signal_engine_context",
+    "build_xsec_momentum_context",
     "default_context_builders",
     "get_portfolio_runner",
     "required_inputs",

@@ -614,9 +614,7 @@ class TestTripleBarrierComposition:
         # barrier, which is the mis-calibration the composition exists to show.
         close = self._series()
         vol = pd.Series(np.full(len(close), 0.5), index=close.index)
-        labels, offsets = triple_barrier_labels_with_offsets(
-            close, 100.0, 100.0, 20, daily_vol=vol
-        )
+        labels, offsets = triple_barrier_labels_with_offsets(close, 100.0, 100.0, 20, daily_vol=vol)
         comp = summarize_triple_barrier(labels, offsets)
         assert comp.time_exit_fraction == pytest.approx(1.0)
         assert comp.mean_holding_bars == pytest.approx(20.0)
@@ -624,9 +622,7 @@ class TestTripleBarrierComposition:
     def test_tight_barriers_resolve_on_price(self) -> None:
         close = self._series()
         vol = pd.Series(np.full(len(close), 1e-4), index=close.index)
-        labels, offsets = triple_barrier_labels_with_offsets(
-            close, 0.01, 0.01, 30, daily_vol=vol
-        )
+        labels, offsets = triple_barrier_labels_with_offsets(close, 0.01, 0.01, 30, daily_vol=vol)
         comp = summarize_triple_barrier(labels, offsets)
         assert comp.time_exit_fraction < 1.0
         assert comp.mean_holding_bars < 30.0
@@ -648,9 +644,7 @@ class TestTripleBarrierComposition:
         assert comp.mean_holding_bars == 0.0
 
     def test_as_dict_is_loggable(self) -> None:
-        comp = summarize_triple_barrier(
-            pd.Series([1.0, -1.0]), pd.Series([2.0, 8.0])
-        )
+        comp = summarize_triple_barrier(pd.Series([1.0, -1.0]), pd.Series([2.0, 8.0]))
         payload = comp.as_dict()
         assert payload["total"] == 2
         assert payload["time_exit_fraction"] == pytest.approx(0.5)

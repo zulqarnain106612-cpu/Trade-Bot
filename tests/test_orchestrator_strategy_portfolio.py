@@ -141,7 +141,7 @@ def _wire(monkeypatch, registry: StrategyRegistry, *, enabled: set[str] | None =
 
 
 class _Cfg:
-    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+    class strategy_portfolio:
         max_allocation_shift_per_step = 0.10
         basis_perp_symbol = ""
 
@@ -413,13 +413,13 @@ async def test_funding_lookback_is_calendar_based_not_bar_based():
 
 
 class _CfgWithPerp:
-    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+    class strategy_portfolio:
         max_allocation_shift_per_step = 0.10
         basis_perp_symbol = "BTC/USDT:USDT"
 
 
 class _CfgNoPerp:
-    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+    class strategy_portfolio:
         max_allocation_shift_per_step = 0.10
         basis_perp_symbol = ""
 
@@ -487,7 +487,7 @@ class _Cache:
 
 
 class _CfgPair:
-    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+    class strategy_portfolio:
         max_allocation_shift_per_step = 0.10
         basis_perp_symbol = ""
         mean_reversion_pair = ["A/USDT", "B/USDT"]
@@ -587,7 +587,7 @@ def test_a_failing_cointegration_test_abstains_and_is_not_retried_per_tick():
 
 
 class _CfgQuotes:
-    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+    class strategy_portfolio:
         max_allocation_shift_per_step = 0.10
         basis_perp_symbol = "BTC/USDT:USDT"
         mean_reversion_pair = []
@@ -600,9 +600,7 @@ async def test_the_same_quote_is_not_requested_twice_in_one_tick():
     # family; _fetch_basis_legs needed the identical quote for the basis
     # spot leg. That was two round-trips per tick per timeframe against a
     # rate limit shared with the order path.
-    fetcher = _SymbolFetcher(
-        {"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0}
-    )
+    fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
     orch = _orchestrator(_Storage())
     orch._cfg = _CfgQuotes()
     orch._fetcher = fetcher
@@ -708,9 +706,7 @@ async def test_the_default_configuration_costs_no_io():
     orch._cfg = _CfgQuotes()
     orch._fetcher = fetcher
 
-    await orch._build_portfolio_inputs(
-        Timeframe.INTRADAY, required_inputs(["signal_engine_v1"])
-    )
+    await orch._build_portfolio_inputs(Timeframe.INTRADAY, required_inputs(["signal_engine_v1"]))
 
     assert storage.bar_calls == 0
     assert storage.intel_calls == 0
@@ -759,7 +755,7 @@ class _SnapshotCache:
     async def trailing_returns(self):
         self.refreshes += 1
         self.fetched_at = 100.0
-        return {k: 0.1 for k in self._series}
+        return dict.fromkeys(self._series, 0.1)
 
     def close_series(self, symbol: str):
         # Only readable once a refresh has populated the snapshot — which is
@@ -768,7 +764,7 @@ class _SnapshotCache:
 
 
 class _CfgPairOnly:
-    class strategy_portfolio:  # noqa: N801 - mirrors the settings attribute path
+    class strategy_portfolio:
         max_allocation_shift_per_step = 0.10
         basis_perp_symbol = ""
         basis_days_to_convergence = 1.0
@@ -845,9 +841,7 @@ async def test_neither_family_leaves_the_snapshot_untouched():
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
-    await orch._build_portfolio_inputs(
-        Timeframe.INTRADAY, required_inputs(["signal_engine_v1"])
-    )
+    await orch._build_portfolio_inputs(Timeframe.INTRADAY, required_inputs(["signal_engine_v1"]))
     assert cache.refreshes == 0
 
 
