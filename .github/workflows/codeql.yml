@@ -23,7 +23,7 @@ permissions:
 jobs:
   analyze:
     name: CodeQL — ${{ matrix.language }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
 
     strategy:
       fail-fast: false
@@ -62,7 +62,7 @@ jobs:
   create-issues:
     name: Create issues for critical findings
     needs: analyze
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     if: github.ref == 'refs/heads/main'
     permissions:
       issues: write
