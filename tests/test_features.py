@@ -28,7 +28,9 @@ from src.features.pipeline import (
     order_flow_imbalance,
     realized_vol_ratio,
     rolling_sharpe,
+    summarize_triple_barrier,
     triple_barrier_labels,
+    triple_barrier_labels_with_offsets,
     volume_zscore,
     vwap_deviation_zscore,
 )
@@ -581,3 +583,68 @@ class TestGARCHPipelineIntegration:
     def test_feature_columns_has_8_base_features(self) -> None:
         assert len(BASE_FEATURE_COLUMNS) == 8
         assert list(BASE_FEATURE_COLUMNS) == FEATURE_COLUMNS
+
+
+# ─── triple-barrier exit composition ──────────────────────────────────────────
+
+
+class TestTripleBarrierComposition:
+    def _series(self, n: int = 200) -> pd.Series:
+        return pd.Series(np.linspace(100.0, 110.0, n))
+
+    def test_labels_only_signature_is_unchanged(self) -> None:
+        # The long-standing entry point must keep returning a bare Series.
+        tb = triple_barrier_labels(self._series(), 2.0, 1.0, 60)
+        assert isinstance(tb, pd.Series)
+
+    def test_offsets_variant_returns_both_and_agrees_on_labels(self) -> None:
+        close = self._series()
+        labels, offsets = triple_barrier_labels_with_offsets(close, 2.0, 1.0, 60)
+        assert labels.equals(triple_barrier_labels(close, 2.0, 1.0, 60))
+        assert len(offsets) == len(close)
+
+    def test_offsets_are_bounded_by_max_holding(self) -> None:
+        _, offsets = triple_barrier_labels_with_offsets(self._series(), 2.0, 1.0, 30)
+        valid = offsets.dropna()
+        assert (valid >= 1).all()
+        assert (valid <= 30).all()
+
+    def test_wide_barriers_resolve_on_the_clock(self) -> None:
+        # Barriers far too wide to reach: every label comes from the vertical
+        # barrier, which is the mis-calibration the composition exists to show.
+        close = self._series()
+        vol = pd.Series(np.full(len(close), 0.5), index=close.index)
+        labels, offsets = triple_barrier_labels_with_offsets(close, 100.0, 100.0, 20, daily_vol=vol)
+        comp = summarize_triple_barrier(labels, offsets)
+        assert comp.time_exit_fraction == pytest.approx(1.0)
+        assert comp.mean_holding_bars == pytest.approx(20.0)
+
+    def test_tight_barriers_resolve_on_price(self) -> None:
+        close = self._series()
+        vol = pd.Series(np.full(len(close), 1e-4), index=close.index)
+        labels, offsets = triple_barrier_labels_with_offsets(close, 0.01, 0.01, 30, daily_vol=vol)
+        comp = summarize_triple_barrier(labels, offsets)
+        assert comp.time_exit_fraction < 1.0
+        assert comp.mean_holding_bars < 30.0
+
+    def test_unlabelled_tail_is_excluded_not_counted(self) -> None:
+        # NaN rows are the tail beyond the holding window, not a fourth
+        # category of exit.
+        labels = pd.Series([1.0, 0.0, -1.0, np.nan])
+        offsets = pd.Series([3.0, 5.0, 10.0, np.nan])
+        comp = summarize_triple_barrier(labels, offsets)
+        assert comp.total == 3
+        assert (comp.profit_target, comp.stop_loss, comp.time_exit) == (1, 1, 1)
+        assert comp.mean_holding_bars == pytest.approx(6.0)
+
+    def test_empty_composition_does_not_divide_by_zero(self) -> None:
+        comp = summarize_triple_barrier(pd.Series(dtype=float), pd.Series(dtype=float))
+        assert comp.total == 0
+        assert comp.time_exit_fraction == 0.0
+        assert comp.mean_holding_bars == 0.0
+
+    def test_as_dict_is_loggable(self) -> None:
+        comp = summarize_triple_barrier(pd.Series([1.0, -1.0]), pd.Series([2.0, 8.0]))
+        payload = comp.as_dict()
+        assert payload["total"] == 2
+        assert payload["time_exit_fraction"] == pytest.approx(0.5)

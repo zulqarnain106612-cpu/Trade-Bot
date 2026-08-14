@@ -111,10 +111,16 @@ class OKXIntelligenceProvider(ExchangeIntelligenceProvider):
         self._log.info("okx_intelligence.initialized")
 
     async def close(self) -> None:
-        """Close underlying ccxt sessions."""
+        """
+        Close underlying ccxt sessions.
+
+        return_exceptions so one failing close cannot cancel the other and
+        leak its aiohttp session for the life of the process.
+        """
         await asyncio.gather(
             self._spot.close(),
             self._perp.close(),
+            return_exceptions=True,
         )
 
     # ------------------------------------------------------------------

@@ -331,6 +331,7 @@ class RegimeDetector:
         best_score: float = float("-inf")
 
         t0 = time.perf_counter()
+        failed_seeds: list[int] = []
         for seed in range(_HMM_N_INIT):
             candidate = GaussianHMM(
                 n_components=cfg.n_components,
@@ -343,11 +344,37 @@ class RegimeDetector:
             candidate.fit(X, lengths=lengths_arg)
             try:
                 score = candidate.score(X, lengths=lengths_arg)
-            except Exception:
+            except Exception as exc:
+                # A restart that cannot be scored is usually a degenerate
+                # covariance — routine with covariance_type="full" on a short
+                # window, and the reason multiple restarts exist. Skipping it
+                # is right; skipping it silently is not: the detector would
+                # happily select from one surviving restart out of n while
+                # reporting nothing, and regime quality feeds every consumer
+                # downstream.
+                failed_seeds.append(seed)
+                log.debug(
+                    "regime.hmm_restart_score_failed",
+                    seed=seed,
+                    error=str(exc),
+                )
                 continue
             if score > best_score:
                 best_score = score
                 best_model = candidate
+
+        if failed_seeds:
+            # Reported once, with the count, rather than n times: what matters
+            # is how much of the restart budget actually survived, not which
+            # individual seeds died.
+            log.warning(
+                "regime.hmm_restarts_failed",
+                failed=len(failed_seeds),
+                total=_HMM_N_INIT,
+                seeds=failed_seeds,
+                surviving=_HMM_N_INIT - len(failed_seeds),
+                covariance_type=cfg.covariance_type,
+            )
 
         elapsed = time.perf_counter() - t0
 

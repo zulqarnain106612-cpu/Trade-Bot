@@ -346,6 +346,7 @@ def _make_api_state():
     orch._executor.pending_approvals_safe = AsyncMock(return_value=[])
     orch._executor._order_fsm_registry = {}
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch

@@ -7,6 +7,17 @@ caller (orchestrator, once fills are tagged with strategy_id at signal
 origination per Sub-task 1's registry) feeds fills in via
 AttributionTracker.record().
 
+Retention: the tracker keeps a bounded per-strategy window of raw fills
+(``MAX_FILLS_PER_STRATEGY``) plus unbounded *scalar* lifetime aggregates.
+An unbounded fill list would grow for the life of the process and make
+``snapshot()`` — which the capital allocator calls on every allocation —
+cost more every day it stays up. Counts and totals that must not shrink
+when a fill is evicted (trade_count, total_pnl_usd, win_rate,
+first_entry_ts) are accumulated as running scalars; the path-dependent
+ratios (Sharpe, Sortino, Calmar, max drawdown) are computed over the
+retained window, which also makes them track recent behaviour rather than
+being anchored to a strategy's first month forever.
+
 Authority:
   - Sharpe (1966) "Mutual Fund Performance" — risk-adjusted return ratio
   - Sortino & Price (1994) "Performance Measurement in a Downside Risk Framework"
@@ -17,7 +28,8 @@ Authority:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass, field, replace
 
 import structlog
 
@@ -138,6 +150,23 @@ def compute_attribution(strategy_id: str, fills: list[AttributedFill]) -> Strate
     )
 
 
+# Per-strategy retention for the path-dependent ratios. 2000 fills is far
+# more than any ratio here needs to be stable, and bounds a long-running
+# process at a few hundred KB per strategy.
+MAX_FILLS_PER_STRATEGY: int = 2000
+
+
+@dataclass(slots=True)
+class _StrategyState:
+    """One strategy's retained fill window plus its lifetime scalars."""
+
+    fills: deque[AttributedFill]
+    lifetime_trades: int = 0
+    lifetime_pnl_usd: float = 0.0
+    lifetime_wins: int = 0
+    first_entry_ts: int | None = None
+
+
 @dataclass
 class AttributionTracker:
     """
@@ -145,12 +174,31 @@ class AttributionTracker:
     on demand. Orchestrator feeds fills via record() as trades close;
     the FastAPI layer reads via snapshot() for the /strategies/attribution
     endpoint.
+
+    Memory is bounded: see the module docstring for which figures survive
+    eviction (counts, totals, first entry) and which are window-scoped
+    (Sharpe, Sortino, Calmar, max drawdown).
     """
 
-    _fills: list[AttributedFill] = field(default_factory=list)
+    max_fills_per_strategy: int = MAX_FILLS_PER_STRATEGY
+    _states: dict[str, _StrategyState] = field(default_factory=dict)
+
+    def _state(self, strategy_id: str) -> _StrategyState:
+        state = self._states.get(strategy_id)
+        if state is None:
+            state = _StrategyState(fills=deque(maxlen=self.max_fills_per_strategy))
+            self._states[strategy_id] = state
+        return state
 
     def record(self, fill: AttributedFill) -> None:
-        self._fills.append(fill)
+        state = self._state(fill.strategy_id)
+        state.fills.append(fill)
+        state.lifetime_trades += 1
+        state.lifetime_pnl_usd += fill.pnl_usd
+        if fill.pnl_usd > 0:
+            state.lifetime_wins += 1
+        if state.first_entry_ts is None or fill.entry_ts < state.first_entry_ts:
+            state.first_entry_ts = fill.entry_ts
         log.debug(
             "attribution.recorded",
             strategy_id=fill.strategy_id,
@@ -158,11 +206,65 @@ class AttributionTracker:
         )
 
     def snapshot(self) -> dict[str, StrategyAttribution]:
-        strategy_ids = {f.strategy_id for f in self._fills}
-        return {sid: compute_attribution(sid, self._fills) for sid in strategy_ids}
+        """
+        Per-strategy stats. Counts and totals are lifetime; the risk ratios
+        are computed over the retained window.
+        """
+        out: dict[str, StrategyAttribution] = {}
+        for strategy_id, state in self._states.items():
+            windowed = compute_attribution(strategy_id, list(state.fills))
+            out[strategy_id] = replace(
+                windowed,
+                trade_count=state.lifetime_trades,
+                total_pnl_usd=state.lifetime_pnl_usd,
+                win_rate=(
+                    state.lifetime_wins / state.lifetime_trades if state.lifetime_trades else 0.0
+                ),
+            )
+        return out
+
+    def fills_for(self, strategy_id: str) -> list[AttributedFill]:
+        """
+        This strategy's retained fills, in record order — the window, not
+        every fill ever recorded.
+
+        snapshot() aggregates away the timestamps; the promotion gauntlet
+        (src/tuning/promotion_gauntlet.py) needs them to know how long a
+        candidate has actually been running. Pair this with
+        first_entry_ts_for(), which does not shrink under eviction.
+        """
+        state = self._states.get(strategy_id)
+        return list(state.fills) if state is not None else []
+
+    def first_entry_ts_for(self, strategy_id: str) -> int | None:
+        """
+        Earliest entry timestamp ever recorded for this strategy, or None.
+
+        Survives window eviction, so a long-lived strategy does not appear
+        to have started trading recently once its oldest fills age out.
+        """
+        state = self._states.get(strategy_id)
+        return state.first_entry_ts if state is not None else None
+
+    def lifetime_trade_count(self, strategy_id: str) -> int:
+        """Every fill ever recorded for this strategy, not just the window."""
+        state = self._states.get(strategy_id)
+        return state.lifetime_trades if state is not None else 0
 
     def fill_count(self) -> int:
-        return len(self._fills)
+        """Lifetime fills across all strategies."""
+        return sum(s.lifetime_trades for s in self._states.values())
+
+    def reset(self) -> None:
+        """
+        Drop all state, including the lifetime scalars.
+
+        The tracker is a process-wide singleton, so tests need a supported
+        way to isolate themselves rather than reaching into its internals.
+        Nothing in the trading path calls this — a live reset would erase
+        the very history the allocator and the gauntlet size decisions on.
+        """
+        self._states.clear()
 
 
 _tracker: AttributionTracker = AttributionTracker()

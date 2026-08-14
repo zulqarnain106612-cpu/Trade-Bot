@@ -1,6 +1,12 @@
 """
 Online Learning Hook — TASK-008.
 
+NOT wired into the live signal path: nothing imports this module, so no
+prediction is blended with the batch model today. The blending weight and
+warm-up policy below describe how a caller should use it, not behaviour any
+running code exhibits. Wiring it means touching src/engine/signal_engine.py's
+prediction path, which is a live-trading change, not a refactor.
+
 Incremental SGD classifier that updates after every resolved bar, catching
 label drift between expensive XGBoost batch retrains (AFML Ch.11).
 

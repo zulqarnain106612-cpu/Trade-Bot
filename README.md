@@ -21,7 +21,7 @@ SQLite (WAL) or TimescaleDB · structlog
 | Labeling | Triple-barrier method (AFML Ch.3) |
 | Validation | CPCV — Combinatorial Purged Cross-Validation (AFML Ch.7) |
 | Sizing | Half-Kelly (multiplier=0.5, ceiling=0.25) + Carver forecast-scaled + AFML bet-size + Thorp variance-adjusted |
-| Online adaptation | `src/models/online_trainer.py` — incremental model updates between full retrains |
+| Online adaptation | `src/models/online_trainer.py` — incremental SGD updates between full retrains. **Built and tested, not yet wired into the signal path** — no caller blends its prediction today. |
 
 ## Intelligence Layer
 
@@ -36,7 +36,8 @@ unreachable or unkeyed — never blocks the core trading loop.
 | On-chain | Arkham Intel, Dune Analytics, Coinglass, DeFiLlama | Free-tier keys, optional |
 | On-chain (paid) | Glassnode, CryptoQuant | Optional; CryptoQuant funding-rate falls back to Binance perp if unset |
 | Market cap / dominance | CoinGecko | Free |
-| Ensemble | `src/intelligence/ensemble_predictor.py`, `causal_inference.py`, `probabilistic.py` | Combines provider signals, causal weighting, probabilistic calibration |
+| Ensemble | `src/intelligence/ensemble_predictor.py`, `probabilistic.py` | Combines provider signals, probabilistic calibration |
+| Causal weighting | `src/intelligence/causal_inference.py` | **Experimental, not wired** — blocked on API key provisioning (DECISION_LOG GAP-015) |
 
 `GET /intelligence/coverage` and `GET /intelligence/providers` report live
 provider health and field coverage.
@@ -56,20 +57,33 @@ provider health and field coverage.
 
 ## Risk Gates (hard limits — sequential, short-circuit on first fail)
 
-1. Daily drawdown halt: **2%** of starting equity
-2. Consecutive loss halt: **3 trades**
-3. Regime gate: no new positions when state = **volatile**
-4. Max position size: **5% of capital**
-5. Exchange-stress / whale-activity gates (intelligence-derived)
-6. Portfolio correlation gate (`src/risk/portfolio_correlation.py`)
-7. Slippage veto (`src/risk/slippage.py`)
-8. Paper minimum days: **30 days** before live is permitted
-9. Live gate: OOS Sharpe > 1.5 · max DD < 15% · 500+ trades
+Listed in the order `evaluate_all_gates()` evaluates them. The order is
+load-bearing: the stack stops at the first failure, so the gate that fires
+is the one reported to the operator and written to the audit trail.
+
+| # | Gate | Blocks when |
+|---|---|---|
+| 1 | Capital preservation floor (`capital_preservation_floor.py`) | Peak drawdown ≥ **30%**. Never auto-clears — requires explicit re-authorisation |
+| 2 | Slippage veto (`slippage.py`) | Estimated execution cost erases the signal's expected edge |
+| 3 | Daily drawdown halt | Daily PnL below **2%** of starting equity |
+| 4 | Consecutive loss halt | **3** losing trades in a row |
+| 5 | Regime gate | HMM state = **volatile** |
+| 6 | Max position size | Notional above **5%** of capital |
+| 7 | Paper minimum days *(live only)* | Fewer than **30 days** of paper history |
+| 8 | Live gate | OOS Sharpe < 1.5 · max DD > 15% · under 500 trades |
+| 9 | Performance drift *(live only)* | Live performance has drifted from the training baseline |
+| 10 | Exchange stress | Exchange-stress composite above threshold (fails open without data) |
+| 11 | Whale activity | Whale sell pressure — reduces size rather than halting |
+
+**Not a gate:** portfolio and strategy correlation
+(`portfolio_correlation.py`, `strategy_correlation.py`) produce a *sizing
+scalar*, not a halt. Correlated exposure is sized down, never blocked — the
+previous version of this list described it as a gate, which overstated it.
 
 Default: **paper** — live requires `TRADING_MODE=live` in `.env`.
-`src/risk/cognitive_engine.py` and `performance_drift.py` continuously
-monitor for behavioral drift and degrade sizing/confidence rather than
-hard-failing.
+`src/risk/cognitive_engine.py` degrades sizing and confidence rather than
+hard-failing. `performance_drift.py` does both: it continuously reports
+drift at `GET /performance-drift`, and gate 9 halts new live entries on it.
 
 ## Self-Tuning (optional, off by default)
 
@@ -109,7 +123,7 @@ fills, reconnects, and exchange-side rejections.
 |---|---|---|
 | GET | /health | Storage counts, trading/execution mode |
 | GET | /metrics | Prometheus metrics |
-| GET | /status | Equity, positions, regime, pending approvals |
+| GET | /status | Equity, positions, regime, pending approvals, shadow models |
 | GET | /trades | Paginated trade history |
 | GET | /missed-trades | Trades filtered out by a risk gate (audit trail) |
 | GET | /equity | Equity curve for charting |
@@ -123,15 +137,30 @@ fills, reconnects, and exchange-side rejections.
 | POST | /self-tuning/pause \| /resume \| /rollback/{param_name} | Self-tuning controls |
 | WS | /ws | Live push — equity, positions, signals |
 | GET | /orders/{order_id}/status | Order FSM status |
+| GET | /ledger | Cross-venue unified book (net/gross exposure, margin) |
+| GET | /recovery/status | Startup reconciliation state (live vs exchange) |
+| POST | /recovery/acknowledge | Clear the reconciliation block (requires OPERATOR_SECRET) |
+| GET | /strategies/stress-test | Replay historical crashes against the current allocation |
+| POST | /strategies/{id}/re-enable | Reinstate a kill-switched strategy (gauntlet-gated, requires OPERATOR_SECRET) |
+| GET | /strategies/attribution | Per-strategy P&L attribution |
+| GET | /strategies/allocation | Performance-weighted capital allocation |
 | GET | /performance-drift | Behavioral/performance drift snapshot |
 | GET | /intelligence/coverage | Intelligence feature coverage report |
 | GET | /intelligence/providers | Intelligence provider health |
 | GET | /debug/health | Runtime monitor snapshot |
+| GET | /audit/integrity | Hash-chain verification of the tamper-evident audit trail |
 | GET | /debug/audit | Trade decision audit log |
 | GET | /debug/drift | Feature drift (KS test) + model degradation |
 | POST | /debug/selftest | On-demand pipeline self-test |
+| GET | /debug/reconcile | In-memory book vs persisted open trades (crash recovery) |
+| GET | /strategies/attribution | Per-strategy P&L attribution (lifetime counts/P&L; risk ratios over a bounded recent window) |
+| GET | /strategies/allocation | Performance-weighted capital allocation |
+| GET | /strategies/gauntlet | Promotion-gauntlet status per strategy candidate |
 
-All endpoints require `X-API-Key` header.
+All endpoints require `X-API-Key` header. A key set in `API_READONLY_KEY`
+authenticates the same way but is refused with `403` on the four mutating
+routes (`/execution-mode`, `/risk-controls`, `/approvals/{id}/resolve`,
+`/self-tuning/*`) — see [API roles](#api-roles).
 
 ## Diagnostics
 
@@ -139,6 +168,7 @@ All endpoints require `X-API-Key` header.
 - `TradeAuditor` — per-tick decision log with features, probabilities, gate chain, outcome
 - `SignalDebugger` — KS-test feature drift vs training baseline, model degradation tracker
 - `PerformanceDriftDetector` — behavioral drift vs a rolling performance baseline
+- `AttributionTracker` — per-strategy fills retained in a bounded window (2000/strategy) so a long-running process does not grow without bound; trade counts, total P&L, win rate, and first-entry timestamp are kept as lifetime scalars and survive eviction
 - Pipeline self-test on startup — synthetic round-trip through feature pipeline
 
 ## Storage
@@ -227,28 +257,77 @@ scripts/
 uv sync                       # installs from requirements.lock (hash-verified)
 ```
 
-`requirements.txt` / `requirements.lock` are runtime deps;
-`requirements-dev.txt` adds lint/type/test/security tooling
-(ruff, mypy, pytest, pytest-cov, detect-secrets, pip-tools).
-Regenerate the lockfile with:
-`pip-compile --allow-unsafe --generate-hashes requirements.in -o requirements.lock`
+Dependency files, and which one actually installs:
+
+| File | Role |
+|---|---|
+| `requirements.in` | **the source of truth** for runtime deps — add packages here |
+| `requirements.lock` | compiled from `requirements.in` with hashes; what CI installs |
+| `requirements.txt` | version-range mirror of `requirements.in`, for `mutation-testing.yml` only (its Python predates the lock's `numpy`) |
+| `requirements-dev.txt` | lint/type/test/security tooling, installed unhashed on top |
+| `requirements-optional.txt` | heavy extras imported lazily behind `try/except ImportError`; installed by nothing |
+
+Adding a runtime dep to `requirements.txt` alone does nothing — it is never
+installed. Put it in `requirements.in` and recompile **on Python 3.11**, the
+version CI uses:
+
+```bash
+python3.11 -m piptools compile --allow-unsafe --generate-hashes \
+    requirements.in -o requirements.lock
+```
+
+`pip-compile` resolves per interpreter. A lock built on a newer Python drops
+transitive deps that only 3.11 needs and pins wheels 3.11 cannot install — and
+nothing finds out until CI's `--require-hashes` install fails.
+
+`scripts/check_requirements_sync.py` fails CI on that drift.
 
 ### 2. Environment file
 
 Copy `.env.example` to `.env` and fill in credentials. Key sections:
 
 - **Exchange**: `BINANCE_API_KEY` / `BINANCE_API_SECRET` / `BINANCE_TESTNET`, `OKX_API_KEY` / `OKX_API_SECRET` / `OKX_PASSPHRASE`
-- **Security**: `API_SECRET_KEY`, `OPERATOR_SECRET` (generate with `openssl rand -hex 32`)
+- **Security**: `API_SECRET_KEY`, `OPERATOR_SECRET` (generate with `openssl rand -hex 32`).
+  Optional `API_READONLY_KEY` — a second key that authenticates but resolves to the
+  read-only role, so the mutating endpoints (`/approvals/{id}/resolve`,
+  `/execution-mode`, `/risk-controls`, `/self-tuning/*`) answer 403 for it. Leave it
+  unset for a single-key deployment; `API_SECRET_KEY` keeps full authority either way.
+  It must differ from `API_SECRET_KEY` and meet the same 32-character minimum, or the
+  API fails closed with 503.
 - **Trading**: `TRADING_MODE` (`paper`/`live`), `EXECUTION_MODE`, `PRIMARY_SYMBOL`, `STARTING_CAPITAL_USD`
 - **Risk overrides** (optional, defaults shown above): `RISK_DAILY_DRAWDOWN_HALT_PCT`, `RISK_CONSECUTIVE_LOSS_HALT`, `RISK_MAX_POSITION_SIZE_PCT`, `RISK_KELLY_MULTIPLIER`, `RISK_KELLY_CEILING`
 - **Storage**: `STORAGE_BACKEND` (`sqlite`/`timescale`), `STORAGE_TIMESCALE_DSN`
 - **Intelligence** (all optional, fail-open if unset): `INTELLIGENCE_GLASSNODE_API_KEY`, `INTELLIGENCE_CRYPTOQUANT_API_KEY`, `INTELLIGENCE_ARKHAM_API_KEY`, `INTELLIGENCE_DUNE_API_KEY`, `INTELLIGENCE_COINGLASS_API_KEY`
-- **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`
+- **Self-tuning** (optional, off by default): `SELF_TUNING_ENABLED`, `SELF_TUNING_SHADOW_MODE`, `SELF_TUNING_DECISION_LOG_PATH` (Markdown journal of live promotions; empty disables)
+- **Options Greeks caps** (optional, both or neither): `STRATEGY_OPTIONS_CARRY_MAX_ABS_DELTA`, `STRATEGY_OPTIONS_CARRY_MAX_ABS_VEGA` — book-level ceilings the options-carry strategy checks before selling premium, since Kelly sizes on notional and cannot see an option's non-linear exposure
 - **API**: `API_HOST`, `API_PORT`, `API_CORS_ORIGINS`
+
+#### API roles
+
+Every request carries `X-API-Key`. The key determines the caller's role:
+
+| Key | Role | Can do |
+| --- | --- | --- |
+| `API_SECRET_KEY` | `trade_authorizing` | everything |
+| `API_READONLY_KEY` (optional) | `read_only` | GET routes + `/ws` only |
+
+A `read_only` key gets `403` on `POST /execution-mode`, `POST /risk-controls`,
+`POST /approvals/{id}/resolve`, and the `/self-tuning/*` mutations. Leave
+`API_READONLY_KEY` unset for a single-key deployment — behaviour is then
+identical to a deployment with no roles at all. When set it must be at least
+32 characters and must differ from `API_SECRET_KEY`; otherwise the API fails
+closed with `503` rather than silently collapsing the two roles.
+
+Roles are *not* a substitute for `OPERATOR_SECRET`: mode and risk changes
+still require that second factor on top of a trade-authorizing key.
 
 ### 3. Backend
 
 ```bash
+# Honours API_HOST / API_PORT / API_RELOAD from .env
+uv run python -m src.api
+
+# Or override them explicitly on the command line:
 uv run uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 

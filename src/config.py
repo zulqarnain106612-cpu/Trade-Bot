@@ -131,14 +131,24 @@ class RiskSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RISK_", env_file=".env", extra="ignore")
 
+    # UNITS: PERCENT (2.0 means 2%). Note the inconsistency with
+    # capital_preservation_max_drawdown_pct below, which is a FRACTION
+    # despite the identical _pct suffix. Both names are load-bearing --
+    # they are the RISK_* env var names -- so the units are documented and
+    # pinned by tests rather than renamed out from under deployments.
     daily_drawdown_halt_pct: float = Field(default=2.0, ge=0.1, le=10.0)
     consecutive_loss_halt: int = Field(default=3, ge=1, le=20)
+    # UNITS: PERCENT (5.0 means 5% of capital).
     max_position_size_pct: float = Field(default=5.0, ge=0.1, le=25.0)
 
     # v10 capital preservation floor (src/risk/capital_preservation_floor.py):
     # peak-equity drawdown that halts trading permanently until an explicit,
     # out-of-band re_authorize() call -- unlike daily_drawdown_halt_pct above,
     # this never auto-clears at UTC midnight or on equity recovery.
+    # UNITS: FRACTION (0.30 means 30%), unlike daily_drawdown_halt_pct
+    # above. CapitalPreservationFloor compares it directly against a
+    # computed drawdown fraction, and the validator (0 < x < 1) is what
+    # keeps a percent-shaped value from being accepted here.
     capital_preservation_max_drawdown_pct: float = Field(default=0.30, gt=0.0, lt=1.0)
 
     # Kelly (1956) — half-Kelly with ceiling per AFML Ch.10
@@ -149,6 +159,19 @@ class RiskSettings(BaseSettings):
     oos_sharpe_threshold: float = Field(default=1.5, ge=0.0)
     max_drawdown_threshold: float = Field(default=15.0, ge=1.0, le=100.0)
     min_trades_live_gate: int = Field(default=500, ge=1)
+
+    # Gate 10 (whale taker-flow) posture. The gate is documented as advisory
+    # — reduce size, do not block — but shipped as a veto, and has vetoed for
+    # its whole life. Defaulting this to False preserves that behaviour;
+    # turning it on is a deliberate trading-policy change that lets trades
+    # through at whale_scalar of their size instead of being blocked.
+    whale_gate_advisory: bool = Field(
+        default=False,
+        description=(
+            "When true, REDUCE_WHALE_ACTIVITY passes with a size scalar "
+            "instead of blocking the trade."
+        ),
+    )
 
     # Restricted mode approval window
     notional_limit_usd: float = Field(
@@ -205,6 +228,32 @@ class RiskSettings(BaseSettings):
     # shocks to affect the risk score.
     garch_vol_threshold: float = Field(default=0.02, gt=0.0, le=0.50)
 
+    # v7 macro exposure overlay (src/risk/macro_exposure_budget.py, fed by
+    # src/intelligence/macro_indicators.py). Enabled by default because the
+    # budget is a pure shrink -- its scalar is bounded to <= 1.0 by
+    # construction, so turning it on can only move exposure in the safer
+    # direction and it can never widen the Kelly ceiling.
+    # CVaR notional ceiling (src/intelligence/risk_quantification.py). Caps a
+    # position so its expected TAIL loss -- not its average loss -- stays
+    # within this fraction of equity. Kelly sizes from win probability and
+    # payoff ratio and is blind to tail shape, so a fat-tailed regime can pass
+    # every Kelly check and still ruin the book.
+    #
+    # None = disabled, which is the behaviour before this setting existed.
+    # Enabling it can only lower a notional, never raise one.
+    cvar_limit_pct: float | None = Field(default=None, gt=0.0, le=1.0)
+    cvar_confidence: float = Field(default=0.95, gt=0.5, lt=1.0)
+    # Bars of return history the CVaR estimate is built from. Below ~100 the
+    # empirical tail quantile is a handful of observations and the estimate
+    # says more about the sample than the distribution.
+    cvar_lookback_bars: int = Field(default=250, ge=100, le=5000)
+
+    macro_exposure_enabled: bool = Field(default=True)
+    # Bars of intelligence-feature history used to z-score funding and to
+    # measure stablecoin growth. 30 bars keeps the window responsive to a
+    # regime shift while still spanning enough prints for a stable sigma.
+    macro_exposure_lookback_bars: int = Field(default=30, ge=8, le=500)
+
     # GAP-013 -- automated position-exit controls (stop-loss / take-profit /
     # time-based exit). These are STARTUP DEFAULTS ONLY, loaded once into
     # RuntimeConfig at process start. Unlike the hard limits above, the
@@ -219,14 +268,23 @@ class RiskSettings(BaseSettings):
         default=2.0,
         ge=0.1,
         le=50.0,
-        description="Close position when unrealized loss reaches this pct of notional",
+        description=(
+            "Close position when unrealized loss reaches this pct of notional. "
+            "Gross: fees are not deducted before the comparison, so the booked "
+            "loss is this plus the round trip (~0.2% at a 0.1% taker fee)."
+        ),
     )
     take_profit_enabled_default: bool = Field(default=True)
     take_profit_pct_default: float = Field(
         default=4.0,
         ge=0.1,
         le=200.0,
-        description="Close position when unrealized gain reaches this pct of notional",
+        description=(
+            "Close position when unrealized gain reaches this pct of notional. "
+            "Gross: the booked gain is this minus the round trip (~0.2% at a "
+            "0.1% taker fee), and a target below the round trip cannot be "
+            "profitable at all."
+        ),
     )
     max_holding_period_s_default: float = Field(
         default=86400.0,
@@ -306,12 +364,42 @@ class XGBoostSettings(BaseSettings):
     min_child_weight: int = Field(default=5, ge=1)
     reg_alpha: float = Field(default=0.1, ge=0.0)
     reg_lambda: float = Field(default=1.0, ge=0.0)
-    use_label_encoder: bool = Field(default=False)
     eval_metric: str = Field(default="logloss")
     tree_method: str = Field(default="hist")
     device: str = Field(default="cpu")
     random_state: int = Field(default=42, ge=0)
     early_stopping_rounds: int = Field(default=50, ge=5)
+
+    # v4 shadow-mode promotion (src/models/model_registry.py). A retrain that
+    # clears the absolute live gate (OOS Sharpe / max DD / trade count) has not
+    # yet shown it is better than the model already running. shadow_mode_enabled
+    # makes a fresh bundle earn the live slot by out-predicting the incumbent on
+    # live bars first; disabling it restores the previous swap-on-retrain
+    # behaviour.
+    shadow_mode_enabled: bool = Field(default=True)
+    shadow_min_evaluations: int = Field(
+        default=100,
+        ge=1,
+        description="Resolved shadow predictions required before promotion is considered",
+    )
+    shadow_max_evaluations: int = Field(
+        default=400,
+        ge=1,
+        description=(
+            "Resolved predictions after which a shadow that has not beaten the "
+            "incumbent is abandoned, so it cannot block the next candidate forever"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_shadow_window(self) -> XGBoostSettings:
+        if self.shadow_max_evaluations < self.shadow_min_evaluations:
+            raise ValueError(
+                f"shadow_max_evaluations ({self.shadow_max_evaluations}) must be >= "
+                f"shadow_min_evaluations ({self.shadow_min_evaluations}); otherwise a "
+                "shadow is abandoned before it is ever evaluated"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +456,7 @@ class FeatureSettings(BaseSettings):
     # that many future bars. A purge gap shorter than the label horizon
     # lets training labels overlap with (leak from) the test fold.
     purge_gap_bars: int = Field(default=60, ge=0)
+    # UNITS: FRACTION (0.01 means 1% of the sample embargoed).
     embargo_pct: float = Field(default=0.01, ge=0.0, le=0.5)
 
     # UI-015: multi-timeframe trend confirmation (Schwager 1993) — see
@@ -418,6 +507,19 @@ class StorageSettings(BaseSettings):
     model_dir: Path = Field(default=Path("models/artifacts"))
     log_dir: Path = Field(default=Path("logs"))
     bar_cache_days: int = Field(default=90, ge=1)
+    # Append-only audit trail for automated structural changes: model
+    # promotions (src/models/model_registry.py), strategy retirements
+    # (src/risk/strategy_kill_switch.py). One path, not one per producer —
+    # a reader reconstructing why the book changed shape needs those events
+    # interleaved in a single ordered file.
+    #
+    # v10 self-updating decision log (src/diagnostics/decision_log_writer.py).
+    # Deliberately NOT the repo's hand-written DECISION_LOG.md: that file is
+    # tracked in git and edited by humans, and having a running process append
+    # to it would produce merge conflicts and dirty working trees on every
+    # kill-switch trip. Same format, separate file, so the two can be read
+    # together without either corrupting the other.
+    decision_log_path: Path = Field(default=Path("logs/AUTOMATED_DECISION_LOG.md"))
 
     # Directory creation intentionally removed from this validator (VUL-031).
     # Having a Pydantic validator create filesystem directories is a side-effect
@@ -563,6 +665,14 @@ class SelfTuningSettings(BaseSettings):
     )
     audit_log_path: Path = Field(default=Path("logs/self_tuning_audit.jsonl"))
     version_store_path: Path = Field(default=Path("logs/self_tuning_versions.jsonl"))
+    decision_log_path: Path | None = Field(
+        default=Path("DECISION_LOG.md"),
+        description=(
+            "Human-readable Markdown journal appended on every live (non-shadow) "
+            "promotion, so an unattended parameter change stays reconstructable by "
+            "an auditor without parsing the JSONL audit log. Set empty to disable."
+        ),
+    )
     proposer_strategy: Literal["random_walk", "bayesian"] = Field(
         default="random_walk",
         description=(
@@ -575,6 +685,8 @@ class SelfTuningSettings(BaseSettings):
             "safety machinery is identical either way."
         ),
     )
+    # UNITS: FRACTION (0.1 means 10%) -- its own description already says
+    # "as a fraction", which the _pct suffix contradicts.
     proposer_step_pct: float = Field(
         default=0.1,
         gt=0.0,
@@ -592,6 +704,182 @@ class SelfTuningSettings(BaseSettings):
             "docs/SELF_TUNING_IMPLEMENTATION_PLAN.md."
         ),
     )
+
+    @field_validator("decision_log_path", mode="before")
+    @classmethod
+    def _blank_path_disables(cls, v: object) -> object:
+        """SELF_TUNING_DECISION_LOG_PATH="" means "off", not Path("")."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+
+class StrategyPortfolioSettings(BaseSettings):
+    """
+    Which strategy families join the portfolio, and their capital ceilings.
+
+    Consumed by src/strategies/bootstrap.py, which registers the enabled set
+    into the process-wide StrategyRegistry at startup. Registration is not
+    execution: a registered strategy participates in capital allocation and
+    attribution, and only trades once the orchestrator feeds it a context.
+
+    Each *_fraction is an upper bound on the share of book capital that
+    strategy may request, enforced independently of Kelly (Kelly is a
+    ceiling, not a target). The enabled fractions are validated to sum to
+    <= 1.0 at bootstrap, so a mis-set config fails at startup rather than
+    at the first fill.
+
+    Defaults keep only the incumbent model-driven signal engine enabled.
+    The v2/v3/v5 strategy families are opt-in per CLAUDE.md's out-of-sample
+    requirement — none of them has live validation yet, and enabling one by
+    default would silently dilute capital away from the validated path.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
+
+    signal_engine_enabled: bool = Field(default=True)
+    signal_engine_fraction: float = Field(default=1.0, gt=0.0, le=1.0)
+
+    mean_reversion_enabled: bool = Field(default=False)
+    mean_reversion_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+    mean_reversion_pair: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exactly two symbols [A, B] traded as a cointegrated pair, or "
+            "empty (the default) to leave that family abstaining. Direction "
+            "is with respect to A. Cointegration is retested on every data "
+            "refresh rather than assumed once: pair relationships break, and "
+            "a pair that has decohered is the single most expensive input "
+            "this family can be given."
+        ),
+    )
+    mean_reversion_window: int = Field(
+        default=30,
+        ge=5,
+        description="Rolling window for the pair's spread z-score, in bars.",
+    )
+
+    @field_validator("mean_reversion_pair")
+    @classmethod
+    def _validate_pair(cls, v: list[str]) -> list[str]:
+        if v and len(v) != 2:
+            raise ValueError(f"mean_reversion_pair needs exactly two symbols, got {len(v)}")
+        if v and v[0] == v[1]:
+            raise ValueError("mean_reversion_pair must name two different symbols")
+        return v
+
+    breakout_enabled: bool = Field(default=False)
+    breakout_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+
+    funding_carry_enabled: bool = Field(default=False)
+    funding_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    xsec_momentum_enabled: bool = Field(default=False)
+    xsec_momentum_fraction: float = Field(default=0.15, gt=0.0, le=1.0)
+    xsec_universe: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Symbols ranked against each other by the cross-sectional momentum "
+            "family. Empty (the default) leaves that family abstaining rather "
+            "than guessing a universe: which assets belong in a cross-section "
+            "is a trading decision, and a plausible-looking default would be "
+            "one the operator never made. The family needs at least 10 symbols "
+            "to rank a decile, so a shorter list still abstains."
+        ),
+    )
+    xsec_lookback_days: int = Field(
+        default=30,
+        ge=2,
+        description="Trailing-return window used to rank the universe.",
+    )
+    xsec_refresh_interval_s: float = Field(
+        default=3600.0,
+        gt=0.0,
+        description=(
+            "TTL on the universe snapshot. A 30-day trailing return does not "
+            "move between two 15m ticks, and refetching per tick would "
+            "multiply this bot's request rate by the universe size for "
+            "information that changes daily."
+        ),
+    )
+
+    basis_trade_enabled: bool = Field(default=False)
+    basis_trade_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    basis_days_to_convergence: float = Field(
+        default=1.0,
+        gt=0.0,
+        description=(
+            "Days over which the spot-perp gap is assumed to converge. This "
+            "is the denominator of the basis annualization and sets the whole "
+            "scale of that signal: at the default 1 day a raw gap of 0.0137% "
+            "already clears the 5% entry threshold, which is routine for a "
+            "perp. Raise it to make the family require a wider gap. The "
+            "default reproduces the behaviour the code has always had."
+        ),
+    )
+    basis_perp_symbol: str = Field(
+        default="",
+        description=(
+            "Perpetual contract quoted against primary_symbol's spot price by "
+            "the basis family (ccxt form, e.g. 'BTC/USDT:USDT'). Empty (the "
+            "default) leaves that family abstaining. Not derived from "
+            "primary_symbol on the fly: the spot/perp mapping is venue- and "
+            "settlement-specific, and a wrong guess would price the basis of "
+            "one instrument against another and call the difference an edge."
+        ),
+    )
+
+    cross_exchange_arb_enabled: bool = Field(default=False)
+    cross_exchange_arb_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    options_carry_enabled: bool = Field(default=False)
+    options_carry_fraction: float = Field(default=0.10, gt=0.0, le=1.0)
+    options_carry_max_abs_delta: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Book-level |delta| ceiling for the options-carry strategy, in "
+            "underlying units. Unset (the default) leaves the Greeks gate off. "
+            "Both this and options_carry_max_abs_vega must be set to arm it — "
+            "a half-configured cap is rejected at startup rather than silently "
+            "gating on one Greek."
+        ),
+    )
+    options_carry_max_abs_vega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Book-level |vega| ceiling (per 1 vol-point) for options-carry.",
+    )
+
+    @model_validator(mode="after")
+    def _greeks_caps_are_all_or_nothing(self) -> StrategyPortfolioSettings:
+        delta, vega = self.options_carry_max_abs_delta, self.options_carry_max_abs_vega
+        if (delta is None) != (vega is None):
+            raise ValueError(
+                "STRATEGY_OPTIONS_CARRY_MAX_ABS_DELTA and "
+                "STRATEGY_OPTIONS_CARRY_MAX_ABS_VEGA must be set together — "
+                "capping one Greek while leaving the other unbounded is not a "
+                "meaningful exposure limit."
+            )
+        return self
+
+    # The v5 portfolio Greeks ceilings live above as options_carry_max_abs_*,
+    # which is the pair the startup validator enforces as all-or-nothing and
+    # the README documents. A second options_max_abs_* pair was added here in
+    # parallel and is deliberately not reinstated: two names for one ceiling
+    # means the one an operator sets may not be the one the strategy reads.
+
+    # v9 rate-limited rebalancing (src/tuning/meta_allocator.py). The
+    # performance-weighted allocator recomputes a target from realized
+    # Sharpe/Sortino; the book moves toward that target by at most this
+    # fraction per rebalance, so one noisy attribution window cannot
+    # reallocate the whole portfolio in a single step.
+    max_allocation_shift_per_step: float = Field(default=0.10, gt=0.0, le=1.0)
+
+    # Seconds between rebalance steps. One hour is long enough that the
+    # attribution window has meaningfully changed between steps, and with the
+    # 0.10 default shift a full reallocation takes ~10h rather than one tick.
+    allocation_rebalance_interval_s: int = Field(default=3600, ge=60)
 
 
 class OrderThrottleSettings(BaseSettings):
@@ -685,6 +973,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
+    strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
     order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
 
     # Logging
