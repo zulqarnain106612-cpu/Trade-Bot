@@ -31,3 +31,23 @@ def test_require_permission_raises_on_denial() -> None:
 
 def test_require_permission_noop_on_grant() -> None:
     require_permission(Role.TRADE_AUTHORIZING, Permission.CHANGE_EXECUTION_MODE)
+
+
+def test_the_role_permission_table_is_not_writable() -> None:
+    # This is the authorization table. The values were already frozensets;
+    # the outer mapping was open, so a single write anywhere in the process
+    # could grant a role a permission it was never configured with.
+    import pytest
+
+    from src.api.access_control import _ROLE_PERMISSIONS
+
+    with pytest.raises(TypeError):
+        _ROLE_PERMISSIONS[Role.READ_ONLY] = frozenset(Permission)
+
+    with pytest.raises(TypeError):
+        del _ROLE_PERMISSIONS[Role.READ_ONLY]
+
+
+def test_read_only_still_cannot_approve_trades() -> None:
+    assert role_has_permission(Role.READ_ONLY, Permission.VIEW_STATUS) is True
+    assert role_has_permission(Role.READ_ONLY, Permission.APPROVE_TRADE) is False

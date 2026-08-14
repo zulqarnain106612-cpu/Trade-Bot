@@ -37,8 +37,16 @@ from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.fetcher import MarketDataFetcher
 from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
+from src.diagnostics.disaster_recovery import (
+    Discrepancy,
+    DiscrepancyType,
+    PositionSnapshot,
+    is_state_consistent,
+    reconcile,
+)
 from src.execution.base import AbstractExecutor
 from src.execution.order_manager import OrderManager
+from src.execution.order_throttler import OrderThrottler
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 
@@ -56,6 +64,13 @@ _ORDER_FSM_REGISTRY_MAX_SIZE: Final[int] = 200
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _LIVE_FEE_FALLBACK: Final[float] = 0.001  # fallback if exchange fee missing
+
+# v8 reconciliation tolerances. Spot balances carry dust and fills round, so
+# an exact comparison would flag a correctly-tracked book on every restart.
+# The relative term scales with the position actually held; the absolute term
+# is the floor below which a balance is not a position at all.
+_RECONCILE_DUST_QTY: Final[float] = 1e-8
+_RECONCILE_TOLERANCE_PCT: Final[float] = 0.01  # 1% of the larger side
 _ORDER_CONFIRM_POLLS: Final[int] = 10  # max polls for order confirmation
 _ORDER_CONFIRM_INTERVAL: Final[float] = 0.5  # seconds between polls
 
@@ -193,6 +208,11 @@ class LiveExecutor(AbstractExecutor):
         self._trade_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         self._drawdown_tracker = DrawdownTracker(self._starting_capital)
         self._order_manager: OrderManager = OrderManager()  # GAP-004
+        self._throttle_cfg = cfg.order_throttle
+        self._throttler: OrderThrottler = OrderThrottler(
+            rate=self._throttle_cfg.rate,
+            burst=self._throttle_cfg.burst,
+        )
         # GAP-004 follow-up (found during audit, 2026-06-25): the FSM
         # returned by place_order_with_fsm() was previously a local variable
         # in _place_market_order(), discarded as soon as the function
@@ -201,6 +221,12 @@ class LiveExecutor(AbstractExecutor):
         # GET /orders/{order_id}/status had no registry to read from.
         self._order_fsm_registry: OrderedDict[str, Any] = OrderedDict()
         self._initialized: bool = False
+        # v8 disaster recovery: discrepancies found when initialize() compared
+        # local state against exchange truth. Non-empty means the process is
+        # not sure what it owns, so submit_signal() refuses to open anything
+        # new until an operator clears it -- explicit-only, like the strategy
+        # kill switch and the capital-preservation floor.
+        self._recovery_discrepancies: list[Discrepancy] = []
         self._log = log.bind(component="live_executor")
 
     # ------------------------------------------------------------------
@@ -222,7 +248,114 @@ class LiveExecutor(AbstractExecutor):
             )
         else:
             self._log.info("live.initialized_fresh", starting_capital=self._starting_capital)
+        await self._reconcile_with_exchange()
         self._initialized = True
+
+    async def _reconcile_with_exchange(self) -> None:
+        """
+        Compare local positions against exchange truth on startup (v8).
+
+        initialize() restores equity from storage but not positions, so after
+        a crash self._positions is empty while the exchange may still hold
+        real exposure. Trading on that assumption would size as though the
+        book were flat.
+
+        Any discrepancy is recorded and blocks new entries until an operator
+        acknowledges it. The reconciliation itself never places or cancels an
+        order — the module is deliberately advisory, and guessing how to
+        resolve an unexplained position is exactly the wrong instinct here.
+
+        A snapshot that could not be obtained is treated as unresolved, not
+        as "no discrepancies": failing to look is not the same as looking and
+        finding nothing.
+
+        Scoped to the symbols this executor is responsible for -- whatever the
+        local book holds, plus the configured primary symbol so a crashed
+        position in it is still caught when the local book came back empty.
+        An unrelated asset elsewhere in the account is not evidence that this
+        bot's book is wrong.
+
+        Comparison uses a relative tolerance because spot balances carry dust
+        and fills round. The consequence is deliberate: a manual balance in a
+        traded symbol does block startup, because the executor genuinely
+        cannot distinguish it from an untracked position of its own.
+        """
+        symbols = sorted({p.symbol for p in self._positions.values()} | {self._cfg.primary_symbol})
+        try:
+            holdings = await self._fetcher.fetch_exchange_holdings(symbols)
+        except Exception as exc:
+            holdings = None
+            self._log.error("live.reconcile_fetch_failed", error=str(exc), exc_info=True)
+
+        if holdings is None:
+            self._recovery_discrepancies = [
+                Discrepancy(
+                    symbol="*",
+                    discrepancy_type=DiscrepancyType.MISSING_LOCALLY,
+                    local_quantity=0.0,
+                    reference_quantity=0.0,
+                )
+            ]
+            self._log.critical("live.reconcile_snapshot_unavailable", entries_blocked=True)
+            return
+
+        # Net per symbol: several timeframes can hold the same symbol, and
+        # PositionSnapshot is one row per symbol.
+        netted: dict[str, float] = {}
+        for position in self._positions.values():
+            signed = position.quantity if position.direction == 1 else -position.quantity
+            netted[position.symbol] = netted.get(position.symbol, 0.0) + signed
+
+        local = [PositionSnapshot(symbol=sym, quantity=qty) for sym, qty in netted.items()]
+        exchange = [
+            PositionSnapshot(symbol=sym, quantity=qty)
+            for sym, qty in holdings.items()
+            if abs(qty) > _RECONCILE_DUST_QTY
+        ]
+        tolerance = max(
+            _RECONCILE_DUST_QTY,
+            _RECONCILE_TOLERANCE_PCT
+            * max((abs(q) for q in [*netted.values(), *holdings.values()]), default=0.0),
+        )
+        self._recovery_discrepancies = reconcile(local, exchange, quantity_tolerance=tolerance)
+
+        if is_state_consistent(self._recovery_discrepancies):
+            self._log.info("live.reconcile_consistent", symbols=symbols)
+            return
+        self._log.critical(
+            "live.reconcile_discrepancies",
+            count=len(self._recovery_discrepancies),
+            discrepancies=[
+                {
+                    "symbol": d.symbol,
+                    "type": d.discrepancy_type.value,
+                    "local": d.local_quantity,
+                    "exchange": d.reference_quantity,
+                }
+                for d in self._recovery_discrepancies
+            ],
+            entries_blocked=True,
+        )
+
+    @property
+    def recovery_discrepancies(self) -> list[Discrepancy]:
+        """Unresolved startup reconciliation discrepancies (empty = clean)."""
+        return list(self._recovery_discrepancies)
+
+    def acknowledge_recovery(self, operator: str) -> int:
+        """
+        Clear the reconciliation block after an operator has resolved it.
+
+        Explicit-only and never automatic: the discrepancies are cleared
+        because a human says the book is now understood, not because time
+        passed or a later snapshot happened to agree.
+
+        Returns the number of discrepancies cleared.
+        """
+        cleared = len(self._recovery_discrepancies)
+        self._recovery_discrepancies = []
+        self._log.warning("live.recovery_acknowledged", operator=operator, cleared=cleared)
+        return cleared
 
     async def shutdown(self) -> None:
         """Persist equity and log open positions on shutdown."""
@@ -258,6 +391,19 @@ class LiveExecutor(AbstractExecutor):
         outcome: 'opened' | 'queued' | 'skipped' | 'rejected'
         """
         self._require_initialized()
+        # v8: refuse new exposure while startup reconciliation is unresolved.
+        # Sizing assumes self._positions is the whole book; if the exchange
+        # disagrees, every gate downstream is reasoning about the wrong book.
+        # Exits are unaffected -- this blocks submit_signal only, so an
+        # operator can still flatten while the discrepancy is being resolved.
+        if self._recovery_discrepancies:
+            self._log.error(
+                "live.blocked_unreconciled_state",
+                symbol=symbol,
+                discrepancies=len(self._recovery_discrepancies),
+            )
+            return None, "rejected"
+
         # H-15: read runtime_config (live async-settable) not self._cfg.execution_mode
         # (frozen Settings). Without this, POST /execution-mode has no effect.
         mode = await runtime_config.get_execution_mode()
@@ -410,6 +556,7 @@ class LiveExecutor(AbstractExecutor):
                     symbol=pos.symbol,
                     side=close_side,
                     quantity=pos.quantity,
+                    is_exit=True,
                 )
             except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
                 self._log.error(
@@ -432,12 +579,21 @@ class LiveExecutor(AbstractExecutor):
             else:
                 gross_pnl = (pos.entry_price - actual_exit_price) * filled_qty
 
-            net_pnl = gross_pnl - exchange_fee
+            # Both legs. pos.fee_usd is the fee the exchange charged on entry;
+            # leaving it out overstated every recorded trade by half its
+            # round-trip cost, and that number drives compute_win_loss_stats
+            # into Kelly, the Sharpe and Sortino behind capital allocation,
+            # and the out-of-sample bar the live gate checks.
+            total_fee = pos.fee_usd + exchange_fee
+            net_pnl = gross_pnl - total_fee
             pnl_pct = net_pnl / pos.notional_usd if pos.notional_usd > 0 else 0.0
 
             async with self._lock:
                 self._positions.pop(trade_id, None)
-                self._cash += pos.notional_usd + net_pnl
+                # Not net_pnl: the entry fee already left the balance at open
+                # (self._cash -= notional + entry_fee), so charging it again
+                # here would double-count it and drain equity over time.
+                self._cash += pos.notional_usd + gross_pnl - exchange_fee
                 equity = self._equity_usd()
                 self._peak_equity = max(self._peak_equity, equity)
                 self._drawdown_tracker.update(equity)
@@ -457,7 +613,8 @@ class LiveExecutor(AbstractExecutor):
                 pnl_usd=round(net_pnl, 8),
                 pnl_pct=round(pnl_pct, 8),
                 exit_reason=exit_reason,
-                fee_usd=exchange_fee,
+                # Both legs, matching pnl_usd above.
+                fee_usd=round(total_fee, 8),
             )
             await self._snapshot_equity_with_values(
                 equity=snap_equity,
@@ -608,6 +765,7 @@ class LiveExecutor(AbstractExecutor):
                 else 0.0,
                 "peak_unrealized_pct": round(p.peak_unrealized_pct, 3),
                 "regime_at_entry": p.regime_at_entry,
+                "strategy_id": p.strategy_id,
                 "entry_ts": p.entry_ts,
             }
             for p in self._positions.values()
@@ -773,7 +931,9 @@ class LiveExecutor(AbstractExecutor):
                 # order to flatten the position before returning.
                 flatten_side = "sell" if side == "buy" else "buy"
                 try:
-                    flatten_order = await self._place_market_order(symbol, flatten_side, filled_qty)
+                    flatten_order = await self._place_market_order(
+                        symbol, flatten_side, filled_qty, is_exit=True
+                    )
                     flatten_price = float(
                         flatten_order.get("average") or flatten_order.get("price") or actual_price
                     )
@@ -873,14 +1033,87 @@ class LiveExecutor(AbstractExecutor):
             )
             return trade_id
 
+    async def _await_throttle_token(self, exchange_id: str, *, is_exit: bool = False) -> None:
+        """
+        Hold the order until the token bucket allows it, or refuse it.
+
+        Exchanges answer request-weight bursts with HTTP 429 and then a
+        temporary IP ban, which would strand any open position with no way to
+        exit — so a short wait is strictly better than firing the order.
+        Past ``max_wait_s`` the entry price the signal was sized against is
+        stale, and filling anyway would mean trading a price the risk layer
+        never approved, so the order is refused instead.
+
+        ``is_exit`` orders are never refused and never delayed. Refusing an
+        exit leaves real, unhedged exposure open — strictly worse than any
+        rate-limit consequence, and unlike an entry there is no "skip it and
+        wait for the next signal" fallback. The token is still consumed so
+        the entry budget shrinks to account for the request, and a would-be
+        rejection is logged rather than raised.
+
+        Raises ccxt.ExchangeError when a non-exit order's required wait
+        exceeds max_wait_s.
+        """
+        if not self._throttle_cfg.enabled:
+            return
+
+        result = self._throttler.acquire(exchange_id)
+        if result.allowed:
+            return
+
+        if is_exit:
+            self._log.warning(
+                "live.exit_order_bypassed_throttle",
+                exchange=exchange_id,
+                wait_s=round(result.wait_s, 3),
+                reason="exit orders are never refused — unhedged exposure beats a 429",
+            )
+            return
+
+        if result.wait_s > self._throttle_cfg.max_wait_s:
+            self._log.error(
+                "live.order_throttled_reject",
+                exchange=exchange_id,
+                wait_s=round(result.wait_s, 3),
+                max_wait_s=self._throttle_cfg.max_wait_s,
+            )
+            raise ccxt.ExchangeError(
+                f"Order rate limit for {exchange_id}: {result.wait_s:.3f}s backlog "
+                f"exceeds max_wait_s={self._throttle_cfg.max_wait_s}s — order refused "
+                f"rather than filled at a stale price."
+            )
+
+        self._log.warning(
+            "live.order_throttled_wait",
+            exchange=exchange_id,
+            wait_s=round(result.wait_s, 3),
+        )
+        # +1ms: wait_s refills exactly one token, so sleeping the bare amount
+        # can land a float-epsilon short and fail the retry for no reason.
+        await asyncio.sleep(result.wait_s + 0.001)
+        # One retry: the sleep covers the refill of exactly one token, and the
+        # trade semaphore serialises order placement, so a second rejection
+        # here means the clock moved against us rather than a real backlog.
+        retry = self._throttler.acquire(exchange_id)
+        if not retry.allowed:
+            raise ccxt.ExchangeError(
+                f"Order rate limit for {exchange_id}: token still unavailable after "
+                f"waiting {result.wait_s:.3f}s — order refused."
+            )
+
     async def _place_market_order(
         self,
         symbol: str,
         side: str,
         quantity: float,
+        *,
+        is_exit: bool = False,
     ) -> dict[str, Any]:
         """
         Place a market order and wait for fill confirmation.
+
+        ``is_exit`` marks an order that closes or flattens existing exposure;
+        it bypasses order-rate refusal (see _await_throttle_token).
 
         Now uses OrderFSM via OrderManager for:
           - State machine driven confirmation
@@ -893,9 +1126,12 @@ class LiveExecutor(AbstractExecutor):
 
         Raises ccxt.ExchangeError if order does not fill within timeout.
         """
+        exchange = self._fetcher.get_order_exchange()
+        await self._await_throttle_token(getattr(exchange, "id", "binance"), is_exit=is_exit)
+
         try:
             fsm, confirmed_order = await self._order_manager.place_order_with_fsm(
-                exchange=self._fetcher.get_order_exchange(),
+                exchange=exchange,
                 symbol=symbol,
                 side=side,
                 quantity=quantity,

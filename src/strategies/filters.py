@@ -74,10 +74,14 @@ def ewm_trend_signal(close: pd.Series, span: int = _EWM_SPAN_TREND) -> float:
     """
     Carver (2019) Ch.3 EWM trend strength signal.
 
-    Returns a normalised trend value in (-1, 1):
+    Returns a vol-normalised trend value clipped to [-3, 3]:
       > 0 : uptrend (price above EWM mean)
       < 0 : downtrend (price below EWM mean)
       ≈ 0 : no trend
+
+    Note the scale: this is *not* a Carver forecast (E|f| = 10, capped
+    ±20). A caller feeding this into position_sizing.carver_forecast_position
+    must scale by CARVER_FORECAST_SCALAR first.
 
     The signal is the difference between a fast EWM and a slow EWM,
     normalised by the rolling standard deviation of close prices.
