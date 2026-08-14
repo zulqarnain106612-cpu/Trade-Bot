@@ -21,18 +21,44 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import structlog
 
+from src.config import get_settings
+from src.diagnostics.attribution import compute_attribution, get_attribution_tracker
+from src.diagnostics.decision_log_writer import (
+    StructuralChangeRecord,
+    append_to_decision_log,
+)
 from src.risk.performance_drift import (
     DriftDetected,
     PerformanceBaseline,
     PerformanceDriftDetector,
 )
 from src.risk.strategy_decay import CusumDecayDetector
+from src.tuning.promotion_gauntlet import (
+    GauntletCriteria,
+    GauntletObservation,
+    evaluate_gauntlet,
+)
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+_MS_PER_DAY: float = 86_400_000.0
+
+
+class GauntletNotPassedError(RuntimeError):
+    """Raised when a re-enable is attempted without clearing the v6 gauntlet."""
+
+    def __init__(self, strategy_id: str, failed_criteria: tuple[str, ...]) -> None:
+        self.strategy_id = strategy_id
+        self.failed_criteria = failed_criteria
+        detail = "; ".join(failed_criteria) or "no attributed track record"
+        super().__init__(
+            f"strategy {strategy_id!r} has not passed the promotion gauntlet: {detail}"
+        )
 
 
 @dataclass
@@ -45,6 +71,14 @@ class StrategyRuntimeState:
     enabled: bool = True
     disabled_reason: str = ""
     disabled_at_ms: int = 0
+    # Trade count at the last CUSUM update, so evaluate() can tell a fresh
+    # observation from a re-poll of the same window.
+    decay_trades_seen: int = 0
+    # The CUSUM statistic stays above its threshold once crossed, so without
+    # this the decay entry would be appended again on every later update.
+    # Still needed alongside decay_trades_seen: that one stops the statistic
+    # accumulating per poll, this one stops the log entry repeating per trade.
+    decay_logged: bool = False
 
 
 class StrategyKillSwitchManager:
@@ -105,8 +139,17 @@ class StrategyKillSwitchManager:
         # the CUSUM decay detector. current_rolling_sharpe() returns None
         # before the minimum live-trade window fills, matching check_drift's
         # own guard — nothing to accumulate yet in that case.
+        #
+        # Gate the update on the live-trade count having advanced. evaluate()
+        # is a poll and its docstring invites repeated calls; feeding the
+        # unchanged rolling Sharpe on every call made the CUSUM accumulate
+        # at the polling rate, so a strategy sitting a hair below baseline
+        # crossed the decision threshold after N ticks with no new trades at
+        # all. CUSUM is only a persistence test if one trade moves it once.
         rolling_sharpe = state.detector.current_rolling_sharpe()
-        if rolling_sharpe is not None:
+        trades_recorded = state.detector.total_live_trades
+        if rolling_sharpe is not None and trades_recorded > state.decay_trades_seen:
+            state.decay_trades_seen = trades_recorded
             state.decay_detector.update(rolling_sharpe)
             if state.decay_detector.is_decayed:
                 log.warning(
@@ -118,6 +161,21 @@ class StrategyKillSwitchManager:
                         "gauntlet re-evaluation before any re-enable"
                     ),
                 )
+                if not state.decay_logged:
+                    state.decay_logged = True
+                    _record_structural_change(
+                        title=f"Strategy {strategy_id} flagged structurally decayed",
+                        change_type="strategy_structural_decay",
+                        justification=(
+                            "CUSUM-confirmed structural decay — route to promotion "
+                            "gauntlet re-evaluation before any re-enable"
+                        ),
+                        evidence={
+                            "strategy_id": strategy_id,
+                            "cusum_statistic": round(state.decay_detector.cusum_statistic, 4),
+                            "rolling_sharpe": round(rolling_sharpe, 4),
+                        },
+                    )
 
         if drift.drifted and state.enabled:
             state.enabled = False
@@ -128,6 +186,19 @@ class StrategyKillSwitchManager:
                 strategy_id=strategy_id,
                 reason=drift.reason,
                 metric=drift.metric,
+            )
+            # Recorded AFTER the state change, never before: a decision log
+            # that cannot be written must not stop capital being pulled from
+            # a drifting strategy.
+            _record_structural_change(
+                title=f"Strategy {strategy_id} auto-disabled",
+                change_type="strategy_disabled",
+                justification=drift.reason,
+                evidence={
+                    "strategy_id": strategy_id,
+                    "metric": drift.metric,
+                    "disabled_at_ms": now_ms,
+                },
             )
         return drift
 
@@ -152,18 +223,129 @@ class StrategyKillSwitchManager:
             sid for sid in strategy_ids if not self.is_registered(sid) or self._states[sid].enabled
         }
 
-    def re_enable(self, strategy_id: str) -> None:
+    def build_gauntlet_observation(
+        self, strategy_id: str, now_ms: int | None = None
+    ) -> GauntletObservation | None:
         """
-        Explicit re-enable after a strategy has passed the same
-        out-of-sample promotion gauntlet as initial registration. Callers
-        are responsible for that validation — this method does not
-        re-validate, it only clears the disabled flag.
+        Assemble this strategy's live track record for the v6 gauntlet.
+
+        Returns None when the strategy has no attributed fills at all — that
+        is an absence of evidence, not evidence of a passing record, and the
+        caller must treat it as a failure rather than a zero-valued pass.
+
+        Drawdown is expressed as a fraction of the strategy's own peak
+        cumulative P&L, because the gauntlet is specified in percentage terms
+        while AttributionTracker reports it in USD. A strategy that never
+        reached a positive peak has no meaningful denominator, so it reports
+        1.0 and fails the criterion — the right answer to "never made money,
+        and we are being asked to give it capital again".
+        """
+        fills = get_attribution_tracker().fills_for(strategy_id)
+        if not fills:
+            return None
+
+        attribution = compute_attribution(strategy_id, fills)
+        now = now_ms if now_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
+        first_entry = min(f.entry_ts for f in fills)
+        days_running = max(0.0, (now - first_entry) / _MS_PER_DAY)
+
+        peak_pnl = 0.0
+        running = 0.0
+        for fill in fills:
+            running += fill.pnl_usd
+            peak_pnl = max(peak_pnl, running)
+        drawdown_pct = attribution.max_drawdown_usd / peak_pnl if peak_pnl > 0.0 else 1.0
+
+        return GauntletObservation(
+            trade_count=attribution.trade_count,
+            days_running=days_running,
+            realized_sharpe=attribution.sharpe,
+            realized_max_drawdown_pct=drawdown_pct,
+        )
+
+    def re_enable(
+        self,
+        strategy_id: str,
+        *,
+        force: bool = False,
+        observation: GauntletObservation | None = None,
+        criteria: GauntletCriteria | None = None,
+        now_ms: int | None = None,
+    ) -> None:
+        """
+        Re-enable a kill-switched strategy after it clears the v6 gauntlet.
+
+        This method used to document that "callers are responsible for that
+        validation" and then not validate — and nothing in the tree called
+        it, so a strategy auto-disabled for drift could not be reinstated at
+        all without a process restart. It now runs
+        src/tuning/promotion_gauntlet.py itself, against this strategy's own
+        attributed track record, so the discipline is enforced where it is
+        stated rather than delegated to a caller that never existed.
+
+        force=True is the explicit operator override, for the case where the
+        gauntlet cannot be satisfied from in-process attribution: a restart
+        wipes the tracker, so an otherwise-healthy strategy can legitimately
+        look like it has no record. It is deliberately loud rather than
+        convenient — logged at warning, and reported as an override rather
+        than a pass.
+
+        Raises
+        ------
+        GauntletNotPassedError
+            When the gauntlet fails, or when there is no track record to
+            evaluate and force was not requested. The strategy stays
+            disabled; a failed re-enable never partially applies.
         """
         state = self._require_state(strategy_id)
+
+        if not force:
+            checked = (
+                observation
+                if observation is not None
+                else self.build_gauntlet_observation(strategy_id, now_ms=now_ms)
+            )
+            if checked is None:
+                raise GauntletNotPassedError(strategy_id, ())
+            result = evaluate_gauntlet(checked, criteria or GauntletCriteria())
+            if not result.passed:
+                log.warning(
+                    "strategy_kill_switch.re_enable_rejected",
+                    strategy_id=strategy_id,
+                    failed_criteria=list(result.failed_criteria),
+                )
+                raise GauntletNotPassedError(strategy_id, result.failed_criteria)
+
+        previous_reason = state.disabled_reason
         state.enabled = True
         state.disabled_reason = ""
         state.disabled_at_ms = 0
-        log.info("strategy_kill_switch.re_enabled", strategy_id=strategy_id)
+        log_fn = log.warning if force else log.info
+        log_fn(
+            "strategy_kill_switch.re_enabled",
+            strategy_id=strategy_id,
+            gauntlet="forced" if force else "passed",
+        )
+        # Recorded only on success: a rejected re-enable changed nothing, and
+        # logging it as a structural change would put a decision in the audit
+        # trail that was never taken.
+        _record_structural_change(
+            title=f"Strategy {strategy_id} re-enabled",
+            change_type="strategy_re_enabled",
+            justification=(
+                "Operator override — re-enabled WITHOUT passing the v6 promotion "
+                "gauntlet. AttributionTracker is in-memory, so a restart can make "
+                "a healthy strategy look like it has no record."
+                if force
+                else "Passed the v6 promotion gauntlet against its own attributed "
+                "live track record."
+            ),
+            evidence={
+                "strategy_id": strategy_id,
+                "previous_disabled_reason": previous_reason or "(none)",
+                "gauntlet": "forced" if force else "passed",
+            },
+        )
 
     def disabled_reason(self, strategy_id: str) -> str:
         return self._require_state(strategy_id).disabled_reason
@@ -178,6 +360,18 @@ class StrategyKillSwitchManager:
         """
         return self._require_state(strategy_id).decay_detector.is_decayed
 
+    def decay_statistic(self, strategy_id: str) -> tuple[float, int]:
+        """
+        The raw CUSUM statistic and the number of observations behind it.
+
+        Exposed alongside the is_structurally_decayed() boolean so callers
+        and operators can see how much evidence has accumulated rather than
+        only whether it crossed the threshold — the observation count is
+        also what distinguishes real accumulation from repeated polling.
+        """
+        detector = self._require_state(strategy_id).decay_detector
+        return detector.cusum_statistic, detector.observation_count
+
     def _require_state(self, strategy_id: str) -> StrategyRuntimeState:
         state = self._states.get(strategy_id)
         if state is None:
@@ -191,3 +385,41 @@ _manager: StrategyKillSwitchManager = StrategyKillSwitchManager()
 def get_strategy_kill_switch_manager() -> StrategyKillSwitchManager:
     """Module-level singleton for the strategy kill-switch manager."""
     return _manager
+
+
+def _record_structural_change(
+    title: str,
+    change_type: str,
+    justification: str,
+    evidence: dict[str, str | float | int],
+) -> None:
+    """
+    Append one structural change to the automated decision log (v10).
+
+    Synchronous file append inside an async application, which is acceptable
+    here only because these events are rare by construction — a kill-switch
+    trip, a decay flag, an explicit re-enable — not per-tick work.
+
+    Never raises. The log exists so a human can reconstruct why the portfolio
+    changed; failing to write it is a loss of auditability, not a reason to
+    abandon the risk action that produced it.
+    """
+    try:
+        path = get_settings().storage.decision_log_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        append_to_decision_log(
+            StructuralChangeRecord(
+                title=title,
+                change_type=change_type,
+                justification=justification,
+                evidence=evidence,
+            ),
+            log_path=path,
+        )
+    except Exception as exc:
+        log.error(
+            "strategy_kill_switch.decision_log_write_failed",
+            change_type=change_type,
+            error=str(exc),
+            exc_info=True,
+        )

@@ -110,16 +110,46 @@ class EnsemblePrediction:
     best_model: str  # Top-performing model
     model_weights: dict  # {"arima": 0.15, ...}
     individual_predictions: dict  # {"arima": 0.52, "xgboost": 0.48, ...}
+    # Members that could not produce a prediction this call. They contribute
+    # nothing to the point estimate or to the disagreement — a model that
+    # failed did not "predict 0.0", and counting it as though it had is how a
+    # broken ensemble reports confidence.
+    failed_models: tuple[str, ...] = ()
 
     @property
     def uncertainty_width(self) -> float:
         return self.credible_upper - self.credible_lower
+
+    @property
+    def is_degraded(self) -> bool:
+        """True when any member failed — the estimate rests on fewer models."""
+        return bool(self.failed_models)
 
 
 class PredictionModel(ABC):
     """
     Base class for ensemble members.
     """
+
+    @property
+    def is_fitted(self) -> bool:
+        """
+        Whether this member has a model to predict with.
+
+        Every member guards predict() with `if self.model is None: return 0.0`,
+        which is a finite, plausible number and therefore indistinguishable
+        from a real forecast of no move. An unfitted member consequently voted
+        zero on every call — and while _update_weights() zero-weights it out
+        of the point estimate, model_disagreement is an UNWEIGHTED standard
+        deviation across predictions, so the fabricated zero still moved the
+        ensemble's reported uncertainty. Worse, an unfitted member reports
+        rmse=inf, which predict_with_uncertainty() substitutes with 0.1 —
+        lower than most fitted models, so it could be selected as best_model.
+
+        Exposing this lets the ensemble skip the member entirely rather than
+        count a placeholder as an opinion.
+        """
+        return getattr(self, "model", None) is not None
 
     @abstractmethod
     def predict(self, features: pd.DataFrame) -> float:
@@ -287,6 +317,18 @@ class LSTMPredictor(PredictionModel):
             self.model = net
         except Exception as e:
             log.error("lstm_fit_failed", error=str(e), exc_info=True)
+
+    @property
+    def is_fitted(self) -> bool:
+        """
+        Mirrors this member's own predict() guard exactly.
+
+        torch being absent is a second way to have nothing to predict with,
+        and the two conditions must not be able to drift apart — that is how
+        a member starts answering 0.0 through a path the ensemble thinks it
+        has excluded.
+        """
+        return self.model is not None and _TORCH_AVAILABLE
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None or not _TORCH_AVAILABLE:
@@ -637,27 +679,72 @@ class EnsemblePredictor:
         Returns:
             EnsemblePrediction with point + credible interval + uncertainty sources
         """
-        individual_predictions = {}
-        individual_uncertainties = {}
+        individual_predictions: dict[str, float] = {}
+        individual_uncertainties: dict[str, float] = {}
+        failed: list[str] = []
 
         # Get predictions from all models
         for name, model in self.models.items():
+            if not model.is_fitted:
+                # Never fitted, or its optional dependency is absent. It has
+                # no opinion; its placeholder 0.0 is not one either.
+                log.debug("ensemble_member_unfitted", model=name)
+                failed.append(name)
+                continue
             try:
                 point, uncertainty = model.predict_with_uncertainty(features)
-                individual_predictions[name] = point
-                individual_uncertainties[name] = uncertainty
             except Exception as e:
                 log.error("ensemble_member_failed", model=name, error=str(e), exc_info=True)
-                individual_predictions[name] = 0.0
-                individual_uncertainties[name] = 0.5
+                failed.append(name)
+                continue
+            if not np.isfinite(point):
+                # A NaN or inf from a member is a failure that did not raise.
+                log.error("ensemble_member_non_finite", model=name, point=point)
+                failed.append(name)
+                continue
+            individual_predictions[name] = point
+            individual_uncertainties[name] = uncertainty
 
-        # Weighted average of predictions
-        ensemble_point = sum(individual_predictions[m] * self.weights[m] for m in self.models)
+        if not individual_predictions:
+            # Every member failed. Previously each contributed 0.0, so the
+            # weighted average was 0.0, the disagreement across identical
+            # zeros was 0.0, and the epistemic term vanished — a total
+            # ensemble failure emerged as a maximally CONFIDENT forecast of
+            # exactly zero, with the tightest credible interval it can
+            # produce. Refusing is the only honest answer.
+            raise RuntimeError(
+                "every ensemble member failed to predict; refusing to emit a point estimate"
+            )
+
+        if failed:
+            log.warning(
+                "ensemble_degraded",
+                failed=failed,
+                surviving=sorted(individual_predictions),
+            )
+
+        # Weighted average over the SURVIVORS, renormalised. A failed member
+        # keeps its historical weight in self.weights — that weight reflects
+        # how it performed when it worked — so leaving it in the denominator
+        # would silently shrink the estimate toward zero in proportion to how
+        # well the broken model used to do.
+        live_weight = sum(self.weights.get(m, 0.0) for m in individual_predictions)
+        if live_weight > 0.0:
+            weighted = sum(
+                individual_predictions[m] * self.weights.get(m, 0.0) for m in individual_predictions
+            )
+            ensemble_point = weighted / live_weight
+        else:
+            # Survivors carry no weight yet (cold start). Equal-weight them
+            # rather than returning zero, which would be a prediction.
+            ensemble_point = float(np.mean(list(individual_predictions.values())))
 
         # Aleatoric uncertainty: average of individual model uncertainties
         aleatoric = np.mean(list(individual_uncertainties.values()))
 
-        # Epistemic uncertainty: disagreement between models
+        # Epistemic uncertainty: disagreement between the models that spoke.
+        # Failed members are excluded: their 0.0 was not an opinion, and
+        # including it inflates or deflates the spread arbitrarily.
         model_disagreement = np.std(list(individual_predictions.values()))
         epistemic = model_disagreement
 
@@ -669,6 +756,9 @@ class EnsemblePredictor:
         ci_upper = ensemble_point + 1.96 * total_uncertainty
 
         # Best model (lowest uncertainty)
+        # Chosen among survivors only. A failed member used to be assigned a
+        # flat 0.5 uncertainty, which can beat a healthy model's real RMSE and
+        # let a model that produced nothing be reported as the best one.
         best_model = min(individual_uncertainties, key=lambda k: individual_uncertainties[k])
 
         # Update weights based on recent performance
@@ -693,6 +783,7 @@ class EnsemblePredictor:
             best_model=best_model,
             model_weights=self.weights.copy(),
             individual_predictions=individual_predictions,
+            failed_models=tuple(failed),
         )
 
     def _update_weights(self):

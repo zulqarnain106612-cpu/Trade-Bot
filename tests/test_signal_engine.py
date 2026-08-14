@@ -313,6 +313,65 @@ class TestSkipPaths:
         assert mock_kelly.call_args is not None, "compute_position_size was never called"
         assert mock_kelly.call_args.kwargs["regime_scalar"] == pytest.approx(0.6, abs=1e-9)
 
+    async def _kelly_kwargs_for_macro(self, macro_budget):
+        """Drive one tick with *macro_budget* and return compute_position_size kwargs."""
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch(
+                "src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()
+            ) as mock_kelly,
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_mock_cognitive()),
+        ):
+            await e.tick(**dict(_TICK, macro_budget=macro_budget))
+
+        assert mock_kelly.call_args is not None, "compute_position_size was never called"
+        return mock_kelly.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_macro_budget_none_leaves_scalar_untouched(self):
+        """No macro data must be a no-op, never a neutral haircut."""
+        from src.risk.macro_exposure_budget import MacroExposureBudget
+
+        baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
+        shrunk = (
+            await self._kelly_kwargs_for_macro(
+                MacroExposureBudget(scalar=0.25, reason="max risk-off")
+            )
+        )["correlation_scalar"]
+        assert shrunk == pytest.approx(baseline * 0.25, abs=1e-9)
+
+    @pytest.mark.asyncio
+    async def test_macro_budget_fault_retains_the_unshrunk_scalar(self):
+        """
+        A broken budget must not remove the correlation/regime ceiling that was
+        already computed — failing to apply a ceiling is not a licence to widen.
+        """
+
+        class _BrokenBudget:
+            reason = "broken"
+
+            @property
+            def scalar(self) -> float:
+                raise RuntimeError("boom")
+
+        baseline = (await self._kelly_kwargs_for_macro(None))["correlation_scalar"]
+        kwargs = await self._kelly_kwargs_for_macro(_BrokenBudget())
+        assert kwargs["correlation_scalar"] == pytest.approx(baseline, abs=1e-9)
+
     @pytest.mark.asyncio
     async def test_direction_gate_not_passed(self):
         e = _make_engine()
@@ -1012,6 +1071,71 @@ class TestTask010FundingRateWiring:
         )
         # spread_bps: ob.spread/ob.mid_price*10_000 = 0.1/105.0*10_000 ≈ 9.52 bps
         assert ctx.spread_bps > 0.0, "spread_bps must be positive when orderbook is live"
+
+    @pytest.mark.asyncio
+    async def test_slippage_model_gets_half_the_quoted_spread(self):
+        """
+        SlippageModel is documented in half-spread units (mid -> touch), while
+        SignalContext.spread_bps carries the full quoted width. Feeding the
+        full width in would double the modelled crossing cost.
+        """
+        captured_spreads: list[float] = []
+        captured_ctx: list = []
+
+        def _capturing_cog():
+            cog = MagicMock()
+            res = MagicMock()
+            res.passed = True
+            res.veto_reason = ""
+            res.adjusted_size_fraction = 0.05
+            cog.evaluate = lambda ctx: (captured_ctx.append(ctx), res)[1]
+            return cog
+
+        class _CapturingSlippageModel:
+            def estimate(self, **kwargs):
+                captured_spreads.append(kwargs["spread_bps"])
+                raise RuntimeError("capture only — tick must survive this")
+
+        e = _make_engine()
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch.object(e._trainer, "predict_direction", return_value=(1, 0.8)),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+            patch(
+                "src.engine.signal_engine.evaluate_all_gates",
+                return_value=MagicMock(
+                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                ),
+            ),
+            patch(
+                "src.engine.signal_engine.apply_all_strategy_filters",
+                return_value={
+                    "passes": True,
+                    "filters_failed": [],
+                    "scalar": 1.0,
+                    "details": {"hurst": 0.55},
+                },
+            ),
+            patch("src.engine.signal_engine.get_cognitive_engine", return_value=_capturing_cog()),
+            patch("src.engine.signal_engine.SlippageModel", _CapturingSlippageModel),
+        ):
+            await e.tick(**_TICK)
+
+        assert captured_spreads, "SlippageModel.estimate must be called on a live orderbook"
+        assert captured_ctx, "CognitiveEngine.evaluate must be called"
+        assert captured_spreads[0] == pytest.approx(captured_ctx[0].spread_bps / 2.0)
 
     @pytest.mark.asyncio
     async def test_funding_rate_defaults_zero_on_fetch_error(self):

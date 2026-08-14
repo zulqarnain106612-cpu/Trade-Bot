@@ -65,6 +65,23 @@ class StrategySpec:
     factory: Callable[[float], StrategyProtocol]
     enabled_attr: str
     fraction_attr: str
+    # Set when a family needs more than its capital fraction to construct.
+    # Takes precedence over `factory`; `factory` stays required so every spec
+    # still declares the plain constructor it wraps.
+    builder: Callable[[float, StrategyPortfolioSettings], StrategyProtocol] | None = None
+
+
+def _build_options_carry(fraction: float, cfg: StrategyPortfolioSettings) -> OptionsCarryStrategy:
+    """
+    Hand the strategy this registry's settings so it resolves its own
+    book-level Greeks ceilings.
+
+    Kelly sizes on notional and cannot see the non-linear delta/vega a short
+    option adds, so that cap is the only thing bounding the exposure. Building
+    it here as well would give the same ceiling two construction sites that
+    could drift apart; options_carry._caps_from_config is the one.
+    """
+    return OptionsCarryStrategy(fraction, cfg=cfg)
 
 
 # Order is stable and meaningful: the model-driven signal engine is the
@@ -118,6 +135,7 @@ _SPECS: tuple[StrategySpec, ...] = (
         factory=OptionsCarryStrategy,
         enabled_attr="options_carry_enabled",
         fraction_attr="options_carry_fraction",
+        builder=_build_options_carry,
     ),
 )
 
@@ -171,7 +189,8 @@ def register_default_strategies(
         if spec.strategy_id in registry:
             log.debug("strategy_bootstrap.already_registered", strategy_id=spec.strategy_id)
             continue
-        strategy = spec.factory(float(getattr(cfg, spec.fraction_attr)))
+        fraction = float(getattr(cfg, spec.fraction_attr))
+        strategy = spec.builder(fraction, cfg) if spec.builder else spec.factory(fraction)
         try:
             registry.register(strategy)
         except DuplicateStrategyError:  # pragma: no cover - guarded by the check above

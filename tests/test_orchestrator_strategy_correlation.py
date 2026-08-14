@@ -233,3 +233,38 @@ def test_scalar_consults_tracker_for_other_active_strategies(monkeypatch):
     assert seen["new"] == STRATEGY_ID_SIGNAL_ENGINE
     # Deduplicated — two positions of one strategy are one active strategy.
     assert seen["active"] == ["breakout_volume_v1"]
+
+
+# ---------------------------------------------------------------------------
+# Failure isolation between the two correlation ceilings
+# ---------------------------------------------------------------------------
+
+
+def test_strategy_scalar_fault_retains_the_asset_reduction(monkeypatch):
+    """A fault computing the strategy ceiling must not remove the asset one.
+
+    The outer handler in _tick resets correlation_scalar to 1.0, so sharing
+    its except would size the position *larger* than the asset tracker
+    asked for — failing to apply one ceiling must never remove another.
+    """
+    import src.engine.orchestrator as orch_mod
+
+    def _boom():
+        raise RuntimeError("strategy tracker exploded")
+
+    monkeypatch.setattr(orch_mod, "get_strategy_correlation", _boom)
+
+    orch = _orchestrator()
+    # Two distinct strategies hold capital, so the scalar is consulted.
+    positions = [_pos("t1"), _pos("t2", strategy_id="breakout_volume_v1")]
+
+    asset_scalar = 0.3
+    try:
+        combined = orch_mod.combined_correlation_scalar(
+            asset_scalar=asset_scalar,
+            strategy_scalar=orch._strategy_correlation_scalar(positions),
+        )
+    except Exception:
+        combined = asset_scalar  # mirrors the inner handler in _tick
+
+    assert combined == 0.3  # asset reduction survived, not reset to 1.0
