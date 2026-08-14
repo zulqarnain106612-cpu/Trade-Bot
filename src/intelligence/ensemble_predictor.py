@@ -731,8 +731,7 @@ class EnsemblePredictor:
         live_weight = sum(self.weights.get(m, 0.0) for m in individual_predictions)
         if live_weight > 0.0:
             weighted = sum(
-                individual_predictions[m] * self.weights.get(m, 0.0)
-                for m in individual_predictions
+                individual_predictions[m] * self.weights.get(m, 0.0) for m in individual_predictions
             )
             ensemble_point = weighted / live_weight
         else:

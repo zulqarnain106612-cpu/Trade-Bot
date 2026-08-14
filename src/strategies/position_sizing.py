@@ -41,6 +41,13 @@ _DEFAULT_DAILY_VOL_TARGET_PCT: Final[float] = 0.25  # 0.25% daily
 _FORECAST_SCALAR_MIN: Final[float] = -20.0
 _FORECAST_SCALAR_MAX: Final[float] = 20.0
 
+# Carver (2019) Ch.4 normalises a forecast so its expected absolute value is
+# 10, and divides by that same figure when sizing. Exported so callers that
+# have to map some other signal (a probability, a z-score) into forecast
+# units scale by the same constant the sizer divides by, instead of feeding
+# in a [-1, 1] number and silently getting a 10x-undersized position.
+CARVER_FORECAST_SCALAR: Final[float] = 10.0
+
 # AFML Ch.16 — correlation threshold above which to reduce new position
 _CORRELATION_REDUCE_THRESHOLD: Final[float] = 0.7
 
@@ -59,7 +66,7 @@ def carver_forecast_position(
     daily_vol_pct: float,
     price: float,
     daily_vol_target_pct: float = _DEFAULT_DAILY_VOL_TARGET_PCT,
-    forecast_scalar: float = 10.0,
+    forecast_scalar: float = CARVER_FORECAST_SCALAR,
 ) -> float:
     """
     Carver (2019) Ch.4 forecast-scaled position sizing.
@@ -68,7 +75,12 @@ def carver_forecast_position(
                  x forecast
 
     Where:
-      - forecast         : raw signal in (-20, 20), e.g. from ewm_trend_signal
+      - forecast         : Carver-normalised signal in (-20, 20) whose
+                           expected absolute value is `forecast_scalar`.
+                           Signals on a different scale (ewm_trend_signal
+                           clips to (-3, 3); a probability maps to (-1, 1))
+                           must be multiplied up to these units first, or
+                           the position comes out short by that ratio.
       - daily_vol_pct    : annualised vol / sqrt(252), expressed as decimal
       - forecast_scalar  : normalisation constant (Carver recommends 10 for EWMAC)
 
@@ -265,12 +277,16 @@ def recommend_position_notional(
     kelly_ceiling: float = 0.25,
 ) -> dict[str, float]:
     """
-    Run all four sizing methods and return the minimum (most conservative).
+    Run the three sizing methods, take the minimum (most conservative), then
+    apply the AFML Ch.16 correlation haircut to that minimum.
 
     This implements the Carver (2019) principle of "whichever method gives
-    the smaller position" — reduces risk of oversizing in any single framework.
+    the smaller position" — reduces risk of oversizing in any single framework
+    — and keeps the concentration control binding regardless of which method
+    won.
 
-    Returns dict with each method's notional and the recommended notional.
+    Returns dict with each method's notional, the correlation-adjusted
+    minimum, and the recommended notional.
     """
     thorp = thorp_kelly_with_variance(
         win_prob,
@@ -288,13 +304,19 @@ def recommend_position_notional(
         daily_vol_pct,
         price,
     )
-    corr_adj_thorp = correlation_adjusted_notional(thorp, avg_book_correlation)
+    # The correlation haircut applies to whichever method actually wins the
+    # min, not to the Thorp leg alone. Adjusting thorp and *then* taking the
+    # min meant a book at 0.95 correlation got the full, unreduced size
+    # whenever Carver or AFML was the binding constraint — the concentration
+    # control silently did nothing in exactly the cases it did not choose.
+    raw_min = min(thorp, afml, carver)
+    corr_adjusted = correlation_adjusted_notional(raw_min, avg_book_correlation)
 
     notionals = {
         "thorp_kelly": round(thorp, 2),
         "afml_bet_size": round(afml, 2),
         "carver_forecast": round(carver, 2),
-        "correlation_adjusted": round(corr_adj_thorp, 2),
+        "correlation_adjusted": round(corr_adjusted, 2),
     }
 
     # UI-007: the most conservative (minimum) of the four methods, floored
@@ -306,7 +328,6 @@ def recommend_position_notional(
     # was no edge. The floor exists only to avoid recommending a real but
     # sub-exchange-minimum notional (e.g. $0.03), not to manufacture a
     # trade out of no edge.
-    raw_min = min(thorp, afml, carver, corr_adj_thorp)
-    recommended = 0.0 if raw_min <= 0.0 else max(_MIN_NOTIONAL_USD, raw_min)
+    recommended = 0.0 if corr_adjusted <= 0.0 else max(_MIN_NOTIONAL_USD, corr_adjusted)
     notionals["recommended"] = round(recommended, 2)
     return notionals
