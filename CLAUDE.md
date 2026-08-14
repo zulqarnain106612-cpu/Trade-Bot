@@ -98,3 +98,53 @@ the change is wrong, not the law.
 - Coverage gate: 95% global (`--cov-fail-under=95`). Per-file floors enforced by `scripts/check_coverage_floors.py` in CI for `src/execution/`, `src/engine/`, `runtime_monitor`.
 - Never use the Agent tool (sub-agents) — burns 3-5× tokens; use Bash/Read/grep directly.
 - No destructive operations without explicit authorization.
+
+# === TRADE-BOT PROJECT CONTEXT ===
+# This file is the project-level layer. It does NOT repeat global rules.
+# Global rules live in ~/.claude/CLAUDE.md (ADOS + HARD LIMITS).
+# Both files are always active. Both apply to main agent and all sub-agents.
+#
+# SUB-AGENT REMINDER: if you are a spawned agent reading this file,
+# you are bound by ALL of the following:
+#   1. ~/.claude/CLAUDE.md → ADOS (decision engine + correctness self-audit)
+#   2. ~/.claude/CLAUDE.md → HARD LIMITS & AGENT PROTOCOL (enforcement rules)
+#   3. This file → project-specific patterns
+# All three apply. No exceptions. No drift. No partial inheritance.
+
+## STACK FINGERPRINT
+- Language  : Python (primary)
+- Domain    : Algorithmic trading / market data
+- Test cmd  : pytest 2>&1 | tail -n 30
+- Lint cmd  : ruff check . 2>&1 | head -n 20  (or flake8 | head -20)
+- Entry pts : grep -rn "def main\|if __name__" src/ --include="*.py" -l
+
+## HIGH-NOISE PATHS — NEVER READ UNLESS TARGETED
+- logs/          : tail -n 40 or grep -m 20 only
+- data/          : never explore broadly; always target specific file/date
+- __pycache__/   : ignore entirely
+- .venv/ / venv/ : use pip show <pkg>, never browse
+
+## COMMON TARGETED READS — USE THESE PATTERNS
+- Config value  : grep -n "KEY_NAME" config*.yaml | head -5
+- Failure cause : grep -m 15 "ERROR\|Exception\|Traceback" logs/*.log
+- Class/fn loc  : grep -n "class FooBar\|def bar_fn" src/**/*.py | head -10
+- Import check  : grep -n "^from\|^import" src/module.py | head -20
+
+## SESSION DISCIPLINE
+- /compact after: architecture decisions, implementation complete, test suite run
+- /clear between: unrelated features or context clearly stale
+- session-notes : end each session → ask Claude to write docs/session-notes.md
+  (max 20 lines: decisions made, next TODOs, blockers)
+- Next session  : load docs/session-notes.md first, nothing else
+
+## ACTION → EFFICIENT TOOL MAP
+| Goal                        | Use                                              |
+|-----------------------------|--------------------------------------------------|
+| Read 1 value from config    | grep -n "key" config.yaml \| head -3             |
+| Fix 1 line in source        | Edit(old_str, new_str) — no file read needed     |
+| Find where fn is defined    | grep -rn "def fn_name" src/ --include="*.py"     |
+| Check test failure reason   | pytest 2>&1 \| tail -n 30                        |
+| Check which files changed   | git diff --stat HEAD                             |
+| Read specific log error     | grep -m 15 "ERROR" logs/app.log                  |
+| Find file by name           | find . -name "target.py" -maxdepth 4             |
+| Understand module exports   | grep -n "^class\|^def\|^__all__" module.py       |
