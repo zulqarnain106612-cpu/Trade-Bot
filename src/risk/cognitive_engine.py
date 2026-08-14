@@ -506,9 +506,7 @@ class BlockchainValidator:
     # veto, and a class-level mutable is shared by every instance for the
     # life of the process. Nothing mutates it today; a frozenset means
     # nothing can start to, and `in` behaves identically.
-    TRUSTED_EXCHANGES: Final[frozenset[str]] = frozenset(
-        {"binance", "okx", "bybit", "kraken"}
-    )
+    TRUSTED_EXCHANGES: Final[frozenset[str]] = frozenset({"binance", "okx", "bybit", "kraken"})
 
     def validate(self, ctx: SignalContext) -> ValidatorResult:
         metrics: dict = {}

@@ -86,9 +86,7 @@ class AuditTrail:
     the last evicted entry and the first retained one.
     """
 
-    _entries: deque[AuditEntry] = field(
-        default_factory=lambda: deque(maxlen=_MAX_RETAINED_ENTRIES)
-    )
+    _entries: deque[AuditEntry] = field(default_factory=lambda: deque(maxlen=_MAX_RETAINED_ENTRIES))
     # Next sequence number and the hash to chain from. Previously both were
     # derived from _entries, which is exactly what made the list impossible
     # to bound: dropping the head would have restarted numbering and
