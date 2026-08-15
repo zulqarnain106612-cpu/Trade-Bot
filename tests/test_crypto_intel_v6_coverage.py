@@ -66,10 +66,10 @@ class TestShadowDeployerExtended:
 
         dep = ShadowDeployer(lambda x: 1.0, lambda x: 1.0, shadow_hours=999)
         dep.start()
-        # evaluate() always returns an ABResult; with no recorded returns
-        # neither side can beat the other, so nothing is promoted.
+        # shadow_hours=999 means the window has not elapsed, and evaluate()
+        # returns None rather than judging the challenger on a partial window.
         result = dep.evaluate()
-        assert result.promoted is False
+        assert result is None
 
     def test_evaluate_after_shadow_period(self) -> None:
         from src.upgrade.shadow_deploy import ShadowDeployer
@@ -123,7 +123,7 @@ class TestWalkForwardStudy:
             return 1.0
 
         study = WalkForwardStudy("test", dummy_train, data=list(range(100)))
-        assert study.best_params == {}
+        assert study.best_params() == {}
 
     def test_sharpe_computation(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
@@ -162,7 +162,7 @@ class TestWalkForwardStudy:
             storage_path=tmp_path / "study.db",
         )
         study.run()
-        assert isinstance(study.best_params, dict)
+        assert isinstance(study.best_params(), dict)
 
 
 # ─── ModelRegistry ─────────────────────────────────────────────────────────────
@@ -787,7 +787,7 @@ class TestRLExecutionAgentExtended:
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
         state = RLExecutionState(n_horizons=2)
         for regime_id, pnl in [(0, -0.05), (4, 0.0), (8, 0.05)]:
-            obs = state.build(
+            _obs = state.build(
                 horizon_confidences=[0.7, 0.6],
                 regime_id=regime_id,
                 ecc_features={"cluster_flow_score": 0.3},
@@ -795,7 +795,7 @@ class TestRLExecutionAgentExtended:
                 drawdown=abs(pnl),
                 kyle_lambda=1e-6,
             )
-            action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime)
+            action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime_id)
             assert action in (0, 1, 2, 3)
 
     def test_obs_length_correct(self) -> None:
