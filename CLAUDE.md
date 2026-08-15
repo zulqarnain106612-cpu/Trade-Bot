@@ -1,10 +1,9 @@
 # Trade-Bot — Claude Code
 
 ## SESSION START
-```bash
-git log --oneline -5
-gh workflow run ci.yml --ref $(git branch --show-current)
-```
+Do nothing. No commands, no reads, no CI dispatch.
+Wait for an explicit user message before any action, on every branch.
+
 Stack: Python 3.11 | uv | FastAPI | XGBoost+HMM | ccxt (Binance/OKX) | pytest | ruff+mypy
 Entry: `src/api/main.py` | Engine: `src/engine/orchestrator.py` | Risk: `src/risk/kelly.py` | Regime: `src/regime/detector.py`
 
