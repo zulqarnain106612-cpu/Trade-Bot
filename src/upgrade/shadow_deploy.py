@@ -41,7 +41,9 @@ class ModelRecord:
     predictions: list[float] = field(default_factory=list)
     actuals: list[float] = field(default_factory=list)
     returns: list[float] = field(default_factory=list)
-    start_ts: float = field(default_factory=time.time)
+    # Monotonic, not epoch: this is only ever read as an elapsed duration by
+    # age_hours(), never serialised or reported as a wall-clock time.
+    start_ts: float = field(default_factory=time.monotonic)
 
     def sharpe(self) -> float:
         arr = np.array(self.returns)
@@ -53,7 +55,15 @@ class ModelRecord:
         return float(np.mean(arr) / std * np.sqrt(252))
 
     def age_hours(self) -> float:
-        return (time.time() - self.start_ts) / 3600.0
+        """
+        Hours since this arm started, on the monotonic clock.
+
+        Wall clock made promotion hostage to NTP: a forward correction can
+        satisfy the shadow-period gate that promote_ready() checks before the
+        challenger has actually run for that long, and a backward one holds a
+        finished shadow open indefinitely.
+        """
+        return (time.monotonic() - self.start_ts) / 3600.0
 
 
 @dataclass
@@ -102,8 +112,8 @@ class ShadowDeployer:
         self._result: ABResult | None = None
 
     def start(self) -> None:
-        self._incumbent.start_ts = time.time()
-        self._challenger.start_ts = time.time()
+        self._incumbent.start_ts = time.monotonic()
+        self._challenger.start_ts = time.monotonic()
         self._active = True
         log.info(
             "shadow_deploy_started",
@@ -144,13 +154,25 @@ class ShadowDeployer:
     def ready_to_evaluate(self) -> bool:
         return self._active and self._incumbent.age_hours() >= self._shadow_hours
 
-    def evaluate(self) -> ABResult:
+    def evaluate(self) -> ABResult | None:
         """
         Compare Sharpe ratios and decide whether to promote challenger.
 
         If challenger Sharpe > incumbent Sharpe + epsilon, challenger is
         promoted (caller is responsible for swapping the live model).
+
+        Returns None until the shadow window has elapsed: judging a
+        challenger on a partial window — or on the -999 no-samples sentinel
+        both sides return — would promote a model on noise.
         """
+        if not self.ready_to_evaluate():
+            log.debug(
+                "shadow_deploy_not_ready",
+                age_hours=self._incumbent.age_hours(),
+                shadow_hours=self._shadow_hours,
+            )
+            return None
+
         inc_sharpe = self._incumbent.sharpe()
         cha_sharpe = self._challenger.sharpe()
         promote = cha_sharpe > inc_sharpe + self._sharpe_epsilon

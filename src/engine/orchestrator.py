@@ -32,6 +32,7 @@ import structlog
 from src.api.metrics import update_metrics
 from src.config import (
     EXCHANGE_BINANCE,
+    EXCHANGE_OKX,
     TIMEFRAME_SECONDS,
     Timeframe,
     TradingMode,
@@ -50,6 +51,14 @@ from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
 )
 from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
+from src.engine.strategy_portfolio import (
+    InputNeed,
+    PortfolioEvaluation,
+    PortfolioInputs,
+    get_portfolio_runner,
+    required_inputs,
+)
+from src.engine.universe_returns import UniverseReturnsCache
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
@@ -61,12 +70,13 @@ from src.models.trainer import ModelTrainer
 from src.regime.detector import RegimeDetector
 from src.risk.drift_integration import DriftIntegrationAdapter
 from src.risk.gates import check_position_exit
-from src.risk.kelly import compute_win_loss_stats
+from src.risk.kelly import apply_size_scalar, compute_win_loss_stats
 from src.risk.macro_exposure_budget import (
     MacroExposureBudget,
     compute_macro_exposure_scalar,
 )
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
+from src.risk.portfolio_agreement import portfolio_agreement_scalar
 from src.risk.portfolio_correlation import get_portfolio_correlation
 from src.risk.strategy_correlation import (
     combined_correlation_scalar,
@@ -74,6 +84,7 @@ from src.risk.strategy_correlation import (
 )
 from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
 from src.strategies.capital_allocator import performance_weighted_allocate
+from src.strategies.mean_reversion import check_cointegration
 from src.strategies.registry import get_default_registry
 from src.strategies.signal_engine_adapter import (
     STRATEGY_ID_SIGNAL_ENGINE,
@@ -88,6 +99,37 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
 _HISTORY_BARS_FOR_TRAIN: int = 2000
 _REGIME_LOOKBACK_BARS: int = 500
+# Bars handed to the strategy portfolio each tick. Wide enough for the
+# breakout family's lookback + ATR warmup, narrow enough that rebuilding it
+# every tick stays cheap next to the model path.
+_PORTFOLIO_BAR_WINDOW: int = 300
+# Funding observations kept for the carry family's z-score (~8h cadence).
+_PORTFOLIO_FUNDING_WINDOW: int = 120
+# Calendar lookback for the funding sample. Funding steps every 8h, so a
+# bar-count window would span days at 15m and hours at 1m — a fixed calendar
+# span keeps the z-score's sample comparable across timeframes.
+_PORTFOLIO_FUNDING_LOOKBACK_DAYS: int = 45
+# Row ceiling on that lookback, so the query stays bounded on the fastest
+# timeframe (45d of 1m bars) instead of falling back to the 100_000 default.
+_PORTFOLIO_FUNDING_MAX_ROWS: int = 5_000
+# Lifetime of a memoised ticker quote. Deliberately below
+# _MAX_VENUE_QUOTE_SKEW_S (2.0s), so a cached quote can only ever collapse
+# duplicate calls inside one tick's assembly — never survive long enough to
+# feed a later tick a stale price, which the skew guard would reject anyway.
+_QUOTE_CACHE_TTL_S: float = 1.0
+# Oldest universe snapshot the pairs family may compute a spread from. One
+# 4h bar — the timeframe those closes are sampled at — so the bound only
+# bites during a genuine outage: the cache's own TTL is an hour and its
+# failure backoff caps at 15 minutes, well inside this.
+_MAX_PAIR_SNAPSHOT_AGE_S: float = 4 * 3600.0
+# What compute_position_size has always defaulted to, kept here so the
+# fallback when the exchange filters cannot be fetched is exactly today's
+# behaviour rather than a second, differing set of numbers.
+_DEFAULT_SYMBOL_PRECISION: dict[str, float] = {
+    "amount_precision": 8.0,
+    "min_amount": 0.0,
+    "min_cost": 0.0,
+}
 
 AnyExecutor = PaperExecutor | LiveExecutor
 
@@ -183,6 +225,38 @@ class Orchestrator:
         self._retrain_tasks: dict[str, asyncio.Task] = {}
         # SCAN2-003: track last retrain error per timeframe so /status can surface it
         self._last_retrain_error: dict[str, str] = {}
+        # Latest strategy-portfolio evaluation per timeframe. Advisory: read
+        # by the API/debug surface, never by the order path.
+        self._last_portfolio_evaluation: dict[str, PortfolioEvaluation] = {}
+        # Same poll with the incumbent excluded, and the shrink-only size
+        # ceiling derived from it. Reported, not yet applied to sizing.
+        self._last_portfolio_peer_evaluation: dict[str, PortfolioEvaluation] = {}
+        self._last_portfolio_agreement: dict[str, float] = {}
+        # Cross-sectional feed. Built unconditionally but inert with an empty
+        # universe — trailing_returns() short-circuits, so an unconfigured
+        # universe costs nothing and the family keeps abstaining honestly.
+        _portfolio_cfg = self._cfg.strategy_portfolio
+        # The pair's legs join the fetch set even when they are not in the
+        # cross-sectional universe: both families read the same snapshot, so
+        # a pair leg outside it would have no close series and the pairs
+        # family would abstain for a reason no config change could fix.
+        # Deduplicated with order preserved so the fetch set is stable.
+        _feed_symbols = dict.fromkeys(
+            (*_portfolio_cfg.xsec_universe, *_portfolio_cfg.mean_reversion_pair)
+        )
+        self._universe_returns = UniverseReturnsCache(
+            fetcher,
+            tuple(_feed_symbols),
+            lookback_days=_portfolio_cfg.xsec_lookback_days,
+            ttl_seconds=_portfolio_cfg.xsec_refresh_interval_s,
+        )
+        # (snapshot timestamp, hedge ratio or None) — memoises the pair's
+        # cointegration test against the data it was computed from.
+        self._pair_cointegration: tuple[float, float | None] | None = None
+        # (symbol, venue) -> (price, observed_at). Deduplicates the identical
+        # quotes that assembling one tick's portfolio inputs would otherwise
+        # request twice; see _quote.
+        self._quote_cache: dict[tuple[str, str], tuple[float, float]] = {}
 
         # GAP-003: Performance drift detector (initialized in startup after models trained)
         self._drift_detector: PerformanceDriftDetector | None = None
@@ -224,6 +298,8 @@ class Orchestrator:
           4. Build signal engines
         """
         self._log.info("orchestrator.startup", trading_mode=self._cfg.trading_mode.value)
+
+        await self._load_symbol_precision()
 
         # Create executor
         if self._cfg.trading_mode == TradingMode.LIVE:
@@ -739,6 +815,11 @@ class Orchestrator:
         # making it look permanently flat to anything reading the registry.
         self._publish_signal_to_registry(result)
 
+        # Poll the rest of the strategy portfolio. Must run after the publish
+        # above, so the incumbent adapter votes on this tick's result rather
+        # than the previous one.
+        await self._evaluate_strategy_portfolio(tf)
+
         # TASK-007: push metrics snapshot to Prometheus gauges/counters
         try:
             _executor = getattr(self, "_executor", None)
@@ -823,11 +904,67 @@ class Orchestrator:
                     )
                     return
 
+            # Strategy-portfolio disagreement ceiling. The peer evaluation for
+            # this tick was computed above, so this is current rather than
+            # lagged, and it is shrink-only by construction: agreement returns
+            # 1.0 and short-circuits.
+            #
+            # Guarded rather than fatal — losing a ceiling must never be worse
+            # than never having had one — but a reduction that falls below the
+            # exchange minimum skips the trade rather than submitting it at
+            # full size.
+            # Sized against current_price, NOT kelly_result.entry_price. The
+            # block immediately above exists precisely because entry_price can
+            # be zero, and resolves it by fetching a ticker (skipping the
+            # trade if even that fails). Passing the unresolved value here
+            # would hand apply_size_scalar a non-positive price, which it
+            # correctly refuses — silently skipping a valid trade and
+            # reporting it as an agreement reduction, which is the wrong
+            # diagnosis for a price that had already been fixed two lines up.
+            kelly_result = result.kelly_result
+            _agreement = self._last_portfolio_agreement.get(tf.value, 1.0)
+            if _agreement < 1.0:
+                try:
+                    # Real exchange filters, not the zero defaults. A reduced
+                    # order is where a min-notional breach actually becomes
+                    # likely, so this is the call site that most needs them.
+                    _precision = getattr(self, "_symbol_precision", _DEFAULT_SYMBOL_PRECISION)
+                    _reduced = apply_size_scalar(
+                        kelly_result,
+                        _agreement,
+                        current_price,
+                        amount_precision=_precision["amount_precision"],
+                        min_amount=_precision["min_amount"],
+                        min_cost=_precision["min_cost"],
+                    )
+                except Exception as exc:
+                    self._log.error(
+                        "orchestrator.portfolio_agreement_apply_failed",
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                    _reduced = kelly_result
+                if _reduced is None:
+                    self._log.info(
+                        "orchestrator.signal_skipped_agreement_below_minimum",
+                        timeframe=tf.value,
+                        agreement_scalar=round(_agreement, 4),
+                    )
+                    return
+                self._log.info(
+                    "orchestrator.portfolio_agreement_reduction",
+                    timeframe=tf.value,
+                    scalar=round(_agreement, 4),
+                    notional_before=round(kelly_result.notional_usd, 2),
+                    notional_after=round(_reduced.notional_usd, 2),
+                )
+                kelly_result = _reduced
+
             trade_id, outcome = await executor.submit_signal(
                 symbol=self._symbol,
                 timeframe=tf.value,
                 direction=result.direction,
-                kelly_result=result.kelly_result,
+                kelly_result=kelly_result,
                 regime_state=result.regime.state if result.regime else 0,
                 meta_label_prob=result.p_bet,
                 raw_signal=result.p_long,
@@ -855,7 +992,10 @@ class Orchestrator:
                             timeframe=tf.value,
                             direction=result.direction,
                             reason=outcome,
-                            kelly_fraction=result.kelly_result.adjusted_fraction,
+                            # The submitted size, not the pre-reduction one:
+                            # a missed-trade record showing a fraction the
+                            # order never had is a misleading audit entry.
+                            kelly_fraction=kelly_result.adjusted_fraction,
                             meta_label_prob=result.p_bet,
                             raw_signal=result.p_long,
                             regime_at_entry=result.regime.state if result.regime else 0,
@@ -1656,6 +1796,484 @@ class Orchestrator:
             self._log.warning(
                 "orchestrator.registry_signal_publish_failed", error=str(exc), exc_info=True
             )
+
+    async def _build_portfolio_inputs(
+        self,
+        tf: Timeframe,
+        needs: frozenset[InputNeed] | None = None,
+    ) -> PortfolioInputs:
+        """
+        Assemble this tick's market state in the forms the families need.
+
+        Every source is optional and independently guarded: a family whose
+        data is missing abstains, and the rest still vote. Failing the whole
+        evaluation because one optional feed is down would reintroduce the
+        all-or-nothing coupling that kept this layer unwired.
+
+        `needs` restricts the work to the feeds the registered families
+        actually read. That is not a micro-optimisation. Assembling these
+        inputs costs two database reads and up to four exchange round-trips,
+        and it runs on the tick path in front of order routing — so on the
+        default configuration, where only signal_engine_v1 is registered and
+        its builder consumes nothing at all, every tick was paying network
+        latency to build data it then discarded. Latency on the execution
+        path is a domain prior here, not a nicety.
+
+        None means "fetch everything", which keeps the behaviour intact for
+        any caller with no view of what is registered.
+        """
+        wanted = needs if needs is not None else frozenset(InputNeed)
+
+        highs: list[float] | None = None
+        lows: list[float] | None = None
+        closes: list[float] | None = None
+        volumes: list[float] | None = None
+        if InputNeed.BARS in wanted:
+            # fetch_bars is `ts >= since_ts ORDER BY ts ASC LIMIT n`, so
+            # since_ts is what selects the window — a limit alone would return
+            # the oldest n bars in the table and the portfolio would evaluate
+            # the start of history forever, on data years stale, without ever
+            # erroring. Over-fetch the cutoff to absorb OHLCV gaps, which are
+            # a real feature of crypto feeds rather than an artifact.
+            tf_seconds = TIMEFRAME_SECONDS[tf]
+            cutoff_ts = int(
+                (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_BAR_WINDOW * 3 * tf_seconds) * 1000
+            )
+            try:
+                records = await self._storage.fetch_bars(
+                    self._symbol,
+                    tf.value,
+                    since_ts=max(0, cutoff_ts),
+                    limit=_PORTFOLIO_BAR_WINDOW * 3,
+                )
+                window = records[-_PORTFOLIO_BAR_WINDOW:]
+                if window:
+                    highs = [r.high for r in window]
+                    lows = [r.low for r in window]
+                    closes = [r.close for r in window]
+                    volumes = [r.volume for r in window]
+            except Exception as exc:
+                self._log.warning("orchestrator.portfolio_bars_failed", error=str(exc))
+
+        funding_rate: float | None = None
+        funding_history: list[float] | None = None
+        if InputNeed.FUNDING in wanted:
+            try:
+                # Bounded because the default limit is 100_000 rows:
+                # unbounded, this rebuilt the entire intelligence history into
+                # a DataFrame on every tick of every timeframe to read the
+                # last ~120 funding observations.
+                #
+                # Its own cutoff, not the bar window's: intelligence rows are
+                # per-bar, but funding only steps every 8h, so a 300-bar
+                # window at 15m spans ~3 days and would hand the carry family
+                # a near-constant series whose z-score means nothing. A fixed
+                # calendar lookback keeps the sample wide across timeframes.
+                funding_cutoff_ts = int(
+                    (datetime.now(tz=UTC).timestamp() - _PORTFOLIO_FUNDING_LOOKBACK_DAYS * 86400)
+                    * 1000
+                )
+                intel = await self._storage.fetch_intelligence_features(
+                    self._symbol,
+                    tf.value,
+                    since_ts=max(0, funding_cutoff_ts),
+                    limit=_PORTFOLIO_FUNDING_MAX_ROWS,
+                )
+                col = "intelligence_binance_funding_rate_pct"
+                if col in intel.columns:
+                    series = intel[col].dropna()
+                    if not series.empty:
+                        funding_history = [float(v) for v in series.tail(_PORTFOLIO_FUNDING_WINDOW)]
+                        funding_rate = funding_history[-1]
+            except Exception as exc:
+                self._log.warning("orchestrator.portfolio_funding_failed", error=str(exc))
+
+        venue_prices: dict[str, float] = {}
+        venue_price_ts: dict[str, float] = {}
+        if InputNeed.VENUES in wanted:
+            venue_prices, venue_price_ts = await self._fetch_venue_prices()
+
+        spot_price = spot_ts = perp_price = perp_ts = None
+        if InputNeed.BASIS in wanted:
+            spot_price, spot_ts, perp_price, perp_ts = await self._fetch_basis_legs()
+
+        # The universe snapshot backs BOTH the cross-sectional family (via the
+        # returns) and the pairs family (via the close series retained from the
+        # same fetch). They deliberately share one snapshot so the two cannot
+        # disagree about what the market did, which means the refresh has to
+        # run when EITHER is wanted — gating it on UNIVERSE alone left a book
+        # with only mean reversion enabled reading a cache nothing ever filled,
+        # abstaining forever for a reason no config change could fix.
+        #
+        # It also has to run BEFORE _pair_series(), which reads the snapshot it
+        # produces and memoises cointegration against its timestamp.
+        universe_returns: dict[str, float] = {}
+        if wanted & {InputNeed.UNIVERSE, InputNeed.PAIR}:
+            # TTL-cached, so this is a dict copy on all but the refresh tick.
+            try:
+                refreshed = await self._universe_returns.trailing_returns()
+            except Exception as exc:
+                self._log.warning("orchestrator.universe_returns_failed", error=str(exc))
+            else:
+                if InputNeed.UNIVERSE in wanted:
+                    universe_returns = refreshed
+
+        pair_a = pair_b = hedge_ratio = None
+        if InputNeed.PAIR in wanted:
+            pair_a, pair_b, hedge_ratio = self._pair_series()
+
+        return PortfolioInputs(
+            symbol=self._symbol,
+            timeframe=tf.value,
+            venue_prices=venue_prices,
+            venue_price_ts=venue_price_ts,
+            universe_returns=universe_returns,
+            spot_price=spot_price,
+            spot_price_ts=spot_ts,
+            perp_price=perp_price,
+            perp_price_ts=perp_ts,
+            basis_days_to_convergence=self._cfg.strategy_portfolio.basis_days_to_convergence,
+            pair_closes_a=pair_a,
+            pair_closes_b=pair_b,
+            pair_hedge_ratio=hedge_ratio,
+            pair_window=self._cfg.strategy_portfolio.mean_reversion_window,
+            highs=highs,
+            lows=lows,
+            closes=closes,
+            volumes=volumes,
+            funding_rate_pct=funding_rate,
+            funding_history_pct=funding_history,
+        )
+
+    async def _load_symbol_precision(self) -> None:
+        """
+        Fetch this symbol's exchange filters once, at startup.
+
+        fetch_symbol_precision has existed, been tested, and had no
+        production caller — so amount_precision, min_amount and min_cost have
+        always run on compute_position_size's defaults of 8, 0.0 and 0.0.
+        Zero minimums mean the sizing path never rejected an order below what
+        the venue accepts: live it is submitted and bounced, and in paper it
+        fills fictitiously, which makes paper results optimistic in exactly
+        the small-size regime the advisory reductions on this branch produce.
+
+        Fetched once rather than per tick: exchange filters change on the
+        scale of listings, not bars, and this runs before the first order.
+
+        Fails to today's defaults rather than raising. A missing filter must
+        not stop the bot from starting, and falling back reproduces the
+        existing behaviour exactly — so this can only ever tighten sizing,
+        never break it.
+        """
+        self._symbol_precision = dict(_DEFAULT_SYMBOL_PRECISION)
+        try:
+            fetched = await self._fetcher.fetch_symbol_precision(self._symbol)
+        except Exception as exc:
+            self._log.warning(
+                "orchestrator.symbol_precision_unavailable",
+                symbol=self._symbol,
+                error=str(exc),
+                using=self._symbol_precision,
+            )
+            return
+
+        for key in _DEFAULT_SYMBOL_PRECISION:
+            value = fetched.get(key)
+            if value is not None:
+                self._symbol_precision[key] = float(value)
+        self._log.info(
+            "orchestrator.symbol_precision_loaded",
+            symbol=self._symbol,
+            **self._symbol_precision,
+        )
+
+    def _pair_series(self) -> tuple[list[float] | None, list[float] | None, float | None]:
+        """
+        Aligned close series and hedge ratio for the mean-reversion pair.
+
+        Cointegration is retested whenever the underlying snapshot changes,
+        not assumed once at startup. Pair relationships decohere — that is
+        the characteristic failure of the whole family — and trading a spread
+        whose legs stopped moving together is not mean reversion, it is a
+        directional bet nobody sized. The test result is cached against the
+        universe cache's fetch timestamp so it costs one OLS per refresh
+        rather than one per tick.
+
+        Returns (None, None, None) whenever the pair cannot be traded: not
+        configured, a leg missing from the snapshot, series of unequal
+        length, or the cointegration test rejecting it. The family then
+        abstains rather than trading a spread that is not one.
+        """
+        pair = self._cfg.strategy_portfolio.mean_reversion_pair
+        if len(pair) != 2:
+            return None, None, None
+
+        cache = self._universe_returns
+        stamp = cache.fetched_at
+
+        # The two families sharing this snapshot tolerate staleness very
+        # differently, and serving both from one cache hid that. A 30-day
+        # trailing return barely moves in an hour, so the cross-sectional
+        # ranking is still meaningful on an old snapshot — that is why the
+        # cache deliberately serves stale data through an outage rather than
+        # blanking the universe. A spread z-score is the opposite: it is a
+        # statement about where two prices are RIGHT NOW relative to their
+        # recent relationship, so on hours-old closes it can signal a
+        # divergence that has already closed, and the trade is entered into a
+        # move that is over.
+        if stamp > 0.0 and (time.monotonic() - stamp) > _MAX_PAIR_SNAPSHOT_AGE_S:
+            self._log.warning(
+                "orchestrator.pair_snapshot_too_stale",
+                age_s=round(time.monotonic() - stamp, 1),
+                max_age_s=_MAX_PAIR_SNAPSHOT_AGE_S,
+                pair=list(pair),
+            )
+            return None, None, None
+        if stamp <= 0.0:
+            return None, None, None
+
+        series_a = cache.close_series(pair[0])
+        series_b = cache.close_series(pair[1])
+        if series_a is None or series_b is None:
+            return None, None, None
+        # Unequal history (one leg listed later, or a gap on one venue) makes
+        # the spread meaningless; truncating to the shorter would silently
+        # align two different date ranges.
+        if len(series_a) != len(series_b):
+            self._log.debug(
+                "orchestrator.pair_length_mismatch",
+                len_a=len(series_a),
+                len_b=len(series_b),
+            )
+            return None, None, None
+
+        cached = self._pair_cointegration
+        if cached is None or cached[0] != stamp:
+            try:
+                result = check_cointegration(
+                    pd.Series(series_a, dtype="float64"),
+                    pd.Series(series_b, dtype="float64"),
+                )
+            except Exception as exc:
+                self._log.warning("orchestrator.pair_cointegration_failed", error=str(exc))
+                self._pair_cointegration = (stamp, None)
+                return None, None, None
+            ratio = result.hedge_ratio if result.is_cointegrated else None
+            self._log.info(
+                "orchestrator.pair_cointegration",
+                pair=list(pair),
+                is_cointegrated=result.is_cointegrated,
+                pvalue=round(result.pvalue, 6),
+                hedge_ratio=round(result.hedge_ratio, 6),
+            )
+            self._pair_cointegration = (stamp, ratio)
+            cached = self._pair_cointegration
+
+        hedge_ratio = cached[1]
+        if hedge_ratio is None:
+            return None, None, None
+        return list(series_a), list(series_b), hedge_ratio
+
+    async def _quote(self, symbol: str, venue: str) -> tuple[float, float] | None:
+        """
+        One (price, observed_at) quote, or None on any failure.
+
+        Returns rather than raises: every caller is assembling an optional
+        portfolio feed where a missing quote must abstain one family, not
+        abort the evaluation for the rest.
+
+        Memoised for _QUOTE_CACHE_TTL_S. The cache exists because assembling
+        one tick's inputs asked the same question twice: _fetch_venue_prices
+        quotes the primary symbol on Binance for the cross-exchange family,
+        and _fetch_basis_legs quoted it again, milliseconds later, for the
+        basis family's spot leg. Two identical round-trips per tick per
+        timeframe, against an exchange whose rate limit is a first-class
+        constraint and is shared with the order path.
+
+        The TTL is deliberately shorter than the quote-skew tolerance the
+        builders enforce. That is what makes caching safe here rather than
+        merely cheaper: a cached quote keeps the timestamp it was actually
+        observed at, so if it were ever old enough to matter, the skew guard
+        rejects the pair and the family abstains. The cache can therefore
+        only ever remove a duplicate call, never age a price into a decision.
+        """
+        key = (symbol, venue)
+        now = datetime.now(tz=UTC).timestamp()
+        cached = self._quote_cache.get(key)
+        if cached is not None and (now - cached[1]) <= _QUOTE_CACHE_TTL_S:
+            return cached
+
+        try:
+            price = await self._fetcher.fetch_ticker_price(symbol, venue)
+        except Exception as exc:
+            self._log.debug("orchestrator.quote_failed", symbol=symbol, venue=venue, error=str(exc))
+            return None
+        price = float(price)
+        if price <= 0.0:
+            return None
+        # Stamped when the price was observed, not when it was requested, so
+        # the skew guard measures the real age of the data.
+        quote = (price, datetime.now(tz=UTC).timestamp())
+        self._quote_cache[key] = quote
+        return quote
+
+    async def _fetch_basis_legs(
+        self,
+    ) -> tuple[float | None, float | None, float | None, float | None]:
+        """
+        Spot and perp price for the basis family, quoted together.
+
+        Returns (spot, spot_ts, perp, perp_ts). Both legs come from the same
+        venue: basis is a spread between two instruments, and pricing them on
+        different exchanges would fold a cross-venue spread into a number the
+        strategy reads as carry.
+
+        Unconfigured (STRATEGY_BASIS_PERP_SYMBOL empty) returns all None and
+        the family abstains, rather than this guessing a perp symbol from the
+        spot one — that mapping is venue- and settlement-specific.
+        """
+        perp_symbol = self._cfg.strategy_portfolio.basis_perp_symbol
+        if not perp_symbol:
+            return None, None, None, None
+
+        spot_q, perp_q = await asyncio.gather(
+            self._quote(self._symbol, EXCHANGE_BINANCE),
+            self._quote(perp_symbol, EXCHANGE_BINANCE),
+        )
+        if spot_q is None or perp_q is None:
+            return None, None, None, None
+        return spot_q[0], spot_q[1], perp_q[0], perp_q[1]
+
+    async def _fetch_venue_prices(self) -> tuple[dict[str, float], dict[str, float]]:
+        """
+        Quote this symbol on every configured venue, concurrently.
+
+        Concurrency here is correctness, not speed. The cross-exchange family
+        enters on a 15 bps spread; sequential round-trips would let the market
+        move between the two quotes and turn fetch latency into a basis that
+        was never tradeable. Issuing them together keeps the skew small enough
+        that the builder's own staleness guard is a backstop rather than the
+        only defence.
+
+        Each price carries the wall-clock time it was observed so the builder
+        can reject a pair that still drifted too far apart — a venue that is
+        merely slow must abstain the family, not feed it a phantom edge.
+
+        One venue failing is normal (an exchange is down, rate-limited, or
+        not configured); it drops out of the mapping and, with fewer than two
+        venues left, the family abstains on its own.
+        """
+        venues = (EXCHANGE_BINANCE, EXCHANGE_OKX)
+
+        results = await asyncio.gather(
+            *(self._quote(self._symbol, v) for v in venues),
+            return_exceptions=True,
+        )
+
+        prices: dict[str, float] = {}
+        stamps: dict[str, float] = {}
+        for venue, res in zip(venues, results, strict=True):
+            if isinstance(res, BaseException) or res is None:
+                continue
+            prices[venue], stamps[venue] = res
+        return prices, stamps
+
+    async def _evaluate_strategy_portfolio(self, tf: Timeframe) -> PortfolioEvaluation | None:
+        """
+        Ask every registered strategy for its opinion on this tick.
+
+        Advisory only — the evaluation is recorded and exposed, and no order
+        is routed from it. Sizing stays with Kelly and the risk gates.
+
+        Never raises: this is the non-incumbent half of the portfolio, and a
+        fault here must not stop a valid signal_engine_v1 signal that has
+        already cleared its gates from reaching the executor.
+        """
+        # Drop last tick's scalar before anything can fail. Both early exits
+        # below — an empty registry, and the exception handler — used to leave
+        # the previous value in place, and the submission path reads it
+        # unconditionally: a reduction computed from peer opinions on an older
+        # bar would keep shrinking new trades, indefinitely if evaluation kept
+        # failing. Failing open is right for this one. The elsewhere-stated
+        # rule that losing a ceiling must never be worse than never having had
+        # one is about a fault discarding a ceiling computed for THIS tick; a
+        # stale peer view is not evidence about this trade at all.
+        self._last_portfolio_agreement.pop(tf.value, None)
+        try:
+            runner = get_portfolio_runner()
+            strategies = tuple(get_default_registry().all())
+            if not strategies:
+                return None
+            enabled_ids = get_strategy_kill_switch_manager().enabled_ids(
+                s.strategy_id for s in strategies
+            )
+            weights = get_allocation_controller(
+                self._cfg.strategy_portfolio.max_allocation_shift_per_step
+            ).applied()
+            # Only the feeds the enabled families read. A kill-switched or
+            # unregistered family costs nothing, which is what makes leaving
+            # every non-incumbent family disabled by default genuinely free.
+            inputs = await self._build_portfolio_inputs(tf, required_inputs(enabled_ids))
+            evaluation = runner.evaluate(
+                inputs,
+                enabled_ids=set(enabled_ids),
+                weights=weights or None,
+            )
+            self._last_portfolio_evaluation[tf.value] = evaluation
+
+            # Peer view: the same poll with the incumbent excluded, reusing
+            # the inputs already gathered so this costs no extra I/O.
+            #
+            # The agreement scalar is only defensible as *independent*
+            # evidence about a trade the incumbent wants to place. Computed
+            # over the full evaluation it would include the incumbent's own
+            # vote, so a lone strategy would be confirming itself and the
+            # scalar would read "agreement" precisely when there is none.
+            # Derived from the evaluation above rather than re-polled: one
+            # poll, two resolutions. Re-polling rebuilt every context on the
+            # tick path and asked each strategy the same question twice, so
+            # the two views could disagree and the scalar would be sized
+            # against a vote that never happened.
+            peer = runner.resolve_excluding(evaluation, {STRATEGY_ID_SIGNAL_ENGINE})
+            self._last_portfolio_peer_evaluation[tf.value] = peer
+            # Measured against the *incumbent's* direction specifically, not
+            # the whole portfolio's: the ceiling exists to size the trade the
+            # signal engine wants to place, and the full-portfolio direction
+            # already contains the peers whose independence is the point.
+            incumbent = next(
+                (v for v in evaluation.verdicts if v.strategy_id == STRATEGY_ID_SIGNAL_ENGINE),
+                None,
+            )
+            incumbent_dir = (
+                incumbent.signal.direction
+                if incumbent is not None and incumbent.signal is not None
+                else 0
+            )
+            self._last_portfolio_agreement[tf.value] = portfolio_agreement_scalar(
+                peer, incumbent_dir
+            )
+            return evaluation
+        except Exception as exc:
+            self._log.error("orchestrator.strategy_portfolio_failed", error=str(exc), exc_info=True)
+            return None
+
+    def portfolio_evaluation(self, timeframe: str | None = None) -> dict[str, object]:
+        """Latest portfolio evaluation(s), for the API/debug surface."""
+
+        def _one(tf: str) -> dict[str, object]:
+            ev = self._last_portfolio_evaluation.get(tf)
+            if ev is None:
+                return {}
+            peer = self._last_portfolio_peer_evaluation.get(tf)
+            return {
+                **ev.as_dict(),
+                "peer": peer.as_dict() if peer is not None else {},
+                "agreement_scalar": self._last_portfolio_agreement.get(tf, 1.0),
+            }
+
+        if timeframe is not None:
+            return _one(timeframe)
+        return {tf: _one(tf) for tf in self._last_portfolio_evaluation}
 
     async def _monitor_positions_for(self, executor: AnyExecutor, price: float) -> None:
         """Mark-to-market and stop-loss/take-profit/time-exit for one executor's positions."""

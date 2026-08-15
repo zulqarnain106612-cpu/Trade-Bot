@@ -257,11 +257,30 @@ scripts/
 uv sync                       # installs from requirements.lock (hash-verified)
 ```
 
-`requirements.txt` / `requirements.lock` are runtime deps;
-`requirements-dev.txt` adds lint/type/test/security tooling
-(ruff, mypy, pytest, pytest-cov, detect-secrets, pip-tools).
-Regenerate the lockfile with:
-`pip-compile --allow-unsafe --generate-hashes requirements.in -o requirements.lock`
+Dependency files, and which one actually installs:
+
+| File | Role |
+|---|---|
+| `requirements.in` | **the source of truth** for runtime deps — add packages here |
+| `requirements.lock` | compiled from `requirements.in` with hashes; what CI installs |
+| `requirements.txt` | version-range mirror of `requirements.in`, for `mutation-testing.yml` only (its Python predates the lock's `numpy`) |
+| `requirements-dev.txt` | lint/type/test/security tooling, installed unhashed on top |
+| `requirements-optional.txt` | heavy extras imported lazily behind `try/except ImportError`; installed by nothing |
+
+Adding a runtime dep to `requirements.txt` alone does nothing — it is never
+installed. Put it in `requirements.in` and recompile **on Python 3.11**, the
+version CI uses:
+
+```bash
+python3.11 -m piptools compile --allow-unsafe --generate-hashes \
+    requirements.in -o requirements.lock
+```
+
+`pip-compile` resolves per interpreter. A lock built on a newer Python drops
+transitive deps that only 3.11 needs and pins wheels 3.11 cannot install — and
+nothing finds out until CI's `--require-hashes` install fails.
+
+`scripts/check_requirements_sync.py` fails CI on that drift.
 
 ### 2. Environment file
 

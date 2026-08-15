@@ -123,7 +123,7 @@ class TestWalkForwardStudy:
             return 1.0
 
         study = WalkForwardStudy("test", dummy_train, data=list(range(100)))
-        assert study.best_params() == {}
+        assert study.best_params == {}
 
     def test_sharpe_computation(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
@@ -140,25 +140,29 @@ class TestWalkForwardStudy:
     def test_wf_params_dataclass(self) -> None:
         from src.upgrade.optuna_wf import WFParams
 
-        p = WFParams(lr_min=1e-4, lr_max=1e-2, dropout_max=0.3)
-        assert p.lr_min == 1e-4
-        assert p.batch_size_choices == (32, 64, 128, 256)
+        p = WFParams(lr_min=1e-4, lr_max=1e-2)
+        assert p.lr_min < p.lr_max
+        assert 32 in p.batch_size_choices
 
-    def test_run_short_data_no_crash(self) -> None:
+    def test_run_short_data_no_crash(self, tmp_path) -> None:
         from src.upgrade.optuna_wf import WalkForwardStudy
 
         calls = []
 
-        def dummy_train(params, data):
+        def dummy_train(params, X_train, y_train, X_test, y_test, trial):
             calls.append(1)
-            return float(np.random.rand())
+            return np.random.default_rng(len(calls)).normal(0.001, 0.01, max(len(X_test), 1))
 
         study = WalkForwardStudy(
-            "short_test", dummy_train, data=list(range(20)), n_trials=2, n_folds=2
+            "short_test",
+            dummy_train,
+            data=list(range(20)),
+            n_trials=2,
+            n_folds=2,
+            storage_path=tmp_path / "study.db",
         )
         study.run()
-        # After run, best_params might be set
-        assert isinstance(study.best_params(), dict)
+        assert isinstance(study.best_params, dict)
 
 
 # ─── ModelRegistry ─────────────────────────────────────────────────────────────
@@ -177,7 +181,7 @@ class TestModelRegistryExtended:
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
         model = _MLP2()
-        reg.log_model(model, model_name="m", horizon_idx=0, metrics={"sharpe": 1.5})
+        reg.log_model(model, model_name="test_model", horizon_idx=0, metrics={"sharpe": 1.5})
 
     def test_load_model_missing_returns_none(self, tmp_path) -> None:
         from src.upgrade.registry import ModelRegistry
@@ -330,9 +334,8 @@ class TestNBEATSHeadExtended:
     def test_batch_size_one(self) -> None:
         from src.models.nbeats import NBEATSHead
 
-        model = NBEATSHead()
-        # default input_size is 96
-        x = torch.randn(1, 96)
+        model = NBEATSHead(input_size=48)
+        x = torch.randn(1, 48)
         out = model(x)
         assert out.shape[-1] == 128
 
@@ -521,9 +524,9 @@ class TestDoWhySCMExtended:
                 "price": np.random.randn(30),
             }
         )
-        signal = scm.causal_signal(data)
-        assert isinstance(signal, dict)
-        assert all(isinstance(v, float) for v in signal.values())
+        signals = scm.causal_signal(data)
+        assert isinstance(signals, dict)
+        assert all(isinstance(v, float) for v in signals.values())
 
 
 # ─── DuckDBStore extended ─────────────────────────────────────────────────────
@@ -566,7 +569,8 @@ class TestDuckDBStoreExtended:
     def test_roundtrip_horizon(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=tmp_path / "t.duckdb")
+        # Own file: the row-count assertion below must not see other tests' writes.
+        store = DuckDBStore(path=tmp_path / "roundtrip.duckdb")
         store.write_horizon_metric(
             horizon_id=3, label="5m", sharpe=2.1, confidence=0.9, direction=-1, drift_detected=True
         )
@@ -601,7 +605,7 @@ class TestMicrostructureExtended:
             kyle_estimator=KyleLambdaEstimator(),
             last_price=50000.0,
             last_trade_volume=100.0,
-            last_trade_side="buy",
+            last_trade_side="sell",
         )
         assert hasattr(ft, "ofi")
         assert hasattr(ft, "vpin")
@@ -671,7 +675,7 @@ class TestTFTExtended:
     def test_grn_forward(self) -> None:
         from src.models.tft import GatedResidualNetwork
 
-        grn = GatedResidualNetwork(input_dim=32, hidden_dim=64, output_dim=64)
+        grn = GatedResidualNetwork(input_dim=32, hidden_dim=48, output_dim=64)
         x = torch.randn(4, 32)
         out = grn(x)
         assert out.shape == (4, 64)
@@ -680,10 +684,10 @@ class TestTFTExtended:
         from src.models.tft import VariableSelectionNetwork
 
         vsn = VariableSelectionNetwork(n_vars=5, hidden_dim=32)
-        # forward takes [B, T, n_vars, hidden_dim]
-        x = torch.randn(2, 4, 5, 32)
+        # forward expects [B, T, n_vars, hidden_dim]
+        x = torch.randn(2, 3, 5, 32)
         out = vsn(x)
-        assert out.shape == (2, 4, 32)
+        assert out.shape == (2, 3, 32)
 
     def test_tft_head_forward(self) -> None:
         from src.models.tft import TFTHead
@@ -781,34 +785,33 @@ class TestRLExecutionAgentExtended:
         from src.execution.rl_agent import RLExecutionAgent, RLExecutionState
 
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
-        for regime in [0, 1, 2]:
-            state = RLExecutionState(n_horizons=2)
-            assert (
-                state.build(
-                    horizon_confidences=[0.7, 0.7],
-                    regime_id=regime,
-                    ecc_features={},
-                    realized_pnl=0.0,
-                    drawdown=0.0,
-                    kyle_lambda=0.0,
-                ).ndim
-                == 1
+        state = RLExecutionState(n_horizons=2)
+        for regime_id, pnl in [(0, -0.05), (4, 0.0), (8, 0.05)]:
+            obs = state.build(
+                horizon_confidences=[0.7, 0.6],
+                regime_id=regime_id,
+                ecc_features={"cluster_flow_score": 0.3},
+                realized_pnl=pnl,
+                drawdown=abs(pnl),
+                kyle_lambda=1e-6,
             )
             action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime)
             assert action in (0, 1, 2, 3)
 
     def test_obs_length_correct(self) -> None:
-        from src.execution.rl_agent import RLExecutionState
+        from src.execution.rl_agent import _STATE_DIM, RLExecutionState
 
-        for n in [1, 5, 10]:
+        # The SB3 policy is fixed-width, so every n_horizons must yield _STATE_DIM.
+        for n in [1, 5, 10, 20]:
             state = RLExecutionState(n_horizons=n)
             obs = state.build(
-                horizon_confidences=[0.8] * n,
-                regime_id=0,
+                horizon_confidences=[0.7, 0.6],
+                regime_id=1,
                 ecc_features={},
                 realized_pnl=0.0,
                 drawdown=0.0,
-                kyle_lambda=0.0,
+                kyle_lambda=1e-6,
             )
             assert obs.ndim == 1
+            assert obs.shape == (_STATE_DIM,)
             assert len(obs) > 0

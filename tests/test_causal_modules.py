@@ -24,11 +24,11 @@ class TestGrangerCausalityDetector:
         btc = pd.Series(np.random.randn(5))
         alt_prices = {"ETH": pd.Series(100 + np.random.randn(5).cumsum())}
         result = gcd.update(btc, alt_prices)
-        # Below the minimum window, update returns the (empty) result cache.
+        # Below _MIN_WINDOW the detector returns its (still empty) result cache.
         assert result == {}
 
     def test_update_with_sufficient_data(self) -> None:
-        from src.causal.granger import GrangerCausalityDetector
+        from src.causal.granger import GrangerCausalityDetector, GrangerResult
 
         gcd = GrangerCausalityDetector(window=30, max_lag=2)
         n = 60
@@ -39,6 +39,7 @@ class TestGrangerCausalityDetector:
         }
         result = gcd.update(btc, alt_prices)
         assert isinstance(result, dict)
+        assert all(isinstance(r, GrangerResult) for r in result.values())
 
     def test_feature_vector_returns_floats(self) -> None:
         from src.causal.granger import GrangerCausalityDetector
