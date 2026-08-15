@@ -2,14 +2,18 @@ name: CI
 
 on:
   push:
-    branches: ["main", "dev", "feature/**", "fix/**"]
+    branches: ["main", "dev", "feature/**", "fix/**", "claude/**"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Only PR pushes cancel their predecessor. Branch pushes and manual
+  # dispatches must not: the auto-fix job pushes a commit back to the same
+  # ref, and on the single-executor self-hosted runner jobs serialise, so a
+  # cancel-in-progress run would kill the still-queued Backend (pytest) job.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHON_VERSION: "3.11"
