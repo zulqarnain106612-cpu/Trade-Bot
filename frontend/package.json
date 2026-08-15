@@ -16,38 +16,52 @@
     "desktop:install": "bash scripts/install-desktop-shortcut.sh"
   },
   "dependencies": {
+    "es-toolkit": "^1.49.0",
     "lodash": "^4.17.21",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "recharts": "^3.8.1"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.9.2",
+    "reselect": "^5.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.19",
     "concurrently": "^9.1.0",
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
-    "eslint": "^8.57.0",
-    "eslint-config-prettier": "^9.0.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-config-standard": "^17.0.0",
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-jsx-a11y": "^6.8.1",
     "eslint-plugin-react": "^7.33.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "postcss": "^8.4.38",
-    "prettier": "^3.0.0",
-    "sharp": "^0.33.5",
-    "tailwindcss": "^3.4.4",
-    "vite": "^6.4.3",
-    "wait-on": "^8.0.1"
+    "prettier": "^3.9.6",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.1",
+    "wait-on": "^9.1.0"
   },
   "build": {
     "appId": "com.tradebot.dashboard",
     "productName": "Trade Bot",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["dist/**/*", "electron/**/*", "build/icon.png", "build/tray.png", "build/tray-badge.png"],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.png",
+      "build/tray.png",
+      "build/tray-badge.png"
+    ],
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "build/icon.png",
       "category": "Finance",
       "desktop": {

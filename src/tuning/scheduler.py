@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import math
+import time
 
 import pandas as pd
 import structlog
@@ -69,7 +70,9 @@ from src.tuning.backtest_harness import (
 from src.tuning.bootstrap import (
     FEATURE_WINDOW_FIELDS,
     XGBOOST_HYPERPARAM_FIELDS,
+    register_ensemble_blend_weight,
     register_feature_window_param,
+    register_garch_vol_threshold,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
     register_slippage_impact_coeff,
@@ -77,6 +80,7 @@ from src.tuning.bootstrap import (
 )
 from src.tuning.evaluator import MetricComparison
 from src.tuning.proposer import Proposal
+from src.tuning.redteam_scheduler import RedTeamScheduler
 from src.tuning.registry import TunableParameter
 from src.tuning.state import parameter_registry, pause_state, runner, version_store
 
@@ -131,6 +135,15 @@ class AutoTuningScheduler:
         self._cycle_count = 0
         self._task: asyncio.Task[None] | None = None
         self._stopped = False
+        # v10 red-team cadence tracker (src/tuning/redteam_scheduler.py):
+        # this scheduler only tracks *when* a full-system stress replay is
+        # due -- it never runs one itself. Actually executing
+        # stress_simulator.py against the live allocation requires
+        # meta_allocator.py to be producing a real allocation first (still
+        # unwired -- see DECISION_LOG.md), so for now this cycle only logs a
+        # recurring reminder once the interval elapses; record_run() is left
+        # for whatever caller eventually performs the real replay.
+        self._redteam_scheduler = RedTeamScheduler()
 
     def start(self) -> None:
         if not parameter_registry.is_registered("hmm.entropy_threshold"):
@@ -139,6 +152,17 @@ class AutoTuningScheduler:
             register_hmm_entropy_scalar_floor(parameter_registry, self._settings, version_store)
         if not parameter_registry.is_registered("risk.slippage_impact_coeff_bps"):
             register_slippage_impact_coeff(parameter_registry, self._settings, version_store)
+        # Registered but not yet auto-scheduled below (no evaluate_fn / backtest
+        # harness exists for it) -- see register_ensemble_blend_weight()'s own
+        # docstring for why, and the module docstring's "intentionally left
+        # unscheduled" note.
+        if not parameter_registry.is_registered("risk.ensemble_blend_weight"):
+            register_ensemble_blend_weight(parameter_registry, self._settings, version_store)
+        # Same "unscheduled" state as ensemble_blend_weight: visible via
+        # /self-tuning/status but not auto-cycled until a vol-targeting
+        # backtest harness exists (see register_garch_vol_threshold docstring).
+        if not parameter_registry.is_registered("risk.garch_vol_threshold"):
+            register_garch_vol_threshold(parameter_registry, self._settings, version_store)
         for field_name in FEATURE_WINDOW_FIELDS:
             if not parameter_registry.is_registered(f"features.{field_name}"):
                 register_feature_window_param(
@@ -176,12 +200,32 @@ class AutoTuningScheduler:
                     # direct-_attempt_all() test path.
                     await self._attempt_all()
                     self._cycle_count += 1
+                    self._check_redteam_due()
             except Exception as exc:
-                log.error("tuning.scheduler_attempt_failed", error=str(exc))
+                log.error("tuning.scheduler_attempt_failed", error=str(exc), exc_info=True)
             try:
                 await asyncio.sleep(self._interval_s)
             except asyncio.CancelledError:
                 return
+
+    def _check_redteam_due(self) -> None:
+        """
+        Logs a recurring reminder once the v10 red-team cadence elapses.
+        Deliberately does not call self._redteam_scheduler.record_run() --
+        that would falsely mark a replay as having happened. Stays "due"
+        every cycle until a real caller runs stress_simulator.py against
+        the live allocation and records it.
+        """
+        now_ms = int(time.time() * 1000)
+        if self._redteam_scheduler.is_due(now_ms):
+            log.warning(
+                "tuning.redteam_stress_replay_due",
+                last_run_ms=(
+                    self._redteam_scheduler.last_run.ran_at_ms
+                    if self._redteam_scheduler.last_run
+                    else None
+                ),
+            )
 
     async def _attempt_all(self) -> None:
         # NOTE: each parameter group below (entropy, slippage, feature-window)
@@ -190,6 +234,13 @@ class AutoTuningScheduler:
         # insufficient: return` here previously skipped slippage AND
         # feature-window attempts too whenever entropy had too few closed
         # trades, even though feature-window tuning needs only bar history.
+        # Closed-trade count for the trade half of the runner's cadence guard
+        # (SelfTuningSettings.min_trades_between_attempts). Computed once per
+        # cycle and shared across every attempt below, so all parameters
+        # measure "new evidence since my last attempt" against the same
+        # snapshot rather than drifting apart within one cycle.
+        closed_trade_count = await self._closed_trade_count()
+
         samples = await self._build_trade_samples()
         if len(samples) < _MIN_SAMPLES:
             log.info("tuning.scheduler_insufficient_samples", n_samples=len(samples))
@@ -231,7 +282,12 @@ class AutoTuningScheduler:
                     )
 
                 try:
-                    result = runner.attempt(param_name, evaluate, primary_metric="oos_sharpe")
+                    result = runner.attempt(
+                        param_name,
+                        evaluate,
+                        primary_metric="oos_sharpe",
+                        closed_trade_count=closed_trade_count,
+                    )
                     log.info(
                         "tuning.scheduler_attempt",
                         param=param_name,
@@ -241,7 +297,12 @@ class AutoTuningScheduler:
                         reasons=result.reasons,
                     )
                 except Exception as exc:
-                    log.error("tuning.scheduler_attempt_error", param=param_name, error=str(exc))
+                    log.error(
+                        "tuning.scheduler_attempt_error",
+                        param=param_name,
+                        error=str(exc),
+                        exc_info=True,
+                    )
 
         slippage_samples = await self._build_slippage_samples()
         if len(slippage_samples) < _MIN_SAMPLES:
@@ -265,6 +326,7 @@ class AutoTuningScheduler:
                     "risk.slippage_impact_coeff_bps",
                     evaluate_slippage,
                     primary_metric="slippage_prediction_accuracy",
+                    closed_trade_count=closed_trade_count,
                 )
                 log.info(
                     "tuning.scheduler_attempt",
@@ -279,6 +341,7 @@ class AutoTuningScheduler:
                     "tuning.scheduler_attempt_error",
                     param="risk.slippage_impact_coeff_bps",
                     error=str(exc),
+                    exc_info=True,
                 )
 
         bars_df = await self._build_feature_bars_df()
@@ -310,6 +373,15 @@ class AutoTuningScheduler:
                         )
 
                     try:
+                        # closed_trade_count is deliberately NOT passed here.
+                        # min_trades_between_attempts is a "has enough new
+                        # evidence accumulated" guard, and for this group the
+                        # evidence is bar history, not trades -- these
+                        # parameters are evaluated by a bar-driven backtest.
+                        # Gating them on trade flow would stall bar-driven
+                        # tuning through any quiet period, and would repeat the
+                        # cross-group coupling the note at the top of
+                        # _attempt_all() exists to prevent.
                         result = runner.attempt(
                             param_name, evaluate_feature_window, primary_metric="oos_sharpe"
                         )
@@ -323,7 +395,10 @@ class AutoTuningScheduler:
                         )
                     except Exception as exc:
                         log.error(
-                            "tuning.scheduler_attempt_error", param=param_name, error=str(exc)
+                            "tuning.scheduler_attempt_error",
+                            param=param_name,
+                            error=str(exc),
+                            exc_info=True,
                         )
 
             # XGBoost hyperparameters -- needs only bar history (it trains its
@@ -338,7 +413,13 @@ class AutoTuningScheduler:
                 )
             else:
                 try:
-                    xgb_fm = build_feature_matrix(bars_df, cfg=self._settings.features)
+                    # Off-loop for the same reason the retrain below is: this
+                    # module's own docstring says the point is that "a
+                    # multi-second-to-minutes retrain does not" block the
+                    # loop, but the feature build feeding it ran inline.
+                    xgb_fm = await asyncio.to_thread(
+                        build_feature_matrix, bars_df, cfg=self._settings.features
+                    )
                 except ValueError as exc:
                     log.info("tuning.scheduler_xgboost_feature_matrix_unavailable", error=str(exc))
                 else:
@@ -390,6 +471,7 @@ class AutoTuningScheduler:
                                 "tuning.scheduler_attempt_error",
                                 param=param_name,
                                 error=str(exc),
+                                exc_info=True,
                             )
 
     def _load_direction_model(self) -> XGBClassifier | None:
@@ -419,6 +501,26 @@ class AutoTuningScheduler:
             },
             index=[b.ts for b in bars],
         )
+
+    async def _closed_trade_count(self) -> int | None:
+        """
+        Number of closed trades on record, or None when it cannot be read.
+
+        None rather than 0 on failure: 0 would read as "no new evidence since
+        the last attempt" and block tuning indefinitely on a storage hiccup,
+        while the runner treats None as "this guard cannot claim a verdict"
+        and falls back to the wall-clock cooldown alone.
+        """
+        try:
+            trades = await self._storage.fetch_trades(
+                symbol=self._symbol,
+                trading_mode=self._settings.trading_mode.value,
+                limit=1_000_000,
+            )
+            return len(trades)
+        except Exception as exc:
+            log.warning("tuning.closed_trade_count_failed", error=str(exc), exc_info=True)
+            return None
 
     async def _build_slippage_samples(self) -> list[SlippageFillSample]:
         trades = await self._storage.fetch_trades(

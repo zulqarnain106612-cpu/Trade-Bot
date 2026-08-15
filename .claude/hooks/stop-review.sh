@@ -5,13 +5,15 @@ QUEUE=".claude/review-queue.log"
 [ -s "$QUEUE" ] || exit 0
 FILES=$(sort -u "$QUEUE")
 : > "$QUEUE"
-cat <<MSG >&2
-CODE REVIEW REQUIRED — files modified this session:
+# Per CLAUDE.md Hard Rules: no local test/lint/review — code review runs in
+# GitHub Actions (claude-code-review.yml) against the pushed branch/PR, not
+# via a local code-reviewer subagent invocation. Informational only (exit 0,
+# does not block Stop) — push and check `gh pr checks` instead.
+cat <<MSG
+NOTE: files modified this session (review happens in CI, not locally):
 $FILES
 
-INSTRUCTION: Use the Agent tool with subagent_type "code-reviewer".
-Pass exactly this file list as the prompt. Show ALL findings to the user
-in this same turn, then continue. Do not ask the user whether to proceed —
-run the review and report results as part of completing the task.
+Push this branch / open or update the PR and let claude-code-review.yml
+run the review. Check with: gh pr checks <PR#>
 MSG
-exit 2
+exit 0

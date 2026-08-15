@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.bayesian_proposer import BayesianProposer
 from src.tuning.registry import TunableParameter
@@ -70,6 +72,16 @@ def test_propose_uses_audit_log_history_to_favor_improving_region(tmp_path: Path
     proposer = BayesianProposer(audit_log, n_startup_trials=1, seed=0)
     proposal = proposer.propose(param, primary_metric="oos_sharpe")
     assert proposal.challenger_value > 0.5
+
+
+def test_propose_zero_range_width_returns_step_pct_zero(tmp_path: Path) -> None:
+    """When floor == ceiling the step_pct guard returns 0.0 without dividing by zero."""
+    audit_log = TuningAuditLog(tmp_path / "audit.jsonl")
+    proposer = BayesianProposer(audit_log, seed=99)
+    param = make_param(current=0.5, floor=0.5, ceiling=0.5)
+    proposal = proposer.propose(param, primary_metric="oos_sharpe")
+    assert proposal.step_pct == 0.0
+    assert proposal.challenger_value == pytest.approx(0.5)
 
 
 def test_propose_ignores_evaluations_with_unrelated_metric(tmp_path: Path) -> None:

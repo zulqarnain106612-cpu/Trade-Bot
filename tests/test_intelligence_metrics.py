@@ -211,3 +211,34 @@ class TestComputeMetricsConfidenceFix:
             funding_rate={"rate_pct": 0.02},
         )
         assert metrics_bearish.whale_buy_sell_ratio == pytest.approx(-1.0)
+
+
+class TestComputeZscore:
+    """Cover _compute_zscore edge cases (zero std branch at line 263)."""
+
+    def _analyzer(self) -> IntelligenceAnalyzer:
+        return IntelligenceAnalyzer()
+
+    def test_zero_std_returns_zero(self) -> None:
+        """When all historical values are identical, std=0 → zscore returns 0."""
+        import pandas as pd
+
+        analyzer = self._analyzer()
+        # Feed identical values so std = 0
+        analyzer.historical_data = pd.DataFrame({"netflow": [5.0] * 30})
+        result = analyzer._compute_zscore(5.0, "netflow")
+        assert result == 0.0
+
+    def test_empty_history_returns_zero(self) -> None:
+        import pandas as pd
+
+        analyzer = self._analyzer()
+        analyzer.historical_data = pd.DataFrame()
+        assert analyzer._compute_zscore(10.0, "netflow") == 0.0
+
+    def test_missing_column_returns_zero(self) -> None:
+        import pandas as pd
+
+        analyzer = self._analyzer()
+        analyzer.historical_data = pd.DataFrame({"other_col": [1.0, 2.0]})
+        assert analyzer._compute_zscore(10.0, "netflow") == 0.0

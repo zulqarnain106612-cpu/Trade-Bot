@@ -76,17 +76,19 @@ class TestHalfKellyFractionBoundsValidation:
 
     def test_valid_boundary_multiplier_zero(self, cfg):
         """multiplier=0.0 is a valid boundary (no exception)."""
-        raw, adjusted, capped = half_kelly_fraction(0.6, 1.5, multiplier=0.0, cfg=cfg)
+        _raw, adjusted, _capped = half_kelly_fraction(0.6, 1.5, multiplier=0.0, cfg=cfg)
         assert adjusted == 0.0
 
     def test_valid_boundary_multiplier_one(self, cfg):
         """multiplier=1.0 is a valid boundary (no exception)."""
-        raw, adjusted, capped = half_kelly_fraction(0.6, 1.5, multiplier=1.0, ceiling=1.0, cfg=cfg)
+        _raw, adjusted, _capped = half_kelly_fraction(
+            0.6, 1.5, multiplier=1.0, ceiling=1.0, cfg=cfg
+        )
         assert adjusted >= 0.0
 
     def test_valid_boundary_ceiling_zero(self, cfg):
         """ceiling=0.0 is a valid boundary (no exception)."""
-        raw, adjusted, capped = half_kelly_fraction(0.6, 1.5, ceiling=0.0, cfg=cfg)
+        _raw, adjusted, _capped = half_kelly_fraction(0.6, 1.5, ceiling=0.0, cfg=cfg)
         assert adjusted == 0.0
 
 
@@ -103,12 +105,12 @@ class TestKellyFromModelProbsInvalidDirection:
 
     def test_direction_zero_valid(self, cfg):
         """direction=0 (short) is valid, no exception."""
-        raw, adjusted, capped = kelly_from_model_probs(0.4, 100.0, 50.0, direction=0, cfg=cfg)
+        raw, _adjusted, _capped = kelly_from_model_probs(0.4, 100.0, 50.0, direction=0, cfg=cfg)
         assert isinstance(raw, float)
 
     def test_direction_one_valid(self, cfg):
         """direction=1 (long) is valid, no exception."""
-        raw, adjusted, capped = kelly_from_model_probs(0.6, 100.0, 50.0, direction=1, cfg=cfg)
+        raw, _adjusted, _capped = kelly_from_model_probs(0.6, 100.0, 50.0, direction=1, cfg=cfg)
         assert isinstance(raw, float)
 
 
@@ -157,7 +159,7 @@ class TestKellyFromModelProbsNonFiniteWinLossRatio:
 
     def test_zero_avg_loss_produces_inf_ratio_clamped(self, cfg):
         """avg_loss_usd=0 -> division produces inf, clamped to 1.0 fallback."""
-        raw, adjusted, capped = kelly_from_model_probs(
+        raw, adjusted, _capped = kelly_from_model_probs(
             0.6,
             avg_win_usd=100.0,
             avg_loss_usd=0.0,
@@ -167,9 +169,23 @@ class TestKellyFromModelProbsNonFiniteWinLossRatio:
         assert math.isfinite(raw)
         assert math.isfinite(adjusted)
 
+    def test_overflowing_ratio_falls_back_to_neutral_then_clamped(self, cfg):
+        """VF-028: avg_win_usd / avg_loss_usd overflowing float64 to inf
+        must be caught and reset to 1.0 (neutral) before the ceiling clamp,
+        not silently propagate inf into the Kelly formula."""
+        raw, adjusted, _capped = kelly_from_model_probs(
+            0.6,
+            avg_win_usd=1e300,
+            avg_loss_usd=1e-300,  # 1e300/1e-300 overflows float64 to inf
+            direction=1,
+            cfg=cfg,
+        )
+        assert math.isfinite(raw)
+        assert math.isfinite(adjusted)
+
     def test_extreme_avg_win_clamped_to_ceiling_ratio(self, cfg):
         """Extreme avg_win/avg_loss ratio clamped at 1000 ceiling."""
-        raw, adjusted, capped = kelly_from_model_probs(
+        raw, adjusted, _capped = kelly_from_model_probs(
             0.6,
             avg_win_usd=1e15,
             avg_loss_usd=1e-10,
@@ -331,7 +347,7 @@ class TestComputeWinLossStatsMutationGaps:
     def test_zero_pnl_trade_excluded_from_both_wins_and_losses(self):
         """A breakeven trade (pnl == 0.0) must count as neither a win nor a loss."""
         pnl = [10.0] * 30 + [-5.0] * 19 + [0.0]  # 50 trades total, one breakeven
-        win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
+        _win_prob, avg_win, avg_loss, _std = compute_win_loss_stats(pnl)
         # averages must be computed from exactly 30 wins / 19 losses, not 31/20
         assert avg_win == pytest.approx(10.0)
         assert avg_loss == pytest.approx(5.0)
@@ -379,7 +395,7 @@ class TestHalfKellyCappedBoundaryGap:
         ceiling = 0.2
         multiplier = 0.5
         # kelly_fraction(0.6, 2.0) = (0.6*2 - 0.4)/2 = 0.4; * 0.5 = 0.2 == ceiling
-        raw, adjusted, is_capped = half_kelly_fraction(
+        _raw, adjusted, is_capped = half_kelly_fraction(
             win_probability=0.6,
             win_loss_ratio=2.0,
             multiplier=multiplier,

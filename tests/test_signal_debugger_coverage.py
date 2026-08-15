@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 
 from src.diagnostics.signal_debugger import (
@@ -190,6 +192,31 @@ class TestModelDegradationTracker:
             self.tracker.record_trade_result(1.0)
         assert self.tracker.rolling_sharpe() == 0.0
 
+    def test_rolling_sortino_insufficient_trades(self):
+        for _ in range(10):
+            self.tracker.record_trade_result(-5.0)
+        assert self.tracker.rolling_sortino() is None
+
+    def test_rolling_sortino_no_losses_returns_none(self):
+        for _ in range(25):
+            self.tracker.record_trade_result(10.0)
+        # No negative P&Ls → empty losses list → None
+        assert self.tracker.rolling_sortino() is None
+
+    def test_rolling_sortino_returns_float_with_mixed_pnl(self):
+        for i in range(25):
+            pnl = 10.0 if i % 3 != 0 else -5.0
+            self.tracker.record_trade_result(pnl)
+        s = self.tracker.rolling_sortino()
+        assert s is not None
+
+    def test_rolling_sortino_in_check_degradation_report(self):
+        for i in range(25):
+            pnl = 5.0 if i % 3 != 0 else -2.0
+            self.tracker.record_trade_result(pnl)
+        report = self.tracker.check_degradation()
+        assert "rolling_sortino" in report
+
     def test_live_accuracy_insufficient_resolved(self):
         for _ in range(10):
             self.tracker.record_prediction(0.7, 0.6)
@@ -218,6 +245,34 @@ class TestModelDegradationTracker:
         assert report["train_accuracy"] is None
         assert report["degraded"] is False
 
+    def test_prediction_stats_empty(self):
+        stats = self.tracker.prediction_stats()
+        assert stats["predictions_per_sec"] == 0.0
+        assert stats["total_predictions"] == 0
+        assert stats["correct_predictions"] == 0
+        assert stats["resolved_predictions"] == 0
+        assert stats["accuracy"] is None
+
+    def test_prediction_stats_counts_and_rate(self):
+        for _ in range(5):
+            self.tracker.record_prediction(0.7, 0.6)
+        stats = self.tracker.prediction_stats(rate_window_s=10.0)
+        assert stats["total_predictions"] == 5
+        assert stats["predictions_per_sec"] == 0.5  # 5 preds / 10s window
+
+    def test_prediction_stats_accuracy_matches_correct_ratio(self):
+        for _ in range(3):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(1)  # correct
+        for _ in range(2):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(0)  # incorrect
+        stats = self.tracker.prediction_stats()
+        assert stats["total_predictions"] == 5
+        assert stats["resolved_predictions"] == 5
+        assert stats["correct_predictions"] == 3
+        assert stats["accuracy"] == 0.6
+
     def test_check_degradation_no_degradation(self):
         self.tracker.set_training_metrics(0.65, 0.63)
         rng = np.random.default_rng(42)
@@ -240,6 +295,41 @@ class TestModelDegradationTracker:
             self.tracker.resolve_last(0)  # always wrong → 0% accuracy
         report = self.tracker.check_degradation()
         assert report["degraded"] is True
+
+    def test_check_degradation_sortino_degraded_key_always_present(self):
+        # Even with no training metrics, sortino_degraded must be in report.
+        report = self.tracker.check_degradation()
+        assert "sortino_degraded" in report
+        assert report["sortino_degraded"] is False
+
+    def test_check_degradation_sortino_triggers_when_below_threshold(self):
+        # High train accuracy so accuracy drop alone won't trigger degradation.
+        self.tracker.set_training_metrics(0.55, 0.53)
+        # Feed exactly 25 trades: 5 large losses, 20 small wins → Sortino < 0.5.
+        for i in range(25):
+            pnl = -50.0 if i < 5 else 0.5
+            self.tracker.record_trade_result(pnl)
+        # Resolve 25 predictions with ~55% accuracy so accuracy path doesn't trigger.
+        for _ in range(25):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(1)
+        report = self.tracker.check_degradation()
+        assert report["rolling_sortino"] is not None
+        assert report["sortino_degraded"] is True
+        assert report["degraded"] is True
+        assert report["retrain_recommended"] is True
+        assert report["tighten_meta_label_threshold"] is True
+
+    def test_check_degradation_good_sortino_does_not_trigger(self):
+        # All winning trades → sortino returns None (no losses) → not degraded.
+        self.tracker.set_training_metrics(0.55, 0.53)
+        for _ in range(25):
+            self.tracker.record_trade_result(10.0)
+        for _ in range(25):
+            self.tracker.record_prediction(0.7, 0.6)
+            self.tracker.resolve_last(1)
+        report = self.tracker.check_degradation()
+        assert report["sortino_degraded"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -329,8 +419,30 @@ def test_get_degradation_tracker_singleton():
     assert isinstance(t1, ModelDegradationTracker)
 
 
+def test_get_degradation_tracker_scoped_per_timeframe():
+    """Concurrent per-timeframe SignalEngine loops must not share a tracker,
+    or resolve_last() on one timeframe can resolve a prediction recorded by
+    another timeframe's engine."""
+    t_15m = get_degradation_tracker("15m")
+    t_1h = get_degradation_tracker("1h")
+    assert t_15m is not t_1h
+    t_15m_again = get_degradation_tracker("15m")
+    assert t_15m is t_15m_again
+
+
 def test_get_label_shift_detector_singleton():
     d1 = get_label_shift_detector()
     d2 = get_label_shift_detector()
     assert d1 is d2
     assert isinstance(d1, LabelShiftDetector)
+
+
+def test_run_pipeline_selftest_failure_path():
+    """Force build_feature_matrix to raise so the except branch is covered."""
+    with patch(
+        "src.features.pipeline.build_feature_matrix",
+        side_effect=RuntimeError("synthetic failure"),
+    ):
+        result = run_pipeline_selftest()
+    assert result["passed"] is False
+    assert "synthetic failure" in result["error"]

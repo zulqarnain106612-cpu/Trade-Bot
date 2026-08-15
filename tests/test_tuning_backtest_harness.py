@@ -43,9 +43,27 @@ def test_make_folds_respects_purge_gap() -> None:
         assert start <= end
 
 
+def test_position_scalar_zero_span_returns_floor() -> None:
+    # threshold=1.0 -> span = 1.0 - threshold = 0.0
+    assert _position_scalar(1.01, threshold=1.0, floor=0.3) == 0.3
+
+
 def test_make_folds_insufficient_data_raises() -> None:
     with pytest.raises(InsufficientDataError):
         _make_folds(n=10, n_splits=10, purge_gap=5)
+
+
+def test_make_folds_zero_splits_raises() -> None:
+    with pytest.raises(ValueError, match="n_splits must be >= 1"):
+        _make_folds(n=100, n_splits=0, purge_gap=2)
+
+
+def test_default_hmm_cfg_for_overrides_only_entropy_fields() -> None:
+    from src.tuning.backtest_harness import default_hmm_cfg_for
+
+    cfg = default_hmm_cfg_for(threshold=0.6, floor=0.4)
+    assert cfg.entropy_threshold == 0.6
+    assert cfg.entropy_scalar_floor == 0.4
 
 
 def test_max_drawdown_inverted_no_drawdown() -> None:
@@ -113,6 +131,21 @@ def test_identical_champion_and_challenger_never_significant() -> None:
     for c in comparisons:
         assert not c.significant_improvement
         assert not c.significant_regression
+
+
+def test_run_entropy_threshold_backtest_defaults_features_cfg() -> None:
+    """features_cfg=None must fall back to a real FeatureSettings() default
+    rather than raising -- needs enough samples for the default (unfixtured)
+    cpcv_n_splits=10 x purge_gap_bars=60 to form valid folds."""
+    samples = _synthetic_samples(700, seed=3)
+    comparisons = run_entropy_threshold_backtest(
+        samples,
+        champion_threshold=0.5,
+        champion_floor=0.5,
+        challenger_threshold=0.4,
+        challenger_floor=0.6,
+    )
+    assert len(comparisons) == 4
 
 
 def test_lower_floor_can_only_shrink_or_equal_scaled_returns() -> None:
@@ -221,6 +254,12 @@ def test_identical_slippage_coeff_never_significant() -> None:
         assert not c.significant_regression
 
 
+def test_run_slippage_coeff_backtest_defaults_features_cfg() -> None:
+    samples = _synthetic_slippage_samples(700, true_impact_coeff=10.0, seed=5)
+    comparisons = run_slippage_coeff_backtest(samples, champion_coeff=8.0, challenger_coeff=12.0)
+    assert len(comparisons) == 2
+
+
 # ---------------------------------------------------------------------------
 # Phase 8 item 3 -- feature-window parameters
 # ---------------------------------------------------------------------------
@@ -271,7 +310,7 @@ def test_predict_direction_batch_slices_extra_columns() -> None:
     cols = [*FEATURE_COLUMNS, "extra_intel_col"]
     X = pd.DataFrame(rng.standard_normal((20, len(cols))), columns=cols)
     pred = _predict_direction_batch(model, X)
-    expected = model.predict(X[FEATURE_COLUMNS].to_numpy(dtype=np.float64))
+    expected = model.predict(X[list(FEATURE_COLUMNS)].to_numpy(dtype=np.float64))
     assert np.array_equal(pred, expected)
 
 
@@ -321,7 +360,13 @@ def test_run_feature_window_backtest_produces_two_comparisons() -> None:
 
 @pytest.mark.parametrize(
     "field_name",
-    ["vwap_window", "ofi_window", "atr_window", "sharpe_window", "volume_zscore_window"],
+    [
+        "vwap_window",
+        "ofi_window",
+        "atr_window",
+        "sharpe_window",
+        "volume_zscore_window",
+    ],
 )
 def test_run_feature_window_backtest_runs_for_every_field(field_name: str) -> None:
     bars = _synthetic_bars(1000)
@@ -335,6 +380,23 @@ def test_run_feature_window_backtest_runs_for_every_field(field_name: str) -> No
         features_cfg=_FEATURE_WINDOW_CFG,
     )
     assert len(comparisons) == 2
+
+
+def test_run_feature_window_backtest_garch_window() -> None:
+    """garch_window needs champion/challenger >= 50 (rolling_garch_forecast minimum)."""
+    bars = _synthetic_bars(1000)
+    model = _fitted_direction_model()
+    comparisons = run_feature_window_backtest(
+        bars,
+        field_name="garch_window",
+        champion_window=80,
+        challenger_window=100,
+        direction_model=model,
+        features_cfg=_FEATURE_WINDOW_CFG,
+    )
+    assert len(comparisons) == 2
+    names = {c.metric_name for c in comparisons}
+    assert names == {"oos_sharpe", "win_rate"}
 
 
 def test_identical_feature_window_never_significant() -> None:
@@ -414,6 +476,24 @@ def test_identical_xgboost_hyperparam_never_significant(xgb_feature_matrix) -> N
     for c in comparisons:
         assert not c.significant_improvement
         assert not c.significant_regression
+
+
+def test_run_xgboost_hyperparam_backtest_defaults_feature_cfg(xgb_feature_matrix) -> None:
+    """feature_cfg=None must fall back to a real FeatureSettings() default.
+    Only affects fold construction (not model-fit cost), so this is no
+    slower than the other xgboost harness tests despite the default's
+    larger purge_gap_bars."""
+    comparisons = run_xgboost_hyperparam_backtest(
+        xgb_feature_matrix,
+        field_name="max_depth",
+        champion_value=2,
+        challenger_value=3,
+        base_xgb_cfg=_FAST_XGB,
+        symbol="BTC/USDT",
+        timeframe="15m",
+    )
+    names = {c.metric_name for c in comparisons}
+    assert names == {"oos_sharpe", "accuracy"}
 
 
 def test_run_xgboost_hyperparam_backtest_runs_for_reg_alpha(xgb_feature_matrix) -> None:

@@ -99,6 +99,55 @@ async def test_stop_cancels_task():
 
 
 @pytest.mark.asyncio
+async def test_loop_logs_and_continues_on_probe_run_exception():
+    """_loop()'s own try/except (not _run_all_probes()'s internal
+    per-probe handling) must catch anything unexpected from
+    _run_all_probes() itself and keep the loop alive for the next tick."""
+    m = RuntimeMonitor()
+    m._running = True
+    call_count = 0
+
+    async def _boom():
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("probe cycle blew up")
+
+    async def _fake_sleep(_s):
+        m._running = False  # stop after one iteration
+
+    with (
+        patch.object(m, "_run_all_probes", side_effect=_boom),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
+    ):
+        await m._loop()  # must not raise
+
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_without_a_running_task_is_a_noop():
+    m = RuntimeMonitor()
+    assert m._task is None
+    await m.stop()  # must not raise
+    assert m._running is False
+
+
+@pytest.mark.asyncio
+async def test_stop_with_already_done_task_skips_cancel():
+    m = RuntimeMonitor()
+
+    async def _finish_immediately():
+        return None
+
+    m._running = True
+    m._task = asyncio.create_task(_finish_immediately())
+    await asyncio.sleep(0)  # let it finish
+    assert m._task.done()
+    await m.stop()  # must not raise; skips the cancel() branch
+    assert m._running is False
+
+
+@pytest.mark.asyncio
 async def test_get_snapshot_initially_none():
     m = RuntimeMonitor()
     assert m.get_snapshot() is None
@@ -185,6 +234,28 @@ async def test_run_all_probes_tick_getter_exception():
 
 
 @pytest.mark.asyncio
+async def test_run_all_probes_detects_dead_tasks():
+    """A completed, non-cancelled asyncio task lingering in the event loop
+    (other than the harness's own "Task-1") must be flagged as an alert.
+    asyncio.all_tasks() normally excludes finished tasks by the time a test
+    can observe them, so this mocks it directly rather than relying on a
+    real (unreliable) completion race."""
+    m = RuntimeMonitor()
+
+    dead_task = MagicMock()
+    dead_task.done.return_value = True
+    dead_task.cancelled.return_value = False
+    dead_task.get_name.return_value = "leaked-worker"
+
+    with patch("asyncio.all_tasks", return_value={dead_task}):
+        await m._run_all_probes()
+
+    snap = m.get_snapshot()
+    assert snap is not None
+    assert any("dead_tasks" in a for a in snap.alerts)
+
+
+@pytest.mark.asyncio
 async def test_run_all_probes_overall_critical_with_alerts():
     m = RuntimeMonitor()
 
@@ -242,6 +313,17 @@ def test_rss_mb_returns_float():
 
 def test_rss_mb_failure_returns_zero():
     with patch("builtins.open", side_effect=OSError("not found")):
+        result = RuntimeMonitor._rss_mb()
+    assert result == 0.0
+
+
+def test_rss_mb_no_matching_line_returns_zero():
+    """The /proc/self/status file exists and is readable, but has no
+    VmRSS: line -- the loop exhausts without returning, falling through
+    to the 0.0 default."""
+    from unittest.mock import mock_open
+
+    with patch("builtins.open", mock_open(read_data="VmSize:  1234 kB\nThreads: 4\n")):
         result = RuntimeMonitor._rss_mb()
     assert result == 0.0
 

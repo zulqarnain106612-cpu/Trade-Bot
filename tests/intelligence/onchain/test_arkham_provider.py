@@ -72,6 +72,52 @@ async def test_no_api_key_returns_neutral_confidence_zero() -> None:
     assert metrics["whale_buy_sell_ratio"] == 1.0
 
 
+def test_exchange_id() -> None:
+    assert _make_provider().exchange_id == "arkham_intel"
+
+
+@pytest.mark.asyncio
+async def test_initialize_no_api_key_skips_warmup() -> None:
+    provider = _make_provider(key="")
+    from unittest.mock import AsyncMock
+
+    provider._get = AsyncMock()
+    await provider.initialize()
+    provider._get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_initialize_with_api_key_warms_cache() -> None:
+    from unittest.mock import AsyncMock
+
+    provider = _make_provider()
+    provider._get = AsyncMock(return_value={})
+    await provider.initialize()
+    assert provider._get.await_count == 3  # _EXCHANGES[:3]
+
+
+@pytest.mark.asyncio
+async def test_close_delegates_to_base() -> None:
+    provider = _make_provider()
+    await provider.close()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_netflow_history_truncated_to_30_samples() -> None:
+    provider = _make_provider()
+    provider._netflow_history = [float(i) for i in range(30)]  # already at cap
+    from unittest.mock import AsyncMock
+
+    async def mock_get(url, **kwargs):
+        if "transfers" in url:
+            return {"transfers": [{"usdValue": "100", "direction": "in"}]}
+        return None
+
+    provider._get = AsyncMock(side_effect=mock_get)
+    await provider.fetch_metrics()
+    assert len(provider._netflow_history) == 30
+
+
 @pytest.mark.asyncio
 async def test_fetch_metrics_all_fields_populated() -> None:
     provider = _make_provider()

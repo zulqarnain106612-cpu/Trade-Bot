@@ -535,6 +535,7 @@ export default function App() {
   const [tab, setTab] = useState('positions');
   const [startingCapital, setStartingCapital] = useState(null);
   const [riskControls, setRiskControls] = useState(null);
+  const [predictionStats, setPredictionStats] = useState(null);
   const wsRef = useRef(null);
 
   // WebSocket — API key passed as query param (WS headers not reliably supported in browsers)
@@ -638,6 +639,30 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // REST: prediction throughput/accuracy — polled fast (5s, matches WS
+  // heartbeat) since it's a live activity indicator, not historical data.
+  useEffect(() => {
+    let inFlight = false;
+    async function fetchPredictionStats() {
+      if (inFlight) return; // UI-016: same overlapping-request guard as fetchData
+      inFlight = true;
+      try {
+        const res = await apiFetch('/status');
+        if (res.ok) {
+          const body = await res.json();
+          setPredictionStats(body.predictions || null);
+        }
+      } catch (_) {
+        // swallow — next poll retries
+      } finally {
+        inFlight = false;
+      }
+    }
+    fetchPredictionStats();
+    const id = setInterval(fetchPredictionStats, 5000);
+    return () => clearInterval(id);
+  }, []);
+
   // operatorId & operatorSecret stored in state — set once, reused for all actions
   const [operatorId, setOperatorId] = useState('operator');
   const [operatorSecret, setOperatorSecret] = useState('');
@@ -649,24 +674,46 @@ export default function App() {
         return;
       }
       try {
-        await apiFetch('/execution-mode', {
+        const res = await apiFetch('/execution-mode', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode, operator: operatorId, operator_secret: operatorSecret }),
         });
-      } catch (_) {}
+        // fetch() resolves normally on 4xx/5xx, so the response has to be
+        // inspected. Without this a wrong operator secret (401), the
+        // three-per-hour mode-change limit (429) or a startup race (503)
+        // all looked like success, and the operator was left believing the
+        // execution mode had changed when it had not. Mirrors the handling
+        // already used by updateRiskControls below.
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Execution mode change failed: ${err.detail || res.status}`);
+        }
+      } catch (e) {
+        alert(`Execution mode change failed: ${e.message || 'network error'}`);
+      }
     },
     [operatorId, operatorSecret]
   );
 
   const resolveApproval = useCallback(async (id, approved, operator) => {
     try {
-      await apiFetch(`/approvals/${id}/resolve`, {
+      const res = await apiFetch(`/approvals/${id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved, operator }),
       });
-    } catch (_) {}
+      // Same reasoning as switchMode: a 404 (already resolved, or the
+      // request expired out of the queue) or a 503 resolved silently, so an
+      // operator could believe they had approved or rejected a trade that
+      // the executor never heard about.
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Approval ${approved ? 'approve' : 'reject'} failed: ${err.detail || res.status}`);
+      }
+    } catch (e) {
+      alert(`Approval ${approved ? 'approve' : 'reject'} failed: ${e.message || 'network error'}`);
+    }
   }, []);
 
   // GAP-013 — update one or more risk-control fields. Pass only the
@@ -696,7 +743,12 @@ export default function App() {
           const err = await res.json().catch(() => ({}));
           alert(`Risk control update failed: ${err.detail || res.status}`);
         }
-      } catch (_) {}
+      } catch (e) {
+        // This handler already surfaced HTTP errors but swallowed network
+        // ones, so a dropped connection mid-change looked identical to
+        // success while a 401 alerted. Same class of action, same feedback.
+        alert(`Risk control update failed: ${e.message || 'network error'}`);
+      }
     },
     [operatorId, operatorSecret]
   );
@@ -776,6 +828,25 @@ export default function App() {
             <div className="text-xs text-claude-muted mb-2 uppercase tracking-wide">Regime</div>
             <RegimeBadge regime={regime} />
           </div>
+          <StatCard
+            label="Prediction Frequency"
+            value={`${fmt(predictionStats?.predictions_per_sec, 2)}/s`}
+            sub={`${predictionStats?.total_predictions ?? 0} total predictions`}
+          />
+          <StatCard
+            label="1-Bar Directional Accuracy"
+            value={
+              predictionStats?.accuracy != null ? `${fmt(predictionStats.accuracy * 100, 1)}%` : '—'
+            }
+            sub={`${predictionStats?.correct_predictions ?? 0} correct / ${predictionStats?.resolved_predictions ?? 0} resolved`}
+            color={
+              predictionStats?.accuracy != null
+                ? predictionStats.accuracy >= 0.5
+                  ? 'text-green-400'
+                  : 'text-red-400'
+                : 'text-claude-cream'
+            }
+          />
         </div>
 
         {/* Equity Chart */}

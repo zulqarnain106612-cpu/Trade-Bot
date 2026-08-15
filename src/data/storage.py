@@ -71,7 +71,7 @@ _MIGRATIONS: Final[list[tuple[int, str, str]]] = [
     # brought up by the migration runner).
     (
         1,
-        "initial schema: bars, trades, regime_snapshots, model_metrics, " "equity_curve, audit_log",
+        "initial schema: bars, trades, regime_snapshots, model_metrics, equity_curve, audit_log",
         "",  # Empty SQL: tables already exist from _DDL; we just set the version.
     ),
     # Version 2 — add spread_bps column to trades (GAP-008/TASK-009 follow-on)
@@ -147,9 +147,18 @@ ALTER TABLE intelligence_features_history ADD COLUMN sopr REAL;""",
 CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
     ON missed_trades(ts DESC);""",
     ),
+    # v6 — add changepoint_probability and agreement_score to regime_snapshots.
+    # Enables monitoring of HMM/changepoint ensemble disagreement over time
+    # (regime_agreement_score wired into cognitive engine risk, GAP-regime-ensemble).
+    (
+        6,
+        "regime-ensemble: add changepoint_probability and agreement_score to regime_snapshots",
+        """ALTER TABLE regime_snapshots ADD COLUMN changepoint_probability REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.0;""",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 5
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 6
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -468,9 +477,11 @@ class MissedTradeRecord:
 
 
 class RegimeSnapshotRecord:
-    """HMM regime state at a single bar."""
+    """HMM regime state at a single bar, including ensemble agreement metrics."""
 
     __slots__ = (
+        "agreement_score",
+        "changepoint_probability",
         "prob_ranging",
         "prob_trending",
         "prob_volatile",
@@ -489,6 +500,8 @@ class RegimeSnapshotRecord:
         prob_ranging: float,
         prob_trending: float,
         prob_volatile: float,
+        changepoint_probability: float = 0.0,
+        agreement_score: float = 1.0,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
@@ -497,6 +510,8 @@ class RegimeSnapshotRecord:
         self.prob_ranging = prob_ranging
         self.prob_trending = prob_trending
         self.prob_volatile = prob_volatile
+        self.changepoint_probability = changepoint_probability
+        self.agreement_score = agreement_score
 
 
 class ModelMetricsRecord:
@@ -617,7 +632,8 @@ class StorageBackend:
         with self._lock_init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        return self._lock  # type: ignore[return-value]
+        assert self._lock is not None
+        return self._lock
 
     async def initialize(self) -> None:
         """Open WAL-mode connection, create required directories, and apply DDL."""
@@ -643,7 +659,9 @@ class StorageBackend:
         assert conn is not None
 
         row = await conn.execute("PRAGMA user_version")
-        current: int = (await row.fetchone())[0]
+        fetched = await row.fetchone()
+        assert fetched is not None, "PRAGMA user_version returned no row"
+        current: int = fetched[0]
 
         if current == _SCHEMA_VERSION:
             return  # Already up to date.
@@ -1011,14 +1029,13 @@ class StorageBackend:
         )
         # count_exprs is built only from the hardcoded `columns` list literal
         # above, never from external/user input.
-        async with (
-            conn.execute(
-                f"SELECT COUNT(*) AS total, {count_exprs} "  # nosec B608
-                "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
-                (symbol, timeframe),
-            ) as cur
-        ):
-            row = dict(await cur.fetchone())
+        async with conn.execute(
+            f"SELECT COUNT(*) AS total, {count_exprs} "  # nosec B608
+            "FROM intelligence_features_history WHERE symbol=? AND timeframe=?",
+            (symbol, timeframe),
+        ) as cur:
+            _fetched = await cur.fetchone()
+            row = dict(_fetched) if _fetched is not None else {}
 
         total = int(row.get("total") or 0)
         if total == 0:
@@ -1184,7 +1201,7 @@ class StorageBackend:
             await conn.commit()
         if cursor.rowcount == 0:
             raise ValueError(
-                f"No open trade found with id={trade_id!r} " "(already closed or id not found)"
+                f"No open trade found with id={trade_id!r} (already closed or id not found)"
             )
         self._log.info(
             "trade.exit_updated",
@@ -1200,10 +1217,16 @@ class StorageBackend:
         since_ts: int | None = None,
         limit: int = 500,
         offset: int = 0,
+        open_only: bool = False,
     ) -> list[TradeRecord]:
         """
         Fetch trades with optional filters.
         Returns list ordered by entry_ts descending.
+
+        `open_only` restricts the result to trades with no exit recorded.
+        After a crash these are the positions the database still believes
+        are live, which is what src/diagnostics/disaster_recovery.py
+        reconciles against the executor's in-memory book.
         """
         conn = self._require_conn()
         # Build parameterized query from fixed literal clause fragments only —
@@ -1219,6 +1242,9 @@ class StorageBackend:
         if since_ts is not None:
             clauses.append("entry_ts>=?")
             params.append(since_ts)
+        if open_only:
+            # No parameter: a literal IS NULL cannot be bound as a value.
+            clauses.append("exit_ts IS NULL")
         # VF-010: Replaced f-string SQL composition with explicit conditional
         # query building — no variable is ever interpolated into the SQL text.
         # All filter values flow through ? placeholders only.
@@ -1329,8 +1355,9 @@ class StorageBackend:
                 """
                 INSERT OR REPLACE INTO regime_snapshots
                   (symbol, timeframe, ts, regime_state,
-                   prob_ranging, prob_trending, prob_volatile)
-                VALUES (?,?,?,?,?,?,?)
+                   prob_ranging, prob_trending, prob_volatile,
+                   changepoint_probability, agreement_score)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     snap.symbol,
@@ -1340,6 +1367,8 @@ class StorageBackend:
                     snap.prob_ranging,
                     snap.prob_trending,
                     snap.prob_volatile,
+                    snap.changepoint_probability,
+                    snap.agreement_score,
                 ),
             )
             await conn.commit()
@@ -1350,7 +1379,8 @@ class StorageBackend:
         async with conn.execute(
             """
             SELECT symbol, timeframe, ts, regime_state,
-                   prob_ranging, prob_trending, prob_volatile
+                   prob_ranging, prob_trending, prob_volatile,
+                   changepoint_probability, agreement_score
             FROM regime_snapshots
             WHERE symbol=? AND timeframe=?
             ORDER BY ts DESC LIMIT 1
@@ -1368,6 +1398,8 @@ class StorageBackend:
             prob_ranging=row["prob_ranging"],
             prob_trending=row["prob_trending"],
             prob_volatile=row["prob_volatile"],
+            changepoint_probability=row["changepoint_probability"],
+            agreement_score=row["agreement_score"],
         )
 
     async def regime_snapshot_before(
@@ -1381,7 +1413,8 @@ class StorageBackend:
         async with conn.execute(
             """
             SELECT symbol, timeframe, ts, regime_state,
-                   prob_ranging, prob_trending, prob_volatile
+                   prob_ranging, prob_trending, prob_volatile,
+                   changepoint_probability, agreement_score
             FROM regime_snapshots
             WHERE symbol=? AND timeframe=? AND ts<=?
             ORDER BY ts DESC LIMIT 1
@@ -1399,6 +1432,8 @@ class StorageBackend:
             prob_ranging=row["prob_ranging"],
             prob_trending=row["prob_trending"],
             prob_volatile=row["prob_volatile"],
+            changepoint_probability=row["changepoint_probability"],
+            agreement_score=row["agreement_score"],
         )
 
     async def bars_before(

@@ -4,7 +4,9 @@ from src.config import Settings, invalidate_settings_cache
 from src.tuning.bootstrap import (
     FEATURE_WINDOW_FIELDS,
     XGBOOST_HYPERPARAM_FIELDS,
+    register_ensemble_blend_weight,
     register_feature_window_param,
+    register_garch_vol_threshold,
     register_hmm_entropy_scalar_floor,
     register_hmm_entropy_threshold,
     register_slippage_impact_coeff,
@@ -63,6 +65,30 @@ def test_register_slippage_impact_coeff() -> None:
     assert param.ceiling <= 2000.0
 
 
+def test_register_ensemble_blend_weight() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_ensemble_blend_weight(registry, settings)
+    assert param.current == settings.risk.ensemble_blend_weight
+    assert registry.is_registered("risk.ensemble_blend_weight")
+    assert param.floor >= 0.0
+    assert param.ceiling <= 1.0
+
+
+def test_register_ensemble_blend_weight_resumes_from_promoted_store_value(tmp_path) -> None:
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    settings = Settings()
+    store.promote(
+        "risk.ensemble_blend_weight",
+        0.16,
+        evidence={},
+        promoted_by="test",
+    )
+    registry = ParameterRegistry()
+    param = register_ensemble_blend_weight(registry, settings, store)
+    assert param.current == pytest.approx(0.16)
+
+
 def test_registering_all_three_does_not_collide() -> None:
     registry = ParameterRegistry()
     settings = Settings()
@@ -81,6 +107,14 @@ def test_register_feature_window_param(field_name: str) -> None:
     assert param.name == f"features.{field_name}"
     assert registry.is_registered(f"features.{field_name}")
     assert param.floor >= 2.0
+
+
+def test_register_feature_window_garch_window_floor_is_at_least_50() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_feature_window_param(registry, "garch_window", settings)
+    # garch_window has ge=50 in FeatureSettings; floor must respect that.
+    assert param.floor >= 50.0
 
 
 def test_register_feature_window_param_unknown_field_raises() -> None:
@@ -210,4 +244,49 @@ def test_register_slippage_impact_coeff_resumes_from_promoted_store_value(tmp_pa
     promoted = default * 1.05
     store.promote("risk.slippage_impact_coeff_bps", promoted, evidence={})
     param = register_slippage_impact_coeff(registry, settings, store)
+    assert param.current == pytest.approx(promoted)
+
+
+# ---------------------------------------------------------------------------
+# register_garch_vol_threshold
+# ---------------------------------------------------------------------------
+
+
+def test_register_garch_vol_threshold_uses_current_settings_as_champion() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_garch_vol_threshold(registry, settings)
+    assert param.current == pytest.approx(settings.risk.garch_vol_threshold)
+    assert param.name == "risk.garch_vol_threshold"
+    assert param.eval_strategy == "cpcv_oos_sharpe"
+
+
+def test_register_garch_vol_threshold_bounds_within_pydantic_limits() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    param = register_garch_vol_threshold(registry, settings)
+    # floor must be > 0 (RiskSettings enforces gt=0.0)
+    assert param.floor > 0.0
+    # ceiling must be <= 0.50 (RiskSettings enforces le=0.50)
+    assert param.ceiling <= 0.50
+
+
+def test_register_garch_vol_threshold_twice_raises() -> None:
+    from src.tuning.registry import DuplicateParameterError
+
+    registry = ParameterRegistry()
+    settings = Settings()
+    register_garch_vol_threshold(registry, settings)
+    with pytest.raises(DuplicateParameterError):
+        register_garch_vol_threshold(registry, settings)
+
+
+def test_register_garch_vol_threshold_resumes_from_promoted_store_value(tmp_path) -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    default = settings.risk.garch_vol_threshold
+    promoted = default * 1.05
+    store.promote("risk.garch_vol_threshold", promoted, evidence={})
+    param = register_garch_vol_threshold(registry, settings, store)
     assert param.current == pytest.approx(promoted)

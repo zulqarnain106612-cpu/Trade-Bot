@@ -50,7 +50,7 @@ class CausalDAG:
                    → (not direct, only through flow)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize crypto market causal structure."""
 
         # Causal relationships (established from domain knowledge + research)
@@ -99,7 +99,7 @@ class CausalInferenceEngine:
     Estimate treatment effects using causal methods.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.dag = CausalDAG()
 
     def estimate_treatment_effect(

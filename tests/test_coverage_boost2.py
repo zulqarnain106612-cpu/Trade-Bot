@@ -200,7 +200,7 @@ class TestOrderManager:
         ex = AsyncMock()
         ex.create_market_order = AsyncMock(return_value=order_placed)
         ex.fetch_order = _fetch
-        with patch("asyncio.sleep", new=AsyncMock()), pytest.raises(Exception):
+        with patch("asyncio.sleep", new=AsyncMock()), pytest.raises(ccxt.ExchangeError):
             await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
 
     @pytest.mark.asyncio
@@ -219,7 +219,7 @@ class TestOrderManager:
         ex.create_market_order = AsyncMock(return_value=order_placed)
         ex.fetch_order = _fetch_order
         with patch("asyncio.sleep", new=AsyncMock()):
-            fsm, order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            fsm, _order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
         assert fsm.state.status == OrderStatus.FILLED
 
     @pytest.mark.asyncio
@@ -238,7 +238,7 @@ class TestOrderManager:
         ex.create_market_order = AsyncMock(return_value=order_placed)
         ex.fetch_order = _fetch_order
         with patch("asyncio.sleep", new=AsyncMock()):
-            fsm, order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            fsm, _order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
         assert fsm.state.status == OrderStatus.FILLED
 
 

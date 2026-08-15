@@ -56,6 +56,22 @@ class RateLimiter:
                 sleep_s = (1.0 - self._tokens) * (self._window_s / self._rate)
                 await asyncio.sleep(sleep_s)
                 self._tokens = 0.0
+                # Advance the refill mark past the sleep. Without this,
+                # _last_refill still points at the instant BEFORE the wait, so
+                # the next acquire() computes elapsed across a window that has
+                # already been spent accruing the token just consumed — and
+                # credits it a second time.
+                #
+                # The effect is not subtle: the bucket runs at exactly twice
+                # its configured rate once it starts throttling. Simulated at
+                # rate=10/s, fifty throttled calls completed in 2.5s rather
+                # than 5.0s. For an API limiter that means 429s and bans, and
+                # exchange rate limits are a first-class constraint here.
+                #
+                # Set from the post-sleep instant rather than time.monotonic()
+                # so the accounting matches the sleep exactly and cannot drift
+                # with scheduler latency.
+                self._last_refill = now + sleep_s
             else:
                 self._tokens -= 1.0
 
@@ -67,7 +83,18 @@ class _CBState(Enum):
 
 
 class CircuitBreaker:
-    """3-state circuit breaker. CLOSED→OPEN after threshold failures, OPEN→HALF_OPEN after cooldown."""
+    """
+    3-state circuit breaker.
+
+    CLOSED -> OPEN after `failure_threshold` CONSECUTIVE failures,
+    OPEN -> HALF_OPEN after `cooldown_s`, HALF_OPEN -> CLOSED on one success.
+
+    Consecutive is the operative word. Counting cumulative failures instead
+    means the counter only ever rises, so any provider that fails even
+    occasionally trips eventually — a process running for months opens every
+    breaker it owns regardless of how healthy the providers are, and then
+    spends the rest of its life cycling through the cooldown.
+    """
 
     def __init__(self, failure_threshold: int = 3, cooldown_s: float = 300.0) -> None:
         self._threshold = failure_threshold
@@ -87,6 +114,14 @@ class CircuitBreaker:
             if self._state == _CBState.HALF_OPEN:
                 self._failures = 0
                 self._state = _CBState.CLOSED
+            else:
+                # A success while CLOSED clears the run. Without this the
+                # counter is cumulative rather than consecutive: it was only
+                # ever reset on the HALF_OPEN recovery path, so a provider
+                # failing once per 500 successes still reached the threshold
+                # and opened — measured, at exactly the third failure,
+                # 1503 calls in.
+                self._failures = 0
             return result
         except Exception:
             self._failures += 1
@@ -159,7 +194,7 @@ class OnChainProvider(ExchangeIntelligenceProvider):
     _RATE: float = 1.0
 
     def __init__(self) -> None:
-        self._cache = AsyncHTTPCache(default_ttl_s=self._CACHE_TTL_S)
+        self._async_cache: AsyncHTTPCache = AsyncHTTPCache(default_ttl_s=self._CACHE_TTL_S)
         self._limiter = RateLimiter(rate=self._RATE)
         self._breaker = CircuitBreaker()
         self._session: aiohttp.ClientSession | None = None
@@ -179,7 +214,7 @@ class OnChainProvider(ExchangeIntelligenceProvider):
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         cache_key = f"GET:{url}:{sorted((params or {}).items())}"
-        cached = await self._cache.get(cache_key)
+        cached = await self._async_cache.get(cache_key)
         if cached is not None:
             return cached
         await self._limiter.acquire()
@@ -192,13 +227,15 @@ class OnChainProvider(ExchangeIntelligenceProvider):
                     return await resp.json(content_type=None)
 
             data = await self._breaker.call(_do)
-            await self._cache.set(cache_key, data)
+            await self._async_cache.set(cache_key, data)
             return data
         except CircuitOpenError:
             logger.warning("%s._get circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None
         except Exception as exc:
-            logger.warning("%s._get failed url=%s err=%s", self.__class__.__name__, url, exc)
+            logger.warning(
+                "%s._get failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            )
             return None
 
     async def _post(
@@ -221,7 +258,9 @@ class OnChainProvider(ExchangeIntelligenceProvider):
             logger.warning("%s._post circuit OPEN — skipping %s", self.__class__.__name__, url)
             return None
         except Exception as exc:
-            logger.warning("%s._post failed url=%s err=%s", self.__class__.__name__, url, exc)
+            logger.warning(
+                "%s._post failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            )
             return None
 
     @property

@@ -12,6 +12,7 @@ Responsibilities:
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -27,13 +28,18 @@ class CacheEntry:
     """Single cached metric with TTL."""
 
     value: Any
-    fetched_at: datetime
+    # Monotonic, not a calendar instant: this is only ever read as an AGE.
+    # On the wall clock an NTP step forward expires every entry at once and
+    # stampedes every provider simultaneously, and a step back keeps stale
+    # data alive past its TTL. Same defect as the provider-level cache in
+    # src/intelligence/providers/base.py.
+    fetched_at: float
     ttl_seconds: int
 
     @property
     def is_stale(self) -> bool:
         """Check if entry has expired."""
-        age = (datetime.now(UTC) - self.fetched_at).total_seconds()
+        age = time.monotonic() - self.fetched_at
         return age > self.ttl_seconds
 
 
@@ -83,8 +89,21 @@ class IntelligenceAggregator:
         self._funding_rate_perp_symbol = cfg.funding_rate_perp_symbol
         self._cache: dict[str, CacheEntry] = {}
         self._cache_lock: asyncio.Lock = asyncio.Lock()
-        self._last_glassnode_call: datetime = datetime.fromtimestamp(0, UTC)
-        self._last_cryptoquant_call: datetime = datetime.fromtimestamp(0, UTC)
+        # Monotonic, and None for "never called" rather than a zero sentinel.
+        # This measures an ELAPSED INTERVAL, not a point in time: on the wall
+        # clock an NTP step forward makes elapsed enormous, wait negative, and
+        # the throttle silently stops throttling — precisely when the API is
+        # most likely to be under load. A 0.0 sentinel would be fragile for
+        # the opposite reason, since time.monotonic() has an arbitrary epoch
+        # that can itself be smaller than the interval.
+        self._last_glassnode_call: float | None = None
+        # CryptoQuant has no live call path. _fetch_cryptoquant_funding_rate
+        # is a misnomer kept for continuity: its docstring records the
+        # decision to source funding from Binance's public endpoint via ccxt
+        # instead, because CryptoQuant is paid and offers no advantage for
+        # this metric. Retained so the intent stays visible — adding a
+        # limiter here would be throttling calls that are never made.
+        self._last_cryptoquant_call: float | None = None
 
         log.info(
             "intelligence_aggregator_init",
@@ -127,12 +146,12 @@ class IntelligenceAggregator:
             async with self._cache_lock:
                 self._cache[cache_key] = CacheEntry(
                     value=result,
-                    fetched_at=datetime.now(UTC),
+                    fetched_at=time.monotonic(),
                     ttl_seconds=self.cache_ttl_exchange,
                 )
             return result
         except Exception as e:
-            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol)
+            log.error("glassnode_netflow_fetch_failed", error=str(e), symbol=symbol, exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -168,12 +187,12 @@ class IntelligenceAggregator:
             async with self._cache_lock:
                 self._cache[cache_key] = CacheEntry(
                     value=result,
-                    fetched_at=datetime.now(UTC),
+                    fetched_at=time.monotonic(),
                     ttl_seconds=self.cache_ttl_onchain,
                 )
             return result
         except Exception as e:
-            log.error("glassnode_whale_activity_failed", error=str(e))
+            log.error("glassnode_whale_activity_failed", error=str(e), exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -206,12 +225,12 @@ class IntelligenceAggregator:
             async with self._cache_lock:
                 self._cache[cache_key] = CacheEntry(
                     value=result,
-                    fetched_at=datetime.now(UTC),
+                    fetched_at=time.monotonic(),
                     ttl_seconds=self.cache_ttl_exchange,
                 )
             return result
         except Exception as e:
-            log.error("cryptoquant_funding_rate_failed", error=str(e))
+            log.error("cryptoquant_funding_rate_failed", error=str(e), exc_info=True)
             async with self._cache_lock:
                 if cache_key in self._cache:
                     return self._cache[cache_key].value
@@ -243,8 +262,7 @@ class IntelligenceAggregator:
 
         if not self.glassnode_key:
             raise RuntimeError(
-                "INTELLIGENCE_GLASSNODE_API_KEY not set — "
-                "set it in .env or disable on-chain gates"
+                "INTELLIGENCE_GLASSNODE_API_KEY not set — set it in .env or disable on-chain gates"
             )
 
         import httpx
@@ -293,7 +311,7 @@ class IntelligenceAggregator:
         inflow = max(latest_netflow, 0.0)
         outflow = abs(min(latest_netflow, 0.0))
 
-        self._last_glassnode_call = datetime.now(UTC)
+        self._last_glassnode_call = time.monotonic()
         return {
             "netflow": latest_netflow,
             "inflow": inflow,
@@ -322,8 +340,7 @@ class IntelligenceAggregator:
 
         if not self.glassnode_key:
             raise RuntimeError(
-                "INTELLIGENCE_GLASSNODE_API_KEY not set — "
-                "set it in .env or disable on-chain gates"
+                "INTELLIGENCE_GLASSNODE_API_KEY not set — set it in .env or disable on-chain gates"
             )
 
         import httpx
@@ -372,7 +389,7 @@ class IntelligenceAggregator:
 
         sentiment = "bullish" if ratio > 1.5 else "bearish" if ratio < 0.67 else "neutral"
 
-        self._last_glassnode_call = datetime.now(UTC)
+        self._last_glassnode_call = time.monotonic()
         return {
             "buy_volume": round(buy_vol, 4),
             "sell_volume": round(sell_vol, 4),
@@ -448,7 +465,9 @@ class IntelligenceAggregator:
 
     async def _rate_limit_glassnode(self) -> None:
         """Enforce minimum inter-call spacing for Glassnode (default 1s)."""
-        elapsed = (datetime.now(UTC) - self._last_glassnode_call).total_seconds()
+        if self._last_glassnode_call is None:
+            return
+        elapsed = time.monotonic() - self._last_glassnode_call
         wait = self._glassnode_min_interval - elapsed
         if wait > 0:
             await asyncio.sleep(wait)
@@ -523,10 +542,10 @@ class IntelligenceAggregator:
                 resp.raise_for_status()
                 data: list[dict] = resp.json()
         except Exception as exc:
-            log.error("glassnode_netflow_history_failed", error=str(exc))
+            log.error("glassnode_netflow_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
-            self._last_glassnode_call = datetime.now(UTC)
+            self._last_glassnode_call = time.monotonic()
 
         values = [(int(row["t"]), float(row["v"])) for row in data if row.get("v") is not None]
         if not values:
@@ -592,10 +611,10 @@ class IntelligenceAggregator:
                 resp.raise_for_status()
                 data: list[dict] = resp.json()
         except Exception as exc:
-            log.error("glassnode_whale_history_failed", error=str(exc))
+            log.error("glassnode_whale_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
-            self._last_glassnode_call = datetime.now(UTC)
+            self._last_glassnode_call = time.monotonic()
 
         values = [(int(row["t"]), float(row["v"])) for row in data if row.get("v") is not None]
         if not values:
@@ -657,7 +676,7 @@ class IntelligenceAggregator:
                 if r.get("timestamp") is not None
             ]
         except Exception as exc:
-            log.error("binance_funding_rate_history_failed", error=str(exc))
+            log.error("binance_funding_rate_history_failed", error=str(exc), exc_info=True)
             return []
         finally:
             await exchange.close()

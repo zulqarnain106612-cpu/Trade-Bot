@@ -9,14 +9,16 @@ Implements every feature from the signal architecture spec:
   5. ATR momentum                                 — Wilder (1978)
   6. Rolling Sharpe                               — Kelly (1956) / Chan (2013)
   7. Volume z-score                               — standardized volume pressure
-  8. Triple-barrier labeling                      — AFML Ch.3
-  9. Meta-label targets (bet-or-not column)       — AFML Ch.4
+  8. GARCH(1,1) conditional vol forecast          — Bollerslev (1986)
+  9. Triple-barrier labeling                      — AFML Ch.3
+  10. Meta-label targets (bet-or-not column)      — AFML Ch.4
 
 Authority sources:
   - López de Prado (2018) AFML Ch.3-5
   - Cont, Kukanov & Stoikov (2014) "The Price Impact of Order Book Events"
   - Chan (2013) Algorithmic Trading — realized vol, ATR momentum
   - Wilder (1978) New Concepts in Technical Trading Systems — ATR
+  - Bollerslev (1986) "Generalized Autoregressive Conditional Heteroskedasticity"
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import pandas as pd
 import structlog
 
 from src.config import FeatureSettings
+from src.regime.garch import rolling_garch_forecast
 from src.tuning.live_overrides import effective_feature_settings
 
 
@@ -45,6 +48,7 @@ COL_REALIZED_VOL_RATIO: Final[str] = "realized_vol_ratio"
 COL_ATR_MOMENTUM: Final[str] = "atr_momentum"
 COL_ROLLING_SHARPE: Final[str] = "rolling_sharpe"
 COL_VOLUME_ZSCORE: Final[str] = "volume_zscore"
+COL_GARCH_VOL: Final[str] = "garch_vol_forecast"
 
 # All feature columns in canonical order — used by trainer for consistent X matrix.
 #
@@ -54,7 +58,12 @@ COL_VOLUME_ZSCORE: Final[str] = "volume_zscore"
 # reads coverage from the DB and drops columns below the threshold.
 # This list (BASE_FEATURE_COLUMNS) is the fallback when no intelligence
 # history is available.
-BASE_FEATURE_COLUMNS: Final[list[str]] = [
+# A tuple, not a list: this is the feature contract every model is trained
+# against, and FEATURE_COLUMNS below aliases the same object, so a single
+# in-place mutation anywhere would silently change the feature vector's shape
+# and meaning for training and inference at once. Every consumer already
+# copies with list(...) or comprehends over it, so immutability costs nothing.
+BASE_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     COL_FRAC_DIFF,
     COL_VWAP_DEV,
     COL_OFI,
@@ -62,12 +71,13 @@ BASE_FEATURE_COLUMNS: Final[list[str]] = [
     COL_ATR_MOMENTUM,
     COL_ROLLING_SHARPE,
     COL_VOLUME_ZSCORE,
-]
+    COL_GARCH_VOL,
+)
 
 # Backward-compat alias: existing imports of FEATURE_COLUMNS still work.
 # New code that needs the full 25-feature set should call
 # get_active_feature_columns() instead.
-FEATURE_COLUMNS: Final[list[str]] = BASE_FEATURE_COLUMNS
+FEATURE_COLUMNS: Final[tuple[str, ...]] = BASE_FEATURE_COLUMNS
 
 
 def get_active_feature_columns(
@@ -86,7 +96,7 @@ def get_active_feature_columns(
         min_coverage: Minimum non-NULL fraction [0,1] to include a column.
 
     Returns:
-        Ordered list of column names.  Always starts with the 7 base features.
+        Ordered list of column names.  Always starts with the 8 base features.
         May include up to 18 additional intelligence columns.
 
     Example:
@@ -103,7 +113,7 @@ def get_active_feature_columns(
     if not coverage:
         _log.info(
             "get_active_feature_columns",
-            mode="7-feature",
+            mode="base-feature",
             reason="no intelligence coverage data",
         )
         return list(BASE_FEATURE_COLUMNS)
@@ -120,8 +130,8 @@ def get_active_feature_columns(
     if excluded:
         _log.warning(
             "get_active_feature_columns_excluded",
-            excluded=[(c, f"{f*100:.1f}%") for c, f in excluded],
-            threshold=f"{min_coverage*100:.0f}%",
+            excluded=[(c, f"{f * 100:.1f}%") for c, f in excluded],
+            threshold=f"{min_coverage * 100:.0f}%",
         )
 
     active = list(BASE_FEATURE_COLUMNS) + included
@@ -137,6 +147,12 @@ def get_active_feature_columns(
 
 # Label columns
 COL_LABEL: Final[str] = "label"
+
+# Share of time-exit labels above which the barriers are reported as
+# mis-calibrated. Two thirds is deliberately permissive — this is a
+# diagnostic that must fire on a genuinely broken configuration without
+# crying wolf on a merely quiet market.
+_TIME_EXIT_WARN_FRACTION: Final[float] = 0.66
 COL_META_LABEL: Final[str] = "meta_label"
 COL_RETURN: Final[str] = "log_return"
 
@@ -427,6 +443,49 @@ class TripleBarrierResult:
     exit_reason: str
 
 
+@dataclass(frozen=True)
+class TripleBarrierComposition:
+    """
+    How a labelled window resolved, in aggregate.
+
+    AFML Ch.3 warns that the barriers, not the labeller, are what make
+    triple-barrier labels informative. If almost every observation exits on
+    the time barrier, the vertical barrier is doing the labelling: the
+    horizontal barriers are too wide to be reached inside max_holding, and
+    the model is being trained to predict which side of a coin a drifting
+    price lands on. The labels still look well-formed and the label counts
+    still balance, so nothing downstream can tell.
+
+    profit_target / stop_loss / time_exit are counts. mean_holding_bars is
+    the average number of bars to exit, which reads directly against
+    max_holding: approaching it is the same warning from the other side.
+    """
+
+    profit_target: int
+    stop_loss: int
+    time_exit: int
+    mean_holding_bars: float
+
+    @property
+    def total(self) -> int:
+        return self.profit_target + self.stop_loss + self.time_exit
+
+    @property
+    def time_exit_fraction(self) -> float:
+        """Share of labels set by the vertical barrier. 0.0 when empty."""
+        return self.time_exit / self.total if self.total else 0.0
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "profit_target": self.profit_target,
+            "stop_loss": self.stop_loss,
+            "time_exit": self.time_exit,
+            "total": self.total,
+            "time_exit_fraction": round(self.time_exit_fraction, 4),
+            "mean_holding_bars": round(self.mean_holding_bars, 2),
+        }
+
+
 def _compute_daily_vol(log_returns: pd.Series, span: int = 63) -> pd.Series:
     """
     EWMA estimate of daily volatility from log returns.
@@ -436,13 +495,13 @@ def _compute_daily_vol(log_returns: pd.Series, span: int = 63) -> pd.Series:
     return log_returns.ewm(span=span, min_periods=span).std()
 
 
-def triple_barrier_labels(
+def triple_barrier_labels_with_offsets(
     close: pd.Series,
     pt_multiplier: float,
     sl_multiplier: float,
     max_holding: int,
     daily_vol: pd.Series | None = None,
-) -> pd.Series:
+) -> tuple[pd.Series, pd.Series]:
     """
     Apply triple-barrier labeling to a close price series.
 
@@ -469,8 +528,13 @@ def triple_barrier_labels(
 
     Returns
     -------
-    pd.Series of int labels aligned to close.index, NaN at tail where
-    the full holding window extends beyond available data.
+    (labels, exit_offsets), both aligned to close.index and NaN at the tail
+    where the full holding window extends beyond available data.
+
+    exit_offsets is the number of bars to the exit — the piece the caller
+    needs to tell "the barriers resolved this" from "the clock did", and
+    which this function previously computed and discarded. TripleBarrierResult
+    documented it as a field of a class nothing ever constructed.
     """
     prices = close.to_numpy(dtype=np.float64)
     n = len(prices)
@@ -495,8 +559,13 @@ def triple_barrier_labels(
     upper = np.where(valid_mask, entry_prices * (1.0 + pt_multiplier * vols), np.nan)
     lower = np.where(valid_mask, entry_prices * (1.0 - sl_multiplier * vols), np.nan)
 
-    # Initialize all valid rows as time-exit (-1)
+    # Initialize all valid rows as time-exit (-1), exiting at max_holding.
+    # The offset is recorded alongside the label rather than derived later:
+    # it is already known here, and recomputing it would mean replaying the
+    # barrier comparisons a second time.
     labels[valid_mask] = -1.0
+    offsets = np.full(n, np.nan, dtype=np.float64)
+    offsets[valid_mask] = float(max_holding)
 
     # first_hit[t] tracks the earliest offset k at which a barrier was hit.
     # We iterate k from 1 to max_holding and update only rows not yet resolved.
@@ -517,9 +586,53 @@ def triple_barrier_labels(
         hit_lower = in_bounds & ~resolved & (future_prices <= lower)
         labels[hit_upper] = 1.0
         labels[hit_lower] = 0.0
+        offsets[hit_upper | hit_lower] = float(k)
         resolved |= hit_upper | hit_lower
 
-    return pd.Series(labels, index=close.index, dtype=np.float64).rename(COL_LABEL)
+    label_series = pd.Series(labels, index=close.index, dtype=np.float64).rename(COL_LABEL)
+    offset_series = pd.Series(offsets, index=close.index, dtype=np.float64)
+    return label_series, offset_series
+
+
+def triple_barrier_labels(
+    close: pd.Series,
+    pt_multiplier: float,
+    sl_multiplier: float,
+    max_holding: int,
+    daily_vol: pd.Series | None = None,
+) -> pd.Series:
+    """
+    Labels only — the long-standing signature, unchanged.
+
+    Callers that also need to know *why* each observation exited should use
+    triple_barrier_labels_with_offsets; see TripleBarrierComposition for why
+    that distinction is worth having.
+    """
+    labels, _offsets = triple_barrier_labels_with_offsets(
+        close, pt_multiplier, sl_multiplier, max_holding, daily_vol
+    )
+    return labels
+
+
+def summarize_triple_barrier(
+    labels: pd.Series,
+    exit_offsets: pd.Series,
+) -> TripleBarrierComposition:
+    """
+    Aggregate a labelled window into its exit composition.
+
+    Rows where either series is NaN are excluded rather than counted as a
+    category: they are the unlabelled tail, not a fourth kind of exit.
+    """
+    mask = labels.notna() & exit_offsets.notna()
+    valid_labels = labels[mask]
+    valid_offsets = exit_offsets[mask]
+    return TripleBarrierComposition(
+        profit_target=int((valid_labels == 1.0).sum()),
+        stop_loss=int((valid_labels == 0.0).sum()),
+        time_exit=int((valid_labels == -1.0).sum()),
+        mean_holding_bars=float(valid_offsets.mean()) if len(valid_offsets) else 0.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -709,6 +822,12 @@ def build_feature_matrix(
     vol_z = volume_zscore(volume, window=cfg.volume_zscore_window)
 
     # ------------------------------------------------------------------ #
+    # 7b. GARCH(1,1) conditional volatility forecast — Bollerslev (1986)
+    # Walk-forward, one-step-ahead; no look-ahead (AFML Ch.5).
+    # ------------------------------------------------------------------ #
+    garch_vol = rolling_garch_forecast(log_ret, window=cfg.garch_window)
+
+    # ------------------------------------------------------------------ #
     # 8. Daily vol — shared by triple-barrier + trainer sample weights
     # ------------------------------------------------------------------ #
     daily_vol = _compute_daily_vol(log_ret.fillna(0.0))
@@ -716,13 +835,31 @@ def build_feature_matrix(
     # ------------------------------------------------------------------ #
     # 9. Triple-barrier labels (AFML Ch.3)
     # ------------------------------------------------------------------ #
-    tb_labels = triple_barrier_labels(
+    tb_labels, tb_offsets = triple_barrier_labels_with_offsets(
         close,
         pt_multiplier=cfg.triple_barrier_pt_multiplier,
         sl_multiplier=cfg.triple_barrier_sl_multiplier,
         max_holding=cfg.triple_barrier_max_holding_bars,
         daily_vol=daily_vol,
     )
+
+    # Barrier calibration check. Labels dominated by the vertical barrier mean
+    # the horizontal ones are unreachable inside max_holding, so the clock is
+    # doing the labelling and the model is learning drift rather than the
+    # move the barriers were meant to capture. The label counts still balance
+    # and every downstream metric still looks healthy, which is exactly why
+    # this has to be said out loud at build time rather than inferred later.
+    composition = summarize_triple_barrier(tb_labels, tb_offsets)
+    if composition.time_exit_fraction > _TIME_EXIT_WARN_FRACTION:
+        log.warning(
+            "features.triple_barrier_dominated_by_time_exit",
+            max_holding_bars=cfg.triple_barrier_max_holding_bars,
+            pt_multiplier=cfg.triple_barrier_pt_multiplier,
+            sl_multiplier=cfg.triple_barrier_sl_multiplier,
+            **composition.as_dict(),
+        )
+    else:
+        log.info("features.triple_barrier_composition", **composition.as_dict())
 
     # ------------------------------------------------------------------ #
     # Assemble feature matrix — drop any row with NaN in features or label
@@ -736,6 +873,7 @@ def build_feature_matrix(
             COL_ATR_MOMENTUM: atr_mom,
             COL_ROLLING_SHARPE: r_sharpe,
             COL_VOLUME_ZSCORE: vol_z,
+            COL_GARCH_VOL: garch_vol,
             COL_LABEL: tb_labels,
             COL_RETURN: log_ret,
         },
@@ -772,7 +910,9 @@ def build_feature_matrix(
     )
 
     return FeatureMatrix(
-        features=feature_df_dir[FEATURE_COLUMNS],
+        # list(...): DataFrame.__getitem__ reads a tuple as one key, not a
+        # column selection, so this must not be handed the constant directly.
+        features=feature_df_dir[list(FEATURE_COLUMNS)],
         labels=feature_df_dir[COL_LABEL].astype(np.int8),
         meta=ml_series_full,
         daily_vol=daily_vol.reindex(feature_df_dir.index),
@@ -797,8 +937,8 @@ def build_inference_features(
     Compute feature vector for the most recent bar only.
 
     Accepts a history DataFrame (must include current bar as last row).
-    Returns a pd.Series of FEATURE_COLUMNS (7 base) or FEATURE_COLUMNS +
-    INTELLIGENCE_FEATURE_COLUMNS (up to 25 total) when intelligence_metrics
+    Returns a pd.Series of FEATURE_COLUMNS (8 base) or FEATURE_COLUMNS +
+    INTELLIGENCE_FEATURE_COLUMNS (up to 26 total) when intelligence_metrics
     is supplied and passes NaN validation.
 
     Parameters
@@ -816,12 +956,12 @@ def build_inference_features(
                            Keys are IntelligenceMetrics field names (no "intelligence_"
                            prefix — the mapping is applied inside _inject_intelligence_features).
                            NaN / missing fields are skipped with a confidence penalty.
-                           When None or empty, returns 7-feature base vector (backward-compat).
+                           When None or empty, returns base feature vector (backward-compat).
 
     Returns
     -------
-    pd.Series indexed by FEATURE_COLUMNS [+ finite intelligence cols], or None if
-    insufficient base feature data.
+    pd.Series indexed by FEATURE_COLUMNS (8 base) [+ finite intelligence cols],
+    or None if insufficient base feature data.
     """
     # Fast path — reuse pre-built feature matrix (SCAN2-007)
     if feature_matrix is not None and feature_matrix.features is not None:
@@ -860,6 +1000,7 @@ def build_inference_features(
         cfg.atr_window,
         cfg.sharpe_window,
         cfg.volume_zscore_window,
+        cfg.garch_window,
         64,  # EWMA vol warmup
     )
     if n < min_rows:
@@ -891,6 +1032,9 @@ def build_inference_features(
     atr_val = atr_momentum(high, low, close, cfg.atr_window).iloc[-1]
     sharpe_val = rolling_sharpe(close, cfg.sharpe_window).iloc[-1]
     volz_val = volume_zscore(volume, cfg.volume_zscore_window).iloc[-1]
+    log_ret_inf = np.log(close / close.shift(1))
+    garch_val_series = rolling_garch_forecast(log_ret_inf, window=cfg.garch_window)
+    garch_val = garch_val_series.iloc[-1] if len(garch_val_series.dropna()) > 0 else float("nan")
 
     vec = pd.Series(
         {
@@ -901,6 +1045,7 @@ def build_inference_features(
             COL_ATR_MOMENTUM: atr_val,
             COL_ROLLING_SHARPE: sharpe_val,
             COL_VOLUME_ZSCORE: volz_val,
+            COL_GARCH_VOL: garch_val,
         },
         dtype=np.float64,
     )
@@ -945,7 +1090,7 @@ def _inject_intelligence_features(
     Confidence is included as "intelligence_confidence" when present.
 
     Args:
-        vec:                  Base 7-feature pd.Series.
+        vec:                  Base feature pd.Series (len = len(BASE_FEATURE_COLUMNS)).
         intelligence_metrics: Flat dict from MultiProviderIntelligenceAggregator.
 
     Returns:
@@ -968,9 +1113,7 @@ def _inject_intelligence_features(
             fval = float(val)
         except (TypeError, ValueError):
             continue
-        import math as _math
-
-        if _math.isfinite(fval):
+        if np.isfinite(fval):
             extras[col] = fval
 
     # Always include confidence when available and finite
@@ -978,9 +1121,7 @@ def _inject_intelligence_features(
     if conf is not None:
         try:
             cval = float(conf)
-            import math as _math
-
-            if _math.isfinite(cval):
+            if np.isfinite(cval):
                 extras[COL_INTELLIGENCE_CONFIDENCE] = cval
         except (TypeError, ValueError):
             pass
@@ -988,11 +1129,8 @@ def _inject_intelligence_features(
     if not extras:
         return vec
 
-    import numpy as _np
-    import pandas as _pd
-
-    extras_series = _pd.Series(extras, dtype=_np.float64)
-    result = _pd.concat([vec, extras_series])
+    extras_series = pd.Series(extras, dtype=np.float64)
+    result = pd.concat([vec, extras_series])
 
     log.debug(
         "pipeline.intelligence_features_injected",

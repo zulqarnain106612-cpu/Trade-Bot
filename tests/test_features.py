@@ -6,7 +6,9 @@ import pytest
 
 from src.config import invalidate_settings_cache
 from src.features.pipeline import (
+    BASE_FEATURE_COLUMNS,
     COL_ATR_MOMENTUM,
+    COL_GARCH_VOL,
     COL_LABEL,
     COL_META_LABEL,
     COL_OFI,
@@ -26,7 +28,9 @@ from src.features.pipeline import (
     order_flow_imbalance,
     realized_vol_ratio,
     rolling_sharpe,
+    summarize_triple_barrier,
     triple_barrier_labels,
+    triple_barrier_labels_with_offsets,
     volume_zscore,
     vwap_deviation_zscore,
 )
@@ -287,6 +291,18 @@ class TestTripleBarrierLabels:
         tb = triple_barrier_labels(close, 2.0, 1.0, 60)
         assert tb.name == COL_LABEL
 
+    def test_early_exit_when_all_rows_resolved_before_max_holding(self):
+        """VF-015: the k-loop should `break` as soon as every valid row has
+        resolved, rather than always running all max_holding iterations."""
+        n = 10
+        close = pd.Series([100.0, 200.0, 50.0, 300.0, 20.0, 400.0, 10.0, 500.0, 5.0, 600.0])
+        vol = pd.Series([0.5] * (n - 1) + [np.nan])  # last row invalid (no future data anyway)
+        tb = triple_barrier_labels(close, 0.01, 0.01, max_holding=8, daily_vol=vol)
+        # Wide barriers relative to the wild swings -> every valid row hits
+        # a barrier at k=1, well before max_holding=8 is reached.
+        assert tb.iloc[:-1].isin([0.0, 1.0]).all()
+        assert pd.isna(tb.iloc[-1])
+
 
 # ─── meta_labels ──────────────────────────────────────────────────────────────
 
@@ -408,6 +424,26 @@ class TestBuildFeatureMatrix:
         assert len(fm.daily_vol) == len(fm.features)
         assert (fm.daily_vol.dropna() > 0).all()
 
+    def test_flat_price_run_logs_warning_but_still_computes(self, synthetic_bars):
+        """M-13: >5% zero-delta bars (exchange halt / stale feed) must be
+        warned about, not silently swallowed -- but must not block feature
+        computation."""
+        import structlog
+
+        bars = synthetic_bars.copy()
+        n_flat = int(len(bars) * 0.10)
+        flat_value = bars["close"].iloc[0]
+        bars.loc[bars.index[:n_flat], "close"] = flat_value
+        bars.loc[bars.index[:n_flat], "open"] = flat_value * 0.999
+        bars.loc[bars.index[:n_flat], "high"] = flat_value * 1.0001
+        bars.loc[bars.index[:n_flat], "low"] = flat_value * 0.9999
+
+        with structlog.testing.capture_logs() as captured:
+            fm = build_feature_matrix(bars)
+
+        assert isinstance(fm, FeatureMatrix)
+        assert any(e.get("event") == "pipeline.flat_price_detected" for e in captured)
+
 
 # ─── build_inference_features ─────────────────────────────────────────────────
 
@@ -439,7 +475,176 @@ class TestBuildInferenceFeatures:
         with pytest.raises(ValueError):
             build_inference_features(synthetic_bars.drop(columns=["close"]))
 
+    def test_slow_path_explicit_cfg_skips_effective_settings_lookup(self, synthetic_bars):
+        from src.config import FeatureSettings
+
+        cfg = FeatureSettings()
+        vec = build_inference_features(synthetic_bars, cfg=cfg)
+        assert vec is not None
+
+    def test_slow_path_nan_feature_returns_none(self, synthetic_bars):
+        """H-12: a NaN in any slow-path (no pre-built feature_matrix) computed
+        feature -- e.g. volume_zscore on a constant (zero-variance) volume
+        series -- must skip the signal (return None), not propagate NaN."""
+        bars = synthetic_bars.copy()
+        bars["volume"] = 500.0  # constant -> zero std -> NaN z-score
+        assert build_inference_features(bars) is None
+
+    def test_fast_path_empty_feature_matrix_returns_none(self, synthetic_bars):
+        """SCAN2-007 fast path: an empty pre-built feature_matrix must return
+        None rather than indexing into an empty frame."""
+        fm = build_feature_matrix(synthetic_bars)
+        empty_fm = FeatureMatrix(
+            features=fm.features.iloc[:0],
+            labels=fm.labels.iloc[:0],
+            meta=fm.meta.iloc[:0] if fm.meta is not None else None,
+            daily_vol=fm.daily_vol.iloc[:0],
+            log_returns=fm.log_returns.iloc[:0],
+            dropped_rows=fm.dropped_rows,
+        )
+        assert build_inference_features(synthetic_bars, feature_matrix=empty_fm) is None
+
+    def test_fast_path_live_ofi_overrides_last_row(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        vec = build_inference_features(synthetic_bars, feature_matrix=fm, live_ofi=0.77)
+        assert vec is not None
+        assert abs(vec[COL_OFI] - 0.77) < 1e-9
+
+    def test_fast_path_nan_feature_returns_none(self, synthetic_bars):
+        """Same NaN-skip contract as the slow path, but exercised via a
+        pre-built feature_matrix whose last row has a NaN feature."""
+        fm = build_feature_matrix(synthetic_bars)
+        tampered_features = fm.features.copy()
+        tampered_features.iloc[-1, tampered_features.columns.get_loc(COL_VOLUME_ZSCORE)] = float(
+            "nan"
+        )
+        tampered_fm = FeatureMatrix(
+            features=tampered_features,
+            labels=fm.labels,
+            meta=fm.meta,
+            daily_vol=fm.daily_vol,
+            log_returns=fm.log_returns,
+            dropped_rows=fm.dropped_rows,
+        )
+        assert build_inference_features(synthetic_bars, feature_matrix=tampered_fm) is None
+
+    def test_fast_path_injects_intelligence_metrics(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        vec = build_inference_features(
+            synthetic_bars,
+            feature_matrix=fm,
+            intelligence_metrics={"exchange_stress_score": 0.5, "confidence": 0.8},
+        )
+        assert vec is not None
+        assert "intelligence_exchange_stress_score" in vec.index
+
     def test_values_are_float64(self, synthetic_bars):
         vec = build_inference_features(synthetic_bars)
         assert vec is not None
         assert vec.dtype == np.float64
+
+
+# ─── GARCH integration in pipeline ───────────────────────────────────────────
+
+
+class TestGARCHPipelineIntegration:
+    """Verify that COL_GARCH_VOL is present and finite in both pipeline paths."""
+
+    def test_garch_vol_in_base_feature_columns(self) -> None:
+        assert COL_GARCH_VOL in BASE_FEATURE_COLUMNS
+        assert COL_GARCH_VOL == "garch_vol_forecast"
+
+    def test_garch_vol_present_in_feature_matrix(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        assert COL_GARCH_VOL in fm.features.columns
+
+    def test_garch_vol_finite_in_feature_matrix(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        assert fm.features[COL_GARCH_VOL].notna().all()
+        assert (fm.features[COL_GARCH_VOL] > 0).all()
+
+    def test_garch_vol_present_in_inference_slow_path(self, synthetic_bars):
+        vec = build_inference_features(synthetic_bars)
+        assert vec is not None
+        assert COL_GARCH_VOL in vec.index
+
+    def test_garch_vol_positive_in_inference(self, synthetic_bars):
+        vec = build_inference_features(synthetic_bars)
+        assert vec is not None
+        assert vec[COL_GARCH_VOL] > 0
+
+    def test_garch_vol_present_in_inference_fast_path(self, synthetic_bars):
+        fm = build_feature_matrix(synthetic_bars)
+        vec = build_inference_features(synthetic_bars, feature_matrix=fm)
+        assert vec is not None
+        assert COL_GARCH_VOL in vec.index
+        assert vec[COL_GARCH_VOL] > 0
+
+    def test_feature_columns_has_8_base_features(self) -> None:
+        assert len(BASE_FEATURE_COLUMNS) == 8
+        assert list(BASE_FEATURE_COLUMNS) == FEATURE_COLUMNS
+
+
+# ─── triple-barrier exit composition ──────────────────────────────────────────
+
+
+class TestTripleBarrierComposition:
+    def _series(self, n: int = 200) -> pd.Series:
+        return pd.Series(np.linspace(100.0, 110.0, n))
+
+    def test_labels_only_signature_is_unchanged(self) -> None:
+        # The long-standing entry point must keep returning a bare Series.
+        tb = triple_barrier_labels(self._series(), 2.0, 1.0, 60)
+        assert isinstance(tb, pd.Series)
+
+    def test_offsets_variant_returns_both_and_agrees_on_labels(self) -> None:
+        close = self._series()
+        labels, offsets = triple_barrier_labels_with_offsets(close, 2.0, 1.0, 60)
+        assert labels.equals(triple_barrier_labels(close, 2.0, 1.0, 60))
+        assert len(offsets) == len(close)
+
+    def test_offsets_are_bounded_by_max_holding(self) -> None:
+        _, offsets = triple_barrier_labels_with_offsets(self._series(), 2.0, 1.0, 30)
+        valid = offsets.dropna()
+        assert (valid >= 1).all()
+        assert (valid <= 30).all()
+
+    def test_wide_barriers_resolve_on_the_clock(self) -> None:
+        # Barriers far too wide to reach: every label comes from the vertical
+        # barrier, which is the mis-calibration the composition exists to show.
+        close = self._series()
+        vol = pd.Series(np.full(len(close), 0.5), index=close.index)
+        labels, offsets = triple_barrier_labels_with_offsets(close, 100.0, 100.0, 20, daily_vol=vol)
+        comp = summarize_triple_barrier(labels, offsets)
+        assert comp.time_exit_fraction == pytest.approx(1.0)
+        assert comp.mean_holding_bars == pytest.approx(20.0)
+
+    def test_tight_barriers_resolve_on_price(self) -> None:
+        close = self._series()
+        vol = pd.Series(np.full(len(close), 1e-4), index=close.index)
+        labels, offsets = triple_barrier_labels_with_offsets(close, 0.01, 0.01, 30, daily_vol=vol)
+        comp = summarize_triple_barrier(labels, offsets)
+        assert comp.time_exit_fraction < 1.0
+        assert comp.mean_holding_bars < 30.0
+
+    def test_unlabelled_tail_is_excluded_not_counted(self) -> None:
+        # NaN rows are the tail beyond the holding window, not a fourth
+        # category of exit.
+        labels = pd.Series([1.0, 0.0, -1.0, np.nan])
+        offsets = pd.Series([3.0, 5.0, 10.0, np.nan])
+        comp = summarize_triple_barrier(labels, offsets)
+        assert comp.total == 3
+        assert (comp.profit_target, comp.stop_loss, comp.time_exit) == (1, 1, 1)
+        assert comp.mean_holding_bars == pytest.approx(6.0)
+
+    def test_empty_composition_does_not_divide_by_zero(self) -> None:
+        comp = summarize_triple_barrier(pd.Series(dtype=float), pd.Series(dtype=float))
+        assert comp.total == 0
+        assert comp.time_exit_fraction == 0.0
+        assert comp.mean_holding_bars == 0.0
+
+    def test_as_dict_is_loggable(self) -> None:
+        comp = summarize_triple_barrier(pd.Series([1.0, -1.0]), pd.Series([2.0, 8.0]))
+        payload = comp.as_dict()
+        assert payload["total"] == 2
+        assert payload["time_exit_fraction"] == pytest.approx(0.5)

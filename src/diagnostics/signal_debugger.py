@@ -44,6 +44,9 @@ LIVE_WINDOW: Final[int] = 500
 ACCURACY_DROP_THRESHOLD: Final[float] = 0.15
 # GAP-003: rolling Sharpe threshold to trigger retrain / meta-label tightening
 ROLLING_SHARPE_THRESHOLD: Final[float] = 0.8
+# Sortino threshold — stricter than Sharpe because Sortino penalises
+# downside-only volatility; a ratio below 0.5 signals persistent losing runs.
+ROLLING_SORTINO_THRESHOLD: Final[float] = 0.5
 ROLLING_ACCURACY_THRESHOLD: Final[float] = 0.52
 META_LABEL_THRESHOLD: Final[float] = 0.65
 
@@ -183,6 +186,9 @@ class ModelDegradationTracker:
         self._trade_pnls: deque[float] = deque(maxlen=window)
         self._train_accuracy: float | None = None
         self._train_f1: float | None = None
+        self._total_count: int = 0
+        self._correct_count: int = 0
+        self._resolved_count: int = 0
 
     def set_training_metrics(self, accuracy: float, f1: float) -> None:
         """Call after each model training run with OOS metrics."""
@@ -197,16 +203,57 @@ class ModelDegradationTracker:
     def record_prediction(self, p_long: float, p_bet: float) -> None:
         """Record a live prediction (actual direction filled in later)."""
         self._preds.append(PredictionRecord(ts=time.monotonic(), p_long=p_long, p_bet=p_bet))
+        self._total_count += 1
 
     def resolve_last(self, actual_direction: int) -> None:
         """
         Fill in the actual outcome for the most recent unresolved prediction.
         Call after the bar closes and price moved.
+
+        NOTE: `actual_direction` here is expected to be a naive 1-bar-ahead
+        close-over-close direction, NOT the model's triple-barrier training
+        label (which is path-dependent over `max_holding` bars with
+        volatility-scaled barriers — see `triple_barrier_labels()` in
+        src/features/pipeline.py). live_accuracy()/check_degradation()
+        therefore measure short-horizon directional accuracy, a distinct
+        and generally lower-signal metric than the model's true OOS
+        triple-barrier accuracy reported by set_training_metrics(). Do not
+        treat `degraded`/`retrain_recommended` as equivalent to a real
+        triple-barrier OOS comparison -- they are a coarser, faster-to-compute
+        proxy for operator awareness only (not wired into any live gating).
         """
         for rec in reversed(list(self._preds)):
             if rec.actual_direction is None:
                 rec.actual_direction = actual_direction
+                self._resolved_count += 1
+                correct = (rec.p_long >= 0.5 and actual_direction == 1) or (
+                    rec.p_long < 0.5 and actual_direction == 0
+                )
+                if correct:
+                    self._correct_count += 1
                 return
+
+    def prediction_stats(self, rate_window_s: float = 10.0) -> dict[str, Any]:
+        """
+        Prediction throughput and accuracy snapshot for dashboards.
+
+        Rate is measured over a trailing `rate_window_s` window (not lifetime
+        average) so it reflects current tick cadence rather than a stale
+        long-run figure. `accuracy` is 1-bar-ahead directional accuracy (see
+        resolve_last() docstring) -- not the model's triple-barrier OOS
+        accuracy from set_training_metrics().
+        """
+        now = time.monotonic()
+        recent = sum(1 for r in self._preds if now - r.ts <= rate_window_s)
+        return {
+            "predictions_per_sec": round(recent / rate_window_s, 3),
+            "total_predictions": self._total_count,
+            "correct_predictions": self._correct_count,
+            "resolved_predictions": self._resolved_count,
+            "accuracy": round(self._correct_count / self._resolved_count, 4)
+            if self._resolved_count > 0
+            else None,
+        }
 
     def record_trade_result(self, pnl_usd: float) -> None:
         """Append realized trade PnL for rolling Sharpe tracking."""
@@ -224,6 +271,28 @@ class ModelDegradationTracker:
         if std_ret <= 0.0:
             return 0.0
         return mean_ret / std_ret
+
+    def rolling_sortino(self) -> float | None:
+        """
+        Rolling Sortino ratio — mean / downside_std (Sortino & Price 1994).
+
+        Uses only negative P&L values for the denominator so upside volatility
+        (news-driven pumps) does not suppress the quality signal.  Returns None
+        when fewer than 20 trades have been recorded or when there are no
+        losing trades (denominator would be zero).
+        """
+        if len(self._trade_pnls) < 20:
+            return None
+        returns = list(self._trade_pnls)
+        mean_ret = float(np.mean(returns))
+        losses = [r for r in returns if r < 0.0]
+        if not losses:
+            return None
+        # Standard Sortino semi-deviation: sqrt(sum(losses^2) / n_total).
+        downside_std = math.sqrt(sum(p * p for p in losses) / len(returns))
+        if downside_std <= 0.0:
+            return None
+        return mean_ret / downside_std
 
     def live_accuracy(self) -> float | None:
         """Compute rolling accuracy from resolved predictions."""
@@ -245,14 +314,17 @@ class ModelDegradationTracker:
         """
         live_acc = self.live_accuracy()
         rolling_sharpe = self.rolling_sharpe()
+        rolling_sortino = self.rolling_sortino()
         report: dict[str, Any] = {
             "live_accuracy": round(live_acc, 4) if live_acc is not None else None,
             "train_accuracy": round(self._train_accuracy, 4)
             if self._train_accuracy is not None
             else None,
             "rolling_sharpe": round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
+            "rolling_sortino": round(rolling_sortino, 4) if rolling_sortino is not None else None,
             "degraded": False,
             "drop": None,
+            "sortino_degraded": False,
             "tighten_meta_label_threshold": False,
             "retrain_recommended": False,
         }
@@ -263,11 +335,19 @@ class ModelDegradationTracker:
             sharpe_degraded = (
                 rolling_sharpe is not None and rolling_sharpe < ROLLING_SHARPE_THRESHOLD
             )
+            sortino_degraded = (
+                rolling_sortino is not None and rolling_sortino < ROLLING_SORTINO_THRESHOLD
+            )
             accuracy_below_floor = live_acc < ROLLING_ACCURACY_THRESHOLD
-            report["degraded"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
-            report["tighten_meta_label_threshold"] = accuracy_below_floor or sharpe_degraded
+            report["sortino_degraded"] = sortino_degraded
+            report["degraded"] = (
+                accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
+            )
+            report["tighten_meta_label_threshold"] = (
+                accuracy_below_floor or sharpe_degraded or sortino_degraded
+            )
             report["retrain_recommended"] = (
-                accuracy_degraded or sharpe_degraded or accuracy_below_floor
+                accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
             )
             if report["degraded"]:
                 log.warning(
@@ -275,6 +355,9 @@ class ModelDegradationTracker:
                     train_accuracy=round(self._train_accuracy, 4),
                     live_accuracy=round(live_acc, 4),
                     rolling_sharpe=round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
+                    rolling_sortino=round(rolling_sortino, 4)
+                    if rolling_sortino is not None
+                    else None,
                     drop=round(drop, 4),
                     action="retrain_recommended (AFML Ch.11)",
                 )
@@ -320,7 +403,7 @@ def run_pipeline_selftest() -> dict[str, Any]:
         log.info("signal_debugger.selftest_passed", rows=len(fm.features))
     except Exception as exc:
         result["error"] = str(exc)[:300]
-        log.error("signal_debugger.selftest_failed", error=result["error"])
+        log.error("signal_debugger.selftest_failed", error=result["error"], exc_info=True)
     return result
 
 
@@ -329,7 +412,14 @@ def run_pipeline_selftest() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _drift_monitor: FeatureDriftMonitor | None = None
-_degradation_tracker: ModelDegradationTracker | None = None
+# Keyed by timeframe: a single global tracker corrupted resolve_last()
+# matching once multiple timeframe loops (Orchestrator._timeframe_loop)
+# tick concurrently against the same symbol -- a prediction made by one
+# timeframe's engine could get resolved with another timeframe's just-closed
+# bar direction. Scoping per timeframe (this repo runs one primary_symbol
+# with several active_timeframes, never multiple symbols concurrently)
+# keeps each engine's predictions/resolutions isolated.
+_degradation_trackers: dict[str, ModelDegradationTracker] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -430,8 +520,7 @@ def get_drift_monitor() -> FeatureDriftMonitor:
     return _drift_monitor
 
 
-def get_degradation_tracker() -> ModelDegradationTracker:
-    global _degradation_tracker
-    if _degradation_tracker is None:
-        _degradation_tracker = ModelDegradationTracker()
-    return _degradation_tracker
+def get_degradation_tracker(timeframe: str = "default") -> ModelDegradationTracker:
+    if timeframe not in _degradation_trackers:
+        _degradation_trackers[timeframe] = ModelDegradationTracker()
+    return _degradation_trackers[timeframe]

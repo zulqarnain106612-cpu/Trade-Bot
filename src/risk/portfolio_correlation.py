@@ -39,7 +39,12 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # window for responsiveness while keeping enough for stable estimates).
 _EWM_HALFLIFE: Final[int] = 500  # ~5 days of 15-min bars
 _MIN_OBSERVATIONS: Final[int] = 30  # bars needed before reporting correlation
-_CORRELATION_REDUCTION_THRESHOLD: Final[float] = 0.60  # match position_sizing.py
+# Deliberately tighter than position_sizing._CORRELATION_REDUCE_THRESHOLD
+# (0.70). This gate sees pairwise asset correlation measured over a 500-bar
+# EWM window and starts shrinking earlier; that module's threshold applies to
+# an already-aggregated average book correlation. The comment here used to
+# claim the two matched, which they never did.
+_CORRELATION_REDUCTION_THRESHOLD: Final[float] = 0.60
 
 # Shrinkage toward 0 (independence) for correlation estimates near the
 # _MIN_OBSERVATIONS floor: shrunk_r = raw_r * n / (n + _CORRELATION_SHRINKAGE_K).
@@ -69,7 +74,8 @@ class _EWMSeries:
         else:
             delta = value - self._mean
             self._mean += self._alpha * delta
-            self._var = (1 - self._alpha) * (self._var + self._alpha * delta**2)
+            var = self._var if self._var is not None else 0.0
+            self._var = (1 - self._alpha) * (var + self._alpha * delta**2)
 
     @property
     def std(self) -> float:
@@ -104,10 +110,11 @@ class _EWMCov:
             self._cov = 0.0
         else:
             dx = x - self._mean_x
-            dy = y - self._mean_y
-            self._cov = (1 - self._alpha) * (self._cov + self._alpha * dx * dy)
+            dy = y - (self._mean_y if self._mean_y is not None else 0.0)
+            cov = self._cov if self._cov is not None else 0.0
+            self._cov = (1 - self._alpha) * (cov + self._alpha * dx * dy)
             self._mean_x += self._alpha * dx
-            self._mean_y += self._alpha * dy
+            self._mean_y = (self._mean_y if self._mean_y is not None else 0.0) + self._alpha * dy
 
     @property
     def cov(self) -> float:
