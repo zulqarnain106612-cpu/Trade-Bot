@@ -1,256 +1,132 @@
 """
-Bayesian Online Changepoint Detection — Adams & MacKay (2007).
+Bayesian online changepoint detection — v4 Adaptive Regime & Model Layer.
 
-Detects structural breaks in a univariate time series in real time.
-Maintains a posterior distribution over "run length" (bars since the last
-changepoint). When P(run_length=0 | data) exceeds a threshold, a
-changepoint is signalled.
+Complements the existing single HMM regime detector (src/regime/detector.py)
+with a model-free signal for "the underlying return-generating process just
+changed," independent of any specific regime label. Implements a simplified
+version of Adams & MacKay (2007) BOCPD: maintains a run-length distribution
+and flags a changepoint when the probability mass shifts sharply toward
+run-length 0 (i.e. "we just started a new regime").
 
-Unlike the GaussianHMM (which classifies into a fixed number of labelled
-states), this module answers: "has the underlying process changed at this
-bar?" — a complementary diagnostic that flags regime transitions the HMM
-may be slow to confirm.
-
-Use cases:
-  • Gate new entries when a changepoint is freshly detected (avoid the
-    first few bars of a new regime before the HMM re-converges).
-  • Trigger an early model-retrain request when a structural break is seen.
-  • Surface changepoint probability on the /debug/health endpoint.
+This is deliberately simpler than the full BOCPD (constant hazard rate,
+Gaussian predictive model with online mean/variance) — sufficient to serve
+as one vote in the v4 regime ensemble, not a standalone research artifact.
 
 Authority:
-  Adams, R.P. & MacKay, D.J.C. (2007) "Bayesian Online Changepoint
-    Detection". arXiv:0710.3742.
-  Fearnhead, P. & Liu, Z. (2007) "On-line inference for multiple changepoint
-    problems". J.R. Stat. Soc. B 69(4):589-605.
+  - Adams & MacKay (2007) "Bayesian Online Changepoint Detection"
+  - Domain Prior: treat HMM transitions as probabilistic; avoid hard-coded
+    regime logic — this detector outputs a continuous changepoint
+    probability, never a hard boolean regime switch.
 """
 
 from __future__ import annotations
 
 import math
-from collections import deque
-from dataclasses import dataclass
-from typing import Final
-
-import structlog
+from dataclasses import dataclass, field
 
 
-log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+@dataclass(slots=True)
+class _RunLengthHypothesis:
+    """One hypothesis in the run-length distribution: (run_length, prob, mean, var, n)."""
 
-_EPS: Final[float] = 1e-300  # prevent log(0) underflow
-_DEFAULT_HAZARD: Final[float] = 1 / 250.0  # expected regime length ~250 bars
-
-
-# ---------------------------------------------------------------------------
-# Result
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ChangepointResult:
-    """Output of one update step."""
-
-    bar_index: int
-    changepoint_prob: float  # P(run_length=0 | data so far), ∈ [0, 1]
-    is_changepoint: bool  # True when prob > threshold
-    max_run_length: int  # Most probable run length
-    mean_run_length: float  # Posterior expectation of run length
-
-
-# ---------------------------------------------------------------------------
-# Detector
-# ---------------------------------------------------------------------------
-
-
-class BayesianChangepointDetector:
-    """
-    Online Bayesian changepoint detector for univariate returns / vol series.
-
-    Hazard model: constant hazard rate h = 1 / expected_run_length.
-    Likelihood model: Gaussian with conjugate Normal-Inverse-Gamma prior,
-    updated incrementally (no re-scan of history on each step).
-
-    Parameters
-    ----------
-    expected_run_length:
-        Prior expected number of bars between changepoints.
-        250 is approximately one trading year of daily bars.
-    threshold:
-        P(changepoint) must exceed this to set is_changepoint=True.
-    prior_mean, prior_var:
-        Normal prior parameters for the Gaussian likelihood mean.
-        Typically set from a training-set estimate of the series mean/variance.
-    prior_alpha, prior_beta:
-        Inverse-gamma shape / scale parameters for the variance prior.
-    """
-
-    def __init__(
-        self,
-        expected_run_length: float = 250.0,
-        threshold: float = 0.5,
-        prior_mean: float = 0.0,
-        prior_var: float = 1.0,
-        prior_alpha: float = 1.0,
-        prior_beta: float = 1.0,
-    ) -> None:
-        self._h = 1.0 / max(expected_run_length, 1.0)
-        self._threshold = threshold
-
-        # Conjugate NIG prior for the run starting at t=0
-        self._mu0 = prior_mean
-        self._kappa0 = 1.0 / max(prior_var, _EPS)
-        self._alpha0 = prior_alpha
-        self._beta0 = prior_beta
-
-        # Run-length distribution: R[r] = P(run_length=r | data)
-        # Represented as parallel arrays for kappa, mu, alpha, beta
-        # indexed by run length (0 = just changed, 1 = 1 bar in run, ...).
-        # At initialisation there is one hypothesis: run_length=0 with P=1.
-        self._R: list[float] = [1.0]  # unnormalised joint probs
-        self._kappa: list[float] = [self._kappa0]
-        self._mu: list[float] = [self._mu0]
-        self._alpha: list[float] = [self._alpha0]
-        self._beta: list[float] = [self._beta0]
-
-        self._bar_idx: int = 0
-        self._history: deque[ChangepointResult] = deque(maxlen=500)
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def update(self, x: float) -> ChangepointResult:
-        """
-        Ingest one new observation and update run-length posterior.
-
-        Parameters
-        ----------
-        x : float
-            The new observation (e.g. log-return or realised vol ratio).
-
-        Returns
-        -------
-        ChangepointResult with updated changepoint probability.
-        """
-        n = len(self._R)
-
-        # 1. Predictive probabilities for each run length hypothesis
-        pred = [
-            _student_t_pred(x, self._mu[r], self._beta[r], self._alpha[r], self._kappa[r])
-            for r in range(n)
-        ]
-
-        # 2. Growth probabilities — existing runs grow by one bar
-        growth = [(1.0 - self._h) * self._R[r] * pred[r] for r in range(n)]
-
-        # 3. Changepoint probability — all runs collapse to run_length=0
-        cp_mass = self._h * sum(self._R[r] * pred[r] for r in range(n))
-
-        # 4. New R: prepend the changepoint mass, append grown hypotheses
-        new_R = [cp_mass, *growth]
-
-        # 5. Normalise
-        Z = sum(new_R) or _EPS
-        new_R = [v / Z for v in new_R]
-
-        # 6. Update conjugate parameters for each hypothesis
-        new_kappa = [self._kappa0] + [self._kappa[r] + 1.0 for r in range(n)]
-        new_mu = [self._mu0] + [
-            (self._kappa[r] * self._mu[r] + x) / (self._kappa[r] + 1.0) for r in range(n)
-        ]
-        new_alpha = [self._alpha0] + [self._alpha[r] + 0.5 for r in range(n)]
-        new_beta = [self._beta0] + [
-            self._beta[r] + 0.5 * self._kappa[r] / (self._kappa[r] + 1.0) * (x - self._mu[r]) ** 2
-            for r in range(n)
-        ]
-
-        self._R = new_R
-        self._kappa = new_kappa
-        self._mu = new_mu
-        self._alpha = new_alpha
-        self._beta = new_beta
-
-        # Most-probable run length
-        max_r = max(range(len(new_R)), key=lambda i: new_R[i])
-        mean_rl = sum(r * p for r, p in enumerate(new_R))
-
-        result = ChangepointResult(
-            bar_index=self._bar_idx,
-            changepoint_prob=new_R[0],
-            is_changepoint=new_R[0] > self._threshold,
-            max_run_length=max_r,
-            mean_run_length=mean_rl,
-        )
-        self._history.append(result)
-        self._bar_idx += 1
-
-        if result.is_changepoint:
-            log.info(
-                "changepoint_detected",
-                bar=self._bar_idx,
-                prob=round(result.changepoint_prob, 4),
-                max_run=max_r,
-            )
-
-        return result
-
-    def reset(self) -> None:
-        """Reset detector state (e.g. after a full model retrain)."""
-        self._R = [1.0]
-        self._kappa = [self._kappa0]
-        self._mu = [self._mu0]
-        self._alpha = [self._alpha0]
-        self._beta = [self._beta0]
-        self._bar_idx = 0
-        self._history.clear()
-
-    def recent_changepoints(self, n: int = 10) -> list[ChangepointResult]:
-        """Return the N most recent results where is_changepoint=True."""
-        return [r for r in reversed(self._history) if r.is_changepoint][:n]
-
-    def latest(self) -> ChangepointResult | None:
-        """Most recent result, or None if no data has been processed."""
-        return self._history[-1] if self._history else None
+    run_length: int
+    log_prob: float
+    mean: float
+    m2: float  # sum of squared deviations, Welford's algorithm
+    n: int
 
     @property
-    def n_processed(self) -> int:
-        return self._bar_idx
+    def variance(self) -> float:
+        return self.m2 / self.n if self.n > 0 else 1.0
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def _log_gaussian_pdf(x: float, mean: float, variance: float) -> float:
+    variance = max(variance, 1e-8)
+    return -0.5 * math.log(2 * math.pi * variance) - ((x - mean) ** 2) / (2 * variance)
 
 
-def _student_t_pred(
-    x: float,
-    mu: float,
-    beta: float,
-    alpha: float,
-    kappa: float,
-) -> float:
+@dataclass(slots=True)
+class BayesianOnlineChangepointDetector:
     """
-    Predictive density of x under the Normal-Inverse-Gamma conjugate model.
+    Online changepoint detector over a scalar stream (e.g. bar returns).
 
-    This is a Student-t distribution with 2*alpha degrees of freedom,
-    location mu, and scale sqrt(beta*(1 + 1/kappa) / alpha).
-
-    Returns max(density, _EPS) to prevent zero weights.
+    hazard_rate: prior probability of a changepoint at any given step
+    (constant-hazard assumption — simplification vs. full BOCPD's
+    arbitrary hazard function, adequate for an ensemble vote).
     """
-    df = 2.0 * alpha
-    scale_sq = beta * (1.0 + 1.0 / kappa) / alpha
-    scale = math.sqrt(max(scale_sq, _EPS))
 
-    # Student-t log-PDF: log G((df+1)/2) - log G(df/2) - 0.5 log(df*pi*s^2) - (df+1)/2 log(1 + t^2/df)
-    t_stat = (x - mu) / scale
-    t_sq = t_stat**2
+    hazard_rate: float = 1.0 / 250.0  # ~once per 250 bars, a priori
+    _hypotheses: list[_RunLengthHypothesis] = field(default_factory=list)
+    _last_changepoint_prob: float = 0.0
 
-    try:
-        log_pdf = (
-            math.lgamma((df + 1.0) / 2.0)
-            - math.lgamma(df / 2.0)
-            - 0.5 * math.log(df * math.pi * scale_sq)
-            - (df + 1.0) / 2.0 * math.log(1.0 + t_sq / df)
+    def __post_init__(self) -> None:
+        if not 0.0 < self.hazard_rate < 1.0:
+            raise ValueError(f"hazard_rate must be in (0, 1), got {self.hazard_rate}")
+        self._hypotheses = [_RunLengthHypothesis(run_length=0, log_prob=0.0, mean=0.0, m2=0.0, n=0)]
+
+    def update(self, x: float) -> float:
+        """
+        Process one new observation. Returns the posterior probability
+        that a changepoint occurred at this step (mass on run_length=0).
+        """
+        # Predictive probability of x under each existing hypothesis
+        pred_log_probs = [
+            _log_gaussian_pdf(x, h.mean, h.variance if h.n > 1 else 1.0) for h in self._hypotheses
+        ]
+
+        # Growth probabilities: hypothesis survives, run length += 1
+        growth_log_probs = [
+            h.log_prob + p + math.log(1.0 - self.hazard_rate)
+            for h, p in zip(self._hypotheses, pred_log_probs, strict=True)
+        ]
+
+        # Changepoint probability: total mass restarting at run_length=0
+        cp_terms = [
+            h.log_prob + p + math.log(self.hazard_rate)
+            for h, p in zip(self._hypotheses, pred_log_probs, strict=True)
+        ]
+        cp_log_prob = _logsumexp(cp_terms) if cp_terms else math.log(1.0)
+
+        # Build new hypothesis list: one fresh (run_length=0) + grown survivors
+        new_hypotheses = [
+            _RunLengthHypothesis(run_length=0, log_prob=cp_log_prob, mean=x, m2=0.0, n=1)
+        ]
+        for h, glp in zip(self._hypotheses, growth_log_probs, strict=True):
+            new_mean = h.mean + (x - h.mean) / (h.n + 1)
+            new_m2 = h.m2 + (x - h.mean) * (x - new_mean)
+            new_hypotheses.append(
+                _RunLengthHypothesis(
+                    run_length=h.run_length + 1, log_prob=glp, mean=new_mean, m2=new_m2, n=h.n + 1
+                )
+            )
+
+        # Normalize
+        total_log = _logsumexp([h.log_prob for h in new_hypotheses])
+        for h in new_hypotheses:
+            h.log_prob -= total_log
+
+        # Bound hypothesis count to keep this O(1)-ish per step long-run.
+        new_hypotheses.sort(key=lambda h: h.log_prob, reverse=True)
+        self._hypotheses = new_hypotheses[:200]
+
+        self._last_changepoint_prob = math.exp(
+            next(h.log_prob for h in self._hypotheses if h.run_length == 0)
         )
-        return max(math.exp(log_pdf), _EPS)
-    except (ValueError, OverflowError):
-        return _EPS
+        return self._last_changepoint_prob
+
+    @property
+    def changepoint_probability(self) -> float:
+        return self._last_changepoint_prob
+
+    @property
+    def most_likely_run_length(self) -> int:
+        return max(self._hypotheses, key=lambda h: h.log_prob).run_length
+
+
+def _logsumexp(log_values: list[float]) -> float:
+    if not log_values:
+        return float("-inf")
+    m = max(log_values)
+    if m == float("-inf"):
+        return float("-inf")
+    return m + math.log(sum(math.exp(v - m) for v in log_values))

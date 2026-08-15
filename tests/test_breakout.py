@@ -1,232 +1,98 @@
-"""Tests for src/strategies/breakout.py"""
+"""Tests for the volume-weighted breakout strategy (v2 Sub-task 2, family 3)."""
 
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from src.strategies.breakout import (
-    BreakoutSignal,
-    _compute_atr,
-    breakout_signal,
-    donchian_signal,
-)
+from src.strategies.breakout import BreakoutContext, BreakoutStrategy, compute_atr
+from src.strategies.registry import StrategyRegistry
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def _flat_range_context(
+    n: int = 25, breakout_close: float | None = None, breakout_volume: float | None = None
+) -> BreakoutContext:
+    rng = np.random.default_rng(1)
+    close = pd.Series(100 + rng.normal(0, 0.2, n))
+    high = close + 0.5
+    low = close - 0.5
+    volume = pd.Series([1000.0] * n)
+
+    if breakout_close is not None:
+        close.iloc[-1] = breakout_close
+        high.iloc[-1] = max(high.iloc[-1], breakout_close)
+        low.iloc[-1] = min(low.iloc[-1], breakout_close)
+    if breakout_volume is not None:
+        volume.iloc[-1] = breakout_volume
+
+    return BreakoutContext(high=high, low=low, close=close, volume=volume)
 
 
-def _flat(n: int = 50, value: float = 100.0) -> np.ndarray:
-    return np.full(n, value, dtype=float)
+def test_compute_atr_matches_length_and_has_nan_prefix() -> None:
+    n = 30
+    close = pd.Series(np.linspace(100, 110, n))
+    high = close + 1
+    low = close - 1
+    atr = compute_atr(high, low, close, period=14)
+    assert len(atr) == n
+    assert atr.iloc[:13].isna().all()
+    assert not pd.isna(atr.iloc[-1])
 
 
-def _trending_up(n: int = 50) -> np.ndarray:
-    return np.arange(n, dtype=float) + 100.0
+def test_rejects_non_breakoutcontext_bar() -> None:
+    strat = BreakoutStrategy()
+    with pytest.raises(TypeError, match="BreakoutContext"):
+        strat.generate_signal(bar=None)
 
 
-def _trending_down(n: int = 50) -> np.ndarray:
-    return 100.0 + (n - np.arange(n, dtype=float))
-
-
-def _range_prices(n: int = 50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Oscillating OHLC: H = C+1, L = C-1."""
-    c = 100.0 + np.sin(np.arange(n, dtype=float) * 0.3) * 5.0
-    h = c + 1.0
-    lo = c - 1.0
-    return c, h, lo
-
-
-# ---------------------------------------------------------------------------
-# _compute_atr
-# ---------------------------------------------------------------------------
-
-
-def test_compute_atr_returns_zero_for_short_series():
-    c = np.array([100.0])
-    assert _compute_atr(c, c, c, period=14) == 0.0
-
-
-def test_compute_atr_positive_for_volatile_series():
-    c, h, lo = _range_prices(50)
-    atr = _compute_atr(h, lo, c, period=14)
-    assert atr > 0.0
-
-
-def test_compute_atr_finite():
-    c, h, lo = _range_prices(30)
-    atr = _compute_atr(h, lo, c, period=14)
-    assert isinstance(atr, float)
-    import math
-
-    assert math.isfinite(atr)
-
-
-def test_compute_atr_larger_range_gives_higher_atr():
-    c1, h1, lo1 = _range_prices(50)
-    h2 = h1 * 2.0
-    lo2 = lo1 / 2.0
-    atr1 = _compute_atr(h1, lo1, c1, period=14)
-    atr2 = _compute_atr(h2, lo2, c1, period=14)
-    assert atr2 > atr1
-
-
-# ---------------------------------------------------------------------------
-# donchian_signal — insufficient bars
-# ---------------------------------------------------------------------------
-
-
-def test_donchian_insufficient_bars():
-    prices = np.array([100.0, 101.0])
-    sig = donchian_signal(prices, entry_period=20)
+def test_flat_with_insufficient_bars() -> None:
+    strat = BreakoutStrategy()
+    ctx = BreakoutContext(
+        high=pd.Series([101.0] * 5),
+        low=pd.Series([99.0] * 5),
+        close=pd.Series([100.0] * 5),
+        volume=pd.Series([1000.0] * 5),
+    )
+    sig = strat.generate_signal(ctx)
     assert sig.direction == 0
-    assert "insufficient_bars" in sig.reject_reason
 
 
-# ---------------------------------------------------------------------------
-# donchian_signal — long breakout
-# ---------------------------------------------------------------------------
+def test_flat_without_volume_confirmation() -> None:
+    strat = BreakoutStrategy()
+    ctx = _flat_range_context(breakout_close=105.0, breakout_volume=1000.0)
+    sig = strat.generate_signal(ctx)
+    assert sig.direction == 0
 
 
-def test_donchian_long_breakout():
-    # 20 bars at 100, then price rockets to 150
-    prices = np.concatenate([np.full(20, 100.0), [150.0]])
-    sig = donchian_signal(prices, entry_period=20, exit_period=10)
-    assert sig.is_entry is True
+def test_long_on_upside_breakout_with_volume() -> None:
+    strat = BreakoutStrategy()
+    ctx = _flat_range_context(breakout_close=110.0, breakout_volume=3000.0)
+    sig = strat.generate_signal(ctx)
     assert sig.direction == 1
+    assert sig.confidence > 0.0
 
 
-def test_donchian_short_breakout():
-    # 20 bars at 100, then price drops to 50
-    prices = np.concatenate([np.full(20, 100.0), [50.0]])
-    sig = donchian_signal(prices, entry_period=20, exit_period=10)
-    assert sig.is_entry is True
+def test_short_on_downside_breakout_with_volume() -> None:
+    strat = BreakoutStrategy()
+    ctx = _flat_range_context(breakout_close=90.0, breakout_volume=3000.0)
+    sig = strat.generate_signal(ctx)
     assert sig.direction == -1
 
 
-def test_donchian_no_signal_within_channel():
-    prices = np.concatenate([np.full(20, 100.0), [100.0]])
-    sig = donchian_signal(prices, entry_period=20)
+def test_flat_when_range_bound_with_volume_spike() -> None:
+    strat = BreakoutStrategy()
+    ctx = _flat_range_context(breakout_close=100.1, breakout_volume=3000.0)
+    sig = strat.generate_signal(ctx)
     assert sig.direction == 0
-    assert sig.is_entry is False
 
 
-# ---------------------------------------------------------------------------
-# donchian_signal — exit signal
-# ---------------------------------------------------------------------------
+def test_registers_with_registry() -> None:
+    registry = StrategyRegistry()
+    registry.register(BreakoutStrategy())
+    assert "breakout_volume_v1" in registry
 
 
-def test_donchian_exit_signal_when_within_exit_channel():
-    # Price stays in the tighter exit channel
-    prices = np.concatenate([np.full(20, 100.0), [100.0]])
-    sig = donchian_signal(prices, entry_period=20, exit_period=5)
-    assert sig.is_exit is True
-
-
-# ---------------------------------------------------------------------------
-# donchian_signal — channel values
-# ---------------------------------------------------------------------------
-
-
-def test_donchian_upper_channel_is_period_max():
-    prices = np.arange(1, 32, dtype=float)  # 31 bars: 1..31
-    sig = donchian_signal(prices, entry_period=20, exit_period=5)
-    # channel uses bars [-21:-1] = bars 10..30 (1-indexed: 11..30) → max = 30
-    assert sig.upper_channel == pytest.approx(30.0)
-
-
-def test_donchian_lower_channel_is_period_min():
-    prices = np.arange(1, 32, dtype=float)
-    sig = donchian_signal(prices, entry_period=20, exit_period=5)
-    # bars 10..30 → min = 11 (0-indexed bar 10 = price 11)
-    assert sig.lower_channel == pytest.approx(11.0)
-
-
-def test_donchian_confidence_zero_no_entry():
-    prices = np.concatenate([np.full(20, 100.0), [100.0]])
-    sig = donchian_signal(prices, entry_period=20)
-    assert sig.confidence == 0.0
-
-
-def test_donchian_confidence_positive_on_entry():
-    prices = np.concatenate([np.full(20, 100.0), [110.0]])
-    sig = donchian_signal(prices, entry_period=20)
-    if sig.is_entry:
-        assert sig.confidence > 0.0
-
-
-# ---------------------------------------------------------------------------
-# donchian_signal — highs/lows fallback to closes
-# ---------------------------------------------------------------------------
-
-
-def test_donchian_without_highs_lows():
-    prices = np.concatenate([np.full(20, 100.0), [150.0]])
-    sig = donchian_signal(prices)  # no highs/lows
-    assert sig.is_entry is True
-    assert sig.direction == 1
-
-
-# ---------------------------------------------------------------------------
-# breakout_signal — ATR gate
-# ---------------------------------------------------------------------------
-
-
-def test_breakout_atr_gate_flat_market():
-    # Flat series → ATR ≈ 0 → atr_pct too low → no entry
-    prices = np.concatenate([np.full(25, 100.0), [110.0]])
-    sig = breakout_signal(prices, entry_period=20, min_atr_pct=0.5)
-    # If a breakout was detected but ATR is tiny, it should be suppressed
-    if "atr_too_low" in sig.reject_reason:
-        assert sig.direction == 0
-
-
-def test_breakout_atr_gate_normal_series():
-    c, h, lo = _range_prices(50)
-    # Force a breakout by appending a spike
-    c = np.append(c, c.max() + 10.0)
-    h = np.append(h, h.max() + 10.0)
-    lo = np.append(lo, lo[-1])
-    sig = breakout_signal(c, h, lo, entry_period=20, min_atr_pct=0.01, max_atr_pct=50.0)
-    assert isinstance(sig, BreakoutSignal)
-
-
-def test_breakout_atr_populated():
-    c, h, lo = _range_prices(50)
-    sig = breakout_signal(c, h, lo, entry_period=20)
-    assert sig.atr >= 0.0
-    assert sig.atr_pct >= 0.0
-
-
-def test_breakout_no_entry_passes_atr_gate():
-    # No entry signal → ATR gate not checked
-    prices = _flat(30)
-    sig = breakout_signal(prices, entry_period=20, min_atr_pct=99.0)
-    assert sig.direction == 0
-    assert "atr_too_low" not in sig.reject_reason
-
-
-# ---------------------------------------------------------------------------
-# BreakoutSignal contract
-# ---------------------------------------------------------------------------
-
-
-def test_signal_frozen():
-    prices = np.concatenate([np.full(20, 100.0), [150.0]])
-    sig = donchian_signal(prices)
-    with pytest.raises((AttributeError, TypeError)):
-        sig.direction = 0  # type: ignore[misc]
-
-
-def test_signal_direction_valid():
-    for val in [50.0, 100.0, 150.0]:
-        prices = np.concatenate([np.full(20, 100.0), [val]])
-        sig = donchian_signal(prices, entry_period=20)
-        assert sig.direction in (-1, 0, 1)
-
-
-def test_signal_confidence_in_range():
-    prices = np.concatenate([np.full(20, 100.0), [150.0]])
-    sig = donchian_signal(prices, entry_period=20)
-    assert 0.0 <= sig.confidence <= 1.0
+def test_rejects_invalid_capital_fraction() -> None:
+    with pytest.raises(ValueError, match="max_capital_fraction"):
+        BreakoutStrategy(max_capital_fraction=0.0)

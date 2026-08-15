@@ -423,6 +423,43 @@ class TestTrades:
             )
 
     @pytest.mark.asyncio
+    async def test_fetch_trades_open_only_excludes_closed(self, backend):
+        await backend.insert_trade(make_trade(trade_id="open1"))
+        await backend.insert_trade(make_trade(trade_id="closed1"))
+        await backend.update_trade_exit(
+            trade_id="closed1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
+        )
+        rows = await backend.fetch_trades(open_only=True)
+        assert [r.id for r in rows] == ["open1"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_trades_open_only_defaults_off(self, backend):
+        await backend.insert_trade(make_trade(trade_id="t1"))
+        await backend.update_trade_exit(
+            trade_id="t1",
+            exit_price=110.0,
+            exit_ts=2000,
+            pnl_usd=10.0,
+            pnl_pct=0.1,
+            exit_reason="tp",
+            fee_usd=0.05,
+        )
+        assert len(await backend.fetch_trades()) == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_trades_open_only_combines_with_other_filters(self, backend):
+        await backend.insert_trade(make_trade(trade_id="btc_open", symbol="BTC/USDT"))
+        await backend.insert_trade(make_trade(trade_id="eth_open", symbol="ETH/USDT"))
+        rows = await backend.fetch_trades(symbol="BTC/USDT", open_only=True)
+        assert [r.id for r in rows] == ["btc_open"]
+
+    @pytest.mark.asyncio
     async def test_fetch_trades_filter_by_symbol(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1", symbol="BTC/USDT"))
         await backend.insert_trade(make_trade(trade_id="t2", symbol="ETH/USDT"))
@@ -529,6 +566,24 @@ class TestRegimeSnapshots:
         await backend.upsert_regime_snapshot(make_regime(ts=1000, state=2))
         latest = await backend.latest_regime("BTC/USDT", "15m")
         assert latest.regime_state == 2
+
+    @pytest.mark.asyncio
+    async def test_regime_ensemble_fields_round_trip(self, backend):
+        snap = RegimeSnapshotRecord(
+            symbol="BTC/USDT",
+            timeframe="15m",
+            ts=3000,
+            regime_state=1,
+            prob_ranging=0.1,
+            prob_trending=0.8,
+            prob_volatile=0.1,
+            changepoint_probability=0.35,
+            agreement_score=0.72,
+        )
+        await backend.upsert_regime_snapshot(snap)
+        latest = await backend.latest_regime("BTC/USDT", "15m")
+        assert latest.changepoint_probability == pytest.approx(0.35)
+        assert latest.agreement_score == pytest.approx(0.72)
 
 
 class TestModelMetrics:

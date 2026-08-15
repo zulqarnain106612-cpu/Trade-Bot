@@ -53,6 +53,12 @@ def api_client():
     api_main.tuning_pause_state._paused = False  # -- test isolation reset
 
     api_main.app.dependency_overrides[api_main.api_key_header] = lambda: None
+    # The mutating endpoints now also depend on resolve_role (RBAC).
+    # Overriding api_key_header alone leaves that dependency live and
+    # every POST answers 401 with no API_SECRET_KEY configured.
+    api_main.app.dependency_overrides[api_main.resolve_role] = lambda: (
+        api_main.Role.TRADE_AUTHORIZING
+    )
     api_main.app.dependency_overrides[api_main.require_ready] = lambda: None
 
     client = TestClient(api_main.app)
@@ -161,7 +167,7 @@ class TestSelfTuningRollback:
         assert resp.status_code == 401
 
     def test_rollback_with_no_history_returns_404(self, api_client) -> None:
-        client, _storage, api_main = api_client
+        client, _storage, _api_main = api_client
         resp = client.post(
             "/self-tuning/rollback/does.not.exist",
             json={"operator": "alice", "operator_secret": _TEST_SECRET},

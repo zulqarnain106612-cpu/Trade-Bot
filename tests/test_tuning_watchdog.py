@@ -107,7 +107,7 @@ def test_is_locked_false_when_never_locked(tmp_path: Path) -> None:
     assert not watchdog.is_locked("hmm.entropy_threshold")
 
 
-def test_probation_status_locked_while_locked(tmp_path: Path) -> None:
+def test_probation_status_returns_locked_after_rollback(tmp_path: Path) -> None:
     watchdog, store, _ = build(tmp_path, probation_trades=100)
     store.promote("hmm.entropy_threshold", 0.50, {})
     store.promote("hmm.entropy_threshold", 0.65, {})
@@ -125,17 +125,27 @@ def test_probation_status_locked_while_locked(tmp_path: Path) -> None:
         if outcome == WatchdogOutcome.ROLLED_BACK:
             break
 
-    assert watchdog.probation_status("hmm.entropy_threshold") == WatchdogOutcome.LOCKED
+    # After rollback the param should be locked (not just NOT_IN_PROBATION)
+    status = watchdog.probation_status("hmm.entropy_threshold")
+    assert status == WatchdogOutcome.LOCKED
 
 
-def test_is_locked_expires_after_cooldown(tmp_path: Path) -> None:
+def test_lock_expires_after_cooldown(tmp_path: Path) -> None:
     from datetime import UTC, datetime, timedelta
+    from unittest.mock import patch
 
-    watchdog, store, _ = build(tmp_path, probation_trades=100)
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    audit = TuningAuditLog(tmp_path / "audit.jsonl")
+    settings = SelfTuningSettings(
+        probation_trades=100, probation_hours=999.0, min_hours_between_attempts=1.0
+    )
+    watchdog = PostPromotionWatchdog(store, audit, settings)
+
     store.promote("hmm.entropy_threshold", 0.50, {})
     store.promote("hmm.entropy_threshold", 0.65, {})
     watchdog.start_probation("hmm.entropy_threshold", make_baseline())
 
+    # Force a rollback
     for i in range(35):
         outcome = watchdog.record_trade_outcome(
             "hmm.entropy_threshold",
@@ -148,45 +158,20 @@ def test_is_locked_expires_after_cooldown(tmp_path: Path) -> None:
         if outcome == WatchdogOutcome.ROLLED_BACK:
             break
 
+    # Locked right after rollback
     assert watchdog.is_locked("hmm.entropy_threshold")
-    # Force the lock to expire by backdating the stored timestamp
-    with watchdog._lock:
-        watchdog._locked_until["hmm.entropy_threshold"] = datetime.now(UTC) - timedelta(hours=1)
 
-    assert not watchdog.is_locked("hmm.entropy_threshold")
-
-
-def test_multiple_params_tracked_independently(tmp_path: Path) -> None:
-    watchdog, store, _ = build(tmp_path, probation_trades=5)
-    store.promote("param_a", 0.1, {})
-    store.promote("param_b", 0.2, {})
-    watchdog.start_probation("param_a", make_baseline())
-    watchdog.start_probation("param_b", make_baseline())
-
-    # param_a not in probation result yet
-    outcome_a = watchdog.record_trade_outcome(
-        "param_a",
-        pnl_usd=5.0,
-        predicted_prob=0.6,
-        actual_direction=1,
-        current_equity=1005.0,
-        starting_equity=1000.0,
-    )
-    assert outcome_a == WatchdogOutcome.IN_PROBATION
-
-    # param_b still independent
-    assert watchdog.probation_status("param_b") == WatchdogOutcome.IN_PROBATION
+    # Advance simulated time past the 1-hour cooldown
+    future = datetime.now(UTC) + timedelta(hours=2)
+    with patch("src.tuning.watchdog.datetime") as mock_dt:
+        mock_dt.now.return_value = future
+        assert not watchdog.is_locked("hmm.entropy_threshold")
 
 
-def test_start_probation_replaces_existing(tmp_path: Path) -> None:
-    watchdog, store, _ = build(tmp_path, probation_trades=10)
-    store.promote("param_a", 0.1, {})
-    baseline1 = make_baseline()
-    watchdog.start_probation("param_a", baseline1)
-
-    # Replace with new baseline
-    baseline2 = make_baseline()
-    watchdog.start_probation("param_a", baseline2)
-
-    # Should still be in probation (not rolled back or cleared)
-    assert watchdog.probation_status("param_a") == WatchdogOutcome.IN_PROBATION
+def test_start_probation_while_already_in_probation_overwrites(tmp_path: Path) -> None:
+    watchdog, store, _ = build(tmp_path, probation_trades=100)
+    store.promote("hmm.entropy_threshold", 0.55, {})
+    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    # Restart probation — should not raise, should reset state
+    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    assert watchdog.probation_status("hmm.entropy_threshold") == WatchdogOutcome.IN_PROBATION

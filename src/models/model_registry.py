@@ -1,322 +1,156 @@
 """
-Model version registry — lightweight metadata store for trained XGBoost models.
+Model registry with shadow-mode evaluation — v4 Adaptive Regime & Model Layer.
 
-Tracks every training event with timestamp, metrics, and file path.
-Supports listing versions, comparing across time, and pinning a specific
-version for rollback (e.g. when live performance signals model decay).
-
-The registry is file-backed (JSON sidecar per symbol/timeframe) so it
-survives process restarts. It never manages the .joblib files themselves;
-those are the trainer's responsibility. The registry only records metadata
-about them and lets operators select which version is "active".
-
-Usage::
-
-    reg = ModelRegistry(model_dir=Path("models/"))
-    reg.register(
-        symbol="BTC/USDT",
-        timeframe="15m",
-        model_type="direction",
-        version="20260101_120000",
-        file_path=Path("models/xgb_direction_BTC_USDT_15m.joblib"),
-        metrics={"oos_sharpe": 1.2, "accuracy": 0.58, "live_gate_pass": True},
-    )
-    active = reg.active_version("BTC/USDT", "15m", "direction")
+Lets a new model version run in parallel ("shadow") against the live
+model without affecting trading decisions, tracking its predictions
+against realized outcomes. Promotion to live is explicit and requires
+out-of-sample outperformance over a minimum evaluation window — mirrors
+the strategy-promotion gauntlet philosophy from v2/v6.
 
 Authority:
-  Carver (2019) Systematic Trading Ch.12 — model versioning and rollback.
-  López de Prado (2018) AFML Ch.11 — model degradation and refresh policy.
+  - López de Prado (2018) AFML Ch.11 — backtest overfitting; a model must
+    prove itself out-of-sample, in shadow, before touching live capital
 """
 
 from __future__ import annotations
 
-import json
-import time
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any, Final
-
-import structlog
+from dataclasses import dataclass, field
 
 
-log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+@dataclass(slots=True)
+class ShadowPrediction:
+    """One shadow-model prediction paired with its eventual realized outcome."""
 
-_REGISTRY_FILENAME: Final[str] = "model_registry_{symbol}_{timeframe}.json"
-_MAX_VERSIONS_PER_KEY: Final[int] = 20  # keep last N versions per (symbol, tf, type)
-
-
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
+    predicted_prob: float
+    actual_direction: int  # 1 or -1; set once outcome is known
 
 
-@dataclass
-class ModelVersion:
-    """Metadata for one trained model version."""
+@dataclass(slots=True)
+class ShadowModelState:
+    """Tracks one shadow model's predictions vs. the live model's."""
 
-    symbol: str
-    timeframe: str
-    model_type: str  # "direction" | "meta_label" | "ensemble"
-    version: str  # typically ISO timestamp: "20260101_120000"
-    file_path: str  # absolute path to the .joblib file
-    registered_at: float  # Unix seconds
-    metrics: dict[str, Any] = field(default_factory=dict)
-    is_pinned: bool = False  # if True, this is the operator-selected active version
-    notes: str = ""
-
-    @property
-    def live_gate_pass(self) -> bool:
-        return bool(self.metrics.get("live_gate_pass", False))
-
-    @property
-    def oos_sharpe(self) -> float:
-        return float(self.metrics.get("oos_sharpe", 0.0))
-
-    def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        d["registered_at_iso"] = _ts_to_iso(self.registered_at)
-        return d
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> ModelVersion:
-        d = dict(d)
-        d.pop("registered_at_iso", None)
-        return cls(**d)
-
-
-def _ts_to_iso(ts: float) -> str:
-    from datetime import UTC, datetime
-
-    return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
+    model_id: str
+    shadow_predictions: list[ShadowPrediction] = field(default_factory=list)
+    live_predictions: list[ShadowPrediction] = field(default_factory=list)
 
 
 class ModelRegistry:
     """
-    File-backed model version registry.
-
-    One JSON sidecar per (symbol, timeframe) pair is written to ``model_dir``.
-    All versions across model_types are stored in the same sidecar.
-
-    Thread-safety: single-process async loop (same as the rest of the codebase).
-    No locks needed.
+    Holds the live model_id plus zero or more shadow models under
+    evaluation. Promotion swaps a shadow into the live slot only via
+    explicit promote_shadow() after min_evaluations is met and the
+    shadow's accuracy beats the live model's over the same window.
     """
 
-    def __init__(self, model_dir: Path | str = Path("models")) -> None:
-        self._dir = Path(model_dir)
-        self._cache: dict[str, list[ModelVersion]] = {}  # key = _cache_key(symbol, tf)
+    def __init__(self, min_evaluations: int = 100) -> None:
+        if min_evaluations < 1:
+            raise ValueError(f"min_evaluations must be >= 1, got {min_evaluations}")
+        self._min_evaluations = min_evaluations
+        self._live_model_id: str | None = None
+        self._shadows: dict[str, ShadowModelState] = {}
 
-    # ------------------------------------------------------------------
-    # Write
-    # ------------------------------------------------------------------
+    def set_live_model(self, model_id: str) -> None:
+        self._live_model_id = model_id
 
-    def register(
-        self,
-        symbol: str,
-        timeframe: str,
-        model_type: str,
-        version: str,
-        file_path: Path | str,
-        metrics: dict[str, Any] | None = None,
-        notes: str = "",
-    ) -> ModelVersion:
-        """
-        Register a newly trained model version.
+    @property
+    def live_model_id(self) -> str | None:
+        return self._live_model_id
 
-        If ``live_gate_pass`` is not in metrics and no versions pass the gate,
-        the caller should set it explicitly so active_version() can find it.
-        """
-        mv = ModelVersion(
-            symbol=symbol,
-            timeframe=timeframe,
-            model_type=model_type,
-            version=version,
-            file_path=str(file_path),
-            registered_at=time.time(),
-            metrics=dict(metrics or {}),
-            notes=notes,
+    def register_shadow(self, model_id: str) -> None:
+        if model_id in self._shadows:
+            raise ValueError(f"shadow model_id {model_id!r} already registered")
+        self._shadows[model_id] = ShadowModelState(model_id=model_id)
+
+    def record_shadow_prediction(
+        self, model_id: str, predicted_prob: float, actual_direction: int
+    ) -> None:
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        self._shadows[model_id].shadow_predictions.append(
+            ShadowPrediction(predicted_prob, actual_direction)
         )
-        key = _cache_key(symbol, timeframe)
-        versions = self._load(symbol, timeframe)
-        versions.append(mv)
 
-        # Prune oldest non-pinned versions beyond cap
-        typed = [v for v in versions if v.model_type == model_type]
-        if len(typed) > _MAX_VERSIONS_PER_KEY:
-            non_pinned = [v for v in typed if not v.is_pinned]
-            to_drop = non_pinned[: len(typed) - _MAX_VERSIONS_PER_KEY]
-            drop_set = {id(v) for v in to_drop}
-            versions = [v for v in versions if id(v) not in drop_set]
-
-        self._cache[key] = versions
-        self._save(symbol, timeframe, versions)
-
-        log.info(
-            "model_registry.registered",
-            symbol=symbol,
-            timeframe=timeframe,
-            model_type=model_type,
-            version=version,
-            live_gate=mv.live_gate_pass,
-            oos_sharpe=round(mv.oos_sharpe, 3),
+    def record_live_prediction_for_comparison(
+        self, model_id: str, predicted_prob: float, actual_direction: int
+    ) -> None:
+        """Records the live model's prediction on the same bar, for a fair comparison."""
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        self._shadows[model_id].live_predictions.append(
+            ShadowPrediction(predicted_prob, actual_direction)
         )
-        return mv
 
-    def pin(self, symbol: str, timeframe: str, model_type: str, version: str) -> bool:
-        """
-        Pin a specific version as the active version for this (symbol, tf, type).
+    @staticmethod
+    def _accuracy(predictions: list[ShadowPrediction]) -> float:
+        if not predictions:
+            return 0.0
+        correct = sum(
+            1 for p in predictions if (1 if p.predicted_prob > 0.5 else -1) == p.actual_direction
+        )
+        return correct / len(predictions)
 
-        Clears any previous pin for the same key. Returns True if found, False if not.
+    def evaluate_shadow(self, model_id: str) -> tuple[bool, str]:
         """
-        versions = self._load(symbol, timeframe)
-        found = False
-        for v in versions:
-            if v.model_type == model_type:
-                if v.version == version:
-                    v.is_pinned = True
-                    found = True
-                else:
-                    v.is_pinned = False
-        if found:
-            self._save(symbol, timeframe, versions)
-            log.info(
-                "model_registry.pinned",
-                symbol=symbol,
-                timeframe=timeframe,
-                model_type=model_type,
-                version=version,
+        Returns (ready_to_promote, reason). Never mutates state — promotion
+        is a separate explicit call so a human/automation layer can gate it.
+        """
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        state = self._shadows[model_id]
+        if len(state.shadow_predictions) < self._min_evaluations:
+            return False, (
+                f"insufficient evaluations ({len(state.shadow_predictions)} < "
+                f"{self._min_evaluations})"
             )
-        return found
+        shadow_acc = self._accuracy(state.shadow_predictions)
+        live_acc = self._accuracy(state.live_predictions)
+        if shadow_acc <= live_acc:
+            return False, f"shadow accuracy {shadow_acc:.3f} does not beat live {live_acc:.3f}"
+        return True, f"shadow accuracy {shadow_acc:.3f} beats live {live_acc:.3f}"
 
-    def unpin(self, symbol: str, timeframe: str, model_type: str) -> None:
-        """Remove any operator pin, reverting to latest-gate-passing version."""
-        versions = self._load(symbol, timeframe)
-        for v in versions:
-            if v.model_type == model_type:
-                v.is_pinned = False
-        self._save(symbol, timeframe, versions)
-
-    # ------------------------------------------------------------------
-    # Read
-    # ------------------------------------------------------------------
-
-    def active_version(self, symbol: str, timeframe: str, model_type: str) -> ModelVersion | None:
+    def promote_shadow(self, model_id: str) -> None:
         """
-        Return the version that should be loaded.
-
-        Priority:
-          1. Operator-pinned version (if present).
-          2. Latest version where live_gate_pass=True.
-          3. Latest version overall (fallback — operator must accept risk).
+        Explicit promotion — swaps model_id into the live slot and removes
+        it from the shadow set. Callers must have already checked
+        evaluate_shadow() returns ready=True; this method does not
+        re-validate, matching the strategy kill-switch's re_enable() pattern.
         """
-        versions = self._load(symbol, timeframe)
-        typed = [v for v in versions if v.model_type == model_type]
-        if not typed:
-            return None
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        self._live_model_id = model_id
+        del self._shadows[model_id]
 
-        pinned = [v for v in typed if v.is_pinned]
-        if pinned:
-            return pinned[-1]
+    def discard_shadow(self, model_id: str) -> None:
+        """
+        Drops a shadow without promoting it. Used when a candidate has been
+        evaluated long enough without beating the incumbent, or when a newer
+        candidate supersedes it. Never touches the live slot — a discard must
+        not be able to change what is trading.
+        """
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        del self._shadows[model_id]
 
-        gate_pass = [v for v in typed if v.live_gate_pass]
-        if gate_pass:
-            return gate_pass[-1]
+    def evaluation_count(self, model_id: str) -> int:
+        """Resolved shadow predictions recorded so far for `model_id`."""
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        return len(self._shadows[model_id].shadow_predictions)
 
-        return typed[-1]
+    def accuracies(self, model_id: str) -> tuple[float, float]:
+        """(shadow_accuracy, live_accuracy) over the recorded window — for audit records."""
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        state = self._shadows[model_id]
+        return self._accuracy(state.shadow_predictions), self._accuracy(state.live_predictions)
 
-    def list_versions(
-        self,
-        symbol: str,
-        timeframe: str,
-        model_type: str | None = None,
-    ) -> list[ModelVersion]:
-        """List all versions for a (symbol, timeframe), optionally filtered by model_type."""
-        versions = self._load(symbol, timeframe)
-        if model_type is not None:
-            versions = [v for v in versions if v.model_type == model_type]
-        return sorted(versions, key=lambda v: v.registered_at)
-
-    def summary(self, symbol: str, timeframe: str) -> dict[str, Any]:
-        """Summary dict for the /models endpoint."""
-        versions = self._load(symbol, timeframe)
-        by_type: dict[str, list[dict]] = {}
-        for v in versions:
-            by_type.setdefault(v.model_type, []).append(v.to_dict())
-        active: dict[str, dict | None] = {}
-        for mt in {v.model_type for v in versions}:
-            av = self.active_version(symbol, timeframe, mt)
-            active[mt] = av.to_dict() if av else None
-        return {
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "n_versions": len(versions),
-            "by_type": by_type,
-            "active": active,
-        }
-
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
-
-    def _registry_path(self, symbol: str, timeframe: str) -> Path:
-        safe_symbol = symbol.replace("/", "_")
-        filename = _REGISTRY_FILENAME.format(symbol=safe_symbol, timeframe=timeframe)
-        return self._dir / filename
-
-    def _load(self, symbol: str, timeframe: str) -> list[ModelVersion]:
-        key = _cache_key(symbol, timeframe)
-        if key in self._cache:
-            return self._cache[key]
-
-        path = self._registry_path(symbol, timeframe)
-        if not path.exists():
-            self._cache[key] = []
-            return []
-
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            versions = [ModelVersion.from_dict(v) for v in raw.get("versions", [])]
-            self._cache[key] = versions
-            return versions
-        except Exception as exc:
-            log.warning("model_registry.load_failed", path=str(path), error=str(exc))
-            self._cache[key] = []
-            return []
-
-    def _save(self, symbol: str, timeframe: str, versions: list[ModelVersion]) -> None:
-        path = self._registry_path(symbol, timeframe)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "versions": [v.to_dict() for v in versions],
-            }
-            path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-        except Exception as exc:
-            log.error("model_registry.save_failed", path=str(path), error=str(exc))
+    def shadow_ids(self) -> list[str]:
+        return list(self._shadows.keys())
 
 
-def _cache_key(symbol: str, timeframe: str) -> str:
-    return f"{symbol}::{timeframe}"
+_registry: ModelRegistry = ModelRegistry()
 
 
-# ---------------------------------------------------------------------------
-# Module-level singleton
-# ---------------------------------------------------------------------------
-
-_registry: ModelRegistry | None = None
-
-
-def get_registry(model_dir: Path | str | None = None) -> ModelRegistry:
-    global _registry
-    if _registry is None:
-        from src.config import get_settings
-
-        d = Path(model_dir) if model_dir is not None else Path(get_settings().model_dir)
-        _registry = ModelRegistry(model_dir=d)
+def get_model_registry() -> ModelRegistry:
+    """Module-level singleton for the v4 model registry."""
     return _registry

@@ -1,237 +1,118 @@
 """
-Capital preservation floor — trailing high-water mark with floor enforcement.
+Capital preservation floor — v10 Fully Autonomous Multi-Decade Operation.
 
-Prevents giving back accumulated gains beyond a configurable percentage of
-the high-water mark (HWM). Two modes of operation:
-
-  1. Ratchet floor (trailing stop on equity):
-     Once equity exceeds HWM * (1 + trigger_pct), set a floor at
-     HWM * (1 + lock_in_pct). If equity falls below the floor,
-     block new positions (not a hard liquidation — that's the executor's job).
-
-  2. Initial capital preservation:
-     Never allow equity to fall below initial_capital * (1 - max_loss_pct).
-     This is independent of the ratchet and fires earlier in a new account.
-
-Both operate as passive gates: they return a GateStatus that the signal
-engine checks before opening a new position. Closing existing positions
-is not gated here — only new entries are blocked.
+The final backstop beneath every other automated decision layer (v2's
+kill-switch, v4's drift detection, v7's macro budget, v9's meta-allocator):
+a hard, code-enforced maximum drawdown that halts ALL trading and requires
+explicit human re-authorization to resume. Unlike the per-strategy
+kill-switch (v2), this operates at the whole-book level and is designed
+to never be bypassed by any automated process — only an explicit,
+out-of-band re-authorization call clears it.
 
 Authority:
-  Vince (1992) The Mathematics of Money Management — drawdown control.
-  Carver (2019) Systematic Trading Ch.5 — capital protection rules.
-  Chan (2013) Algorithmic Trading Ch.6 — account-level risk limits.
+  - Domain Prior: enforce drawdown and position limits; Kelly is a
+    ceiling, not a target — this is the outermost such ceiling, beneath
+    which no automated system may trade regardless of any other signal
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from typing import Final
-
-import structlog
 
 
-log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+@dataclass(frozen=True, slots=True)
+class ReAuthorization:
+    """Records who/when cleared the floor — never auto-generated."""
 
-_DEFAULT_TRIGGER_PCT: Final[float] = 0.10  # activate ratchet after +10% gain
-_DEFAULT_LOCK_IN_PCT: Final[float] = 0.05  # lock in at least +5% above start
-_DEFAULT_MAX_LOSS_PCT: Final[float] = 0.20  # never lose more than 20% of initial
-
-
-# ---------------------------------------------------------------------------
-# Result
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class FloorCheckResult:
-    """Result of a capital preservation floor check."""
-
-    allowed: bool  # True = new entry is permitted
-    reason: str  # empty when allowed
-    current_equity: float
-    hwm: float
-    floor: float  # current active floor (0 if not yet triggered)
-    ratchet_active: bool  # whether the ratchet has been triggered
-    gain_since_start_pct: float
-    drawdown_from_hwm_pct: float
-
-    def to_dict(self) -> dict:
-        return {
-            "allowed": self.allowed,
-            "reason": self.reason,
-            "current_equity": round(self.current_equity, 2),
-            "hwm": round(self.hwm, 2),
-            "floor": round(self.floor, 2),
-            "ratchet_active": self.ratchet_active,
-            "gain_since_start_pct": round(self.gain_since_start_pct, 4),
-            "drawdown_from_hwm_pct": round(self.drawdown_from_hwm_pct, 4),
-        }
-
-
-# ---------------------------------------------------------------------------
-# Floor tracker
-# ---------------------------------------------------------------------------
+    authorized_by: str
+    reason: str
+    at_ms: int
 
 
 class CapitalPreservationFloor:
     """
-    High-water mark ratchet with two-layer capital protection.
-
-    Parameters
-    ----------
-    initial_capital:
-        Starting equity in USD. Used for the initial max-loss gate.
-    trigger_pct:
-        Ratchet activates once equity gains >= trigger_pct above initial.
-    lock_in_pct:
-        Floor is set at initial * (1 + lock_in_pct) once ratchet fires.
-        Must be < trigger_pct to make sense (we lock in gains, not losses).
-    max_loss_pct:
-        Hard floor as a fraction of initial capital. Always active.
-        E.g. 0.20 → never let equity fall below 80% of initial.
+    Tracks peak equity and halts trading (halted=True) the instant
+    drawdown from peak exceeds max_drawdown_pct. Once halted, only
+    re_authorize() can clear it — no automated code path may call
+    re_authorize() from within this module or any other risk module.
     """
 
-    def __init__(
-        self,
-        initial_capital: float,
-        trigger_pct: float = _DEFAULT_TRIGGER_PCT,
-        lock_in_pct: float = _DEFAULT_LOCK_IN_PCT,
-        max_loss_pct: float = _DEFAULT_MAX_LOSS_PCT,
-    ) -> None:
-        if initial_capital <= 0:
-            raise ValueError(f"initial_capital must be positive, got {initial_capital}")
-        if lock_in_pct >= trigger_pct:
-            raise ValueError(
-                f"lock_in_pct ({lock_in_pct}) must be < trigger_pct ({trigger_pct}) "
-                "— the locked-in gain must be less than the trigger threshold"
-            )
-        if not 0 < max_loss_pct < 1:
-            raise ValueError(f"max_loss_pct must be in (0, 1), got {max_loss_pct}")
+    def __init__(self, max_drawdown_pct: float = 0.30) -> None:
+        if not 0.0 < max_drawdown_pct < 1.0:
+            raise ValueError(f"max_drawdown_pct must be in (0, 1), got {max_drawdown_pct}")
+        self._max_drawdown_pct = max_drawdown_pct
+        self._peak_equity: float = 0.0
+        self._halted: bool = False
+        self._halt_reason: str = ""
+        self._last_reauth: ReAuthorization | None = None
 
-        self._initial = initial_capital
-        self._trigger_pct = trigger_pct
-        self._lock_in_pct = lock_in_pct
-        self._max_loss_pct = max_loss_pct
-
-        self._hwm: float = initial_capital
-        self._floor: float = 0.0  # 0 = not yet active
-        self._ratchet_active: bool = False
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def check(self, equity: float) -> FloorCheckResult:
+    def update_equity(self, equity_usd: float) -> bool:
         """
-        Update HWM and ratchet state, then evaluate all floor gates.
+        Records the latest equity mark and evaluates the floor. Returns
+        True if trading should proceed (not halted), False if halted.
+        Once halted, repeated calls keep returning False regardless of
+        equity recovery — recovery alone never auto-clears the halt.
 
-        Parameters
-        ----------
-        equity:
-            Current account equity in USD.
+        Raises ValueError on a non-finite mark, which is *not* merely
+        defensive here — it is the difference between a one-tick fault and a
+        permanently disabled backstop:
 
-        Returns
-        -------
-        FloorCheckResult — query ``.allowed`` before opening a position.
+          - `equity_usd < 0.0` is False for NaN, so the existing guard does
+            not catch it, and `drawdown_pct` then computes to NaN.
+            `nan >= max_drawdown_pct` is False, so the floor does not fire.
+          - `inf` is worse and it persists. `max(peak, inf)` sets
+            `_peak_equity = inf`, and from then on every drawdown is
+            `(inf - equity) / inf = nan`, which never trips the floor again.
+            One bad mark silently disables the outermost backstop for the
+            life of the process.
+
+        Raising keeps a corrupt mark out of `_peak_equity` entirely. The
+        caller sees the fault instead of a floor that has quietly stopped
+        working — this instance holds the only copy of that state, so there
+        is nothing downstream that would notice.
         """
-        # Update HWM
-        if equity > self._hwm:
-            self._hwm = equity
+        if not math.isfinite(equity_usd):
+            raise ValueError(f"equity_usd must be a finite number, got {equity_usd}")
+        if equity_usd < 0.0:
+            raise ValueError(f"equity_usd must be non-negative, got {equity_usd}")
 
-        # Activate ratchet if gain threshold crossed
-        gain_pct = (equity - self._initial) / self._initial
-        if not self._ratchet_active and gain_pct >= self._trigger_pct:
-            self._ratchet_active = True
-            self._floor = self._initial * (1.0 + self._lock_in_pct)
-            log.info(
-                "capital_floor.ratchet_activated",
-                equity=round(equity, 2),
-                floor=round(self._floor, 2),
-                gain_pct=round(gain_pct, 4),
-            )
+        self._peak_equity = max(self._peak_equity, equity_usd)
+        if self._halted:
+            return False
 
-        # Compute metrics
-        dd_from_hwm = (self._hwm - equity) / self._hwm if self._hwm > 0 else 0.0
-        absolute_floor = self._initial * (1.0 - self._max_loss_pct)
-
-        # Gate 1: absolute max-loss floor (always active)
-        if equity < absolute_floor:
-            reason = (
-                f"equity={equity:.2f} < absolute_floor={absolute_floor:.2f} "
-                f"(initial={self._initial:.2f}, max_loss={self._max_loss_pct:.0%})"
-            )
-            log.warning("capital_floor.absolute_floor_breach", reason=reason)
-            return self._result(False, reason, equity, dd_from_hwm, gain_pct)
-
-        # Gate 2: ratchet floor (active only after trigger)
-        if self._ratchet_active and equity < self._floor:
-            reason = (
-                f"equity={equity:.2f} < ratchet_floor={self._floor:.2f} "
-                f"(locked_in={self._lock_in_pct:.0%} of initial)"
-            )
-            log.warning("capital_floor.ratchet_floor_breach", reason=reason)
-            return self._result(False, reason, equity, dd_from_hwm, gain_pct)
-
-        return self._result(True, "", equity, dd_from_hwm, gain_pct)
-
-    def reset(self, new_initial_capital: float | None = None) -> None:
-        """
-        Reset the floor tracker.
-
-        Call this when the account is refilled or when a new trading session
-        starts. If ``new_initial_capital`` is None, resets to the original
-        initial capital.
-        """
-        cap = new_initial_capital if new_initial_capital is not None else self._initial
-        if cap > 0:
-            self._initial = cap
-        self._hwm = self._initial
-        self._floor = 0.0
-        self._ratchet_active = False
+        if self._peak_equity > 0.0:
+            drawdown_pct = (self._peak_equity - equity_usd) / self._peak_equity
+            if drawdown_pct >= self._max_drawdown_pct:
+                self._halted = True
+                self._halt_reason = (
+                    f"drawdown {drawdown_pct:.3f} >= floor {self._max_drawdown_pct:.3f} "
+                    f"(peak={self._peak_equity:.2f}, current={equity_usd:.2f})"
+                )
+                return False
+        return True
 
     @property
-    def hwm(self) -> float:
-        return self._hwm
+    def is_halted(self) -> bool:
+        return self._halted
 
     @property
-    def floor(self) -> float:
-        return self._floor
+    def halt_reason(self) -> str:
+        return self._halt_reason
+
+    def re_authorize(self, authorized_by: str, reason: str, at_ms: int) -> None:
+        """
+        Explicit human re-authorization to resume trading. Does not reset
+        peak_equity — a fresh peak is only established as new marks come
+        in, so the floor remains sensitive to further drawdown from the
+        pre-halt peak until equity genuinely recovers past it.
+        """
+        if not authorized_by:
+            raise ValueError("authorized_by must be a non-empty string")
+        self._halted = False
+        self._halt_reason = ""
+        self._last_reauth = ReAuthorization(authorized_by=authorized_by, reason=reason, at_ms=at_ms)
 
     @property
-    def ratchet_active(self) -> bool:
-        return self._ratchet_active
-
-    def state_dict(self) -> dict:
-        return {
-            "initial_capital": self._initial,
-            "hwm": self._hwm,
-            "floor": self._floor,
-            "ratchet_active": self._ratchet_active,
-            "trigger_pct": self._trigger_pct,
-            "lock_in_pct": self._lock_in_pct,
-            "max_loss_pct": self._max_loss_pct,
-        }
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _result(
-        self,
-        allowed: bool,
-        reason: str,
-        equity: float,
-        dd_from_hwm: float,
-        gain_since_start_pct: float,
-    ) -> FloorCheckResult:
-        return FloorCheckResult(
-            allowed=allowed,
-            reason=reason,
-            current_equity=equity,
-            hwm=self._hwm,
-            floor=self._floor,
-            ratchet_active=self._ratchet_active,
-            gain_since_start_pct=gain_since_start_pct,
-            drawdown_from_hwm_pct=dd_from_hwm,
-        )
+    def last_reauthorization(self) -> ReAuthorization | None:
+        return self._last_reauth

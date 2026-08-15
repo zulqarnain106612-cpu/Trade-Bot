@@ -18,8 +18,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config import ExecutionMode
+from src.config import ExecutionMode, OrderThrottleSettings
 from src.execution.live import LiveExecutor, LivePosition
+from src.execution.order_throttler import OrderThrottler, ThrottleResult
 from src.risk.kelly import KellyResult
 
 
@@ -69,10 +70,21 @@ def _make_executor(
     executor._initialized = True
     executor._storage = AsyncMock()
     executor._fetcher = MagicMock()
+    # v8 startup reconciliation: initialize() compares local positions with
+    # exchange truth, and an unavailable snapshot deliberately blocks new
+    # entries. A bare MagicMock would make every test look like a crashed
+    # process with an unknown book.
+    executor._fetcher.fetch_exchange_holdings = AsyncMock(return_value={})
+    executor._recovery_discrepancies = []
     executor._cfg = MagicMock()
     executor._risk_cfg = MagicMock(
         notional_limit_usd=10_000.0,
         approval_timeout_s=30.0,
+    )
+    executor._throttle_cfg = OrderThrottleSettings()
+    executor._throttler = OrderThrottler(
+        rate=executor._throttle_cfg.rate,
+        burst=executor._throttle_cfg.burst,
     )
     executor._log = structlog.get_logger().bind(component="live_executor_test")
     return executor
@@ -443,6 +455,28 @@ class TestMarkToMarket:
         assert total == pytest.approx(25.0)
 
 
+class TestLivePosition:
+    def test_peak_unrealized_pct_default_zero(self):
+        pos = _make_position()
+        assert pos.peak_unrealized_pct == 0.0
+
+    def test_peak_unrealized_pct_increases_on_profit(self):
+        pos = _make_position(entry_price=50_000.0, quantity=0.1, notional_usd=5_000.0)
+        pos.mark(55_000.0)  # unrealized = +500 / 5000 = +10%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)
+
+    def test_peak_unrealized_pct_does_not_decrease(self):
+        pos = _make_position(entry_price=50_000.0, quantity=0.1, notional_usd=5_000.0)
+        pos.mark(55_000.0)  # peak at 10%
+        pos.mark(52_000.0)  # drops to 4%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)
+
+    def test_peak_unrealized_pct_loss_does_not_update(self):
+        pos = _make_position(entry_price=50_000.0, quantity=0.1, notional_usd=5_000.0)
+        pos.mark(47_000.0)  # loss → no update
+        assert pos.peak_unrealized_pct == 0.0
+
+
 class TestClosePosition:
     @pytest.mark.asyncio
     async def test_unknown_trade_id_raises(self):
@@ -538,6 +572,7 @@ class TestInit:
         storage = AsyncMock()
         fetcher = MagicMock()
         cfg = MagicMock(trading_mode=TradingMode.PAPER)
+        cfg.order_throttle = OrderThrottleSettings()
         with patch("src.execution.live.get_settings", return_value=cfg):
             with pytest.raises(RuntimeError, match="TRADING_MODE=live"):
                 LiveExecutor(storage, fetcher)
@@ -549,6 +584,7 @@ class TestInit:
         fetcher = MagicMock()
         cfg = MagicMock(trading_mode=TradingMode.LIVE, starting_capital_usd=50_000.0)
         cfg.risk = MagicMock()
+        cfg.order_throttle = OrderThrottleSettings()
         with patch("src.execution.live.get_settings", return_value=cfg):
             ex = LiveExecutor(storage, fetcher)
         assert ex._starting_capital == 50_000.0
@@ -564,6 +600,7 @@ class TestInit:
         fetcher = MagicMock()
         cfg = MagicMock(trading_mode=TradingMode.LIVE, starting_capital_usd=50_000.0)
         cfg.risk = MagicMock()
+        cfg.order_throttle = OrderThrottleSettings()
         with patch("src.execution.live.get_settings", return_value=cfg):
             ex = LiveExecutor(storage, fetcher, starting_capital=200_000.0)
         assert ex._starting_capital == 200_000.0
@@ -886,3 +923,122 @@ class TestRequireInitialized:
         ex = _make_executor()
         ex._initialized = True
         ex._require_initialized()  # no raise
+
+
+# ─────────────────────────────────────────────────────────────
+# _await_throttle_token — exchange rate-limit gate on order placement
+# ─────────────────────────────────────────────────────────────
+
+
+class TestAwaitThrottleToken:
+    @pytest.mark.asyncio
+    async def test_allowed_when_bucket_has_tokens(self):
+        ex = _make_executor()
+        await ex._await_throttle_token("binance")
+        assert ex._throttler.tokens_remaining("binance") == pytest.approx(
+            ex._throttle_cfg.burst - 1, abs=0.1
+        )
+
+    @pytest.mark.asyncio
+    async def test_disabled_does_not_consume_tokens(self):
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(enabled=False)
+        await ex._await_throttle_token("binance")
+        assert ex._throttler.tokens_remaining("binance") == pytest.approx(
+            ex._throttle_cfg.burst, abs=0.1
+        )
+
+    @pytest.mark.asyncio
+    async def test_short_backlog_waits_then_proceeds(self):
+        # rate=100/s => a drained bucket refills a token in ~10ms, well under
+        # max_wait_s, so the order should be held rather than refused.
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=100.0, burst=1, max_wait_s=1.0)
+        ex._throttler = OrderThrottler(rate=100.0, burst=1)
+        await ex._await_throttle_token("binance")  # drains the single token
+        await ex._await_throttle_token("binance")  # must wait, not raise
+
+    @pytest.mark.asyncio
+    async def test_long_backlog_refuses_order(self):
+        import ccxt
+
+        # rate=0.1/s => 10s to refill one token, far past max_wait_s: the
+        # entry price would be stale, so the order must be refused.
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=0.1, burst=1, max_wait_s=0.5)
+        ex._throttler = OrderThrottler(rate=0.1, burst=1)
+        await ex._await_throttle_token("binance")
+        with pytest.raises(ccxt.ExchangeError, match="exceeds max_wait_s"):
+            await ex._await_throttle_token("binance")
+
+    @pytest.mark.asyncio
+    async def test_retry_failure_after_wait_refuses_order(self):
+        import ccxt
+
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=100.0, burst=1, max_wait_s=1.0)
+        ex._throttler = MagicMock()
+        ex._throttler.acquire = MagicMock(
+            side_effect=[
+                ThrottleResult(
+                    allowed=False,
+                    exchange="binance",
+                    tokens_remaining=0.0,
+                    wait_s=0.01,
+                    reject_reason="rate_limit",
+                ),
+                ThrottleResult(
+                    allowed=False,
+                    exchange="binance",
+                    tokens_remaining=0.0,
+                    wait_s=0.01,
+                    reject_reason="rate_limit",
+                ),
+            ]
+        )
+        with pytest.raises(ccxt.ExchangeError, match="still unavailable"):
+            await ex._await_throttle_token("binance")
+
+    @pytest.mark.asyncio
+    async def test_exit_order_is_never_refused(self):
+        # Refusing an exit leaves real unhedged exposure open, and unlike an
+        # entry there is no "skip it, wait for the next signal" fallback.
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=0.1, burst=1, max_wait_s=0.5)
+        ex._throttler = OrderThrottler(rate=0.1, burst=1)
+        await ex._await_throttle_token("binance")  # drain
+        await ex._await_throttle_token("binance", is_exit=True)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_close_position_exits_through_a_drained_bucket(self):
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=0.1, burst=1, max_wait_s=0.5)
+        ex._throttler = OrderThrottler(rate=0.1, burst=1)
+        ex._fetcher.get_order_exchange = MagicMock(return_value=MagicMock(id="binance"))
+        fsm = MagicMock()
+        fsm.state.order_id = "ord-1"
+        ex._order_manager.place_order_with_fsm = AsyncMock(
+            return_value=(fsm, _filled_order(order_id="ord-1"))
+        )
+        await ex._place_market_order("BTC/USDT", "buy", 0.1)  # drains the bucket
+        await ex._place_market_order("BTC/USDT", "sell", 0.1, is_exit=True)
+        assert ex._order_manager.place_order_with_fsm.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_place_market_order_refused_when_throttled(self):
+        import ccxt
+
+        ex = _make_executor()
+        ex._throttle_cfg = OrderThrottleSettings(rate=0.1, burst=1, max_wait_s=0.5)
+        ex._throttler = OrderThrottler(rate=0.1, burst=1)
+        ex._fetcher.get_order_exchange = MagicMock(return_value=MagicMock(id="binance"))
+        fsm = MagicMock()
+        fsm.state.order_id = "ord-1"
+        ex._order_manager.place_order_with_fsm = AsyncMock(
+            return_value=(fsm, _filled_order(order_id="ord-1"))
+        )
+        await ex._place_market_order("BTC/USDT", "buy", 0.1)
+        with pytest.raises(ccxt.ExchangeError, match="Order rate limit"):
+            await ex._place_market_order("BTC/USDT", "buy", 0.1)
+        # The refused order must never reach the exchange.
+        assert ex._order_manager.place_order_with_fsm.await_count == 1

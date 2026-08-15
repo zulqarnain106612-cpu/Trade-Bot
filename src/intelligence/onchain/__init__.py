@@ -32,22 +32,22 @@ from src.intelligence.onchain.schema import (
 
 
 __all__ = [
-    # Providers
-    "ArkhamProvider",
-    "CoinglassProvider",
-    "CryptoQuantProvider",
-    "DeFiLlamaProvider",
-    "DuneProvider",
-    # Foundation
-    "AsyncHTTPCache",
-    "CircuitBreaker",
-    "CircuitOpenError",
-    "OnChainProvider",
-    "RateLimiter",
     # Schema
     "ALL_FIELDS",
     "GATED_FIELDS",
     "ONCHAIN_NEUTRAL",
+    # Providers
+    "ArkhamProvider",
+    # Foundation
+    "AsyncHTTPCache",
+    "CircuitBreaker",
+    "CircuitOpenError",
+    "CoinglassProvider",
+    "CryptoQuantProvider",
+    "DeFiLlamaProvider",
+    "DuneProvider",
+    "OnChainProvider",
+    "RateLimiter",
     "merge_onchain_results",
     "validate_provider_result",
 ]

@@ -184,6 +184,43 @@ def test_set_rate_zero_burst_raises():
         t.set_rate(5.0, burst=0)
 
 
+def test_set_rate_rejects_bad_burst_without_mutating_rate():
+    # Both arguments are validated before anything is written, so a rejected
+    # call leaves the limiter on its previous (known-safe) settings rather
+    # than half-applying a new rate.
+    t = OrderThrottler(rate=5.0, burst=10)
+    with pytest.raises(ValueError):
+        t.set_rate(50.0, burst=0)
+    assert t.rate == 5.0
+    assert t.burst == 10
+
+
+def test_concurrent_acquire_never_overdraws_bucket():
+    # Two threads racing on the same bucket must not both be granted the last
+    # token — overdrawing is exactly the burst the exchange rate-limits on.
+    import threading
+
+    t = OrderThrottler(rate=0.001, burst=50)
+    granted: list[bool] = []
+    granted_lock = threading.Lock()
+
+    def worker() -> None:
+        for _ in range(20):
+            result = t.acquire("binance")
+            if result.allowed:
+                with granted_lock:
+                    granted.append(True)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+
+    # 160 attempts against a 50-token bucket refilling at 0.001/s.
+    assert len(granted) == 50
+
+
 # ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------

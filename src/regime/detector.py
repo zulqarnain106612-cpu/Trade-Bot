@@ -59,6 +59,7 @@ HMM_FEATURE_COLS: Final[list[str]] = [
     "atr_momentum",
     "rolling_sharpe",
     "volume_zscore",
+    "garch_vol_forecast",
 ]
 
 _MODEL_FILENAME: Final[str] = "hmm_{symbol}_{timeframe}.joblib"
@@ -305,7 +306,7 @@ class RegimeDetector:
 
         n = len(obs_df)
         if n < cfg.n_components * 20:
-            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, " f"got {n}")
+            raise ValueError(f"HMM fit: need at least {cfg.n_components * 20} rows, got {n}")
 
         # Scale to zero-mean unit-variance — HMM diagonal / full covariance
         # is sensitive to feature magnitude differences
@@ -330,6 +331,7 @@ class RegimeDetector:
         best_score: float = float("-inf")
 
         t0 = time.perf_counter()
+        failed_seeds: list[int] = []
         for seed in range(_HMM_N_INIT):
             candidate = GaussianHMM(
                 n_components=cfg.n_components,
@@ -342,11 +344,37 @@ class RegimeDetector:
             candidate.fit(X, lengths=lengths_arg)
             try:
                 score = candidate.score(X, lengths=lengths_arg)
-            except Exception:
+            except Exception as exc:
+                # A restart that cannot be scored is usually a degenerate
+                # covariance — routine with covariance_type="full" on a short
+                # window, and the reason multiple restarts exist. Skipping it
+                # is right; skipping it silently is not: the detector would
+                # happily select from one surviving restart out of n while
+                # reporting nothing, and regime quality feeds every consumer
+                # downstream.
+                failed_seeds.append(seed)
+                log.debug(
+                    "regime.hmm_restart_score_failed",
+                    seed=seed,
+                    error=str(exc),
+                )
                 continue
             if score > best_score:
                 best_score = score
                 best_model = candidate
+
+        if failed_seeds:
+            # Reported once, with the count, rather than n times: what matters
+            # is how much of the restart budget actually survived, not which
+            # individual seeds died.
+            log.warning(
+                "regime.hmm_restarts_failed",
+                failed=len(failed_seeds),
+                total=_HMM_N_INIT,
+                seeds=failed_seeds,
+                surviving=_HMM_N_INIT - len(failed_seeds),
+                covariance_type=cfg.covariance_type,
+            )
 
         elapsed = time.perf_counter() - t0
 
@@ -402,9 +430,9 @@ class RegimeDetector:
 
         Returns canonical regime labels (0/1/2) aligned to features.index.
         """
-        self._require_fitted()
+        model, _ = self._require_fitted()
         X = self._transform(features)
-        raw_states: np.ndarray = self._model.predict(X)  # type: ignore[union-attr]
+        raw_states: np.ndarray = model.predict(X)
         canonical = np.array([self._state_map[int(s)] for s in raw_states])
         return pd.Series(canonical, index=features.index, dtype=np.int8, name="regime")
 
@@ -418,9 +446,9 @@ class RegimeDetector:
         Returns DataFrame with columns ['prob_ranging', 'prob_trending', 'prob_volatile']
         aligned to features.index.  Columns are reordered to canonical indices.
         """
-        self._require_fitted()
+        model, _ = self._require_fitted()
         X = self._transform(features)
-        posteriors: np.ndarray = self._model.predict_proba(X)  # type: ignore[union-attr]
+        posteriors: np.ndarray = model.predict_proba(X)
 
         # Reorder columns from raw HMM order to canonical
         canonical_posteriors = np.zeros_like(posteriors)
@@ -461,7 +489,7 @@ class RegimeDetector:
         ------
         ValueError : if fitted model is unavailable or data is insufficient.
         """
-        self._require_fitted()
+        model, _ = self._require_fitted()
 
         # VUL-025: If the last fit did not converge, return VOLATILE prediction
         # so the regime gate blocks all new positions until a successful retrain.
@@ -495,7 +523,7 @@ class RegimeDetector:
 
         window = obs_df.iloc[-lookback:]
         X = self._transform(window)
-        posteriors: np.ndarray = self._model.predict_proba(X)  # type: ignore[union-attr]
+        posteriors: np.ndarray = model.predict_proba(X)
 
         last_posterior: np.ndarray = posteriors[-1]  # shape (n_components,)
 
@@ -553,15 +581,15 @@ class RegimeDetector:
         ------
         RuntimeError : if model has not been fitted.
         """
-        self._require_fitted()
+        model, scaler = self._require_fitted()
         path = Path(model_dir) / _MODEL_FILENAME.format(
             symbol=self._symbol.replace("/", "_"),
             timeframe=self._timeframe,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "model": self._model,
-            "scaler": self._scaler,
+            "model": model,
+            "scaler": scaler,
             "state_map": self._state_map,
             "cfg": self._cfg,
             "train_hash": self._train_hash,
@@ -687,13 +715,15 @@ class RegimeDetector:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _require_fitted(self) -> None:
+    def _require_fitted(self) -> tuple[GaussianHMM, StandardScaler]:
         if not self._fitted or self._model is None or self._scaler is None:
             raise RuntimeError("RegimeDetector is not fitted — call fit() or load() first.")
+        return self._model, self._scaler
 
     def _transform(self, features: pd.DataFrame) -> np.ndarray:
         """Scale observation DataFrame using the fitted StandardScaler."""
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
             raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
-        return self._scaler.transform(obs.to_numpy(dtype=np.float64))  # type: ignore[union-attr]
+        assert self._scaler is not None
+        return self._scaler.transform(obs.to_numpy(dtype=np.float64))

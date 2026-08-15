@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from typing import Any
 
 import numpy as np
@@ -151,6 +152,7 @@ class TestAutoTuningSchedulerAttempts:
                 assert parameter_registry.is_registered("hmm.entropy_scalar_floor")
                 assert parameter_registry.is_registered("risk.slippage_impact_coeff_bps")
                 assert parameter_registry.is_registered("risk.ensemble_blend_weight")
+                assert parameter_registry.is_registered("risk.garch_vol_threshold")
                 assert parameter_registry.is_registered("xgboost.max_depth")
             finally:
                 scheduler.stop()
@@ -265,6 +267,29 @@ class TestAutoTuningSchedulerAttempts:
         assert seen_cycle_counts == [0]
         assert scheduler._cycle_count == 1
 
+    def test_check_redteam_due_logs_when_never_run(self) -> None:
+        """A freshly constructed scheduler's RedTeamScheduler has no last_run,
+        so is_due() is True immediately -- _check_redteam_due() must log a
+        reminder without ever calling record_run() (that would fabricate a
+        replay that never happened)."""
+        settings = get_settings()
+        storage = _FakeStorage([], {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        assert scheduler._redteam_scheduler.last_run is None
+        scheduler._check_redteam_due()  # must not raise
+        assert scheduler._redteam_scheduler.last_run is None  # still not recorded
+
+    def test_check_redteam_due_silent_after_manual_recent_run(self) -> None:
+        settings = get_settings()
+        storage = _FakeStorage([], {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        now_ms = int(time.time() * 1000)
+        scheduler._redteam_scheduler.record_run(ran_at_ms=now_ms, breached_floor=False)
+        assert not scheduler._redteam_scheduler.is_due(now_ms)
+        scheduler._check_redteam_due()  # must not raise, and finds nothing due
+
     def test_attempt_all_uses_registry_champion_not_stale_settings(self, monkeypatch) -> None:
         """Regression (Finding 1): once hmm.entropy_scalar_floor has been
         promoted, hmm.entropy_threshold's OWN evaluation must hold the
@@ -297,7 +322,14 @@ class TestAutoTuningSchedulerAttempts:
         # this test only cares about which champion_floor value evaluate()
         # is built with.
         monkeypatch.setattr(runner._settings, "enabled", True)
-        monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+        monkeypatch.setattr(
+            runner,
+            # _cooldown_active now takes the closed-trade count as a second
+            # argument and returns (blocked, reason) so the caller can log WHICH
+            # half of the cadence guard fired.
+            "_cooldown_active",
+            lambda param_name, closed_trade_count=None: (False, ""),
+        )
 
         async def _run():
             scheduler.start()
@@ -340,7 +372,10 @@ class TestAutoTuningSchedulerAttempts:
 
         monkeypatch.setattr(scheduler_module, "run_entropy_threshold_backtest", _spy_backtest)
 
-        def _fake_attempt(param_name, evaluate_fn, primary_metric):
+        # closed_trade_count is supplied by the trade-driven parameter groups so
+        # the runner can enforce min_trades_between_attempts. Accepted and
+        # ignored: this test isolates intra-cycle champion visibility.
+        def _fake_attempt(param_name, evaluate_fn, primary_metric, closed_trade_count=None):
             # Bypasses the real proposer/gate entirely -- this test isolates
             # ONLY the evaluate() closure's registry-read timing, not
             # promotion logic (already covered by tests/test_tuning_runner.py).
@@ -646,7 +681,14 @@ def _enable_runner_for_test(monkeypatch) -> None:
     param can still be within min_hours_between_attempts=24h). Same pattern
     as test_attempt_all_uses_registry_champion_not_stale_settings above."""
     monkeypatch.setattr(runner._settings, "enabled", True)
-    monkeypatch.setattr(runner, "_cooldown_active", lambda param_name: False)
+    monkeypatch.setattr(
+        runner,
+        # _cooldown_active now takes the closed-trade count as a second
+        # argument and returns (blocked, reason) so the caller can log WHICH
+        # half of the cadence guard fired.
+        "_cooldown_active",
+        lambda param_name, closed_trade_count=None: (False, ""),
+    )
 
 
 class TestSchedulerLifecycleBranches:
@@ -667,7 +709,9 @@ class TestSchedulerLifecycleBranches:
                 assert parameter_registry.is_registered("hmm.entropy_scalar_floor")
                 assert parameter_registry.is_registered("risk.slippage_impact_coeff_bps")
                 assert parameter_registry.is_registered("risk.ensemble_blend_weight")
+                assert parameter_registry.is_registered("risk.garch_vol_threshold")
                 assert parameter_registry.is_registered("features.atr_window")
+                assert parameter_registry.is_registered("features.garch_window")
                 assert parameter_registry.is_registered("xgboost.max_depth")
             finally:
                 scheduler.stop()

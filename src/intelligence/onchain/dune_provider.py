@@ -205,7 +205,7 @@ def _results_fresh(results: dict, ttl_s: int) -> bool:
         # Fail closed (treat as stale, forcing a refetch) but log so a
         # persistently malformed timestamp field is visible to operators
         # instead of silently masquerading as "not fresh" forever.
-        log.warning("dune_results_fresh_check_failed", err=str(exc))
+        log.warning("dune.results_fresh_check_failed", error=str(exc), exc_info=True)
         return False
 
 

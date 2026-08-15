@@ -1,328 +1,107 @@
 """
-Donchian-channel breakout strategy signals.
+Volume-weighted breakout strategy — v2 Sub-task 2, strategy family 3 of 4.
 
-Generates entry signals when price breaks above the N-bar high (long) or
-below the N-bar low (short), gated by an ATR-based volatility filter to
-avoid breakouts during abnormally compressed or expanded regimes.
+Trades range breakouts confirmed by volume: price must clear the recent
+N-bar high/low AND do so on above-average volume, with an ATR-based
+initial stop. Volume confirmation filters the common false-breakout case
+where price pokes through a level on thin volume and reverts.
 
-Two functions:
-
-  1. donchian_signal() — N-bar Donchian channel with a separate exit window.
-  2. breakout_signal() — combined signal: Donchian entry + ATR volatility
-     gate (reject when ATR/price is outside [min_atr_pct, max_atr_pct]).
-
-All functions are pure, accept numpy arrays, and return BreakoutSignal
-frozen dataclasses.
+All functions are pure and operate on already-fetched OHLCV DataFrames.
 
 Authority:
-  Donchian (1960) "Trend Following Methods in Commodity Price Analysis" —
-    original N-week channel breakout system.
-  Covel (2004) "Trend Following" Ch.4 — Turtle-derived Donchian channels.
-  Wilder (1978) "New Concepts in Technical Trading Systems" — ATR definition.
+  - Wilder (1978) New Concepts in Technical Trading Systems — ATR
+  - Darvas (1960) How I Made $2,000,000 in the Stock Market — box breakout
+  - Granville (1963) OBV — volume confirms price direction
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Final
 
-import numpy as np
-import structlog
+import pandas as pd
 
-
-log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
-
-_DEFAULT_ENTRY_PERIOD: Final[int] = 20  # N bars for breakout detection
-_DEFAULT_EXIT_PERIOD: Final[int] = 10  # shorter exit channel (Turtle system)
-_DEFAULT_ATR_PERIOD: Final[int] = 14  # Wilder ATR
-_DEFAULT_MIN_ATR_PCT: Final[float] = 0.1  # 0.1% min ATR/price — avoids dead markets
-_DEFAULT_MAX_ATR_PCT: Final[float] = 10.0  # 10% max ATR/price — avoids blow-up regimes
-
-_EPS: Final[float] = 1e-9
+from src.strategies.registry import Signal
 
 
-# ---------------------------------------------------------------------------
-# Result dataclass
-# ---------------------------------------------------------------------------
+_LOOKBACK_BARS: int = 20
+_VOLUME_MULTIPLE: float = 1.5
+_ATR_PERIOD: int = 14
+_MIN_BARS_REQUIRED: int = max(_LOOKBACK_BARS, _ATR_PERIOD) + 1
 
 
-@dataclass(frozen=True)
-class BreakoutSignal:
+def compute_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder (1978) Average True Range."""
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return true_range.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+
+
+@dataclass(frozen=True, slots=True)
+class BreakoutContext:
+    """Bar-equivalent context: recent OHLCV history ending at the current bar."""
+
+    high: pd.Series
+    low: pd.Series
+    close: pd.Series
+    volume: pd.Series
+
+
+class BreakoutStrategy:
     """
-    Output of a Donchian-channel breakout evaluation.
-
-    direction:  +1 = long (price broke above upper channel)
-               -1 = short (price broke below lower channel)
-                0 = no signal
+    Registry-conformant strategy: N-bar range breakout confirmed by volume.
     """
 
-    direction: int  # -1, 0, +1
-    is_entry: bool  # True when channel is broken
-    is_exit: bool  # True when price reverts into exit channel
-    upper_channel: float  # N-bar high used for this evaluation
-    lower_channel: float  # N-bar low
-    exit_upper: float  # exit-window high
-    exit_lower: float  # exit-window low
-    atr: float  # current ATR (0 if not computed)
-    atr_pct: float  # ATR / latest_price * 100
-    confidence: float  # [0, 1] — how far price penetrated the channel
-    reject_reason: str  # non-empty when direction == 0 due to filter
+    strategy_id: str = "breakout_volume_v1"
+
+    def __init__(self, max_capital_fraction: float = 0.15) -> None:
+        if not 0.0 < max_capital_fraction <= 1.0:
+            raise ValueError(f"max_capital_fraction must be in (0, 1], got {max_capital_fraction}")
+        self._max_capital_fraction = max_capital_fraction
+
+    def generate_signal(self, bar: object) -> Signal:
+        if not isinstance(bar, BreakoutContext):
+            raise TypeError(f"BreakoutStrategy requires a BreakoutContext, got {type(bar)}")
+
+        n = len(bar.close)
+        if n < _MIN_BARS_REQUIRED:
+            return Signal(direction=0, confidence=0.0, regime_fit=0.0)
+
+        prior_high = bar.high.iloc[-(_LOOKBACK_BARS + 1) : -1].max()
+        prior_low = bar.low.iloc[-(_LOOKBACK_BARS + 1) : -1].min()
+        avg_volume = bar.volume.iloc[-(_LOOKBACK_BARS + 1) : -1].mean()
+
+        last_close = float(bar.close.iloc[-1])
+        last_volume = float(bar.volume.iloc[-1])
+
+        atr = compute_atr(bar.high, bar.low, bar.close, _ATR_PERIOD)
+        last_atr = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0.0
+
+        volume_confirmed = avg_volume > 0 and last_volume >= _VOLUME_MULTIPLE * avg_volume
+
+        if not volume_confirmed or last_atr <= 0:
+            return Signal(direction=0, confidence=0.0, regime_fit=0.4)
+
+        if last_close > prior_high:
+            excess = (last_close - prior_high) / last_atr
+            confidence = min(1.0, 0.5 + excess)
+            return Signal(direction=1, confidence=confidence, regime_fit=0.8)
+
+        if last_close < prior_low:
+            excess = (prior_low - last_close) / last_atr
+            confidence = min(1.0, 0.5 + excess)
+            return Signal(direction=-1, confidence=confidence, regime_fit=0.8)
+
+        return Signal(direction=0, confidence=0.0, regime_fit=0.4)
+
+    def required_capital_fraction(self) -> float:
+        return self._max_capital_fraction
 
 
-# ---------------------------------------------------------------------------
-# ATR computation
-# ---------------------------------------------------------------------------
-
-
-def _compute_atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """
-    Wilder ATR over the last ``period`` bars.
-
-    True Range = max(H-L, |H-C_prev|, |L-C_prev|)
-    Wilder smoothing: EMA with alpha = 1/period.
-    """
-    n = len(closes)
-    if n < 2 or period < 1:
-        return 0.0
-
-    trs = []
-    for i in range(1, n):
-        hl = float(highs[i]) - float(lows[i])
-        hc = abs(float(highs[i]) - float(closes[i - 1]))
-        lc = abs(float(lows[i]) - float(closes[i - 1]))
-        trs.append(max(hl, hc, lc))
-
-    if not trs:
-        return 0.0
-
-    # Wilder EMA (initial value = simple average of first `period` TRs)
-    alpha = 1.0 / period
-    window = trs[:period]
-    atr = sum(window) / len(window)
-    for tr in trs[period:]:
-        atr = alpha * tr + (1.0 - alpha) * atr
-    return atr
-
-
-# ---------------------------------------------------------------------------
-# Donchian channel signal
-# ---------------------------------------------------------------------------
-
-
-def donchian_signal(
-    closes: np.ndarray,
-    highs: np.ndarray | None = None,
-    lows: np.ndarray | None = None,
-    entry_period: int = _DEFAULT_ENTRY_PERIOD,
-    exit_period: int = _DEFAULT_EXIT_PERIOD,
-) -> BreakoutSignal:
-    """
-    Compute a Donchian-channel breakout signal.
-
-    Parameters
-    ----------
-    closes:
-        1D close price array, chronological.
-    highs / lows:
-        Optional high/low arrays. If omitted, closes are used as proxies.
-    entry_period:
-        Lookback for the entry channel (e.g. 20-bar high/low).
-    exit_period:
-        Lookback for the exit channel (shorter = tighter exit). Must be
-        <= entry_period.
-
-    Returns
-    -------
-    BreakoutSignal
-    """
-    n = len(closes)
-    if n < entry_period + 1:
-        return _no_signal(
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            f"insufficient_bars={n} < entry_period+1={entry_period + 1}",
-        )
-
-    if highs is None:
-        highs = closes
-    if lows is None:
-        lows = closes
-
-    # Exclude the last bar (current) from channel calculation
-    channel_h = np.asarray(highs, dtype=float)
-    channel_l = np.asarray(lows, dtype=float)
-    ch_closes = np.asarray(closes, dtype=float)
-
-    upper = float(np.max(channel_h[-(entry_period + 1) : -1]))
-    lower = float(np.min(channel_l[-(entry_period + 1) : -1]))
-
-    ep = min(exit_period, entry_period)
-    exit_upper = float(np.max(channel_h[-(ep + 1) : -1]))
-    exit_lower = float(np.min(channel_l[-(ep + 1) : -1]))
-
-    latest = float(ch_closes[-1])
-
-    is_long_entry = latest > upper
-    is_short_entry = latest < lower
-    is_entry = is_long_entry or is_short_entry
-    is_exit = exit_lower <= latest <= exit_upper
-
-    direction = 0
-    if is_long_entry:
-        direction = 1
-    elif is_short_entry:
-        direction = -1
-
-    # Confidence: how far did price penetrate beyond the channel?
-    channel_width = max(upper - lower, _EPS)
-    if direction == 1:
-        confidence = min((latest - upper) / channel_width, 1.0)
-    elif direction == -1:
-        confidence = min((lower - latest) / channel_width, 1.0)
-    else:
-        confidence = 0.0
-
-    return BreakoutSignal(
-        direction=direction,
-        is_entry=is_entry,
-        is_exit=is_exit,
-        upper_channel=upper,
-        lower_channel=lower,
-        exit_upper=exit_upper,
-        exit_lower=exit_lower,
-        atr=0.0,
-        atr_pct=0.0,
-        confidence=confidence,
-        reject_reason=""
-        if is_entry
-        else f"price={latest:.4f} within channel [{lower:.4f}, {upper:.4f}]",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Combined signal: Donchian + ATR gate
-# ---------------------------------------------------------------------------
-
-
-def breakout_signal(
-    closes: np.ndarray,
-    highs: np.ndarray | None = None,
-    lows: np.ndarray | None = None,
-    entry_period: int = _DEFAULT_ENTRY_PERIOD,
-    exit_period: int = _DEFAULT_EXIT_PERIOD,
-    atr_period: int = _DEFAULT_ATR_PERIOD,
-    min_atr_pct: float = _DEFAULT_MIN_ATR_PCT,
-    max_atr_pct: float = _DEFAULT_MAX_ATR_PCT,
-) -> BreakoutSignal:
-    """
-    Full breakout signal: Donchian entry gate + ATR volatility filter.
-
-    ATR gate rejects:
-      - ATR/price < min_atr_pct  (dead/compressed market, false breakout risk)
-      - ATR/price > max_atr_pct  (crisis/spike, risk too high)
-
-    Parameters
-    ----------
-    closes / highs / lows:
-        OHLC arrays. If highs/lows are omitted, closes are used for both.
-    entry_period:
-        Donchian channel lookback for entries.
-    exit_period:
-        Donchian channel lookback for exits (shorter window).
-    atr_period:
-        Wilder ATR period.
-    min_atr_pct / max_atr_pct:
-        ATR/price (%) bounds; outside this range the signal is suppressed.
-    """
-    if highs is None:
-        highs = closes
-    if lows is None:
-        lows = closes
-
-    h = np.asarray(highs, dtype=float)
-    l_ = np.asarray(lows, dtype=float)
-    c = np.asarray(closes, dtype=float)
-
-    base = donchian_signal(c, h, l_, entry_period=entry_period, exit_period=exit_period)
-
-    atr = _compute_atr(h, l_, c, atr_period)
-    latest = float(c[-1])
-    atr_pct = atr / max(latest, _EPS) * 100.0
-
-    if not math.isfinite(atr_pct):
-        atr_pct = 0.0
-        atr = 0.0
-
-    if base.is_entry:
-        if atr_pct < min_atr_pct:
-            reason = f"atr_too_low={atr_pct:.3f}% < min={min_atr_pct}%"
-            log.debug("breakout.atr_gate_low", atr_pct=atr_pct)
-            return _no_signal(
-                base.upper_channel,
-                base.lower_channel,
-                base.exit_upper,
-                base.exit_lower,
-                atr,
-                atr_pct,
-                reason,
-            )
-        if atr_pct > max_atr_pct:
-            reason = f"atr_too_high={atr_pct:.3f}% > max={max_atr_pct}%"
-            log.debug("breakout.atr_gate_high", atr_pct=atr_pct)
-            return _no_signal(
-                base.upper_channel,
-                base.lower_channel,
-                base.exit_upper,
-                base.exit_lower,
-                atr,
-                atr_pct,
-                reason,
-            )
-
-    return BreakoutSignal(
-        direction=base.direction,
-        is_entry=base.is_entry,
-        is_exit=base.is_exit,
-        upper_channel=base.upper_channel,
-        lower_channel=base.lower_channel,
-        exit_upper=base.exit_upper,
-        exit_lower=base.exit_lower,
-        atr=atr,
-        atr_pct=atr_pct,
-        confidence=base.confidence,
-        reject_reason=base.reject_reason,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _no_signal(
-    upper: float,
-    lower: float,
-    exit_upper: float,
-    exit_lower: float,
-    atr: float,
-    atr_pct: float,
-    reason: str,
-) -> BreakoutSignal:
-    return BreakoutSignal(
-        direction=0,
-        is_entry=False,
-        is_exit=False,
-        upper_channel=upper,
-        lower_channel=lower,
-        exit_upper=exit_upper,
-        exit_lower=exit_lower,
-        atr=atr,
-        atr_pct=atr_pct,
-        confidence=0.0,
-        reject_reason=reason,
-    )
+__all__ = ["BreakoutContext", "BreakoutStrategy", "compute_atr"]

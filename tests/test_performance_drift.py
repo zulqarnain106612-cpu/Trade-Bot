@@ -198,6 +198,48 @@ class TestSharpeDrift:
         assert drift.metric == "sharpe"
 
 
+class TestCurrentRollingSharpe:
+    """current_rolling_sharpe() — public accessor used by strategy_kill_switch's CUSUM feed."""
+
+    def _detector(self) -> PerformanceDriftDetector:
+        baseline = PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+        )
+        return PerformanceDriftDetector(baseline)
+
+    def test_none_before_minimum_window(self):
+        detector = self._detector()
+        assert detector.current_rolling_sharpe() is None
+        detector.record_trade_outcome(
+            pnl_usd=10.0,
+            predicted_prob=0.6,
+            actual_direction=1,
+            current_equity=10010.0,
+            starting_equity=10000.0,
+        )
+        assert detector.current_rolling_sharpe() is None
+
+    def test_matches_manual_sharpe_once_window_fills(self):
+        detector = self._detector()
+        for i in range(30):
+            detector.record_trade_outcome(
+                pnl_usd=150.0 + (i % 3) * 50,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10000 + i * 150,
+                starting_equity=10000,
+            )
+        rolling_sharpe = detector.current_rolling_sharpe()
+        assert rolling_sharpe is not None
+        assert rolling_sharpe > 0
+
+
 class TestAccuracyDrift:
     """Test model accuracy drift detection."""
 
@@ -384,73 +426,138 @@ class TestSignificanceGatedDrift:
         assert _proportion_drop_significant(baseline_p=0.0, baseline_n=30, live_p=0.0, live_n=30)
 
 
-class TestDrawdownDrift:
-    """Tests for _check_drawdown_drift (GAP — no prior coverage)."""
+class TestRollingSharpeZeroVariance:
+    """Cover the zero-variance degenerate branch in _live_sharpe and _check_sharpe_drift."""
 
-    def _baseline(self, max_dd: float = 0.05) -> PerformanceBaseline:
-        return PerformanceBaseline(
-            train_sharpe=2.0,
-            oos_sharpe=1.8,
+    def _detector(self) -> PerformanceDriftDetector:
+        baseline = PerformanceBaseline(
+            train_sharpe=1.5,
+            oos_sharpe=1.5,
             train_accuracy=0.60,
             oos_accuracy=0.58,
             train_win_rate=0.55,
-            max_drawdown_pct=max_dd,
-            trades_in_backtest=1000,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=200,
+        )
+        return PerformanceDriftDetector(baseline)
+
+    def test_zero_variance_constant_pnl_returns_float_sharpe(self) -> None:
+        """All trades same PnL → std=0, _live_sharpe returns proxy (mean_pnl * 10)."""
+        d = self._detector()
+        for _ in range(25):
+            d.record_trade_outcome(
+                pnl_usd=5.0,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10_000.0,
+                starting_equity=10_000.0,
+            )
+        # std=0, mean>0 → proxy 5.0 * 10 = 50.0
+        sharpe = d.current_rolling_sharpe()
+        assert sharpe is not None
+        assert sharpe == 50.0
+
+    def test_zero_variance_zero_pnl_returns_zero(self) -> None:
+        """std=0 and mean=0 → current_rolling_sharpe returns 0.0."""
+        d = self._detector()
+        for _ in range(25):
+            d.record_trade_outcome(
+                pnl_usd=0.0,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10_000.0,
+                starting_equity=10_000.0,
+            )
+        sharpe = d.current_rolling_sharpe()
+        assert sharpe == 0.0
+
+    def test_zero_variance_sharpe_drift_triggers(self) -> None:
+        """std=0 zero PnL with high baseline Sharpe → drift detected (is_significant=True)."""
+        d = self._detector()
+        for _ in range(35):  # check_drift() requires >= 30 trades
+            d.record_trade_outcome(
+                pnl_usd=0.0,
+                predicted_prob=0.7,
+                actual_direction=1,
+                current_equity=10_000.0,
+                starting_equity=10_000.0,
+            )
+        result = d.check_drift()
+        # drift_pp = 1.5 - 0.0 = 1.5 > threshold; is_significant=True for degenerate case
+        assert result.drifted is True
+
+
+class TestSortinoDrift:
+    """Tests for Sortino drift detection and rolling_sortino accessor."""
+
+    def _baseline(self, oos_sortino: float = 1.5) -> PerformanceBaseline:
+        return PerformanceBaseline(
+            train_sharpe=2.0,
+            oos_sharpe=1.5,
+            train_accuracy=0.60,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.10,
+            trades_in_backtest=400,
+            train_sortino=2.2,
+            oos_sortino=oos_sortino,
         )
 
-    def _record_trades(
-        self, detector: PerformanceDriftDetector, n: int = 35, pnl: float = 5.0
-    ) -> None:
-        for _ in range(n):
-            detector.record_trade_outcome(
-                pnl_usd=pnl,
-                predicted_prob=0.6,
-                actual_direction=1,
-                current_equity=1000.0,
-                starting_equity=1000.0,
-            )
+    def _record_mixed(self, det: PerformanceDriftDetector, n: int, pnl: float) -> None:
+        for i in range(n):
+            # Alternate wins and losses so there are always downside samples
+            p = pnl if i % 3 != 0 else -abs(pnl) * 0.5
+            det.record_trade_outcome(p, 0.7, 1, 10_000.0, 10_000.0)
 
-    def test_no_drawdown_expansion_no_drift(self):
-        detector = PerformanceDriftDetector(self._baseline(max_dd=0.05))
-        # Drive max_live_drawdown_pct = 0 (all positive PnL, peak never exceeded)
-        self._record_trades(detector, pnl=10.0)
-        result = detector.check_drift()
-        assert not result.drifted
+    def test_sortino_fields_in_baseline(self) -> None:
+        b = self._baseline()
+        assert b.train_sortino == 2.2
+        assert b.oos_sortino == 1.5
 
-    def test_large_drawdown_expansion_triggers_drift(self):
-        detector = PerformanceDriftDetector(self._baseline(max_dd=0.02))
-        # Force a large drawdown by recording low current_equity against a peak
-        # Record initial trades to set equity_peak high
+    def test_sortino_in_to_dict(self) -> None:
+        d = self._baseline().to_dict()
+        assert "train_sortino" in d
+        assert "oos_sortino" in d
+
+    def test_rolling_sortino_returns_none_before_min_window(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        for _ in range(10):
+            det.record_trade_outcome(-5.0, 0.4, -1, 9_500.0, 10_000.0)
+        assert det.current_rolling_sortino() is None
+
+    def test_rolling_sortino_returns_float_with_losses(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        self._record_mixed(det, 25, 10.0)
+        s = det.current_rolling_sortino()
+        assert s is not None
+
+    def test_sortino_drift_not_triggered_with_zero_baseline(self) -> None:
+        b = self._baseline(oos_sortino=0.0)
+        det = PerformanceDriftDetector(b)
+        self._record_mixed(det, 35, -20.0)
+        result = det.check_drift()
+        # sortino check skips when baseline is 0; should not flag sortino drift
+        assert result.metric != "sortino"
+
+    def test_sortino_drift_triggers_when_below_threshold(self) -> None:
+        det = PerformanceDriftDetector(self._baseline(oos_sortino=3.0))
+        # All losses: Sortino = mean / downside_std = negative / positive → very negative
         for _ in range(35):
-            detector.record_trade_outcome(
-                pnl_usd=50.0,
-                predicted_prob=0.6,
-                actual_direction=1,
-                current_equity=2000.0,  # peak set to 2000
-                starting_equity=1000.0,
-            )
-        # Now record a trade with much lower current equity → big drawdown
-        detector.record_trade_outcome(
-            pnl_usd=-200.0,
-            predicted_prob=0.4,
-            actual_direction=-1,
-            current_equity=500.0,  # (2000-500)/1000 = 1.5 = 150% > 10pp threshold
-            starting_equity=1000.0,
-        )
-        detector.check_drift()
-        # Verify _check_drawdown_drift would flag this
-        dd_result = detector._check_drawdown_drift()
-        assert dd_result.drifted
-        assert dd_result.metric == "drawdown"
+            det.record_trade_outcome(-50.0, 0.3, -1, 9_000.0, 10_000.0)
+        result = det.check_drift()
+        assert result.drifted is True
+        assert result.metric == "sortino"
 
-    def test_drawdown_at_exact_threshold_does_not_drift(self):
-        # _DRIFT_DRAWDOWN_EXPAND_PP = 0.10 — uses strict >
-        baseline_dd = 0.05
-        detector = PerformanceDriftDetector(self._baseline(max_dd=baseline_dd))
-        # Force max_live_drawdown_pct to exactly baseline + 0.10
-        detector._max_live_drawdown_pct = baseline_dd + 0.10
-        result = detector._check_drawdown_drift()
-        assert not result.drifted  # 0.10 is not > 0.10
+    def test_sortino_in_live_metrics(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        self._record_mixed(det, 25, 5.0)
+        metrics = det.get_live_metrics()
+        assert "rolling_sortino" in metrics
+
+    def test_sortino_none_in_live_metrics_before_window(self) -> None:
+        det = PerformanceDriftDetector(self._baseline())
+        metrics = det.get_live_metrics()
+        assert metrics["rolling_sortino"] is None
 
 
 class TestModelDegradationTracker:

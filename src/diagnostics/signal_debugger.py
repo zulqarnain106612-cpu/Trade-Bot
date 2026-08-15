@@ -44,6 +44,9 @@ LIVE_WINDOW: Final[int] = 500
 ACCURACY_DROP_THRESHOLD: Final[float] = 0.15
 # GAP-003: rolling Sharpe threshold to trigger retrain / meta-label tightening
 ROLLING_SHARPE_THRESHOLD: Final[float] = 0.8
+# Sortino threshold — stricter than Sharpe because Sortino penalises
+# downside-only volatility; a ratio below 0.5 signals persistent losing runs.
+ROLLING_SORTINO_THRESHOLD: Final[float] = 0.5
 ROLLING_ACCURACY_THRESHOLD: Final[float] = 0.52
 META_LABEL_THRESHOLD: Final[float] = 0.65
 
@@ -269,6 +272,28 @@ class ModelDegradationTracker:
             return 0.0
         return mean_ret / std_ret
 
+    def rolling_sortino(self) -> float | None:
+        """
+        Rolling Sortino ratio — mean / downside_std (Sortino & Price 1994).
+
+        Uses only negative P&L values for the denominator so upside volatility
+        (news-driven pumps) does not suppress the quality signal.  Returns None
+        when fewer than 20 trades have been recorded or when there are no
+        losing trades (denominator would be zero).
+        """
+        if len(self._trade_pnls) < 20:
+            return None
+        returns = list(self._trade_pnls)
+        mean_ret = float(np.mean(returns))
+        losses = [r for r in returns if r < 0.0]
+        if not losses:
+            return None
+        # Standard Sortino semi-deviation: sqrt(sum(losses^2) / n_total).
+        downside_std = math.sqrt(sum(p * p for p in losses) / len(returns))
+        if downside_std <= 0.0:
+            return None
+        return mean_ret / downside_std
+
     def live_accuracy(self) -> float | None:
         """Compute rolling accuracy from resolved predictions."""
         resolved = [r for r in self._preds if r.actual_direction is not None]
@@ -289,14 +314,17 @@ class ModelDegradationTracker:
         """
         live_acc = self.live_accuracy()
         rolling_sharpe = self.rolling_sharpe()
+        rolling_sortino = self.rolling_sortino()
         report: dict[str, Any] = {
             "live_accuracy": round(live_acc, 4) if live_acc is not None else None,
             "train_accuracy": round(self._train_accuracy, 4)
             if self._train_accuracy is not None
             else None,
             "rolling_sharpe": round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
+            "rolling_sortino": round(rolling_sortino, 4) if rolling_sortino is not None else None,
             "degraded": False,
             "drop": None,
+            "sortino_degraded": False,
             "tighten_meta_label_threshold": False,
             "retrain_recommended": False,
         }
@@ -307,11 +335,19 @@ class ModelDegradationTracker:
             sharpe_degraded = (
                 rolling_sharpe is not None and rolling_sharpe < ROLLING_SHARPE_THRESHOLD
             )
+            sortino_degraded = (
+                rolling_sortino is not None and rolling_sortino < ROLLING_SORTINO_THRESHOLD
+            )
             accuracy_below_floor = live_acc < ROLLING_ACCURACY_THRESHOLD
-            report["degraded"] = accuracy_degraded or sharpe_degraded or accuracy_below_floor
-            report["tighten_meta_label_threshold"] = accuracy_below_floor or sharpe_degraded
+            report["sortino_degraded"] = sortino_degraded
+            report["degraded"] = (
+                accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
+            )
+            report["tighten_meta_label_threshold"] = (
+                accuracy_below_floor or sharpe_degraded or sortino_degraded
+            )
             report["retrain_recommended"] = (
-                accuracy_degraded or sharpe_degraded or accuracy_below_floor
+                accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
             )
             if report["degraded"]:
                 log.warning(
@@ -319,6 +355,9 @@ class ModelDegradationTracker:
                     train_accuracy=round(self._train_accuracy, 4),
                     live_accuracy=round(live_acc, 4),
                     rolling_sharpe=round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
+                    rolling_sortino=round(rolling_sortino, 4)
+                    if rolling_sortino is not None
+                    else None,
                     drop=round(drop, 4),
                     action="retrain_recommended (AFML Ch.11)",
                 )
@@ -364,7 +403,7 @@ def run_pipeline_selftest() -> dict[str, Any]:
         log.info("signal_debugger.selftest_passed", rows=len(fm.features))
     except Exception as exc:
         result["error"] = str(exc)[:300]
-        log.error("signal_debugger.selftest_failed", error=result["error"])
+        log.error("signal_debugger.selftest_failed", error=result["error"], exc_info=True)
     return result
 
 

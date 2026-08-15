@@ -31,6 +31,7 @@ Authority:
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Final
@@ -69,7 +70,7 @@ class ThrottleResult:
 class _Bucket:
     """Single token-bucket for one exchange."""
 
-    __slots__ = ("_tokens", "_last_refill", "_rate", "_burst")
+    __slots__ = ("_burst", "_last_refill", "_rate", "_tokens")
 
     def __init__(self, rate: float, burst: int) -> None:
         self._rate = rate
@@ -136,8 +137,15 @@ class OrderThrottler:
         self._rate = rate
         self._burst = burst
         self._buckets: dict[str, _Bucket] = {}
+        # The throttler is shared across the asyncio event loop *and* any
+        # thread-pool executor that places orders, so bucket creation and
+        # token consumption must be atomic — two concurrent acquire() calls
+        # that both read _tokens == 1.0 would otherwise both be allowed and
+        # overdraw the bucket, which is exactly the burst the exchange bans.
+        self._lock: threading.Lock = threading.Lock()
 
     def _get_bucket(self, exchange: str) -> _Bucket:
+        """Caller must hold ``self._lock``."""
         if exchange not in self._buckets:
             self._buckets[exchange] = _Bucket(self._rate, self._burst)
         return self._buckets[exchange]
@@ -149,8 +157,8 @@ class OrderThrottler:
         Non-blocking: returns immediately with allowed=False and a wait_s
         estimate if the bucket is empty.
         """
-        bucket = self._get_bucket(exchange)
-        allowed, remaining, wait_s = bucket.try_acquire()
+        with self._lock:
+            allowed, remaining, wait_s = self._get_bucket(exchange).try_acquire()
 
         if not allowed:
             log.warning(
@@ -182,7 +190,8 @@ class OrderThrottler:
 
     def tokens_remaining(self, exchange: str = "default") -> float:
         """Current token count for the given exchange (without consuming)."""
-        return self._get_bucket(exchange).tokens
+        with self._lock:
+            return self._get_bucket(exchange).tokens
 
     def reset(self, exchange: str | None = None) -> None:
         """
@@ -193,25 +202,27 @@ class OrderThrottler:
         exchange:
             If given, resets only that exchange's bucket. If None, resets all.
         """
-        if exchange is not None:
-            if exchange in self._buckets:
-                self._buckets[exchange].reset()
-        else:
-            for b in self._buckets.values():
-                b.reset()
+        with self._lock:
+            if exchange is not None:
+                if exchange in self._buckets:
+                    self._buckets[exchange].reset()
+            else:
+                for b in self._buckets.values():
+                    b.reset()
 
     def set_rate(self, rate: float, burst: int | None = None) -> None:
         """Update rate (and optionally burst) for future buckets and reset existing."""
         if rate <= 0:
             raise ValueError(f"rate must be positive, got {rate}")
-        self._rate = rate
-        if burst is not None:
-            if burst < 1:
-                raise ValueError(f"burst must be >= 1, got {burst}")
-            self._burst = burst
-        # Recreate existing buckets with new params
-        for key in list(self._buckets):
-            self._buckets[key] = _Bucket(self._rate, self._burst)
+        if burst is not None and burst < 1:
+            raise ValueError(f"burst must be >= 1, got {burst}")
+        with self._lock:
+            self._rate = rate
+            if burst is not None:
+                self._burst = burst
+            # Recreate existing buckets with new params
+            for key in list(self._buckets):
+                self._buckets[key] = _Bucket(self._rate, self._burst)
 
     @property
     def rate(self) -> float:
@@ -225,9 +236,10 @@ class OrderThrottler:
     def n_exchanges(self) -> int:
         return len(self._buckets)
 
-    def status(self) -> dict:
-        return {
-            "rate": self._rate,
-            "burst": self._burst,
-            "exchanges": {ex: round(b.tokens, 3) for ex, b in self._buckets.items()},
-        }
+    def status(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "rate": self._rate,
+                "burst": self._burst,
+                "exchanges": {ex: round(b.tokens, 3) for ex, b in self._buckets.items()},
+            }

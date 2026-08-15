@@ -86,6 +86,12 @@ class TestRiskOverlay:
         assert result.slippage_impact_coeff_bps == 15.5
         assert result.ensemble_blend_weight == 0.3
 
+    def test_garch_vol_threshold_overlaid(self) -> None:
+        base = RiskSettings(garch_vol_threshold=0.02)
+        _register("risk.garch_vol_threshold", 0.035, floor=0.001, ceiling=0.50)
+        result = effective_risk_settings(base)
+        assert result.garch_vol_threshold == pytest.approx(0.035)
+
     def test_excluded_risk_fields_never_touched(self) -> None:
         """EXCLUDED_PARAMS (Kelly sizing, drawdown halts, ...) can never be
         registered at all (registry.py enforces this), so there is no code
@@ -132,6 +138,34 @@ class TestFeatureOverlay:
         assert result.volume_zscore_window == 25
         # Fields never registered for self-tuning stay untouched.
         assert result.realized_vol_window_short == base.realized_vol_window_short
+
+    def test_garch_window_overlaid_and_rounded(self) -> None:
+        base = FeatureSettings(garch_window=60)
+        _register("features.garch_window", 80.6, floor=50.0, ceiling=200.0)
+        result = effective_feature_settings(base)
+        assert result.garch_window == 81  # round(80.6)
+
+    def test_garch_window_clamped_to_50_floor(self) -> None:
+        """Promoted value below 50 must be clamped to 50 (garch_window ge=50).
+
+        The registry floor is deliberately looser (2.0) than the overlay's
+        garch-specific floor: TunableParameter now rejects a `current`
+        outside [floor, ceiling], so registering current=30 against
+        floor=50 is no longer constructible. The overlay clamp is the last
+        line of defence when a parameter is registered with a permissive
+        floor, which is exactly what this asserts.
+        """
+        base = FeatureSettings(garch_window=60)
+        _register("features.garch_window", 30.0, floor=2.0, ceiling=200.0)
+        result = effective_feature_settings(base)
+        assert result.garch_window == 50  # max(50, round(30))
+
+    def test_other_windows_still_use_floor_two(self) -> None:
+        """Non-garch windows must not inherit garch's 50 floor."""
+        base = FeatureSettings(atr_window=14)
+        _register("features.atr_window", 1.4, floor=1.0, ceiling=200.0)
+        result = effective_feature_settings(base)
+        assert result.atr_window == 2  # max(2, round(1.4))
 
 
 class TestXGBoostOverlay:

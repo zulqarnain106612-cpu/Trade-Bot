@@ -137,6 +137,45 @@ class TestPaperPosition:
         pnl = pos.mark(110.0)
         assert pnl == pytest.approx(-20.0)
 
+    def _make_pos(self, direction: int = 1) -> PaperPosition:
+        return PaperPosition(
+            trade_id="t1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=direction,
+            entry_price=100.0,
+            quantity=2.0,
+            notional_usd=200.0,
+            entry_ts=1000,
+            kelly_fraction=0.1,
+            regime_at_entry=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            approved_by="auto",
+            execution_mode="automatic",
+            fee_usd=0.2,
+        )
+
+    def test_peak_unrealized_pct_default_zero(self):
+        pos = self._make_pos()
+        assert pos.peak_unrealized_pct == 0.0
+
+    def test_peak_unrealized_pct_increases_on_profit(self):
+        pos = self._make_pos()
+        pos.mark(110.0)  # unrealized = +20 / 200 = +10%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)
+
+    def test_peak_unrealized_pct_does_not_decrease(self):
+        pos = self._make_pos()
+        pos.mark(110.0)  # peak at 10%
+        pos.mark(105.0)  # unrealized = +10 / 200 = 5%
+        assert pos.peak_unrealized_pct == pytest.approx(10.0)  # still 10%
+
+    def test_peak_unrealized_pct_loss_does_not_update(self):
+        pos = self._make_pos()
+        pos.mark(95.0)  # unrealized = -10 / 200 = -5% → not positive, no update
+        assert pos.peak_unrealized_pct == 0.0
+
 
 class TestApprovalRequestToDict:
     """ApprovalRequest.to_dict() serialization."""
@@ -397,7 +436,7 @@ class TestSubmitSignalManual:
             await executor.resolve_approval(req_id, approved=True, operator="carol")
 
         approve_task = asyncio.create_task(approve_soon())
-        trade_id, outcome = await executor.submit_signal(
+        _trade_id, outcome = await executor.submit_signal(
             "BTC/USDT", "15m", 1, kelly, 1, 0.6, 0.5, 100.0
         )
         await approve_task
@@ -592,6 +631,65 @@ class TestApprovalQueueManagement:
     async def test_pending_approvals_safe(self, executor):
         result = await executor.pending_approvals_safe()
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_pending_approvals_safe_also_prunes(self, executor):
+        """H-05: the WS/dashboard path is the one that actually runs, so the
+        queue must shrink there too — not only when an operator hits /approvals."""
+        import time as _time
+
+        from src.execution.paper import ApprovalRequest
+
+        executor._approval_queue["old-resolved"] = ApprovalRequest(
+            request_id="old-resolved",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            direction=1,
+            notional_usd=100.0,
+            entry_price=100.0,
+            quantity=1.0,
+            kelly_fraction=0.1,
+            regime_state=1,
+            meta_label_prob=0.6,
+            raw_signal=0.5,
+            created_at=_time.monotonic() - 7200.0,
+            resolved=True,
+        )
+
+        assert await executor.pending_approvals_safe() == []
+        assert "old-resolved" not in executor._approval_queue
+
+    @pytest.mark.asyncio
+    async def test_pending_approvals_safe_keeps_recent_resolved_and_unresolved(self, executor):
+        """Only *stale* resolved entries go; a fresh one stays for the audit window."""
+        import time as _time
+
+        from src.execution.paper import ApprovalRequest
+
+        def _req(rid: str, *, resolved: bool, age_s: float) -> ApprovalRequest:
+            return ApprovalRequest(
+                request_id=rid,
+                symbol="BTC/USDT",
+                timeframe="15m",
+                direction=1,
+                notional_usd=100.0,
+                entry_price=100.0,
+                quantity=1.0,
+                kelly_fraction=0.1,
+                regime_state=1,
+                meta_label_prob=0.6,
+                raw_signal=0.5,
+                created_at=_time.monotonic() - age_s,
+                resolved=resolved,
+            )
+
+        executor._approval_queue["fresh-resolved"] = _req("fresh-resolved", resolved=True, age_s=1)
+        executor._approval_queue["pending"] = _req("pending", resolved=False, age_s=7200.0)
+
+        result = await executor.pending_approvals_safe()
+
+        assert [r["request_id"] for r in result] == ["pending"]
+        assert "fresh-resolved" in executor._approval_queue
 
 
 class TestAwaitApprovalDirect:

@@ -2,17 +2,27 @@
 Risk gate engine — hard limits that block new positions.
 
 Gates (all must pass for a trade to proceed):
-  0. Slippage / negative-EV veto : expected edge must cover estimated
+  0. Capital preservation floor : v10 whole-book peak-drawdown halt, never
+                               auto-clears — outermost backstop
+  1. Slippage / negative-EV veto : expected edge must cover estimated
                                spread + market-impact cost (GAP-001)
-  1. Daily drawdown halt     : daily PnL < -2% of starting equity → halt
-  2. Consecutive loss halt   : 3+ consecutive losses → halt
-  3. Regime gate             : no new positions when regime = volatile
-  4. Max position size       : position notional ≤ 5% of capital
-  5. Live gate               : both models must pass OOS thresholds before
+  2. Daily drawdown halt     : daily PnL < -2% of starting equity → halt
+  3. Consecutive loss halt   : 3+ consecutive losses → halt
+  4. Regime gate             : no new positions when regime = volatile
+  5. Max position size       : position notional ≤ 5% of capital
+  6. Live gate               : both models must pass OOS thresholds before
                                live trading is permitted
 
 Gates are evaluated in order; first failure short-circuits the rest.
 All thresholds read from RiskSettings — never hard-coded here.
+
+Every gate that compares a number against a threshold rejects a non-finite
+measurement before comparing it (see _non_finite). IEEE-754 makes every
+comparison against NaN False, so an unguarded NaN does not trip a gate — it
+passes through it. "Cannot be measured" is treated as "blocked", never as
+"within limits"; the one gate whose failure is advisory rather than a halt
+(whale activity) reduces size instead. This is distinct from a `None` input,
+which means no data was fetched and continues to fail open by design.
 
 Authority:
   - López de Prado (2018) AFML Ch.3 (stop-loss barriers as risk gates)
@@ -23,8 +33,9 @@ Authority:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import structlog
@@ -46,7 +57,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class GateStatus(str, Enum):
+class GateStatus(StrEnum):
     """Outcome of a risk gate evaluation."""
 
     PASS = "pass"
@@ -60,6 +71,25 @@ class GateStatus(str, Enum):
     HALT_DRIFT = "halt_drift"  # Performance drift detection (GAP-003)
     HALT_EXCHANGE_STRESS = "halt_exchange_stress"  # GAP-015: exchange stress gate
     REDUCE_WHALE_ACTIVITY = "reduce_whale_activity"  # GAP-015: whale selling, size reduced
+    HALT_CAPITAL_PRESERVATION = "halt_capital_preservation"  # v10 outermost drawdown floor
+
+
+def _non_finite(*values: float) -> bool:
+    """
+    True when any of *values* is NaN or an infinity.
+
+    Every threshold comparison in this module is of the form
+    ``measurement <op> limit``, and IEEE-754 makes *every* comparison against
+    NaN False. A NaN measurement therefore does not trip the gate — it slips
+    past it. `<= 0.0` guards do not help for the same reason, so the check has
+    to be explicit and has to come first.
+
+    This is the same defect class already closed one layer down in
+    src/risk/kelly.py (VF-024/026/027/028/029/030). The gates are the last
+    check before an order, so failing open here is worse: kelly.py can only
+    mis-size a trade the gates already approved.
+    """
+    return any(not math.isfinite(v) for v in values)
 
 
 @dataclass(frozen=True)
@@ -67,16 +97,26 @@ class GateResult:
     """
     Outcome of evaluating the full risk gate stack.
 
-    status    : first gate that fired (or PASS)
-    passed    : True only when status == GateStatus.PASS
-    reason    : human-readable explanation
-    details   : structured context for logging / API
+    status      : first gate that fired (or PASS)
+    passed      : True only when status == GateStatus.PASS
+    reason      : human-readable explanation
+    details     : structured context for logging / API
+    size_scalar : multiplicative size ceiling in (0, 1] contributed by
+                  ADVISORY gates — those that reduce a position rather than
+                  veto it. 1.0 means no reduction.
+
+    The scalar exists because this type previously had only pass/fail, which
+    left an advisory gate no way to express "proceed, but smaller". The whale
+    gate was written as advisory, documented as advisory, and — having no
+    channel for a scalar — implemented as a hard fail, so it vetoed trades its
+    own design said should proceed at reduced size. See check_whale_activity.
     """
 
     status: GateStatus
     passed: bool
     reason: str
     details: dict[str, object]
+    size_scalar: float = 1.0
 
     @classmethod
     def pass_gate(cls, details: dict[str, object] | None = None) -> GateResult:
@@ -99,6 +139,31 @@ class GateResult:
             passed=False,
             reason=reason,
             details=details or {},
+        )
+
+    @classmethod
+    def reduce(
+        cls,
+        status: GateStatus,
+        scalar: float,
+        reason: str,
+        details: dict[str, object] | None = None,
+    ) -> GateResult:
+        """
+        An advisory outcome: the trade proceeds, at `scalar` times the size.
+
+        `passed` is True — an advisory gate is not a veto, and reporting it as
+        a failure is exactly the confusion this constructor exists to end.
+        The status is preserved so the reason still reaches the audit trail.
+        """
+        if not 0.0 < scalar <= 1.0:
+            raise ValueError(f"advisory scalar must be in (0, 1], got {scalar}")
+        return cls(
+            status=status,
+            passed=True,
+            reason=reason,
+            details={**(details or {}), "size_scalar": scalar},
+            size_scalar=scalar,
         )
 
 
@@ -147,6 +212,24 @@ def check_slippage_veto(
     if slippage is None:
         return GateResult.pass_gate(details={"slippage_gate": "skipped_no_estimate"})
 
+    # None above means "no estimate was produced" and fails open by design.
+    # A non-finite number is the opposite: an estimate was produced and it is
+    # garbage. Passing it on would clear the negative-EV veto for a trade
+    # whose cost is unknown.
+    if _non_finite(expected_edge_bps, slippage.total_slippage_bps):
+        return GateResult.fail(
+            GateStatus.HALT_NEGATIVE_EV,
+            reason=(
+                "Non-finite edge or slippage estimate — net EV cannot be "
+                "evaluated, so the trade is blocked rather than assumed profitable."
+            ),
+            details={
+                "expected_edge_bps": expected_edge_bps,
+                "total_slippage_bps": slippage.total_slippage_bps,
+                "symbol": slippage.symbol,
+            },
+        )
+
     margin = cfg.slippage_veto_margin_bps
     net_edge_bps = expected_edge_bps - slippage.total_slippage_bps - margin
 
@@ -178,6 +261,38 @@ def check_slippage_veto(
     )
 
 
+def check_capital_preservation_floor(halted: bool) -> GateResult:
+    """
+    Gate 0b: v10 capital preservation floor — the outermost, whole-book
+    drawdown backstop (src/risk/capital_preservation_floor.py).
+
+    Unlike check_daily_drawdown (which resets at UTC midnight), this
+    gate reflects a floor that never auto-clears on equity recovery —
+    only an explicit, out-of-band re_authorize() call on the
+    CapitalPreservationFloor instance can lift it. This gate is a pure
+    read of that instance's halted state; it performs no equity math
+    itself.
+
+    Parameters
+    ----------
+    halted : current CapitalPreservationFloor.is_halted value
+
+    Returns
+    -------
+    GateResult — PASS if not halted, else HALT_CAPITAL_PRESERVATION.
+    """
+    if halted:
+        return GateResult.fail(
+            GateStatus.HALT_CAPITAL_PRESERVATION,
+            reason=(
+                "Capital preservation floor halted: max drawdown from peak "
+                "equity breached — requires explicit re_authorize()"
+            ),
+            details={"halted": True},
+        )
+    return GateResult.pass_gate(details={"halted": False})
+
+
 def check_daily_drawdown(
     daily_pnl_usd: float,
     starting_equity_usd: float,
@@ -200,6 +315,20 @@ def check_daily_drawdown(
     """
     if cfg is None:
         cfg = get_settings().risk
+
+    # Checked before the `<= 0.0` guard, which NaN passes.
+    if _non_finite(daily_pnl_usd, starting_equity_usd):
+        return GateResult.fail(
+            GateStatus.HALT_DRAWDOWN,
+            reason=(
+                "Non-finite daily PnL or starting equity — drawdown cannot be "
+                "measured, so trading is halted rather than assumed within limits."
+            ),
+            details={
+                "daily_pnl_usd": daily_pnl_usd,
+                "starting_equity_usd": starting_equity_usd,
+            },
+        )
 
     if starting_equity_usd <= 0.0:
         return GateResult.fail(
@@ -332,6 +461,19 @@ def check_position_size(
     """
     if cfg is None:
         cfg = get_settings().risk
+
+    # Checked before the `<= 0.0` guard, which NaN passes. Without this a NaN
+    # notional produces a NaN position_pct, and `nan > max_pct` is False, so
+    # the position-size gate approves a position of unknown size.
+    if _non_finite(notional_usd, capital_usd):
+        return GateResult.fail(
+            GateStatus.HALT_POSITION_SIZE,
+            reason=(
+                "Non-finite notional or capital — position size cannot be "
+                "measured against the limit, so the trade is blocked."
+            ),
+            details={"notional_usd": notional_usd, "capital_usd": capital_usd},
+        )
 
     if capital_usd <= 0.0:
         return GateResult.fail(
@@ -495,6 +637,11 @@ class RiskGateContext:
     # blocked (check_slippage_veto fails open on None — see its docstring).
     expected_edge_bps: float = 0.0
     slippage_estimate: SlippageEstimate | None = None
+    # GAP-003 PerformanceDriftDetector. Typed Any to avoid a gates ->
+    # performance_drift import edge; check_performance_drift already takes Any
+    # and only calls check_drift()/get_live_metrics() on it. None = no detector
+    # supplied = the gate passes, which is how it stays inert until wired.
+    drift_detector: Any = None
 
     # GAP-015 — intelligence gate inputs (gates 9 & 10).
     # Populated from BinanceIntelligenceProvider.fetch_metrics();
@@ -502,11 +649,19 @@ class RiskGateContext:
     # never blocks trading.
     exchange_stress_score: float | None = None
     whale_buy_sell_ratio: float | None = None
-    # whale_scalar is set to 0.5 by evaluate_all_gates() when
-    # REDUCE_WHALE_ACTIVITY fires; callers should multiply Kelly
-    # fraction by this value.  Not consumed inside gates.py itself
-    # — it is returned in GateResult.details["whale_scalar"].
-    whale_scalar: float = 1.0
+    # The size multiplier applied when REDUCE_WHALE_ACTIVITY fires *and*
+    # RISK_WHALE_GATE_ADVISORY is on. Previously this field claimed to be set
+    # by evaluate_all_gates() and returned in details["whale_scalar"] — it was
+    # neither: nothing in the repository ever wrote it, read it, or emitted
+    # it, so the documented 50% reduction never happened and the gate blocked
+    # instead. It is now the gate's input, and the resulting reduction travels
+    # out on GateResult.size_scalar.
+    whale_scalar: float = 0.5
+
+    # v10 — outermost capital preservation floor state. Defaults to False
+    # (not halted) so existing call sites that have not yet wired a
+    # CapitalPreservationFloor instance are unaffected.
+    capital_preservation_halted: bool = False
 
 
 def evaluate_all_gates(
@@ -517,13 +672,14 @@ def evaluate_all_gates(
     Evaluate all risk gates in sequence.  Returns on first failure.
 
     Gate order:
-      0. Slippage / negative-EV veto (GAP-001)
-      1. Daily drawdown
-      2. Consecutive losses
-      3. Regime
-      4. Position size
-      5. Paper minimum days (live mode only)
-      6. Live model gate
+      0. Capital preservation floor (v10 — never auto-clears)
+      1. Slippage / negative-EV veto (GAP-001)
+      2. Daily drawdown
+      3. Consecutive losses
+      4. Regime
+      5. Position size
+      6. Paper minimum days (live mode only)
+      7. Live model gate
 
     Parameters
     ----------
@@ -542,6 +698,7 @@ def evaluate_all_gates(
     # evaluation ever moves to a concurrent context. Explicit calls are also
     # fully visible to static analysis and mypy.
     ordered_results: list[GateResult] = [
+        check_capital_preservation_floor(ctx.capital_preservation_halted),
         check_slippage_veto(ctx.expected_edge_bps, ctx.slippage_estimate, cfg),
         check_daily_drawdown(ctx.daily_pnl_usd, ctx.starting_equity_usd, cfg),
         check_consecutive_losses(ctx.consecutive_loss_count, cfg),
@@ -553,11 +710,34 @@ def evaluate_all_gates(
             else GateResult.pass_gate()
         ),
         check_live_gate(ctx.trading_mode, ctx.direction_gate_pass, ctx.meta_gate_pass),
+        # GAP-003 performance drift. Live-only, matching the paper-minimum-days
+        # gate above and this gate's own contract: halting the paper track on
+        # drift would stop the very run that is meant to be gathering the
+        # evidence about whether the drift persists.
+        #
+        # Grouped with check_live_gate because both answer "is the model still
+        # good enough to trade", as opposed to the position-level checks above
+        # them. Fails open on a None detector, so this is a no-op until the
+        # orchestrator actually supplies one.
+        (
+            check_performance_drift(ctx.drift_detector)
+            if ctx.trading_mode == TradingMode.LIVE
+            else GateResult.pass_gate()
+        ),
         # GAP-015: intelligence gates — fail open (PASS) when data unavailable
         check_exchange_stress(ctx.exchange_stress_score),
-        check_whale_activity(ctx.whale_buy_sell_ratio),
+        check_whale_activity(
+            ctx.whale_buy_sell_ratio,
+            advisory=(cfg or get_settings().risk).whale_gate_advisory,
+            advisory_scalar=ctx.whale_scalar,
+        ),
     ]
 
+    # Advisory results pass, so they do not short-circuit; their scalars
+    # multiply into the ceiling carried by the final PASS. Only a genuine
+    # veto returns early.
+    advisory_scalar = 1.0
+    advisory_details: dict[str, object] = {}
     for result in ordered_results:
         if not result.passed:
             log.warning(
@@ -567,6 +747,15 @@ def evaluate_all_gates(
                 **dict(result.details.items()),
             )
             return result
+        if result.size_scalar < 1.0:
+            advisory_scalar *= result.size_scalar
+            advisory_details[f"{result.status.value}_scalar"] = result.size_scalar
+            log.info(
+                "risk.gate.reduced",
+                status=result.status.value,
+                scalar=result.size_scalar,
+                reason=result.reason,
+            )
 
     log.debug(
         "risk.gate.pass",
@@ -576,7 +765,15 @@ def evaluate_all_gates(
         if ctx.starting_equity_usd > 0
         else 0.0,
         notional_usd=ctx.notional_usd,
+        size_scalar=round(advisory_scalar, 4),
     )
+    if advisory_scalar < 1.0:
+        return GateResult.reduce(
+            GateStatus.PASS,
+            advisory_scalar,
+            reason="all gates passed; advisory gates reduced size",
+            details=advisory_details,
+        )
     return GateResult.pass_gate()
 
 
@@ -702,7 +899,26 @@ def check_performance_drift(drift_detector: Any) -> GateResult:
     if drift_detector is None:
         return GateResult.pass_gate(details={"reason": "drift_detector_not_enabled"})
 
-    drift = drift_detector.check_drift()
+    try:
+        drift = drift_detector.check_drift()
+    except Exception as exc:
+        # Fail CLOSED, unlike the intelligence gates below. Those fail open
+        # because a third-party feed being down says nothing about our model;
+        # this gate measures our own realized performance, so a check that
+        # cannot run means the model's state is unknown -- and opening a new
+        # position on an unknown model is the exact hazard the gate exists
+        # for. check_drift() already returns drifted=False when it merely
+        # lacks data, so reaching here is a genuine fault, not a cold start.
+        #
+        # Live-only (see evaluate_all_gates), so paper keeps running, and an
+        # operator who needs to trade through it can clear the detector.
+        log.error("gates.drift_check_failed", error=str(exc), exc_info=True)
+        return GateResult.fail(
+            GateStatus.HALT_DRIFT,
+            reason=f"performance drift check failed: {exc}",
+            details={"metric": "unavailable", "error": str(exc)},
+        )
+
     if drift.drifted:
         return GateResult.fail(
             GateStatus.HALT_DRIFT,
@@ -736,9 +952,10 @@ def check_performance_drift(drift_detector: Any) -> GateResult:
 # Sourced from BinanceIntelligenceProvider (free public API; no key required).
 # ExchangeStressGate: halt when composite stress (basis+funding+OI) exceeds
 #   threshold.  Protects against contagion/counterparty risk.
-# WhaleActivityGate: reduce position scalar when taker-sell pressure dominates.
-#   Returns REDUCE_WHALE_ACTIVITY (not HALT) — orchestrator applies the
-#   whale_scalar to correlation_scalar so sizing shrinks, never blocks fully.
+# WhaleActivityGate: taker-sell pressure dominates. Blocks by default; with
+#   RISK_WHALE_GATE_ADVISORY=true it instead passes with
+#   GateResult.size_scalar < 1.0 so sizing shrinks rather than blocking.
+#   Consuming that scalar in Kelly is still pending — see check_whale_activity.
 # Both gates fail open (PASS) when intelligence_metrics is None so the
 # signal path is never blocked by a provider failure.
 # ---------------------------------------------------------------------------
@@ -776,6 +993,20 @@ def check_exchange_stress(
         return GateResult.pass_gate(details={"exchange_stress_gate": "skipped_no_data"})
 
     score = float(exchange_stress_score)
+
+    # None (above) means the provider returned no data and is a deliberate
+    # fail-open. NaN means it returned data that is not a number — the stress
+    # composite arrived broken. `score > halt_threshold` is False for NaN, so
+    # without this the most stressed possible reading passes the halt.
+    if _non_finite(score):
+        return GateResult.fail(
+            GateStatus.HALT_EXCHANGE_STRESS,
+            reason=(
+                "Non-finite exchange stress score — contagion risk cannot be "
+                "assessed, so new positions are halted rather than assumed safe."
+            ),
+            details={"exchange_stress_score": exchange_stress_score},
+        )
 
     if score > stress_halt_threshold:
         return GateResult.fail(
@@ -815,9 +1046,44 @@ def check_exchange_stress(
     )
 
 
+def _whale_outcome(
+    status: GateStatus,
+    advisory: bool,
+    scalar: float,
+    *,
+    reason: str,
+    details: dict[str, object],
+) -> GateResult:
+    """
+    Express a whale trigger as either a size reduction or a veto.
+
+    Advisory is what the gate was designed for and what its surrounding
+    documentation has always described. It is NOT the default, because for
+    the life of this gate the code has vetoed instead, and switching a live
+    risk control from "block" to "trade at half size" is a trading-policy
+    change an operator makes deliberately — not one that arrives inside a
+    bug fix. RISK_WHALE_GATE_ADVISORY=true opts in.
+    """
+    if advisory:
+        return GateResult.reduce(
+            status,
+            scalar,
+            reason=f"{reason} Size reduced to {scalar:.0%} rather than blocked.",
+            details={**details, "whale_action": f"reduce_to_{scalar:.0%}"},
+        )
+    return GateResult.fail(
+        status,
+        reason=f"{reason} Trade blocked (advisory mode off).",
+        details={**details, "whale_action": "block"},
+    )
+
+
 def check_whale_activity(
     whale_buy_sell_ratio: float | None,
     sell_threshold: float = 0.85,
+    *,
+    advisory: bool = False,
+    advisory_scalar: float = 0.5,
 ) -> GateResult:
     """
     Gate 10: taker-flow whale activity filter (sizing advisory).
@@ -849,18 +1115,34 @@ def check_whale_activity(
 
     ratio = float(whale_buy_sell_ratio)
 
-    if ratio < sell_threshold:
-        return GateResult.fail(
+    # As with exchange stress: None is "no data" and fails open, a non-finite
+    # number is corrupt data. This gate's failure is advisory (halve the
+    # position), so an unreadable taker flow reduces size rather than
+    # silently reading as neutral.
+    if _non_finite(ratio):
+        return _whale_outcome(
             GateStatus.REDUCE_WHALE_ACTIVITY,
+            advisory,
+            advisory_scalar,
+            reason=(
+                "Non-finite whale buy/sell ratio — taker flow cannot be read, "
+                "so position size is reduced rather than assumed neutral."
+            ),
+            details={"whale_buy_sell_ratio": whale_buy_sell_ratio},
+        )
+
+    if ratio < sell_threshold:
+        return _whale_outcome(
+            GateStatus.REDUCE_WHALE_ACTIVITY,
+            advisory,
+            advisory_scalar,
             reason=(
                 f"Whale taker sell pressure: buy/sell ratio {ratio:.3f} < "
-                f"threshold {sell_threshold:.2f}. "
-                "Net selling pressure detected — position size reduced by 50%."
+                f"threshold {sell_threshold:.2f}. Net selling pressure detected."
             ),
             details={
                 "whale_buy_sell_ratio": round(ratio, 4),
                 "sell_threshold": sell_threshold,
-                "whale_action": "reduce_50pct",
             },
         )
 
@@ -888,6 +1170,9 @@ def check_position_exit(
     take_profit_enabled: bool,
     take_profit_pct: float,
     max_holding_period_s: float,
+    trailing_stop_enabled: bool = False,
+    trailing_stop_pct: float = 1.5,
+    peak_unrealized_pct: float = 0.0,
 ) -> str | None:
     """
     Evaluate whether an open position should be closed automatically.
@@ -908,6 +1193,16 @@ def check_position_exit(
                             (matches PaperPosition.entry_ts / LivePosition.entry_ts).
     now_ts_ms             : current timestamp, epoch milliseconds.
     stop_loss_enabled     : runtime toggle (RuntimeConfig.get_risk_controls()).
+    All four thresholds are compared against unrealized_pnl_pct, which is
+    GROSS: the marked price move over notional, with no fee deducted. That
+    is the right basis for a mark-to-market — the entry fee has already left
+    cash and the exit fee is not owed until the position closes — but it
+    means a threshold is not the realised outcome. A 2.0 stop closes on a 2%
+    adverse move and books roughly 2.2% once both legs of a 0.1% taker fee
+    settle; a 1.0 profit target books roughly 0.8%. Operators sizing these
+    against a target net result should add the round trip themselves, and a
+    profit target below the round trip cannot be profitable at all.
+
     stop_loss_pct         : close when unrealized_pnl_pct <= -stop_loss_pct.
     take_profit_enabled   : runtime toggle.
     take_profit_pct       : close when unrealized_pnl_pct >= take_profit_pct.
@@ -918,16 +1213,35 @@ def check_position_exit(
                             estimates for is a correctness issue, not merely a
                             risk-preference choice the operator should be able
                             to switch off.
+    trailing_stop_enabled : when True, close if unrealized_pnl_pct has
+                            retreated more than trailing_stop_pct from its
+                            all-time peak since entry.
+    trailing_stop_pct     : drawdown from peak that triggers the trailing stop.
+    peak_unrealized_pct   : highest unrealized PnL % seen since position open
+                            (tracked by PaperPosition.mark / LivePosition.mark).
 
     Returns
     -------
-    str | None -- one of "stop_loss", "profit_target", "time_exit", or None
-    if the position should remain open. These string values match the
-    exit_reason values already documented in PaperExecutor.close_position's
-    docstring ('profit_target' | 'stop_loss' | 'time_exit' | 'manual').
+    str | None -- one of "stop_loss", "trailing_stop", "profit_target",
+    "time_exit", "invalid_mark", or None if the position should remain open.
     """
+    # A non-finite mark disables stop-loss, trailing stop and take-profit in
+    # one go — all three are comparisons against unrealized_pnl_pct, and all
+    # three are False for NaN. The position would then sit unprotected until
+    # the time exit, which is precisely the situation a stop-loss exists for.
+    # Closing is the conservative response: a position whose P&L cannot be
+    # read cannot be risk-managed, and it gets its own reason string so the
+    # trade record does not claim a stop-loss that was never measured.
+    if _non_finite(unrealized_pnl_pct):
+        return "invalid_mark"
+
     if stop_loss_enabled and unrealized_pnl_pct <= -abs(stop_loss_pct):
         return "stop_loss"
+
+    if trailing_stop_enabled and peak_unrealized_pct > 0.0:
+        drawdown_from_peak = peak_unrealized_pct - unrealized_pnl_pct
+        if drawdown_from_peak >= abs(trailing_stop_pct):
+            return "trailing_stop"
 
     if take_profit_enabled and unrealized_pnl_pct >= abs(take_profit_pct):
         return "profit_target"

@@ -13,6 +13,7 @@ from src.risk.gates import (
     DrawdownTracker,
     GateStatus,
     RiskGateContext,
+    check_capital_preservation_floor,
     check_consecutive_losses,
     check_daily_drawdown,
     check_live_gate,
@@ -199,9 +200,26 @@ def _make_ctx(**overrides) -> RiskGateContext:
     return RiskGateContext(**defaults)
 
 
+class TestCapitalPreservationFloor:
+    def test_pass_when_not_halted(self):
+        assert check_capital_preservation_floor(halted=False).passed
+
+    def test_blocks_when_halted(self):
+        result = check_capital_preservation_floor(halted=True)
+        assert not result.passed
+        assert result.status == GateStatus.HALT_CAPITAL_PRESERVATION
+
+
 class TestEvaluateAllGates:
     def test_full_pass(self):
         assert evaluate_all_gates(_make_ctx()).passed
+
+    def test_capital_preservation_blocks_first(self):
+        # Even with every other input passing, the v10 floor is gate 0 and
+        # must short-circuit before daily drawdown / consecutive losses / etc.
+        ctx = _make_ctx(capital_preservation_halted=True)
+        result = evaluate_all_gates(ctx)
+        assert result.status == GateStatus.HALT_CAPITAL_PRESERVATION
 
     def test_drawdown_blocks_first(self):
         ctx = _make_ctx(daily_pnl_usd=-30.0, consecutive_loss_count=0)
@@ -369,3 +387,22 @@ class TestEvaluateAllGatesSlippageWiring:
         est = SlippageModel().estimate("BTC/USDT", qty=0.1, price=100.0, adv_20d=10_000.0)
         ctx = _make_ctx(expected_edge_bps=50.0, slippage_estimate=est)
         assert evaluate_all_gates(ctx).passed
+
+
+class TestDrawdownTrackerEdgeCases:
+    """Cover DrawdownTracker edge cases (peak <= 0 guard and alias property)."""
+
+    def test_drawdown_returns_zero_at_starting_equity(self) -> None:
+        from src.risk.gates import DrawdownTracker
+
+        # starting_equity must be > 0; after construction with no updates,
+        # current == peak so drawdown_from_peak_pct is 0.0.
+        dt = DrawdownTracker(starting_equity=100.0)
+        assert dt.drawdown_from_peak_pct == 0.0
+
+    def test_alltime_peak_alias_matches_drawdown_from_peak(self) -> None:
+        from src.risk.gates import DrawdownTracker
+
+        dt = DrawdownTracker(1000.0)
+        dt.update(900.0)
+        assert dt.drawdown_from_alltime_peak_pct == dt.drawdown_from_peak_pct

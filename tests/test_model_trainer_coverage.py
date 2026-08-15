@@ -19,22 +19,14 @@ import pytest
 from xgboost import XGBClassifier
 
 from src.config import FeatureSettings, XGBoostSettings
-from src.features.pipeline import FeatureMatrix
+from src.features.pipeline import BASE_FEATURE_COLUMNS, FeatureMatrix
 from src.models.trainer import ModelTrainer, TrainingResult
 from src.risk.kelly import compute_win_loss_stats
 
 
-# Exact column names from src/features/pipeline.py
-FEATURES = [
-    "frac_diff",
-    "vwap_dev_zscore",
-    "ofi",
-    "realized_vol_ratio",
-    "atr_momentum",
-    "rolling_sharpe",
-    "volume_zscore",
-]
-N = len(FEATURES)  # 7
+# Derived from BASE_FEATURE_COLUMNS so the count stays in sync as features are added.
+FEATURES = list(BASE_FEATURE_COLUMNS)
+N = len(FEATURES)  # 8 after garch_vol_forecast added as 8th base feature
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +226,7 @@ class TestPredictDirection:
     def test_boundary_p_long_half_is_long(self):
         dm = _fitted_dir()
         with patch.object(dm, "predict_proba", return_value=np.array([[0.5, 0.5]])):
-            d, p = _trainer().predict_direction(dm, _vec())
+            d, _p = _trainer().predict_direction(dm, _vec())
         assert d == 1  # >= 0.5 → long
 
 
@@ -260,7 +252,7 @@ class TestPredictMeta:
     def test_meta_0_when_p_bet_low(self):
         mm = _fitted_meta()
         with patch.object(mm, "predict_proba", return_value=np.array([[0.9, 0.1]])):
-            meta, p = _trainer().predict_meta(mm, _vec(), p_long=0.3)
+            meta, _p = _trainer().predict_meta(mm, _vec(), p_long=0.3)
         assert meta == 0
 
     def test_shape_mismatch_raises(self):
@@ -313,12 +305,12 @@ class TestComputeWinLossStats:
         assert len(result) == 4
 
     def test_empty_list_returns_defaults(self):
-        wp, aw, al, _std = compute_win_loss_stats([])
+        wp, _aw, _al, _std = compute_win_loss_stats([])
         assert wp == pytest.approx(0.5)
 
     def test_all_wins_returns_defaults(self):
         # No losses → safe default
-        wp, aw, al, _std = compute_win_loss_stats([10.0] * 60)
+        wp, _aw, _al, _std = compute_win_loss_stats([10.0] * 60)
         assert wp == pytest.approx(0.5)
 
     def test_balanced_pnl_correct_stats(self):
@@ -652,7 +644,7 @@ class TestOosSharpeAndDrawdown:
 
         returns = np.array([0.01])
         y_pred = np.array([1])
-        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, _dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert sharpe == 0.0  # sigma=0 → fallback
 
     def test_nan_returns_zero_sharpe(self):
@@ -660,7 +652,7 @@ class TestOosSharpeAndDrawdown:
 
         returns = np.array([np.nan, np.nan])
         y_pred = np.array([1, 0])
-        sharpe, dd = oos_sharpe_and_drawdown(y_pred, returns)
+        sharpe, _dd = oos_sharpe_and_drawdown(y_pred, returns)
         assert np.isfinite(sharpe)
 
     def test_max_drawdown_capped_at_100(self):
@@ -927,7 +919,7 @@ class TestPredictMetaEdgeCases:
         assert 0.0 <= p <= 1.0
 
     def test_available_base_cols_fewer_than_expected_raises(self):
-        mm = _fitted_meta()  # trained on N + 2 = 9 features
+        mm = _fitted_meta()  # trained on N + 2 features
         short_vec = _vec()[:2]  # only 2 base columns available
         with pytest.raises(ValueError, match="feature schema"):
             _trainer().predict_meta(mm, short_vec, p_long=0.5)

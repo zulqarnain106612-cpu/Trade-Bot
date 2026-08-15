@@ -1,6 +1,12 @@
 """
 Online Learning Hook — TASK-008.
 
+NOT wired into the live signal path: nothing imports this module, so no
+prediction is blended with the batch model today. The blending weight and
+warm-up policy below describe how a caller should use it, not behaviour any
+running code exhibits. Wiring it means touching src/engine/signal_engine.py's
+prediction path, which is a live-trading change, not a refactor.
+
 Incremental SGD classifier that updates after every resolved bar, catching
 label drift between expensive XGBoost batch retrains (AFML Ch.11).
 
@@ -197,7 +203,7 @@ class OnlineTrainer:
             if predicted is not None:
                 self._dir_model.record_outcome(predicted, label)
         except Exception as exc:
-            self._log.debug("online_trainer.learn_direction_failed", error=str(exc))
+            self._log.debug("online_trainer.learn_direction_failed", error=str(exc), exc_info=True)
 
     def learn_meta(
         self,
@@ -224,7 +230,7 @@ class OnlineTrainer:
             if predicted is not None:
                 self._meta_model.record_outcome(predicted, label)
         except Exception as exc:
-            self._log.debug("online_trainer.learn_meta_failed", error=str(exc))
+            self._log.debug("online_trainer.learn_meta_failed", error=str(exc), exc_info=True)
 
     # ------------------------------------------------------------------
     # Prediction / blending
@@ -267,7 +273,7 @@ class OnlineTrainer:
                 applied_weight = w
 
             except Exception as exc:
-                self._log.debug("online_trainer.blend_failed", error=str(exc))
+                self._log.debug("online_trainer.blend_failed", error=str(exc), exc_info=True)
                 # Fail-open: fall back to batch values
                 online_p_long = batch_p_long
                 online_p_bet = batch_p_bet
@@ -315,7 +321,7 @@ class OnlineTrainer:
                 meta_samples=self._meta_model.n_samples,
             )
         except Exception as exc:
-            self._log.warning("online_trainer.save_failed", error=str(exc))
+            self._log.warning("online_trainer.save_failed", error=str(exc), exc_info=True)
 
     def _try_load(self, model_dir: Path) -> None:
         """Load persisted models if present. Silent no-op on any failure."""
@@ -335,7 +341,7 @@ class OnlineTrainer:
                     samples=self._meta_model.n_samples,
                 )
         except Exception as exc:
-            self._log.warning("online_trainer.load_failed", error=str(exc))
+            self._log.warning("online_trainer.load_failed", error=str(exc), exc_info=True)
             # Reset to fresh models to avoid corrupt state.
             self._dir_model = self._make_dir_model()
             self._meta_model = self._make_meta_model()

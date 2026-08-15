@@ -18,7 +18,7 @@ env:
 jobs:
   backend:
     name: Backend (Python 3.11)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
 
@@ -32,8 +32,12 @@ jobs:
           POSTGRES_USER: tradebot
           POSTGRES_PASSWORD: tradebot-local
           POSTGRES_DB: tradebot
+        # Ephemeral host port, not a fixed 5433. Self-hosted runners share one
+        # host, so two Backend jobs running concurrently would collide on any
+        # fixed mapping ("bind: address already in use"). The assigned port is
+        # read back via job.services.timescaledb.ports below.
         ports:
-          - 5433:5432
+          - 5432/tcp
         options: >-
           --health-cmd "pg_isready -U tradebot -d tradebot"
           --health-interval 5s
@@ -41,15 +45,22 @@ jobs:
           --health-retries 12
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+
+      - name: Requirements drift check
+        # A package declared only in requirements.txt is never installed: the
+        # lock CI installs is compiled from requirements.in alone. duckdb sat
+        # in that state and every DuckDBStore test failed on ModuleNotFoundError.
+        # Runs before install so drift fails fast, on stdlib only.
+        run: python scripts/check_requirements_sync.py
 
       - name: Install dependencies
         run: |
@@ -62,8 +73,9 @@ jobs:
             pip install -e ".[dev]"
             echo "WARNING: requirements.lock not found — install is unhashed. Run pip-compile --generate-hashes to create it."
           fi
-          # requirements-dev.txt (lint/type/secret-scan tooling) isn't pinned in
-          # requirements.lock, so install it unconditionally.
+          # requirements.lock is compiled from requirements.in (prod deps only);
+          # dev tools (detect-secrets, ruff, mypy, pytest-cov) live in
+          # requirements-dev.txt and are installed unhashed on top.
           pip install -r requirements-dev.txt
 
       - name: Secret scanning — fail on unaudited baseline entries
@@ -104,6 +116,7 @@ jobs:
         id: pytest
         env:
           TRADING_MODE: paper
+          STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:${{ job.services.timescaledb.ports['5432'] }}/tradebot  # pragma: allowlist secret
           BINANCE_API_KEY: dummy
           BINANCE_API_SECRET: dummy
           OKX_API_KEY: dummy
@@ -123,7 +136,7 @@ jobs:
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-results
           path: |
@@ -133,15 +146,15 @@ jobs:
 
   frontend:
     name: Frontend (Node 20)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       result: ${{ job.status }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -161,7 +174,7 @@ jobs:
         run: npm run build
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist/
@@ -169,7 +182,7 @@ jobs:
 
   auto-fix:
     name: Auto-Fix and Re-trigger
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: [backend, frontend]
     if: |
       always() &&
@@ -178,13 +191,13 @@ jobs:
       (needs.backend.result == 'failure' || needs.frontend.result == 'failure')
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip

@@ -12,6 +12,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from src.config import StrategyPortfolioSettings
+
 
 # We need a valid API key for the tests
 _API_KEY = "x" * 32
@@ -35,6 +37,7 @@ def _make_state():
     orch._executor.open_positions_safe = AsyncMock(return_value=[])
     orch._executor.pending_approvals_safe = AsyncMock(return_value=[])
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch
@@ -264,6 +267,29 @@ def test_status_route_when_ready(mock_state):
     data = resp.json()
     assert "equity_usd" in data
     assert "cash_usd" in data
+    assert "degradation_report" in data
+    assert isinstance(data["degradation_report"], dict)
+    # No engine has a candidate under evaluation, so the map is empty rather
+    # than absent — an operator can tell "nothing in shadow" from "field gone".
+    assert data["shadow_models"] == {}
+
+
+def test_status_route_reports_a_shadow_model_under_evaluation(mock_state):
+    engine = AsyncMock()
+    engine.shadow_status = AsyncMock(
+        return_value={"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    )
+    idle_engine = AsyncMock()
+    idle_engine.shadow_status = AsyncMock(return_value=None)
+    mock_state.orchestrator._engines = {"15m": engine, "5m": idle_engine}
+
+    client = _get_client()
+    resp = client.get("/status", headers={"x-api-key": _API_KEY})
+
+    assert resp.status_code == 200
+    assert resp.json()["shadow_models"] == {
+        "15m": {"model_id": "v2", "evaluations": 7, "ready_to_promote": False}
+    }
 
 
 def test_status_route_not_ready(mock_state):
@@ -678,6 +704,9 @@ def test_lifespan_insecure_bind_warning(monkeypatch):
     fake_cfg.api.cors_origins = []
     fake_cfg.trading_mode.value = "paper"
     fake_cfg.self_tuning.enabled = False
+    # Real settings object: the lifespan registers the strategy portfolio,
+    # which reads float capital ceilings off this attribute.
+    fake_cfg.strategy_portfolio = StrategyPortfolioSettings()
 
     class _FetcherCtx:
         async def __aenter__(self):
@@ -725,6 +754,9 @@ def test_lifespan_no_insecure_bind_warning_when_tls_configured(monkeypatch):
     fake_cfg.api.cors_origins = []
     fake_cfg.trading_mode.value = "paper"
     fake_cfg.self_tuning.enabled = False
+    # Real settings object: the lifespan registers the strategy portfolio,
+    # which reads float capital ceilings off this attribute.
+    fake_cfg.strategy_portfolio = StrategyPortfolioSettings()
 
     class _FetcherCtx:
         async def __aenter__(self):
@@ -1201,351 +1233,362 @@ def test_intelligence_providers_exception(mock_state):
 
 
 # ---------------------------------------------------------------------------
-# /debug/order-throttler
+# /strategies/allocation — new performance-weighted allocation endpoint
 # ---------------------------------------------------------------------------
 
 
-def test_settings_strategy_route(mock_state):
+def test_strategies_allocation_empty_registry(mock_state):
     client = _get_client()
-    resp = client.get("/settings/strategy", headers={"x-api-key": _API_KEY})
+    with patch("src.api.main.get_default_registry") as mock_reg:
+        mock_reg.return_value.all.return_value = []
+        resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
-    body = resp.json()
-    assert "mean_reversion" in body
-    assert "breakout" in body
-    assert "regime_selector" in body
-    assert body["mean_reversion"]["mr_lookback"] == 20
-    assert body["breakout"]["bo_entry_period"] == 20
-    assert body["regime_selector"]["rs_min_confidence"] == pytest.approx(0.55)
+    data = resp.json()
+    assert data["allocations"] == {}
+    assert data["method"] == "equal_weight"
 
 
-# ---------------------------------------------------------------------------
-# /debug/regime-pulse
-# ---------------------------------------------------------------------------
+def test_strategies_allocation_with_strategies(mock_state):
+    from unittest.mock import MagicMock
 
+    strategy = MagicMock()
+    strategy.strategy_id = "signal_engine_v1"
+    strategy.required_capital_fraction.return_value = 1.0
 
-def test_debug_regime_pulse_no_regime_data(mock_state):
-    mock_state.storage.latest_regime = AsyncMock(return_value=None)
     client = _get_client()
-    resp = client.get("/debug/regime-pulse", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert "ready_to_trade" in body
-    assert "regime" in body
-    assert "strategy_selected" in body
-    assert "kill_switch_active" in body
-    assert "macro_budget_ok" in body
-    assert "gates" in body
-
-
-def test_debug_regime_pulse_with_regime_data(mock_state):
-    mock_state.storage.latest_regime = AsyncMock(
-        return_value={"state": 1, "confidence": 0.85, "entropy": 0.10, "is_transition": False}
-    )
-    client = _get_client()
-    resp = client.get("/debug/regime-pulse", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["regime"]["state"] == 1
-    assert body["regime"]["confidence"] == pytest.approx(0.85)
-
-
-def test_debug_regime_pulse_volatile_not_ready(mock_state):
-    mock_state.storage.latest_regime = AsyncMock(
-        return_value={"state": 2, "confidence": 0.90, "entropy": 0.05, "is_transition": False}
-    )
-    client = _get_client()
-    resp = client.get("/debug/regime-pulse", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    # Volatile regime -> strategy neutral -> ready_to_trade must be False
-    assert body["ready_to_trade"] is False
-    assert body["gates"]["regime_ok"] is False
-
-
-# ---------------------------------------------------------------------------
-# /debug/order-throttler
-# ---------------------------------------------------------------------------
-
-
-def test_debug_order_throttler_route(mock_state):
-    client = _get_client()
-    resp = client.get("/debug/order-throttler", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert "default_params" in body
-    assert body["default_params"]["rate_per_second"] == 10.0
-    assert body["default_params"]["burst"] == 20
-
-
-# ---------------------------------------------------------------------------
-# /debug/portfolio-correlation
-# ---------------------------------------------------------------------------
-
-
-def test_debug_portfolio_correlation_empty(mock_state):
-    from src.risk.portfolio_correlation import PortfolioCorrelationTracker
-
-    with patch(
-        "src.risk.portfolio_correlation._portfolio_correlation",
-        PortfolioCorrelationTracker(),
+    with (
+        patch("src.api.main.get_default_registry") as mock_reg,
+        patch("src.api.main.get_attribution_tracker") as mock_tracker,
     ):
-        client = _get_client()
-        resp = client.get("/debug/portfolio-correlation", headers={"x-api-key": _API_KEY})
+        mock_reg.return_value.all.return_value = [strategy]
+        mock_tracker.return_value.fill_count.return_value = 0
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["n_symbols"] == 0
-    assert body["tracked_symbols"] == []
-    assert body["correlation_matrix"] == {}
+    data = resp.json()
+    assert "allocations" in data
+    assert "method" in data
+    assert "fill_count" in data
 
 
-def test_debug_portfolio_correlation_with_data(mock_state):
-    import numpy as np
+def _allocation_strategy(strategy_id: str):
+    from unittest.mock import MagicMock
 
-    from src.risk.portfolio_correlation import PortfolioCorrelationTracker
+    strategy = MagicMock()
+    strategy.strategy_id = strategy_id
+    strategy.required_capital_fraction.return_value = 1.0
+    return strategy
 
-    tracker = PortfolioCorrelationTracker(halflife=10)
-    rng = np.random.default_rng(7)
-    for _ in range(50):
-        tracker.push_bar_returns(
-            {
-                "BTC/USDT": float(rng.standard_normal()),
-                "ETH/USDT": float(rng.standard_normal()),
-            }
+
+def test_strategies_allocation_reports_applied_and_target(mock_state):
+    """
+    The endpoint reports the allocation the book is running alongside the
+    one the allocator currently wants. Reading it must not advance either.
+    """
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        controller = get_allocation_controller(0.10)
+        controller.step_toward({"a": 0.5, "b": 0.5})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+            second = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == {"a": 0.5, "b": 0.5}
+        assert data["target_allocations"] == pytest.approx({"a": 0.5, "b": 0.5})
+        assert data["max_shift_per_step"] == pytest.approx(0.10)
+        # Reading twice must not step the controller — the rebalance cadence
+        # belongs to the orchestrator, not to whoever polls the dashboard.
+        assert second.json()["allocations"] == data["allocations"]
+    finally:
+        reset_allocation_controller()
+
+
+def test_strategies_allocation_falls_back_to_target_before_first_rebalance(mock_state):
+    from src.tuning.meta_allocator import reset_allocation_controller
+
+    reset_allocation_controller()
+    try:
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.get_attribution_tracker") as mock_tracker,
+        ):
+            mock_reg.return_value.all.return_value = [_allocation_strategy("a")]
+            mock_tracker.return_value.fill_count.return_value = 0
+            mock_tracker.return_value.snapshot.return_value = {}
+            resp = client.get("/strategies/allocation", headers={"x-api-key": _API_KEY})
+
+        data = resp.json()
+        assert data["allocations"] == data["target_allocations"]
+        assert data["allocations"]["a"] == pytest.approx(1.0)
+    finally:
+        reset_allocation_controller()
+
+
+def test_allocation_stress_test_uses_the_applied_allocation(mock_state):
+    """A crash tests the positions held today, not the target being crept toward."""
+    from src.tuning.meta_allocator import (
+        get_allocation_controller,
+        reset_allocation_controller,
+    )
+
+    reset_allocation_controller()
+    try:
+        get_allocation_controller(0.10).step_toward({"a": 1.0, "b": 0.0})
+
+        client = _get_client()
+        with (
+            patch("src.api.main.get_default_registry") as mock_reg,
+            patch("src.api.main.performance_weighted_allocate") as mock_alloc,
+        ):
+            mock_reg.return_value.all.return_value = [
+                _allocation_strategy("a"),
+                _allocation_strategy("b"),
+            ]
+            resp = client.get("/strategies/stress-test", headers={"x-api-key": _API_KEY})
+
+        assert resp.status_code == 200
+        assert resp.json()["allocations"] == {"a": 1.0, "b": 0.0}
+        mock_alloc.assert_not_called()
+    finally:
+        reset_allocation_controller()
+
+
+# ---------------------------------------------------------------------------
+# GET /strategies/gauntlet
+# ---------------------------------------------------------------------------
+
+
+def _gauntlet_fills(count: int, first_entry_ms: int):
+    from src.diagnostics.attribution import AttributedFill
+
+    day_ms = 86_400_000
+    return [
+        AttributedFill(
+            strategy_id="alpha",
+            pnl_usd=10.0,
+            entry_ts=first_entry_ms + i * day_ms,
+            exit_ts=first_entry_ms + (i + 1) * day_ms,
         )
-
-    with patch(
-        "src.risk.portfolio_correlation._portfolio_correlation",
-        tracker,
-    ):
-        client = _get_client()
-        resp = client.get("/debug/portfolio-correlation", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["n_symbols"] == 2
-    assert "BTC/USDT" in body["tracked_symbols"]
+        for i in range(count)
+    ]
 
 
-# ---------------------------------------------------------------------------
-# /journal/summary
-# ---------------------------------------------------------------------------
-
-
-def test_journal_summary_empty(mock_state):
-    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+def test_strategies_gauntlet_empty_tracker(mock_state):
     client = _get_client()
-    resp = client.get("/journal/summary", headers={"x-api-key": _API_KEY})
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {}
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["n_trades"] == 0
-    assert body["win_rate"] == 0.0
-    assert body["by_regime"] == {}
-    assert body["by_exit_reason"] == {}
+    data = resp.json()
+    assert data["candidates"] == {}
+    assert data["criteria"]["min_trades"] == 30
+    assert data["equity_usd"] == 100_000.0
 
 
-def test_journal_summary_with_trades(mock_state):
+def test_strategies_gauntlet_reports_failed_criteria(mock_state):
+    import time
+
+    now_ms = int(time.time() * 1000)
+    fills = _gauntlet_fills(3, now_ms - 3 * 86_400_000)
+    client = _get_client()
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = fills
+        mock_tracker.return_value.first_entry_ts_for.return_value = fills[0].entry_ts
+        mock_tracker.return_value.lifetime_trade_count.return_value = len(fills)
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["passed"] is False
+    assert candidate["trade_count"] == 3
+    # too few trades AND too few days running — both must be reported, not just the first
+    assert any("trade_count" in c for c in candidate["failed_criteria"])
+    assert any("days_running" in c for c in candidate["failed_criteria"])
+
+
+def test_strategies_gauntlet_requires_api_key(mock_state):
+    resp = _get_client().get("/strategies/gauntlet")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /debug/reconcile
+# ---------------------------------------------------------------------------
+
+
+def _open_trade(symbol: str, quantity: float, direction: int = 1):
     from src.data.storage import TradeRecord
 
-    def _trade(pnl: float, regime: int, exit_reason: str) -> TradeRecord:
-        return TradeRecord(
-            id="t1",
-            symbol="BTC/USDT",
-            timeframe="15m",
-            trading_mode="paper",
-            execution_mode="AUTOMATIC",
-            direction=1,
-            entry_price=100.0,
-            exit_price=101.0,
-            quantity=0.1,
-            notional_usd=1000.0,
-            entry_ts=1_700_000_000,
-            exit_ts=1_700_003_600,
-            pnl_usd=pnl,
-            pnl_pct=pnl / 1000.0,
-            fee_usd=0.5,
-            kelly_fraction=0.02,
-            regime_at_entry=regime,
-            meta_label_prob=0.6,
-            exit_reason=exit_reason,
-            approved_by=None,
-            raw_signal=0.7,
-        )
-
-    trades = [
-        _trade(10.0, 1, "take_profit"),
-        _trade(-5.0, 0, "stop_loss"),
-        _trade(8.0, 1, "signal_flip"),
-    ]
-    mock_state.storage.fetch_trades = AsyncMock(return_value=trades)
-    client = _get_client()
-    resp = client.get("/journal/summary", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["n_trades"] == 3
-    assert body["n_winners"] == 2
-    assert body["win_rate"] == pytest.approx(2 / 3, abs=0.01)
-    assert "trending" in body["by_regime"]
-    assert "take_profit" in body["by_exit_reason"]
-
-
-def test_journal_summary_custom_limit(mock_state):
-    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
-    client = _get_client()
-    resp = client.get("/journal/summary?limit=50", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# POST /risk/size-check
-# ---------------------------------------------------------------------------
-
-_SIZE_CHECK_BODY = {
-    "symbol": "BTC/USDT",
-    "group": "crypto_large_cap",
-    "capital_usd": 100_000.0,
-    "current_equity": 100_000.0,
-    "hwm": 100_000.0,
-    "realized_vol_pct": 80.0,
-    "win_rate": 0.55,
-    "avg_win_usd": 100.0,
-    "avg_loss_usd": 80.0,
-    "target_vol_pct": 1.0,
-    "max_notional_pct": 0.25,
-}
-
-
-def test_risk_size_check_returns_expected_keys(mock_state):
-    client = _get_client()
-    resp = client.post("/risk/size-check", json=_SIZE_CHECK_BODY, headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert "vol_target" in body
-    assert "budget_check" in body
-    assert "final_notional_usd" in body
-    assert "allowed" in body
-    assert "reject_reason" in body
-
-
-def test_risk_size_check_vol_target_structure(mock_state):
-    client = _get_client()
-    resp = client.post("/risk/size-check", json=_SIZE_CHECK_BODY, headers={"x-api-key": _API_KEY})
-    vt = resp.json()["vol_target"]
-    assert "notional_usd" in vt
-    assert "vol_target_notional" in vt
-    assert "kelly_scalar" in vt
-    assert "dd_haircut" in vt
-    assert vt["dd_haircut"] == pytest.approx(1.0)  # no drawdown at hwm
-
-
-def test_risk_size_check_budget_check_structure(mock_state):
-    client = _get_client()
-    resp = client.post("/risk/size-check", json=_SIZE_CHECK_BODY, headers={"x-api-key": _API_KEY})
-    bc = resp.json()["budget_check"]
-    assert "allowed" in bc
-    assert "group" in bc
-    assert bc["group"] == "crypto_large_cap"
-
-
-def test_risk_size_check_drawdown_blocks(mock_state):
-    # current_equity well below hwm -> dd haircut -> zero notional -> not allowed
-    body = {**_SIZE_CHECK_BODY, "current_equity": 70_000.0, "hwm": 100_000.0}
-    client = _get_client()
-    resp = client.post("/risk/size-check", json=body, headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["vol_target"]["dd_haircut"] < 1.0
-
-
-def test_risk_size_check_missing_field_422(mock_state):
-    client = _get_client()
-    resp = client.post(
-        "/risk/size-check",
-        json={"symbol": "BTC/USDT"},  # missing required fields
-        headers={"x-api-key": _API_KEY},
+    return TradeRecord(
+        id=f"t-{symbol}-{quantity}",
+        symbol=symbol,
+        timeframe="1h",
+        trading_mode="paper",
+        execution_mode="automatic",
+        direction=direction,
+        entry_price=100.0,
+        exit_price=None,
+        quantity=quantity,
+        notional_usd=100.0 * quantity,
+        entry_ts=1,
+        exit_ts=None,
+        pnl_usd=None,
+        pnl_pct=None,
+        fee_usd=0.0,
+        kelly_fraction=0.1,
+        regime_at_entry=0,
+        meta_label_prob=0.5,
+        exit_reason=None,
+        approved_by=None,
+        raw_signal=None,
     )
-    assert resp.status_code == 422
 
 
-# ---------------------------------------------------------------------------
-# /debug/capital-floor
-# ---------------------------------------------------------------------------
+def _memory_position(symbol: str, quantity: float, direction: str = "long"):
+    return {"symbol": symbol, "quantity": quantity, "direction": direction}
 
 
-def test_debug_capital_floor_route(mock_state):
+def test_reconcile_consistent_when_both_sides_empty(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["discrepancies"] == []
+
+
+def test_reconcile_flags_position_absent_from_the_durable_record(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_in_reference"
+    assert data["discrepancies"][0]["local_quantity"] == 0.1
+
+
+def test_reconcile_flags_orphan_open_trade_after_restart(mock_state):
+    """The classic crash case: the DB still has an open trade, memory has nothing."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(return_value=[])
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.1)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is False
+    assert data["discrepancies"][0]["discrepancy_type"] == "missing_locally"
+    assert data["discrepancies"][0]["reference_quantity"] == 0.1
+
+
+def test_reconcile_detects_quantity_mismatch(mock_state):
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", 0.1)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[_open_trade("BTC/USDT", 0.15)])
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["discrepancies"][0]["discrepancy_type"] == "quantity_mismatch"
+
+
+def test_reconcile_nets_multiple_positions_on_one_symbol(mock_state):
+    """Two in-memory legs on one symbol must net before comparison, not overwrite."""
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[
+            _memory_position("BTC/USDT", 0.1),
+            _memory_position("BTC/USDT", 0.05, direction="short"),
+        ]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        return_value=[_open_trade("BTC/USDT", 0.1), _open_trade("BTC/USDT", 0.05, direction=0)]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["consistent"] is True
+    assert data["local_position_count"] == 2
+    assert data["reference_position_count"] == 2
+
+
+def test_reconcile_requests_only_open_trades(mock_state):
+    mock_state.storage.fetch_trades = AsyncMock(return_value=[])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    assert mock_state.storage.fetch_trades.await_args.kwargs["open_only"] is True
+
+
+def test_reconcile_requires_api_key(mock_state):
+    assert _get_client().get("/debug/reconcile").status_code == 401
+
+
+def test_reconcile_pages_through_open_trades(mock_state):
+    """A single capped query would drop positions and then report them as
+    discrepancies — a reconciliation that invents differences is worse than none."""
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.orchestrator._executor.open_positions_safe = AsyncMock(
+        return_value=[_memory_position("BTC/USDT", float(_RECONCILE_PAGE) + 3.0)]
+    )
+    mock_state.storage.fetch_trades = AsyncMock(
+        side_effect=[full_page, [_open_trade("BTC/USDT", 1.0) for _ in range(3)]]
+    )
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["reference_position_count"] == _RECONCILE_PAGE + 3
+    assert data["consistent"] is True
+    assert data["truncated"] is False
+
+
+def test_reconcile_reports_truncation_at_the_page_bound(mock_state):
+    from src.api.main import _RECONCILE_MAX_PAGES, _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(return_value=full_page)
+    resp = _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    data = resp.json()
+    assert data["truncated"] is True
+    assert mock_state.storage.fetch_trades.await_count == _RECONCILE_MAX_PAGES
+
+
+def test_reconcile_advances_the_offset_between_pages(mock_state):
+    from src.api.main import _RECONCILE_PAGE
+
+    full_page = [_open_trade("BTC/USDT", 1.0) for _ in range(_RECONCILE_PAGE)]
+    mock_state.storage.fetch_trades = AsyncMock(side_effect=[full_page, []])
+    _get_client().get("/debug/reconcile", headers={"x-api-key": _API_KEY})
+    offsets = [c.kwargs["offset"] for c in mock_state.storage.fetch_trades.await_args_list]
+    assert offsets == [0, _RECONCILE_PAGE]
+
+
+def test_strategies_gauntlet_uses_lifetime_facts_not_the_window(mock_state):
+    """A candidate whose oldest fills aged out must not read as newly started."""
+    import time
+
+    now_ms = int(time.time() * 1000)
+    day_ms = 86_400_000
     client = _get_client()
-    resp = client.get("/debug/capital-floor", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "default_params" in data
-    assert "trigger_pct" in data["default_params"]
-    assert "class" in data
-
-
-# ---------------------------------------------------------------------------
-# /debug/kill-switch
-# ---------------------------------------------------------------------------
-
-
-def test_debug_kill_switch_no_state(mock_state):
-    with patch(
-        "src.risk.strategy_kill_switch.get_kill_switch",
-    ) as mock_ks:
-        ks = MagicMock()
-        ks._states = {}
-        ks.is_active.return_value = True
-        mock_ks.return_value = ks
-
-        client = _get_client()
-        resp = client.get("/debug/kill-switch", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "is_active" in data
-    assert data["state"] is None
-
-
-def test_debug_kill_switch_with_state(mock_state):
-    with patch(
-        "src.risk.strategy_kill_switch.get_kill_switch",
-    ) as mock_ks:
-        ks = MagicMock()
-        fake_state = MagicMock()
-        fake_state.__dict__ = {"consecutive_losses": 2, "total_trades": 10}
-        ks._states = {"BTC/USDT:USDT:1h": fake_state}
-        ks.is_active.return_value = False
-        mock_ks.return_value = ks
-
-        client = _get_client()
-        resp = client.get(
-            "/debug/kill-switch",
-            params={"symbol": "BTC/USDT:USDT", "timeframe": "1h"},
-            headers={"x-api-key": _API_KEY},
-        )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["is_active"] is False
-
-
-# ---------------------------------------------------------------------------
-# /debug/macro-budget
-# ---------------------------------------------------------------------------
-
-
-def test_debug_macro_budget_not_initialised(mock_state):
-    with patch("src.risk.macro_exposure_budget._REGISTRY", None):
-        client = _get_client()
-        resp = client.get("/debug/macro-budget", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "not_initialised"
-    assert data["summary"] is None
-
-
-def test_debug_macro_budget_with_registry(mock_state):
-    mock_reg = MagicMock()
-    mock_reg.summary.return_value = {"global_utilisation_pct": 42.0}
-    with patch("src.risk.macro_exposure_budget._REGISTRY", mock_reg):
-        client = _get_client()
-        resp = client.get("/debug/macro-budget", headers={"x-api-key": _API_KEY})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "ok"
-    assert data["summary"]["global_utilisation_pct"] == pytest.approx(42.0)
+    with patch("src.api.main.get_attribution_tracker") as mock_tracker:
+        mock_tracker.return_value.snapshot.return_value = {"alpha": MagicMock()}
+        mock_tracker.return_value.fills_for.return_value = _gauntlet_fills(2, now_ms - day_ms)
+        mock_tracker.return_value.first_entry_ts_for.return_value = now_ms - 90 * day_ms
+        mock_tracker.return_value.lifetime_trade_count.return_value = 500
+        resp = client.get("/strategies/gauntlet", headers={"x-api-key": _API_KEY})
+    candidate = resp.json()["candidates"]["alpha"]
+    assert candidate["trade_count"] == 500
+    assert candidate["days_running"] > 89.0

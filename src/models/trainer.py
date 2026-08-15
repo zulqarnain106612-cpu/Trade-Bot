@@ -17,6 +17,7 @@ Authority:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
 import io
@@ -138,7 +139,7 @@ def _verify_manifest(path: Path) -> bytes:
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
     if not manifest_path.exists():
         raise RuntimeError(
-            f"Model manifest missing for {path}. " "Re-train the model to regenerate the manifest."
+            f"Model manifest missing for {path}. Re-train the model to regenerate the manifest."
         )
     manifest = json.loads(manifest_path.read_text())
     expected = manifest.get("sha256", "")
@@ -470,6 +471,10 @@ def _build_xgb(cfg: XGBoostSettings, scale_pos_weight: float = 1.0) -> XGBClassi
         min_child_weight=cfg.min_child_weight,
         reg_alpha=cfg.reg_alpha,
         reg_lambda=cfg.reg_lambda,
+        # Hardcoded, and no longer a setting: XGBoost >= 2.0 (the pinned
+        # range) removed this parameter, so True can never be valid. It
+        # was an XGBoostSettings field, which promised a choice that
+        # would have raised if anyone took it.
         use_label_encoder=False,
         eval_metric=cfg.eval_metric,
         tree_method=cfg.tree_method,
@@ -484,6 +489,29 @@ def _build_xgb(cfg: XGBoostSettings, scale_pos_weight: float = 1.0) -> XGBClassi
 # ---------------------------------------------------------------------------
 # ModelTrainer
 # ---------------------------------------------------------------------------
+
+
+# Attribute used to carry a model's trained column list alongside the fitted
+# estimator. XGBoost is fitted on a numpy array here, so it records only
+# n_features_in_ (a COUNT) and no names -- which is what made the positional
+# reconciliation in predict_direction/predict_meta necessary, and unsafe.
+_FEATURE_COLUMNS_ATTR = "_trade_bot_feature_columns"
+
+
+def _attach_feature_columns(payload: dict) -> XGBClassifier:
+    """
+    Return the payload's model with its trained column list attached.
+
+    Artifacts written before feature_columns existed simply have no list, and
+    the predict path falls back to its historical positional behaviour for
+    them -- which is correct for those models, because they were all trained
+    on exactly BASE_FEATURE_COLUMNS.
+    """
+    model = payload["model"]
+    columns = payload.get("feature_columns") or []
+    with contextlib.suppress(AttributeError):
+        setattr(model, _FEATURE_COLUMNS_ATTR, list(columns))
+    return model
 
 
 class ModelTrainer:
@@ -540,7 +568,7 @@ class ModelTrainer:
         """
         # GAP-015 Step 5: use coverage-gated feature set.
         # If an intelligence_coverage dict is attached to fm, resolve the
-        # active column list; otherwise fall back to 7 base features.
+        # active column list; otherwise fall back to base features (BASE_FEATURE_COLUMNS).
         _active_cols = get_active_feature_columns(
             coverage=getattr(fm, "intelligence_coverage", None),
             min_coverage=0.6,
@@ -556,6 +584,9 @@ class ModelTrainer:
                 reason="column in active set but absent from FeatureMatrix — dropping",
             )
         _active_cols = _present_cols
+        # Remembered for save(): the model artifact must record WHICH columns
+        # it was trained on, not merely how many. See predict_direction.
+        self._direction_columns: list[str] = list(_active_cols)
 
         X = fm.features[_active_cols].to_numpy(dtype=np.float64)
         y = fm.labels.to_numpy(dtype=np.int8)
@@ -687,6 +718,7 @@ class ModelTrainer:
             self._log.warning(
                 "trainer.drift_baseline_push_failed",
                 error=str(_diag_exc)[:200],
+                exc_info=True,
             )
 
         return result
@@ -784,6 +816,11 @@ class ModelTrainer:
             min_coverage=0.6,
         )
         _active_cols_meta = [c for c in _active_cols_meta if c in fm.features.columns]
+        # The meta model is fitted on these base columns plus two derived
+        # direction signals appended at the end (p_long, confidence), so the
+        # saved list is the BASE portion only -- predict_meta re-appends the
+        # two, exactly as training does.
+        self._meta_columns: list[str] = list(_active_cols_meta)
         x_dir = fm.features[_active_cols_meta].to_numpy(dtype=np.float64)
         dir_probs = direction_model.predict_proba(x_dir)[:, 1]  # P(long)
         dir_preds = (dir_probs >= 0.5).astype(np.int8)
@@ -923,6 +960,27 @@ class ModelTrainer:
         """
         # Use model's n_features_in_ to slice the correct columns.
         # Falls back to 7 base features for models trained before GAP-015.
+        # Select by NAME when the artifact recorded its trained columns.
+        #
+        # The positional fallback below slices feature_vec.index[:n]. That is
+        # only safe while the trained set is exactly the leading columns of
+        # the inference vector -- true when models trained on
+        # BASE_FEATURE_COLUMNS alone, and false the moment intelligence
+        # columns enter training: inference injects whichever intelligence
+        # fields are FINITE this tick, training selects whichever passed the
+        # COVERAGE gate, and those two subsets need not agree. A positional
+        # slice then lands one feature's value in another feature's slot,
+        # silently, with no shape error to reveal it.
+        _named_cols = getattr(model, _FEATURE_COLUMNS_ATTR, None)
+        if _named_cols:
+            # reindex fills absent columns with NaN, which XGBoost handles
+            # natively as "missing" -- the honest encoding for a feature this
+            # tick did not have, and strictly better than borrowing another
+            # column's number.
+            X = feature_vec.reindex(_named_cols).to_numpy(dtype=np.float64).reshape(1, -1)
+            proba = float(model.predict_proba(X)[0, 1])
+            return (1 if proba >= 0.5 else 0), proba
+
         _n = getattr(model, "n_features_in_", len(BASE_FEATURE_COLUMNS))
         _pred_cols = (
             list(feature_vec.index[:_n]) if len(feature_vec) >= _n else list(feature_vec.index)
@@ -955,12 +1013,12 @@ class ModelTrainer:
         # GAP-015: resolve base feature count from model's n_features_in_.
         # meta_model is trained with (base_features + 2 direction signals).
         # Legitimate cases:
-        #   - Pre-GAP-015 model: n_features_in_ = 9 (BASE) + 2 = 9.  feature_vec has 7.
-        #   - GAP-015 model: n_features_in_ = 9 + N_intel + 2.        feature_vec has 7 + N_intel.
+        #   - Pre-GAP-015 model: n_features_in_ = len(BASE) + 2.  feature_vec has len(BASE) cols.
+        #   - GAP-015 model: n_features_in_ = len(BASE) + N_intel + 2. feature_vec has len(BASE) + N_intel.
         # Illegitimate case (SCAN2-005): feature_vec columns don't match model schema at all.
         expected_n = getattr(meta_model, "n_features_in_", None)
         if expected_n is not None:
-            # Minimum valid schema: 7 base (BASE_FEATURE_COLUMNS) + 2 direction signals.
+            # Minimum valid schema: len(BASE_FEATURE_COLUMNS) base features + 2 direction signals.
             # Any model with n_features_in_ < this minimum has an incompatible schema.
             _min_valid = len(BASE_FEATURE_COLUMNS) + 2
             if expected_n < _min_valid:
@@ -985,6 +1043,13 @@ class ModelTrainer:
             _pred_cols_meta = list(feature_vec.index[:_base_n_expected])
         else:
             _pred_cols_meta = list(feature_vec.index)
+
+        # Same name-first reconciliation as predict_direction. The saved list
+        # is the BASE portion; the two derived direction signals are appended
+        # below exactly as they were during training.
+        _named_meta = getattr(meta_model, _FEATURE_COLUMNS_ATTR, None)
+        if _named_meta:
+            _pred_cols_meta = list(_named_meta)
 
         base = feature_vec.reindex(_pred_cols_meta).to_numpy(dtype=np.float64)
         confidence = abs(p_long - 0.5)
@@ -1026,7 +1091,14 @@ class ModelTrainer:
         meta_path = model_dir / _META_FILENAME.format(symbol=sym, timeframe=tf)
 
         joblib.dump(
-            {"model": direction_model, "version": version, "symbol": self._symbol, "timeframe": tf},
+            {
+                "model": direction_model,
+                "version": version,
+                "symbol": self._symbol,
+                "timeframe": tf,
+                # WHICH columns, not just how many -- see predict_direction.
+                "feature_columns": list(getattr(self, "_direction_columns", []) or []),
+            },
             dir_buf := io.BytesIO(),
             compress=3,
         )
@@ -1035,7 +1107,13 @@ class ModelTrainer:
         _write_manifest(dir_path, dir_data)
 
         joblib.dump(
-            {"model": meta_model, "version": version, "symbol": self._symbol, "timeframe": tf},
+            {
+                "model": meta_model,
+                "version": version,
+                "symbol": self._symbol,
+                "timeframe": tf,
+                "feature_columns": list(getattr(self, "_meta_columns", []) or []),
+            },
             meta_buf := io.BytesIO(),
             compress=3,
         )
@@ -1065,7 +1143,7 @@ class ModelTrainer:
         if not path.exists():
             raise FileNotFoundError(f"No direction model at {path}")
         data = _verify_manifest(path)
-        return joblib.load(io.BytesIO(data))["model"]
+        return _attach_feature_columns(joblib.load(io.BytesIO(data)))
 
     @staticmethod
     def load_meta(
@@ -1081,7 +1159,7 @@ class ModelTrainer:
         if not path.exists():
             raise FileNotFoundError(f"No meta-label model at {path}")
         data = _verify_manifest(path)
-        return joblib.load(io.BytesIO(data))["model"]
+        return _attach_feature_columns(joblib.load(io.BytesIO(data)))
 
     # ------------------------------------------------------------------
     # Internal
