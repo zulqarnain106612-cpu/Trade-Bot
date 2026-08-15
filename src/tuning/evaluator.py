@@ -122,19 +122,27 @@ def deflated_sharpe_ratio(returns: list[float], n_trials: int, benchmark_sr: flo
     single backtest.
     """
     n_trials = max(1, n_trials)
-    if n_trials == 1:
+    if n_trials == 1 or len(returns) < 2:
         expected_max_sr = benchmark_sr
     else:
         # Expected maximum Sharpe ratio across n_trials independent trials
-        # under the null (true SR == benchmark_sr, unit-variance trials),
-        # via the standard extreme-value approximation used in the DSR
-        # derivation.
+        # under the null (true SR == benchmark_sr), via the standard
+        # extreme-value approximation used in the DSR derivation.
         euler_gamma = 0.5772156649015329
         expected_max_z = (1.0 - euler_gamma) * norm.ppf(
             1.0 - 1.0 / n_trials
         ) + euler_gamma * norm.ppf(1.0 - 1.0 / (n_trials * math.e))
-        stdev = statistics.pstdev(returns) if len(returns) > 1 else 0.0
-        expected_max_sr = benchmark_sr + expected_max_z * stdev
+        # The extreme-value term is in units of the *cross-trial dispersion of
+        # estimated Sharpe ratios*, which under the null is approximately
+        # 1/sqrt(n) for n observations. This previously scaled by
+        # statistics.pstdev(returns) — the dispersion of the returns
+        # themselves, a different quantity that is smaller by roughly the
+        # Sharpe ratio. The deflation was therefore far too small and the
+        # correction under-penalised exactly the over-fitted winners it
+        # exists to catch. src/tuning/factor_search.py's sibling DSR already
+        # used the 1/sqrt(n) form; the two now agree.
+        sharpe_estimate_stdev = 1.0 / math.sqrt(len(returns))
+        expected_max_sr = benchmark_sr + expected_max_z * sharpe_estimate_stdev
 
     return probabilistic_sharpe_ratio(returns, benchmark_sr=expected_max_sr)
 

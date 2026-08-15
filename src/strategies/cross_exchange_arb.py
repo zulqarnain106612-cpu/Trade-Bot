@@ -18,9 +18,15 @@ from dataclasses import dataclass
 from src.strategies.registry import Signal
 
 
-# Minimum basis spread (bps) to consider worth harvesting after fees/slippage.
+# Minimum *net* edge (bps, after round-trip cost) worth harvesting.
 _MIN_SPREAD_BPS: float = 15.0
 _MAX_SPREAD_BPS_FOR_FULL_CONFIDENCE: float = 60.0
+
+# Both legs cross the book, so the gross spread has to cover two taker fees
+# plus the slippage of lifting each side. 12bps ~= 2 x 4.5bps taker + 3bps
+# slippage, i.e. a Binance/OKX pair at the default (non-VIP) tier. Callers on
+# a better fee tier should pass their own figure rather than rely on this.
+_DEFAULT_ROUND_TRIP_COST_BPS: float = 12.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +41,8 @@ class CrossExchangeContext:
 
 def compute_basis_bps(price_a: float, price_b: float) -> float:
     """Basis spread in basis points: (price_a - price_b) / price_b * 10_000."""
+    if price_a <= 0:
+        raise ValueError(f"price_a must be positive, got {price_a}")
     if price_b <= 0:
         raise ValueError(f"price_b must be positive, got {price_b}")
     return (price_a - price_b) / price_b * 10_000.0
@@ -44,16 +52,26 @@ class CrossExchangeArbStrategy:
     """
     Registry-conformant strategy: fades basis spread between two venues.
 
+    The entry threshold and the confidence ramp both apply to the edge left
+    after the round-trip cost of crossing both books, not to the gross spread.
+
     direction is w.r.t. venue_a: positive spread (a richer than b) ->
     short a / long b (direction = -1). Negative spread -> long a (direction = 1).
     """
 
     strategy_id: str = "cross_exchange_arb_v1"
 
-    def __init__(self, max_capital_fraction: float = 0.10) -> None:
+    def __init__(
+        self,
+        max_capital_fraction: float = 0.10,
+        round_trip_cost_bps: float = _DEFAULT_ROUND_TRIP_COST_BPS,
+    ) -> None:
         if not 0.0 < max_capital_fraction <= 1.0:
             raise ValueError(f"max_capital_fraction must be in (0, 1], got {max_capital_fraction}")
+        if round_trip_cost_bps < 0.0:
+            raise ValueError(f"round_trip_cost_bps must be non-negative, got {round_trip_cost_bps}")
         self._max_capital_fraction = max_capital_fraction
+        self._round_trip_cost_bps = round_trip_cost_bps
 
     def generate_signal(self, bar: object) -> Signal:
         if not isinstance(bar, CrossExchangeContext):
@@ -62,14 +80,16 @@ class CrossExchangeArbStrategy:
             )
 
         spread_bps = compute_basis_bps(bar.price_a, bar.price_b)
-        abs_spread = abs(spread_bps)
+        # Only the edge left after crossing both books is harvestable; sizing
+        # off the gross spread signals trades that fee and slippage eat.
+        net_edge_bps = abs(spread_bps) - self._round_trip_cost_bps
 
-        if abs_spread < _MIN_SPREAD_BPS:
+        if net_edge_bps < _MIN_SPREAD_BPS:
             return Signal(direction=0, confidence=0.0, regime_fit=0.9)
 
         confidence = min(
             1.0,
-            (abs_spread - _MIN_SPREAD_BPS)
+            (net_edge_bps - _MIN_SPREAD_BPS)
             / (_MAX_SPREAD_BPS_FOR_FULL_CONFIDENCE - _MIN_SPREAD_BPS),
         )
         direction = -1 if spread_bps > 0 else 1
