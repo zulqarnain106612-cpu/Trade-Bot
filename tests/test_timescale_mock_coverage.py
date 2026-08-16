@@ -760,7 +760,7 @@ class TestIntelligenceFeatures:
         from src.data.timescale_storage import _INTEL_COLUMNS
 
         b = _make_backend()
-        row = {"bar_ts": 1_700_000_000_000, "confidence": 0.9, **{c: 1.0 for c in _INTEL_COLUMNS}}
+        row = {"bar_ts": 1_700_000_000_000, "confidence": 0.9, **dict.fromkeys(_INTEL_COLUMNS, 1.0)}
 
         @asynccontextmanager
         async def _acquire():
@@ -793,7 +793,7 @@ class TestIntelligenceFeatures:
         from src.data.timescale_storage import _INTEL_COLUMNS
 
         b = _make_backend()
-        row = {"total": 10, **{c: 8 for c in _INTEL_COLUMNS}}
+        row = {"total": 10, **dict.fromkeys(_INTEL_COLUMNS, 8)}
 
         @asynccontextmanager
         async def _acquire():
