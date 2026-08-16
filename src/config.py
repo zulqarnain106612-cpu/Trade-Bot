@@ -320,7 +320,6 @@ class RiskSettings(BaseSettings):
     # field's own full valid range rather than the usual +/-20%-of-default
     # window (src/tuning/bootstrap.py._symmetric_bounds) — a 0.0 default
     # produces a zero-width window under that formula.
-    ensemble_blend_weight: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 # ---------------------------------------------------------------------------
