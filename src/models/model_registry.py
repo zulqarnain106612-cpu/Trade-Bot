@@ -120,6 +120,30 @@ class ModelRegistry:
         self._live_model_id = model_id
         del self._shadows[model_id]
 
+    def discard_shadow(self, model_id: str) -> None:
+        """
+        Drops a shadow without promoting it. Used when a candidate has been
+        evaluated long enough without beating the incumbent, or when a newer
+        candidate supersedes it. Never touches the live slot — a discard must
+        not be able to change what is trading.
+        """
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        del self._shadows[model_id]
+
+    def evaluation_count(self, model_id: str) -> int:
+        """Resolved shadow predictions recorded so far for `model_id`."""
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        return len(self._shadows[model_id].shadow_predictions)
+
+    def accuracies(self, model_id: str) -> tuple[float, float]:
+        """(shadow_accuracy, live_accuracy) over the recorded window — for audit records."""
+        if model_id not in self._shadows:
+            raise KeyError(f"shadow model_id {model_id!r} not registered")
+        state = self._shadows[model_id]
+        return self._accuracy(state.shadow_predictions), self._accuracy(state.live_predictions)
+
     def shadow_ids(self) -> list[str]:
         return list(self._shadows.keys())
 

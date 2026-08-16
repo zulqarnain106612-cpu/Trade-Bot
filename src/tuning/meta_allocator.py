@@ -19,6 +19,7 @@ Authority:
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 
@@ -83,3 +84,90 @@ def rate_limit_allocation_shift(
         step = max(-max_shift_per_step, min(max_shift_per_step, delta))
         result[sid] = cur + step
     return result
+
+
+class AllocationController:
+    """
+    Holds the allocation the book is actually running and advances it toward
+    a freshly computed target one rate-limited step at a time.
+
+    The stateless helpers above are pure, which means whoever calls them has
+    to remember the previous allocation for the rate limit to mean anything.
+    Nothing did: every caller recomputed a target from scratch, so a single
+    noisy Sharpe estimate could reallocate the whole book in one go. This
+    class is that memory.
+
+    Stepping is deliberately driven by a fixed rebalance cadence (see
+    Orchestrator._allocation_rebalance_loop) rather than by whoever happens
+    to read the allocation — otherwise a monitoring dashboard polling the
+    API would converge the book at its own poll rate, and an idle dashboard
+    would freeze it.
+    """
+
+    def __init__(self, max_shift_per_step: float = 0.10) -> None:
+        if not 0.0 < max_shift_per_step <= 1.0:
+            raise ValueError(f"max_shift_per_step must be in (0, 1], got {max_shift_per_step}")
+        self._max_shift = max_shift_per_step
+        self._applied: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    @property
+    def max_shift_per_step(self) -> float:
+        return self._max_shift
+
+    def applied(self) -> dict[str, float]:
+        """The allocation currently in force. Empty before the first step."""
+        with self._lock:
+            return dict(self._applied)
+
+    def step_toward(self, target: dict[str, float]) -> dict[str, float]:
+        """
+        Advance the applied allocation one rate-limited step toward `target`
+        and return the new applied allocation.
+
+        The first call adopts `target` outright: there is no incumbent
+        allocation to protect yet, and creeping up from zero at 10% a step
+        would starve the book for ten rebalances after every restart.
+        """
+        with self._lock:
+            if not self._applied:
+                self._applied = dict(target)
+            else:
+                self._applied = rate_limit_allocation_shift(
+                    self._applied, target, max_shift_per_step=self._max_shift
+                )
+            return dict(self._applied)
+
+    def reset(self) -> None:
+        """Drop the incumbent allocation so the next step adopts its target."""
+        with self._lock:
+            self._applied = {}
+
+
+_controller: AllocationController | None = None
+_controller_lock = threading.Lock()
+
+
+def get_allocation_controller(max_shift_per_step: float | None = None) -> AllocationController:
+    """
+    Process-wide allocation controller.
+
+    `max_shift_per_step` is only honoured on the first call (the one that
+    creates the controller); afterwards the incumbent instance is returned
+    unchanged so a later caller cannot silently widen the rate limit that is
+    already protecting a live book.
+    """
+    global _controller
+    with _controller_lock:
+        if _controller is None:
+            _controller = AllocationController(
+                max_shift_per_step if max_shift_per_step is not None else 0.10
+            )
+        return _controller
+
+
+def reset_allocation_controller() -> None:
+    """Test hook — drops the process-wide controller entirely."""
+    global _controller
+    with _controller_lock:
+        _controller = None

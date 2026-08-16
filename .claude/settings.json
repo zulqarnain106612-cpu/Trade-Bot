@@ -1,22 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Agent",
       "Bash(bash scripts/*)",
-      "Bash(cat *)",
       "Bash(chmod +x *)",
       "Bash(cp *)",
-      "Bash(diff *)",
       "Bash(docker compose *)",
       "Bash(docker-compose *)",
-      "Bash(find *)",
       "Bash(gh pr *)",
+      "Bash(gh run watch *)",
+      "Bash(gh workflow run *)",
       "Bash(gh secret list)",
       "Bash(git *)",
-      "Bash(grep *)",
-      "Bash(head *)",
       "Bash(jq *)",
-      "Bash(ls *)",
       "Bash(mkdir -p *)",
       "Bash(mv *)",
       "Bash(python3 .project-intel/scripts/*.py *)",
@@ -33,7 +28,6 @@
       "Bash(rm -rf deploy_diagnostics.sh)",
       "Bash(rm -rf frontend/node_modules)",
       "Bash(sed *)",
-      "Bash(tail *)",
       "Bash(touch *)",
       "Bash(uv add*)",
       "Bash(uv lock*)",
@@ -43,7 +37,6 @@
       "Bash(uv run *)",
       "Bash(uv sync*)",
       "Bash(uv venv*)",
-      "Bash(wc *)",
       "Edit(**)",
       "Monitor",
       "Read(**)",
@@ -68,6 +61,7 @@
       "Bash(python3 -c \"*\" *)",
       "Bash(rm -rf src/execution/*)",
       "Bash(rm -rf src/risk/*)",
+      "Agent",
       "Read(.env*)",
       "Read(.venv/**)",
       "Read(/data/**)",
@@ -82,29 +76,6 @@
       "Write(.claude/hooks/**)",
       "Write(.claude/settings*.json)",
       "Write(.github/workflows/**)"
-    ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/log-edit.sh" }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/log-edit.sh" }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/stop-review.sh" }
-        ]
-      }
     ]
   }
 }

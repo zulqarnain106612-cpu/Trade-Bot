@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol
+from typing import Final, Protocol
 
 import numpy as np
 import structlog
@@ -456,7 +456,9 @@ class RiskValidator:
     def _compute_risk_score(ctx: SignalContext, dd_pct: float, vol_ratio: float) -> float:
         """
         Normalized risk score 0→1. Combines drawdown, vol, consecutive losses,
-        open position concentration, and GARCH conditional vol.
+        open position concentration, GARCH conditional vol, and regime
+        disagreement — six weights summing to exactly 1.0, so a fully
+        saturated context scores 1.0.
 
         GARCH component: garch_vol_forecast normalized against a 1-sigma
         daily move threshold (0.02 = 2% per bar). When GARCH vol is 0.0
@@ -500,7 +502,11 @@ class BlockchainValidator:
 
     FUNDING_VETO_THRESHOLD = 0.0005  # 0.05% per 8h — unfavorable carry
     BASIS_VETO_THRESHOLD = 0.005  # 0.5% spot/perp divergence
-    TRUSTED_EXCHANGES = {"binance", "okx", "bybit", "kraken"}
+    # frozenset, not set: this is the allowlist behind a STRIDE-Spoofing
+    # veto, and a class-level mutable is shared by every instance for the
+    # life of the process. Nothing mutates it today; a frozenset means
+    # nothing can start to, and `in` behaves identically.
+    TRUSTED_EXCHANGES: Final[frozenset[str]] = frozenset({"binance", "okx", "bybit", "kraken"})
 
     def validate(self, ctx: SignalContext) -> ValidatorResult:
         metrics: dict = {}

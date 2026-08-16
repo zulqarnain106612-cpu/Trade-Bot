@@ -45,6 +45,7 @@ def _make_state():
     orch._executor._order_fsm_registry = {}
     orch._executor.resolve_approval = AsyncMock(return_value=True)
     orch._last_retrain_error = {}
+    orch._engines = {}
     orch._drift_adapter = MagicMock()
     orch._drift_adapter.check_drift = MagicMock(return_value={"drifted": False, "reason": "ok"})
     s.orchestrator = orch

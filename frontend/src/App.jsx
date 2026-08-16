@@ -674,24 +674,46 @@ export default function App() {
         return;
       }
       try {
-        await apiFetch('/execution-mode', {
+        const res = await apiFetch('/execution-mode', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode, operator: operatorId, operator_secret: operatorSecret }),
         });
-      } catch (_) {}
+        // fetch() resolves normally on 4xx/5xx, so the response has to be
+        // inspected. Without this a wrong operator secret (401), the
+        // three-per-hour mode-change limit (429) or a startup race (503)
+        // all looked like success, and the operator was left believing the
+        // execution mode had changed when it had not. Mirrors the handling
+        // already used by updateRiskControls below.
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Execution mode change failed: ${err.detail || res.status}`);
+        }
+      } catch (e) {
+        alert(`Execution mode change failed: ${e.message || 'network error'}`);
+      }
     },
     [operatorId, operatorSecret]
   );
 
   const resolveApproval = useCallback(async (id, approved, operator) => {
     try {
-      await apiFetch(`/approvals/${id}/resolve`, {
+      const res = await apiFetch(`/approvals/${id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved, operator }),
       });
-    } catch (_) {}
+      // Same reasoning as switchMode: a 404 (already resolved, or the
+      // request expired out of the queue) or a 503 resolved silently, so an
+      // operator could believe they had approved or rejected a trade that
+      // the executor never heard about.
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Approval ${approved ? 'approve' : 'reject'} failed: ${err.detail || res.status}`);
+      }
+    } catch (e) {
+      alert(`Approval ${approved ? 'approve' : 'reject'} failed: ${e.message || 'network error'}`);
+    }
   }, []);
 
   // GAP-013 — update one or more risk-control fields. Pass only the
@@ -721,7 +743,12 @@ export default function App() {
           const err = await res.json().catch(() => ({}));
           alert(`Risk control update failed: ${err.detail || res.status}`);
         }
-      } catch (_) {}
+      } catch (e) {
+        // This handler already surfaced HTTP errors but swallowed network
+        // ones, so a dropped connection mid-change looked identical to
+        // success while a 401 alerted. Same class of action, same feedback.
+        alert(`Risk control update failed: ${e.message || 'network error'}`);
+      }
     },
     [operatorId, operatorSecret]
   );

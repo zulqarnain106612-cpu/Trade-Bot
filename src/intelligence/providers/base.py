@@ -77,7 +77,11 @@ class ExchangeIntelligenceProvider(ABC):
         if entry is None:
             return None
         ts, value = entry
-        if time.time() - ts > getattr(self, "_cache_ttl", 0.0):
+        # Stamped and compared on the monotonic clock. Wall clock made the
+        # TTL hostage to NTP: a backward correction keeps stale provider data
+        # alive past its window, a forward one expires the whole cache at
+        # once and stampedes every provider simultaneously.
+        if time.monotonic() - ts > getattr(self, "_cache_ttl", 0.0):
             return None
         return value
 
@@ -85,4 +89,4 @@ class ExchangeIntelligenceProvider(ABC):
         """Store value in the per-instance TTL cache."""
         if not hasattr(self, "_cache"):
             self._cache: dict[str, tuple[float, Any]] = {}
-        self._cache[key] = (time.time(), value)
+        self._cache[key] = (time.monotonic(), value)
