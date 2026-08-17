@@ -16,7 +16,7 @@
     "desktop:install": "bash scripts/install-desktop-shortcut.sh"
   },
   "dependencies": {
-    "es-toolkit": "^1.49.0",
+    "es-toolkit": "^1.50.0",
     "lodash": "^4.17.21",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
