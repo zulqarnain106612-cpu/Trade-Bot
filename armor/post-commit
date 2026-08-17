@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# ════════════════════════════════════════════════════════════════════════════
+# GIT POST-COMMIT HOOK — Immutable commit audit trail
+# Logs every commit to .armor/alerts.log regardless of who made it
+# ════════════════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+ARMOR_LOG="$(git rev-parse --show-toplevel)/.armor/alerts.log"
+TS=$(date '+%Y-%m-%d %H:%M:%S.%3N')
+COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "unknown")
+AUTHOR=$(git log -1 --pretty="%an <%ae>" 2>/dev/null || echo "unknown")
+AGENT_TOKEN="${CLAUDE_AGENT_IDENTITY:-HUMAN}"
+
+entry="{\"ts\":\"${TS}\",\"level\":\"INFO\",\"event\":\"GIT_COMMIT\",\"hash\":\"${COMMIT_HASH}\",\"author\":\"${AUTHOR}\",\"msg\":\"${COMMIT_MSG}\",\"agent\":\"${AGENT_TOKEN}\",\"user\":\"$(id -un)\"}"
+echo "$entry" >> "$ARMOR_LOG" 2>/dev/null || true
+echo "[SENTINEL][AUDIT] Commit logged: ${COMMIT_HASH} by ${AUTHOR}"

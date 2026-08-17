@@ -1,15 +1,17 @@
-{
-  // ═══════════════════════════════════════════════════════════════════════════
-  // FORMATTER AUTHORITY — ONE formatter per language, no conflicts
-  //   Python  → charliermarsh.ruff  (lint + format, replaces black/flake8/isort)
-  //   JS/JSX  → esbenp.prettier-vscode
-  //   JSON    → esbenp.prettier-vscode
-  //   YAML    → esbenp.prettier-vscode
-  //   CSS     → esbenp.prettier-vscode
-  //   Markdown → esbenp.prettier-vscode
-  // ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+// ZERO AUTO-EXECUTION POLICY — ENFORCED
+// Authorized writers: User (human) + CLAUDE-MAIN-AGENT only
+// Identity token: CLAUDE_MAIN_AGENT_v1 (see .vscode/AGENT_IDENTITY.md)
+// All auto-commits, auto-push, auto-fetch, auto-hooks, auto-activation,
+// auto-session, auto-context-primer, auto-fix, auto-format-on-type KILLED.
+// ════════════════════════════════════════════════════════════════════════════
 
-  // ── Global editor defaults ────────────────────────────────────────────────
+{
+  // ── FORMATTER AUTHORITY ───────────────────────────────────────────────────
+  //   Python  → charliermarsh.ruff
+  //   JS/JSX/JSON/YAML/CSS/MD → esbenp.prettier-vscode
+
+  // ── Global editor ─────────────────────────────────────────────────────────
   "editor.formatOnSave": true,
   "editor.formatOnPaste": false,
   "editor.formatOnType": false,
@@ -26,7 +28,7 @@
     "source.fixAll": "never"
   },
 
-  // ── Python — RUFF ONLY, all others disabled ───────────────────────────────
+  // ── Python — RUFF ONLY ────────────────────────────────────────────────────
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true,
@@ -38,7 +40,6 @@
     }
   },
 
-  // Explicitly disable all other Python formatters/linters that conflict
   "python.formatting.provider": "none",
   "python.linting.enabled": false,
   "python.linting.flake8Enabled": false,
@@ -48,7 +49,13 @@
   "python.linting.pycodestyleEnabled": false,
   "python.linting.pydocstyleEnabled": false,
 
-  // ── Ruff extension (charliermarsh.ruff) — authoritative ──────────────────
+  // ── Python interpreter — MANUAL ONLY, zero auto-activation ───────────────
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": false,
+  "python.terminal.activateEnvInCurrentTerminal": false,
+  "python.interpreter.infoVisibility": "never",
+
+  // ── Ruff ─────────────────────────────────────────────────────────────────
   "ruff.enable": true,
   "ruff.lint.enable": true,
   "ruff.format.enable": true,
@@ -57,10 +64,12 @@
   "ruff.showNotifications": "onWarning",
   "ruff.configurationPreference": "filesystemFirst",
 
-  // ── Pylance — type analysis only, no formatting ───────────────────────────
+  // ── Pylance — type analysis only, no formatting, no auto-import exec ──────
+  "python.languageServer": "Pylance",
   "python.analysis.typeCheckingMode": "basic",
   "python.analysis.useLibraryCodeForTypes": true,
-  "python.analysis.autoImportCompletions": true,
+  "python.analysis.autoImportCompletions": false,
+  "python.analysis.indexing": false,
   "python.analysis.diagnosticMode": "workspace",
   "python.analysis.ignore": ["**/frontend/**", "**/.venv/**", "**/dist/**"],
   "python.analysis.diagnosticSeverityOverrides": {
@@ -94,16 +103,13 @@
     "reportUnusedCoroutine": "error"
   },
 
-  // ── Python interpreter ────────────────────────────────────────────────────
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.terminal.activateEnvironment": true,
-
   // ── Tests ─────────────────────────────────────────────────────────────────
   "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
   "python.testing.pytestArgs": ["tests", "-v", "--tb=short"],
+  "python.testing.autoTestDiscoverOnSaveEnabled": false,
 
-  // ── JavaScript/JSX — Prettier ONLY, ESLint for lint only ─────────────────
+  // ── JavaScript/JSX ────────────────────────────────────────────────────────
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
@@ -121,18 +127,17 @@
     }
   },
 
-  // ESLint — lint only, Prettier does the formatting
   "eslint.enable": true,
   "eslint.format.enable": false,
   "eslint.workingDirectories": [{ "directory": "frontend", "changeProcessCWD": true }],
   "eslint.validate": ["javascript", "javascriptreact"],
+  "eslint.run": "onSave",
 
-  // Prettier — format everything non-Python
   "prettier.enable": true,
   "prettier.requireConfig": true,
   "prettier.configPath": "${workspaceFolder}/frontend/.prettierrc",
 
-  // ── JSON ──────────────────────────────────────────────────────────────────
+  // ── JSON/JSONC/YAML/TOML/Markdown ─────────────────────────────────────────
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true
@@ -141,28 +146,40 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true
   },
-
-  // ── YAML ─────────────────────────────────────────────────────────────────
   "[yaml]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
     "editor.tabSize": 2
   },
-
-  // ── TOML ─────────────────────────────────────────────────────────────────
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml",
     "editor.formatOnSave": true
   },
-
-  // ── Markdown ─────────────────────────────────────────────────────────────
   "[markdown]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
     "editor.wordWrap": "on"
   },
 
-  // ── GitHub Copilot ────────────────────────────────────────────────────────
+  // ── Git — ZERO AUTO-COMMIT / ZERO AUTO-PUSH / ZERO AUTO-FETCH ────────────
+  // KILLED: git.enableSmartCommit (was true — auto-stages all tracked files)
+  // KILLED: git.autofetch (was true — background network polling)
+  // KILLED: git.postCommitCommand: "push" (was auto-pushing every commit)
+  // KILLED: git.confirmSync: false (was syncing without confirmation)
+  "git.enableSmartCommit": false,
+  "git.autofetch": false,
+  "git.postCommitCommand": "none",
+  "git.confirmSync": true,
+  "git.autoStash": false,
+  "git.pruneOnFetch": false,
+  "git.fetchOnPull": false,
+  "git.autoRepositoryDetection": false,
+  "git.enabled": true,
+
+  // ── GitHub Copilot — ZERO AUTO-INSTRUCTION-FILE READING ──────────────────
+  // KILLED: useInstructionFiles (was auto-reading .github/copilot-instructions.md)
+  // KILLED: reviewSelection.enabled auto-trigger
+  // CONTEXT_PRIMER reference removed from reviewSelection.instructions
   "github.copilot.enable": {
     "*": true,
     "python": true,
@@ -173,26 +190,32 @@
   },
   "github.copilot.editor.enableAutoCompletions": true,
   "github.copilot.chat.localeOverride": "en",
-  "github.copilot.chat.codeGeneration.useInstructionFiles": true,
-  "github.copilot.chat.reviewSelection.enabled": true,
-  "github.copilot.chat.codeGeneration.instructions": [
-    { "file": ".github/copilot-instructions.md" }
-  ],
+  "github.copilot.chat.codeGeneration.useInstructionFiles": false,
+  "github.copilot.chat.reviewSelection.enabled": false,
+  "github.copilot.chat.codeGeneration.instructions": [],
   "github.copilot.chat.commitMessageGeneration.instructions": [
     {
-      "text": "Use conventional commits: type(scope): description [copilot]. Types: feat fix refactor chore docs test security perf audit. Never suggest pushing. Append [copilot] to every message to distinguish from [claude] commits. Max 72 chars."
+      "text": "Use conventional commits: type(scope): description. Types: feat fix refactor chore docs test security perf. Max 72 chars. NEVER auto-push. NEVER auto-commit. Human commits manually only."
     }
   ],
-  "github.copilot.chat.reviewSelection.instructions": [
-    {
-      "text": "Read .project-intel/CONTEXT_PRIMER.md before reviewing. Tag all findings with XML routing tags: <gap> <issue> <security> <debt>. Never write findings as plain chat text. Check GAPS.md before flagging known issues."
-    }
-  ],
+  "github.copilot.chat.reviewSelection.instructions": [],
   "github.copilot.chat.testGeneration.instructions": [
     {
       "text": "Follow tests/test_risk_gates.py patterns. Use pytest + pytest-asyncio. async def for all async tests. Parameterised SQL only. structlog not print(). Cover happy path + veto path for CognitiveEngine validators."
     }
   ],
+
+  // ── Terminal — zero env inheritance, zero auto-shell-integration ──────────
+  "terminal.integrated.inheritEnv": false,
+  "terminal.integrated.env.linux": {},
+  "terminal.integrated.env.osx": {},
+  "terminal.integrated.env.windows": {},
+  "terminal.integrated.shellIntegration.enabled": false,
+  "terminal.integrated.enablePersistentSessions": false,
+  "terminal.integrated.persistentSessionReviveProcess": "never",
+
+  // ── Claude Code — no auto terminal ───────────────────────────────────────
+  "claudeCode.useTerminal": true,
 
   // ── Error Lens ────────────────────────────────────────────────────────────
   "errorLens.enabled": true,
@@ -238,20 +261,32 @@
     "**/__pycache__": true,
     "**/.ruff_cache": true
   },
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/__pycache__/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true
+  },
 
-  // ── Git ───────────────────────────────────────────────────────────────────
-  "git.enableSmartCommit": true,
-  "git.autofetch": true,
-  "git.confirmSync": false,
-  "git.postCommitCommand": "push",
-
-  // ── Telemetry off ─────────────────────────────────────────────────────────
+  // ── Telemetry — ALL OFF ───────────────────────────────────────────────────
   "telemetry.telemetryLevel": "off",
-"redhat.telemetry.enabled": false,
-"yaml.schemas": {
+  "redhat.telemetry.enabled": false,
+  "workbench.enableExperiments": false,
+  "workbench.settings.enableNaturalLanguageSearch": false,
+  "extensions.autoCheckUpdates": false,
+  "extensions.autoUpdate": false,
+  "update.mode": "none",
+  "update.showReleaseNotes": false,
+
+  // ── YAML schemas ──────────────────────────────────────────────────────────
+  "yaml.schemas": {
     "https://static.trunk.io/pub/trunk-yaml-schema.json": "file:///home/fujitsu/Projects/Trade-Bot-main/.trunk/trunk.yaml"
-},
-"snyk.advanced.organization": "93a840a3-4866-4f81-bb0a-c5651baa370b",
-"snyk.advanced.autoSelectOrganization": true,
-"claudeCode.useTerminal": true
+  },
+
+  // ── Snyk ─────────────────────────────────────────────────────────────────
+  "snyk.advanced.organization": "93a840a3-4866-4f81-bb0a-c5651baa370b",
+  "snyk.advanced.autoSelectOrganization": false
 }
