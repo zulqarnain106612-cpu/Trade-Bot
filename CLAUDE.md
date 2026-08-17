@@ -494,3 +494,79 @@ For review tasks:
 6. Follow cross-file references only when necessary to prove the finding.
 7. Never report speculative, stylistic, or unverified issues.
 8. Report only findings with exact `file:line` evidence.
+
+## ENFORCEMENT ADDITIONS — DO NOT DUPLICATE
+# Rules absent from existing CLAUDE.md. Enforced by hook + these instructions.
+# Apply on ALL branches, ALL actions, ALL tools, ALL execution stages.
+
+### NO DUPLICATION IN CONTEXT — ZERO TOLERANCE
+A file already Read this session is already in context.
+Reading it again wastes tokens and causes harness re-injection on git ops.
+
+The hook tracks every Read by file path + mtime (session tracker in /tmp).
+- Same file + unchanged mtime → BLOCKED automatically by hook.
+- Same file + changed mtime (file was modified) → ALLOWED (changed candidate).
+- After Edit/MultiEdit: file removed from tracker, re-read allowed if needed.
+
+You do not need to track this manually. The hook enforces it.
+When blocked: use the content already in context. Do not attempt to reload.
+
+### CHANGED CANDIDATES ONLY
+Only read, load, or inspect files that:
+  (a) appear in the current git diff, OR
+  (b) are directly required to prove or fix the current finding, OR
+  (c) have been modified since last read (hook allows automatically).
+
+Never read a file "for context", "to understand the codebase", or "to be sure".
+If the file is not in the diff and not directly referenced: do not open it.
+
+### EDIT-BEFORE-READ — ALWAYS
+Attempting Edit directly is cheaper than Read → locate → Edit.
+The hook blocks Read of large files without offset+limit.
+
+CORRECT:
+  1. Edit(file, old_str, new_str) directly with known string.
+  2. If Edit fails (old_str not found): grep -n "partial" file | head -5
+  3. Read(file, offset=<line>, limit=20). Retry Edit.
+
+FORBIDDEN:
+  ✗ Read(file) to locate old_str before Edit.
+  ✗ Reading a file "to prepare for" or "understand before" editing.
+  ✗ sed -i — always use Edit tool.
+
+### GIT BRANCH SWITCH — MANDATORY SEQUENCE
+Every branch switch risks harness re-injection of all tracked files.
+
+MANDATORY:
+  1. /compact → clears file content from context (resets what harness tracks).
+  2. git stash (if uncommitted changes).
+  3. git checkout <branch>.
+  4. After switch: grep + targeted Read only. Never re-read files.
+  5. Harness re-injection received unprompted → state "Discarding re-injection of <file>." Continue from known state.
+
+BLOCKED by hook (all branches):
+  git checkout -- .   git reset --hard   bare git merge   git checkout -f
+
+### NEVER IDLE — BACKGROUND TASKS AND CI
+If a background task, CI run, or async operation is in progress:
+  → Do NOT wait, sleep, poll, or watch.
+  → Move immediately to the next task in the repo or across branches.
+  → Check result only when the next action requires it.
+
+Signal pattern (only correct approach):
+  (long-cmd && echo DONE > .claude_signals/NAME.done || echo FAIL > .claude_signals/NAME.done) &
+  # immediately continue to next task — never wait
+
+Check when needed:
+  cat .claude_signals/NAME.done 2>/dev/null || echo PENDING
+  # PENDING → continue. DONE/FAIL → handle, then continue.
+
+BLOCKED by hook: bare wait, sleep-loops, gh run watch, tail -f.
+
+### SAME RULES — ALL BRANCHES, ALL ACTIONS, ALL STAGES
+These rules apply identically during:
+  writing code, fixing bugs, running builds, reviewing PRs,
+  branch switching, merging, CI dispatch, reading logs,
+  debugging, refactoring, adding tests, pushing, any other action.
+
+No action, branch, or execution stage is exempt.

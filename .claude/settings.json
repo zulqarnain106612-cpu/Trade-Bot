@@ -31,8 +31,7 @@
       "Write(docs/**)",
       "Write(.claude/review-queue.log)"
     ],
-    "deny": [
-      ],
+    "deny": [],
     "Ask": [
       "Bash(*EXECUTION_MODE=*)",
       "Bash(*TRADING_MODE=live*)",
@@ -59,5 +58,21 @@
       "Write(scripts/**)",
       "Bash(rm -rf *)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/fujitsu/Projects/Trade-Bot-main/.claude/hooks/pre-tool.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192"
   }
 }

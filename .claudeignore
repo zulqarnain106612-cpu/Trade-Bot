@@ -38,3 +38,13 @@ requirements.lock
 # CI artifacts
 check_runs.json
 ci_jobs.json
+
+# === enforcement-additions ===
+# .claude/worktrees/ = full src duplicate (agent worktrees).
+# Harness indexes this path → re-injects all files on git ops.
+.claude/worktrees/
+# Hook scripts: executable files, not source of truth
+.claude/hooks/
+# Session tracker files (auto-cleaned by OS, never source of truth)
+.claude_signals/
+.claude_probe
