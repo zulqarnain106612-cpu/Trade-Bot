@@ -2,7 +2,7 @@ pytest>=9.1.1
 pytest-asyncio>=1.4.0
 pytest-cov>=7.1.0
 ruff==0.16.3  # Debt-006: pinned to match .trunk/trunk.yaml, .pre-commit-config.yaml, auto-fix.yml, and auto-debug.yml -- previously >=0.0.332 let `pip install` drift to whatever's latest (confirmed 0.15.17 in one audited .venv), silently diverging from every other pinned config. The two workflows were left on 0.4.4 by that bump and only caught in 2026-07 (see git log for this line); if you change this version, change all four.
-mypy>=1.11  # required by CLAUDE.md validation gate (uv run mypy src/) — was referenced but never declared
+mypy>=2.3.0  # required by CLAUDE.md validation gate (uv run mypy src/) — was referenced but never declared
 black>=24.10.0
 isort>=5.13.0
 detect-secrets>=1.5.0
