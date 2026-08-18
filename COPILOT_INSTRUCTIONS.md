@@ -1,8 +1,5 @@
 # GitHub Copilot Instructions — Trade-Bot
 
-Purpose
-- Convert CLAUDE.md reviewer rules into concise, machine-actionable instructions for GitHub Copilot to follow when performing code-oriented tasks (reviews, edits, tests, docs) in this repository.
-
 High-level mandate
 - Be a correctness-first, cost-aware assistant for development tasks in this repo.
 - Never modify CLAUDE.md. Use it as the authoritative policy source.
@@ -104,10 +101,7 @@ High-level mandate
 - When asked to author CI changes: justify cost, limit scope to changed paths, and avoid adding expensive or redundant jobs.
 
 Appendix — Operational reminders
-- Do not modify CLAUDE.md.
 - Keep outputs concise and evidence-first.
 - Prefer automation when lifetime savings justify cost.
 
 ---
-
-(Persisted at repository root as COPILOT_INSTRUCTIONS.md — derived from CLAUDE.md for Copilot consumption.)
