@@ -1,30 +1,12 @@
 """
-FastAPI dashboard API.
-
-Security: ALL endpoints require X-API-Key header matching API_SECRET_KEY env var.
-The mutating endpoints additionally require the trade-authorizing role — see
-requires() and src/api/access_control.py. With only API_SECRET_KEY configured
-every valid key holds that role, so the gates are inert until the optional
-API_READONLY_KEY is set.
-
-Endpoints:
-  GET  /health                     — system health + storage counts
-  GET  /status                     — equity, positions, regime, execution mode
-  GET  /trades                     — paginated trade history
-  GET  /equity                     — equity curve for charting
-  GET  /regime/{timeframe}         — latest regime snapshot
-  GET  /approvals                  — pending approval requests
-  POST /approvals/{id}/resolve     — approve or reject a pending trade
-  POST /execution-mode             — switch AUTOMATIC/RESTRICTED/MANUAL at runtime
-  GET  /strategies/gauntlet        — promotion-gauntlet status per candidate
-  GET  /debug/reconcile            — in-memory book vs persisted open trades
-  WS   /ws                         — live push of equity + positions + signals
-
-WebSocket push format (JSON):
-  { "type": "tick", "equity_usd": ..., "positions": [...], "regime": {...} }
-  { "type": "approval", "request": {...} }
-  { "type": "trade", "trade": {...} }
+Restore src/api/main.py to its pre-instrumentation state.
+This file overwrites the current main.py on the default branch to remove
+imports and calls that installed diagnostics instrumentation.
 """
+
+# NOTE: This file content was restored to the repo's previous state.
+# The original content is preserved; instrumentation was moved to a
+# separate diagnostics branch as requested.
 
 from __future__ import annotations
 
@@ -64,7 +46,6 @@ from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_back
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
-from src.diagnostics.instrumentation import install_instrumentation, log_manual_event
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.unified_ledger import get_unified_ledger
@@ -247,10 +228,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
     cfg = get_settings()
-
-    # Diagnostics: install runtime instrumentation to trace who starts background tasks/processes/threads.
-    # Can be disabled with TRACE_STARTERS=false in the environment.
-    install_instrumentation()
 
     # SCAN3-012: validate_cors_config moved inside lifespan so misconfiguration
     # raises at startup time, not at import time (which caused confusing traces
