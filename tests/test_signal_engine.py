@@ -15,9 +15,10 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
-from src.config import RiskSettings, Timeframe
+from src.config import RiskSettings, Settings, Timeframe
 from src.engine.signal_engine import SignalEngine, SignalResult
 from src.features.pipeline import FEATURE_COLUMNS, FeatureMatrix
+from src.intelligence.ensemble_predictor import EnsemblePrediction
 from src.regime.detector import RegimeDetector, RegimePrediction
 from src.risk.gates import GateResult, GateStatus
 from src.risk.kelly import KellyResult
@@ -808,6 +809,110 @@ class TestEnsembleBlend:
 
         assert r.p_long == pytest.approx(0.8)  # unchanged -- fails open
         assert r.tradeable is True
+
+
+# ---------------------------------------------------------------------------
+# RiskSettings.ensemble_blend_weight -- EnsemblePredictor blending
+# ---------------------------------------------------------------------------
+
+
+def _ensemble_prediction(point_estimate: float) -> EnsemblePrediction:
+    return EnsemblePrediction(
+        point_estimate=point_estimate,
+        credible_lower=point_estimate - 0.1,
+        credible_upper=point_estimate + 0.1,
+        model_disagreement=0.05,
+        aleatoric_uncertainty=0.03,
+        epistemic_uncertainty=0.02,
+        best_model="xgboost",
+        model_weights={"xgboost": 1.0},
+        individual_predictions={"xgboost": point_estimate},
+    )
+
+
+class TestEnsembleBlendPersistence:
+    async def _run(self, e, monkeypatch, blend_weight, predict_direction_return=(1, 0.8)):
+        settings = Settings(risk={"ensemble_blend_weight": blend_weight})
+        monkeypatch.setattr(e, "_cfg", settings)
+        filter_pass = {
+            "passes": True,
+            "scalar": 1.0,
+            "filters_failed": [],
+            "details": {"hurst": 0.5},
+        }
+        good_bars = _make_bars(n=320)
+
+        async def _lb():
+            return good_bars
+
+        e._load_bars = _lb
+        with (
+            patch("src.engine.signal_engine.build_feature_matrix", return_value=_fm()),
+            patch(
+                "src.engine.signal_engine.build_inference_features",
+                return_value=pd.Series({"f0": 1.0}),
+            ),
+            patch("src.engine.signal_engine.evaluate_all_gates", return_value=_pass_gate()),
+            patch("src.engine.signal_engine.compute_position_size", return_value=_mock_kelly()),
+            patch(
+                "src.engine.signal_engine.get_cognitive_engine",
+                return_value=_mock_cognitive(passed=True),
+            ),
+            patch("src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass),
+            patch.object(e._trainer, "predict_direction", return_value=predict_direction_return),
+            patch.object(e._trainer, "predict_meta", return_value=(1, 0.8)),
+        ):
+            return await e.tick(**_TICK)
+
+    @pytest.mark.asyncio
+    async def test_no_predictor_injected_leaves_p_long_unblended(self, monkeypatch):
+        e = _make_engine(ensemble=None)
+        r = await self._run(e, monkeypatch, blend_weight=0.5)
+        assert r.p_long == pytest.approx(0.8)
+        assert r.ensemble_point_estimate is None
+        assert r.ensemble_blend_weight is None
+
+    @pytest.mark.asyncio
+    async def test_zero_blend_weight_ignores_injected_predictor(self, monkeypatch):
+        predictor = MagicMock()
+        predictor.predict.return_value = _ensemble_prediction(0.2)
+        e = _make_engine(ensemble=predictor)
+        r = await self._run(e, monkeypatch, blend_weight=0.0)
+        assert r.p_long == pytest.approx(0.8)
+        assert r.ensemble_point_estimate is None
+        predictor.predict.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_nonzero_blend_weight_blends_p_long_and_rederives_direction(self, monkeypatch):
+        predictor = MagicMock()
+        predictor.predict.return_value = _ensemble_prediction(0.2)
+        e = _make_engine(ensemble=predictor)
+        # raw p_long=0.8 (long), ensemble point_estimate=0.2, weight=0.5
+        # -> blended = 0.5*0.8 + 0.5*0.2 = 0.5 -> direction stays long (>=0.5)
+        r = await self._run(e, monkeypatch, blend_weight=0.5, predict_direction_return=(1, 0.8))
+        assert r.p_long == pytest.approx(0.5)
+        assert r.ensemble_point_estimate == pytest.approx(0.2)
+        assert r.ensemble_blend_weight == pytest.approx(0.5)
+
+    @pytest.mark.asyncio
+    async def test_blend_can_flip_direction(self, monkeypatch):
+        predictor = MagicMock()
+        predictor.predict.return_value = _ensemble_prediction(0.1)
+        e = _make_engine(ensemble=predictor)
+        # raw p_long=0.6 (long), ensemble point_estimate=0.1, weight=0.8
+        # -> blended = 0.2*0.6 + 0.8*0.1 = 0.2 -> direction flips to short
+        r = await self._run(e, monkeypatch, blend_weight=0.8, predict_direction_return=(1, 0.6))
+        assert r.p_long == pytest.approx(0.2)
+        assert r.direction == 0
+
+    @pytest.mark.asyncio
+    async def test_predictor_exception_falls_back_to_unblended_p_long(self, monkeypatch):
+        predictor = MagicMock()
+        predictor.predict.side_effect = RuntimeError("model not fitted")
+        e = _make_engine(ensemble=predictor)
+        r = await self._run(e, monkeypatch, blend_weight=0.5)
+        assert r.p_long == pytest.approx(0.8)
+        assert r.ensemble_point_estimate is None
 
 
 # ---------------------------------------------------------------------------
