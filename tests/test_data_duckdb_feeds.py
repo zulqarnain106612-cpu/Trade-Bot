@@ -9,10 +9,10 @@ import asyncio
 
 
 class TestDuckDBStore:
-    def test_init_in_memory(self) -> None:
+    def test_init_in_memory(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         assert store is not None
         store.close()
 
@@ -24,10 +24,10 @@ class TestDuckDBStore:
         assert db_path.exists()
         store.close()
 
-    def test_write_ohlcv_single_row(self) -> None:
+    def test_write_ohlcv_single_row(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         row = {
             "symbol": "BTC/USDT",
             "timeframe": "1m",
@@ -41,17 +41,17 @@ class TestDuckDBStore:
         store.write_ohlcv([row])
         store.close()
 
-    def test_write_ohlcv_empty_no_crash(self) -> None:
+    def test_write_ohlcv_empty_no_crash(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         store.write_ohlcv([])
         store.close()
 
-    def test_write_horizon_metric(self) -> None:
+    def test_write_horizon_metric(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         store.write_horizon_metric(
             horizon_id=0,
             label="30s",
@@ -62,10 +62,10 @@ class TestDuckDBStore:
         )
         store.close()
 
-    def test_write_ecc_signal(self) -> None:
+    def test_write_ecc_signal(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         store.write_ecc_signal(
             {
                 "cluster_flow_score": 0.3,
@@ -75,41 +75,41 @@ class TestDuckDBStore:
         )
         store.close()
 
-    def test_write_feature_log(self) -> None:
+    def test_write_feature_log(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         store.write_feature_log("BTC/USDT", {"ofi": 0.5, "vpin": 0.3, "kyle_lambda": 0.001})
         store.close()
 
-    def test_query_ohlcv_empty(self) -> None:
+    def test_query_ohlcv_empty(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         df = store.query_ohlcv("BTC/USDT", "1m")
         assert hasattr(df, "columns")
         store.close()
 
-    def test_query_horizon_history_empty(self) -> None:
+    def test_query_horizon_history_empty(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         df = store.query_horizon_history(horizon_id=0)
         assert hasattr(df, "columns")
         store.close()
 
-    def test_query_ecc_history_empty(self) -> None:
+    def test_query_ecc_history_empty(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         df = store.query_ecc_history()
         assert hasattr(df, "columns")
         store.close()
 
-    def test_roundtrip_ohlcv(self) -> None:
+    def test_roundtrip_ohlcv(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         row = {
             "symbol": "ETH/USDT",
             "timeframe": "5m",
