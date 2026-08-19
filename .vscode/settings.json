@@ -1,15 +1,11 @@
 {
   // ═══════════════════════════════════════════════════════════════════════════
-  // FORMATTER AUTHORITY — ONE formatter per language, no conflicts
-  //   Python  → charliermarsh.ruff  (lint + format, replaces black/flake8/isort)
-  //   JS/JSX  → esbenp.prettier-vscode
-  //   JSON    → esbenp.prettier-vscode
-  //   YAML    → esbenp.prettier-vscode
-  //   CSS     → esbenp.prettier-vscode
-  //   Markdown → esbenp.prettier-vscode
+  // FORMATTER AUTHORITY
+  //   Python  → charliermarsh.ruff
+  //   JS/JSX/JSON/YAML/CSS/MD → esbenp.prettier-vscode
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // ── Global editor defaults ────────────────────────────────────────────────
+  // ── Global editor ─────────────────────────────────────────────────────────
   "editor.formatOnSave": true,
   "editor.formatOnPaste": false,
   "editor.formatOnType": false,
@@ -26,7 +22,7 @@
     "source.fixAll": "never"
   },
 
-  // ── Python — RUFF ONLY, all others disabled ───────────────────────────────
+  // ── Python ────────────────────────────────────────────────────────────────
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true,
@@ -38,7 +34,7 @@
     }
   },
 
-  // Explicitly disable all other Python formatters/linters that conflict
+  // Disable all legacy Python linters/formatters
   "python.formatting.provider": "none",
   "python.linting.enabled": false,
   "python.linting.flake8Enabled": false,
@@ -48,7 +44,7 @@
   "python.linting.pycodestyleEnabled": false,
   "python.linting.pydocstyleEnabled": false,
 
-  // ── Ruff extension (charliermarsh.ruff) — authoritative ──────────────────
+  // ── Ruff ──────────────────────────────────────────────────────────────────
   "ruff.enable": true,
   "ruff.lint.enable": true,
   "ruff.format.enable": true,
@@ -57,53 +53,60 @@
   "ruff.showNotifications": "onWarning",
   "ruff.configurationPreference": "filesystemFirst",
 
-  // ── Pylance — type analysis only, no formatting ───────────────────────────
-  "python.analysis.typeCheckingMode": "basic",
+  // ── Pylance ───────────────────────────────────────────────────────────────
+  "python.analysis.typeCheckingMode": "standard",
   "python.analysis.useLibraryCodeForTypes": true,
   "python.analysis.autoImportCompletions": true,
   "python.analysis.diagnosticMode": "workspace",
-  "python.analysis.ignore": ["**/frontend/**", "**/.venv/**", "**/dist/**"],
+  "python.analysis.ignore": [
+    "**/frontend/**",
+    "**/.venv/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/node_modules/**"
+  ],
   "python.analysis.diagnosticSeverityOverrides": {
     "reportMissingTypeStubs": "none",
-    "reportMissingImports": "none",
     "reportMissingModuleSource": "none",
     "reportUnknownVariableType": "none",
     "reportUnknownMemberType": "none",
     "reportUnknownArgumentType": "none",
     "reportUnknownParameterType": "none",
-    "reportPrivateUsage": "none",
-    "reportAttributeAccessIssue": "none",
-    "reportReturnType": "none",
-    "reportArgumentType": "none",
-    "reportOperatorIssue": "none",
-    "reportIndexIssue": "none",
-    "reportCallIssue": "none",
-    "reportOptionalMemberAccess": "none",
-    "reportOptionalCall": "none",
-    "reportOptionalIterable": "none",
-    "reportGeneralTypeIssues": "none",
     "reportUntypedFunctionDecorator": "none",
     "reportUntypedClassDecorator": "none",
     "reportUntypedBaseClass": "none",
     "reportPrivateImportUsage": "none",
+    "reportPrivateUsage": "none",
     "reportConstantRedefinition": "none",
-    "reportIncompatibleMethodOverride": "none",
-    "reportIncompatibleVariableOverride": "none",
+    "reportAttributeAccessIssue": "warning",
+    "reportIncompatibleMethodOverride": "warning",
+    "reportIncompatibleVariableOverride": "warning",
+    "reportMissingImports": "error",
+    "reportReturnType": "warning",
+    "reportArgumentType": "warning",
+    "reportOperatorIssue": "warning",
+    "reportCallIssue": "warning",
+    "reportIndexIssue": "warning",
+    "reportOptionalMemberAccess": "warning",
+    "reportOptionalCall": "warning",
+    "reportOptionalIterable": "warning",
+    "reportGeneralTypeIssues": "warning",
+    "reportUnusedCoroutine": "error",
     "reportPossiblyUnbound": "warning",
-    "reportUninitializedInstanceVariable": "warning",
-    "reportUnusedCoroutine": "error"
+    "reportUninitializedInstanceVariable": "warning"
   },
 
   // ── Python interpreter ────────────────────────────────────────────────────
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.terminal.activateEnvironment": true,
+  "python.terminal.activateEnvironment": false,  // ← OFF: no auto venv on terminal open
 
-  // ── Tests ─────────────────────────────────────────────────────────────────
-  "python.testing.pytestEnabled": true,
+  // ── Tests — MANUAL only ───────────────────────────────────────────────────
+  "python.testing.pytestEnabled": false,          // ← OFF: enable manually when needed
   "python.testing.unittestEnabled": false,
   "python.testing.pytestArgs": ["tests", "-v", "--tb=short"],
+  "python.testing.autoTestDiscoverOnSaveEnabled": false, // ← no scan on every save
 
-  // ── JavaScript/JSX — Prettier ONLY, ESLint for lint only ─────────────────
+  // ── JavaScript/JSX ────────────────────────────────────────────────────────
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
@@ -121,41 +124,36 @@
     }
   },
 
-  // ESLint — lint only, Prettier does the formatting
+  // ESLint — lint only, no auto-run
   "eslint.enable": true,
   "eslint.format.enable": false,
+  "eslint.run": "onSave",                         // ← was default "onType" = runs constantly
   "eslint.workingDirectories": [{ "directory": "frontend", "changeProcessCWD": true }],
   "eslint.validate": ["javascript", "javascriptreact"],
 
-  // Prettier — format everything non-Python
+  // Prettier
   "prettier.enable": true,
   "prettier.requireConfig": true,
   "prettier.configPath": "${workspaceFolder}/frontend/.prettierrc",
 
   // ── JSON ──────────────────────────────────────────────────────────────────
-  "[json]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
-  },
-  "[jsonc]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "editor.formatOnSave": true
-  },
+  "[json]": { "editor.defaultFormatter": "esbenp.prettier-vscode", "editor.formatOnSave": true },
+  "[jsonc]": { "editor.defaultFormatter": "esbenp.prettier-vscode", "editor.formatOnSave": true },
 
-  // ── YAML ─────────────────────────────────────────────────────────────────
+  // ── YAML ──────────────────────────────────────────────────────────────────
   "[yaml]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
     "editor.tabSize": 2
   },
-
-  // ── TOML ─────────────────────────────────────────────────────────────────
-  "[toml]": {
-    "editor.defaultFormatter": "tamasfe.even-better-toml",
-    "editor.formatOnSave": true
+  "yaml.schemas": {
+    "https://static.trunk.io/pub/trunk-yaml-schema.json": "file:///home/fujitsu/Projects/Trade-Bot-main/.trunk/trunk.yaml"
   },
 
-  // ── Markdown ─────────────────────────────────────────────────────────────
+  // ── TOML ──────────────────────────────────────────────────────────────────
+  "[toml]": { "editor.defaultFormatter": "tamasfe.even-better-toml", "editor.formatOnSave": true },
+
+  // ── Markdown ──────────────────────────────────────────────────────────────
   "[markdown]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
@@ -198,11 +196,11 @@
   "errorLens.enabled": true,
   "errorLens.enabledDiagnosticLevels": ["error", "warning"],
   "errorLens.followCursor": "allLines",
-  "errorLens.delay": 300,
+  "errorLens.delay": 800,                         // ← raised: less thrashing on keystroke
   "errorLens.gutterIconsEnabled": true,
   "errorLens.messageMaxChars": 120,
 
-  // ── SonarLint ─────────────────────────────────────────────────────────────
+  // ── SonarLint — MANUAL, no auto-run ──────────────────────────────────────
   "sonarlint.rules": {
     "python:S106":  { "level": "on" },
     "python:S105":  { "level": "on" },
@@ -211,47 +209,69 @@
     "python:S5527": { "level": "on" }
   },
   "sonarlint.disableTelemetry": true,
+  "sonarlint.ls.javaHome": "",                    // prevents JVM spawn on launch if unset
+
+  // ── Snyk — MANUAL only ────────────────────────────────────────────────────
+  "snyk.advanced.organization": "93a840a3-4866-4f81-bb0a-c5651baa370b",
+  "snyk.advanced.autoSelectOrganization": true,
+  "snyk.enableTelemetry": false,
+  "snyk.yesWelcomeNotification": true,            // ← suppresses welcome scan on open
+  "snyk.trustedFolders": ["/home/fujitsu/Projects/Trade-Bot-main"],
+  "snyk.scanningMode": "manual",                  // ← KEY: no auto-scan on launch
 
   // ── GitLens ───────────────────────────────────────────────────────────────
-  "gitlens.codeLens.enabled": true,
+  "gitlens.codeLens.enabled": false,              // ← OFF: expensive, enable per-session
   "gitlens.currentLine.enabled": true,
   "gitlens.hovers.currentLine.over": "line",
   "gitlens.telemetry.enabled": false,
+  "gitlens.statusBar.enabled": true,
+
+  // ── Git ───────────────────────────────────────────────────────────────────
+  "git.enableSmartCommit": true,
+  "git.autofetch": false,                         // ← OFF: was spawning git process on timer
+  "git.confirmSync": false,
+  "git.postCommitCommand": "none",                // ← OFF: no auto-push on commit
+
+  // ── Extensions — disable auto-update background process ──────────────────
+  "extensions.autoUpdate": false,                 // ← OFF: no background update checks
+  "extensions.autoCheckUpdates": false,
+
+  // ── Telemetry off ─────────────────────────────────────────────────────────
+  "telemetry.telemetryLevel": "off",
+  "redhat.telemetry.enabled": false,
 
   // ── File handling ─────────────────────────────────────────────────────────
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
   "files.eol": "\n",
+  "files.watcherExclude": {                       // ← KEY: stop file watcher thrashing
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/__pycache__/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.pytest_cache/**": true
+  },
   "files.exclude": {
     "**/__pycache__": true,
     "**/*.pyc": true,
     "**/.pytest_cache": true,
     "**/node_modules": true,
     "**/.ruff_cache": true,
-    "**/.mypy_cache": true,
-    "**/.trunk": false
+    "**/.mypy_cache": true
   },
   "search.exclude": {
     "**/.venv": true,
     "**/node_modules": true,
     "**/__pycache__": true,
-    "**/.ruff_cache": true
+    "**/.ruff_cache": true,
+    "**/dist": true,
+    "**/build": true
   },
 
-  // ── Git ───────────────────────────────────────────────────────────────────
-  "git.enableSmartCommit": true,
-  "git.autofetch": true,
-  "git.confirmSync": false,
-  "git.postCommitCommand": "push",
-
-  // ── Telemetry off ─────────────────────────────────────────────────────────
-  "telemetry.telemetryLevel": "off",
-"redhat.telemetry.enabled": false,
-"yaml.schemas": {
-    "https://static.trunk.io/pub/trunk-yaml-schema.json": "file:///home/fujitsu/Projects/Trade-Bot-main/.trunk/trunk.yaml"
-},
-"snyk.advanced.organization": "93a840a3-4866-4f81-bb0a-c5651baa370b",
-"snyk.advanced.autoSelectOrganization": true,
-"claudeCode.useTerminal": true
+  // ── Claude Code ───────────────────────────────────────────────────────────
+  "claudeCode.useTerminal": true
 }
