@@ -29,8 +29,6 @@ from typing import TYPE_CHECKING, Any, Final, Union
 if TYPE_CHECKING:
     import pandas as pd
 
-    from src.data.timescale_storage import TimescaleBackend
-
 import aiosqlite
 import structlog
 
