@@ -10,16 +10,19 @@ Usage: call install_instrumentation() early during process startup (e.g. in API 
 
 The wrappers are conservative: they log stack traces and basic context only.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
-import inspect
 import os
 import threading
 import traceback
+from typing import Any
+
 import structlog
-from typing import Any, Callable
+
 
 log = structlog.get_logger(__name__)
 
@@ -48,10 +51,8 @@ def _short_repr(obj: Any, limit: int = 240) -> str:
 def _install_asyncio_task_factory(loop: asyncio.AbstractEventLoop | None = None) -> None:
     loop = loop or asyncio.get_event_loop()
 
-    try:
-        orig_factory = loop.get_task_factory()
-    except Exception:
-        orig_factory = None
+    with contextlib.suppress(Exception):
+        loop.get_task_factory()
 
     def _task_factory(inner_loop: asyncio.AbstractEventLoop, coro: Any):
         # Create the task using the default behaviour (preserve origin factory if any)
@@ -63,7 +64,7 @@ def _install_asyncio_task_factory(loop: asyncio.AbstractEventLoop | None = None)
         try:
             log.debug(
                 "instrumentation.asyncio_task_created",
-                task= _short_repr(t),
+                task=_short_repr(t),
                 coro=_short_repr(coro),
                 stack=_stack_snippet(),
             )
@@ -87,15 +88,13 @@ def _wrap_thread_start() -> None:
 
     @functools.wraps(orig)
     def _start(self: threading.Thread, *a: Any, **kw: Any) -> Any:
-        try:
+        with contextlib.suppress(Exception):
             log.info(
                 "instrumentation.thread_start",
                 thread_name=getattr(self, "name", "<thread>"),
                 target=_short_repr(getattr(self, "_target", None)),
                 stack=_stack_snippet(),
             )
-        except Exception:
-            pass
         return orig(self, *a, **kw)
 
     try:
@@ -167,7 +166,5 @@ def install_instrumentation(loop: asyncio.AbstractEventLoop | None = None) -> No
 
 def log_manual_event(name: str, **kwargs: Any) -> None:
     """Log a manual instrumentation event (useful from component code)."""
-    try:
+    with contextlib.suppress(Exception):
         log.info("instrumentation.manual_event", name=name, stack=_stack_snippet(), **kwargs)
-    except Exception:
-        pass
