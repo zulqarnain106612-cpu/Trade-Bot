@@ -100,8 +100,10 @@ class MAMLOptimizer:
         Each task is a dict with keys: support_x, support_y, query_x, query_y.
         Returns the mean outer-loop loss.
         """
+        # An empty batch leaves outer_loss a grad-free constant, and backward()
+        # on it raises. A meta-step over no tasks is a no-op, not an error --
+        # drift can clear before a task batch is assembled.
         if not tasks:
-            # outer_loss would stay a non-grad leaf and .backward() would raise.
             return 0.0
 
         self._outer_opt.zero_grad()
