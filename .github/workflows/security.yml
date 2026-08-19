@@ -16,8 +16,8 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: "0 4 * * *"   # daily at 04:00 UTC
+  # REMOVED 2026-08-16 by owner request: the daily 04:00 UTC cron burned a run
+  # every night and pushed a Vulner-Fix.md commit unattended. Run it on demand.
   workflow_dispatch:
 
 permissions:
@@ -172,16 +172,16 @@ jobs:
                   ], check=False)
           PYEOF
 
-      - name: Commit Vulner-Fix.md
+      # REMOVED 2026-08-16 by owner request: this committed and pushed
+      # Vulner-Fix.md unattended. The findings are uploaded as an artifact
+      # instead, so the audit still reports without writing to the repo.
+      - name: Upload Vulner-Fix findings
         if: env.AUDIT_FAILED == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet Vulner-Fix.md || (
-            git add Vulner-Fix.md
-            git commit -m "chore: update Vulner-Fix.md from pip-audit [skip ci]"
-            git push || true
-          )
+        uses: actions/upload-artifact@v7
+        with:
+          name: vulner-fix-${{ github.run_id }}
+          path: Vulner-Fix.md
+          if-no-files-found: ignore
 
   npm-audit:
     name: npm audit — Frontend CVE scan
