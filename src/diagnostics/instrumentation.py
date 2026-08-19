@@ -61,16 +61,14 @@ def _install_asyncio_task_factory(loop: asyncio.AbstractEventLoop | None = None)
         except Exception:
             # Fall back to loop.create_task() if Task() signature differs
             t = inner_loop.create_task(coro)
-        try:
+        # Never raise from instrumentation
+        with contextlib.suppress(Exception):
             log.debug(
                 "instrumentation.asyncio_task_created",
                 task=_short_repr(t),
                 coro=_short_repr(coro),
                 stack=_stack_snippet(),
             )
-        except Exception:
-            # Never raise from instrumentation
-            pass
         return t
 
     try:
