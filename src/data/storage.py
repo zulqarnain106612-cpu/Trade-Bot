@@ -156,9 +156,25 @@ CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
         """ALTER TABLE regime_snapshots ADD COLUMN changepoint_probability REAL NOT NULL DEFAULT 0.0;
 ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.0;""",
     ),
+    # v7 — ensemble blend backtest harness (src/tuning/backtest_harness.py
+    # run_ensemble_blend_backtest): persist the EnsemblePredictor point
+    # estimate and the blend weight actually applied at signal time
+    # alongside each trade, so the harness can replay closed trades'
+    # realized outcomes against champion/challenger blend weights. NULL for
+    # every trade opened before this migration or with ensemble blending
+    # off (RiskSettings.ensemble_blend_weight == 0.0 / no predictor injected).
+    # Numbered 7, not 6: main landed the regime-ensemble migration as v6 first,
+    # and a version that has already run somewhere can never be renumbered.
+    (
+        7,
+        "add ensemble_point_estimate/ensemble_blend_weight to trades for the "
+        "ensemble-blend self-tuning harness",
+        "ALTER TABLE trades ADD COLUMN ensemble_point_estimate REAL;\n"
+        "ALTER TABLE trades ADD COLUMN ensemble_blend_weight REAL;",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 6
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 7
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -362,6 +378,8 @@ class TradeRecord:
     __slots__ = (
         "approved_by",
         "direction",
+        "ensemble_blend_weight",
+        "ensemble_point_estimate",
         "entry_price",
         "entry_ts",
         "execution_mode",
@@ -406,6 +424,8 @@ class TradeRecord:
         exit_reason: str | None,
         approved_by: str | None,
         raw_signal: float | None,
+        ensemble_point_estimate: float | None = None,
+        ensemble_blend_weight: float | None = None,
     ) -> None:
         self.id = id
         self.symbol = symbol
@@ -428,6 +448,8 @@ class TradeRecord:
         self.exit_reason = exit_reason
         self.approved_by = approved_by
         self.raw_signal = raw_signal
+        self.ensemble_point_estimate = ensemble_point_estimate
+        self.ensemble_blend_weight = ensemble_blend_weight
 
 
 class MissedTradeRecord:
@@ -1128,9 +1150,10 @@ class StorageBackend:
                         direction, entry_price, exit_price, quantity, notional_usd,
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
-                        exit_reason, approved_by, raw_signal
+                        exit_reason, approved_by, raw_signal,
+                        ensemble_point_estimate, ensemble_blend_weight
                     ) VALUES (
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                     )
                     """,
                     (
@@ -1155,6 +1178,8 @@ class StorageBackend:
                         trade.exit_reason,
                         trade.approved_by,
                         trade.raw_signal,
+                        trade.ensemble_point_estimate,
+                        trade.ensemble_blend_weight,
                     ),
                 )
                 await conn.commit()
@@ -1210,6 +1235,29 @@ class StorageBackend:
             exit_reason=exit_reason,
         )
 
+    async def update_trade_ensemble_fields(
+        self,
+        trade_id: str,
+        ensemble_point_estimate: float | None,
+        ensemble_blend_weight: float | None,
+    ) -> None:
+        """
+        Best-effort patch of the ensemble fields on an already-inserted trade
+        row. Separate from insert_trade's own INSERT because the ensemble
+        prediction is computed inside SignalEngine.tick() before the trade_id
+        exists (the executor mints it at open time) -- the orchestrator calls
+        this immediately after executor.submit_signal() returns a trade_id
+        with outcome == "opened". Silently a no-op if the trade_id doesn't
+        exist (never blocks the trade path over an audit-trail write).
+        """
+        conn = self._require_conn()
+        async with self._get_lock():
+            await conn.execute(
+                "UPDATE trades SET ensemble_point_estimate=?, ensemble_blend_weight=? WHERE id=?",
+                (ensemble_point_estimate, ensemble_blend_weight, trade_id),
+            )
+            await conn.commit()
+
     async def fetch_trades(
         self,
         symbol: str | None = None,
@@ -1254,7 +1302,8 @@ class StorageBackend:
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
-                " exit_reason, approved_by, raw_signal"
+                " exit_reason, approved_by, raw_signal,"
+                " ensemble_point_estimate, ensemble_blend_weight"
                 " FROM trades WHERE "
                 + " AND ".join(clauses)
                 + " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
@@ -1265,7 +1314,8 @@ class StorageBackend:
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
-                " exit_reason, approved_by, raw_signal"
+                " exit_reason, approved_by, raw_signal,"
+                " ensemble_point_estimate, ensemble_blend_weight"
                 " FROM trades ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
             )
         params.append(limit)
@@ -1295,6 +1345,8 @@ class StorageBackend:
                 exit_reason=r["exit_reason"],
                 approved_by=r["approved_by"],
                 raw_signal=r["raw_signal"],
+                ensemble_point_estimate=r["ensemble_point_estimate"],
+                ensemble_blend_weight=r["ensemble_blend_weight"],
             )
             for r in rows
         ]
