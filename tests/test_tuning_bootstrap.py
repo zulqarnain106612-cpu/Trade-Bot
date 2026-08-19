@@ -71,31 +71,37 @@ def test_register_ensemble_blend_weight() -> None:
     param = register_ensemble_blend_weight(registry, settings)
     assert param.current == settings.risk.ensemble_blend_weight
     assert registry.is_registered("risk.ensemble_blend_weight")
-    assert param.floor >= 0.0
-    assert param.ceiling <= 1.0
+    # Full [0, 1] range, NOT _symmetric_bounds(default) -- default is 0.0,
+    # which would produce a zero-width window under the +/-20% formula.
+    assert param.floor == 0.0
+    assert param.ceiling == 1.0
+
+
+def test_register_ensemble_blend_weight_twice_raises() -> None:
+    registry = ParameterRegistry()
+    settings = Settings()
+    register_ensemble_blend_weight(registry, settings)
+    with pytest.raises(DuplicateParameterError):
+        register_ensemble_blend_weight(registry, settings)
 
 
 def test_register_ensemble_blend_weight_resumes_from_promoted_store_value(tmp_path) -> None:
-    store = VersionedConfigStore(tmp_path / "versions.jsonl")
-    settings = Settings()
-    store.promote(
-        "risk.ensemble_blend_weight",
-        0.16,
-        evidence={},
-        promoted_by="test",
-    )
     registry = ParameterRegistry()
+    settings = Settings()
+    store = VersionedConfigStore(tmp_path / "versions.jsonl")
+    store.promote("risk.ensemble_blend_weight", 0.3, evidence={})
     param = register_ensemble_blend_weight(registry, settings, store)
-    assert param.current == pytest.approx(0.16)
+    assert param.current == pytest.approx(0.3)
 
 
-def test_registering_all_three_does_not_collide() -> None:
+def test_registering_all_four_does_not_collide() -> None:
     registry = ParameterRegistry()
     settings = Settings()
     register_hmm_entropy_threshold(registry, settings)
     register_hmm_entropy_scalar_floor(registry, settings)
     register_slippage_impact_coeff(registry, settings)
-    assert len(registry.list_all()) == 3
+    register_ensemble_blend_weight(registry, settings)
+    assert len(registry.list_all()) == 4
 
 
 @pytest.mark.parametrize("field_name", sorted(FEATURE_WINDOW_FIELDS))

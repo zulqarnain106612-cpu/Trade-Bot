@@ -496,6 +496,135 @@ class TestAutoTuningSchedulerSlippageAttempt:
         assert runner._audit_log.read_for_param("risk.slippage_impact_coeff_bps")
 
 
+def make_ensemble_trade(
+    trade_id,
+    entry_ts,
+    exit_ts,
+    raw_p_long=0.6,
+    ensemble_point_estimate=0.55,
+    blend_weight=0.3,
+    entry_price=100.0,
+    exit_price=105.0,
+    direction=1,
+):
+    from src.data.storage import TradeRecord
+
+    blended_p_long = (1.0 - blend_weight) * raw_p_long + blend_weight * ensemble_point_estimate
+    return TradeRecord(
+        id=trade_id,
+        symbol="BTC/USDT",
+        timeframe="15m",
+        trading_mode="paper",
+        execution_mode="automatic",
+        direction=direction,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        quantity=1.0,
+        notional_usd=entry_price,
+        entry_ts=entry_ts,
+        exit_ts=exit_ts,
+        pnl_usd=1.0,
+        pnl_pct=0.01,
+        fee_usd=0.1,
+        kelly_fraction=0.1,
+        regime_at_entry=0,
+        meta_label_prob=0.6,
+        exit_reason="profit_target",
+        approved_by="auto",
+        raw_signal=blended_p_long,
+        ensemble_point_estimate=ensemble_point_estimate,
+        ensemble_blend_weight=blend_weight,
+    )
+
+
+class TestBuildEnsembleBlendSamples:
+    def test_skips_trades_without_ensemble_fields(self) -> None:
+        settings = get_settings()
+        trades = [make_trade("t1", entry_ts=1000, exit_ts=1500)]  # no ensemble fields set
+        storage = _FakeStorage(trades, {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        samples = asyncio.run(scheduler._build_ensemble_blend_samples())
+        assert samples == []
+
+    def test_builds_sample_from_blended_trade(self) -> None:
+        settings = get_settings()
+        trades = [
+            make_ensemble_trade(
+                "t1",
+                entry_ts=1000,
+                exit_ts=1500,
+                raw_p_long=0.7,
+                ensemble_point_estimate=0.4,
+                blend_weight=0.5,
+            )
+        ]
+        storage = _FakeStorage(trades, {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        samples = asyncio.run(scheduler._build_ensemble_blend_samples())
+        assert len(samples) == 1
+        assert samples[0].raw_p_long == pytest.approx(0.7)
+        assert samples[0].ensemble_point_estimate == pytest.approx(0.4)
+
+
+class TestAutoTuningSchedulerEnsembleBlendAttempt:
+    def test_start_registers_ensemble_blend_weight(self) -> None:
+        settings = get_settings()
+        scheduler = AutoTuningScheduler(
+            storage=_FakeStorage([], {}),  # type: ignore[arg-type]
+            settings=settings,
+            symbol="BTC/USDT",
+            timeframe="15m",
+        )
+
+        async def _run():
+            scheduler.start()
+            try:
+                assert parameter_registry.is_registered("risk.ensemble_blend_weight")
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+
+    def test_attempt_all_runs_ensemble_blend_attempt_with_sufficient_samples(self) -> None:
+        settings = get_settings()
+        trades = [
+            make_ensemble_trade(f"t{i}", entry_ts=1000 * i, exit_ts=1000 * i + 500)
+            for i in range(1, 40)
+        ]
+        storage = _FakeStorage(trades, {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        assert runner._audit_log.read_for_param("risk.ensemble_blend_weight")
+
+    def test_attempt_all_skips_ensemble_blend_with_insufficient_samples(self) -> None:
+        settings = get_settings()
+        trades = [make_ensemble_trade("t1", entry_ts=1000, exit_ts=1500)]  # below _MIN_SAMPLES
+        storage = _FakeStorage(trades, {})
+        scheduler = AutoTuningScheduler(storage, settings, "BTC/USDT", "15m")  # type: ignore[arg-type]
+        before = len(runner._audit_log.read_for_param("risk.ensemble_blend_weight"))
+
+        async def _run():
+            scheduler.start()
+            try:
+                await scheduler._attempt_all()
+            finally:
+                scheduler.stop()
+
+        asyncio.run(_run())
+        after = len(runner._audit_log.read_for_param("risk.ensemble_blend_weight"))
+        assert after == before
+
+
 def _make_price_series(n: int, seed: int = 0) -> list[float]:
     rng = random.Random(seed)
     price = 100.0

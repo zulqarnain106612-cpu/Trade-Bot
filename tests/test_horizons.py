@@ -122,7 +122,7 @@ class TestBERTHead:
 
 class TestGNNHead:
     def test_output_shape_without_pyg(self) -> None:
-        """GNNHead with default node_features aggregates to [1, d_model]."""
+        """A plain [B, F] tensor takes the fallback path and maps to [B, d_model]."""
         from src.models.gnn_head import GNNHead
 
         model = GNNHead(node_features=32, d_model=128)
@@ -190,7 +190,8 @@ class TestMetaNetwork:
         from src.fusion.meta_network import MetaNetwork
 
         model = MetaNetwork(n_horizons=10, d_in=128)
-        x = torch.randn(1, 128)
+        batch = 1
+        x = torch.randn(batch, 128)
         outputs = model(x)
         for out in outputs:
             # direction is [B, 3] softmax probabilities — each row sums to 1
