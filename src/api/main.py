@@ -12,70 +12,28 @@ from __future__ import annotations
 
 import asyncio
 import collections
-import hmac  # SCAN3-003: moved from inline import inside set_execution_mode()
-import json
 import os
 import re
 import time
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
-from typing import Annotated, Any, cast
+from typing import Any
 
 import structlog
 from fastapi import (
-    Depends,
     FastAPI,
-    Header,
     HTTPException,
-    Query,
-    Request,
     WebSocket,
-    WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
 
-from src.api.access_control import Permission, Role, require_permission
-from src.api.auth import verify_api_key, verify_ws_key
-from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
-from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
+from src.config import get_settings
 from src.data.fetcher import open_fetcher
-from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
-from src.diagnostics.attribution import get_attribution_tracker
-from src.diagnostics.audit_trail import get_audit_trail
-from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
+from src.data.storage import AnyStorageBackend, create_storage_backend
 from src.engine.orchestrator import Orchestrator
-from src.execution.base import AbstractExecutor
-from src.execution.unified_ledger import get_unified_ledger
-from src.risk.strategy_kill_switch import (
-    GauntletNotPassedError,
-    get_strategy_kill_switch_manager,
-)
 from src.strategies.bootstrap import register_default_strategies
-from src.strategies.capital_allocator import performance_weighted_allocate
-from src.strategies.registry import get_default_registry
-from src.tuning.audit import TuningEventType
-from src.tuning.meta_allocator import get_allocation_controller
-from src.tuning.promotion_gauntlet import (
-    GauntletCriteria,
-    evaluate_gauntlet,
-    observation_from_fills,
-)
 from src.tuning.scheduler import AutoTuningScheduler
-from src.tuning.state import (
-    audit_log as tuning_audit_log,
-    parameter_registry as tuning_registry,
-    pause_state as tuning_pause_state,
-    version_store as tuning_version_store,
-    watchdog as tuning_watchdog,
-)
-from src.tuning.store import NoPriorVersionError, NoVersionsError
-from src.tuning.stress_simulator import (
-    KNOWN_CRISIS_SCENARIOS,
-    run_all_known_scenarios,
-)
 
 
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
