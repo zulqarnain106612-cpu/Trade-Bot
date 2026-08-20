@@ -108,14 +108,21 @@ jobs:
       - name: Run pip-audit
         id: audit
         run: |
+          # --skip-editable: the project installs itself with `pip install -e .`
+          # and trade-bot 0.1.0 is not on PyPI, so --strict counted its own
+          # package as an un-auditable dependency and failed the step. That
+          # aborted the run before the report was written, which then crashed
+          # the issue-filing step below on a missing file — with no CVE
+          # anywhere in the tree. --strict still bites for real dependencies.
           pip-audit \
             --strict \
+            --skip-editable \
             --format json \
             --output pip-audit.json \
             || echo "AUDIT_FAILED=true" >> $GITHUB_ENV
 
       - name: Print human-readable summary
-        run: pip-audit --strict || true
+        run: pip-audit --strict --skip-editable || true
 
       - name: Upload audit report
         if: always()
@@ -131,6 +138,14 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            // pip-audit writes nothing when it fails before the scan finishes,
+            // and this step only runs because that failure set AUDIT_FAILED.
+            // Reading unconditionally turned "the audit could not run" into an
+            // unhandled ENOENT that buried the actual reason in the log.
+            if (!fs.existsSync('pip-audit.json')) {
+              core.warning('pip-audit produced no report — see the audit step for why.');
+              return;
+            }
             const report = JSON.parse(fs.readFileSync('pip-audit.json', 'utf8'));
             const vulns = (report.dependencies || []).flatMap(d =>
               (d.vulns || []).map(v => `${d.name}@${d.version}: ${v.id} — ${v.description.slice(0,120)}`)
@@ -227,6 +242,11 @@ jobs:
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          # On a push to the default branch these both resolved to the same
+          # commit, and the action exits with an error rather than scanning —
+          # so the secret gate was dead on exactly the branch that matters.
+          # A pull request still gets the cheap diff scan; a push scans the
+          # full history, which fetch-depth: 0 above already provides.
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          head: ${{ github.sha }}
           extra_args: --only-verified --json
