@@ -319,7 +319,10 @@ def _portfolio_orch(monkeypatch, registry: StrategyRegistry) -> Orchestrator:
     monkeypatch.setattr(
         orch_mod,
         "get_portfolio_runner",
-        lambda: StrategyPortfolioRunner(builders=builders),
+        # registry= for the same reason as _wire: without it the runner falls
+        # back to the real process-wide registry, and the peer view resolves
+        # over strategies this test never registered.
+        lambda: StrategyPortfolioRunner(registry=registry, builders=builders),
     )
 
     class _KS:
