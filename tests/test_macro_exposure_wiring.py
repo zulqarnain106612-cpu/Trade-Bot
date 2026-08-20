@@ -14,7 +14,6 @@ import pandas as pd
 import pytest
 
 from conftest import settings_double
-
 from src.config import Timeframe, TradingMode
 
 

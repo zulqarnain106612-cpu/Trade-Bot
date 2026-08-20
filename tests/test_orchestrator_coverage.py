@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from conftest import settings_double
-
 from src.config import Timeframe, TradingMode
 from src.data.storage import BarRecord
 
