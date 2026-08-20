@@ -1127,6 +1127,7 @@ def check_cpu_bound_work_is_offloaded() -> list[str]:
                         f"{_rel(path)}:{node.lineno} {name}() called inline in "
                         f"async {fn.name}() — offload with to_thread/run_in_executor"
                     )
+    return problems
 
 
 def _dataclass_attributes() -> dict[str, set[str] | None]:

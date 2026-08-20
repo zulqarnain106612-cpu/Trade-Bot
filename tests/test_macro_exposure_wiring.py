@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 
+from conftest import settings_double
 from src.config import Timeframe, TradingMode
 
 
@@ -32,7 +33,7 @@ def _make_orch(storage, *, enabled: bool = True, lookback: int = 30):
     from src.engine.orchestrator import Orchestrator
 
     with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-        cfg = MagicMock()
+        cfg = settings_double()
         cfg.primary_symbol = "BTC/USDT"
         cfg.active_timeframes = [Timeframe.INTRADAY]
         cfg.primary_timeframe = Timeframe.INTRADAY

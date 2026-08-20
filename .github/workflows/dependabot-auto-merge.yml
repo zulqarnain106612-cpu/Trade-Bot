@@ -16,7 +16,9 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  # `contents: write` dropped with the auto-merge step -- this workflow only
+  # labels PRs now, so it must not be able to write to the repository.
+  contents: read
   pull-requests: write
 
 # Trading-critical packages — auto-merge blocked, human review required.
@@ -29,7 +31,7 @@ env:
 jobs:
   auto-merge:
     name: Auto-merge safe Dependabot patches
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
 
     steps:
@@ -64,27 +66,21 @@ jobs:
       #   - non-dev dependency
       #   - NOT a security advisory
       #   - NOT a trading-critical package (SEC-006)
-      - name: Auto-approve patch updates
+      # REMOVED 2026-08-16 by owner request: `gh pr review --approve` plus
+      # `gh pr merge --auto --squash` merged dependency PRs into main with no
+      # human in the loop. Safe patch bumps are now only labelled; the owner
+      # merges them. Nothing in this workflow writes to the repo any more.
+      - name: Label safe patch updates for review
         if: |
           steps.meta.outputs.update-type == 'version-update:semver-patch' &&
           steps.meta.outputs.dependency-type != 'direct:development' &&
           steps.meta.outputs.alert-state != 'OPEN' &&
           steps.critical-check.outputs.is_critical == 'false'
-        run: gh pr review --approve "$PR_URL"
+        run: gh pr edit "$PR_URL" --add-label "safe-patch"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Auto-merge patch updates after CI passes
-        if: |
-          steps.meta.outputs.update-type == 'version-update:semver-patch' &&
-          steps.meta.outputs.dependency-type != 'direct:development' &&
-          steps.meta.outputs.alert-state != 'OPEN' &&
-          steps.critical-check.outputs.is_critical == 'false'
-        run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
       # Label blocked PRs so they appear in the review queue.
       - name: Label critical-package PRs for manual review
