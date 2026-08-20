@@ -177,7 +177,9 @@ class TestSchedulerSuppliesTheCount:
         from src.tuning.scheduler import AutoTuningScheduler
 
         source = inspect.getsource(AutoTuningScheduler._attempt_all)
-        assert source.count("closed_trade_count=closed_trade_count") == 2
+        # entropy, slippage, and the ensemble blend weight — every group whose
+        # samples come from closed trades.
+        assert source.count("closed_trade_count=closed_trade_count") == 3
         assert "deliberately NOT passed here" in source
 
 
