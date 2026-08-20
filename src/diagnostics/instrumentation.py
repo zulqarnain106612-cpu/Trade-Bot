@@ -81,7 +81,8 @@ def _install_asyncio_task_factory(loop: asyncio.AbstractEventLoop | None = None)
 def _wrap_thread_start() -> None:
     try:
         orig = threading.Thread.start
-    except Exception:
+    except AttributeError:
+        # The only way this lookup fails is a runtime without the attribute.
         return
 
     @functools.wraps(orig)
@@ -107,12 +108,17 @@ def _wrap_multiprocess_start() -> None:
         import multiprocessing
 
         orig = multiprocessing.Process.start
-    except Exception:
+    except (ImportError, AttributeError):
+        # multiprocessing is absent or reshaped on this runtime; instrumenting
+        # it is optional, so leave process start unwrapped.
         return
 
     @functools.wraps(orig)
     def _mp_start(self: Any, *a: Any, **kw: Any) -> Any:
-        try:
+        # Observing a process start must never be able to prevent it, which is
+        # why this is suppressed rather than logged — the logger is the thing
+        # that just failed. Same shape as _wrap_thread_start above.
+        with contextlib.suppress(Exception):
             # multiprocessing.Process stores target in _target for fork/spawn
             target = getattr(self, "_target", None)
             args = getattr(self, "_args", None)
@@ -124,8 +130,6 @@ def _wrap_multiprocess_start() -> None:
                 args=_short_repr(args),
                 stack=_stack_snippet(),
             )
-        except Exception:
-            pass
         return orig(self, *a, **kw)
 
     try:

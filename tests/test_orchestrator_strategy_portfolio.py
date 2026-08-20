@@ -10,8 +10,10 @@ portfolio is polled.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 import structlog
@@ -475,15 +477,22 @@ async def test_a_missing_leg_abstains_the_whole_pair():
 class _Cache:
     """UniverseReturnsCache stand-in exposing only what _pair_series reads."""
 
-    def __init__(self, series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) -> None:
+    def __init__(
+        self, series: dict[str, tuple[float, ...]], fetched_at: float | None = None
+    ) -> None:
         self._series = series
-        self.fetched_at = fetched_at
+        # Stamped on the monotonic clock, whose origin is boot — a literal
+        # like 100.0 reads as hours old on any long-lived runner and trips the
+        # pair's staleness guard.
+        self.fetched_at = time.monotonic() if fetched_at is None else fetched_at
 
     def close_series(self, symbol: str):
         return self._series.get(symbol)
 
 
-def _pair_orch(series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) -> Orchestrator:
+def _pair_orch(
+    series: dict[str, tuple[float, ...]], fetched_at: float | None = None
+) -> Orchestrator:
     orch = _orchestrator(_Storage())
     orch._cfg = _cfg_double(mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30)
     orch._universe_returns = _Cache(series, fetched_at)
@@ -492,10 +501,18 @@ def _pair_orch(series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) 
 
 
 def _cointegrated(n: int = 200) -> dict[str, tuple[float, ...]]:
-    # B is A plus a small stationary wobble: cointegrated by construction.
-    a = [100.0 + i * 0.1 for i in range(n)]
-    b = [x * 0.5 + (0.3 if i % 2 else -0.3) for i, x in enumerate(a)]
-    return {"A/USDT": tuple(a), "B/USDT": tuple(b)}
+    # A is a random walk (I(1)); B tracks it with stationary white noise, so
+    # the residual of the A~B regression is stationary and Engle-Granger
+    # rejects a unit root in it.
+    #
+    # The previous fixture was a deterministic ramp with an alternating
+    # +/-0.3 residual and a comment claiming it was "cointegrated by
+    # construction". coint() disagreed: that residual oscillates with lag-1
+    # autocorrelation -1, and the test returned p=0.9859.
+    rng = np.random.default_rng(7)
+    a = 100.0 + np.cumsum(rng.normal(0.0, 1.0, n))
+    b = 0.5 * a + rng.normal(0.0, 0.1, n)
+    return {"A/USDT": tuple(float(x) for x in a), "B/USDT": tuple(float(x) for x in b)}
 
 
 def test_pair_series_abstains_when_unconfigured():
@@ -734,7 +751,7 @@ class _SnapshotCache:
 
     async def trailing_returns(self):
         self.refreshes += 1
-        self.fetched_at = 100.0
+        self.fetched_at = time.monotonic()
         return dict.fromkeys(self._series, 0.1)
 
     def close_series(self, symbol: str):
@@ -744,9 +761,7 @@ class _SnapshotCache:
 
 
 def _pair_series_fixture() -> dict[str, tuple[float, ...]]:
-    a = [100.0 + i * 0.1 for i in range(200)]
-    b = [x * 0.5 + (0.3 if i % 2 else -0.3) for i, x in enumerate(a)]
-    return {"A/USDT": tuple(a), "B/USDT": tuple(b)}
+    return _cointegrated()
 
 
 async def test_the_pair_family_alone_still_refreshes_the_shared_snapshot():
