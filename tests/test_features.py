@@ -350,7 +350,7 @@ class TestBuildFeatureMatrix:
 
     def test_correct_feature_columns(self, synthetic_bars):
         fm = build_feature_matrix(synthetic_bars)
-        assert list(fm.features.columns) == FEATURE_COLUMNS
+        assert list(fm.features.columns) == list(FEATURE_COLUMNS)
 
     def test_no_nan_in_features(self, synthetic_bars):
         fm = build_feature_matrix(synthetic_bars)
@@ -456,7 +456,7 @@ class TestBuildInferenceFeatures:
     def test_correct_index(self, synthetic_bars):
         vec = build_inference_features(synthetic_bars)
         assert vec is not None
-        assert list(vec.index) == FEATURE_COLUMNS
+        assert list(vec.index) == list(FEATURE_COLUMNS)
 
     def test_no_nan(self, synthetic_bars):
         vec = build_inference_features(synthetic_bars)
@@ -582,7 +582,7 @@ class TestGARCHPipelineIntegration:
 
     def test_feature_columns_has_8_base_features(self) -> None:
         assert len(BASE_FEATURE_COLUMNS) == 8
-        assert list(BASE_FEATURE_COLUMNS) == FEATURE_COLUMNS
+        assert list(BASE_FEATURE_COLUMNS) == list(FEATURE_COLUMNS)
 
 
 # ─── triple-barrier exit composition ──────────────────────────────────────────

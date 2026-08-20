@@ -29,6 +29,14 @@ def _make_features(n: int = 50, seed: int = 42) -> pd.DataFrame:
     return pd.DataFrame({"a": rng.standard_normal(n), "b": rng.standard_normal(n)})
 
 
+def _fitted_predictor() -> EnsemblePredictor:
+    """An ensemble with at least one fitted member, so predict() does not refuse."""
+    ep = EnsemblePredictor()
+    X = _make_features(60)
+    ep.fit(X, pd.Series(X["a"] * 1.5 + X["b"]))
+    return ep
+
+
 # ---------------------------------------------------------------------------
 # EnsemblePrediction dataclass
 # ---------------------------------------------------------------------------
@@ -418,15 +426,17 @@ class TestEnsemblePredictor:
             assert 0.0 <= w <= 1.0
         assert abs(sum(ep.weights.values()) - 1.0) < 1e-9
 
-    def test_predict_before_fit(self):
+    def test_predict_before_fit_refuses(self):
+        # Nothing is fitted, so no member has an opinion. Emitting a point
+        # estimate here would be a maximally confident forecast of zero.
         ep = EnsemblePredictor()
-        features = _make_features(1)
-        result = ep.predict(features)
-        assert isinstance(result, EnsemblePrediction)
+        with pytest.raises(RuntimeError, match="every ensemble member failed"):
+            ep.predict(_make_features(1))
 
     def test_predict_returns_correct_type(self):
-        ep = EnsemblePredictor()
+        ep = _fitted_predictor()
         result = ep.predict(_make_features(1))
+        assert isinstance(result, EnsemblePrediction)
         assert hasattr(result, "point_estimate")
         assert hasattr(result, "credible_lower")
         assert hasattr(result, "credible_upper")
@@ -480,7 +490,7 @@ class TestEnsemblePredictor:
         assert final_weights is not None
 
     def test_predict_best_model_is_min_uncertainty(self):
-        ep = EnsemblePredictor()
+        ep = _fitted_predictor()
         result = ep.predict(_make_features(1))
         assert result.best_model in ep.models
 
@@ -499,15 +509,17 @@ class TestEnsemblePredictor:
             ep.fit(X, y)  # should not raise; error logged and loop continues
         assert abs(sum(ep.weights.values()) - 1.0) < 1e-9
 
-    def test_predict_member_exception_falls_back_to_neutral(self):
-        ep = EnsemblePredictor()
+    def test_predict_member_exception_is_excluded_not_zeroed(self):
+        # A member that raises has no opinion; a placeholder 0.0 would drag
+        # the weighted average toward a number nothing actually predicted.
+        ep = _fitted_predictor()
         with patch.object(
             ep.models["xgboost"],
             "predict_with_uncertainty",
             side_effect=RuntimeError("boom"),
         ):
             result = ep.predict(_make_features(1))
-        assert result.individual_predictions["xgboost"] == 0.0
+        assert "xgboost" not in result.individual_predictions
 
 
 # ---------------------------------------------------------------------------

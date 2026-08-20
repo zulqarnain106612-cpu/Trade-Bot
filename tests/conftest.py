@@ -19,3 +19,20 @@ from pathlib import Path
 
 _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
 os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
+
+
+def settings_double():
+    """A `get_settings()` stand-in whose sub-configs are real, not MagicMocks.
+
+    A bare `MagicMock()` hands back a MagicMock for every attribute, so code
+    that compares a config value against a number (`lookback_days <= 0`)
+    raises TypeError instead of exercising the path under test. Sub-configs
+    with real defaults are substituted; everything else stays auto-specced.
+    """
+    from unittest.mock import MagicMock
+
+    from src.config import StrategyPortfolioSettings
+
+    cfg = MagicMock()
+    cfg.strategy_portfolio = StrategyPortfolioSettings()
+    return cfg
