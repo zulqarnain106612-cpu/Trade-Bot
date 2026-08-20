@@ -18,7 +18,7 @@ import structlog
 
 import src.engine.orchestrator as orch_mod
 from conftest import settings_double
-from src.config import Timeframe
+from src.config import StrategyPortfolioSettings, Timeframe
 from src.engine.orchestrator import Orchestrator
 from src.engine.strategy_portfolio import (
     PortfolioInputs,
@@ -142,10 +142,17 @@ def _wire(monkeypatch, registry: StrategyRegistry, *, enabled: set[str] | None =
     monkeypatch.setattr(orch_mod, "get_allocation_controller", lambda *_a, **_k: _Ctl())
 
 
-class _Cfg:
-    class strategy_portfolio:
-        max_allocation_shift_per_step = 0.10
-        basis_perp_symbol = ""
+def _cfg_double(**portfolio_overrides):
+    """Settings carrying a real StrategyPortfolioSettings.
+
+    The hand-rolled stubs this replaces declared only the two or three fields
+    each test cared about and omitted every other field the portfolio path
+    reads, so the evaluation abstained on the missing attributes instead of
+    running the code under test.
+    """
+    cfg = settings_double()
+    cfg.strategy_portfolio = StrategyPortfolioSettings(**portfolio_overrides)
+    return cfg
 
 
 async def test_evaluate_polls_registered_strategies_and_records_the_result(monkeypatch):
@@ -155,7 +162,7 @@ async def test_evaluate_polls_registered_strategies_and_records_the_result(monke
 
     bars = [_Bar(i) for i in range(120)]
     orch = _orchestrator(_Storage(bars=bars))
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
 
     evaluation = await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
 
@@ -169,7 +176,7 @@ async def test_evaluate_polls_registered_strategies_and_records_the_result(monke
 async def test_evaluate_returns_none_on_an_empty_registry(monkeypatch):
     _wire(monkeypatch, StrategyRegistry())
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     assert await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY) is None
 
 
@@ -179,7 +186,7 @@ async def test_kill_switched_strategy_is_not_polled(monkeypatch):
     _wire(monkeypatch, registry, enabled=set())
 
     orch = _orchestrator(_Storage(bars=[_Bar(i) for i in range(120)]))
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     evaluation = await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
 
     assert evaluation is not None
@@ -194,7 +201,7 @@ async def test_evaluate_never_raises_into_the_tick(monkeypatch):
     monkeypatch.setattr(orch_mod, "get_portfolio_runner", lambda: StrategyPortfolioRunner())
 
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     assert await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY) is None
 
 
@@ -320,7 +327,7 @@ def _portfolio_orch(monkeypatch, registry: StrategyRegistry) -> Orchestrator:
     monkeypatch.setattr(orch_mod, "get_allocation_controller", lambda *_a, **_k: _Ctl())
 
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     return orch
 
 
@@ -414,23 +421,11 @@ async def test_funding_lookback_is_calendar_based_not_bar_based():
 # ------------------------------------------------------------ basis legs
 
 
-class _CfgWithPerp:
-    class strategy_portfolio:
-        max_allocation_shift_per_step = 0.10
-        basis_perp_symbol = "BTC/USDT:USDT"
-
-
-class _CfgNoPerp:
-    class strategy_portfolio:
-        max_allocation_shift_per_step = 0.10
-        basis_perp_symbol = ""
-
-
 async def test_basis_legs_abstain_when_no_perp_is_configured():
     # The spot/perp mapping is venue- and settlement-specific; guessing it
     # would price one instrument's basis against another.
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgNoPerp()
+    orch._cfg = _cfg_double()
     orch._fetcher = _Fetcher({"binance": 100.0})
     assert await orch._fetch_basis_legs() == (None, None, None, None)
 
@@ -455,7 +450,7 @@ class _SymbolFetcher:
 async def test_basis_legs_are_quoted_together_from_one_venue():
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgWithPerp()
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT")
     orch._fetcher = fetcher
 
     spot, spot_ts, perp, perp_ts = await orch._fetch_basis_legs()
@@ -469,7 +464,7 @@ async def test_a_missing_leg_abstains_the_whole_pair():
     # Half a basis is not a basis; returning the spot leg alone would let a
     # later change pair it against something else.
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgWithPerp()
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT")
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": RuntimeError("down")})
     assert await orch._fetch_basis_legs() == (None, None, None, None)
 
@@ -488,17 +483,11 @@ class _Cache:
         return self._series.get(symbol)
 
 
-class _CfgPair:
-    class strategy_portfolio:
-        max_allocation_shift_per_step = 0.10
-        basis_perp_symbol = ""
-        mean_reversion_pair = ["A/USDT", "B/USDT"]
-        mean_reversion_window = 30
-
-
 def _pair_orch(series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) -> Orchestrator:
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgPair()
+    orch._cfg = _cfg_double(
+        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
+    )
     orch._universe_returns = _Cache(series, fetched_at)
     orch._pair_cointegration = None
     return orch
@@ -513,7 +502,7 @@ def _cointegrated(n: int = 200) -> dict[str, tuple[float, ...]]:
 
 def test_pair_series_abstains_when_unconfigured():
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     orch._cfg.strategy_portfolio.mean_reversion_pair = []
     orch._universe_returns = _Cache({})
     orch._pair_cointegration = None
@@ -588,15 +577,6 @@ def test_a_failing_cointegration_test_abstains_and_is_not_retried_per_tick():
 # --------------------------------------------------- quote memoisation
 
 
-class _CfgQuotes:
-    class strategy_portfolio:
-        max_allocation_shift_per_step = 0.10
-        basis_perp_symbol = "BTC/USDT:USDT"
-        mean_reversion_pair = []
-        mean_reversion_window = 30
-        basis_days_to_convergence = 1.0
-
-
 async def test_the_same_quote_is_not_requested_twice_in_one_tick():
     # _fetch_venue_prices needs BTC/USDT on binance for the cross-exchange
     # family; _fetch_basis_legs needed the identical quote for the basis
@@ -604,7 +584,9 @@ async def test_the_same_quote_is_not_requested_twice_in_one_tick():
     # rate limit shared with the order path.
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = fetcher
 
     await orch._fetch_venue_prices()
@@ -619,7 +601,9 @@ async def test_a_cached_quote_keeps_its_original_observation_time():
     # stale abstains the family instead of being served as fresh.
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = fetcher
 
     first = await orch._quote("BTC/USDT", "binance")
@@ -631,7 +615,9 @@ async def test_a_cached_quote_keeps_its_original_observation_time():
 async def test_an_expired_quote_is_refetched():
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = fetcher
 
     await orch._quote("BTC/USDT", "binance")
@@ -647,7 +633,9 @@ async def test_different_venues_are_cached_separately():
     # Same symbol, two venues, two distinct prices — collapsing them would
     # make the cross-exchange basis identically zero.
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = _Fetcher({"binance": 100.0, "okx": 101.0})
 
     prices, _ = await orch._fetch_venue_prices()
@@ -658,7 +646,9 @@ async def test_a_failed_quote_is_not_cached():
     # Caching a failure would suppress the retry on the next tick.
     fetcher = _SymbolFetcher({"BTC/USDT": RuntimeError("503")})
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = fetcher
 
     assert await orch._quote("BTC/USDT", "binance") is None
@@ -669,7 +659,9 @@ async def test_a_failed_quote_is_not_cached():
 async def test_the_quote_cache_is_bounded_by_symbol_and_venue():
     # Keys are (symbol, venue), so the cache cannot grow with uptime.
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
 
     for _ in range(50):
@@ -705,7 +697,9 @@ async def test_the_default_configuration_costs_no_io():
     storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
     orch = _orchestrator(storage)
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = fetcher
 
     await orch._build_portfolio_inputs(Timeframe.INTRADAY, required_inputs(["signal_engine_v1"]))
@@ -720,7 +714,9 @@ async def test_only_the_declared_feed_is_fetched():
 
     storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
     orch = _orchestrator(storage)
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
 
     inputs = await orch._build_portfolio_inputs(
@@ -737,7 +733,9 @@ async def test_omitting_needs_still_fetches_everything():
     # Backwards compatible for any caller with no view of what is registered.
     storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
     orch = _orchestrator(storage)
-    orch._cfg = _CfgQuotes()
+    orch._cfg = _cfg_double(
+        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
+    )
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
 
     await orch._build_portfolio_inputs(Timeframe.INTRADAY)
@@ -765,15 +763,6 @@ class _SnapshotCache:
         return self._series.get(symbol) if self.fetched_at > 0.0 else None
 
 
-class _CfgPairOnly:
-    class strategy_portfolio:
-        max_allocation_shift_per_step = 0.10
-        basis_perp_symbol = ""
-        basis_days_to_convergence = 1.0
-        mean_reversion_pair = ["A/USDT", "B/USDT"]
-        mean_reversion_window = 30
-
-
 def _pair_series_fixture() -> dict[str, tuple[float, ...]]:
     a = [100.0 + i * 0.1 for i in range(200)]
     b = [x * 0.5 + (0.3 if i % 2 else -0.3) for i, x in enumerate(a)]
@@ -788,7 +777,9 @@ async def test_the_pair_family_alone_still_refreshes_the_shared_snapshot():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgPairOnly()
+    orch._cfg = _cfg_double(
+        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
+    )
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -808,7 +799,9 @@ async def test_the_pair_reads_the_snapshot_on_the_very_first_tick():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgPairOnly()
+    orch._cfg = _cfg_double(
+        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
+    )
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -824,7 +817,9 @@ async def test_pair_only_does_not_expose_universe_returns():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgPairOnly()
+    orch._cfg = _cfg_double(
+        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
+    )
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -839,7 +834,9 @@ async def test_neither_family_leaves_the_snapshot_untouched():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _CfgPairOnly()
+    orch._cfg = _cfg_double(
+        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
+    )
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -861,7 +858,7 @@ async def test_a_failed_evaluation_clears_last_tick_scalar(monkeypatch):
     monkeypatch.setattr(orch_mod, "get_portfolio_runner", lambda: StrategyPortfolioRunner())
 
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     orch._last_portfolio_agreement["15m"] = 0.4
 
     assert await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY) is None
@@ -871,7 +868,7 @@ async def test_a_failed_evaluation_clears_last_tick_scalar(monkeypatch):
 async def test_an_empty_registry_clears_last_tick_scalar(monkeypatch):
     _wire(monkeypatch, StrategyRegistry())
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     orch._last_portfolio_agreement["15m"] = 0.4
 
     assert await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY) is None
@@ -882,7 +879,7 @@ async def test_a_cleared_scalar_reads_as_no_reduction(monkeypatch):
     # Failing open: an absent scalar must mean 1.0 at the submission site.
     _wire(monkeypatch, StrategyRegistry())
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     orch._last_portfolio_agreement["15m"] = 0.4
 
     await orch._evaluate_strategy_portfolio(Timeframe.INTRADAY)
@@ -893,7 +890,7 @@ async def test_a_cleared_scalar_reads_as_no_reduction(monkeypatch):
 async def test_one_timeframe_failing_does_not_clear_another(monkeypatch):
     _wire(monkeypatch, StrategyRegistry())
     orch = _orchestrator(_Storage())
-    orch._cfg = _Cfg()
+    orch._cfg = _cfg_double()
     orch._last_portfolio_agreement["15m"] = 0.4
     orch._last_portfolio_agreement["4h"] = 0.7
 

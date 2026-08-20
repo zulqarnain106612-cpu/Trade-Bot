@@ -51,6 +51,9 @@ def _make_storage():
 def _make_fetcher():
     f = AsyncMock()
     f.bootstrap_history = AsyncMock(return_value=100)
+    # A bare AsyncMock child returns a coroutine from .get(), which the
+    # precision loader feeds straight to float(). Give it a real mapping.
+    f.fetch_symbol_precision = AsyncMock(return_value={})
     f.fetch_ticker_price = AsyncMock(return_value=50_000.0)
     return f
 
