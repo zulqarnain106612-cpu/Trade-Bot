@@ -88,6 +88,42 @@ When refresh is needed, retrieve only minimal delta required.
 ## 4) Smart Tooling Protocol (Context Economy)
 
 Use the cheapest sufficient operation.
+### 4.0 Command Caps (Mandatory)
+
+Every retrieval command must carry an explicit cap. Uncapped commands are denied.
+
+Caps by class:
+- Diffs/patches: `| head -80`
+- Name lists, greps, file lists: `| head -40`
+- CI job/step metadata: `| head -15`
+- CI log extraction: failure lines only — `| grep -E "error|Error|FAILED|failed|assert" | head -30`
+  Never fetch a full CI log. Never fetch a passing job's log at all.
+- Mutating git/gh commands: `| tail -5` (confirmation only, never full output)
+
+`cat` is denied. Use `sed -n 'START,ENDp'`, `head -N`, or `tail -N`.
+
+### 4.6 Read Discipline (tool-level, not enforceable by settings)
+
+`Read` is allowed by path but capped by this rule:
+- Always pass `offset` + `limit`. Default window ≤ 80 lines.
+- Locate the exact block with `grep -n` FIRST, then Read only that window.
+- Full-file Read requires a stated reason: bounded reads could not resolve the ambiguity.
+- Never Read a file to verify an edit that Edit already reported as applied.
+
+### 4.7 Candidate Loading (Mandatory)
+
+- Load a candidate into context exactly once.
+- After applying a fix, reload ONLY the changed hunk — never the file, never the sibling candidates.
+- Do not re-read, re-fetch, re-grep, or restate a candidate whose source is unchanged.
+- Do not rewrite content that is already valid. Edit the smallest failing region only.
+- On a new CI run, fetch only the delta: the failing job's failing step's failing lines. Nothing else.
+- Prior verified results stay valid until their source bytes change.
+
+### 4.8 Edit Discipline
+
+- Use `Edit` on an exact matched string. Never `Write` over an existing file.
+- `Write` is for new files only.
+- One edit = one root cause. No opportunistic reformatting of correct code.
 
 ### 4.1 Retrieval pattern
 1. Locate exact symbol/hunk with narrow search.
