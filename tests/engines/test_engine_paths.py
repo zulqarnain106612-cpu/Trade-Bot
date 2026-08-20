@@ -843,5 +843,5 @@ class TestE18:
         from src.engines.e18_network import is_netflow_mode
 
         assert is_netflow_mode(_NETFLOW) is True
-        assert is_netflow_mode(_NETFLOW + [{"source": "other"}]) is False
+        assert is_netflow_mode([*_NETFLOW, {"source": "other"}]) is False
         assert is_netflow_mode([]) is False
