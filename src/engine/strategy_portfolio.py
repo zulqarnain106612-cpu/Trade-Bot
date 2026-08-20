@@ -291,10 +291,16 @@ def build_funding_context(inputs: PortfolioInputs) -> object | None:
         return None
     mu = _mean(history)
     sigma = _stdev(history, mu)
-    if sigma <= 0.0:
-        # Constant funding history: a z-score is undefined, not zero. Zero
-        # would read as "perfectly normal" and is the same value a genuinely
-        # unremarkable rate produces, so abstain instead.
+    # Constant funding history: a z-score is undefined, not zero. Zero would
+    # read as "perfectly normal" and is the same value a genuinely
+    # unremarkable rate produces, so abstain instead.
+    #
+    # Compared against the data's own scale, not against 0.0. Summing forty
+    # copies of 0.01 does not land back on 0.01, so a genuinely constant
+    # history yields sigma ~1e-18 rather than exactly zero — and dividing an
+    # equally tiny (rate - mu) by it manufactured a confident z-score near -1
+    # out of pure rounding noise.
+    if sigma <= 1e-12 * max(abs(mu), 1.0):
         return None
     return FundingContext(funding_rate_pct=rate, funding_zscore=(rate - mu) / sigma)
 
@@ -310,9 +316,12 @@ def build_basis_trade_context(inputs: PortfolioInputs) -> object | None:
         return None
     if inputs.spot_price <= 0.0 or inputs.perp_price <= 0.0:
         return None
-    if inputs.spot_price_ts is not None and inputs.perp_price_ts is not None:
-        if abs(inputs.spot_price_ts - inputs.perp_price_ts) > _MAX_VENUE_QUOTE_SKEW_S:
-            return None
+    if (
+        inputs.spot_price_ts is not None
+        and inputs.perp_price_ts is not None
+        and abs(inputs.spot_price_ts - inputs.perp_price_ts) > _MAX_VENUE_QUOTE_SKEW_S
+    ):
+        return None
     return BasisTradeContext(
         spot_price=inputs.spot_price,
         perp_price=inputs.perp_price,
@@ -340,9 +349,11 @@ def build_cross_exchange_context(inputs: PortfolioInputs) -> object | None:
 
     venues = list(prices)[:2]
     stamps = inputs.venue_price_ts
-    if all(v in stamps for v in venues):
-        if abs(stamps[venues[0]] - stamps[venues[1]]) > _MAX_VENUE_QUOTE_SKEW_S:
-            return None
+    if (
+        all(v in stamps for v in venues)
+        and abs(stamps[venues[0]] - stamps[venues[1]]) > _MAX_VENUE_QUOTE_SKEW_S
+    ):
+        return None
 
     return CrossExchangeContext(
         venue_a=venues[0],

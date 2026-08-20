@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # Never run against fork PRs: this job receives ANTHROPIC_API_KEY and
     # processes untrusted diff content. Fork PRs get no secret and no run.
     if: >-

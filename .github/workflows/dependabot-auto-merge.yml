@@ -31,7 +31,7 @@ env:
 jobs:
   auto-merge:
     name: Auto-merge safe Dependabot patches
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
 
     steps:
