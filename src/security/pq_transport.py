@@ -4,7 +4,8 @@ Quantum-safe transport stub — Kyber-768 / ML-KEM (Part II §9.5).
 NOT for immediate deployment — infrastructure stub + documentation.
 
 Quantum threat context:
-  - ECDH/X25519 broken by Shor's algorithm on a Cryptographically Relevant QC (CRQC)
+  - Classical elliptic-curve key exchange (X25519) is broken by Shor's algorithm
+    on a Cryptographically Relevant Quantum Computer (CRQC)
   - HNDL risk: attacker stores Trade-Bot API traffic today, decrypts when CRQC exists
   - Consensus timeline for CRQC: ~2030-2040 (NIST PQC round 3 / FIPS 203)
 

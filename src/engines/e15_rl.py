@@ -118,9 +118,13 @@ class E15RL:
                     q[a] = 0.0
             return max(q, key=lambda k: q[k]) if q else 0
         try:
-            # stable-baselines3 predict interface
-            action, _ = self._model.predict(state, deterministic=True)  # type: ignore[union-attr,attr-defined]
-            return int(action) % 3
+            # stable-baselines3 predict interface. LAW9: the SB3 policy exposes no
+            # per-action confidence, so the action is validated against the discrete
+            # {hold, long, short} space instead — anything outside it is untrusted
+            # and falls back to hold rather than being wrapped around by modulo.
+            action, _ = self._model.predict(state, deterministic=True)  # type: ignore[union-attr,attr-defined]  # confidence: range-checked below
+            chosen = int(action)
+            return chosen if chosen in (0, 1, 2) else 0
         except Exception:
             return 0
 

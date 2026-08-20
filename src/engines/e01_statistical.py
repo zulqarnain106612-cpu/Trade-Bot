@@ -80,8 +80,15 @@ class E01Statistical:
                 suppress_warnings=True,
                 stepwise=True,
             )
-            forecast = model.predict(n_periods=1)
-            return float(forecast[0])
+            # LAW9: take the 95% confidence interval alongside the point forecast
+            # and reject the fit when the interval is degenerate or wider than the
+            # spot price — such a forecast carries no usable information.
+            forecast, conf_int = model.predict(n_periods=1, return_conf_int=True)  # confidence
+            low, high = float(conf_int[0][0]), float(conf_int[0][1])
+            point = float(forecast[0])
+            if not np.isfinite([low, high, point]).all() or (high - low) > abs(spot):
+                raise ValueError("arima confidence interval too wide")
+            return point
         except Exception:
             # Fallback: naive drift
             window = df["close"].values[-20:]
