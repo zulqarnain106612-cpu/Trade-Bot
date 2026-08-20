@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from conftest import settings_double
 from src.config import Timeframe, TradingMode
 from src.data.storage import BarRecord
 
@@ -56,6 +57,9 @@ def _make_storage():
 def _make_fetcher():
     f = AsyncMock()
     f.bootstrap_history = AsyncMock(return_value=100)
+    # A bare AsyncMock child returns a coroutine from .get(), which the
+    # precision loader feeds straight to float(). Give it a real mapping.
+    f.fetch_symbol_precision = AsyncMock(return_value={})
     f.fetch_ohlcv = AsyncMock(return_value=[])
     return f
 
@@ -141,7 +145,7 @@ class TestOrchestratorInit:
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -160,7 +164,7 @@ class TestOrchestratorInit:
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "ETH/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -185,7 +189,7 @@ def _make_orch(storage=None, fetcher=None):
     if fetcher is None:
         fetcher = _make_fetcher()
     with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-        cfg = MagicMock()
+        cfg = settings_double()
         cfg.primary_symbol = "BTC/USDT"
         cfg.active_timeframes = [Timeframe.INTRADAY]
         cfg.primary_timeframe = Timeframe.INTRADAY
@@ -658,7 +662,7 @@ class TestOrchestratorTrainModels:
         storage.insert_model_metrics = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -750,7 +754,7 @@ class TestSleepUntilNextBar:
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -786,7 +790,7 @@ class TestMidnightResetLoop:
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -881,7 +885,7 @@ class TestPositionMonitorLoop:
         fetcher = _make_fetcher()
         fetcher.fetch_ticker_price = AsyncMock(return_value=50_000.0)
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -1031,7 +1035,7 @@ class TestTickCorrelationFallback:
         storage.upsert_regime_snapshot = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -1052,7 +1056,7 @@ class TestTickCorrelationFallback:
         storage.earliest_equity_ts = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY

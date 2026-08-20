@@ -189,48 +189,6 @@ def register_slippage_impact_coeff(
     return param
 
 
-def register_ensemble_blend_weight(
-    registry: ParameterRegistry,
-    settings: Settings | None = None,
-    store: VersionedConfigStore | None = None,
-) -> TunableParameter:
-    """
-    RiskSettings.ensemble_blend_weight -- how much of signal_engine.py's
-    p_long comes from the diversified prediction ensemble
-    (src/intelligence/ensemble_predictor.py) vs. the XGBoost direction
-    model. Registered so this weight can only move via the same
-    propose/evaluate/gate/shadow-mode machinery as every other tunable
-    parameter -- never a direct .env edit while the bot is live.
-
-    Registered but deliberately left UNSCHEDULED in
-    src/tuning/scheduler.py's _attempt_all() -- same documented state
-    hmm.entropy_threshold was in during Phase 4 before its backtest
-    harness existed (see scheduler.py's module docstring: "Any other
-    registered parameter with no evaluate_fn is intentionally left
-    unscheduled here"). A dedicated backtest harness comparing champion
-    vs. challenger blend weights against realized OOS trade outcomes is
-    future work; until it exists this parameter is visible/adjustable
-    manually (scripts/run_tuning_attempt.py, /self-tuning/status) but not
-    auto-tuned on a cycle.
-    """
-    settings = settings or get_settings()
-    default = settings.risk.ensemble_blend_weight
-    floor, ceiling = _symmetric_bounds(default)
-    floor = max(0.0, floor)
-    ceiling = min(1.0, ceiling)
-    current = _resume_current("risk.ensemble_blend_weight", default, floor, ceiling, store)
-    param = TunableParameter(
-        name="risk.ensemble_blend_weight",
-        description="Weight of the prediction ensemble's implied probability in p_long.",
-        floor=floor,
-        ceiling=ceiling,
-        current=current,
-        eval_strategy="ensemble_blend_oos_accuracy",
-    )
-    registry.register(param)
-    return param
-
-
 # Phase 8 item 3 -- the five rolling-window feature parameters, all with the
 # same `ge=2` Pydantic floor (src/config.py FeatureSettings) and all consumed
 # by backtest_harness.run_feature_window_backtest.

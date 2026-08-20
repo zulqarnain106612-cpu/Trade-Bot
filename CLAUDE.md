@@ -11,6 +11,17 @@ Zero tolerance for false positives.
 Every finding MUST map to exact file:line evidence.
 If exact evidence cannot be established, do not report it.
 
+## TOOL & CONTEXT ECONOMY (single source of truth)
+- Cheapest capable tool wins: if 2+ tools/commands do the same job, use the one that costs least context.
+- Canonical order for every change: SEARCH the exact block (grep/git) -> READ only that block (bounded offset+limit) -> EDIT surgically. Never read a whole file.
+- Large output/logs: fetch only the lines needed (`tail -N`, `grep -m<N>`, `sed -n 'A,Bp'`); never load thousands of lines when a few (often just the last) are needed. Always cap shell output with `| head -N` / `| tail -N`.
+- Never reload, re-read, or re-inject anything already in context; loaded results stay authoritative until their source changes. No duplicate tool calls for data already obtained.
+
+## NO CONTEXT-DESTROYING EXECUTION
+- Never schedule, defer, sleep, "wake", set alarms/timers, poll, or spawn background/monitoring tasks during an active session.
+- Never pause work and resume later: pausing drops the live session and forces a costly re-inject/reload of the whole chat on resume.
+- Finish the current task in one continuous pass. If blocked, report the blocker in this turn -- never park work for self-resumption.
+
 ==================================================
 HARD CONSTRAINTS — NON-NEGOTIABLE
 ==================================================
