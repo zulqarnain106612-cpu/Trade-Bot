@@ -33,7 +33,7 @@ class TestE10Compute:
         assert dev == pytest.approx((3_000.0 - fair) / fair * 100)
 
     def test_ltc_derives_stock_to_flow_from_its_own_halving_schedule(self) -> None:
-        fair, sf, cycle_pos, dev = E10Supply._compute("LTC", 100.0, block_height=2_800_000)
+        fair, sf, cycle_pos, _dev = E10Supply._compute("LTC", 100.0, block_height=2_800_000)
 
         assert sf > 0.0
         assert fair > 0.0
