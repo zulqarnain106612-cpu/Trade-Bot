@@ -485,9 +485,7 @@ class _Cache:
 
 def _pair_orch(series: dict[str, tuple[float, ...]], fetched_at: float = 100.0) -> Orchestrator:
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
-    )
+    orch._cfg = _cfg_double(mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30)
     orch._universe_returns = _Cache(series, fetched_at)
     orch._pair_cointegration = None
     return orch
@@ -584,9 +582,7 @@ async def test_the_same_quote_is_not_requested_twice_in_one_tick():
     # rate limit shared with the order path.
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = fetcher
 
     await orch._fetch_venue_prices()
@@ -601,9 +597,7 @@ async def test_a_cached_quote_keeps_its_original_observation_time():
     # stale abstains the family instead of being served as fresh.
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = fetcher
 
     first = await orch._quote("BTC/USDT", "binance")
@@ -615,9 +609,7 @@ async def test_a_cached_quote_keeps_its_original_observation_time():
 async def test_an_expired_quote_is_refetched():
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = fetcher
 
     await orch._quote("BTC/USDT", "binance")
@@ -633,9 +625,7 @@ async def test_different_venues_are_cached_separately():
     # Same symbol, two venues, two distinct prices — collapsing them would
     # make the cross-exchange basis identically zero.
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = _Fetcher({"binance": 100.0, "okx": 101.0})
 
     prices, _ = await orch._fetch_venue_prices()
@@ -646,9 +636,7 @@ async def test_a_failed_quote_is_not_cached():
     # Caching a failure would suppress the retry on the next tick.
     fetcher = _SymbolFetcher({"BTC/USDT": RuntimeError("503")})
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = fetcher
 
     assert await orch._quote("BTC/USDT", "binance") is None
@@ -659,9 +647,7 @@ async def test_a_failed_quote_is_not_cached():
 async def test_the_quote_cache_is_bounded_by_symbol_and_venue():
     # Keys are (symbol, venue), so the cache cannot grow with uptime.
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
 
     for _ in range(50):
@@ -697,9 +683,7 @@ async def test_the_default_configuration_costs_no_io():
     storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
     fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
     orch = _orchestrator(storage)
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = fetcher
 
     await orch._build_portfolio_inputs(Timeframe.INTRADAY, required_inputs(["signal_engine_v1"]))
@@ -714,9 +698,7 @@ async def test_only_the_declared_feed_is_fetched():
 
     storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
     orch = _orchestrator(storage)
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0})
 
     inputs = await orch._build_portfolio_inputs(
@@ -733,9 +715,7 @@ async def test_omitting_needs_still_fetches_everything():
     # Backwards compatible for any caller with no view of what is registered.
     storage = _CountingStorage(bars=[_Bar(i) for i in range(120)])
     orch = _orchestrator(storage)
-    orch._cfg = _cfg_double(
-        basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0
-    )
+    orch._cfg = _cfg_double(basis_perp_symbol="BTC/USDT:USDT", basis_days_to_convergence=1.0)
     orch._fetcher = _SymbolFetcher({"BTC/USDT": 100.0, "BTC/USDT:USDT": 101.0})
 
     await orch._build_portfolio_inputs(Timeframe.INTRADAY)
@@ -777,9 +757,7 @@ async def test_the_pair_family_alone_still_refreshes_the_shared_snapshot():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
-    )
+    orch._cfg = _cfg_double(mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30)
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -799,9 +777,7 @@ async def test_the_pair_reads_the_snapshot_on_the_very_first_tick():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
-    )
+    orch._cfg = _cfg_double(mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30)
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -817,9 +793,7 @@ async def test_pair_only_does_not_expose_universe_returns():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
-    )
+    orch._cfg = _cfg_double(mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30)
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
@@ -834,9 +808,7 @@ async def test_neither_family_leaves_the_snapshot_untouched():
 
     cache = _SnapshotCache(_pair_series_fixture())
     orch = _orchestrator(_Storage())
-    orch._cfg = _cfg_double(
-        mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30
-    )
+    orch._cfg = _cfg_double(mean_reversion_pair=["A/USDT", "B/USDT"], mean_reversion_window=30)
     orch._universe_returns = cache
     orch._pair_cointegration = None
 
