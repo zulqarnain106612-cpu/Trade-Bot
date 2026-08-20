@@ -283,8 +283,14 @@ class CircuitBreaker:
                 reason_code="manipulation_flag",
                 details={"ts": datetime.now(UTC).isoformat()},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # The breaker itself has already tripped; losing the audit record
+            # must not mask that, so surface the bookkeeping failure.
+            log.warning(
+                "audit_trail_record_failed",
+                event="circuit_breaker_triggered",
+                exc=str(exc),
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -67,8 +67,10 @@ class E05OnChain:
             if metrics and isinstance(metrics, dict) and "tvl" in metrics:
                 # Derive 24h change from two readings if available
                 return float(metrics.get("tvl_change_pct", 0.0))
-        except Exception:
-            pass
+        except Exception as exc:
+            # Fallback provider is best-effort; a neutral 0.0 is returned so the
+            # engine stays live, but the failure must not be invisible.
+            log.warning("defillama_tvl_fallback_failed", exc=str(exc))
         return 0.0
 
     @staticmethod

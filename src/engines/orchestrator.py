@@ -8,6 +8,7 @@ Engines that time-out or error are removed from consensus (graceful degradation)
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,7 +104,10 @@ class EngineOrchestrator:
 
     async def run(self, symbol: str, data: dict[str, Any]) -> OrchestratorResult:
         """Run all engines in parallel, aggregate consensus, return trade signal."""
+        # Wall clock for the cycle's reported timestamp (a point in history);
+        # monotonic clock for the elapsed-time measurement below.
         t_start = datetime.now(UTC)
+        t_monotonic_start = time.monotonic()
 
         # Pass prior engine outputs into data for meta-engines (E-08, E-09, E-15)
         data = dict(data)  # shallow copy to avoid mutating caller's dict
@@ -182,7 +186,7 @@ class EngineOrchestrator:
             n_engines=len(outputs),
             n_failed=len(failed),
             direction=trade_signal.direction,
-            elapsed_ms=int((datetime.now(UTC) - t_start).total_seconds() * 1000),
+            elapsed_ms=int((time.monotonic() - t_monotonic_start) * 1000),
         )
 
         self._log_engine_outputs(symbol, engine_map)

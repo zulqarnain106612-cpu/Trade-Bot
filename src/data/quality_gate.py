@@ -120,5 +120,7 @@ class DataQualityGate:
                 event_type="data_quality_reject",
                 reason_code=reason[:120],
             )
-        except Exception:
-            pass  # audit trail unavailable — don't block data validation
+        except Exception as exc:
+            # Audit trail unavailable — must not block data validation, but the
+            # rejection still needs to be visible somewhere.
+            log.warning("audit_trail_record_failed", reason=reason[:120], exc=str(exc))

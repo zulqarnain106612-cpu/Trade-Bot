@@ -289,8 +289,15 @@ async def retrain_e09_walkforward(df: pd.DataFrame, symbol: str = "BTC/USDT") ->
             try:
                 out = await eng.run(symbol, data)
                 engine_outputs[out.engine_id] = out
-            except Exception:
-                pass
+            except Exception as exc:
+                # A failed engine silently drops its features from the backtest,
+                # which would otherwise look like a legitimate weaker result.
+                log.warning(
+                    "engine_backtest_engine_failed",
+                    engine=type(eng).__name__,
+                    symbol=symbol,
+                    exc=str(exc),
+                )
 
         feat = e09._build_features(engine_outputs, spot)  # type: ignore[arg-type]
         X_rows.append(feat.flatten())

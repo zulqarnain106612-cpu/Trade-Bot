@@ -899,8 +899,11 @@ class Orchestrator:
                                 "warnings": ",".join(cb_signal.warnings),
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as _audit_exc:
+                        self._log.warning(
+                            "orchestrator.crypto_box_audit_failed",
+                            error=str(_audit_exc),
+                        )
             except Exception as _cb_exc:
                 self._log.warning("orchestrator.crypto_box_augment_failed", error=str(_cb_exc))
 
