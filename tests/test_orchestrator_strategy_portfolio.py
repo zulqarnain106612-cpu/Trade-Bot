@@ -128,7 +128,13 @@ async def test_build_inputs_with_no_bars_abstains_rather_than_emitting_empty_ser
 
 def _wire(monkeypatch, registry: StrategyRegistry, *, enabled: set[str] | None = None) -> None:
     monkeypatch.setattr(orch_mod, "get_default_registry", lambda: registry)
-    monkeypatch.setattr(orch_mod, "get_portfolio_runner", lambda: StrategyPortfolioRunner())
+    # The runner resolves its registry from src.engine.strategy_portfolio's
+    # own namespace, which patching orch_mod does not reach — left implicit it
+    # polled the real process-wide registry and answered with signal_engine_v1
+    # instead of the strategies registered here.
+    monkeypatch.setattr(
+        orch_mod, "get_portfolio_runner", lambda: StrategyPortfolioRunner(registry=registry)
+    )
 
     class _KS:
         def enabled_ids(self, ids):
@@ -603,9 +609,14 @@ async def test_the_same_quote_is_not_requested_twice_in_one_tick():
     orch._fetcher = fetcher
 
     await orch._fetch_venue_prices()
+    after_venue_sweep = fetcher.symbols.count("BTC/USDT")
     await orch._fetch_basis_legs()
 
-    assert fetcher.symbols.count("BTC/USDT") == 1
+    # The venue sweep legitimately quotes the same symbol once per configured
+    # venue; what must not happen is the basis spot leg adding another request
+    # for a quote the sweep already cached.
+    assert after_venue_sweep >= 1
+    assert fetcher.symbols.count("BTC/USDT") == after_venue_sweep
 
 
 async def test_a_cached_quote_keeps_its_original_observation_time():
@@ -890,35 +901,49 @@ async def test_one_timeframe_failing_does_not_clear_another(monkeypatch):
 # ------------------------------------------------- pair snapshot staleness
 
 
-def test_a_stale_snapshot_abstains_the_pair():
+class _FrozenClock:
+    """A monotonic clock frozen far from its origin.
+
+    The real monotonic clock counts from boot, so `time.monotonic() - 4500`
+    is negative on a runner that has been up for less than 4500s — and a
+    negative stamp takes _pair_series's "never fetched" branch rather than
+    the age branch these tests are about. Freezing the clock makes the age
+    exact and independent of runner uptime.
+    """
+
+    _NOW = 100_000.0
+
+    def monotonic(self) -> float:
+        return self._NOW
+
+
+def _aged_pair_orch(monkeypatch, age_s: float) -> Orchestrator:
+    monkeypatch.setattr(orch_mod, "time", _FrozenClock())
+    orch = _pair_orch(_cointegrated())
+    orch._universe_returns.fetched_at = _FrozenClock._NOW - age_s
+    return orch
+
+
+def test_a_stale_snapshot_abstains_the_pair(monkeypatch):
     # The universe cache serves stale data through an outage on purpose — a
     # 30-day trailing return survives that. A spread z-score does not: on
     # hours-old closes it can signal a divergence that has already closed.
-    import time as _time
-
-    orch = _pair_orch(_cointegrated())
-    orch._universe_returns.fetched_at = _time.monotonic() - (5 * 3600)
+    orch = _aged_pair_orch(monkeypatch, 5 * 3600)
 
     assert orch._pair_series() == (None, None, None)
 
 
-def test_a_fresh_snapshot_still_serves_the_pair():
-    import time as _time
-
-    orch = _pair_orch(_cointegrated())
-    orch._universe_returns.fetched_at = _time.monotonic() - 60.0
+def test_a_fresh_snapshot_still_serves_the_pair(monkeypatch):
+    orch = _aged_pair_orch(monkeypatch, 60.0)
 
     a, b, ratio = orch._pair_series()
     assert a is not None and b is not None and ratio is not None
 
 
-def test_the_bound_does_not_bite_during_normal_backoff():
+def test_the_bound_does_not_bite_during_normal_backoff(monkeypatch):
     # Cache TTL is an hour and its failure backoff caps at 15 minutes, so a
     # degraded-but-working feed must still feed the pair.
-    import time as _time
-
-    orch = _pair_orch(_cointegrated())
-    orch._universe_returns.fetched_at = _time.monotonic() - (3600 + 900)
+    orch = _aged_pair_orch(monkeypatch, 3600 + 900)
 
     a, _b, _r = orch._pair_series()
     assert a is not None
