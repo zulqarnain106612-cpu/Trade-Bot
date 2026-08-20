@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import ccxt.async_support as ccxt
@@ -20,6 +21,16 @@ from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDete
 # ---------------------------------------------------------------------------
 # BlockchainIntelligenceProvider
 # ---------------------------------------------------------------------------
+
+
+def _test_key() -> str:
+    """Fresh idempotency key per submission.
+
+    Tests exercise order placement, not de-duplication; a unique key keeps
+    each call a distinct intent. Duplicate rejection is covered explicitly in
+    tests/test_idempotency.py.
+    """
+    return f"tb{uuid.uuid4().hex[:30]}"
 
 
 class TestBlockchainProvider:
@@ -99,7 +110,7 @@ class TestBlockchainProvider:
 
     def test_get_cache_expired(self):
         p = BlockchainIntelligenceProvider(cache_ttl_s=1)
-        p._cache["k"] = (time.time() - 10.0, "value")
+        p._cache["k"] = (time.monotonic() - 10.0, "value")
         assert p._get_cache("k") is None
 
     @pytest.mark.asyncio
@@ -143,27 +154,27 @@ class TestOrderManager:
         mgr = OrderManager()
         ex = _mock_exchange()
         with pytest.raises(OrderFSMError):
-            await mgr.place_order_with_fsm(ex, "", "buy", 0.1)
+            await mgr.place_order_with_fsm(ex, "", "buy", 0.1, _test_key())
 
     @pytest.mark.asyncio
     async def test_invalid_side_raises(self):
         mgr = OrderManager()
         ex = _mock_exchange()
         with pytest.raises(OrderFSMError):
-            await mgr.place_order_with_fsm(ex, "BTC/USDT", "hold", 0.1)
+            await mgr.place_order_with_fsm(ex, "BTC/USDT", "hold", 0.1, _test_key())
 
     @pytest.mark.asyncio
     async def test_invalid_quantity_raises(self):
         mgr = OrderManager()
         ex = _mock_exchange()
         with pytest.raises(OrderFSMError):
-            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.0)
+            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.0, _test_key())
 
     @pytest.mark.asyncio
     async def test_place_order_success(self):
         mgr = OrderManager()
         ex = _mock_exchange(order_status="closed", fill_qty=0.1, avg_price=50_000.0)
-        fsm, order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+        fsm, order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1, _test_key())
         assert fsm.state.status == OrderStatus.FILLED
         assert order["id"] == "order-1"
 
@@ -173,7 +184,7 @@ class TestOrderManager:
         ex = AsyncMock()
         ex.create_market_order = AsyncMock(side_effect=ccxt.NetworkError("connection refused"))
         with pytest.raises(ccxt.NetworkError):
-            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1, _test_key())
 
     @pytest.mark.asyncio
     async def test_place_order_exchange_error_raises(self):
@@ -181,7 +192,7 @@ class TestOrderManager:
         ex = AsyncMock()
         ex.create_market_order = AsyncMock(side_effect=ccxt.ExchangeError("margin too low"))
         with pytest.raises(ccxt.ExchangeError):
-            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1, _test_key())
 
     @pytest.mark.asyncio
     async def test_confirm_order_cancelled_raises(self):
@@ -201,7 +212,7 @@ class TestOrderManager:
         ex.create_market_order = AsyncMock(return_value=order_placed)
         ex.fetch_order = _fetch
         with patch("asyncio.sleep", new=AsyncMock()), pytest.raises(ccxt.ExchangeError):
-            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1, _test_key())
 
     @pytest.mark.asyncio
     async def test_confirm_order_pending_then_filled(self):
@@ -219,7 +230,7 @@ class TestOrderManager:
         ex.create_market_order = AsyncMock(return_value=order_placed)
         ex.fetch_order = _fetch_order
         with patch("asyncio.sleep", new=AsyncMock()):
-            fsm, _order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            fsm, _order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1, _test_key())
         assert fsm.state.status == OrderStatus.FILLED
 
     @pytest.mark.asyncio
@@ -238,7 +249,7 @@ class TestOrderManager:
         ex.create_market_order = AsyncMock(return_value=order_placed)
         ex.fetch_order = _fetch_order
         with patch("asyncio.sleep", new=AsyncMock()):
-            fsm, _order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1)
+            fsm, _order = await mgr.place_order_with_fsm(ex, "BTC/USDT", "buy", 0.1, _test_key())
         assert fsm.state.status == OrderStatus.FILLED
 
 

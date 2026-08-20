@@ -6,6 +6,7 @@ import asyncio
 import time
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 
@@ -65,6 +66,8 @@ class TestShadowDeployerExtended:
 
         dep = ShadowDeployer(lambda x: 1.0, lambda x: 1.0, shadow_hours=999)
         dep.start()
+        # shadow_hours=999 means the window has not elapsed, and evaluate()
+        # returns None rather than judging the challenger on a partial window.
         result = dep.evaluate()
         assert result is None
 
@@ -120,7 +123,7 @@ class TestWalkForwardStudy:
             return 1.0
 
         study = WalkForwardStudy("test", dummy_train, data=list(range(100)))
-        assert study.best_params == {}
+        assert study.best_params() == {}
 
     def test_sharpe_computation(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
@@ -159,7 +162,7 @@ class TestWalkForwardStudy:
             storage_path=tmp_path / "study.db",
         )
         study.run()
-        assert isinstance(study.best_params, dict)
+        assert isinstance(study.best_params(), dict)
 
 
 # ─── ModelRegistry ─────────────────────────────────────────────────────────────
@@ -458,8 +461,8 @@ class TestGrangerExtended:
         from src.causal.granger import GrangerCausalityDetector
 
         det = GrangerCausalityDetector(window=20, max_lag=2)
-        btc_ret = np.random.randn(30)
-        alt_prices = {"ETH": list(3000 + np.cumsum(np.random.randn(30)))}
+        btc_ret = pd.Series(np.random.randn(30))
+        alt_prices = {"ETH": pd.Series(3000 + np.cumsum(np.random.randn(30)))}
         for _ in range(3):
             det.update(btc_ret, alt_prices)
 
@@ -513,7 +516,13 @@ class TestDoWhySCMExtended:
 
         scm = DoWhySCM()
         data = pd.DataFrame(
-            {"whale_selling": np.random.randn(30), "btc_return": np.random.randn(30)}
+            {
+                "liquidations": np.random.randn(30),
+                "whale_flow": np.random.randn(30),
+                "funding_rate": np.random.randn(30),
+                "sentiment": np.random.randn(30),
+                "price": np.random.randn(30),
+            }
         )
         signals = scm.causal_signal(data)
         assert isinstance(signals, dict)
@@ -524,10 +533,10 @@ class TestDoWhySCMExtended:
 
 
 class TestDuckDBStoreExtended:
-    def test_write_multiple_horizon_metrics(self) -> None:
+    def test_write_multiple_horizon_metrics(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         for h in range(10):
             store.write_horizon_metric(
                 horizon_id=h,
@@ -541,10 +550,10 @@ class TestDuckDBStoreExtended:
         assert len(df) >= 1
         store.close()
 
-    def test_write_ecc_multiple(self) -> None:
+    def test_write_ecc_multiple(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        store = DuckDBStore(path=None)
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         for i in range(5):
             store.write_ecc_signal(
                 {
@@ -778,7 +787,7 @@ class TestRLExecutionAgentExtended:
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
         state = RLExecutionState(n_horizons=2)
         for regime_id, pnl in [(0, -0.05), (4, 0.0), (8, 0.05)]:
-            obs = state.build(
+            _obs = state.build(
                 horizon_confidences=[0.7, 0.6],
                 regime_id=regime_id,
                 ecc_features={"cluster_flow_score": 0.3},
@@ -786,7 +795,7 @@ class TestRLExecutionAgentExtended:
                 drawdown=abs(pnl),
                 kyle_lambda=1e-6,
             )
-            action, _meta = agent.predict(obs)
+            action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime_id)
             assert action in (0, 1, 2, 3)
 
     def test_obs_length_correct(self) -> None:

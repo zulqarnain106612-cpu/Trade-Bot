@@ -129,7 +129,10 @@ class MetaNetworkLoss(nn.Module):
                 continue
             dir_label = tgt["direction_label"]
             mag_y = tgt["magnitude_y"]
-            timing_label = tgt["timing_label"].float()
+            # BCE needs a floating-point target, but pinning it to float32
+            # breaks the moment the model runs in any other dtype: a .double()
+            # network emits a float64 probability and BCE refuses the pair.
+            timing_label = tgt["timing_label"].to(out.timing.dtype)
 
             if out.direction_logits is None:
                 # Falling back to out.direction here is what the original code

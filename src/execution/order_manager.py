@@ -20,6 +20,10 @@ from typing import Any, Final
 import ccxt.async_support as ccxt
 import structlog
 
+from src.execution.idempotency import (
+    IdempotencyRegistry,
+    client_order_id_params,
+)
 from src.execution.order_fsm import OrderFSM, OrderFSMError, OrderFSMState, OrderStatus
 
 
@@ -35,8 +39,19 @@ class OrderManager:
     Manages order lifecycle with FSM state tracking.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, registry: IdempotencyRegistry | None = None) -> None:
         self._log = log
+        # LAW3: one registry per manager instance, shared by every order this
+        # manager places. Injectable so an executor can hand in a registry
+        # whose lifetime spans reconnects rather than one tied to a manager
+        # that gets rebuilt on reconnect -- a registry that dies with the
+        # connection cannot detect the reconnect replay it exists to stop.
+        self._idempotency: IdempotencyRegistry = registry or IdempotencyRegistry()
+
+    @property
+    def idempotency(self) -> IdempotencyRegistry:
+        """Registry of idempotency keys seen by this manager."""
+        return self._idempotency
 
     def _record_incremental_fill(self, fsm: OrderFSM, confirmed: dict[str, Any]) -> None:
         """
@@ -100,20 +115,34 @@ class OrderManager:
         symbol: str,
         side: str,
         quantity: float,
+        idempotency_key: str,
+        params: dict[str, Any] | None = None,
     ) -> tuple[OrderFSM, dict[str, Any]]:
         """
         Place market order and track via FSM.
+
+        ``idempotency_key`` is mandatory (LAW3). It is claimed in the registry
+        before the request goes out and attached to the exchange call as the
+        venue's client order id, so a duplicate is stopped locally on the fast
+        path and by the exchange itself if this process died mid-submit.
 
         Returns:
             (OrderFSM, final_order_dict)
 
         Raises:
             OrderFSMError: Invalid order parameters
+            DuplicateOrderError: Key already in flight or completed
             ccxt.ExchangeError: Permanent exchange error
             asyncio.TimeoutError: Order confirmation timeout
         """
         if not symbol or side not in ("buy", "sell") or quantity <= 0:
             raise OrderFSMError(f"Invalid order params: {symbol}, {side}, {quantity}")
+        if not idempotency_key:
+            raise OrderFSMError("idempotency_key is required for order submission (LAW3)")
+
+        # Claim the key before anything can reach the wire. Raises
+        # DuplicateOrderError to the caller if this intent was already sent.
+        await self._idempotency.reserve(idempotency_key)
 
         # Create initial FSM state
         order_id = None  # Will be set after placement
@@ -125,22 +154,47 @@ class OrderManager:
             status=OrderStatus.PENDING,
         )
         fsm = OrderFSM(fsm_state)
+        fsm.state.idempotency_key = idempotency_key
+
+        order_params = client_order_id_params(
+            getattr(exchange, "id", None), idempotency_key, params
+        )
 
         # Place the order
         try:
-            order = await exchange.create_market_order(symbol=symbol, side=side, amount=quantity)
+            order = await exchange.create_market_order(
+                symbol=symbol, side=side, amount=quantity, params=order_params
+            )
             order_id = order["id"]
             fsm.state.order_id = order_id
+            await self._idempotency.complete(idempotency_key, order_id, order)
         except (ccxt.NetworkError, ccxt.RequestTimeout) as exc:
+            # NOT retryable in the idempotency sense: the request may have been
+            # executed with only the response lost. Keeping the key claimed
+            # forces the order into reconciliation instead of letting a retry
+            # place a second one.
+            await self._idempotency.fail(idempotency_key, str(exc), retryable=False)
             fsm.state.last_error = str(exc)
             self._log.error(
-                "order_placement_network_error", symbol=symbol, error=str(exc), exc_info=True
+                "order_placement_network_error",
+                symbol=symbol,
+                idempotency_key=idempotency_key,
+                error=str(exc),
+                action="manual_reconciliation_required",
+                exc_info=True,
             )
             raise
         except ccxt.ExchangeError as exc:
+            # The exchange answered and refused: nothing was placed, so the
+            # key is released and the intent may legitimately be retried.
+            await self._idempotency.fail(idempotency_key, str(exc), retryable=True)
             fsm.transition(OrderStatus.FAILED, {"error": str(exc)})
             self._log.error(
-                "order_placement_exchange_error", symbol=symbol, error=str(exc), exc_info=True
+                "order_placement_exchange_error",
+                symbol=symbol,
+                idempotency_key=idempotency_key,
+                error=str(exc),
+                exc_info=True,
             )
             raise
 

@@ -3,6 +3,37 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-08-13 — crypto-architect wired in as the architecture gate
+
+The `crypto-architect` skill was authored out-of-tree and sat in the repo root
+as an unwired directory. Installed at `.claude/skills/crypto-architect/` so the
+harness discovers it, and wired into the three places quality controls live
+here: the reviewer agent + PR review workflow (laws and red-flag table),
+pre-commit, and a new stdlib-only `architecture` job in `ci.yml` that publishes
+SARIF to code scanning. `scripts/arch_gate.sh` is the single entry point, so
+all three run identical checks against an identical baseline.
+
+- **The validator was not gateable as shipped.** Its `REQUIRED` patterns were
+  applied to every file, so a full `src/` scan demanded a VaR computation in
+  every `__init__.py` — 1,210 CRITICAL/HIGH findings. `REQUIRED` entries now
+  carry a `scope` regex naming the modules that own each law (1,210 → 33), the
+  blind-signing pattern is anchored to real signing APIs instead of matching
+  every `np.sign()`, findings report repo-relative paths (SARIF needs a
+  locatable URI, and `base.py` is ambiguous), and `cross_file_checks` no longer
+  keys its source map by bare filename, which was silently dropping same-named
+  files from the text it scans.
+- **Baseline over a clean-up sprint.** `config/arch_baseline.json` accepts the
+  58 findings that pre-date the gate so it can fail on new violations
+  immediately, rather than leaving the gate unenforced until the backlog is
+  cleared. This is deliberate debt: four CRITICALs in it are real — no
+  idempotency key on any order-submission path (LAW3), `place_order_with_fsm`
+  taking none (LAW3), risk score computed without VaR/CVaR in
+  `src/risk/cognitive_engine.py` (LAW1), and no wash-trade guard anywhere
+  (LAW10). Tracked in `docs/ARCHITECTURE_GOVERNANCE.md`; closing one means
+  deleting its baseline line in the same commit.
+- **`.claude/` excluded from ruff and mypy.** Skill-vendored tooling is
+  versioned by the skill; linting it to project style would fork it upstream.
+
 ## 2026-08-01 — seven risk controls that existed, were tested, and did not bind
 
 An audit of the modules no in-flight branch was touching turned up a
@@ -1184,3 +1215,165 @@ before it has a writer would be designing against a guess.
 
 **Validation**: pushed to CI for pytest/ruff/mypy/coverage — not run
 locally per repo policy.
+
+---
+
+## 2026-08-04 — Crypto-Box 18-engine ensemble integration
+
+**Crypto-Box** is an 18-engine parallel prediction ensemble (E-01 through
+E-18) covering statistical, microstructure, information-theory, Fourier,
+on-chain, fractal, linear-algebra, topology, meta-ML, supply/S2F,
+stochastic, options, contagion, sentiment, RL, adversarial, liquidity, and
+network-centrality signals.
+
+**Architecture**: all engines are independent `async def run(symbol, data)`
+coroutines returning `EngineOutput`. `EngineOrchestrator` runs all 18 in
+parallel via `asyncio.gather` with per-engine SLA timeouts (G-08).
+`ConsensusLayer` applies 9-regime REGIME_WEIGHTS, Chauvenet outlier removal,
+bootstrap CI, TTL hysteresis ±0.05 dead-band (G-04), E-16 circuit breaker
+(G-14), and spoof penalty to both E-02 and E-17 (G-03). `consensus_to_signal()`
+converts consensus price → direction/Kelly multiplier (G-09, G-10).
+
+**Wiring**: `CryptoBoxSignalAdapter` in `Orchestrator._tick()` when
+`CRYPTO_BOX=true`. Kelly multiplier scales (never replaces) existing sizing.
+Background provider loops (sentiment/macro/options) started in `Orchestrator.run()`.
+`ProviderCache` singleton gives zero-latency tick-path reads.
+
+**9-regime extension**: `DepthDetectorV2` (9-state HMM on 12 engine
+features) accessible via `RegimeDetector.predict_current_v2()`. Falls back
+to None when CRYPTO_BOX disabled or model unfitted.
+
+**Security**: Ed25519 signing, BIP-32 hardened HD keys, HMAC constant-time
+comparison, Kyber-768 stub — all in `src/security/`.
+
+**Gaps fixed**: G-01 through G-14 per `CRYPTO_BOX_INTEGRATION_PLAN.md`.
+
+**Validation**: pushed to CI — not run locally per repo policy.
+
+## 2026-08-07 — E-18 was executed on every tick and weighted zero everywhere
+
+`REGIME_WEIGHTS` index 17 (E-18, exchange flow graph) was `0.0` in all nine
+regimes while `EngineOrchestrator` ran the engine unconditionally. Row sums
+were still exactly 1.0, so `test_regime_weights_row_sums` passed and nothing
+flagged it. This was never a modelling judgement — E-16 and E-17 are both
+authored across 7-8 regimes (0.20 each in LiquidityCrisis); row 18 was simply
+never filled when the table and the engines landed together in `105b5cb`.
+
+Investigating turned up two further breaks upstream of the weight, making
+three in total, all of the same kind — E-18 was never wired end to end:
+
+1. **No producer.** `ProviderCache.set_exchange_flows` existed and *nothing
+   in `src/` ever called it*. Every sibling slot has exactly one producer
+   (`set_sentiment`, `set_macro`, `set_options`, `set_orderbook`).
+   `data["exchange_flows"]` was therefore always `[]`.
+2. **So E-18 always abstained** on `no_flow_data`, returning before the
+   `import networkx` line. It was not in fact burning compute — the cost was
+   two dict lookups — but a whole engine was silently absent from consensus.
+3. **Weight row all zeros**, so even a real output would have been discarded.
+
+**Data source.** Pairwise exchange→exchange edges need address labelling,
+which is only sold by paid providers (Arkham, Nansen); DefiLlama's bridges
+API now returns 402. The one free keyless source is DefiLlama `/cexs`: 91
+venues with reserves and net inflows, `name: "Binance"` matching E-18's
+default `primary_exchange`. It gives *aggregate netflow per exchange*, not
+pairwise transfers.
+
+**Why the old algorithm could not consume it.** Aggregate netflow yields a
+bipartite graph — every edge touches a synthetic `MARKET` hub. networkx
+*refuses* eigenvector centrality on that topology rather than returning a
+degenerate vector, so `centrality_signal` would hit its `except` and return
+`0.0` on every call. With `combined = (ec + ws) / 2` that caps the score at
+0.047–0.076 against a bearish threshold of 0.3, pinning `direction = -1` on
+every tick forever. A permanently bearish engine carrying real weight is
+strictly worse than one that abstains. The thresholds were calibrated for a
+dense pairwise graph.
+
+**Resolution.** Two paths, selected by a `source` tag on the records rather
+than guessed from topology:
+
+- The pairwise path (`exchange_flow_graph`, `centrality_signal`,
+  `whale_cluster_score`) is **retained unchanged** for when labelled paid
+  data is bought.
+- A netflow path (`netflow_imbalance`, `flow_concentration`) valid on a star
+  graph. Net inflow to exchanges reads as sell pressure, net withdrawal as
+  accumulation. Confidence is damped by single-venue concentration, since one
+  desk's internal transfer should not move the consensus. Dispatch happens
+  before the networkx import, so this path survives networkx being absent.
+- `ExchangeFlowProvider` (keyless, 15-minute poll) fills the empty slot and
+  **persists each snapshot per day**. `/cexs` is a snapshot with no historical
+  counterpart, so accumulating forward is the only way E-18 can ever be
+  validated out-of-sample.
+
+**Weights are provisional.** E-18 gets 0.01–0.06, highest in Capitulation and
+LiquidityCrisis (0.06) where exchange flow is most informative, and in
+Accumulation (0.05); the other 17 entries in each regime are scaled by
+`1 - w18` so every row still sums to 1.0. These are a domain prior, **not**
+an out-of-sample result — no history exists yet to fit them against. They are
+deliberately small enough that E-18 cannot dominate any regime.
+`_IMBALANCE_THRESHOLD = 0.15` is provisional on the same grounds. Revisit
+once `data/exchange_flows/` holds enough forward history to backtest.
+
+**Invariant added.** `test_no_executed_engine_is_dead_weight` cross-references
+the orchestrator's engine list against the weight table and fails if any
+executed engine is zero-weighted in every regime; a companion test guards the
+reverse drift (an engine added with no weight column). Per-regime zeros stay
+legal — E-10, E-16 and E-17 are each deliberately zero in some regimes and
+nonzero elsewhere, which is a real modelling choice and left alone.
+
+**Validation**: pushed to CI — not run locally per repo policy. E-18's
+directional accuracy is *not* yet validated; its weight is a prior.
+
+## 2026-08-07 — E-10 was a constant bullish vote, not a sparsely-weighted engine
+
+Follow-up to the E-18 entry above. E-10 (stock-to-flow) was flagged for
+carrying weight in only 3 of 9 regimes, on the suspicion it was another
+partially-filled row. It was not. The zeros were fine; the **nonzeros** were
+the problem.
+
+**Units error.** `s2f_model_price` returned `exp(14.6) * SF^3.3`, which is
+PlanB's fit against *market capitalisation*, not unit price. At SF≈121 that
+is ~1.6e13 — a plausible cap and a nonsensical price. It was compared
+directly against spot, so `spot < fair * 0.8` was true for every coin at
+every price and `direction` was `+1` on every tick. `deviation_pct` pinned at
+−100% and `confidence` at exactly 0.5. Renamed to `s2f_model_cap`; the new
+`s2f_model_price` divides by circulating supply.
+
+**Uncalibrated across coins.** Dividing by supply is necessary but not
+sufficient: PlanB's coefficients are fitted on Bitcoin alone. Applied to
+other chains they gave ETH a $3.8M fair value and LTC $18,070 — category
+errors, not drift, since ETH is PoS with no halving. Even for BTC the model
+sat at $842k against a ~$120k spot, so direction stayed pinned bullish after
+the units fix. The absolute S2F level is simply not tradeable.
+
+**Resolution.** The signal is now the deviation's z-score against that coin's
+own trailing window (240 samples, per-coin, 30-sample warm-up during which
+the engine abstains). A rich deviation relative to its own norm is a short,
+a cheap one a long. This needs no cross-coin calibration and is how S2F
+deviation is normally used. `_zscore` guards near-zero variance with a
+*relative* epsilon — a constant series computes variance ~1e-27 rather than
+exactly 0, and an `== 0` guard would let a no-information series produce an
+arbitrarily large score.
+
+**Third dead data key.** `data["block_height"]` had no producer either — the
+same failure as E-18's `exchange_flows`, and E-04's halving overlay was
+reading it too, so both engines ran on height 0. `BlockHeightProvider`
+(blockchain.info, keyless, 10-minute poll) now fills it, with plausibility
+bounds so a parsed error page cannot silently shift the emission epoch.
+
+**Weights unchanged.** E-10 keeps 0.04 / 0.076 / 0.039 in Trending /
+Accumulation / Transition and zero elsewhere, now documented inline in
+`consensus.py`. Emission is a 24-hour structural anchor: it says something
+about position within a cycle and nothing about a short-horizon dislocation,
+and it does not change during a LiquidityCrisis or Capitulation. A
+constant-by-construction input must not vote there. The invariant added with
+E-18 requires every executed engine to be nonzero in *at least one* regime,
+not all of them, so this stays legal.
+
+The prior `test_e10_btc_s2f_reasonable` asserted only `price > 0`, which held
+throughout while the function returned a market cap — the same shape of weak
+assertion that let E-18's all-zero row through a row-sum check. It now bounds
+the value to a per-coin range.
+
+**Validation**: pushed to CI — not run locally per repo policy. E-10's
+directional accuracy is not backtested; the z-score threshold (1.0) and
+saturation (2.5) are priors.

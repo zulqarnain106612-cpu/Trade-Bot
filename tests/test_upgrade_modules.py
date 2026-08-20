@@ -155,7 +155,7 @@ class TestWalkForwardStudy:
             storage_path=tmp_path / "s.db",
         )
         # No study has been run, so there are no best params yet.
-        assert study.best_params == {}
+        assert study.best_params() == {}
 
     def test_wf_params_defaults(self) -> None:
         from src.upgrade.optuna_wf import WFParams
