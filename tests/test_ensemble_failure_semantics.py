@@ -1,5 +1,5 @@
 """
-Tests for how BayesianEnsemble handles members that cannot predict.
+Tests for how EnsemblePredictor handles members that cannot predict.
 
 A failed member used to be recorded as predicting 0.0 with a flat 0.5
 uncertainty. That is not an abstention, it is a vote — and it moved the point
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.intelligence.ensemble_predictor import BayesianEnsemble, EnsemblePrediction
+from src.intelligence.ensemble_predictor import EnsemblePrediction, EnsemblePredictor
 
 
 class _Member:
@@ -37,8 +37,8 @@ class _Member:
         return {"rmse": self.rmse}
 
 
-def _ensemble(members: dict[str, _Member], weights: dict[str, float]) -> BayesianEnsemble:
-    ens = object.__new__(BayesianEnsemble)
+def _ensemble(members: dict[str, _Member], weights: dict[str, float]) -> EnsemblePredictor:
+    ens = object.__new__(EnsemblePredictor)
     ens.models = members
     ens.weights = weights
     ens._update_weights = lambda: None  # type: ignore[method-assign]
