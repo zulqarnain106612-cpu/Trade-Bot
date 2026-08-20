@@ -706,6 +706,67 @@ class FeatureMatrix:
 # ---------------------------------------------------------------------------
 
 
+def bar_gap_report(index: pd.Index) -> dict[str, float | int]:
+    """
+    Summarise time gaps in a Unix-ms bar index.
+
+    Every rolling window in this module counts bars, not time, so a gapped
+    series silently changes what those windows mean: a 20-bar volatility
+    estimate can span days instead of hours, and close.shift(1) charges a
+    multi-hour jump as one bar's return, inflating vol and every scalar
+    derived from it. OHLCV gaps are real -- exchange outages, halts,
+    truncated pagination -- so this reports them rather than repairing them,
+    which would fabricate prices that never traded.
+
+    The expected spacing is inferred as the modal diff rather than taken
+    from a timeframe argument, so it stays correct for callers that resample
+    or stitch venues together.
+
+    Returns counts and the observed spacing; an index with fewer than three
+    points has no inferable spacing and reports zero gaps.
+    """
+    empty: dict[str, float | int] = {
+        "expected_ms": 0,
+        "gap_count": 0,
+        "gap_pct": 0.0,
+        "max_gap_ms": 0,
+        "missing_bars": 0,
+    }
+    if len(index) < 3:
+        return empty
+
+    diffs = pd.Series(index.astype("int64")).diff().dropna()
+    if diffs.empty:
+        return empty
+    expected = int(diffs.mode().iloc[0])
+    if expected <= 0:
+        return empty
+
+    # A half-bar tolerance keeps rounding and exchange timestamp jitter from
+    # registering as gaps, while any genuinely skipped bar clears it.
+    over = diffs[diffs > expected * 1.5]
+    return {
+        "expected_ms": expected,
+        "gap_count": len(over),
+        "gap_pct": round(len(over) / len(diffs) * 100.0, 3),
+        "max_gap_ms": int(over.max()) if len(over) else 0,
+        "missing_bars": int((over // expected - 1).sum()) if len(over) else 0,
+    }
+
+
+def _warn_on_bar_gaps(index: pd.Index) -> None:
+    """Log a warning when the bar index is not contiguous. Sibling of the
+    flat-price check above: both report degraded input without altering it."""
+    report = bar_gap_report(index)
+    if report["gap_count"]:
+        log.warning(
+            "pipeline.bar_gaps_detected",
+            possible_cause="exchange_outage_halt_or_truncated_pagination",
+            action="features_computed_but_rolling_windows_span_more_time_than_expected",
+            **report,
+        )
+
+
 def build_feature_matrix(
     bars: pd.DataFrame,
     ofi_snapshots: pd.Series | None = None,
@@ -771,6 +832,8 @@ def build_feature_matrix(
             possible_cause="exchange_halt_or_stale_data_feed",
             action="features_computed_but_signal_quality_degraded",
         )
+
+    _warn_on_bar_gaps(bars.index)
 
     log_ret = np.log(close / close.shift(1))
 
