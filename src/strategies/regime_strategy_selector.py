@@ -51,6 +51,7 @@ class RegimePredictionLike(Protocol):
     entropy: float
     is_transition: bool
 
+
 # Strategy identifiers returned by the selector
 STRATEGY_MEAN_REVERSION: Final[str] = "mean_reversion"
 STRATEGY_BREAKOUT: Final[str] = "breakout"
