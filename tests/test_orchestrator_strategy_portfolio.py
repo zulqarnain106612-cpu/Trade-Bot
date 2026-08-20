@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 import structlog
+from conftest import settings_double
 
 import src.engine.orchestrator as orch_mod
 from src.config import Timeframe
@@ -66,6 +67,7 @@ def _orchestrator(storage: object) -> Orchestrator:
     """Orchestrator without __init__ — only the portfolio path is under test."""
     orch = object.__new__(Orchestrator)
     orch._log = structlog.get_logger().bind(component="orchestrator_test")
+    orch._cfg = settings_double()
     orch._storage = storage
     orch._symbol = "BTC/USDT"
     orch._last_portfolio_evaluation = {}

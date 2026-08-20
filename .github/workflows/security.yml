@@ -28,7 +28,7 @@ permissions:
 jobs:
   bandit:
     name: Bandit — Python security lint
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -58,7 +58,7 @@ jobs:
 
   semgrep:
     name: Semgrep — semantic security scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep:latest
 
@@ -67,7 +67,12 @@ jobs:
 
       - name: Run semgrep
         run: |
-          semgrep ci \
+          # `semgrep scan`, not `semgrep ci`: the latter is the app-backed
+          # subcommand and rejects `--error`, so it exited before writing any
+          # SARIF at all and the upload step below failed on a missing file.
+          # `|| true` kept that invisible — findings are triaged from the
+          # Security tab, so the scan itself must not fail the job.
+          semgrep scan \
             --config "p/python" \
             --config "p/security-audit" \
             --config "p/owasp-top-ten" \
@@ -75,7 +80,6 @@ jobs:
             --config "p/asyncio" \
             --sarif \
             --output semgrep.sarif \
-            --error \
             || true
 
       - name: Upload SARIF
@@ -87,7 +91,7 @@ jobs:
 
   pip-audit:
     name: pip-audit — Python CVE scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -185,7 +189,7 @@ jobs:
 
   npm-audit:
     name: npm audit — Frontend CVE scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -213,7 +217,7 @@ jobs:
 
   trufflehog:
     name: TruffleHog — git secret scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:

@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from conftest import settings_double
+
 from src.config import Timeframe, TradingMode
 from src.execution.unified_ledger import UnifiedLedger, VenuePosition
 
@@ -30,7 +32,7 @@ def _make_orch(symbol: str = "BTC/USDT"):
     from src.engine.orchestrator import Orchestrator
 
     with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-        cfg = MagicMock()
+        cfg = settings_double()
         cfg.primary_symbol = symbol
         cfg.active_timeframes = [Timeframe.INTRADAY]
         cfg.primary_timeframe = Timeframe.INTRADAY
