@@ -73,6 +73,10 @@ class OrderFSMState:
         last_error: Last exception message (for debugging)
         retry_count: Total retry attempts
         exchange_response: Last raw order dict from exchange (for reconciliation)
+        idempotency_key: Client order id sent with this order (LAW3). Persisted
+            with the state so a recovery or reconciliation pass can match an
+            order back to its originating intent instead of guessing from
+            symbol/side/qty, and can tell "already submitted" from "never sent".
     """
 
     order_id: str
@@ -91,6 +95,7 @@ class OrderFSMState:
     last_error: str = ""
     retry_count: int = 0
     exchange_response: dict[str, Any] = field(default_factory=dict)
+    idempotency_key: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for storage/serialization."""
@@ -109,6 +114,7 @@ class OrderFSMState:
             "last_error": self.last_error,
             "retry_count": self.retry_count,
             "exchange_response": self.exchange_response,
+            "idempotency_key": self.idempotency_key,
         }
 
     def is_terminal(self) -> bool:
