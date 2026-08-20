@@ -16,7 +16,13 @@ pandas>=2.2,<3.0
 numpy>=1.26,<3.0
 scipy>=1.13,<2.0
 statsmodels>=0.14,<1.0
-torch>=2.4,<3.0  # GAP-015: EnsemblePredictor LSTMPredictor — CPU-only, no CUDA needed
+# GAP-015: EnsemblePredictor LSTMPredictor — CPU-only, no CUDA needed.
+# The default PyPI torch wheel drags in ~15 nvidia-*/cuda-* packages (several GB,
+# ~1h install on the CI runner). The +cpu wheels on the PyTorch index carry no
+# CUDA deps; their local version sorts above the plain PyPI release, so the
+# resolver prefers them whenever both indexes are visible.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.4,<3.0
 river>=0.21,<1.0            # src/risk/gate.py — ADWIN drift detection in the sizing gate
 python-dotenv>=1.0,<2.0
 aiosqlite>=0.20,<1.0
