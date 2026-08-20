@@ -67,6 +67,4 @@ class BlockHeightProvider:
 
             get_provider_cache().set_block_height(self._height)
         except Exception as exc:
-            log.warning(
-                "provider_cache_publish_failed", field="block_height", exc=str(exc)
-            )
+            log.warning("provider_cache_publish_failed", field="block_height", exc=str(exc))

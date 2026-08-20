@@ -54,9 +54,7 @@ class MacroProvider:
 
                     get_provider_cache().set_macro(result)
                 except Exception as exc:
-                    log.warning(
-                        "provider_cache_publish_failed", field="macro", exc=str(exc)
-                    )
+                    log.warning("provider_cache_publish_failed", field="macro", exc=str(exc))
             await asyncio.sleep(_POLL_INTERVAL)
 
     # ------------------------------------------------------------------

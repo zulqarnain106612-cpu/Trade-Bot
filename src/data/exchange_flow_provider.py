@@ -127,9 +127,7 @@ class ExchangeFlowProvider:
 
             get_provider_cache().set_exchange_flows(self._flows)
         except Exception as exc:
-            log.warning(
-                "provider_cache_publish_failed", field="exchange_flows", exc=str(exc)
-            )
+            log.warning("provider_cache_publish_failed", field="exchange_flows", exc=str(exc))
 
     def _persist(self) -> None:
         """Append today's snapshot so forward history builds for validation."""
