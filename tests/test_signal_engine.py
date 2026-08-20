@@ -1171,7 +1171,11 @@ class TestTask010FundingRateWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}, size_scalar=1.0
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1239,7 +1243,11 @@ class TestTask010FundingRateWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}, size_scalar=1.0
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1747,7 +1755,11 @@ class TestGARCHVolWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}, size_scalar=1.0
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1812,7 +1824,11 @@ class TestGARCHVolWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}, size_scalar=1.0
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1866,7 +1882,11 @@ class TestGARCHVolWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}, size_scalar=1.0
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
