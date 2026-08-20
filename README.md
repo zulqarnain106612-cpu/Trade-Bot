@@ -1,14 +1,12 @@
-# Trade Bot
+# Trade-Bot
 
-Production algorithmic trading bot — Binance (primary) + OKX (secondary) —
-with a multi-source on-chain/exchange intelligence layer, self-tuning risk
-parameters, and both a web dashboard and an Electron desktop app.
+## Project Identity
 
-## Stack
-
-Python 3.11+ (managed with [uv](https://github.com/astral-sh/uv)) · FastAPI ·
-XGBoost · GaussianHMM · ccxt · React + Vite + Tailwind · Electron ·
-SQLite (WAL) or TimescaleDB · structlog
+Production-oriented algorithmic trading platform
+Primary venue: Binance
+Secondary venue: OKX
+Runtime: async Python service (FastAPI API, WebSocket, executors, orchestrator)
+Stack: Python 3.11, uv, FastAPI, ccxt, XGBoost, GaussianHMM, React (Vite), Tailwind, Electron, SQLite/TimescaleDB, structlog
 
 ## Signal Architecture
 
@@ -247,6 +245,11 @@ tests/                       79+ test modules, pytest-asyncio, pytest-cov
 scripts/
   timescaledb.sh             Local TimescaleDB container lifecycle
   check_coverage_floors.py    Per-file coverage floor enforcement (CI)
+  arch_gate.sh               Architectural-law gate (CI + pre-commit)
+.claude/skills/
+  crypto-architect/          13 architectural laws, domain references, validator
+config/
+  arch_baseline.json         Accepted pre-existing architecture findings
 ```
 
 ## Setup
@@ -386,13 +389,17 @@ Set `TRADING_MODE=live` in `.env` — the only way to unlock live trading.
 - mypy — type checking
 - bandit, semgrep, CodeQL — SAST
 - detect-secrets — baseline-gated secret scanning (`.secrets.baseline`)
+- crypto-architect — architectural-law gate over `src/` (`scripts/arch_gate.sh`,
+  baseline `config/arch_baseline.json`); see
+  [docs/ARCHITECTURE_GOVERNANCE.md](docs/ARCHITECTURE_GOVERNANCE.md)
 - pip-audit — dependency CVE scanning
 - pytest-cov — coverage gate (95% global + per-file floors)
 - GitHub Actions workflows: `ci.yml` (lint/type/test + frontend build),
   `security.yml` (Bandit/Semgrep/TruffleHog/pip-audit), `codeql.yml`,
   `mutation-testing.yml`, `auto-fix.yml` / `auto-debug.yml` (automated
   lint-fix and failure triage), `claude-code-review.yml`,
-  `dependabot-auto-merge.yml`, `release.yml`
+  `dependabot-auto-merge.yml`, `release.yml`; `ci.yml` also runs the
+  `architecture` governance job (SARIF → code scanning)
 - Pre-commit hooks: `.pre-commit-config.yaml`
 
 ## References

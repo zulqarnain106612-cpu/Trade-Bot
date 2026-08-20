@@ -3,6 +3,37 @@
 Append-only record of structural changes, referenced by ROADMAP.md's
 sequencing rule. One entry per completed version/sub-task.
 
+## 2026-08-13 — crypto-architect wired in as the architecture gate
+
+The `crypto-architect` skill was authored out-of-tree and sat in the repo root
+as an unwired directory. Installed at `.claude/skills/crypto-architect/` so the
+harness discovers it, and wired into the three places quality controls live
+here: the reviewer agent + PR review workflow (laws and red-flag table),
+pre-commit, and a new stdlib-only `architecture` job in `ci.yml` that publishes
+SARIF to code scanning. `scripts/arch_gate.sh` is the single entry point, so
+all three run identical checks against an identical baseline.
+
+- **The validator was not gateable as shipped.** Its `REQUIRED` patterns were
+  applied to every file, so a full `src/` scan demanded a VaR computation in
+  every `__init__.py` — 1,210 CRITICAL/HIGH findings. `REQUIRED` entries now
+  carry a `scope` regex naming the modules that own each law (1,210 → 33), the
+  blind-signing pattern is anchored to real signing APIs instead of matching
+  every `np.sign()`, findings report repo-relative paths (SARIF needs a
+  locatable URI, and `base.py` is ambiguous), and `cross_file_checks` no longer
+  keys its source map by bare filename, which was silently dropping same-named
+  files from the text it scans.
+- **Baseline over a clean-up sprint.** `config/arch_baseline.json` accepts the
+  58 findings that pre-date the gate so it can fail on new violations
+  immediately, rather than leaving the gate unenforced until the backlog is
+  cleared. This is deliberate debt: four CRITICALs in it are real — no
+  idempotency key on any order-submission path (LAW3), `place_order_with_fsm`
+  taking none (LAW3), risk score computed without VaR/CVaR in
+  `src/risk/cognitive_engine.py` (LAW1), and no wash-trade guard anywhere
+  (LAW10). Tracked in `docs/ARCHITECTURE_GOVERNANCE.md`; closing one means
+  deleting its baseline line in the same commit.
+- **`.claude/` excluded from ruff and mypy.** Skill-vendored tooling is
+  versioned by the skill; linting it to project style would fork it upstream.
+
 ## 2026-08-01 — seven risk controls that existed, were tested, and did not bind
 
 An audit of the modules no in-flight branch was touching turned up a
