@@ -216,7 +216,7 @@ class TestE17:
 
         assert out.direction == 0  # liquidity stress is not directional
         assert 0.0 <= out.metadata["liquidity_score"] <= 1.0
-        assert out.metadata["stress_flag"] is False
+        assert not out.metadata["stress_flag"]
         assert out.metadata["depth_score"] > 0.0
         assert out.metadata["cascade_price_level"] > 0.0
 
