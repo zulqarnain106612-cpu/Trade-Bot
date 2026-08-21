@@ -1070,7 +1070,12 @@ class Settings(BaseSettings):
     strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
     strategy: RegimeStrategySettings = Field(default_factory=RegimeStrategySettings)
     order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
-    strategy: StrategySettings = Field(default_factory=StrategySettings)
+    # Named strategy_params, not strategy: RegimeStrategySettings already holds
+    # `strategy` above and regime_strategy_selector reads it under that name.
+    # Declaring both as `strategy` made this one win and silently shadow the
+    # one actually in use. Env vars are unaffected -- they come from
+    # StrategySettings' own env_prefix="STRATEGY_", not from this field name.
+    strategy_params: StrategySettings = Field(default_factory=StrategySettings)
 
     # Logging
     log_level: str = Field(default="INFO")
