@@ -293,6 +293,46 @@ class TestDrawdownTracker:
         with pytest.raises(ValueError):
             DrawdownTracker(-100.0)
 
+    def test_drawdown_from_alltime_peak_pct_alias(self):
+        dt = DrawdownTracker(1000.0)
+        dt.update(1200.0)
+        dt.update(1000.0)
+        assert dt.drawdown_from_alltime_peak_pct == dt.drawdown_from_peak_pct
+
+    def test_drawdown_from_daily_start_pct_positive(self):
+        dt = DrawdownTracker(1000.0)
+        dt.update(1100.0)
+        assert dt.drawdown_from_daily_start_pct == pytest.approx(10.0)
+
+    def test_drawdown_from_daily_start_pct_negative(self):
+        dt = DrawdownTracker(1000.0)
+        dt.update(900.0)
+        assert dt.drawdown_from_daily_start_pct == pytest.approx(-10.0)
+
+    def test_drawdown_from_daily_start_pct_after_reset(self):
+        dt = DrawdownTracker(1000.0)
+        dt.update(1100.0)
+        dt.reset_daily(1100.0)
+        dt.update(1050.0)
+        assert dt.drawdown_from_daily_start_pct == pytest.approx(-50.0 / 1100.0 * 100.0)
+
+    def test_daily_pnl_pct_zero_daily_start(self):
+        dt = DrawdownTracker(1000.0)
+        # Force daily_start to 0 via monkeypatch (edge case guard)
+        dt._daily_start = 0.0
+        assert dt.daily_pnl_pct == 0.0
+
+    def test_drawdown_from_daily_start_zero_daily_start(self):
+        dt = DrawdownTracker(1000.0)
+        dt._daily_start = 0.0
+        assert dt.drawdown_from_daily_start_pct == 0.0
+
+    def test_peak_not_updated_on_decline(self):
+        dt = DrawdownTracker(1000.0)
+        dt.update(1200.0)
+        dt.update(800.0)
+        assert dt.peak_equity == 1200.0
+
 
 # ─── check_slippage_veto (Gate 0, GAP-001) ───────────────────────────────────
 

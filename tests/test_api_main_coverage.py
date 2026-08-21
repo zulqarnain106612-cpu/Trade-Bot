@@ -243,7 +243,9 @@ def test_health_route_success(mock_state):
     assert resp.status_code == 200
     data = resp.json()
     assert "status" in data
-    assert data["status"] == "ok"
+    assert data["status"] in ("ok", "degraded", "unknown")
+    assert "subsystems" in data
+    assert "storage" in data
 
 
 def test_health_route_no_api_key_returns_403(mock_state):

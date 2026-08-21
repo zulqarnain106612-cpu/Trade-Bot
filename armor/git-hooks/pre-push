@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# ════════════════════════════════════════════════════════════════════════════
+# GIT PRE-PUSH HOOK — Zero auto-push policy
+# Authorized: HUMAN (interactive TTY) + CLAUDE_MAIN_AGENT_v1
+# ════════════════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+AGENT_TOKEN="${CLAUDE_AGENT_IDENTITY:-}"
+ARMOR_LOG="$(git rev-parse --show-toplevel)/.armor/alerts.log"
+TS=$(date '+%Y-%m-%d %H:%M:%S.%3N')
+REMOTE="$1"
+REMOTE_URL="$2"
+
+log_alert() {
+  local level="$1" msg="$2"
+  local entry="{\"ts\":\"${TS}\",\"level\":\"${level}\",\"event\":\"GIT_${msg}\",\"remote\":\"${REMOTE_URL}\",\"proc\":\"git-pre-push\",\"user\":\"$(id -un)\",\"pid\":$$}"
+  echo "$entry" >> "$ARMOR_LOG" 2>/dev/null || true
+  echo "[SENTINEL][${level}] GIT PRE-PUSH: ${msg} → ${REMOTE_URL}" >&2
+}
+
+# ── Allow CLAUDE_MAIN_AGENT_v1 ────────────────────────────────────────────
+if [[ "$AGENT_TOKEN" == "CLAUDE_MAIN_AGENT_v1" ]]; then
+  log_alert "INFO" "AUTHORIZED_AGENT_PUSH"
+  exit 0
+fi
+
+# ── Block non-interactive push ────────────────────────────────────────────
+if [[ ! -t 0 ]] && [[ ! -t 1 ]]; then
+  log_alert "CRITICAL" "BLOCKED_NON_INTERACTIVE_PUSH"
+  wall "[SENTINEL ALERT] BLOCKED: automated git push to ${REMOTE_URL} by $(id -un)" 2>/dev/null || true
+  echo "" >&2
+  echo "╔══════════════════════════════════════════════════════════╗" >&2
+  echo "║  SENTINEL: PUSH BLOCKED — non-interactive session        ║" >&2
+  echo "║  Only human (TTY) or CLAUDE_MAIN_AGENT_v1 may push.     ║" >&2
+  echo "╚══════════════════════════════════════════════════════════╝" >&2
+  exit 1
+fi
+
+# ── Confirm push with human ───────────────────────────────────────────────
+echo "" >&2
+echo "╔══════════════════════════════════════════════════════════╗" >&2
+echo "║  SENTINEL: Push requires explicit confirmation           ║" >&2
+echo "╠══════════════════════════════════════════════════════════╣" >&2
+echo "║  Remote: ${REMOTE} (${REMOTE_URL})" >&2
+echo "╚══════════════════════════════════════════════════════════╝" >&2
+echo "Push to ${REMOTE_URL}? (yes/N): " >&2
+read -r confirm < /dev/tty
+if [[ "${confirm}" != "yes" ]]; then
+  log_alert "INFO" "PUSH_ABORTED_BY_USER"
+  echo "Push cancelled." >&2
+  exit 1
+fi
+
+log_alert "INFO" "PUSH_AUTHORIZED_HUMAN: $(id -un) → ${REMOTE_URL}"
+exit 0

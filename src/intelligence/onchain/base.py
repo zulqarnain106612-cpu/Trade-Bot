@@ -12,7 +12,6 @@ Authority:
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable
@@ -20,11 +19,12 @@ from enum import Enum, auto
 from typing import Any
 
 import aiohttp
+import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 class CircuitOpenError(Exception):
@@ -230,11 +230,15 @@ class OnChainProvider(ExchangeIntelligenceProvider):
             await self._async_cache.set(cache_key, data)
             return data
         except CircuitOpenError:
-            logger.warning("%s._get circuit OPEN — skipping %s", self.__class__.__name__, url)
+            log.warning("get_circuit_open", provider=self.__class__.__name__, url=url)
             return None
         except Exception as exc:
-            logger.warning(
-                "%s._get failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            log.warning(
+                "get_failed",
+                provider=self.__class__.__name__,
+                url=url,
+                error=str(exc),
+                exc_info=True,
             )
             return None
 
@@ -255,11 +259,15 @@ class OnChainProvider(ExchangeIntelligenceProvider):
 
             return await self._breaker.call(_do)
         except CircuitOpenError:
-            logger.warning("%s._post circuit OPEN — skipping %s", self.__class__.__name__, url)
+            log.warning("post_circuit_open", provider=self.__class__.__name__, url=url)
             return None
         except Exception as exc:
-            logger.warning(
-                "%s._post failed url=%s err=%s", self.__class__.__name__, url, exc, exc_info=True
+            log.warning(
+                "post_failed",
+                provider=self.__class__.__name__,
+                url=url,
+                error=str(exc),
+                exc_info=True,
             )
             return None
 
