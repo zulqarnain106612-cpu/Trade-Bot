@@ -19,6 +19,8 @@ pandas>=2.2,<3.0
 numpy>=1.26,<3.0
 scipy>=1.13,<2.0
 statsmodels>=0.14,<1.0
+# CPU-only torch: see requirements.in for why the CUDA wheels are excluded.
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.4,<3.0  # GAP-015: EnsemblePredictor LSTMPredictor — CPU-only, no CUDA needed
 river>=0.21,<1.0            # src/risk/gate.py — ADWIN drift detection in the sizing gate
 python-dotenv>=1.0,<2.0

@@ -5,12 +5,23 @@ Tests that _place_market_order now uses OrderManager with FSM state tracking.
 """
 
 import asyncio
+import uuid
 from unittest.mock import AsyncMock
 
 import pytest
 
 from src.execution.order_fsm import OrderFSM, OrderFSMState, OrderStatus
 from src.execution.order_manager import OrderManager
+
+
+def _test_key() -> str:
+    """Fresh idempotency key per submission.
+
+    Tests exercise order placement, not de-duplication; a unique key keeps
+    each call a distinct intent. Duplicate rejection is covered explicitly in
+    tests/test_idempotency.py.
+    """
+    return f"tb{uuid.uuid4().hex[:30]}"
 
 
 class TestOrderManagerMock:
@@ -47,6 +58,7 @@ class TestOrderManagerMock:
             symbol="BTC/USDT",
             side="buy",
             quantity=1.5,
+            idempotency_key=_test_key(),
         )
 
         assert fsm.state.status == OrderStatus.FILLED
@@ -86,6 +98,7 @@ class TestOrderManagerMock:
             symbol="BTC/USDT",
             side="buy",
             quantity=1.5,
+            idempotency_key=_test_key(),
         )
 
         assert fsm.state.status == OrderStatus.FILLED
@@ -115,6 +128,7 @@ class TestOrderManagerMock:
                 symbol="BTC/USDT",
                 side="buy",
                 quantity=1.5,
+                idempotency_key=_test_key(),
             )
 
     @pytest.mark.asyncio
@@ -149,6 +163,7 @@ class TestOrderManagerMock:
             symbol="BTC/USDT",
             side="buy",
             quantity=1.5,
+            idempotency_key=_test_key(),
         )
 
         # Should recover from network error
