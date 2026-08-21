@@ -29,12 +29,28 @@ Authority:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Protocol
 
 import structlog
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+class RegimePredictionLike(Protocol):
+    """Structural type for select_strategy_from_prediction's argument.
+
+    EnsembleRegimePrediction satisfies this, but so does any object exposing
+    the same four attributes — the selector deliberately does not import the
+    regime layer, so the contract is expressed structurally rather than by
+    inheritance.
+    """
+
+    state: int
+    dominant_prob: float
+    entropy: float
+    is_transition: bool
+
 
 # Strategy identifiers returned by the selector
 STRATEGY_MEAN_REVERSION: Final[str] = "mean_reversion"
@@ -217,26 +233,35 @@ def select_strategy_from_config(
     )
 
 
-def select_strategy_from_prediction(prediction: object, **kwargs: object) -> StrategySelection:
+def select_strategy_from_prediction(
+    prediction: RegimePredictionLike,
+    *,
+    min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
+    max_entropy: float = _DEFAULT_MAX_ENTROPY,
+    transition_guard: bool = _DEFAULT_TRANSITION_GUARD,
+    allow_funding_carry: bool = True,
+) -> StrategySelection:
     """
     Convenience wrapper accepting an EnsembleRegimePrediction directly.
 
     Reads .state, .dominant_prob, .entropy, .is_transition from the
     prediction object so the caller does not need to unpack it.
 
-    Parameters
-    ----------
-    prediction : EnsembleRegimePrediction (duck-typed — any object with
-                  .state, .dominant_prob, .entropy, .is_transition).
-    **kwargs   : forwarded to select_strategy() (e.g. min_confidence,
-                  allow_funding_carry).
+    ``prediction`` is structurally typed (see RegimePredictionLike), so any
+    object carrying those four attributes still works — but a typo in an
+    attribute name is now caught by mypy instead of at runtime, and the
+    forwarded thresholds are checked against select_strategy's signature
+    rather than passed through as untyped **kwargs.
     """
     return select_strategy(
-        regime_state=prediction.state,  # type: ignore[union-attr]
-        confidence=prediction.dominant_prob,  # type: ignore[union-attr]
-        entropy=prediction.entropy,  # type: ignore[union-attr]
-        is_transition=prediction.is_transition,  # type: ignore[union-attr]
-        **kwargs,
+        regime_state=prediction.state,
+        confidence=prediction.dominant_prob,
+        entropy=prediction.entropy,
+        is_transition=prediction.is_transition,
+        min_confidence=min_confidence,
+        max_entropy=max_entropy,
+        transition_guard=transition_guard,
+        allow_funding_carry=allow_funding_carry,
     )
 
 

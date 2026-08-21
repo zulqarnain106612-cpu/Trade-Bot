@@ -1,16 +1,23 @@
 """
-Structured trade journal — annotates closed trades with slippage analysis
-and structured metadata for post-trade review.
+Structured trade journal — annotates closed trades with structured metadata
+for post-trade review.
 
 For each closed TradeRecord, a JournalEntry captures:
-  - Expected vs realised slippage (entry and exit)
   - Regime at entry (regime_at_entry from the record)
   - Exit reason and whether it was planned vs forced
-  - P&L decomposition: signal P&L vs fee drag vs slippage drag
+  - P&L decomposition: signal P&L vs fee drag
   - A concise machine-readable narrative dict
 
 build_journal() converts a list of TradeRecords to JournalEntry objects.
 summarise_journal() produces aggregate statistics for a batch.
+
+Slippage is NOT populated yet. Measuring it needs the pre-trade mid (or an
+expected fill price) recorded at submission, and TradeRecord carries no such
+field — see build_entry(), which sets entry_slippage and exit_slippage to
+None unconditionally. Until that is persisted, ``total_slippage_usd`` is
+always 0.0 and must not be read as "this trade had no slippage". The
+SlippageStats dataclass and _slippage() below are the ready-to-wire halves,
+kept so the schema change is the only remaining work.
 
 All functions are pure — no I/O.
 

@@ -379,6 +379,7 @@ class AutoTuningScheduler:
                     "risk.ensemble_blend_weight",
                     evaluate_ensemble_blend,
                     primary_metric="oos_sharpe",
+                    closed_trade_count=closed_trade_count,
                 )
                 log.info(
                     "tuning.scheduler_attempt",
