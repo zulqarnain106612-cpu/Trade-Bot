@@ -35,7 +35,7 @@ from typing import Final
 import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
-from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
+from src.data.storage import AnyStorageBackend, BlendAudit, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.execution.base import AbstractExecutor
 from src.execution.idempotency import (
@@ -259,6 +259,7 @@ class PaperExecutor(AbstractExecutor):
         raw_signal: float,
         current_price: float,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> tuple[str | None, str]:
         """
         Route a signal through the correct execution mode.
@@ -298,6 +299,7 @@ class PaperExecutor(AbstractExecutor):
                 current_price,
                 approved_by="auto",
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -314,6 +316,7 @@ class PaperExecutor(AbstractExecutor):
                     current_price,
                     approved_by="auto_below_limit",
                     strategy_id=strategy_id,
+                    blend_audit=blend_audit,
                 )
                 return trade_id, "opened" if trade_id else "rejected"
             # Above limit — needs approval
@@ -343,6 +346,7 @@ class PaperExecutor(AbstractExecutor):
                 current_price,
                 approved_by=operator,
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -371,6 +375,7 @@ class PaperExecutor(AbstractExecutor):
                 current_price,
                 approved_by=operator,
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -799,6 +804,7 @@ class PaperExecutor(AbstractExecutor):
         adv_20d: float = 0.0,
         spread_bps: float = 2.0,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> str | None:
         """
         Open a paper position and persist trade record.
@@ -924,6 +930,9 @@ class PaperExecutor(AbstractExecutor):
             exit_reason=None,
             approved_by=approved_by,
             raw_signal=raw_signal,
+            pre_blend_p_long=blend_audit.pre_blend_p_long if blend_audit else None,
+            ensemble_p_long=blend_audit.ensemble_p_long if blend_audit else None,
+            ensemble_blend_weight=blend_audit.blend_weight if blend_audit else None,
         )
         await self._storage.insert_trade(trade_record)
         await self._snapshot_equity()
