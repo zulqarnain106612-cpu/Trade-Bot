@@ -54,7 +54,7 @@ async def test_returns_the_fsm_and_the_exchange_order():
     wrapper = _wrapper(place_result=(fsm, order))
 
     got_fsm, got_order = await wrapper.place_market_order_with_fsm(
-        symbol="BTC/USDT", side="buy", quantity=0.5
+        symbol="BTC/USDT", side="buy", quantity=0.5, purpose="entry"
     )
 
     assert got_fsm is fsm
@@ -65,13 +65,68 @@ async def test_places_against_the_order_exchange():
     fsm = _fsm_double()
     wrapper = _wrapper(place_result=(fsm, {}))
 
-    await wrapper.place_market_order_with_fsm(symbol="ETH/USDT", side="sell", quantity=2.0)
+    await wrapper.place_market_order_with_fsm(
+        symbol="ETH/USDT", side="sell", quantity=2.0, purpose="exit"
+    )
 
     kwargs = wrapper._order_manager.place_order_with_fsm.await_args.kwargs
     assert kwargs["exchange"] is wrapper._fetcher.get_order_exchange.return_value
     assert kwargs["symbol"] == "ETH/USDT"
     assert kwargs["side"] == "sell"
     assert kwargs["quantity"] == 2.0
+
+
+async def test_an_idempotency_key_is_always_supplied():
+    """LAW3: OrderManager rejects a submission without a key, so the wrapper
+    must derive one rather than leaving it to the caller."""
+    wrapper = _wrapper(place_result=(_fsm_double(), {}))
+
+    await wrapper.place_market_order_with_fsm(
+        symbol="BTC/USDT", side="buy", quantity=0.5, purpose="entry"
+    )
+
+    key = wrapper._order_manager.place_order_with_fsm.await_args.kwargs["idempotency_key"]
+    assert key
+    assert isinstance(key, str)
+
+
+async def test_the_same_intent_derives_the_same_key():
+    """Two retries of one intent must collide so the second is refused."""
+    first = _wrapper(place_result=(_fsm_double(), {}))
+    second = _wrapper(place_result=(_fsm_double(), {}))
+
+    for wrapper in (first, second):
+        await wrapper.place_market_order_with_fsm(
+            symbol="BTC/USDT", side="buy", quantity=0.5, purpose="entry", intent_id="trade-77"
+        )
+
+    assert (
+        first._order_manager.place_order_with_fsm.await_args.kwargs["idempotency_key"]
+        == second._order_manager.place_order_with_fsm.await_args.kwargs["idempotency_key"]
+    )
+
+
+async def test_a_different_purpose_derives_a_different_key():
+    """An entry and the flatten that follows share symbol and quantity but are
+    opposite intents; they must not de-duplicate against each other."""
+    entry = _wrapper(place_result=(_fsm_double(), {}))
+    flatten = _wrapper(place_result=(_fsm_double(), {}))
+
+    await entry.place_market_order_with_fsm(
+        symbol="BTC/USDT", side="buy", quantity=0.5, purpose="entry", intent_id="trade-77"
+    )
+    await flatten.place_market_order_with_fsm(
+        symbol="BTC/USDT",
+        side="buy",
+        quantity=0.5,
+        purpose="emergency_flatten",
+        intent_id="trade-77",
+    )
+
+    assert (
+        entry._order_manager.place_order_with_fsm.await_args.kwargs["idempotency_key"]
+        != flatten._order_manager.place_order_with_fsm.await_args.kwargs["idempotency_key"]
+    )
 
 
 async def test_logs_an_unpriced_fill_without_raising():
@@ -82,7 +137,7 @@ async def test_logs_an_unpriced_fill_without_raising():
     wrapper = _wrapper(place_result=(fsm, {}))
 
     got_fsm, _ = await wrapper.place_market_order_with_fsm(
-        symbol="BTC/USDT", side="buy", quantity=0.1
+        symbol="BTC/USDT", side="buy", quantity=0.1, purpose="entry"
     )
 
     assert got_fsm is fsm
@@ -92,11 +147,15 @@ async def test_a_confirmation_timeout_reaches_the_caller():
     wrapper = _wrapper(place_error=TimeoutError("no confirmation"))
 
     with pytest.raises(TimeoutError):
-        await wrapper.place_market_order_with_fsm(symbol="BTC/USDT", side="buy", quantity=0.5)
+        await wrapper.place_market_order_with_fsm(
+            symbol="BTC/USDT", side="buy", quantity=0.5, purpose="entry"
+        )
 
 
 async def test_an_exchange_error_reaches_the_caller():
     wrapper = _wrapper(place_error=ccxt.ExchangeError("rejected"))
 
     with pytest.raises(ccxt.ExchangeError):
-        await wrapper.place_market_order_with_fsm(symbol="BTC/USDT", side="buy", quantity=0.5)
+        await wrapper.place_market_order_with_fsm(
+            symbol="BTC/USDT", side="buy", quantity=0.5, purpose="entry"
+        )

@@ -58,10 +58,6 @@ Do not perform unrelated exploration.
 
 ---
 
-## 3) Context Integrity and Non-Redundant Operation
-
-Treat already-loaded context as authoritative until source changes.
-
 ### 3.1 Absolute context rules
 - No reinjection of already-available context.
 - No reloading of unchanged files/data/candidates.
@@ -73,57 +69,138 @@ Treat already-loaded context as authoritative until source changes.
 - Do not rewrite candidate records/context that do not require change.
 - Update only candidates impacted by current diffs or requested edits.
 - Preserve unchanged candidate conclusions and evidence links.
-- If candidate behavior is unchanged, reuse prior verified result.
-
-### 3.3 Allowed refresh trigger
-Refresh/reload is allowed only when one of the following is true:
-- Source content changed (new commit/diff/ref)
-- User explicitly requests refresh
-- Existing context is insufficient to resolve a blocking ambiguity
-
-When refresh is needed, retrieve only minimal delta required.
 
 ---
 
 ## 4) Smart Tooling Protocol (Context Economy)
 
-Use the cheapest sufficient operation.
-### 4.0 Command Caps (Mandatory)
+Use the cheapest sufficient operation. always run that tool which can give you you needed and expected results
+Allowed commands
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Read(*)",
+      "Edit(*)",
+      "Write(*)",
 
-Every retrieval command must carry an explicit cap. Uncapped commands are denied.
+      "Bash(git status --short | head -30)",
+      "Bash(git log --oneline -20*)",
+      "Bash(git diff --name-only * | head -40)",
+      "Bash(git diff --stat * | head -40)",
+      "Bash(git diff --unified=0 * | head -80)",
+      "Bash(git show --stat * | head -40)",
+      "Bash(git show * | head -80)",
+      "Bash(git branch --show-current)",
+      "Bash(git rev-parse HEAD)",
+      "Bash(git rev-parse --abbrev-ref HEAD)",
+      "Bash(git ls-files * | head -40)",
+      "Bash(git blame -L *,* *)",
+      "Bash(git worktree list | head -10)",
 
-Caps by class:
-- Diffs/patches: `| head -80`
-- Name lists, greps, file lists: `| head -40`
-- CI job/step metadata: `| head -15`
-- CI log extraction: failure lines only — `| grep -E "error|Error|FAILED|failed|assert" | head -30`
-  Never fetch a full CI log. Never fetch a passing job's log at all.
-- Mutating git/gh commands: `| tail -5` (confirmation only, never full output)
+      "Bash(git add -- *)",
+      "Bash(git commit -m *)",
+      "Bash(git commit -F * | tail -3)",
+      "Bash(git commit -am * | tail -3)",
+      "Bash(git fetch origin * | tail -5)",
+      "Bash(git push origin * | tail -5)",
+      "Bash(git checkout -b *)",
+      "Bash(git checkout * -- *)",
+      "Bash(git switch * | tail -3)",
+      "Bash(git merge origin/main | tail -10)",
+      "Bash(git restore -- *)",
+      "Bash(git stash list | head -10)",
 
-`cat` is denied. Use `sed -n 'START,ENDp'`, `head -N`, or `tail -N`.
+      "Bash(gh pr view * --json title,state,mergeable,mergeStateStatus,baseRefName,headRefName)",
+      "Bash(gh pr view * --json files --jq * | head -40)",
+      "Bash(gh pr list -L 10 --json number,title,headRefName)",
+      "Bash(gh pr diff * --name-only | head -40)",
+      "Bash(gh pr diff * --patch | head -80)",
+      "Bash(gh pr checks * --json name,bucket,link | head -40)",
+      "Bash(gh pr create --title * --body * | tail -3)",
+      "Bash(gh pr comment * --body * | tail -3)",
+      "Bash(gh pr merge * --squash --delete-branch | tail -5)",
 
-### 4.6 Read Discipline (tool-level, not enforceable by settings)
+      "Bash(gh run list -L 5 --json databaseId,status,conclusion,name,headSha --jq * | head -10)",
+      "Bash(gh run view * --json status,conclusion --jq *)",
+      "Bash(gh run view * --log-failed | tail -40)",
+      "Bash(gh run watch * --interval 30 --exit-status | tail -5)",
+      "Bash(gh api repos/*/actions/runs/*/jobs --jq * | head -15)",
+      "Bash(gh api repos/*/actions/jobs/* --jq * | head -20)",
+      "Bash(gh api repos/*/actions/jobs/*/logs | grep -E * | head -30)",
 
-`Read` is allowed by path but capped by this rule:
-- Always pass `offset` + `limit`. Default window ≤ 80 lines.
-- Locate the exact block with `grep -n` FIRST, then Read only that window.
-- Full-file Read requires a stated reason: bounded reads could not resolve the ambiguity.
-- Never Read a file to verify an edit that Edit already reported as applied.
+      "Bash(ls * | head -40)",
+      "Bash(head -20 *)",
+      "Bash(head -80 *)",
+      "Bash(tail -20 *)",
+      "Bash(tail -40 *)",
+      "Bash(sed -n *p *)",
+      "Bash(grep -n * * | head -40)",
+      "Bash(grep -rn * * | head -40)",
+      "Bash(grep -c * *)",
+      "Bash(rg -n * | head -40)",
+      "Bash(wc -l *)",
+      "Bash(awk * * | head -40)",
+      "Bash(jq * * | head -40)",
+      "Bash(find * -name * | head -40)",
+      "Bash(mkdir -p *)",
+      "Bash(sleep *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -f *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git rebase*)",
+      "Bash(git filter-branch*)",
+      "Bash(git update-ref*)",
+      "Bash(git config --global*)",
+      "Bash(*;*)",
+      "Bash(*&&*)",
+      "Bash(*||*)",
+      "Bash(cat *)",
+      "Bash(python*)",
+      "Bash(python3*)",
+      "Bash(pip*)",
+      "Bash(uv*)",
+      "Bash(pytest*)",
+      "Bash(ruff*)",
+      "Bash(mypy*)",
+      "Bash(npm*)",
+      "Bash(npx*)",
+      "Bash(docker*)",
+      "Bash(podman*)",
+      "Bash(systemctl*)",
+      "Bash(circleci*)",
+      "Bash(gh workflow run*)",
+      "Bash(gh run rerun*)",
+      "Bash(gh secret*)",
+      "Bash(gh auth token*)",
+      "Bash(gh api -X DELETE*)",
+      "Bash(gh api -X PUT*)",
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "Bash(chmod*)",
+      "Bash(sudo*)",
+      "Bash(env)",
+      "Bash(printenv*)",
+      "Read(.env*)",
+      "Read(.venv/*)",
+      "Read(data/*)",
+      "Read(logs/*)",
+      "Read(models/*)",
+      "Read(requirements.lock)",
+      "Read(rag.db)",
+      "Edit(.env*)",
+      "Write(.env*)",
+      "Edit(.github/workflows/*)",
+      "Write(.github/workflows/*)"
+    ]
+  }
+}
 
-### 4.7 Candidate Loading (Mandatory)
-
-- Load a candidate into context exactly once.
-- After applying a fix, reload ONLY the changed hunk — never the file, never the sibling candidates.
-- Do not re-read, re-fetch, re-grep, or restate a candidate whose source is unchanged.
-- Do not rewrite content that is already valid. Edit the smallest failing region only.
-- On a new CI run, fetch only the delta: the failing job's failing step's failing lines. Nothing else.
-- Prior verified results stay valid until their source bytes change.
-
-### 4.8 Edit Discipline
-
-- Use `Edit` on an exact matched string. Never `Write` over an existing file.
-- `Write` is for new files only.
-- One edit = one root cause. No opportunistic reformatting of correct code.
 
 ### 4.1 Retrieval pattern
 1. Locate exact symbol/hunk with narrow search.

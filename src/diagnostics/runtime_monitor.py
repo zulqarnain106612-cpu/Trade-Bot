@@ -162,38 +162,72 @@ class RuntimeMonitor:
                 action="monitor_offline — alert only, manual restart required",
             )
 
+    async def _run_probe(self, name: str) -> ProbeResult:
+        """Run one registered probe, converting any failure into a result.
+
+        Returns rather than raises so a gather over all probes cannot let one
+        failure mask another's outcome.
+        """
+        prior = self._results.get(name, ProbeResult(name=name, passed=True))
+        try:
+            result = await asyncio.wait_for(self._probes[name](), timeout=10.0)
+        except TimeoutError:
+            return ProbeResult(
+                name=name,
+                passed=False,
+                detail="timeout_10s",
+                consecutive_failures=prior.consecutive_failures + 1,
+                last_ok_ts=prior.last_ok_ts,
+            )
+        except Exception as exc:
+            log.warning("health_probe.exception", name=name, error=str(exc), exc_info=True)
+            return ProbeResult(
+                name=name,
+                passed=False,
+                detail=str(exc)[:200],
+                consecutive_failures=prior.consecutive_failures + 1,
+                last_ok_ts=prior.last_ok_ts,
+            )
+        return ProbeResult(
+            name=name,
+            passed=True,
+            value=result,
+            consecutive_failures=0,
+            last_ok_ts=time.monotonic(),
+        )
+
     async def _run_all_probes(self) -> None:
         alerts: list[str] = []
 
-        # 1. Registered async probes
-        for name, factory in self._probes.items():
-            prior = self._results.get(name, ProbeResult(name=name, passed=True))
-            try:
-                result = await asyncio.wait_for(factory(), timeout=10.0)
-                pr = ProbeResult(
+        # 1. Registered async probes, concurrently.
+        #
+        # Run sequentially these compounded: every probe carries its own 10s
+        # timeout, so n hung probes cost n * 10s for a single cycle while
+        # POLL_INTERVAL_S assumes a cycle is short. The monitor's own latency
+        # therefore degraded in proportion to how much was broken -- the
+        # snapshot went stalest exactly during the incident it exists to
+        # describe. Concurrently the cycle is bounded by the slowest probe.
+        names = list(self._probes)
+        gathered = await asyncio.gather(
+            *(self._run_probe(name) for name in names),
+            return_exceptions=True,
+        )
+
+        for name, pr in zip(names, gathered, strict=True):
+            if isinstance(pr, BaseException):
+                # _run_probe catches per-probe failures itself; reaching here
+                # means the wrapper broke, which must not lose the probe.
+                log.error(
+                    "runtime_monitor.probe_wrapper_failed",
                     name=name,
-                    passed=True,
-                    value=result,
-                    consecutive_failures=0,
-                    last_ok_ts=time.monotonic(),
+                    error=str(pr),
                 )
-            except TimeoutError:
-                failures = prior.consecutive_failures + 1
+                prior = self._results.get(name, ProbeResult(name=name, passed=True))
                 pr = ProbeResult(
                     name=name,
                     passed=False,
-                    detail="timeout_10s",
-                    consecutive_failures=failures,
-                    last_ok_ts=prior.last_ok_ts,
-                )
-            except Exception as exc:
-                failures = prior.consecutive_failures + 1
-                log.warning("health_probe.exception", name=name, error=str(exc), exc_info=True)
-                pr = ProbeResult(
-                    name=name,
-                    passed=False,
-                    detail=str(exc)[:200],
-                    consecutive_failures=failures,
+                    detail=f"probe_wrapper_failed: {str(pr)[:150]}",
+                    consecutive_failures=prior.consecutive_failures + 1,
                     last_ok_ts=prior.last_ok_ts,
                 )
 

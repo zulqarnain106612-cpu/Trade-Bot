@@ -22,6 +22,43 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+# A spot/perp basis is only meaningful if both legs were observed at
+# roughly the same instant. Two minutes is loose enough for venues that
+# stamp tickers lazily and tight enough that a genuinely stalled feed is
+# caught before its price is differenced against a live one.
+MAX_TICKER_SKEW_MS: int = 120_000
+
+
+def tickers_are_synchronous(
+    spot_ticker: dict[str, Any],
+    perp_ticker: dict[str, Any],
+    max_skew_ms: int = MAX_TICKER_SKEW_MS,
+) -> bool:
+    """
+    True when two tickers were observed close enough together to difference.
+
+    Basis is a difference between venues, so a stale leg does not produce a
+    slightly wrong number -- it produces the price move that happened while
+    the feed was down, reported as a dislocation that never existed. The
+    ±500bps clamp downstream makes that worse by rendering an absurd value
+    plausible.
+
+    A missing timestamp on either side returns True: ccxt does not populate
+    it for every venue, and refusing to compute a basis wherever the field
+    is absent would disable the signal on those venues entirely. This checks
+    what can be checked.
+    """
+    spot_ts = spot_ticker.get("timestamp")
+    perp_ts = perp_ticker.get("timestamp")
+    if spot_ts is None or perp_ts is None:
+        return True
+    try:
+        skew = abs(float(spot_ts) - float(perp_ts))
+    except (TypeError, ValueError):
+        return True
+    return skew <= max_skew_ms
+
+
 class ExchangeIntelligenceProvider(ABC):
     """
     Abstract base class for per-exchange intelligence data providers.
