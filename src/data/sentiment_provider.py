@@ -84,8 +84,8 @@ class SentimentProvider:
             recent = self._headlines[-20:] if self._headlines else []
             vader_avg = sum(h["vader_compound"] for h in recent) / len(recent) if recent else 0.0
             get_provider_cache().set_sentiment(self._fg_score, self._fg_label, vader_avg)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("provider_cache_publish_failed", field="sentiment", exc=str(exc))
 
     def _persist_fg(self) -> None:
         date_str = datetime.now(UTC).strftime("%Y-%m-%d")

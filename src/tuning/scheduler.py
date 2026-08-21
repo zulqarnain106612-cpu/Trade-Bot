@@ -21,18 +21,21 @@ true. Every safety rail from the original design stays in force:
 
 `hmm.entropy_threshold` / `hmm.entropy_scalar_floor` (Phase 4),
 `risk.slippage_impact_coeff_bps` (Phase 8 item 2), the five
-`features.*_window` parameters (Phase 8 item 3), and the eight
-`xgboost.*` hyperparameters (Phase 8 item 4), and
-`risk.ensemble_blend_weight` each have a working backtest harness
-(run_entropy_threshold_backtest / run_slippage_coeff_backtest /
-run_feature_window_backtest / run_xgboost_hyperparam_backtest /
-run_ensemble_blend_backtest respectively). Any other registered parameter
-with no evaluate_fn is intentionally left unscheduled here.
+`features.*_window` parameters (Phase 8 item 3), the eight
+`xgboost.*` hyperparameters (Phase 8 item 4), and `risk.ensemble_blend_weight`
+each have a working backtest harness (run_entropy_threshold_backtest /
+run_slippage_coeff_backtest / run_feature_window_backtest /
+run_xgboost_hyperparam_backtest / run_ensemble_blend_backtest
+respectively). Any other registered parameter with no evaluate_fn is
+intentionally left unscheduled here.
 
-The blend-weight harness needs trades that recorded both blend inputs
-(schema v7), so it stays skipped until an ensemble has been trained and has
-actually blended on some closed trades — the same "expected state, not an
-error" handling the feature-window harness uses for a missing model.
+`risk.ensemble_blend_weight` additionally requires closed trades where
+EnsemblePredictor was actually blended in at signal time (nonzero blend
+weight while a fitted predictor was injected into SignalEngine) -- on a
+deployment where blending has never been enabled,
+ensemble_blend_samples_from_trades() returns an empty list every cycle and
+that attempt is skipped cleanly, same as the feature-window harness's
+missing-model case.
 
 The feature-window harness additionally requires a previously trained,
 saved direction model (ModelTrainer.load_direction) -- on a fresh
@@ -165,10 +168,11 @@ class AutoTuningScheduler:
             register_slippage_impact_coeff(parameter_registry, self._settings, version_store)
         if not parameter_registry.is_registered("risk.ensemble_blend_weight"):
             register_ensemble_blend_weight(parameter_registry, self._settings, version_store)
-        # Registered but not auto-cycled: visible via /self-tuning/status and
-        # adjustable by hand, with no evaluate_fn until a vol-targeting
-        # backtest harness exists (see register_garch_vol_threshold docstring).
-        # This is now the only parameter in that state.
+        # Not auto-scheduled below: visible via /self-tuning/status but not
+        # auto-cycled until a vol-targeting backtest harness exists (see
+        # register_garch_vol_threshold docstring). ensemble_blend_weight used
+        # to share this state; it now has run_ensemble_blend_backtest and is
+        # scheduled with the rest.
         if not parameter_registry.is_registered("risk.garch_vol_threshold"):
             register_garch_vol_threshold(parameter_registry, self._settings, version_store)
         for field_name in FEATURE_WINDOW_FIELDS:
@@ -353,19 +357,18 @@ class AutoTuningScheduler:
                     exc_info=True,
                 )
 
-        blend_samples = await self._build_ensemble_blend_samples()
-        if len(blend_samples) < _MIN_SAMPLES:
-            # Expected on a fresh deployment and whenever no ensemble has been
-            # trained yet: the blend columns are NULL, so there is nothing to
-            # recalibrate against. Not an error.
-            log.info("tuning.scheduler_insufficient_blend_samples", n_samples=len(blend_samples))
+        ensemble_samples = await self._build_ensemble_blend_samples()
+        if len(ensemble_samples) < _MIN_SAMPLES:
+            log.info(
+                "tuning.scheduler_insufficient_ensemble_samples", n_samples=len(ensemble_samples)
+            )
         else:
 
-            def evaluate_blend(
+            def evaluate_ensemble_blend(
                 _param: TunableParameter, proposal: Proposal
             ) -> list[MetricComparison]:
                 return run_ensemble_blend_backtest(
-                    blend_samples,
+                    ensemble_samples,
                     champion_weight=proposal.champion_value,
                     challenger_weight=proposal.challenger_value,
                     features_cfg=self._settings.features,
@@ -374,8 +377,8 @@ class AutoTuningScheduler:
             try:
                 result = runner.attempt(
                     "risk.ensemble_blend_weight",
-                    evaluate_blend,
-                    primary_metric="ensemble_calibration",
+                    evaluate_ensemble_blend,
+                    primary_metric="oos_sharpe",
                     closed_trade_count=closed_trade_count,
                 )
                 log.info(
@@ -391,7 +394,6 @@ class AutoTuningScheduler:
                     "tuning.scheduler_attempt_error",
                     param="risk.ensemble_blend_weight",
                     error=str(exc),
-                    exc_info=True,
                 )
 
         bars_df = await self._build_feature_bars_df()
@@ -629,13 +631,6 @@ class AutoTuningScheduler:
         return samples
 
     async def _build_ensemble_blend_samples(self) -> list[EnsembleBlendSample]:
-        """
-        Closed trades that recorded both ensemble-blend inputs.
-
-        Only trades taken while an ensemble was actually blending carry the
-        columns, so this is empty until the first retrain produces one — the
-        caller treats that as "skip", not "fail".
-        """
         trades = await self._storage.fetch_trades(
             symbol=self._symbol,
             trading_mode=self._settings.trading_mode.value,

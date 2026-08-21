@@ -14,14 +14,15 @@ Authority: https://defillama.com/docs/api
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Any
+
+import structlog
 
 from src.intelligence.onchain.base import OnChainProvider
 
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _BASE = "https://api.llama.fi"
 _STABLE_BASE = "https://stablecoins.llama.fi"

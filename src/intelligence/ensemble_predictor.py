@@ -740,7 +740,7 @@ class EnsemblePredictor:
             ensemble_point = float(np.mean(list(individual_predictions.values())))
 
         # Aleatoric uncertainty: average of individual model uncertainties
-        aleatoric = np.mean(list(individual_uncertainties.values()))
+        aleatoric = float(np.mean(list(individual_uncertainties.values())))
 
         # Epistemic uncertainty: disagreement between the models that spoke.
         # Failed members are excluded: their 0.0 was not an opinion, and

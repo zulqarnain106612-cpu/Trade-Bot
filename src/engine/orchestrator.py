@@ -923,8 +923,11 @@ class Orchestrator:
                                 "warnings": ",".join(cb_signal.warnings),
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as _audit_exc:
+                        self._log.warning(
+                            "orchestrator.crypto_box_audit_failed",
+                            error=str(_audit_exc),
+                        )
             except Exception as _cb_exc:
                 self._log.warning("orchestrator.crypto_box_augment_failed", error=str(_cb_exc))
 
@@ -1115,6 +1118,26 @@ class Orchestrator:
                 outcome=outcome,
                 trade_id=trade_id,
             )
+
+            # Ensemble-blend self-tuning harness (src/tuning/backtest_harness.py
+            # run_ensemble_blend_backtest) needs p_long/ensemble_point_estimate
+            # persisted per closed trade to replay OOS. The trade_id is minted
+            # by the executor inside submit_signal(), so this can only be
+            # patched in after the fact, not passed into insert_trade().
+            # Best-effort — never let an audit-trail write affect the trade path.
+            if outcome == "opened" and trade_id and result.ensemble_point_estimate is not None:
+                try:
+                    await self._storage.update_trade_ensemble_fields(
+                        trade_id,
+                        result.ensemble_point_estimate,
+                        result.ensemble_blend_weight,
+                    )
+                except Exception as exc:
+                    self._log.warning(
+                        "orchestrator.ensemble_fields_persist_failed",
+                        trade_id=trade_id,
+                        error=str(exc),
+                    )
 
             # UI-001: a tradeable signal that didn't open a position (gate
             # rejection, approval denial/timeout) is a "missed trade" —

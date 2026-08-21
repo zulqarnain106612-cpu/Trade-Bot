@@ -16,7 +16,13 @@ Authority:
 
 from __future__ import annotations
 
+import math
 from typing import Final
+
+import structlog
+
+
+log = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -106,11 +112,6 @@ def validate_provider_result(
 
     Returns a clean copy.
     """
-    import logging
-    import math
-
-    log = logging.getLogger(__name__)
-
     out: dict[str, float] = dict(ONCHAIN_NEUTRAL)
 
     for field, value in result.items():
@@ -120,8 +121,10 @@ def validate_provider_result(
             continue
         if math.isnan(value) or math.isinf(value):
             log.warning(
-                "onchain.schema.invalid_value",
-                extra={"provider": provider_id, "field": field, "value": value},
+                "onchain_schema_invalid_value",
+                provider=provider_id,
+                field=field,
+                value=value,
             )
             continue
         out[field] = float(value)
@@ -132,7 +135,7 @@ def validate_provider_result(
             msg = f"Provider '{provider_id}' missing required field '{req}'"
             if strict:
                 raise ValueError(msg)
-            log.warning("onchain.schema.missing_required", extra={"detail": msg})
+            log.warning("onchain_schema_missing_required", provider=provider_id, field=req)
 
     # Clamp confidence
     out["confidence"] = max(0.0, min(1.0, out.get("confidence", 0.0)))
@@ -156,8 +159,6 @@ def merge_onchain_results(
         into `exchange_stress_score`.
       - Final `confidence` = weighted mean of provider confidences.
     """
-    import math
-
     if not results:
         return dict(ONCHAIN_NEUTRAL)
 

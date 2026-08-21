@@ -16,8 +16,8 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: "0 4 * * *"   # daily at 04:00 UTC
+  # REMOVED 2026-08-16 by owner request: the daily 04:00 UTC cron burned a run
+  # every night and pushed a Vulner-Fix.md commit unattended. Run it on demand.
   workflow_dispatch:
 
 permissions:
@@ -28,7 +28,7 @@ permissions:
 jobs:
   bandit:
     name: Bandit — Python security lint
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -58,7 +58,7 @@ jobs:
 
   semgrep:
     name: Semgrep — semantic security scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep:latest
 
@@ -67,7 +67,12 @@ jobs:
 
       - name: Run semgrep
         run: |
-          semgrep ci \
+          # `semgrep scan`, not `semgrep ci`: the latter is the app-backed
+          # subcommand and rejects `--error`, so it exited before writing any
+          # SARIF at all and the upload step below failed on a missing file.
+          # `|| true` kept that invisible — findings are triaged from the
+          # Security tab, so the scan itself must not fail the job.
+          semgrep scan \
             --config "p/python" \
             --config "p/security-audit" \
             --config "p/owasp-top-ten" \
@@ -75,7 +80,6 @@ jobs:
             --config "p/asyncio" \
             --sarif \
             --output semgrep.sarif \
-            --error \
             || true
 
       - name: Upload SARIF
@@ -87,7 +91,7 @@ jobs:
 
   pip-audit:
     name: pip-audit — Python CVE scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -104,14 +108,21 @@ jobs:
       - name: Run pip-audit
         id: audit
         run: |
+          # --skip-editable: the project installs itself with `pip install -e .`
+          # and trade-bot 0.1.0 is not on PyPI, so --strict counted its own
+          # package as an un-auditable dependency and failed the step. That
+          # aborted the run before the report was written, which then crashed
+          # the issue-filing step below on a missing file — with no CVE
+          # anywhere in the tree. --strict still bites for real dependencies.
           pip-audit \
             --strict \
+            --skip-editable \
             --format json \
             --output pip-audit.json \
             || echo "AUDIT_FAILED=true" >> $GITHUB_ENV
 
       - name: Print human-readable summary
-        run: pip-audit --strict || true
+        run: pip-audit --strict --skip-editable || true
 
       - name: Upload audit report
         if: always()
@@ -127,6 +138,14 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            // pip-audit writes nothing when it fails before the scan finishes,
+            // and this step only runs because that failure set AUDIT_FAILED.
+            // Reading unconditionally turned "the audit could not run" into an
+            // unhandled ENOENT that buried the actual reason in the log.
+            if (!fs.existsSync('pip-audit.json')) {
+              core.warning('pip-audit produced no report — see the audit step for why.');
+              return;
+            }
             const report = JSON.parse(fs.readFileSync('pip-audit.json', 'utf8'));
             const vulns = (report.dependencies || []).flatMap(d =>
               (d.vulns || []).map(v => `${d.name}@${d.version}: ${v.id} — ${v.description.slice(0,120)}`)
@@ -172,20 +191,20 @@ jobs:
                   ], check=False)
           PYEOF
 
-      - name: Commit Vulner-Fix.md
+      # REMOVED 2026-08-16 by owner request: this committed and pushed
+      # Vulner-Fix.md unattended. The findings are uploaded as an artifact
+      # instead, so the audit still reports without writing to the repo.
+      - name: Upload Vulner-Fix findings
         if: env.AUDIT_FAILED == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet Vulner-Fix.md || (
-            git add Vulner-Fix.md
-            git commit -m "chore: update Vulner-Fix.md from pip-audit [skip ci]"
-            git push || true
-          )
+        uses: actions/upload-artifact@v7
+        with:
+          name: vulner-fix-${{ github.run_id }}
+          path: Vulner-Fix.md
+          if-no-files-found: ignore
 
   npm-audit:
     name: npm audit — Frontend CVE scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -213,7 +232,7 @@ jobs:
 
   trufflehog:
     name: TruffleHog — git secret scan
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -223,6 +242,11 @@ jobs:
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          # On a push to the default branch these both resolved to the same
+          # commit, and the action exits with an error rather than scanning —
+          # so the secret gate was dead on exactly the branch that matters.
+          # A pull request still gets the cheap diff scan; a push scans the
+          # full history, which fetch-depth: 0 above already provides.
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          head: ${{ github.sha }}
           extra_args: --only-verified --json

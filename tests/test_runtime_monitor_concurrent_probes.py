@@ -28,11 +28,26 @@ def _monitor() -> RuntimeMonitor:
 
 @pytest.mark.asyncio
 async def test_probes_do_not_wait_for_each_other() -> None:
+    """Assert overlap directly rather than by wall clock.
+
+    A duration bound has to separate ~0.2s (concurrent) from ~1.0s
+    (sequential), but a loaded CI runner can stretch the concurrent case
+    past a tight threshold and fail a correct implementation. Counting how
+    many probes are in flight at once tests the property itself.
+    """
     m = _monitor()
+    in_flight = 0
+    peak = 0
 
     async def slow():
-        await asyncio.sleep(0.2)
-        return "ok"
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        try:
+            await asyncio.sleep(0.05)
+            return "ok"
+        finally:
+            in_flight -= 1
 
     for i in range(5):
         m.register_probe(f"p{i}", slow)
@@ -41,8 +56,8 @@ async def test_probes_do_not_wait_for_each_other() -> None:
     await m._run_all_probes()
     elapsed = time.monotonic() - started
 
-    # Sequentially this is ~1.0s; concurrently ~0.2s.
-    assert elapsed < 0.6
+    assert peak == 5  # all five overlapped
+    assert elapsed < 0.25 * 5  # and nowhere near the sequential cost
     assert all(m._results[f"p{i}"].passed for i in range(5))
 
 
@@ -149,7 +164,14 @@ async def test_run_probe_returns_a_result_rather_than_raising() -> None:
 
 @pytest.mark.asyncio
 async def test_no_probes_is_not_an_error() -> None:
+    """A cycle with nothing registered must still complete.
+
+    _run_all_probes always records the built-in memory probe (step 3), so
+    the result set is never empty -- what matters is that the registered-probe
+    gather over an empty set is a no-op rather than a failure.
+    """
     m = _monitor()
     await m._run_all_probes()
 
-    assert m._results == {}
+    assert m._probes == {}
+    assert set(m._results) == {"memory_rss_mb"}

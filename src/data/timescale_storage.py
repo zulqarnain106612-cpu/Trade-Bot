@@ -299,12 +299,13 @@ CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
 ALTER TABLE regime_snapshots
     ADD COLUMN IF NOT EXISTS agreement_score DOUBLE PRECISION NOT NULL DEFAULT 1.0;""",
     ),
-    # v7 — parity with storage._MIGRATIONS v7.
+    # v7 — parity with storage._MIGRATIONS v7: ensemble blend backtest
+    # harness (src/tuning/backtest_harness.py run_ensemble_blend_backtest).
     (
         7,
-        "add the ensemble-blend inputs to trades for the blend-weight tuning harness",
-        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_blend_p_long DOUBLE PRECISION;\n"
-        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_p_long DOUBLE PRECISION;\n"
+        "add ensemble_point_estimate/ensemble_blend_weight to trades for the "
+        "ensemble-blend self-tuning harness",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_point_estimate DOUBLE PRECISION;\n"
         "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_blend_weight DOUBLE PRECISION;",
     ),
 ]
@@ -777,11 +778,10 @@ class TimescaleBackend:
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
                         exit_reason, approved_by, raw_signal,
-                        pre_blend_p_long, ensemble_p_long, ensemble_blend_weight
+                        ensemble_point_estimate, ensemble_blend_weight
                     ) VALUES (
                         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-                        $22,$23,$24
+                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
                     )
                     """,
                     trade.id,
@@ -805,8 +805,7 @@ class TimescaleBackend:
                     trade.exit_reason,
                     trade.approved_by,
                     trade.raw_signal,
-                    trade.pre_blend_p_long,
-                    trade.ensemble_p_long,
+                    trade.ensemble_point_estimate,
                     trade.ensemble_blend_weight,
                 )
         except asyncpg.UniqueViolationError as exc:
@@ -859,6 +858,24 @@ class TimescaleBackend:
             exit_reason=exit_reason,
         )
 
+    async def update_trade_ensemble_fields(
+        self,
+        trade_id: str,
+        ensemble_point_estimate: float | None,
+        ensemble_blend_weight: float | None,
+    ) -> None:
+        """Parity with StorageBackend.update_trade_ensemble_fields — see
+        its docstring for why this is a separate patch from insert_trade."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE trades SET ensemble_point_estimate=$1, "
+                "ensemble_blend_weight=$2 WHERE id=$3",
+                ensemble_point_estimate,
+                ensemble_blend_weight,
+                trade_id,
+            )
+
     async def fetch_trades(
         self,
         symbol: str | None = None,
@@ -901,7 +918,7 @@ class TimescaleBackend:
             " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
             " kelly_fraction, regime_at_entry, meta_label_prob,"
             " exit_reason, approved_by, raw_signal,"
-            " pre_blend_p_long, ensemble_p_long, ensemble_blend_weight"
+            " ensemble_point_estimate, ensemble_blend_weight"
             f" FROM trades{where}"
             f" ORDER BY entry_ts DESC LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         )
@@ -930,8 +947,7 @@ class TimescaleBackend:
                 exit_reason=r["exit_reason"],
                 approved_by=r["approved_by"],
                 raw_signal=r["raw_signal"],
-                pre_blend_p_long=r["pre_blend_p_long"],
-                ensemble_p_long=r["ensemble_p_long"],
+                ensemble_point_estimate=r["ensemble_point_estimate"],
                 ensemble_blend_weight=r["ensemble_blend_weight"],
             )
             for r in rows

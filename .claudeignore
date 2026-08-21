@@ -38,56 +38,6 @@ requirements.lock
 # CI artifacts
 check_runs.json
 ci_jobs.json
-# === claude-ignore v1 ===
-# Prevents Claude Code from auto-indexing high-noise, low-signal paths.
 
-# Python artifacts
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.venv/
-venv/
-env/
-.env/
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-htmlcov/
-.coverage
-
-# Data & logs (always read targeted, never browsed)
-logs/
-data/
-*.log
-*.csv
-*.parquet
-*.feather
-*.h5
-*.pkl
-*.pickle
-
-# Lock files (use npm list / pip show instead)
-package-lock.json
-yarn.lock
-poetry.lock
-Pipfile.lock
-pip-compile*.txt
-
-# IDE / OS noise
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Git internals
-.git/
-
-# Signals dir (runtime only)
-.claude_signals/
-docs/session-notes.md
+# Agent worktrees — 5 full source-tree copies, ~518 MB
+.claude/worktrees/

@@ -58,6 +58,11 @@ COVERAGE_FLOORS: dict[str, int] = {
     "src/engines/schema.py": 90,
     "src/regime/depth_detector_v2.py": 75,
     "src/engine/crypto_box_adapter.py": 70,
+    # Position sizing — decides how much capital each trade risks, so a
+    # regression here is silent and expensive. Currently 97%.
+    "src/risk/vol_target_sizer.py": 85,
+    # Decides whether a regime is certain enough to trade at all. Currently 99%.
+    "src/strategies/regime_strategy_selector.py": 85,
 }
 
 

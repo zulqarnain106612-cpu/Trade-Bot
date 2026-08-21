@@ -16,7 +16,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import struct
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final
 
 
@@ -60,13 +62,15 @@ class CredentialVault:
     security module or encrypted at rest — never in code or env files.
     """
 
-    _EXCHANGE_INDICES: dict[str, int] = {
-        "binance": 0,
-        "okx": 1,
-        "coinbase": 2,
-        "kraken": 3,
-        "bybit": 4,
-    }
+    _EXCHANGE_INDICES: Final[Mapping[str, int]] = MappingProxyType(
+        {
+            "binance": 0,
+            "okx": 1,
+            "coinbase": 2,
+            "kraken": 3,
+            "bybit": 4,
+        }
+    )
 
     def __init__(self, master_seed: bytes) -> None:
         if len(master_seed) < 16:

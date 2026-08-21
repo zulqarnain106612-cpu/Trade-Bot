@@ -66,8 +66,8 @@ class TestShadowDeployerExtended:
 
         dep = ShadowDeployer(lambda x: 1.0, lambda x: 1.0, shadow_hours=999)
         dep.start()
-        # evaluate() always returns an ABResult; with no recorded returns
-        # neither side can beat the other, so nothing is promoted.
+        # shadow_hours=999 means the window has not elapsed, and evaluate()
+        # returns None rather than judging the challenger on a partial window.
         result = dep.evaluate()
         assert result.promoted is False
 
@@ -162,7 +162,6 @@ class TestWalkForwardStudy:
             storage_path=tmp_path / "study.db",
         )
         study.run()
-        # After run, best_params might be set
         assert isinstance(study.best_params(), dict)
 
 
@@ -786,20 +785,17 @@ class TestRLExecutionAgentExtended:
         from src.execution.rl_agent import RLExecutionAgent, RLExecutionState
 
         agent = RLExecutionAgent(model_path=tmp_path / "no.zip")
-        for regime in [0, 1, 2]:
-            state = RLExecutionState(n_horizons=2)
-            assert (
-                state.build(
-                    horizon_confidences=[0.7, 0.7],
-                    regime_id=regime,
-                    ecc_features={},
-                    realized_pnl=0.0,
-                    drawdown=0.0,
-                    kyle_lambda=0.0,
-                ).ndim
-                == 1
+        state = RLExecutionState(n_horizons=2)
+        for regime_id, pnl in [(0, -0.05), (4, 0.0), (8, 0.05)]:
+            _obs = state.build(
+                horizon_confidences=[0.7, 0.6],
+                regime_id=regime_id,
+                ecc_features={"cluster_flow_score": 0.3},
+                realized_pnl=pnl,
+                drawdown=abs(pnl),
+                kyle_lambda=1e-6,
             )
-            action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime)
+            action, _prob = agent.predict(horizon_confidences=[0.7, 0.7], regime_id=regime_id)
             assert action in (0, 1, 2, 3)
 
     def test_obs_length_correct(self) -> None:

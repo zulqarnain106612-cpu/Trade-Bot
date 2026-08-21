@@ -1,0 +1,14 @@
+[Unit]
+Description=Project Sentinel — Zero-trust filesystem watcher for Trade-Bot-main
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/Projects/Trade-Bot-main/.sentinel/project_sentinel.sh %h/Projects/Trade-Bot-main
+Restart=on-failure
+RestartSec=3
+Environment=DISPLAY=:0
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
+
+[Install]
+WantedBy=default.target

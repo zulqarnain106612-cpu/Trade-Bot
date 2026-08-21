@@ -115,8 +115,13 @@ class OrderbookStream:
             from src.data.provider_cache import get_provider_cache
 
             get_provider_cache().set_orderbook(self.symbol, self._snapshots_as_df())
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(
+                "provider_cache_publish_failed",
+                field="orderbook",
+                symbol=self.symbol,
+                exc=str(exc),
+            )
         if len(self._snapshots) >= 1000:
             self._flush_orderbook()
 

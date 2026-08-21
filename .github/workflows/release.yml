@@ -21,7 +21,7 @@ env:
 jobs:
   gate:
     name: Gate - Verify release tag
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
 
@@ -32,10 +32,17 @@ jobs:
 
       - name: Check commit message
         id: check
+        # Both values reach the script through the environment instead of
+        # being interpolated into it. `COMMIT_MSG="${{ ... }}"` pasted the raw
+        # commit message into bash, so a message containing shell
+        # metacharacters was executed rather than compared: a multi-line body
+        # ended this step with exit 127, and a crafted one would run arbitrary
+        # code holding the workflow's token. Quoting cannot fix that — the
+        # substitution happens before bash ever sees the line.
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          FORCE: ${{ github.event.inputs.force_release }}
         run: |
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          FORCE="${{ github.event.inputs.force_release }}"
-
           if echo "$COMMIT_MSG" | grep -q "\[auto-fix\]"; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "Skipping release - auto-fix commit."
@@ -51,7 +58,7 @@ jobs:
 
   build:
     name: Build Artifacts
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: gate
     if: needs.gate.outputs.should_release == 'true'
 
@@ -134,7 +141,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [gate, build]
     if: needs.gate.outputs.should_release == 'true'
     permissions:

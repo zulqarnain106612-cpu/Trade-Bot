@@ -21,15 +21,16 @@ Authority: https://docs.cryptoquant.com/api-reference/
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from typing import Any
 
+import structlog
+
 from src.intelligence.onchain.base import OnChainProvider
 
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _BASE = "https://api.cryptoquant.com/v1"
 _EPS = 1e-9
@@ -64,7 +65,7 @@ class CryptoQuantProvider(OnChainProvider):
         self._CACHE_TTL_S = cache_ttl_s
         self._disabled = not bool(api_key)
         if self._disabled:
-            logger.warning("CryptoQuantProvider: no API key — all fields neutral (fail-open)")
+            log.warning("cryptoquant_no_api_key_fail_open")
 
     @property
     def exchange_id(self) -> str:

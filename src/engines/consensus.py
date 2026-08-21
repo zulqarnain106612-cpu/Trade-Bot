@@ -283,8 +283,16 @@ class CircuitBreaker:
                 reason_code="manipulation_flag",
                 details={"ts": datetime.now(UTC).isoformat()},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # The breaker itself has already tripped; losing the audit record
+            # must not mask that, so surface the bookkeeping failure.
+            # `event` is structlog's own positional name for the message, so the
+            # audited event goes under a distinct key or the call raises.
+            log.warning(
+                "audit_trail_record_failed",
+                audited_event="circuit_breaker_triggered",
+                exc=str(exc),
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -49,8 +49,13 @@ class DeribitProvider:
                 from src.data.provider_cache import get_provider_cache
 
                 get_provider_cache().set_options(coin, df)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning(
+                    "provider_cache_publish_failed",
+                    field="options",
+                    coin=coin,
+                    exc=str(exc),
+                )
         return self._cache.get(coin)
 
     async def run_loop(self, symbol: str) -> None:

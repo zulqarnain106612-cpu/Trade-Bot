@@ -66,5 +66,5 @@ class BlockHeightProvider:
             from src.data.provider_cache import get_provider_cache
 
             get_provider_cache().set_block_height(self._height)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("provider_cache_publish_failed", field="block_height", exc=str(exc))

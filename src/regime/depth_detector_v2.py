@@ -165,7 +165,8 @@ class DepthDetectorV2:
 
     def _model_stem(self) -> str:
         key = f"{self._symbol}_{self._timeframe}"
-        return hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()[:8]
+        # SHA-256 over the cache key, matching RegimeDetector._train_hash.
+        return hashlib.sha256(key.encode()).hexdigest()[:8]
 
     def _assign_labels(self, model: GaussianHMM, X_scaled: np.ndarray) -> dict[int, str]:
         """

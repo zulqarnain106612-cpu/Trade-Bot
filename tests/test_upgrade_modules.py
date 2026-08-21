@@ -155,7 +155,7 @@ class TestWalkForwardStudy:
             n_trials=1,
             storage_path=tmp_path / "s.db",
         )
-        # best_params is a method and returns {} before the study has run.
+        # No study has been run, so there are no best params yet.
         assert study.best_params() == {}
 
     def test_wf_params_defaults(self) -> None:

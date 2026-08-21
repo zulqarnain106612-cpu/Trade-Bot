@@ -178,7 +178,7 @@ class TestBinanceProvider:
 
     def test_get_cache_expired(self):
         p = BinanceIntelligenceProvider(cache_ttl_s=1)
-        p._cache["k"] = (time.time() - 10.0, "value")
+        p._cache["k"] = (time.monotonic() - 10.0, "value")
         assert p._get_cache("k") is None
 
     @pytest.mark.asyncio
@@ -563,6 +563,7 @@ class TestGatesUncoveredPaths:
             daily_drawdown_halt_pct=1.0,
             consecutive_loss_halt=10,
             max_position_size_pct=50.0,
+            whale_gate_advisory=False,
         )
         result = evaluate_all_gates(ctx, cfg)
         assert not result.passed

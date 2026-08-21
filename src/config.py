@@ -308,6 +308,19 @@ class RiskSettings(BaseSettings):
         description="How often the orchestrator exit-check loop re-evaluates open positions",
     )
 
+    # ensemble_blend_weight : weight given to EnsemblePredictor's
+    # point_estimate (src/intelligence/ensemble_predictor.py) when blending
+    # into XGBoost's p_long (0.0 = ensemble ignored entirely, 1.0 = ensemble
+    # fully replaces the XGBoost prediction). Defaults to 0.0 — the ensemble
+    # remains EXPERIMENTAL (see ensemble_predictor.py module docstring) and
+    # must be explicitly opted into by an operator via
+    # RISK_ENSEMBLE_BLEND_WEIGHT, or promoted by the self-tuning subsystem
+    # (src/tuning/bootstrap.py's register_ensemble_blend_weight(), gated by
+    # shadow_mode like every other self-tuned parameter). Bounds are the
+    # field's own full valid range rather than the usual +/-20%-of-default
+    # window (src/tuning/bootstrap.py._symmetric_bounds) — a 0.0 default
+    # produces a zero-width window under that formula.
+
 
 # ---------------------------------------------------------------------------
 # Model hyper-parameters
@@ -882,6 +895,29 @@ class StrategyPortfolioSettings(BaseSettings):
     allocation_rebalance_interval_s: int = Field(default=3600, ge=60)
 
 
+class RegimeStrategySettings(BaseSettings):
+    """
+    Regime-conditional strategy gating
+    (src/strategies/regime_strategy_selector.py).
+
+    Read by select_strategy_from_config(). Defaults mirror the module-level
+    constants there, so the config path and the explicit-argument path agree
+    unless an operator deliberately overrides one.
+
+    A regime call below ``rs_min_confidence`` or above ``rs_max_entropy`` is
+    too uncertain to commit capital to, and the selector returns NEUTRAL
+    rather than guessing. ``rs_transition_guard`` additionally refuses to
+    open during a detected regime transition, where both mean-reversion and
+    breakout models lose their edge.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
+
+    rs_min_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
+    rs_max_entropy: float = Field(default=0.75, ge=0.0, le=1.0)
+    rs_transition_guard: bool = Field(default=True)
+
+
 class OrderThrottleSettings(BaseSettings):
     """
     Outgoing-order rate limiting (src/execution/order_throttler.py).
@@ -921,42 +957,61 @@ class OrderThrottleSettings(BaseSettings):
     )
 
 
-class OrderThrottleSettings(BaseSettings):
+class StrategySettings(BaseSettings):
     """
-    Outgoing-order rate limiting (src/execution/order_throttler.py).
+    Tunable parameters for the mean-reversion, breakout, and regime-selector
+    strategy modules added in the improvement-loop phase.
 
-    Exchanges enforce request-weight budgets (Binance: 1200 weight/min ≈ 20
-    req/s) and answer bursts with HTTP 429 followed by a temporary IP ban.
-    A ban mid-position is worse than a few hundred milliseconds of delay, so
-    the live executor waits for a token when the wait is short and refuses
-    the order outright when the backlog is long enough that the fill would be
-    stale anyway.
+    All values are overridable via env vars prefixed with STRATEGY_.
     """
 
-    model_config = SettingsConfigDict(env_prefix="ORDER_THROTTLE_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
 
-    enabled: bool = Field(
-        default=True,
-        description="Apply the token-bucket limiter to live order placement.",
+    # Mean reversion (Bollinger + OU gate)
+    mr_lookback: int = Field(default=20, ge=5, description="Bollinger lookback bars.")
+    mr_entry_z: float = Field(
+        default=2.0, gt=0.0, description="Z-score to enter a mean-reversion trade."
     )
-    rate: float = Field(
-        default=8.0,
-        gt=0.0,
-        description="Sustained order rate (orders/second) per exchange. Below Binance's ~20/s ceiling.",
+    mr_exit_z: float = Field(
+        default=0.5, ge=0.0, description="Z-score to exit a mean-reversion trade."
     )
-    burst: int = Field(
-        default=16,
-        ge=1,
-        description="Token-bucket capacity — how many orders may be placed back-to-back.",
+    mr_min_half_life: int = Field(default=2, ge=1, description="Minimum OU half-life in bars.")
+    mr_max_half_life: int = Field(default=120, ge=2, description="Maximum OU half-life in bars.")
+    mr_require_ou: bool = Field(
+        default=True, description="Require OU test to pass before entering."
     )
-    max_wait_s: float = Field(
-        default=2.0,
+
+    # Breakout (Donchian + ATR gate)
+    bo_entry_period: int = Field(
+        default=20, ge=5, description="Donchian channel entry lookback bars."
+    )
+    bo_exit_period: int = Field(
+        default=10, ge=2, description="Donchian channel exit lookback bars."
+    )
+    bo_atr_period: int = Field(default=14, ge=2, description="ATR smoothing period for Wilder EMA.")
+    bo_min_atr_pct: float = Field(
+        default=0.1, ge=0.0, description="Minimum ATR% for volatility gate."
+    )
+    bo_max_atr_pct: float = Field(
+        default=10.0, gt=0.0, description="Maximum ATR% for volatility gate."
+    )
+
+    # Regime strategy selector
+    rs_min_confidence: float = Field(
+        default=0.55,
         ge=0.0,
-        description=(
-            "Longest the executor will wait for a token before rejecting the order. "
-            "Beyond this the intended entry price is stale, so failing fast beats "
-            "filling on a price the signal never saw."
-        ),
+        le=1.0,
+        description="Minimum dominant-regime probability before selecting a strategy.",
+    )
+    rs_max_entropy: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Maximum normalised entropy before falling back to neutral.",
+    )
+    rs_transition_guard: bool = Field(
+        default=True,
+        description="Block strategy selection during detected regime transitions.",
     )
 
 
@@ -1013,7 +1068,9 @@ class Settings(BaseSettings):
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
     strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
+    strategy: RegimeStrategySettings = Field(default_factory=RegimeStrategySettings)
     order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
+    strategy: StrategySettings = Field(default_factory=StrategySettings)
 
     # Logging
     log_level: str = Field(default="INFO")

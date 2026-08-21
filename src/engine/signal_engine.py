@@ -210,8 +210,10 @@ class SignalResult:
     skip_reason: str
     regime_agreement_scalar: float = 1.0
     changepoint_probability: float = 0.0
-    pre_blend_p_long: float | None = None
-    ensemble_p_long: float | None = None
+    # RiskSettings.ensemble_blend_weight — None when no ensemble predictor is
+    # injected or the configured blend weight is 0.0 for this tick.
+    ensemble_point_estimate: float | None = None
+    ensemble_uncertainty: float | None = None
     ensemble_blend_weight: float | None = None
 
 
@@ -874,12 +876,10 @@ class SignalEngine:
         # until the orchestrator's first retrain cycle produces and hot-swaps one).
         _ensemble_blend_weight = effective_risk_settings(self._cfg.risk).ensemble_blend_weight
         _ensemble_point_estimate: float | None = None
-        # Captured for the self-tuning harness, which needs the two blend
-        # inputs to re-evaluate any candidate weight. They stay None unless a
-        # blend actually completed, so a failed predict_row() records nothing
-        # rather than a half-formed pair.
-        _pre_blend_p_long: float | None = None
-        _p_ensemble_long_recorded: float | None = None
+        # Kept alongside the point estimate so the closed trade can carry both
+        # into run_ensemble_blend_backtest, which replays realized outcomes
+        # against challenger blend weights.
+        _ensemble_uncertainty: float | None = None
         if ensemble is not None and _ensemble_blend_weight > 0.0:
             try:
                 _ens_pred = ensemble.predict_row(vec)
@@ -887,6 +887,7 @@ class SignalEngine:
                 _total_uncertainty = math.sqrt(
                     _ens_pred.aleatoric_uncertainty**2 + _ens_pred.epistemic_uncertainty**2
                 )
+                _ensemble_uncertainty = _total_uncertainty
                 # tanh of the ensemble's own signal-to-noise ratio: bounded in
                 # (0, 1), symmetric around p=0.5, self-normalising against the
                 # ensemble's own uncertainty rather than an arbitrary scale
@@ -905,6 +906,8 @@ class SignalEngine:
                 direction = 1 if p_long >= 0.5 else 0
             except Exception as exc:
                 self._log.warning("signal.ensemble_blend_failed", error=str(exc), exc_info=True)
+                _ensemble_point_estimate = None
+                _ensemble_uncertainty = None
 
         # TASK-008 online blend, applied here rather than once at the end:
         # p_long is final at this point and is what every gate downstream
@@ -1118,6 +1121,11 @@ class SignalEngine:
                 skip_reason=skip,
                 tick_latency_ms=round(latency_ms, 2),
                 equity_usd_at_decision=capital_usd,
+                ensemble_point_estimate=_ensemble_point_estimate,
+                ensemble_uncertainty=_ensemble_uncertainty,
+                ensemble_blend_weight=(
+                    _ensemble_blend_weight if _ensemble_point_estimate is not None else None
+                ),
             )
             get_auditor().record(rec)
             get_degradation_tracker(_tf_key).record_prediction(p_long, _p_bet_ref[0])
@@ -1377,7 +1385,16 @@ class SignalEngine:
             ensemble_point_estimate=(
                 round(_ensemble_point_estimate, 6) if _ensemble_point_estimate is not None else None
             ),
-            ensemble_blend_weight=_ensemble_blend_weight,
+            # None, not the configured weight, when no estimate was produced:
+            # run_ensemble_blend_backtest selects on "blending actually
+            # happened", so a weight recorded against a trade that was never
+            # blended would be replayed as a real sample.
+            ensemble_blend_weight=(
+                _ensemble_blend_weight if _ensemble_point_estimate is not None else None
+            ),
+            ensemble_uncertainty=(
+                round(_ensemble_uncertainty, 6) if _ensemble_uncertainty is not None else None
+            ),
         )
 
         # ── Cognitive Engine — mandatory evaluation (no bypass) ─────────────
@@ -1476,10 +1493,10 @@ class SignalEngine:
             skip_reason="",
             regime_agreement_scalar=_regime_agreement_scalar,
             changepoint_probability=_cp_prob,
-            pre_blend_p_long=_pre_blend_p_long,
-            ensemble_p_long=_p_ensemble_long_recorded,
+            ensemble_point_estimate=_ensemble_point_estimate,
+            ensemble_uncertainty=_ensemble_uncertainty,
             ensemble_blend_weight=(
-                _ensemble_blend_weight if _pre_blend_p_long is not None else None
+                _ensemble_blend_weight if _ensemble_point_estimate is not None else None
             ),
         )
 

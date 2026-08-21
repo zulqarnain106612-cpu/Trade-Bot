@@ -53,8 +53,8 @@ class MacroProvider:
                     from src.data.provider_cache import get_provider_cache
 
                     get_provider_cache().set_macro(result)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("provider_cache_publish_failed", field="macro", exc=str(exc))
             await asyncio.sleep(_POLL_INTERVAL)
 
     # ------------------------------------------------------------------
@@ -114,6 +114,9 @@ class MacroProvider:
                 df = pd.read_parquet(f)
                 if not df.empty:
                     return df.iloc[-1].to_dict()
-            except Exception:
+            except Exception as exc:
+                # A corrupt or half-written parquet must not hide the older
+                # snapshots behind it, so fall through to the next file.
+                log.warning("macro_snapshot_unreadable", path=str(f), exc=str(exc))
                 continue
         return None

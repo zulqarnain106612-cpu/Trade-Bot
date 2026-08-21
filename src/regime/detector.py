@@ -724,8 +724,16 @@ class RegimeDetector:
                 v2 = DepthDetectorV2(symbol=symbol, timeframe=timeframe)
                 if v2.load(Path(model_dir)):
                     detector._depth_v2 = v2
-        except Exception:
-            pass  # v2 model optional — predict_current_v2 returns None if absent
+        except Exception as exc:
+            # v2 model is optional — predict_current_v2 returns None if absent,
+            # but a model that exists and fails to load should not look identical
+            # to one that was never configured.
+            log.warning(
+                "hmm.depth_v2_load_failed",
+                symbol=symbol,
+                timeframe=timeframe,
+                exc=str(exc),
+            )
         log.info(
             "hmm.loaded",
             path=str(path),
