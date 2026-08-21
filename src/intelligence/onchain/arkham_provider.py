@@ -13,15 +13,16 @@ API reference: https://intel.arkm.com/api (public docs)
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from typing import Any
 
+import structlog
+
 from src.intelligence.onchain.base import OnChainProvider
 
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _BASE = "https://api.arkm.com"
 _EXCHANGES = ["binance", "coinbase", "kraken", "okx", "bybit"]
@@ -64,7 +65,7 @@ class ArkhamProvider(OnChainProvider):
 
     async def initialize(self) -> None:
         if not self._api_key:
-            logger.warning("ArkhamProvider: no API key — skipping warmup")
+            log.warning("arkham_no_api_key_skip_warmup")
             return
         # Warm cache for exchange reserve summaries
         for ex in _EXCHANGES[:3]:

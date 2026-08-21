@@ -585,6 +585,14 @@ def check_protocol_methods_are_called() -> list[str]:
 # wrong. They are listed rather than deleted so the count cannot grow
 # silently: a NEW unread field is a wiring mistake and should fail here.
 _UNREAD_FIELD_ALLOWED = {
+    # KyberKeyPair / KyberCiphertext belong to pq_transport, a Kyber-768
+    # transport stub with no production consumer: PQTransportStub reports
+    # itself unavailable and raises on keygen. These are the shapes the real
+    # implementation will fill in, so nothing reads them back yet.
+    "encapsulation_key",
+    "decapsulation_key",
+    "ciphertext",
+    "shared_secret",
     # TripleBarrierResult remains unconstructed — the per-observation record
     # is superseded by TripleBarrierComposition, which aggregates the same
     # exit information. Kept because AFML Ch.4 sample-uniqueness weighting
@@ -1000,6 +1008,14 @@ _WALL_CLOCK_ARITHMETIC_ALLOWED = {
     # Compared against an ISO timestamp returned by the Dune API. That is an
     # absolute external instant; a monotonic clock has no relationship to it.
     ("src/intelligence/onchain/dune_provider.py", "_results_fresh"),
+    # Staleness of an OHLCV bar is measured against the exchange's own
+    # timestamp_utc, an absolute external instant. A monotonic clock has no
+    # relationship to it.
+    ("src/data/quality_gate.py", "check_ohlcv"),
+    # Same: compared against the macro release date parsed from the provider.
+    ("src/data/quality_gate.py", "check_macro"),
+    # since_ms is an exchange API parameter and must be a real epoch time.
+    ("src/engine/orchestrator.py", "_tick"),
 }
 
 
@@ -1127,6 +1143,7 @@ def check_cpu_bound_work_is_offloaded() -> list[str]:
                         f"{_rel(path)}:{node.lineno} {name}() called inline in "
                         f"async {fn.name}() — offload with to_thread/run_in_executor"
                     )
+    return problems
 
 
 def _dataclass_attributes() -> dict[str, set[str] | None]:

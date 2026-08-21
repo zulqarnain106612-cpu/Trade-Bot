@@ -146,7 +146,9 @@ async def test_expired_ttl_refetches() -> None:
     fetcher = _Fetcher({"A": _rising(100.0, 110.0)})
     cache = _cache(fetcher, ("A",), ttl_seconds=3600.0)
     await cache.trailing_returns()
-    cache._fetched_at = 0.0
+    # Stamped on the monotonic clock, whose origin is arbitrary — 0.0 is not
+    # reliably more than one TTL in the past.
+    cache._fetched_at = time.monotonic() - 7200.0
     await cache.trailing_returns()
     assert fetcher.calls == ["A", "A"]
 

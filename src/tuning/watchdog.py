@@ -23,7 +23,7 @@ from enum import StrEnum
 from src.config import SelfTuningSettings
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.tuning.audit import TuningAuditLog, TuningEventType
-from src.tuning.store import VersionedConfigStore
+from src.tuning.store import NoPriorVersionError, VersionedConfigStore
 
 
 class WatchdogOutcome(StrEnum):
@@ -110,11 +110,22 @@ class PostPromotionWatchdog:
 
             drift = state.detector.check_drift()
             if drift.drifted:
-                self._store.rollback(param_name)
+                # Exhausting the safe history is not a reason to leave the
+                # parameter in probation: letting the exception escape here
+                # skipped the audit record and the lockout, so the next trade
+                # re-detected the same drift and raised again forever. Clear
+                # and lock out either way -- staying at the current value with
+                # no further attempts is the safe end state.
+                try:
+                    self._store.rollback(param_name)
+                    rolled_back = True
+                except NoPriorVersionError:
+                    rolled_back = False
                 self._audit_log.record(
                     param_name,
-                    TuningEventType.ROLLED_BACK,
+                    TuningEventType.ROLLED_BACK if rolled_back else TuningEventType.PAUSED,
                     {
+                        "rolled_back": rolled_back,
                         "reason": drift.reason,
                         "metric": drift.metric,
                         "live_value": drift.live_value,

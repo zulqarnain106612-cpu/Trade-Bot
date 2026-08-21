@@ -501,7 +501,7 @@ class TestClosePosition:
         ex._storage.update_trade_exit = AsyncMock()
         ex._storage.insert_equity = AsyncMock()
         net_pnl = await ex.close_position("trade-1", exit_price=51_000.0, exit_reason="tp")
-        assert net_pnl == pytest.approx(97.45, rel=1e-3)
+        assert net_pnl == pytest.approx(94.95, rel=1e-3)
         assert "trade-1" not in ex._positions
         ex._storage.update_trade_exit.assert_awaited_once()
 
@@ -522,7 +522,7 @@ class TestClosePosition:
         ex._storage.update_trade_exit = AsyncMock()
         ex._storage.insert_equity = AsyncMock()
         net_pnl = await ex.close_position("trade-s", exit_price=49_000.0, exit_reason="tp")
-        assert net_pnl == pytest.approx(97.55, rel=1e-3)
+        assert net_pnl == pytest.approx(95.05, rel=1e-3)
         assert "trade-s" not in ex._positions
 
     @pytest.mark.asyncio

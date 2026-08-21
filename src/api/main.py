@@ -838,6 +838,41 @@ async def regime(timeframe: str) -> dict[str, Any]:
     }
 
 
+_crypto_box_adapter: object | None = None
+
+
+def _get_crypto_box_adapter() -> Any:
+    """Return a cached CryptoBoxSignalAdapter singleton (avoids re-init on every request)."""
+    global _crypto_box_adapter
+    if _crypto_box_adapter is None:
+        from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
+
+        _crypto_box_adapter = CryptoBoxSignalAdapter()
+    return _crypto_box_adapter
+
+
+@app.get("/crypto-box/status", dependencies=[Depends(api_key_header)])
+async def crypto_box_status() -> dict[str, Any]:
+    """Crypto-Box 18-engine ensemble status and latest provider cache snapshot."""
+    from src.data.provider_cache import get_provider_cache
+
+    adapter = _get_crypto_box_adapter()
+    cache = get_provider_cache()
+    sentiment = cache.get_sentiment()
+    macro = cache.get_macro()
+    return {
+        "enabled": adapter.enabled,
+        "sentiment": sentiment,
+        "macro": {k: round(v, 4) if isinstance(v, float) else v for k, v in (macro or {}).items()},
+        "orderbook_symbols": [
+            k.removeprefix("orderbook_") for k in cache._data if k.startswith("orderbook_")
+        ],
+        "options_symbols": [
+            k.removeprefix("options_") for k in cache._data if k.startswith("options_")
+        ],
+    }
+
+
 @app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
@@ -2264,3 +2299,99 @@ async def get_intelligence_providers() -> dict:
         return {"providers": providers}
     except Exception as exc:
         return {"error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Risk simulation endpoint
+# ---------------------------------------------------------------------------
+
+
+class SizeCheckRequest(BaseModel):
+    """Request body for /risk/size-check."""
+
+    symbol: str = Field(..., description="Trading pair, e.g. BTC/USDT")
+    group: str = Field(..., description="Asset group for macro-budget, e.g. crypto_large_cap")
+    capital_usd: float = Field(..., gt=0, description="Total account capital in USD")
+    current_equity: float = Field(..., gt=0, description="Current account equity in USD")
+    hwm: float = Field(..., gt=0, description="High-water mark equity in USD")
+    realized_vol_pct: float = Field(
+        ..., ge=0, description="Annualised realised volatility as pct (e.g. 80.0 = 80%)"
+    )
+    win_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    avg_win_usd: float = Field(default=0.0, ge=0.0)
+    avg_loss_usd: float = Field(default=0.0, ge=0.0)
+    target_vol_pct: float = Field(
+        default=1.0, gt=0, description="Daily vol target pct per position"
+    )
+    max_notional_pct: float = Field(default=0.25, gt=0, le=1.0)
+
+
+@app.post("/risk/size-check", tags=["risk"], dependencies=[Depends(api_key_header)])
+async def risk_size_check(body: SizeCheckRequest, request: Request) -> dict[str, Any]:
+    """
+    Pre-trade feasibility check combining vol-target sizing and macro-budget.
+
+    Simulates what position size would result from the vol-target sizer and
+    whether the macro-exposure budget permits adding that notional to the
+    given asset group.  Does not place any order.
+
+    Returns
+    -------
+    {
+        "vol_target": {notional_usd, vol_target_notional, kelly_scalar, ...},
+        "budget_check": {allowed, group, requested_notional, ...},
+        "final_notional_usd": float,
+        "allowed": bool,
+        "reject_reason": str
+    }
+    """
+    _state.check_endpoint_rate_limit(
+        "risk_size_check", request.client.host if request.client else ""
+    )
+
+    from src.risk.macro_exposure_budget import get_budget
+    from src.risk.vol_target_sizer import vol_target_size
+
+    vt = vol_target_size(
+        capital_usd=body.capital_usd,
+        current_equity=body.current_equity,
+        hwm=body.hwm,
+        realized_vol_pct=body.realized_vol_pct,
+        target_vol_pct=body.target_vol_pct,
+        max_notional_pct=body.max_notional_pct,
+        win_rate=body.win_rate,
+        avg_win_usd=body.avg_win_usd,
+        avg_loss_usd=body.avg_loss_usd,
+    )
+
+    budget = get_budget(capital_usd=body.capital_usd)
+    bc = budget.check(
+        symbol=body.symbol,
+        group=body.group,
+        requested_notional=vt.notional_usd,
+    )
+
+    allowed = bool(vt.notional_usd > 0 and bc.allowed)
+    reject_reason = vt.reject_reason or ("" if bc.allowed else bc.reason)
+
+    return {
+        "vol_target": {
+            "notional_usd": round(vt.notional_usd, 2),
+            "vol_target_notional": round(vt.vol_target_notional, 2),
+            "kelly_scalar": round(vt.kelly_scalar, 4),
+            "dd_haircut": round(vt.dd_haircut, 4),
+            "realized_vol_pct": round(vt.realized_vol_pct, 4),
+            "reject_reason": vt.reject_reason,
+        },
+        "budget_check": {
+            "allowed": bc.allowed,
+            "group": bc.group,
+            "requested_notional": round(bc.requested_notional, 2),
+            "current_group_notional": round(bc.current_group_notional, 2),
+            "current_global_notional": round(bc.current_global_notional, 2),
+            "reason": bc.reason,
+        },
+        "final_notional_usd": round(vt.notional_usd, 2) if allowed else 0.0,
+        "allowed": allowed,
+        "reject_reason": reject_reason,
+    }

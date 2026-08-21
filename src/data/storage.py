@@ -156,9 +156,25 @@ CREATE INDEX IF NOT EXISTS idx_missed_trades_ts
         """ALTER TABLE regime_snapshots ADD COLUMN changepoint_probability REAL NOT NULL DEFAULT 0.0;
 ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.0;""",
     ),
+    # v7 — ensemble blend backtest harness (src/tuning/backtest_harness.py
+    # run_ensemble_blend_backtest): persist the EnsemblePredictor point
+    # estimate and the blend weight actually applied at signal time
+    # alongside each trade, so the harness can replay closed trades'
+    # realized outcomes against champion/challenger blend weights. NULL for
+    # every trade opened before this migration or with ensemble blending
+    # off (RiskSettings.ensemble_blend_weight == 0.0 / no predictor injected).
+    # Numbered 7, not 6: main landed the regime-ensemble migration as v6 first,
+    # and a version that has already run somewhere can never be renumbered.
+    (
+        7,
+        "add ensemble_point_estimate/ensemble_blend_weight to trades for the "
+        "ensemble-blend self-tuning harness",
+        "ALTER TABLE trades ADD COLUMN ensemble_point_estimate REAL;\n"
+        "ALTER TABLE trades ADD COLUMN ensemble_blend_weight REAL;",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 6
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 7
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -362,6 +378,8 @@ class TradeRecord:
     __slots__ = (
         "approved_by",
         "direction",
+        "ensemble_blend_weight",
+        "ensemble_point_estimate",
         "entry_price",
         "entry_ts",
         "execution_mode",
@@ -406,6 +424,8 @@ class TradeRecord:
         exit_reason: str | None,
         approved_by: str | None,
         raw_signal: float | None,
+        ensemble_point_estimate: float | None = None,
+        ensemble_blend_weight: float | None = None,
     ) -> None:
         self.id = id
         self.symbol = symbol
@@ -428,6 +448,8 @@ class TradeRecord:
         self.exit_reason = exit_reason
         self.approved_by = approved_by
         self.raw_signal = raw_signal
+        self.ensemble_point_estimate = ensemble_point_estimate
+        self.ensemble_blend_weight = ensemble_blend_weight
 
 
 class MissedTradeRecord:
@@ -731,12 +753,36 @@ class StorageBackend:
         The lock is held for the full duration of the bulk write.
         """
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute("PRAGMA synchronous=NORMAL")
             try:
                 yield
             finally:
                 await conn.execute("PRAGMA synchronous=FULL")
+
+    @asynccontextmanager
+    async def _write_ctx(self) -> AsyncIterator[None]:
+        """
+        Hold the write lock and never release it with a transaction open.
+
+        BUGFIX-001 (see insert_trade) established why: a statement that
+        raises inside the lock leaves the shared connection holding an open
+        transaction, which deadlocks every subsequent write including the WAL
+        checkpoint on close(). That reasoning was applied at exactly one of
+        the eleven write sites -- update_trade_exit, its direct twin, could
+        strand the connection on any UPDATE failure and take the whole
+        storage layer down with it.
+
+        Rolling back a connection with no open transaction is a no-op, so
+        this is safe to wrap around writes that handle their own errors.
+        """
+        conn = self._require_conn()
+        async with self._get_lock():
+            try:
+                yield
+            except BaseException:
+                await conn.rollback()
+                raise
 
     # ------------------------------------------------------------------
     # Bars
@@ -859,52 +905,58 @@ class StorageBackend:
             v = features.get(key)
             return float(v) if v is not None else None
 
-        await conn.execute(
-            """
-            INSERT OR REPLACE INTO intelligence_features_history (
-                symbol, timeframe, bar_ts, fetched_at,
-                exchange_netflow_7d_zscore, whale_buy_sell_ratio,
-                exchange_reserve_ratio, miner_netflow_signal,
-                staking_unlock_risk, entity_exchange_imbalance,
-                binance_funding_rate_pct, liquidation_pressure_24h_zscore,
-                futures_oi_change_pct, liquidation_cascade_risk_usd,
-                btc_dominance_regime, stablecoin_reserve_ratio,
-                network_activity_score, exchange_stress_score,
-                cross_exchange_basis_spread_bps,
-                defi_tvl_7d_change_pct, mvrv_z_score, sopr,
-                confidence, source
-            ) VALUES (
-                ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?,?,  ?,?
+        # This was the one write path that took no lock at all. Beyond the
+        # open-transaction hazard _write_ctx guards, an unlocked write can
+        # land while _bulk_write_ctx has lowered PRAGMA synchronous=NORMAL --
+        # the exact interleaving C-09 documents as the reason that PRAGMA is
+        # set inside the lock in the first place.
+        async with self._write_ctx():
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO intelligence_features_history (
+                    symbol, timeframe, bar_ts, fetched_at,
+                    exchange_netflow_7d_zscore, whale_buy_sell_ratio,
+                    exchange_reserve_ratio, miner_netflow_signal,
+                    staking_unlock_risk, entity_exchange_imbalance,
+                    binance_funding_rate_pct, liquidation_pressure_24h_zscore,
+                    futures_oi_change_pct, liquidation_cascade_risk_usd,
+                    btc_dominance_regime, stablecoin_reserve_ratio,
+                    network_activity_score, exchange_stress_score,
+                    cross_exchange_basis_spread_bps,
+                    defi_tvl_7d_change_pct, mvrv_z_score, sopr,
+                    confidence, source
+                ) VALUES (
+                    ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?,?,  ?,?
+                )
+                """,
+                (
+                    symbol,
+                    timeframe,
+                    bar_ts,
+                    fetched_at,
+                    _f("intelligence_exchange_netflow_7d_zscore"),
+                    _f("intelligence_whale_buy_sell_ratio"),
+                    _f("intelligence_exchange_reserve_ratio"),
+                    _f("intelligence_miner_netflow_signal"),
+                    _f("intelligence_staking_unlock_risk"),
+                    _f("intelligence_entity_exchange_imbalance"),
+                    _f("intelligence_binance_funding_rate_pct"),
+                    _f("intelligence_liquidation_pressure_24h_zscore"),
+                    _f("intelligence_futures_oi_change_pct"),
+                    _f("intelligence_liquidation_cascade_risk_usd"),
+                    _f("intelligence_btc_dominance_regime"),
+                    _f("intelligence_stablecoin_reserve_ratio"),
+                    _f("intelligence_network_activity_score"),
+                    _f("intelligence_exchange_stress_score"),
+                    _f("intelligence_cross_exchange_basis_spread_bps"),
+                    _f("intelligence_defi_tvl_7d_change_pct"),
+                    _f("intelligence_mvrv_z_score"),
+                    _f("intelligence_sopr"),
+                    float(confidence),
+                    source,
+                ),
             )
-            """,
-            (
-                symbol,
-                timeframe,
-                bar_ts,
-                fetched_at,
-                _f("intelligence_exchange_netflow_7d_zscore"),
-                _f("intelligence_whale_buy_sell_ratio"),
-                _f("intelligence_exchange_reserve_ratio"),
-                _f("intelligence_miner_netflow_signal"),
-                _f("intelligence_staking_unlock_risk"),
-                _f("intelligence_entity_exchange_imbalance"),
-                _f("intelligence_binance_funding_rate_pct"),
-                _f("intelligence_liquidation_pressure_24h_zscore"),
-                _f("intelligence_futures_oi_change_pct"),
-                _f("intelligence_liquidation_cascade_risk_usd"),
-                _f("intelligence_btc_dominance_regime"),
-                _f("intelligence_stablecoin_reserve_ratio"),
-                _f("intelligence_network_activity_score"),
-                _f("intelligence_exchange_stress_score"),
-                _f("intelligence_cross_exchange_basis_spread_bps"),
-                _f("intelligence_defi_tvl_7d_change_pct"),
-                _f("intelligence_mvrv_z_score"),
-                _f("intelligence_sopr"),
-                float(confidence),
-                source,
-            ),
-        )
-        await conn.commit()
+            await conn.commit()
 
     async def fetch_intelligence_features(
         self,
@@ -1096,7 +1148,7 @@ class StorageBackend:
         """
         conn = self._require_conn()
         cutoff_ms = int((datetime.now(tz=UTC).timestamp() - keep_days * 86400) * 1000)
-        async with self._get_lock():
+        async with self._write_ctx():
             cursor = await conn.execute(
                 "DELETE FROM bars WHERE symbol=? AND timeframe=? AND ts<?",
                 (symbol, timeframe, cutoff_ms),
@@ -1119,7 +1171,7 @@ class StorageBackend:
     async def insert_trade(self, trade: TradeRecord) -> None:
         """Insert a new trade record.  Raises ValueError if id already exists."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             try:
                 await conn.execute(
                     """
@@ -1128,9 +1180,10 @@ class StorageBackend:
                         direction, entry_price, exit_price, quantity, notional_usd,
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
-                        exit_reason, approved_by, raw_signal
+                        exit_reason, approved_by, raw_signal,
+                        ensemble_point_estimate, ensemble_blend_weight
                     ) VALUES (
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                     )
                     """,
                     (
@@ -1155,6 +1208,8 @@ class StorageBackend:
                         trade.exit_reason,
                         trade.approved_by,
                         trade.raw_signal,
+                        trade.ensemble_point_estimate,
+                        trade.ensemble_blend_weight,
                     ),
                 )
                 await conn.commit()
@@ -1184,7 +1239,7 @@ class StorageBackend:
     ) -> None:
         """Patch exit fields on an existing trade row."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             cursor = await conn.execute(
                 """
                 UPDATE trades
@@ -1209,6 +1264,29 @@ class StorageBackend:
             pnl_usd=pnl_usd,
             exit_reason=exit_reason,
         )
+
+    async def update_trade_ensemble_fields(
+        self,
+        trade_id: str,
+        ensemble_point_estimate: float | None,
+        ensemble_blend_weight: float | None,
+    ) -> None:
+        """
+        Best-effort patch of the ensemble fields on an already-inserted trade
+        row. Separate from insert_trade's own INSERT because the ensemble
+        prediction is computed inside SignalEngine.tick() before the trade_id
+        exists (the executor mints it at open time) -- the orchestrator calls
+        this immediately after executor.submit_signal() returns a trade_id
+        with outcome == "opened". Silently a no-op if the trade_id doesn't
+        exist (never blocks the trade path over an audit-trail write).
+        """
+        conn = self._require_conn()
+        async with self._get_lock():
+            await conn.execute(
+                "UPDATE trades SET ensemble_point_estimate=?, ensemble_blend_weight=? WHERE id=?",
+                (ensemble_point_estimate, ensemble_blend_weight, trade_id),
+            )
+            await conn.commit()
 
     async def fetch_trades(
         self,
@@ -1254,7 +1332,8 @@ class StorageBackend:
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
-                " exit_reason, approved_by, raw_signal"
+                " exit_reason, approved_by, raw_signal,"
+                " ensemble_point_estimate, ensemble_blend_weight"
                 " FROM trades WHERE "
                 + " AND ".join(clauses)
                 + " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
@@ -1265,7 +1344,8 @@ class StorageBackend:
                 " direction, entry_price, exit_price, quantity, notional_usd,"
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
-                " exit_reason, approved_by, raw_signal"
+                " exit_reason, approved_by, raw_signal,"
+                " ensemble_point_estimate, ensemble_blend_weight"
                 " FROM trades ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
             )
         params.append(limit)
@@ -1295,6 +1375,8 @@ class StorageBackend:
                 exit_reason=r["exit_reason"],
                 approved_by=r["approved_by"],
                 raw_signal=r["raw_signal"],
+                ensemble_point_estimate=r["ensemble_point_estimate"],
+                ensemble_blend_weight=r["ensemble_blend_weight"],
             )
             for r in rows
         ]
@@ -1350,7 +1432,7 @@ class StorageBackend:
     async def upsert_regime_snapshot(self, snap: RegimeSnapshotRecord) -> None:
         """Insert or replace regime state at a bar timestamp."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT OR REPLACE INTO regime_snapshots
@@ -1486,7 +1568,7 @@ class StorageBackend:
         wrap this in try/except, matching the metrics-push pattern
         elsewhere in the orchestrator."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT OR IGNORE INTO missed_trades (
@@ -1555,7 +1637,7 @@ class StorageBackend:
     async def insert_model_metrics(self, metrics: ModelMetricsRecord) -> None:
         """Persist a CPCV OOS evaluation result."""
         conn = self._require_conn()
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT OR REPLACE INTO model_metrics
@@ -1784,7 +1866,7 @@ class StorageBackend:
         """Persist an audit event (e.g. execution mode change) to audit_log."""
         conn = self._require_conn()
         details_json = json.dumps(details or {})
-        async with self._get_lock():
+        async with self._write_ctx():
             await conn.execute(
                 """
                 INSERT INTO audit_log (event_type, operator, details)

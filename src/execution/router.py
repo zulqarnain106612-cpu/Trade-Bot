@@ -22,6 +22,7 @@ from typing import Any
 import structlog
 
 from src.execution.idempotency import (
+    DuplicateOrderError,
     IdempotencyRegistry,
     client_order_id_params,
     derive_idempotency_key,
@@ -55,8 +56,10 @@ class SmartOrderRouter:
     def __init__(self, exchanges: list[str] | None = None) -> None:
         import ccxt.async_support as ccxt
 
-        # `is None` — an explicit [] means "no venues", not "give me the defaults".
-        self._exchange_names = ["binance", "bybit", "okx"] if exchanges is None else exchanges
+        # `or` would treat an explicit empty list as "unset" and connect to all
+        # three live venues -- the opposite of what disabling every exchange
+        # asks for. Only None means "use the defaults".
+        self._exchange_names = ["binance", "bybit", "okx"] if exchanges is None else list(exchanges)
         self._exchanges: dict[str, Any] = {}
         for name in self._exchange_names:
             try:
@@ -166,7 +169,25 @@ class SmartOrderRouter:
             purpose=f"{order_type}:{venue}",
             intent_id=f"{route_id}:{slice_no}",
         )
-        await self._idempotency.reserve(key)
+        try:
+            await self._idempotency.reserve(key)
+        except DuplicateOrderError as exc:
+            # Logged here, at warning, because both slice loops swallow slice
+            # exceptions into a debug line -- a suppressed duplicate would
+            # otherwise be indistinguishable from an ordinary slice failure,
+            # and the guard doing its job is exactly what an operator needs to
+            # see after a reconnect or a re-route.
+            log.warning(
+                "router.duplicate_slice_suppressed",
+                venue=venue,
+                route_id=route_id,
+                slice_no=slice_no,
+                symbol=symbol,
+                idempotency_key=key,
+                prior_order_id=exc.record.order_id,
+                prior_state=exc.record.state.value,
+            )
+            raise
 
         order_params = client_order_id_params(getattr(ex, "id", venue), key, params)
         try:

@@ -354,6 +354,40 @@ class TestTrades:
             await backend.insert_trade(make_trade(trade_id="dup"))
 
     @pytest.mark.asyncio
+    async def test_insert_trade_persists_ensemble_fields(self, backend):
+        trade = make_trade(trade_id="t1")
+        trade.ensemble_point_estimate = 0.55
+        trade.ensemble_blend_weight = 0.3
+        await backend.insert_trade(trade)
+        rows = await backend.fetch_trades()
+        assert rows[0].ensemble_point_estimate == pytest.approx(0.55)
+        assert rows[0].ensemble_blend_weight == pytest.approx(0.3)
+
+    @pytest.mark.asyncio
+    async def test_insert_trade_defaults_ensemble_fields_to_none(self, backend):
+        await backend.insert_trade(make_trade(trade_id="t1"))
+        rows = await backend.fetch_trades()
+        assert rows[0].ensemble_point_estimate is None
+        assert rows[0].ensemble_blend_weight is None
+
+    @pytest.mark.asyncio
+    async def test_update_trade_ensemble_fields(self, backend):
+        await backend.insert_trade(make_trade(trade_id="t1"))
+        await backend.update_trade_ensemble_fields(
+            "t1", ensemble_point_estimate=0.62, ensemble_blend_weight=0.25
+        )
+        rows = await backend.fetch_trades()
+        assert rows[0].ensemble_point_estimate == pytest.approx(0.62)
+        assert rows[0].ensemble_blend_weight == pytest.approx(0.25)
+
+    @pytest.mark.asyncio
+    async def test_update_trade_ensemble_fields_unknown_id_is_noop(self, backend):
+        # Best-effort audit write -- must never raise for a missing trade_id.
+        await backend.update_trade_ensemble_fields(
+            "does_not_exist", ensemble_point_estimate=0.5, ensemble_blend_weight=0.5
+        )
+
+    @pytest.mark.asyncio
     async def test_update_trade_exit_success(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1"))
         await backend.update_trade_exit(
@@ -835,6 +869,37 @@ class TestSchemaMigrations:
             assert "spread_bps" in cols, "spread_bps column should exist after migration"
 
             # Confirm user_version bumped to current
+            row = await backend._conn.execute("PRAGMA user_version")
+            assert (await row.fetchone())[0] == _SCHEMA_VERSION
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_migration_v6_adds_ensemble_columns(self, tmp_path: pathlib.Path) -> None:
+        """Simulate a v5 DB (no ensemble_point_estimate/ensemble_blend_weight
+        columns) being migrated to v6 (the ensemble-blend harness columns)."""
+        import aiosqlite
+
+        from src.data.storage import _DDL, _SCHEMA_VERSION, StorageBackend
+
+        db_path = tmp_path / "migrate_v6_test.db"
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.executescript(_DDL)
+            await conn.execute("PRAGMA user_version = 5")
+            await conn.commit()
+
+            row = await conn.execute("PRAGMA table_info(trades)")
+            cols = [r[1] for r in await row.fetchall()]
+            assert "ensemble_point_estimate" not in cols
+            assert "ensemble_blend_weight" not in cols
+
+        backend = StorageBackend(db_path)
+        try:
+            await backend.initialize()
+            row = await backend._conn.execute("PRAGMA table_info(trades)")
+            cols = [r[1] for r in await row.fetchall()]
+            assert "ensemble_point_estimate" in cols
+            assert "ensemble_blend_weight" in cols
             row = await backend._conn.execute("PRAGMA user_version")
             assert (await row.fetchone())[0] == _SCHEMA_VERSION
         finally:

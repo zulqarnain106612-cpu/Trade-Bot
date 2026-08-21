@@ -415,6 +415,24 @@ class TestTrades:
         with pytest.raises(ValueError, match="already exists"):
             await backend.insert_trade(make_trade(trade_id="dup"))
 
+    async def test_insert_trade_persists_ensemble_fields(self, backend):
+        trade = make_trade(trade_id="t1")
+        trade.ensemble_point_estimate = 0.55
+        trade.ensemble_blend_weight = 0.3
+        await backend.insert_trade(trade)
+        rows = await backend.fetch_trades()
+        assert rows[0].ensemble_point_estimate == pytest.approx(0.55)
+        assert rows[0].ensemble_blend_weight == pytest.approx(0.3)
+
+    async def test_update_trade_ensemble_fields(self, backend):
+        await backend.insert_trade(make_trade(trade_id="t1"))
+        await backend.update_trade_ensemble_fields(
+            "t1", ensemble_point_estimate=0.62, ensemble_blend_weight=0.25
+        )
+        rows = await backend.fetch_trades()
+        assert rows[0].ensemble_point_estimate == pytest.approx(0.62)
+        assert rows[0].ensemble_blend_weight == pytest.approx(0.25)
+
     async def test_update_trade_exit_success(self, backend):
         await backend.insert_trade(make_trade(trade_id="t1"))
         await backend.update_trade_exit(

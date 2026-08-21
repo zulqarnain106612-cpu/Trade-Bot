@@ -38,3 +38,6 @@ requirements.lock
 # CI artifacts
 check_runs.json
 ci_jobs.json
+
+# Agent worktrees — 5 full source-tree copies, ~518 MB
+.claude/worktrees/

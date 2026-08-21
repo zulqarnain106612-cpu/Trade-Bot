@@ -48,7 +48,10 @@ from typing import Any, Final
 import ccxt.async_support as ccxt
 import structlog
 
-from src.intelligence.providers.base import ExchangeIntelligenceProvider
+from src.intelligence.providers.base import (
+    ExchangeIntelligenceProvider,
+    tickers_are_synchronous,
+)
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -299,7 +302,25 @@ class BybitIntelligenceProvider(ExchangeIntelligenceProvider):
         if not spot_last or not perp_last or spot_last <= 0:
             return 0.0
 
+        if not tickers_are_synchronous(spot_ticker, perp_ticker):
+            log.warning(
+                "bybit.basis_tickers_out_of_sync",
+                spot_ts=spot_ticker.get("timestamp"),
+                perp_ts=perp_ticker.get("timestamp"),
+                action="basis suppressed — a stale leg reports the move it missed",
+            )
+            return 0.0
+
         basis_bps = ((perp_last - spot_last) / spot_last) * 10_000.0
+        if abs(basis_bps) > 500.0:
+            # Saturating silently makes a broken feed indistinguishable from
+            # a genuine dislocation, and both arrive downstream as 500.
+            log.warning(
+                "bybit.basis_clamped",
+                raw_bps=round(basis_bps, 1),
+                spot_last=spot_last,
+                perp_last=perp_last,
+            )
         basis_bps = max(-500.0, min(500.0, basis_bps))
         self._set_cache(cache_key, basis_bps)
         return basis_bps

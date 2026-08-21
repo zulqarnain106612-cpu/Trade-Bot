@@ -291,10 +291,16 @@ def build_funding_context(inputs: PortfolioInputs) -> object | None:
         return None
     mu = _mean(history)
     sigma = _stdev(history, mu)
-    if sigma <= 0.0:
-        # Constant funding history: a z-score is undefined, not zero. Zero
-        # would read as "perfectly normal" and is the same value a genuinely
-        # unremarkable rate produces, so abstain instead.
+    # Constant funding history: a z-score is undefined, not zero. Zero would
+    # read as "perfectly normal" and is the same value a genuinely
+    # unremarkable rate produces, so abstain instead.
+    #
+    # Compared against the data's own scale, not against 0.0. Summing forty
+    # copies of 0.01 does not land back on 0.01, so a genuinely constant
+    # history yields sigma ~1e-18 rather than exactly zero — and dividing an
+    # equally tiny (rate - mu) by it manufactured a confident z-score near -1
+    # out of pure rounding noise.
+    if sigma <= 1e-12 * max(abs(mu), 1.0):
         return None
     return FundingContext(funding_rate_pct=rate, funding_zscore=(rate - mu) / sigma)
 
