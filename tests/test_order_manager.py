@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.execution.order_fsm import OrderStatus
 from src.execution.order_manager import OrderManager
+
+
+def _test_key() -> str:
+    """Fresh idempotency key per submission.
+
+    Tests exercise order placement, not de-duplication; a unique key keeps
+    each call a distinct intent. Duplicate rejection is covered explicitly in
+    tests/test_idempotency.py.
+    """
+    return f"tb{uuid.uuid4().hex[:30]}"
 
 
 def _make_exchange(create_result: dict, fetch_result: dict) -> MagicMock:
@@ -25,7 +36,7 @@ class TestPlaceOrderValidation:
         manager = OrderManager()
         exchange = MagicMock()
         with pytest.raises(OrderFSMError, match="Invalid order params"):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "not-a-side", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "not-a-side", 1.0, _test_key())
 
     @pytest.mark.asyncio
     async def test_non_positive_quantity_raises_order_fsm_error(self):
@@ -34,7 +45,7 @@ class TestPlaceOrderValidation:
         manager = OrderManager()
         exchange = MagicMock()
         with pytest.raises(OrderFSMError, match="Invalid order params"):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 0.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 0.0, _test_key())
 
 
 class TestPlaceOrderTimeoutPropagation:
@@ -55,7 +66,7 @@ class TestPlaceOrderTimeoutPropagation:
             patch.object(manager, "_confirm_order_fill", side_effect=_timeout),
             pytest.raises(TimeoutError),
         ):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
 
 
 class TestPlaceOrderExchangeErrorNonTerminal:
@@ -79,7 +90,7 @@ class TestPlaceOrderExchangeErrorNonTerminal:
             patch.object(manager, "_confirm_order_fill", side_effect=_raise_without_fsm_transition),
             pytest.raises(ccxt.ExchangeError),
         ):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
 
 
 class TestConfirmOrderFillTimeout:
@@ -125,7 +136,9 @@ class TestConfirmOrderFill:
             create_result={"id": "ord-1"},
             fetch_result={"status": "filled", "filled": 1.0, "average": 100.0},
         )
-        fsm, confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, confirmed = await manager.place_order_with_fsm(
+            exchange, "BTC/USDT", "buy", 1.0, _test_key()
+        )
         assert fsm.state.status == OrderStatus.FILLED
         assert confirmed["average"] == 100.0
 
@@ -136,7 +149,9 @@ class TestConfirmOrderFill:
             create_result={"id": "ord-2"},
             fetch_result={"status": "closed", "filled": 1.0, "price": 99.5},
         )
-        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "sell", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(
+            exchange, "BTC/USDT", "sell", 1.0, _test_key()
+        )
         assert fsm.state.status == OrderStatus.FILLED
 
     @pytest.mark.asyncio
@@ -151,7 +166,7 @@ class TestConfirmOrderFill:
             fetch_result={"status": "filled", "filled": 1.0},  # no average, no price
         )
         with pytest.raises(ValueError, match="cannot safely record"):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
 
     @pytest.mark.asyncio
     async def test_filled_with_zero_fill_price_field_raises(self):
@@ -164,7 +179,7 @@ class TestConfirmOrderFill:
             fetch_result={"status": "filled", "filled": 1.0, "average": 0.0, "price": 0.0},
         )
         with pytest.raises(ValueError, match="cannot safely record"):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
 
     @pytest.mark.asyncio
     async def test_pending_status_retries_then_fills(self):
@@ -180,7 +195,9 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(
+            exchange, "BTC/USDT", "buy", 1.0, _test_key()
+        )
         assert fsm.state.status.name == "FILLED"
 
     @pytest.mark.asyncio
@@ -204,7 +221,7 @@ class TestConfirmOrderFill:
             ]
         )
         with pytest.raises(ccxt.ExchangeError, match="was cancelled"):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
         # Exactly 2 polls (open, then cancelled) -- no retry loop after the
         # cancellation is observed.
         assert exchange.fetch_order.await_count == 2
@@ -224,7 +241,7 @@ class TestConfirmOrderFill:
         exchange.create_market_order = AsyncMock(return_value={"id": "ord-13"})
         exchange.fetch_order = AsyncMock(return_value={"status": "cancelled"})
         with pytest.raises(ccxt.ExchangeError, match="was cancelled"):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
         assert exchange.fetch_order.await_count == 1
 
     @pytest.mark.asyncio
@@ -242,7 +259,9 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, confirmed = await manager.place_order_with_fsm(
+            exchange, "BTC/USDT", "buy", 1.0, _test_key()
+        )
         assert fsm.state.status.name == "FILLED"
         assert confirmed["average"] == 100.0
         assert ccxt is not None  # sanity: import didn't fail
@@ -263,7 +282,7 @@ class TestConfirmOrderFill:
         # must not attempt a second transition (which would previously raise
         # OrderFSMError and mask the real ccxt error).
         with pytest.raises(ccxt.InsufficientFunds):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
 
     @pytest.mark.asyncio
     async def test_network_error_during_confirm_retries_then_fills(self):
@@ -280,7 +299,9 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(
+            exchange, "BTC/USDT", "buy", 1.0, _test_key()
+        )
         assert fsm.state.status.name == "FILLED"
 
     @pytest.mark.asyncio
@@ -298,7 +319,9 @@ class TestConfirmOrderFill:
                 {"status": "filled", "filled": 1.0, "average": 100.0},
             ]
         )
-        fsm, _confirmed = await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+        fsm, _confirmed = await manager.place_order_with_fsm(
+            exchange, "BTC/USDT", "buy", 1.0, _test_key()
+        )
         assert fsm.state.status.name == "FILLED"
 
     @pytest.mark.asyncio
@@ -311,7 +334,7 @@ class TestConfirmOrderFill:
         exchange = MagicMock()
         exchange.create_market_order = AsyncMock(side_effect=ccxt.InvalidOrder("bad order params"))
         with pytest.raises(ccxt.ExchangeError):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())
 
     @pytest.mark.asyncio
     async def test_create_order_network_error_raises_without_fsm_failure(self):
@@ -325,4 +348,4 @@ class TestConfirmOrderFill:
         exchange = MagicMock()
         exchange.create_market_order = AsyncMock(side_effect=ccxt.NetworkError("dns failure"))
         with pytest.raises(ccxt.NetworkError):
-            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0)
+            await manager.place_order_with_fsm(exchange, "BTC/USDT", "buy", 1.0, _test_key())

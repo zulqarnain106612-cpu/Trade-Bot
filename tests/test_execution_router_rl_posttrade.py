@@ -115,9 +115,10 @@ class TestRLExecutionAgent:
             drawdown=0.0,
             kyle_lambda=1e-6,
         )
-        action, meta = agent.predict(obs)
+        assert obs.ndim == 1
+        action, prob = agent.predict(horizon_confidences=[0.8, 0.5, 0.3])
         assert action in (0, 1, 2, 3)
-        assert isinstance(meta, dict)
+        assert isinstance(prob, float)
 
     def test_rl_state_obs_shape(self) -> None:
         from src.execution.rl_agent import RLExecutionState

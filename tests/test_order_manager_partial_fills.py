@@ -75,7 +75,7 @@ def test_fill_percentage_tracks_progress() -> None:
     fsm = _filling_fsm(quantity=10.0)
     _feed(fsm, 2.5, 100.0)
 
-    assert fsm.state.fill_percentage == pytest.approx(0.25)
+    assert fsm.state.fill_percentage() == pytest.approx(0.25)
 
 
 def test_a_repeated_poll_with_no_progress_is_a_no_op() -> None:

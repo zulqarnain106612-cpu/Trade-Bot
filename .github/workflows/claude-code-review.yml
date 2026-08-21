@@ -1,8 +1,12 @@
 name: Claude Autonomous Code Review
 
+# Opt-in only. This used to fire on every PR open and every push, spending up
+# to $3 of Anthropic budget per run unattended. Add the `claude-review` label to
+# a PR (or dispatch manually) when you actually want a review.
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,10 +19,13 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # Never run against fork PRs: this job receives ANTHROPIC_API_KEY and
     # processes untrusted diff content. Fork PRs get no secret and no run.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'claude-review'))
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,6 +48,9 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: >-
             /code-review --comment
+            Apply the crypto-architect skill's architectural laws
+            (.claude/skills/crypto-architect/SKILL.md) to this diff; treat any
+            entry in its "Architect Red Flags" table as blocking.
             Prefix your posted comment's first line with exactly:
             "Claude Code Review (commit: ${{ github.event.pull_request.head.sha }})"
           max_turns: 8
