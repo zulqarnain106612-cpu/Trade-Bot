@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,
     approved_by     TEXT,
     raw_signal      DOUBLE PRECISION,
+    -- Migration v7; see the SQLite DDL for why NULL and 0.0 differ here.
+    pre_blend_p_long      DOUBLE PRECISION,
+    ensemble_p_long       DOUBLE PRECISION,
+    ensemble_blend_weight DOUBLE PRECISION,
     created_at      BIGINT  NOT NULL
         DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT
 );

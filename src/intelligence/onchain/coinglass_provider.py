@@ -21,15 +21,16 @@ Authority: https://open-api-v3.coinglass.com/api/docs
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from typing import Any
 
+import structlog
+
 from src.intelligence.onchain.base import OnChainProvider
 
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _BASE = "https://open-api-v3.coinglass.com/api"
 _EPS = 1e-9
@@ -63,7 +64,7 @@ class CoinglassProvider(OnChainProvider):
         self._CACHE_TTL_S = cache_ttl_s
         self._disabled = not bool(api_key)
         if self._disabled:
-            logger.warning("CoinglassProvider: no API key — all fields neutral (fail-open)")
+            log.warning("coinglass_no_api_key_fail_open")
 
     @property
     def exchange_id(self) -> str:

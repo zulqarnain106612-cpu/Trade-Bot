@@ -56,7 +56,8 @@
   // ── Pylance ───────────────────────────────────────────────────────────────
   "python.analysis.typeCheckingMode": "standard",
   "python.analysis.useLibraryCodeForTypes": true,
-  "python.analysis.autoImportCompletions": true,
+  "python.analysis.autoImportCompletions": false,
+  "python.analysis.indexing": false,
   "python.analysis.diagnosticMode": "workspace",
   "python.analysis.ignore": [
     "**/frontend/**",
@@ -130,6 +131,7 @@
   "eslint.run": "onSave",                         // ← was default "onType" = runs constantly
   "eslint.workingDirectories": [{ "directory": "frontend", "changeProcessCWD": true }],
   "eslint.validate": ["javascript", "javascriptreact"],
+  "eslint.run": "onSave",
 
   // Prettier
   "prettier.enable": true,
@@ -160,7 +162,25 @@
     "editor.wordWrap": "on"
   },
 
-  // ── GitHub Copilot ────────────────────────────────────────────────────────
+  // ── Git — ZERO AUTO-COMMIT / ZERO AUTO-PUSH / ZERO AUTO-FETCH ────────────
+  // KILLED: git.enableSmartCommit (was true — auto-stages all tracked files)
+  // KILLED: git.autofetch (was true — background network polling)
+  // KILLED: git.postCommitCommand: "push" (was auto-pushing every commit)
+  // KILLED: git.confirmSync: false (was syncing without confirmation)
+  "git.enableSmartCommit": false,
+  "git.autofetch": false,
+  "git.postCommitCommand": "none",
+  "git.confirmSync": true,
+  "git.autoStash": false,
+  "git.pruneOnFetch": false,
+  "git.fetchOnPull": false,
+  "git.autoRepositoryDetection": false,
+  "git.enabled": true,
+
+  // ── GitHub Copilot — ZERO AUTO-INSTRUCTION-FILE READING ──────────────────
+  // KILLED: useInstructionFiles (was auto-reading .github/copilot-instructions.md)
+  // KILLED: reviewSelection.enabled auto-trigger
+  // CONTEXT_PRIMER reference removed from reviewSelection.instructions
   "github.copilot.enable": {
     "*": true,
     "python": true,
@@ -171,26 +191,32 @@
   },
   "github.copilot.editor.enableAutoCompletions": true,
   "github.copilot.chat.localeOverride": "en",
-  "github.copilot.chat.codeGeneration.useInstructionFiles": true,
-  "github.copilot.chat.reviewSelection.enabled": true,
-  "github.copilot.chat.codeGeneration.instructions": [
-    { "file": ".github/copilot-instructions.md" }
-  ],
+  "github.copilot.chat.codeGeneration.useInstructionFiles": false,
+  "github.copilot.chat.reviewSelection.enabled": false,
+  "github.copilot.chat.codeGeneration.instructions": [],
   "github.copilot.chat.commitMessageGeneration.instructions": [
     {
-      "text": "Use conventional commits: type(scope): description [copilot]. Types: feat fix refactor chore docs test security perf audit. Never suggest pushing. Append [copilot] to every message to distinguish from [claude] commits. Max 72 chars."
+      "text": "Use conventional commits: type(scope): description. Types: feat fix refactor chore docs test security perf. Max 72 chars. NEVER auto-push. NEVER auto-commit. Human commits manually only."
     }
   ],
-  "github.copilot.chat.reviewSelection.instructions": [
-    {
-      "text": "Read .project-intel/CONTEXT_PRIMER.md before reviewing. Tag all findings with XML routing tags: <gap> <issue> <security> <debt>. Never write findings as plain chat text. Check GAPS.md before flagging known issues."
-    }
-  ],
+  "github.copilot.chat.reviewSelection.instructions": [],
   "github.copilot.chat.testGeneration.instructions": [
     {
       "text": "Follow tests/test_risk_gates.py patterns. Use pytest + pytest-asyncio. async def for all async tests. Parameterised SQL only. structlog not print(). Cover happy path + veto path for CognitiveEngine validators."
     }
   ],
+
+  // ── Terminal — zero env inheritance, zero auto-shell-integration ──────────
+  "terminal.integrated.inheritEnv": false,
+  "terminal.integrated.env.linux": {},
+  "terminal.integrated.env.osx": {},
+  "terminal.integrated.env.windows": {},
+  "terminal.integrated.shellIntegration.enabled": false,
+  "terminal.integrated.enablePersistentSessions": false,
+  "terminal.integrated.persistentSessionReviveProcess": "never",
+
+  // ── Claude Code — no auto terminal ───────────────────────────────────────
+  "claudeCode.useTerminal": true,
 
   // ── Error Lens ────────────────────────────────────────────────────────────
   "errorLens.enabled": true,
@@ -270,6 +296,15 @@
     "**/.ruff_cache": true,
     "**/dist": true,
     "**/build": true
+  },
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/__pycache__/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.mypy_cache/**": true
   },
 
   // ── Claude Code ───────────────────────────────────────────────────────────

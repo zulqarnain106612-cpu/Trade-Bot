@@ -22,6 +22,7 @@ import re
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Union
 
@@ -240,6 +241,12 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,                 -- profit_target|stop_loss|time_exit|manual
     approved_by     TEXT,                 -- operator id or 'auto'
     raw_signal      REAL,                 -- XGBoost primary probability
+    -- pre_blend_p_long / ensemble_p_long / ensemble_blend_weight are added by
+    -- migration v7, not declared here. SQLite has no ADD COLUMN IF NOT EXISTS,
+    -- so a column that appears in both this DDL and a migration makes every
+    -- fresh database fail on "duplicate column name" — which is why no
+    -- post-v0 column is declared here. The Postgres DDL can list them because
+    -- its migrations are idempotent.
     created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 );
 CREATE INDEX IF NOT EXISTS idx_trades_sym_ts
@@ -372,6 +379,26 @@ class BarRecord:
         self.taker_buy_vol = taker_buy_vol
 
 
+@dataclass(frozen=True, slots=True)
+class BlendAudit:
+    """
+    The two inputs to one tick's ensemble blend, plus the weight that
+    combined them.
+
+    Carried as one value rather than three loose floats because they are only
+    ever meaningful together: a pre-blend probability without the ensemble
+    probability it was mixed with cannot be re-scored under a different
+    weight, which is the entire reason they are recorded.
+
+    Defined here, beside TradeRecord, so the execution layer can accept one
+    without importing from the engine layer.
+    """
+
+    pre_blend_p_long: float
+    ensemble_p_long: float
+    blend_weight: float
+
+
 class TradeRecord:
     """Full trade audit record."""
 
@@ -393,6 +420,7 @@ class TradeRecord:
         "notional_usd",
         "pnl_pct",
         "pnl_usd",
+        "pre_blend_p_long",
         "quantity",
         "raw_signal",
         "regime_at_entry",

@@ -82,6 +82,19 @@ jobs:
         run: python scripts/check_requirements_sync.py
 
       - name: Install dependencies
+        env:
+          # Defaults (5 retries, 15s timeout) assume a datacentre link. The
+          # self-hosted runner is on a home connection that drops large
+          # transfers mid-stream, which surfaces as `error: incomplete-download`
+          # partway through the lock. Harmless on GitHub-hosted runners, where
+          # the retries simply never fire.
+          PIP_RETRIES: "10"
+          PIP_TIMEOUT: "60"
+          # Retries alone restart a dropped transfer from zero, which never
+          # finishes a 900MB wheel on a link that drops every few minutes.
+          # --resume-retries continues from where it broke; pip names this flag
+          # in the `incomplete-download` error itself.
+          PIP_RESUME_RETRIES: "20"
         run: |
           python -m pip install --upgrade pip
           # VUL-026: Install from lockfile with hash verification if present.

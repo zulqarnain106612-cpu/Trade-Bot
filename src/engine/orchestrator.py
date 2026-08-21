@@ -44,6 +44,7 @@ from src.data.fetcher import MarketDataFetcher
 from src.data.provider_cache import get_provider_cache
 from src.data.storage import (
     AnyStorageBackend,
+    BlendAudit,
     MissedTradeRecord,
     ModelMetricsRecord,
     RegimeSnapshotRecord,
@@ -97,6 +98,29 @@ from src.tuning.meta_allocator import get_allocation_controller
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+def _blend_audit(result: SignalResult) -> BlendAudit | None:
+    """
+    The tick's ensemble-blend inputs, or None when no blend happened.
+
+    All three are set together or not at all (see SignalEngine.tick), so a
+    partial set means something went wrong upstream and is treated as no
+    blend rather than recorded half-formed — a sample the tuning harness
+    cannot re-score is worse than an absent one.
+    """
+    if (
+        result.pre_blend_p_long is None
+        or result.ensemble_p_long is None
+        or result.ensemble_blend_weight is None
+    ):
+        return None
+    return BlendAudit(
+        pre_blend_p_long=result.pre_blend_p_long,
+        ensemble_p_long=result.ensemble_p_long,
+        blend_weight=result.ensemble_blend_weight,
+    )
+
 
 # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
 _RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
@@ -1084,6 +1108,7 @@ class Orchestrator:
                 meta_label_prob=result.p_bet,
                 raw_signal=result.p_long,
                 current_price=current_price,
+                blend_audit=_blend_audit(result),
             )
 
             self._log.info(

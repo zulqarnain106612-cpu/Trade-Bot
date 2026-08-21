@@ -118,9 +118,10 @@ class TestSharpeHelper:
     def test_positive_returns_positive_sharpe(self) -> None:
         from src.upgrade.optuna_wf import _sharpe
 
+        # A constant series has zero volatility and an undefined Sharpe, which
+        # _sharpe deliberately reports as 0.0; use a series that actually varies.
         rng = np.random.default_rng(0)
-        # constant returns have zero std and thus an undefined Sharpe — add noise
-        r = 0.01 + rng.normal(0.0, 0.005, 252)
+        r = 0.01 + rng.normal(0.0, 0.001, 252)
         assert _sharpe(r) > 0.0
 
 
@@ -269,7 +270,7 @@ class TestModelRegistry:
         from src.upgrade.registry import ModelRegistry
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
-        result = reg.load_model("nonexistent_model")
+        result = reg.load_model("nonexistent_model", stage="Production")
         assert result is None
 
     def test_tag_dvc_returns_bool(self, tmp_path) -> None:
