@@ -308,6 +308,19 @@ class RiskSettings(BaseSettings):
         description="How often the orchestrator exit-check loop re-evaluates open positions",
     )
 
+    # ensemble_blend_weight : weight given to EnsemblePredictor's
+    # point_estimate (src/intelligence/ensemble_predictor.py) when blending
+    # into XGBoost's p_long (0.0 = ensemble ignored entirely, 1.0 = ensemble
+    # fully replaces the XGBoost prediction). Defaults to 0.0 — the ensemble
+    # remains EXPERIMENTAL (see ensemble_predictor.py module docstring) and
+    # must be explicitly opted into by an operator via
+    # RISK_ENSEMBLE_BLEND_WEIGHT, or promoted by the self-tuning subsystem
+    # (src/tuning/bootstrap.py's register_ensemble_blend_weight(), gated by
+    # shadow_mode like every other self-tuned parameter). Bounds are the
+    # field's own full valid range rather than the usual +/-20%-of-default
+    # window (src/tuning/bootstrap.py._symmetric_bounds) — a 0.0 default
+    # produces a zero-width window under that formula.
+
 
 # ---------------------------------------------------------------------------
 # Model hyper-parameters
@@ -882,6 +895,29 @@ class StrategyPortfolioSettings(BaseSettings):
     allocation_rebalance_interval_s: int = Field(default=3600, ge=60)
 
 
+class RegimeStrategySettings(BaseSettings):
+    """
+    Regime-conditional strategy gating
+    (src/strategies/regime_strategy_selector.py).
+
+    Read by select_strategy_from_config(). Defaults mirror the module-level
+    constants there, so the config path and the explicit-argument path agree
+    unless an operator deliberately overrides one.
+
+    A regime call below ``rs_min_confidence`` or above ``rs_max_entropy`` is
+    too uncertain to commit capital to, and the selector returns NEUTRAL
+    rather than guessing. ``rs_transition_guard`` additionally refuses to
+    open during a detected regime transition, where both mean-reversion and
+    breakout models lose their edge.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
+
+    rs_min_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
+    rs_max_entropy: float = Field(default=0.75, ge=0.0, le=1.0)
+    rs_transition_guard: bool = Field(default=True)
+
+
 class OrderThrottleSettings(BaseSettings):
     """
     Outgoing-order rate limiting (src/execution/order_throttler.py).
@@ -1032,6 +1068,7 @@ class Settings(BaseSettings):
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
     strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
+    strategy: RegimeStrategySettings = Field(default_factory=RegimeStrategySettings)
     order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
     strategy: StrategySettings = Field(default_factory=StrategySettings)
 

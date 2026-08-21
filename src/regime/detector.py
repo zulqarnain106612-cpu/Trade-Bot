@@ -239,6 +239,8 @@ class RegimeDetector:
         self._train_hash: str = ""
         # M-08: initialise explicitly so mypy and predict_current() don't need getattr fallback
         self._convergence_failed: bool = False
+        # Crypto-Box 9-regime model (loaded lazily; None when not fitted/loaded)
+        self._depth_v2: object | None = None
         self._log = log.bind(
             component="regime_detector",
             symbol=symbol,
@@ -341,25 +343,47 @@ class RegimeDetector:
                 random_state=cfg.random_state + seed,
                 verbose=False,
             )
-            candidate.fit(X, lengths=lengths_arg)
             try:
+                # fit() belongs inside the guard, not outside it. A degenerate
+                # covariance raises during EM at least as often as it does at
+                # the score call, and out here it aborted the whole multi-init
+                # loop -- destroying the restart budget that exists precisely
+                # to survive that failure. One bad seed took down all n.
+                candidate.fit(X, lengths=lengths_arg)
                 score = candidate.score(X, lengths=lengths_arg)
             except Exception as exc:
-                # A restart that cannot be scored is usually a degenerate
-                # covariance — routine with covariance_type="full" on a short
-                # window, and the reason multiple restarts exist. Skipping it
-                # is right; skipping it silently is not: the detector would
-                # happily select from one surviving restart out of n while
-                # reporting nothing, and regime quality feeds every consumer
-                # downstream.
+                # A restart that cannot be fitted or scored is usually a
+                # degenerate covariance — routine with covariance_type="full"
+                # on a short window, and the reason multiple restarts exist.
+                # Skipping it is right; skipping it silently is not: the
+                # detector would happily select from one surviving restart out
+                # of n while reporting nothing, and regime quality feeds every
+                # consumer downstream.
                 failed_seeds.append(seed)
                 log.debug(
-                    "regime.hmm_restart_score_failed",
+                    "regime.hmm_restart_failed",
                     seed=seed,
                     error=str(exc),
                 )
                 continue
-            if score > best_score:
+
+            # A restart that exhausted n_iter without converging is not
+            # comparable to one that did: EM log-likelihood rises
+            # monotonically, so a stopped-early fit can still out-score a
+            # converged one while sitting on parameters the optimiser was
+            # still moving. Converged candidates therefore win outright, and
+            # unconverged ones only compete among themselves -- which keeps
+            # the "not converged -> force VOLATILE" fallback below meaningful
+            # instead of being decided by an accident of scoring.
+            candidate_converged = bool(candidate.monitor_.converged)
+            best_converged = best_model is not None and bool(best_model.monitor_.converged)
+            if best_model is None:
+                better = True
+            elif candidate_converged != best_converged:
+                better = candidate_converged
+            else:
+                better = score > best_score
+            if better:
                 best_score = score
                 best_model = candidate
 
@@ -568,6 +592,52 @@ class RegimeDetector:
         return pred
 
     # ------------------------------------------------------------------
+    # 9-regime augmentation (Crypto-Box DepthDetectorV2)
+    # ------------------------------------------------------------------
+
+    def predict_current_v2(
+        self,
+        engine_outputs: dict[str, object],
+        features: pd.DataFrame | None = None,
+        ohlcv: pd.DataFrame | None = None,
+    ) -> str | None:
+        """
+        Return a 9-regime label from DepthDetectorV2 when CRYPTO_BOX=true.
+
+        Parameters
+        ----------
+        engine_outputs : dict keyed by engine_id (e.g. "E-03") → EngineOutput.
+                         Used by build_v2_features_from_engine_outputs().
+        features       : optional pre-built 12-col DataFrame; if None it is
+                         built from engine_outputs (+ ohlcv when provided).
+        ohlcv          : optional OHLCV DataFrame; passed through to
+                         build_v2_features_from_engine_outputs() to populate
+                         adx_14 and bb_width columns.
+
+        Returns None when CRYPTO_BOX is disabled or the v2 model is not fitted.
+        """
+        import os
+
+        if os.environ.get("CRYPTO_BOX", "").lower() not in ("1", "true", "yes"):
+            return None
+        try:
+            from src.regime.depth_detector_v2 import (
+                DepthDetectorV2,
+                build_v2_features_from_engine_outputs,
+            )
+
+            if features is None:
+                features = build_v2_features_from_engine_outputs(engine_outputs, ohlcv=ohlcv)  # type: ignore[arg-type]
+            v2: DepthDetectorV2 = self._depth_v2  # type: ignore[assignment]
+            if v2 is None or v2._model is None:
+                return None
+            v2_pred = v2.predict(features)
+            return v2_pred.label
+        except Exception as exc:
+            self._log.debug("hmm.predict_v2_failed", exc=str(exc))
+            return None
+
+    # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
@@ -601,6 +671,11 @@ class RegimeDetector:
         }
         joblib.dump(payload, path, compress=3)
         _write_manifest(path)
+        if self._depth_v2 is not None:
+            try:
+                self._depth_v2.save(Path(model_dir))  # type: ignore[union-attr,attr-defined]
+            except Exception as _exc:
+                self._log.warning("hmm.depth_v2_save_failed", error=str(_exc))
         self._log.info("hmm.saved", path=str(path), train_hash=self._train_hash)
         return path
 
@@ -639,6 +714,26 @@ class RegimeDetector:
         # VF-018: restore convergence flag — defaults False for old payloads without
         # the key (backward compatible), correct for new payloads.
         detector._convergence_failed = bool(payload.get("convergence_failed", False))
+        # Attempt to restore DepthDetectorV2 (Crypto-Box 9-regime model)
+        try:
+            import os
+
+            if os.environ.get("CRYPTO_BOX", "").lower() in ("1", "true", "yes"):
+                from src.regime.depth_detector_v2 import DepthDetectorV2
+
+                v2 = DepthDetectorV2(symbol=symbol, timeframe=timeframe)
+                if v2.load(Path(model_dir)):
+                    detector._depth_v2 = v2
+        except Exception as exc:
+            # v2 model is optional — predict_current_v2 returns None if absent,
+            # but a model that exists and fails to load should not look identical
+            # to one that was never configured.
+            log.warning(
+                "hmm.depth_v2_load_failed",
+                symbol=symbol,
+                timeframe=timeframe,
+                exc=str(exc),
+            )
         log.info(
             "hmm.loaded",
             path=str(path),

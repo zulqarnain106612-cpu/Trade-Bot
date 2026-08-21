@@ -13,7 +13,9 @@ target-version  = "py311"
 line-length     = 100
 indent-width    = 4
 src             = ["src", "tests"]
-exclude         = [".venv", "frontend", "__pycache__", "dist", ".git", ".project-intel"]
+# .claude carries skill-vendored tooling (crypto-architect's validate_arch.py),
+# versioned with the skill rather than linted as project source.
+exclude         = [".venv", "frontend", "__pycache__", "dist", ".git", ".project-intel", ".claude"]
 
 [tool.ruff.lint]
 select = [
@@ -75,7 +77,7 @@ warn_return_any       = false
 warn_unused_configs   = true
 warn_redundant_casts  = true
 warn_unused_ignores   = false
-exclude               = ["frontend/", ".venv/", "dist/"]
+exclude               = ["frontend/", ".venv/", "dist/", "\\.claude/"]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PYTEST
@@ -88,6 +90,7 @@ python_files  = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts       = "-v --tb=short -q --cov=src --cov-report=term-missing --cov-fail-under=95"
+faulthandler_timeout = 300
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

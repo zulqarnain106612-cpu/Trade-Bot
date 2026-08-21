@@ -45,6 +45,11 @@ from src.diagnostics.disaster_recovery import (
     reconcile,
 )
 from src.execution.base import AbstractExecutor
+from src.execution.idempotency import (
+    DuplicateOrderError,
+    IdempotencyRegistry,
+    derive_idempotency_key,
+)
 from src.execution.order_manager import OrderManager
 from src.execution.order_throttler import OrderThrottler
 from src.risk.gates import DrawdownTracker
@@ -557,6 +562,13 @@ class LiveExecutor(AbstractExecutor):
                     side=close_side,
                     quantity=pos.quantity,
                     is_exit=True,
+                    # Pinned to the position, not to a time bucket: closing
+                    # trade_id X is the same intent whenever it is retried, so
+                    # a retry that straddled a bucket boundary must not be
+                    # able to submit a second closing order.
+                    purpose="close",
+                    intent_id=trade_id,
+                    strategy_id=pos.strategy_id,
                 )
             except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
                 self._log.error(
@@ -569,7 +581,40 @@ class LiveExecutor(AbstractExecutor):
                 raise
 
             actual_exit_price = float(order.get("average") or order.get("price") or exit_price)
-            filled_qty = float(order.get("filled") or pos.quantity)
+            # `or` collapses a reported fill of 0.0 into the fallback, so an
+            # order that filled nothing -- rejected, or cancelled immediately
+            # -- read as fully filled and the position was deleted from
+            # internal state while the exposure was still live on the
+            # exchange. Missing (None) is the only case the fallback is for.
+            _filled_raw = order.get("filled")
+            filled_qty = float(pos.quantity) if _filled_raw is None else float(_filled_raw)
+
+            if filled_qty <= 0.0:
+                self._log.error(
+                    "live.close_order_zero_fill",
+                    trade_id=trade_id,
+                    symbol=pos.symbol,
+                    order_id=str(order.get("id", "")),
+                    action="position left open — exposure is still live on the exchange",
+                )
+                raise RuntimeError(
+                    f"Close order for {pos.symbol} ({trade_id}) filled 0; position not closed."
+                )
+
+            if filled_qty < pos.quantity * 0.999:
+                # Booking the whole position closed on a partial fill leaves
+                # untracked residual exposure. Splitting the position is a
+                # larger change than this path can safely make mid-close, so
+                # the discrepancy is surfaced rather than buried.
+                self._log.critical(
+                    "live.close_order_partial_fill_UNTRACKED_RESIDUAL",
+                    trade_id=trade_id,
+                    symbol=pos.symbol,
+                    requested_qty=pos.quantity,
+                    filled_qty=filled_qty,
+                    residual_qty=pos.quantity - filled_qty,
+                    action="position booked closed at the filled size; residual is untracked",
+                )
             exchange_fee = self._extract_fee(order, actual_exit_price, filled_qty)
 
             exit_ts = int(datetime.now(tz=UTC).timestamp() * 1000)
@@ -784,6 +829,13 @@ class LiveExecutor(AbstractExecutor):
         return self._cash
 
     @property
+    def idempotency(self) -> IdempotencyRegistry:
+        # Delegated to the order manager rather than duplicated: the manager
+        # owns the submission path, and a second registry here would be a
+        # second source of truth about what has already been sent.
+        return self._order_manager.idempotency
+
+    @property
     def equity_usd(self) -> float:
         return self._equity_usd()
 
@@ -872,7 +924,19 @@ class LiveExecutor(AbstractExecutor):
 
             side = "buy" if direction == 1 else "sell"
             try:
-                order = await self._place_market_order(symbol, side, kelly_result.quantity)
+                # No intent_id: an entry has no pre-existing identity to pin
+                # to, and minting a uuid here would defeat the purpose (a
+                # fresh uuid per attempt makes every duplicate look unique).
+                # The time bucket is the identity instead -- the same signal
+                # re-issued within the bucket collides and is refused, while
+                # a genuinely new signal for the same symbol later does not.
+                order = await self._place_market_order(
+                    symbol,
+                    side,
+                    kelly_result.quantity,
+                    purpose="entry",
+                    strategy_id=strategy_id,
+                )
             except (ccxt.NetworkError, ccxt.ExchangeError) as exc:
                 # Restore reserved cash on order failure
                 async with self._lock:
@@ -887,7 +951,11 @@ class LiveExecutor(AbstractExecutor):
                 return None
 
             actual_price = float(order.get("average") or order.get("price") or 0.0)
-            filled_qty = float(order.get("filled") or kelly_result.quantity)
+            # Same trap as the close leg: `or` turns a reported fill of 0.0
+            # into the requested size, so an order that filled nothing was
+            # recorded as a full position. Only a missing value falls back.
+            _filled_raw = order.get("filled")
+            filled_qty = float(kelly_result.quantity) if _filled_raw is None else float(_filled_raw)
             exchange_order_id = str(order.get("id", ""))
             entry_fee = self._extract_fee(order, actual_price, filled_qty)
 
@@ -932,7 +1000,17 @@ class LiveExecutor(AbstractExecutor):
                 flatten_side = "sell" if side == "buy" else "buy"
                 try:
                     flatten_order = await self._place_market_order(
-                        symbol, flatten_side, filled_qty, is_exit=True
+                        symbol,
+                        flatten_side,
+                        filled_qty,
+                        is_exit=True,
+                        # Keyed to the entry order being undone, so this
+                        # flatten cannot collide with the entry above (same
+                        # symbol and quantity, opposite intent) and cannot
+                        # fire twice for the same stranded fill.
+                        purpose="emergency_flatten",
+                        intent_id=exchange_order_id,
+                        strategy_id=strategy_id,
                     )
                     flatten_price = float(
                         flatten_order.get("average") or flatten_order.get("price") or actual_price
@@ -1108,12 +1186,20 @@ class LiveExecutor(AbstractExecutor):
         quantity: float,
         *,
         is_exit: bool = False,
+        purpose: str,
+        intent_id: str | None = None,
+        strategy_id: str = "live_executor",
     ) -> dict[str, Any]:
         """
         Place a market order and wait for fill confirmation.
 
         ``is_exit`` marks an order that closes or flattens existing exposure;
         it bypasses order-rate refusal (see _await_throttle_token).
+
+        ``purpose`` and ``intent_id`` define the order's identity for LAW3
+        de-duplication -- see :func:`derive_idempotency_key`. Both are keyword
+        only and ``purpose`` is required, so a new call site cannot inherit a
+        default that silently collides with an unrelated order.
 
         Now uses OrderFSM via OrderManager for:
           - State machine driven confirmation
@@ -1127,6 +1213,16 @@ class LiveExecutor(AbstractExecutor):
         Raises ccxt.ExchangeError if order does not fill within timeout.
         """
         exchange = self._fetcher.get_order_exchange()
+
+        idempotency_key = derive_idempotency_key(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            purpose=purpose,
+            intent_id=intent_id,
+        )
+
         await self._await_throttle_token(getattr(exchange, "id", "binance"), is_exit=is_exit)
 
         try:
@@ -1135,11 +1231,13 @@ class LiveExecutor(AbstractExecutor):
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
+                idempotency_key=idempotency_key,
             )
 
             self._log.info(
                 "live.order_placed_fsm",
                 order_id=fsm.state.order_id,
+                idempotency_key=idempotency_key,
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
@@ -1151,12 +1249,31 @@ class LiveExecutor(AbstractExecutor):
             self._register_order_fsm(fsm)
             return confirmed_order
 
+        except DuplicateOrderError as exc:
+            # A retry, reconnect or reconciliation pass reached the same order
+            # intent twice. This is the guard working, not a fault: refuse the
+            # second submission rather than doubling live exposure.
+            self._log.warning(
+                "live.duplicate_order_suppressed",
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                purpose=purpose,
+                idempotency_key=idempotency_key,
+                prior_order_id=exc.record.order_id,
+                prior_state=exc.record.state.value,
+            )
+            raise ccxt.ExchangeError(
+                f"Duplicate order suppressed for {symbol} ({purpose}): idempotency key "
+                f"{idempotency_key} already submitted as order {exc.record.order_id!r}."
+            ) from exc
         except TimeoutError as exc:
             self._log.error(
                 "live.order_confirmation_timeout",
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
+                idempotency_key=idempotency_key,
                 action="manual_reconciliation_required",
                 exc_info=True,
             )

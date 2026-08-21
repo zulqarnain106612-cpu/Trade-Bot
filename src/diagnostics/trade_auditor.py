@@ -83,6 +83,12 @@ class AuditRecord:
     tick_latency_ms: float = 0.0  # wall-clock ms for full tick
     equity_usd_at_decision: float = 0.0
 
+    # Ensemble blending (RiskSettings.ensemble_blend_weight) — None when the
+    # ensemble predictor isn't wired in or blend weight is 0.0 for this tick.
+    ensemble_point_estimate: float | None = None
+    ensemble_uncertainty: float | None = None
+    ensemble_blend_weight: float | None = None
+
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["ts_iso"] = _ts_to_iso(self.ts_utc)
