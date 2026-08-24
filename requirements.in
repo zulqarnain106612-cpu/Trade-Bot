@@ -39,4 +39,4 @@ aiohttp>=3.9,<4.0          # onchain/base.py, providers/blockchain_provider.py, 
 prometheus_client>=0.20,<1.0  # src/api/metrics.py
 optuna>=3.6,<5.0            # Bayesian (TPE) proposer strategy for src/tuning — see src/tuning/bayesian_proposer.py
 networkx>=3.0,<4.0           # E-18: exchange flow graph centrality
-cryptography>=42.0,<45.0     # E-security: Ed25519 signing, BIP-32 derivation
+cryptography>=50.0.0,<51.0     # E-security: Ed25519 signing, BIP-32 derivation
