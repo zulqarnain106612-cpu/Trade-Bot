@@ -1,0 +1,15 @@
+# Minimal safety net until the new config set is generated.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+data/
+logs/
+models/
+.kdev4/
+*.kdev4
