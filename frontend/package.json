@@ -1,0 +1,77 @@
+{
+  "name": "trade-bot-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint \"src/**/*.{js,jsx}\"",
+    "format": "prettier --write \"src/**/*.{js,jsx,css,html}\"",
+    "icons": "node scripts/build-icons.mjs",
+    "electron:dev": "concurrently -k -n vite,electron -c blue,yellow \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
+    "electron:build": "npm run icons && npm run build && electron-builder",
+    "desktop:install": "bash scripts/install-desktop-shortcut.sh"
+  },
+  "dependencies": {
+    "es-toolkit": "^1.50.0",
+    "lodash": "^4.17.21",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.10.1",
+    "reselect": "^5.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@vitejs/plugin-react": "^6.0.5",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^9.1.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-jsx-a11y": "^6.8.1",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
+    "postcss": "^8.4.38",
+    "prettier": "^3.9.6",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.2.1",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.tradebot.dashboard",
+    "productName": "Trade Bot",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.png",
+      "build/tray.png",
+      "build/tray-badge.png"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Finance",
+      "desktop": {
+        "entry": {
+          "Name": "Trade Bot",
+          "Comment": "Async algorithmic trading dashboard",
+          "Categories": "Finance;Office;"
+        }
+      }
+    }
+  }
+}

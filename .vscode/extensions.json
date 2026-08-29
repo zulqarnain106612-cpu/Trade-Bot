@@ -1,0 +1,54 @@
+{
+  "recommendations": [
+    // ── Core Python ────────────────────────────────────────────────────────
+    "ms-python.python",
+    "ms-python.pylance",
+    "charliermarsh.ruff",           // lint + format (replaces flake8/black/isort)
+    "ms-python.debugpy",            // Python debugger
+
+    // ── GitHub Copilot ─────────────────────────────────────────────────────
+    "github.copilot",               // AI completions
+    "github.copilot-chat",          // Copilot Chat panel
+
+    // ── Security & Vulnerability Detection (automatic) ─────────────────────
+    "sonarsource.sonarlint-vscode", // SonarLint: real-time OWASP/CWE detection
+    "snyk-security.snyk-vulnerability-scanner", // Snyk: CVE scanning
+    "trunk.io",                     // Trunk: meta-linter + auto-fix orchestrator
+
+    // ── Error visibility ───────────────────────────────────────────────────
+    "usernamehw.errorlens",         // inline error/warning display
+    "ExodiusStudios.comment-anchors", // TODO/FIXME/HACK tracking
+
+    // ── Git & code review ──────────────────────────────────────────────────
+    "eamodio.gitlens",              // git blame, history, code lens
+    "github.vscode-pull-request-github", // PR review inside VSCode
+    "mhutchie.git-graph",           // visual git history
+
+    // ── Frontend ───────────────────────────────────────────────────────────
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "dsznajder.es7-react-js-snippets",
+
+    // ── Productivity ───────────────────────────────────────────────────────
+    "streetsidesoftware.code-spell-checker",
+    "christian-kohler.path-intellisense",
+    "visualstudioexptteam.vscodeintellicode", // AI-assisted IntelliSense
+    "ms-vscode.test-adapter-converter",
+    "littlefoxteam.vscode-python-test-adapter",
+
+    // ── YAML / TOML / config ───────────────────────────────────────────────
+    "redhat.vscode-yaml",
+    "tamasfe.even-better-toml",
+
+    // ── Docker / infra ─────────────────────────────────────────────────────
+    "ms-azuretools.vscode-docker"
+  ],
+
+  "unwantedRecommendations": [
+    "ms-python.autopep8",    // replaced by ruff
+    "ms-python.flake8",      // replaced by ruff
+    "ms-python.isort",       // replaced by ruff
+    "ms-python.black-formatter" // replaced by ruff
+  ]
+}

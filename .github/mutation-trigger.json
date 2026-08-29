@@ -1,0 +1,6 @@
+{
+  "module_path": "src/execution/live.py",
+  "test_files": "tests/test_live_additional_coverage.py tests/test_live_executor_coverage.py tests/test_live_executor_fsm.py",
+  "shard_count": 8,
+  "per_mutant_timeout_seconds": 30
+}

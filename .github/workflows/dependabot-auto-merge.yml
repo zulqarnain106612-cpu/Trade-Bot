@@ -1,0 +1,92 @@
+name: Dependabot Auto-Merge
+
+# Automatically merges Dependabot PRs that:
+#   - Are patch-level updates (semver patch only)
+#   - Pass all CI checks
+#   - Are NOT security advisories (those require manual review)
+#   - Are NOT trading-critical packages (those require manual review)
+#
+# SEC-006 fix: trading-critical packages (fastapi, ccxt, xgboost, pydantic,
+# pydantic-settings, scikit-learn, hmmlearn, pandas, numpy) are explicitly
+# excluded from auto-merge. A behavioral regression in any of these under
+# 47% test coverage could reach live order placement undetected.
+# These packages require a human to review the changelog before merge.
+
+on:
+  pull_request:
+
+permissions:
+  # `contents: write` dropped with the auto-merge step -- this workflow only
+  # labels PRs now, so it must not be able to write to the repository.
+  contents: read
+  pull-requests: write
+
+# Trading-critical packages — auto-merge blocked, human review required.
+# Any patch to these touches the live signal/execution/risk path.
+env:
+  TRADING_CRITICAL_PACKAGES: >-
+    fastapi uvicorn ccxt xgboost pydantic pydantic-settings
+    scikit-learn hmmlearn pandas numpy scipy statsmodels
+
+jobs:
+  auto-merge:
+    name: Auto-merge safe Dependabot patches
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # SEC-006: block auto-merge for trading-critical packages regardless of semver level.
+      # Even a patch-level release of ccxt, xgboost, pandas, etc. can change
+      # order-placement behavior, model inference, or data parsing in ways that
+      # the existing test suite (47% coverage, live.py/signal_engine.py undertested)
+      # will not catch. Human reviews changelog before merge.
+      - name: Block auto-merge for trading-critical packages
+        id: critical-check
+        run: |
+          PKG="${{ steps.meta.outputs.dependency-names }}"
+          CRITICAL="fastapi uvicorn ccxt xgboost pydantic pydantic-settings scikit-learn hmmlearn pandas numpy scipy statsmodels"
+          IS_CRITICAL="false"
+          for critical_pkg in $CRITICAL; do
+            if echo "$PKG" | grep -qi "^${critical_pkg}$"; then
+              IS_CRITICAL="true"
+              echo "BLOCKED: $PKG is a trading-critical package — requires manual review."
+              break
+            fi
+          done
+          echo "is_critical=$IS_CRITICAL" >> "$GITHUB_OUTPUT"
+
+      # Auto-approve and auto-merge only if ALL of:
+      #   - patch-level update
+      #   - non-dev dependency
+      #   - NOT a security advisory
+      #   - NOT a trading-critical package (SEC-006)
+      # REMOVED 2026-08-16 by owner request: `gh pr review --approve` plus
+      # `gh pr merge --auto --squash` merged dependency PRs into main with no
+      # human in the loop. Safe patch bumps are now only labelled; the owner
+      # merges them. Nothing in this workflow writes to the repo any more.
+      - name: Label safe patch updates for review
+        if: |
+          steps.meta.outputs.update-type == 'version-update:semver-patch' &&
+          steps.meta.outputs.dependency-type != 'direct:development' &&
+          steps.meta.outputs.alert-state != 'OPEN' &&
+          steps.critical-check.outputs.is_critical == 'false'
+        run: gh pr edit "$PR_URL" --add-label "safe-patch"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      # Label blocked PRs so they appear in the review queue.
+      - name: Label critical-package PRs for manual review
+        if: steps.critical-check.outputs.is_critical == 'true'
+        run: gh pr edit "$PR_URL" --add-label "needs-human-review,trading-critical"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # label creation may fail if label doesn't exist yet

@@ -1,0 +1,161 @@
+{
+  // ════════════════════════════════════════════════════════════════════════════
+  // ZERO AUTO-EXECUTION POLICY — ALL TASKS MANUAL ONLY
+  // Authorized runners: YOU (human) + CLAUDE_MAIN_AGENT_v1
+  // KILLED: autocommit.sh invocation (tasks 1 & 2)
+  // KILLED: autofix.sh invocation (task 3)
+  // KILLED: isBackground:true on Vite (was silently spawning on open)
+  // KILLED: isDefault:true on Run Tests (was auto-running on task open)
+  // ALL tasks: runOptions.runOn = "default" (manual trigger only)
+  // ════════════════════════════════════════════════════════════════════════════
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // ── Frontend dev server — MANUAL start only ───────────────────────────
+      // CHANGED: isBackground removed — was silently kept alive by VSCode
+      // CHANGED: dependsOn removed if any — no auto-chain
+      "label": "Frontend: Run Vite",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "group": "build",
+      "runOptions": {
+        "runOn": "default",
+        "instanceLimit": 1
+      }
+    },
+
+    {
+      // ── Commit — MANUAL, NO auto-push, NO autocommit.sh ──────────────────
+      // KILLED: "bash scripts/autocommit.sh" — replaced with explicit git add+commit
+      // Operator must supply message via input prompt
+      // push is intentionally excluded — do it manually in Source Control
+      "label": "Commit (manual, no push)",
+      "type": "shell",
+      "command": "git add -p && git commit -m \"${input:commitMessage}\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "group": "none",
+      "runOptions": {
+        "runOn": "default",
+        "instanceLimit": 1
+      }
+    },
+
+    {
+      // ── Commit dry-run — shows what would be committed, no execution ───────
+      // KILLED: "bash scripts/autocommit.sh --check" — replaced with git status+diff
+      "label": "Commit: Dry Run (status + diff)",
+      "type": "shell",
+      "command": "git status && echo '---' && git diff --stat HEAD",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "default"
+      }
+    },
+
+    {
+      // ── Lint + format — MANUAL, explicit ruff only, no autofix.sh ─────────
+      // KILLED: "bash scripts/autofix.sh" — opaque script with unknown side-effects
+      // Replaced with direct ruff invocation — transparent, auditable
+      "label": "Lint + Format (ruff)",
+      "type": "shell",
+      "command": "ruff check . --fix && ruff format .",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "group": "test",
+      "runOptions": {
+        "runOn": "default"
+      }
+    },
+
+    {
+      // ── Tests — MANUAL only, isDefault removed ────────────────────────────
+      // CHANGED: isDefault:true removed — was auto-running on Ctrl+Shift+B
+      "label": "Run Tests",
+      "type": "shell",
+      "command": "python3 -m pytest tests/ -v --tb=short",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "runOptions": {
+        "runOn": "default"
+      }
+    },
+
+    {
+      // ── Security scan — MANUAL ────────────────────────────────────────────
+      "label": "Security Scan (bandit)",
+      "type": "shell",
+      "command": "bandit -r src/ --severity-level medium -q && echo '✅ CLEAN' || echo '⚠️  ISSUES FOUND'",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "default"
+      }
+    }
+  ],
+
+  // ── Input definitions ─────────────────────────────────────────────────────
+  "inputs": [
+    {
+      "id": "commitMessage",
+      "description": "Commit message (conventional commit format: type(scope): description)",
+      "default": "",
+      "type": "promptString"
+    }
+  ]
+}
