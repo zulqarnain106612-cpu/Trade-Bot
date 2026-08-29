@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Trade Bot
-Comment=Async algorithmic trading dashboard (XGBoost + HMM)
-Exec=__LAUNCH_CMD__
-Icon=__ICON_PATH__
-Terminal=false
-Categories=Finance;Office;
-StartupWMClass=Trade Bot
