@@ -501,7 +501,7 @@ def make_ensemble_trade(
     entry_ts,
     exit_ts,
     raw_p_long=0.6,
-    ensemble_point_estimate=0.55,
+    ensemble_p_long=0.55,
     blend_weight=0.3,
     entry_price=100.0,
     exit_price=105.0,
@@ -509,7 +509,7 @@ def make_ensemble_trade(
 ):
     from src.data.storage import TradeRecord
 
-    blended_p_long = (1.0 - blend_weight) * raw_p_long + blend_weight * ensemble_point_estimate
+    blended_p_long = (1.0 - blend_weight) * raw_p_long + blend_weight * ensemble_p_long
     return TradeRecord(
         id=trade_id,
         symbol="BTC/USDT",
@@ -532,8 +532,9 @@ def make_ensemble_trade(
         exit_reason="profit_target",
         approved_by="auto",
         raw_signal=blended_p_long,
-        ensemble_point_estimate=ensemble_point_estimate,
         ensemble_blend_weight=blend_weight,
+        pre_blend_p_long=raw_p_long,
+        ensemble_p_long=ensemble_p_long,
     )
 
 
@@ -555,7 +556,7 @@ class TestBuildEnsembleBlendSamples:
                 entry_ts=1000,
                 exit_ts=1500,
                 raw_p_long=0.7,
-                ensemble_point_estimate=0.4,
+                ensemble_p_long=0.4,
                 blend_weight=0.5,
             )
         ]
@@ -565,7 +566,7 @@ class TestBuildEnsembleBlendSamples:
         samples = asyncio.run(scheduler._build_ensemble_blend_samples())
         assert len(samples) == 1
         assert samples[0].raw_p_long == pytest.approx(0.7)
-        assert samples[0].ensemble_point_estimate == pytest.approx(0.4)
+        assert samples[0].ensemble_p_long == pytest.approx(0.4)
 
 
 class TestAutoTuningSchedulerEnsembleBlendAttempt:
