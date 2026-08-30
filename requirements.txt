@@ -41,3 +41,19 @@ prometheus-client>=0.20,<1.0
 structlog>=24.1,<26.0
 python-dotenv>=1.0,<2.0
 PyYAML>=6.0,<7.0
+
+# --- hard imports at module scope -------------------------------------------
+# These are NOT optional despite being heavy: each is imported unguarded at
+# module level, so the importing module fails outright without it.
+#   xgboost               src/engine/signal_engine.py
+#   hmmlearn              src/regime/detector.py, depth_detector_v2.py
+#   optuna                src/tuning/bayesian_proposer.py
+#   sentence-transformers rag_mongo/embeddings.py
+#   torch                 src/fusion/*, src/models/bert_head.py -- and
+#                         tests/test_meta_network_loss.py imports it at module
+#                         scope, so pytest needs it at collection time.
+xgboost>=2.0,<4.0
+hmmlearn>=0.3,<1.0
+optuna>=3.6,<5.0
+sentence-transformers>=3.0,<6.0
+torch>=2.3,<3.0
