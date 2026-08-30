@@ -8,9 +8,12 @@ __pycache__/
 *.py[cod]
 .venv/
 node_modules/
-data/
-logs/
-models/
+# Anchored to the repo root: bare "data/" and "models/" also match the source
+# directories src/data/ and src/models/, which would silently ignore any new
+# file added there (existing tracked files are unaffected, so it fails quietly).
+/data/
+/logs/
+/models/
 .kdev4/
 *.kdev4
 
