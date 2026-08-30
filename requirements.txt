@@ -35,6 +35,13 @@ statsmodels>=0.14,<1.0
 networkx>=3.3,<4.0
 joblib>=1.4,<2.0
 
+# Implicit dependency, not an import: pandas.read_parquet/to_parquet need a
+# parquet engine, and src/data/{orderbook_stream,exchange_flow_provider,
+# macro_provider,sentiment_provider,deribit_provider}.py plus
+# src/engines/orchestrator.py all call them unguarded. An AST import scan
+# cannot see this one -- it surfaced only when CI ran the suite.
+pyarrow>=16.0,<24.0
+
 # --- ops --------------------------------------------------------------------
 cryptography>=50.0.0,<51.0
 prometheus-client>=0.20,<1.0
