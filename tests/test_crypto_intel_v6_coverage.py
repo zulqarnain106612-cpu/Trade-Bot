@@ -68,8 +68,11 @@ class TestShadowDeployerExtended:
         dep.start()
         # shadow_hours=999 means the window has not elapsed, and evaluate()
         # returns None rather than judging the challenger on a partial window.
+        # evaluate() is typed ABResult | None and returns None here, so the
+        # old `result.promoted is False` raised AttributeError on None -- the
+        # assertion contradicted the comment directly above it.
         result = dep.evaluate()
-        assert result.promoted is False
+        assert result is None
 
     def test_evaluate_after_shadow_period(self) -> None:
         from src.upgrade.shadow_deploy import ShadowDeployer

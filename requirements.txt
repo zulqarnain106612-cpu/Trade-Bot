@@ -31,7 +31,7 @@ numpy>=1.26,<3.0
 pandas>=2.2,<3.0
 scipy>=1.13,<2.0
 scikit-learn>=1.9.0,<2.0
-statsmodels>=0.14,<1.0
+statsmodels>=0.15,<1.0   # 0.15 removed grangercausalitytests(verbose=)
 networkx>=3.3,<4.0
 joblib>=1.4,<2.0
 
