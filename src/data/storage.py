@@ -173,9 +173,25 @@ ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.
         "ALTER TABLE trades ADD COLUMN ensemble_point_estimate REAL;\n"
         "ALTER TABLE trades ADD COLUMN ensemble_blend_weight REAL;",
     ),
+    # v7 recorded the ensemble's point estimate, which is on the log-return
+    # scale, not the probability that was actually blended into p_long. The
+    # harness needs the two probabilities the blend combined, so it can
+    # recompute (1-w)*pre_blend_p_long + w*ensemble_p_long for any candidate
+    # w. Neither is derivable from the post-blend value, which the
+    # online-trainer blend perturbs again immediately afterwards.
+    #
+    # A separate migration rather than an edit to v7: v7 has already run in
+    # live databases, so its SQL can never change.
+    (
+        8,
+        "add pre_blend_p_long/ensemble_p_long to trades -- the two inputs the "
+        "ensemble blend actually combined",
+        "ALTER TABLE trades ADD COLUMN pre_blend_p_long REAL;\n"
+        "ALTER TABLE trades ADD COLUMN ensemble_p_long REAL;",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 7
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 8
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -241,8 +257,9 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,                 -- profit_target|stop_loss|time_exit|manual
     approved_by     TEXT,                 -- operator id or 'auto'
     raw_signal      REAL,                 -- XGBoost primary probability
-    -- pre_blend_p_long / ensemble_p_long / ensemble_blend_weight are added by
-    -- migration v7, not declared here. SQLite has no ADD COLUMN IF NOT EXISTS,
+    -- ensemble_point_estimate / ensemble_blend_weight are added by migration
+    -- v7, and pre_blend_p_long / ensemble_p_long by v8; none are declared
+    -- here. SQLite has no ADD COLUMN IF NOT EXISTS,
     -- so a column that appears in both this DDL and a migration makes every
     -- fresh database fail on "duplicate column name" — which is why no
     -- post-v0 column is declared here. The Postgres DDL can list them because
@@ -406,6 +423,7 @@ class TradeRecord:
         "approved_by",
         "direction",
         "ensemble_blend_weight",
+        "ensemble_p_long",
         "ensemble_point_estimate",
         "entry_price",
         "entry_ts",
@@ -454,6 +472,8 @@ class TradeRecord:
         raw_signal: float | None,
         ensemble_point_estimate: float | None = None,
         ensemble_blend_weight: float | None = None,
+        pre_blend_p_long: float | None = None,
+        ensemble_p_long: float | None = None,
     ) -> None:
         self.id = id
         self.symbol = symbol
@@ -478,6 +498,8 @@ class TradeRecord:
         self.raw_signal = raw_signal
         self.ensemble_point_estimate = ensemble_point_estimate
         self.ensemble_blend_weight = ensemble_blend_weight
+        self.pre_blend_p_long = pre_blend_p_long
+        self.ensemble_p_long = ensemble_p_long
 
 
 class MissedTradeRecord:
@@ -1209,9 +1231,10 @@ class StorageBackend:
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
                         exit_reason, approved_by, raw_signal,
-                        ensemble_point_estimate, ensemble_blend_weight
+                        ensemble_point_estimate, ensemble_blend_weight,
+                        pre_blend_p_long, ensemble_p_long
                     ) VALUES (
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                     )
                     """,
                     (
@@ -1238,6 +1261,8 @@ class StorageBackend:
                         trade.raw_signal,
                         trade.ensemble_point_estimate,
                         trade.ensemble_blend_weight,
+                        trade.pre_blend_p_long,
+                        trade.ensemble_p_long,
                     ),
                 )
                 await conn.commit()
@@ -1361,7 +1386,8 @@ class StorageBackend:
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
                 " exit_reason, approved_by, raw_signal,"
-                " ensemble_point_estimate, ensemble_blend_weight"
+                " ensemble_point_estimate, ensemble_blend_weight,"
+                " pre_blend_p_long, ensemble_p_long"
                 " FROM trades WHERE "
                 + " AND ".join(clauses)
                 + " ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
@@ -1373,7 +1399,8 @@ class StorageBackend:
                 " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
                 " kelly_fraction, regime_at_entry, meta_label_prob,"
                 " exit_reason, approved_by, raw_signal,"
-                " ensemble_point_estimate, ensemble_blend_weight"
+                " ensemble_point_estimate, ensemble_blend_weight,"
+                " pre_blend_p_long, ensemble_p_long"
                 " FROM trades ORDER BY entry_ts DESC LIMIT ? OFFSET ?"
             )
         params.append(limit)
@@ -1405,6 +1432,8 @@ class StorageBackend:
                 raw_signal=r["raw_signal"],
                 ensemble_point_estimate=r["ensemble_point_estimate"],
                 ensemble_blend_weight=r["ensemble_blend_weight"],
+                pre_blend_p_long=r["pre_blend_p_long"],
+                ensemble_p_long=r["ensemble_p_long"],
             )
             for r in rows
         ]
