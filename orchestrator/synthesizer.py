@@ -1,5 +1,6 @@
 """Coordinator's second and final call: synthesize digests into one answer.
 Only the short digests are included -- never the workers' raw sessions."""
+
 from __future__ import annotations
 
 from common.claude_cli import run_claude
