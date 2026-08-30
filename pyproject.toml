@@ -47,11 +47,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# TODO: src/tuning/backtest_harness.py defines EnsembleBlendSample,
-# ensemble_blend_samples_from_trades and run_ensemble_blend_backtest twice
-# (lines 333/732, 356/751, 402/786); the second definition silently wins.
-# Ignored so CI can go green -- remove once the duplicates are reconciled.
-"src/tuning/backtest_harness.py" = ["F811"]
 "tests/*" = ["B011"]
 
 [tool.ruff.format]
