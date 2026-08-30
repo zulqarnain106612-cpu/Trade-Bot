@@ -11,13 +11,14 @@ overlaid on top of the static .env-derived default.
 Only parameters actually registered in parameter_registry (see
 src/tuning/bootstrap.py) are overlaid -- an unregistered field is
 returned unchanged. Registration itself requires an explicit startup
-step (AutoTuningScheduler.start() or scripts/run_tuning_attempt.py), so
+step (AutoTuningScheduler.start(); the manual script counterpart was
+removed by the config purge in #144), so
 these helpers are a no-op overlay until self-tuning is enabled and that
 step has run.
 
 Callers that need a FIXED value regardless of concurrent promotions --
-chiefly AutoTuningScheduler's and run_tuning_attempt.py's own
-champion/challenger backtest evaluation, which must compare against the
+chiefly AutoTuningScheduler's own champion/challenger backtest
+evaluation, which must compare against the
 exact proposal it generated, not a value that could change mid-backtest
 -- must keep passing an explicit cfg= / *_cfg= argument. These helpers
 only change what each consumer's *default* resolves to; every call site

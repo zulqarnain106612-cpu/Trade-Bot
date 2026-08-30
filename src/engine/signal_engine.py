@@ -1738,8 +1738,9 @@ class SignalEngine:
         The engine fetches these from the provider aggregator on every tick and,
         until now, used them only for the current decision and dropped them.
         `store_intelligence_features()` existed on both storage backends and was
-        called by exactly one thing: scripts/backfill_intelligence.py, run by
-        hand. So in a live deployment the table stayed empty, which silently
+        called by exactly one thing: a backfill script run by hand, which
+        the config purge (#144) removed. So in a live deployment the table
+        stayed empty, which silently
         starves two consumers that expect it to be populated -- the trainer's
         intelligence feature matrix (GAP-015) and the v7 macro overlay.
 
