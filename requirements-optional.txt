@@ -6,7 +6,7 @@
 
 # --- deep learning (torch itself is a core dep -- see requirements.txt) -----
 torch-geometric>=2.5,<3.0          # src/models graph networks
-transformers>=5.15.1,<6.0          # src/intelligence text models
+transformers>=5.16.1,<6.0          # src/intelligence text models
 
 # --- gradient boosting / classical ML --------------------------------------
 pmdarima>=2.0,<3.0                 # src/models ARIMA
