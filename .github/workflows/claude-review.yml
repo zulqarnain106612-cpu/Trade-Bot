@@ -65,4 +65,5 @@ jobs:
             fraud-review pattern in Anthropic's CMA_with_mongodb_atlas
             cookbook.
           claude_args: |
-            --max-turns 8
+            --max-turns 20
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
