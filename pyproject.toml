@@ -41,6 +41,11 @@ source = ["src", "kg", "rag_mongo", "orchestrator", "common", "tools", "review"]
 
 [tool.coverage.report]
 fail_under = 99
+# Two decimal places, so fail_under is compared against the real number.
+# At the default precision of 0, coverage rounds before the comparison and
+# 98.97% passes a gate that says 99 -- pytest-cov even prints "FAIL Required
+# test coverage of 99% not reached" while exiting 0.
+precision = 2
 show_missing = true
 skip_covered = false
 exclude_also = [
