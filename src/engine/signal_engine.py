@@ -215,6 +215,10 @@ class SignalResult:
     ensemble_point_estimate: float | None = None
     ensemble_uncertainty: float | None = None
     ensemble_blend_weight: float | None = None
+    # The blend's two inputs. Set together with ensemble_blend_weight or not
+    # at all -- orchestrator._blend_audit treats a partial set as no blend.
+    pre_blend_p_long: float | None = None
+    ensemble_p_long: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -880,6 +884,11 @@ class SignalEngine:
         # into run_ensemble_blend_backtest, which replays realized outcomes
         # against challenger blend weights.
         _ensemble_uncertainty: float | None = None
+        # The two inputs to the blend itself. Recorded because the blended
+        # p_long cannot be inverted back to them: the online-trainer blend
+        # below perturbs it again immediately.
+        _pre_blend_p_long: float | None = None
+        _ensemble_p_long: float | None = None
         if ensemble is not None and _ensemble_blend_weight > 0.0:
             try:
                 _ens_pred = ensemble.predict_row(vec)
@@ -896,7 +905,7 @@ class SignalEngine:
                 _z = _ensemble_point_estimate / max(_total_uncertainty, 1e-9)
                 _p_ensemble_long = 0.5 * (1.0 + math.tanh(_z))
                 _pre_blend_p_long = p_long
-                _p_ensemble_long_recorded = _p_ensemble_long
+                _ensemble_p_long = _p_ensemble_long
                 p_long = (
                     1.0 - _ensemble_blend_weight
                 ) * p_long + _ensemble_blend_weight * _p_ensemble_long
@@ -908,6 +917,8 @@ class SignalEngine:
                 self._log.warning("signal.ensemble_blend_failed", error=str(exc), exc_info=True)
                 _ensemble_point_estimate = None
                 _ensemble_uncertainty = None
+                _pre_blend_p_long = None
+                _ensemble_p_long = None
 
         # TASK-008 online blend, applied here rather than once at the end:
         # p_long is final at this point and is what every gate downstream
@@ -1498,6 +1509,8 @@ class SignalEngine:
             ensemble_blend_weight=(
                 _ensemble_blend_weight if _ensemble_point_estimate is not None else None
             ),
+            pre_blend_p_long=_pre_blend_p_long,
+            ensemble_p_long=_ensemble_p_long,
         )
 
     # ------------------------------------------------------------------
@@ -1725,8 +1738,9 @@ class SignalEngine:
         The engine fetches these from the provider aggregator on every tick and,
         until now, used them only for the current decision and dropped them.
         `store_intelligence_features()` existed on both storage backends and was
-        called by exactly one thing: scripts/backfill_intelligence.py, run by
-        hand. So in a live deployment the table stayed empty, which silently
+        called by exactly one thing: a backfill script run by hand, which
+        the config purge (#144) removed. So in a live deployment the table
+        stayed empty, which silently
         starves two consumers that expect it to be populated -- the trainer's
         intelligence feature matrix (GAP-015) and the v7 macro overlay.
 

@@ -1,0 +1,39 @@
+# Heavy / optional dependencies.
+#
+# Not required to run the core engine or the API. Install with:
+#   pip install -r requirements.txt -r requirements-optional.txt
+# Regenerated from real imports; each entry names the module that pulls it in.
+
+# --- deep learning (torch itself is a core dep -- see requirements.txt) -----
+torch-geometric>=2.5,<3.0          # src/models graph networks
+transformers>=5.15.1,<6.0          # src/intelligence text models
+
+# --- gradient boosting / classical ML --------------------------------------
+pmdarima>=2.0,<3.0                 # src/models ARIMA
+river>=0.21,<1.0                   # src/tuning online learning
+arch>=6.3,<8.0                     # crypto-predictor/volatility.py (unguarded,
+                                   # but crypto-predictor is a standalone
+                                   # sub-project outside the CI python job)
+
+# --- reinforcement learning -------------------------------------------------
+stable-baselines3>=2.3,<3.0        # src/engines
+gymnasium>=0.29,<2.0               # src/engines envs
+
+# --- experiment tracking / tuning ------------------------------------------
+mlflow>=3.15.1,<4.0                # src/tuning
+evidently>=0.4,<1.0                # src/diagnostics drift
+
+# --- causal / topological ---------------------------------------------------
+dowhy>=0.11,<1.0                   # src/causal
+giotto-tda>=0.6,<1.0               # src/features (imports as gtda)
+
+# --- market / chain data ----------------------------------------------------
+yfinance>=0.2,<1.0                 # src/data
+web3>=6.19,<8.0                    # src/data on-chain
+vaderSentiment>=3.3,<4.0           # src/intelligence sentiment
+
+# --- streaming --------------------------------------------------------------
+aiokafka>=0.10,<1.0                # src/workers
+
+# --- soft dependencies (guarded by try/except with a fallback) --------------
+graphsense-lib>=24.1                # src/ecc/secp256k1_cluster.py UTXO clustering

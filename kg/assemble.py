@@ -1,6 +1,7 @@
 """Assemble stage: upsert canonical nodes + typed edges with provenance into
 MongoDB. Idempotent via upsert-on-unique-key -- re-ingesting the same
 document does not duplicate nodes or edges, only adds a source reference."""
+
 from .db import get_nodes_collection, get_edges_collection
 from .resolve import resolve_entities
 

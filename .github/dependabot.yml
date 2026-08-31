@@ -1,0 +1,49 @@
+# Regenerated after the config purge (#144).
+#
+# Grouped deliberately: the pre-purge config opened one PR per package, which
+# is how 11 dependency PRs accumulated against manifests that had been deleted.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # Major bumps of the heavy ML stack need a deliberate migration, not a bot.
+      - dependency-name: torch
+        update-types: ["version-update:semver-major"]
+      - dependency-name: transformers
+        update-types: ["version-update:semver-major"]
+      - dependency-name: mlflow
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-build:
+        patterns: ["vite", "@vitejs/*", "tailwindcss", "postcss", "autoprefixer"]
+      frontend-runtime:
+        patterns: ["react", "react-dom", "recharts"]
+      electron:
+        patterns: ["electron", "electron-builder"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]

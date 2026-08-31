@@ -93,5 +93,17 @@ def test_the_frontend_still_sends_the_parameter_the_server_reads() -> None:
     """
     from pathlib import Path
 
-    app_jsx = Path("frontend/src/App.jsx").read_text(encoding="utf-8")
-    assert "api_key=" in app_jsx, "frontend no longer sends ?api_key= — update the server"
+    # Scan the whole frontend source rather than a single file. The call
+    # lives in hooks/useApi.js, not App.jsx where this test used to look, so
+    # pinning the filename reported a broken contract when the contract was
+    # intact and only the file had changed.
+    frontend_src = Path(__file__).resolve().parent.parent / "frontend" / "src"
+    sources = [
+        path.read_text(encoding="utf-8")
+        for pattern in ("*.js", "*.jsx")
+        for path in frontend_src.rglob(pattern)
+    ]
+    assert sources, f"no frontend sources found under {frontend_src}"
+    assert any("api_key=" in text for text in sources), (
+        "frontend no longer sends ?api_key= — update the server"
+    )

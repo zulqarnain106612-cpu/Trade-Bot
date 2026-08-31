@@ -2,6 +2,7 @@
 (the `result` field) ever leaves this module -- raw tool transcripts,
 intermediate reasoning, and any file contents the worker read are discarded
 here, never forwarded to the coordinator."""
+
 from __future__ import annotations
 
 from common.claude_cli import run_claude

@@ -122,14 +122,29 @@ class TestBERTHead:
 
 
 class TestGNNHead:
-    def test_output_shape_without_pyg(self) -> None:
-        """A plain [B, F] tensor takes the fallback path and maps to [B, d_model]."""
+    def test_a_single_graph_pools_to_one_embedding_without_pyg(self) -> None:
+        """
+        A 2-D [N, F] node matrix is ONE graph of N nodes, so the fallback
+        pools it to [1, d_model].
+
+        This asserts [1, ...] rather than [N, ...] on purpose: d676506
+        changed the fallback to pool, so that it matches what the PyG and
+        Data.x paths do via global_mean_pool. This test kept asserting the
+        pre-fix shape and was simply never updated.
+        """
         from src.models.gnn_head import GNNHead
 
         model = GNNHead(node_features=32, d_model=128)
-        x = torch.randn(5, 32)
-        out = model(x)
-        assert out.shape == (5, 128)
+        out = model(torch.randn(5, 32))
+        assert out.shape == (1, 128)
+
+    def test_a_batch_of_graphs_pools_per_graph_without_pyg(self) -> None:
+        """A 3-D [B, N, F] batch pools over nodes, keeping one row per graph."""
+        from src.models.gnn_head import GNNHead
+
+        model = GNNHead(node_features=32, d_model=128)
+        out = model(torch.randn(2, 5, 32))
+        assert out.shape == (2, 128)
 
 
 class TestPatchTSTHead:
