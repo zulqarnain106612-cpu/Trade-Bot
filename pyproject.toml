@@ -16,7 +16,7 @@ optional-dependencies.dev = { file = ["requirements-dev.txt"] }
 optional-dependencies.extras = { file = ["requirements-optional.txt"] }
 
 [tool.setuptools.packages.find]
-include = ["src*", "kg*", "rag_mongo*", "orchestrator*", "common*", "tools*"]
+include = ["src*", "kg*", "rag_mongo*", "orchestrator*", "common*", "tools*", "review*"]
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
@@ -28,8 +28,26 @@ testpaths = ["tests"]
 # Tests import as `from src.<pkg> ...`, so the repo root must be importable.
 pythonpath = ["."]
 asyncio_mode = "auto"
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config --cov --cov-branch --cov-report=term-missing --cov-fail-under=99"
 filterwarnings = ["error::DeprecationWarning:src.*"]
+
+[tool.coverage.run]
+branch = true
+# Every first-party package in the repo -- deliberately not "." so the gate
+# can't be satisfied by leaving a whole package unmeasured. crypto-predictor
+# is excluded to match its existing standalone-sub-project status (see
+# requirements-optional.txt and tool.ruff.extend-exclude).
+source = ["src", "kg", "rag_mongo", "orchestrator", "common", "tools", "review"]
+
+[tool.coverage.report]
+fail_under = 99
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "pragma: no cover",
+]
 
 [tool.ruff]
 target-version = "py311"
