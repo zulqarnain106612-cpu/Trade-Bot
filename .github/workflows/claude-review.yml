@@ -64,6 +64,12 @@ jobs:
             makes the final call -- human-in-the-loop, adapted from the
             fraud-review pattern in Anthropic's CMA_with_mongodb_atlas
             cookbook.
+
+            Post your findings as a single summary comment via
+            `gh pr comment ${{ github.event.pull_request.number }} --body "..."`
+            (or as inline comments on specific lines via the inline-comment
+            tool where that's clearer). Do not just return the review as your
+            final text response -- it must be posted to the PR.
           claude_args: |
             --max-turns 40
-            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
