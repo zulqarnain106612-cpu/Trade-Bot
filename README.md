@@ -22,10 +22,10 @@ Stack: Python 3.11, uv, FastAPI, ccxt, XGBoost, GaussianHMM, React (Vite), Tailw
 | Online adaptation | `src/models/online_trainer.py` — incremental SGD updates between full retrains. **Built and tested, not yet wired into the signal path** — no caller blends its prediction today. |
 
 ## Intelligence Layer
-
+provi
 Aggregates exchange and on-chain signals to feed the feature pipeline and
 risk gates (`src/intelligence/`, `src/features/intelligence_features.py`).
-Fails open (safe fallback values + reduced confidence) if a provider is
+Fails open (safe fallback values + reduced confidence) if a der is
 unreachable or unkeyed — never blocks the core trading loop.
 
 | Source | Provider | Notes |
@@ -412,3 +412,4 @@ Set `TRADING_MODE=live` in `.env` — the only way to unlock live trading.
 - Carver (2019) *Systematic Trading*
 - Peters (1994) *Fractal Market Hypothesis*
 - Thorp (2006) "The Kelly Criterion in Blackjack, Sports Betting and the Stock Market"
+// test change
