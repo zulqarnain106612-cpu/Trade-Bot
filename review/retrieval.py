@@ -4,6 +4,7 @@ queries -- deliberately NOT the Managed Agents runtime itself, which needs
 an API key and Managed Agents beta access this project doesn't have.
 These are the same "liftable building blocks" the cookbook describes,
 minus the hosted-agent wrapper."""
+
 from __future__ import annotations
 
 from rag_mongo.db import get_collection

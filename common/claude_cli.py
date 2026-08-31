@@ -10,6 +10,7 @@ Every call is stateless (no --continue/--resume): context never accumulates
 across calls -- each call's context is bounded to exactly its own prompt,
 which is the core token/context discipline this whole repo depends on.
 """
+
 from __future__ import annotations
 
 import json

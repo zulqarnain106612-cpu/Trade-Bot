@@ -7,6 +7,7 @@ GitHub's cloud service. Produces a bounded context.json that the
 claude-review job attaches to the review prompt, so review is grounded in
 the project's RAG + knowledge-graph store, not just the raw diff.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,6 +60,5 @@ if __name__ == "__main__":
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(ctx, f, indent=2)
     print(
-        f"Wrote {args.out}: {len(ctx['related_documents'])} docs, "
-        f"{len(ctx['related_facts'])} facts"
+        f"Wrote {args.out}: {len(ctx['related_documents'])} docs, {len(ctx['related_facts'])} facts"
     )
