@@ -109,62 +109,6 @@ class OrderManager:
                 error=str(exc),
             )
 
-    def _record_incremental_fill(self, fsm: OrderFSM, confirmed: dict[str, Any]) -> None:
-        """
-        Feed one poll's newly-filled quantity into the FSM.
-
-        ccxt reports `filled` and `average` cumulatively on an open order,
-        while add_partial_fill takes an increment, so the delta is derived
-        against what the FSM already holds. The increment's price is backed
-        out of the two cumulative VWAPs rather than taken as `average`
-        directly -- using the running average as the price of the newest
-        piece would bias the FSM's own VWAP toward the earliest fills and
-        stop it reproducing the exchange's number.
-
-        Anything unusable (missing fields, no progress, a non-positive
-        derived price) is skipped rather than guessed at: this is
-        book-keeping alongside the poll, and it must never be the reason a
-        live order's confirmation loop dies.
-        """
-        if fsm.state.status != OrderStatus.FILLING:
-            return
-
-        raw_filled = confirmed.get("filled")
-        raw_avg = confirmed.get("average")
-        if raw_filled is None or raw_avg is None:
-            return
-        try:
-            cumulative_qty = float(raw_filled)
-            cumulative_avg = float(raw_avg)
-        except (TypeError, ValueError):
-            return
-
-        delta_qty = cumulative_qty - fsm.state.filled_qty
-        if delta_qty <= 0.0 or cumulative_avg <= 0.0:
-            return
-
-        # average_fill_price is None until the first piece is recorded.
-        prior_avg = fsm.state.average_fill_price or 0.0
-        prior_value = prior_avg * fsm.state.filled_qty
-        delta_price = (cumulative_avg * cumulative_qty - prior_value) / delta_qty
-        if delta_price <= 0.0:
-            return
-
-        try:
-            fsm.add_partial_fill(delta_qty, delta_price)
-        except OrderFSMError as exc:
-            # Overfill against the order's own quantity is the realistic
-            # case, and it means the exchange and the FSM disagree about the
-            # order -- worth surfacing, not worth aborting the poll over.
-            self._log.warning(
-                "order_manager.partial_fill_rejected",
-                order_id=fsm.state.order_id,
-                symbol=fsm.state.symbol,
-                delta_qty=delta_qty,
-                cumulative_qty=cumulative_qty,
-                error=str(exc),
-            )
-
     async def place_order_with_fsm(
         self,
         exchange: ccxt.async_support.Exchange,
