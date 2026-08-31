@@ -26,7 +26,7 @@
     "electron-builder": "^26.15.3",
     "postcss": "^8.4.38",
     "sharp": "^0.35.3",
-    "tailwindcss": "^3.4.19",
+    "tailwindcss": "^4.3.3",
     "vite": "^8.2.1",
     "wait-on": "^8.0.1"
   },
