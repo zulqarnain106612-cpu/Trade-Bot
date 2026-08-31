@@ -1,6 +1,5 @@
 """Coordinator: plans big, exactly once. The cheap worker model never sees
 this prompt, and this prompt never sees any worker's raw output."""
-
 from __future__ import annotations
 
 import json

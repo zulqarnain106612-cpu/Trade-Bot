@@ -2,7 +2,6 @@
 question, then reason over just those triples. Never serialize the whole
 graph -- that would make context grow unboundedly as the graph scales, the
 opposite of what this component exists to prevent."""
-
 from __future__ import annotations
 
 import re
@@ -21,7 +20,9 @@ def _candidate_names(question: str) -> list[str]:
     if hits:
         return hits
     pattern = "|".join(re.escape(w) for w in words)
-    cursor = nodes_col.find({"name": {"$regex": pattern, "$options": "i"}}, {"name": 1}).limit(10)
+    cursor = nodes_col.find(
+        {"name": {"$regex": pattern, "$options": "i"}}, {"name": 1}
+    ).limit(10)
     return [d["name"] for d in cursor]
 
 

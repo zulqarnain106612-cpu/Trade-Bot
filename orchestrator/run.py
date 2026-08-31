@@ -12,7 +12,6 @@ Context/token discipline enforced here:
   4. Subtasks run concurrently (threads), bounded by MAX_SUBTASKS, so wall
      time doesn't scale linearly with subtask count.
 """
-
 from __future__ import annotations
 
 import json
@@ -46,7 +45,7 @@ def run(task: str) -> dict:
         "answer": final["result"],
         "usage_estimate_usd": round(total_cost, 4),
         "note": "Estimate only -- billed against your Pro/Max usage limits, "
-        "not metered API dollars.",
+                "not metered API dollars.",
     }
 
 

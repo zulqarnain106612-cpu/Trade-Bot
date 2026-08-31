@@ -15,7 +15,6 @@ Contract:
   - Print ONLY a compact digest (JSON) to stdout. No raw record dumps.
   - Exit non-zero on unrecoverable error so the caller notices.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -39,20 +38,26 @@ async def run() -> dict:
 
     members = json.loads(await get_team_members(department))
 
-    expense_results = await asyncio.gather(*(get_expenses(m["id"], quarter) for m in members))
+    expense_results = await asyncio.gather(
+        *(get_expenses(m["id"], quarter) for m in members)
+    )
 
     travel_totals: dict[str, float] = {}
     for member, raw in zip(members, expense_results):
         expenses = json.loads(raw)
         travel_totals[member["id"]] = sum(
-            e["amount"] for e in expenses if e["category"] == "travel" and e["status"] == "approved"
+            e["amount"]
+            for e in expenses
+            if e["category"] == "travel" and e["status"] == "approved"
         )
 
     over_standard = {
         emp_id: total for emp_id, total in travel_totals.items() if total > standard_budget
     }
 
-    budget_results = await asyncio.gather(*(get_custom_budget(emp_id) for emp_id in over_standard))
+    budget_results = await asyncio.gather(
+        *(get_custom_budget(emp_id) for emp_id in over_standard)
+    )
 
     exceeded = []
     for emp_id, budget_raw in zip(over_standard, budget_results):

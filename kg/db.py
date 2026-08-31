@@ -1,6 +1,5 @@
 """Reuses the RAG component's Mongo connection settings (same Atlas
 cluster/database, separate collections) -- no new infra to provision."""
-
 from pymongo import MongoClient
 from rag_mongo.config import MONGODB_URI, MONGODB_DB
 from .config import KG_NODES_COLLECTION, KG_EDGES_COLLECTION
@@ -8,7 +7,9 @@ from .config import KG_NODES_COLLECTION, KG_EDGES_COLLECTION
 
 def _require_uri() -> str:
     if not MONGODB_URI:
-        raise RuntimeError("MONGODB_URI not set. Copy .env.example to .env and fill it in.")
+        raise RuntimeError(
+            "MONGODB_URI not set. Copy .env.example to .env and fill it in."
+        )
     return MONGODB_URI
 
 

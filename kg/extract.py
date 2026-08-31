@@ -1,7 +1,6 @@
 """Extract stage: ONE cheap-model call per document, schema-constrained --
 matches the cookbook's design ("haiku pulls entities and triples, one call
 per doc") and bounds cost regardless of document length."""
-
 from common.claude_cli import run_claude
 from .config import KG_EXTRACT_MODEL
 from .schema import EXTRACTION_SCHEMA

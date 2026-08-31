@@ -3,7 +3,6 @@ Reference tools showing the orchestratable / direct-only split.
 Replace bodies with real integrations (DB, REST API, MCP client, CLI wrapper).
 Keep the decorator flags -- that's the safety boundary the skill enforces.
 """
-
 from __future__ import annotations
 
 import asyncio

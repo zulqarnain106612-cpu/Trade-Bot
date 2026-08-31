@@ -1,23 +1,4 @@
-# Minimal safety net until the new config set is generated.
-.env
-.env.*
-!.env.example
-*.pem
-*.key
 __pycache__/
-*.py[cod]
+*.pyc
 .venv/
-node_modules/
-# Anchored to the repo root: bare "data/" and "models/" also match the source
-# directories src/data/ and src/models/, which would silently ignore any new
-# file added there (existing tracked files are unaffected, so it fails quietly).
-/data/
-/logs/
-/models/
-.kdev4/
-*.kdev4
-
-# Frontend build output
-frontend/dist/
-frontend/build/
-frontend/release/
+.env

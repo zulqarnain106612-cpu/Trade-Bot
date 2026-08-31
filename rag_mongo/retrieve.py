@@ -15,6 +15,6 @@ def vector_search(query: str, top_k: int = TOP_K) -> list[dict]:
                 "limit": top_k,
             }
         },
-        {"$project": {"text": 1, "source": 1, "score": {"$meta": "vectorSearchScore"}}},
+        {"$project": {"_id": 0, "text": 1, "source": 1, "score": {"$meta": "vectorSearchScore"}}},
     ]
     return list(get_collection().aggregate(pipeline))
