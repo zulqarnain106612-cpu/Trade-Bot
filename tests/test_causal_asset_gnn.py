@@ -105,3 +105,10 @@ def test_asset_gnn_run_numpy_path_pads_features_narrower_than_hidden_dim():
     result = gnn.run(prices, node_features)
     for emb in result.asset_embeddings.values():
         assert len(emb) == 6
+
+
+def test_run_numpy_skips_padding_when_features_are_already_hidden_dim_wide():
+    gnn = AssetGNN(n_layers=2, hidden_dim=4, d_model=16)
+    features = np.arange(12, dtype=np.float64).reshape(3, 4)
+    out = gnn._run_numpy(features, [(0, 1), (1, 0)], [0.8, 0.8])
+    assert out.shape == (3, 4)
