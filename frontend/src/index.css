@@ -1,6 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 entry point. @config keeps the v3-style theme in
+   tailwind.config.js authoritative instead of porting it to @theme. */
+@import "tailwindcss";
+@config "../tailwind.config.js";
 
 * {
   box-sizing: border-box;
