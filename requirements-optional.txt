@@ -20,7 +20,7 @@ stable-baselines3>=2.3,<3.0        # src/engines
 gymnasium>=0.29,<2.0               # src/engines envs
 
 # --- experiment tracking / tuning ------------------------------------------
-mlflow>=3.15.1,<4.0                # src/tuning
+mlflow>=3.15.2,<4.0                # src/tuning
 evidently>=0.4,<1.0                # src/diagnostics drift
 
 # --- causal / topological ---------------------------------------------------
