@@ -1,9 +1,7 @@
-// Tailwind v3: the PostCSS plugin ships inside the `tailwindcss` package.
-// (Do not switch to "@tailwindcss/postcss" without also moving src/index.css
-// off the v3 `@tailwind base/components/utilities` directives.)
+// Tailwind v4: the PostCSS plugin lives in its own package, and vendor
+// prefixing is built in, so autoprefixer is no longer listed.
 export default {
   plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
+    "@tailwindcss/postcss": {},
   },
 };
