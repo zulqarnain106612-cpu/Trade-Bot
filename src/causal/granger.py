@@ -106,9 +106,10 @@ class GrangerCausalityDetector:
                 if len(df) < _MIN_WINDOW:
                     continue
 
-                test_result = grangercausalitytests(
-                    df[["alt", "btc"]], maxlag=self._max_lag, verbose=False
-                )
+                # No verbose= kwarg: deprecated in statsmodels 0.14 and removed
+                # in 0.15, where passing it raises TypeError. 0.15 prints
+                # nothing by default, which is what verbose=False asked for.
+                test_result = grangercausalitytests(df[["alt", "btc"]], maxlag=self._max_lag)
 
                 best_pval = 1.0
                 best_lag = 1

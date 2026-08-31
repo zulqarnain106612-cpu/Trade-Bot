@@ -31,3 +31,15 @@ def ensure_vector_index() -> None:
         definition=definition, name=VECTOR_INDEX_NAME, type="vectorSearch"
     )
     col.create_search_index(model=model)
+
+
+def ensure_fulltext_index(name: str = "fulltext_index") -> None:
+    """Idempotent Atlas full-text Search index -- backs the 'full-text' and
+    'hybrid' retrieval patterns in review/retrieval.py (Atlas M0+ only)."""
+    col = get_collection()
+    existing = {ix["name"] for ix in col.list_search_indexes()}
+    if name in existing:
+        return
+    definition = {"mappings": {"dynamic": False, "fields": {"text": {"type": "string"}}}}
+    model = SearchIndexModel(definition=definition, name=name, type="search")
+    col.create_search_index(model=model)

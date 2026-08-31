@@ -1,0 +1,53 @@
+# Regenerated after the config purge (#144). Tool configuration only -- the
+# dependency lists live in requirements*.txt, which CI installs directly.
+
+[project]
+name = "trade-bot"
+version = "1.0.0"
+description = "Async algorithmic crypto trading bot with an intelligence layer"
+requires-python = ">=3.11,<3.12"
+readme = "README.md"
+license = { text = "MIT" }
+dynamic = ["dependencies", "optional-dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+optional-dependencies.dev = { file = ["requirements-dev.txt"] }
+optional-dependencies.extras = { file = ["requirements-optional.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["src*", "kg*", "rag_mongo*", "orchestrator*", "common*", "tools*"]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Tests import as `from src.<pkg> ...`, so the repo root must be importable.
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error::DeprecationWarning:src.*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["frontend", "crypto-predictor"]
+
+[tool.ruff.lint]
+# Deliberately lean to start: real-error families only (pyflakes, pycodestyle,
+# async correctness). The stylistic families -- UP, B, SIM, I -- flag ~280
+# findings across the existing tree; enable them in a dedicated cleanup pass
+# rather than wiring CI to a tree that cannot pass it.
+select = ["E", "F", "W", "ASYNC"]
+ignore = [
+    "E501",  # line length is the formatter's job, not the linter's
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.ruff.format]
+quote-style = "double"

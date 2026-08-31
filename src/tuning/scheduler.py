@@ -1,7 +1,7 @@
 """
 Auto-tuning scheduler -- the "explicit startup step" referenced by
 src/tuning/bootstrap.py's module docstring, and the automated counterpart
-to scripts/run_tuning_attempt.py (which remains the manual entrypoint;
+to the manual tuning entrypoint that the config purge (#144) removed;
 this module reuses the exact same process-wide singletons from
 src/tuning/state.py so both paths share one audit trail / version store).
 

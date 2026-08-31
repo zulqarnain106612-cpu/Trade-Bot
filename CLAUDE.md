@@ -34,3 +34,11 @@ instead of re-reading every source document. Ingest sources once with
 future questions don't re-pay the extraction cost. Queries only load a
 bounded subgraph (`KG_MAX_SUBGRAPH_TRIPLES`), never the whole graph.
 See `docs/KNOWLEDGE_GRAPH.md`.
+
+## Cloud review + retrieval (Component 5)
+
+Every pull request is automatically reviewed by `.github/workflows/claude-review.yml`,
+grounded in this project's MongoDB Atlas RAG + knowledge graph via
+`review/retrieval.py` (vector/full-text/hybrid/graph patterns). This is
+advisory only -- it never approves or merges. See `docs/CLOUD_REVIEW.md` for
+setup and the one-time secrets/GitHub App requirements.

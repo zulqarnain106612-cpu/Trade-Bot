@@ -75,11 +75,21 @@ class TestCheckWhaleActivity:
         r = check_whale_activity(0.85, sell_threshold=0.85)
         assert r.passed
 
-    def test_below_threshold_reduces(self) -> None:
+    def test_below_threshold_triggers(self) -> None:
+        # Blocks by default; RISK_WHALE_GATE_ADVISORY opts into halving
+        # instead. See _whale_outcome -- flipping a live risk control from
+        # veto to size-reduction is an operator decision, so the default
+        # stayed "block". tests/test_whale_gate_advisory.py covers both
+        # postures; this asserts the default one.
         r = check_whale_activity(0.70, sell_threshold=0.85)
         assert not r.passed
         assert r.status == GateStatus.REDUCE_WHALE_ACTIVITY
-        assert r.details["whale_action"] == "reduce_50pct"
+        assert r.details["whale_action"] == "block"
+
+    def test_below_threshold_reduces_when_advisory(self) -> None:
+        r = check_whale_activity(0.70, sell_threshold=0.85, advisory=True, advisory_scalar=0.5)
+        assert r.status == GateStatus.REDUCE_WHALE_ACTIVITY
+        assert r.details["whale_action"] == "reduce_to_50%"
 
     def test_ratio_stored_in_details(self) -> None:
         r = check_whale_activity(1.5)

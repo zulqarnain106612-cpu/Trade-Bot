@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from rag_mongo.db import ensure_vector_index
+from rag_mongo.db import ensure_vector_index, ensure_fulltext_index
 from rag_mongo.ingest import ingest_text
 from rag_mongo.pipeline import answer_query
 
@@ -12,7 +12,7 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="rag_cli")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="Create vector index (one-time)")
+    sub.add_parser("init", help="Create vector + full-text indexes (one-time)")
 
     ing = sub.add_parser("ingest", help="Ingest a text file")
     ing.add_argument("path")
@@ -24,7 +24,8 @@ def main() -> None:
 
     if args.cmd == "init":
         ensure_vector_index()
-        print("Vector index ready.")
+        ensure_fulltext_index()
+        print("Vector + full-text indexes ready.")
     elif args.cmd == "ingest":
         with open(args.path, encoding="utf-8") as f:
             n = ingest_text(f.read(), source=args.path)

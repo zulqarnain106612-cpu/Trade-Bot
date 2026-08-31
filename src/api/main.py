@@ -1201,7 +1201,7 @@ async def self_tuning_status() -> dict[str, Any]:
 async def self_tuning_pause(body: SelfTuningPauseRequest, request: Request) -> dict[str, Any]:
     """Runtime pause, no restart required. Blocks new attempt() calls at
     the caller level (this flag is advisory to callers of TuningRunner.attempt,
-    e.g. scripts/run_tuning_attempt.py and any future scheduler, not enforced
+    e.g. AutoTuningScheduler and any future caller, not enforced
     inside TuningRunner itself -- see src/tuning/state.py)."""
     _state.check_endpoint_rate_limit(
         "self_tuning_pause", request.client.host if request.client else ""
