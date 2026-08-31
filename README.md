@@ -410,3 +410,4 @@ Set `TRADING_MODE=live` in `.env` — the only way to unlock live trading.
 - Carver (2019) *Systematic Trading*
 - Peters (1994) *Fractal Market Hypothesis*
 - Thorp (2006) "The Kelly Criterion in Blackjack, Sports Betting and the Stock Market"
+// test change
