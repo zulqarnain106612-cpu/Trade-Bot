@@ -346,7 +346,7 @@ def _orchestrator() -> MagicMock:
 
 
 def test_lifespan_starts_and_closes_crypto_intel_when_enabled():
-    import src.api.main as main_mod
+    from src.api import main as main_mod
 
     intel = MagicMock()
     adapter = MagicMock()
@@ -373,7 +373,7 @@ def test_lifespan_starts_and_closes_crypto_intel_when_enabled():
 
 
 def test_lifespan_survives_a_crypto_intel_that_fails_to_start():
-    import src.api.main as main_mod
+    from src.api import main as main_mod
 
     orch = _orchestrator()
     main_mod._state.intel_adapter = None
@@ -393,7 +393,7 @@ def test_lifespan_survives_a_crypto_intel_that_fails_to_start():
 
 
 def test_lifespan_survives_a_crypto_intel_that_fails_to_close():
-    import src.api.main as main_mod
+    from src.api import main as main_mod
 
     intel = MagicMock()
     intel.close.side_effect = RuntimeError("already gone")
@@ -420,7 +420,7 @@ def test_lifespan_survives_a_crypto_intel_that_fails_to_close():
 
 
 def test_lifespan_cancels_an_orchestrator_task_that_overruns_its_stop_timeout():
-    import src.api.main as main_mod
+    from src.api import main as main_mod
 
     orch = _orchestrator()
     cancelled: dict[str, bool] = {}
@@ -483,7 +483,7 @@ def test_strategy_portfolio_scopes_to_one_timeframe_when_asked(state, client):
 
 
 def test_lifespan_shutdown_tolerates_an_adapter_without_an_intel_object():
-    import src.api.main as main_mod
+    from src.api import main as main_mod
 
     adapter = MagicMock(spec=[])  # no _intel attribute at all
     orch = _orchestrator()

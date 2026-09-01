@@ -85,9 +85,14 @@ def test_a_failed_transaction_is_rolled_back(tmp_path):
     from src.data.duckdb_store import DuckDBStore
 
     store = DuckDBStore(path=tmp_path / "t.duckdb")
-    try:
-        with pytest.raises(RuntimeError, match="boom"), store._tx():
+
+    def _failing_tx():
+        with store._tx():
             raise RuntimeError("boom")
+
+    try:
+        with pytest.raises(RuntimeError, match="boom"):
+            _failing_tx()
         # the connection is still usable after the rollback
         store.write_feature_log(symbol="BTC/USDT", features={"ofi": 1.0})
     finally:
