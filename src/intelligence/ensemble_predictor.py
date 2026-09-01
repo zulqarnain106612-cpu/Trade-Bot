@@ -44,7 +44,6 @@ import numpy as np
 import pandas as pd
 import structlog
 
-
 log = structlog.get_logger(__name__)
 
 try:

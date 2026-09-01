@@ -18,7 +18,6 @@ import structlog
 import torch
 import torch.nn as nn
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

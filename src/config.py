@@ -20,7 +20,6 @@ from typing import Final, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # ---------------------------------------------------------------------------
 # Enumerations — runtime-switchable modes
 # ---------------------------------------------------------------------------

@@ -22,7 +22,6 @@ from dataclasses import dataclass
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Causal graph in DOT notation (GML-like, accepted by DoWhy)

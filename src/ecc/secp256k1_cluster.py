@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _WHALE_THRESHOLD_BTC = float(os.environ.get("WHALE_THRESHOLD_BTC", "100"))

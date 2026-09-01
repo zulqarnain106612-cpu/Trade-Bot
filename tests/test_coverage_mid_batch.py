@@ -17,7 +17,6 @@ import pytest
 
 from src.execution.router import RouteResult
 
-
 # ---------------------------------------------------------------------------
 # PostTradeAnalytics persistence
 # ---------------------------------------------------------------------------

@@ -12,7 +12,6 @@ import importlib
 import torch
 from pyg_stub import installed
 
-
 gnn_head = importlib.import_module("src.models.gnn_head")
 
 

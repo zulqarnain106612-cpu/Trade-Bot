@@ -33,7 +33,6 @@ from typing import Final, Protocol
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

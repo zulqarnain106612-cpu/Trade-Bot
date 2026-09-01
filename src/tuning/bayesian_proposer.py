@@ -28,7 +28,6 @@ from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.proposer import Proposal
 from src.tuning.registry import TunableParameter
 
-
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 

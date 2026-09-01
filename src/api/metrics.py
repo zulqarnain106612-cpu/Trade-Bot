@@ -40,7 +40,6 @@ from prometheus_client import (
     generate_latest,
 )
 
-
 # ── Singleton registry (not the default global — avoids test cross-talk) ──────
 _REGISTRY = CollectorRegistry(auto_describe=True)
 

@@ -20,7 +20,6 @@ from dataclasses import dataclass
 import numpy as np
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

@@ -20,7 +20,6 @@ import structlog
 
 from src.risk.performance_drift import PerformanceDriftDetector
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

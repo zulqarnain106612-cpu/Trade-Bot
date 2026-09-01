@@ -2,6 +2,7 @@
 auth -- see common/claude_cli.py for the auth/--bare rationale)."""
 
 from common.claude_cli import run_claude
+
 from .config import GENERATION_MODEL
 
 

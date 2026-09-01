@@ -96,7 +96,6 @@ from src.strategies.signal_engine_adapter import (
 )
 from src.tuning.meta_allocator import get_allocation_controller
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

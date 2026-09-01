@@ -27,7 +27,6 @@ from dataclasses import dataclass
 
 from src.strategies.registry import Signal
 
-
 # Funding rate stretched enough to harvest — Binance perp funding is capped
 # at ±0.75% per 8h period on most pairs; 0.01% (1bp) is a conservative
 # "meaningfully positive/negative" threshold for majors.

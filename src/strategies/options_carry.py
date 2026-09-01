@@ -24,7 +24,6 @@ from src.config import StrategyPortfolioSettings, get_settings
 from src.risk.greeks import GreeksExposureCaps, check_greeks_within_caps, compute_greeks
 from src.strategies.registry import Signal
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

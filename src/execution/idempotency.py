@@ -38,7 +38,6 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
 from typing import Any, Final
 
-
 __all__ = [
     "DuplicateOrderError",
     "IdempotencyRecord",

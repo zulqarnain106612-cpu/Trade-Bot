@@ -17,7 +17,6 @@ import pytest
 
 from src.data.sentiment_provider import SentimentProvider
 
-
 _FG_BODY = {"data": [{"value": "78", "value_classification": "Extreme Greed"}]}
 
 _RSS_BODY = """<?xml version="1.0"?>

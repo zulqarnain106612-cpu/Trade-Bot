@@ -48,7 +48,6 @@ from src.config import (
 )
 from src.risk.slippage import SlippageEstimate
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

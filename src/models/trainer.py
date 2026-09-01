@@ -51,7 +51,6 @@ from src.features.pipeline import (
 )
 from src.tuning.live_overrides import effective_feature_settings, effective_xgboost_settings
 
-
 if TYPE_CHECKING:
     from src.intelligence.ensemble_predictor import EnsemblePredictor
 

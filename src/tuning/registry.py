@@ -16,7 +16,6 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, replace
 
-
 # Parameters that must NEVER be self-tunable, per SELF_TUNING_DESIGN.md §3.
 # Match is by dotted "section.field" name as used in src/config.py.
 EXCLUDED_PARAMS: frozenset[str] = frozenset(

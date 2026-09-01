@@ -16,7 +16,6 @@ from typing import Any
 
 import yaml
 
-
 # name -> (module, class). Keep in sync with the ``models:`` values that
 # ``config/horizons.yaml`` is allowed to use.
 _ARCHITECTURES: dict[str, tuple[str, str]] = {

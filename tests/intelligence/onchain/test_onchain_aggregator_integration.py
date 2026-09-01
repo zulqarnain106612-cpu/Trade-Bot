@@ -14,7 +14,6 @@ import pytest
 from src.intelligence.onchain.schema import ONCHAIN_NEUTRAL
 from src.intelligence.providers.aggregator import OnChainAwareAggregator
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

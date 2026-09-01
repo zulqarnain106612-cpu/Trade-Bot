@@ -21,7 +21,6 @@ from src.risk.strategy_kill_switch import (
 )
 from src.tuning.promotion_gauntlet import GauntletCriteria, GauntletObservation
 
-
 _DAY_MS = 86_400_000
 _NOW = 1_700_000_000_000
 

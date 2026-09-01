@@ -17,7 +17,6 @@ from src.intelligence.providers.blockchain_provider import (
 )
 from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 
-
 # ---------------------------------------------------------------------------
 # BlockchainIntelligenceProvider
 # ---------------------------------------------------------------------------

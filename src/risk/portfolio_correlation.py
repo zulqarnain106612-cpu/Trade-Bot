@@ -32,7 +32,6 @@ from typing import Final
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # EWM half-life in bars (30-day at 15-min bars ≈ 2880 bars; use shorter

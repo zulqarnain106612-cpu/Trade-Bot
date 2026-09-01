@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import structlog
 
-
 if TYPE_CHECKING:
     from src.data.duckdb_store import DuckDBStore
     from src.execution.router import RouteResult

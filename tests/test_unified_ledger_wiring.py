@@ -11,8 +11,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from conftest import settings_double
+
 from src.config import Timeframe, TradingMode
 from src.execution.unified_ledger import UnifiedLedger, VenuePosition
 

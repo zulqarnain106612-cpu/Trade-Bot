@@ -26,7 +26,6 @@ from typing import Final
 from scipy import stats as scipy_stats
 from scipy.stats import norm, ttest_ind
 
-
 _SIGNIFICANCE_ALPHA: Final[float] = 0.05
 
 # Metrics where a HIGHER value is better (Sharpe, win rate, accuracy).

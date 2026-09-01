@@ -25,7 +25,6 @@ from typing import Any
 import numpy as np
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _STORAGE_PATH = Path(os.environ.get("OPTUNA_STORAGE", "./models/optuna_studies.db"))

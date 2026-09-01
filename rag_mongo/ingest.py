@@ -13,7 +13,9 @@ def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
 def ingest_text(text: str, source: str) -> int:
     chunks = chunk_text(text)
     vectors = embed_batch(chunks)
-    docs = [{"text": c, "embedding": v, "source": source} for c, v in zip(chunks, vectors)]
+    docs = [
+        {"text": c, "embedding": v, "source": source} for c, v in zip(chunks, vectors, strict=True)
+    ]
     if docs:
         get_collection().insert_many(docs)
     return len(docs)

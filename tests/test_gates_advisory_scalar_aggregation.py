@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 import src.risk.gates as gates_mod
+from src.config import TradingMode
 from src.risk.gates import (
     DrawdownTracker,
     GateResult,
@@ -24,7 +25,6 @@ from src.risk.gates import (
     RiskGateContext,
     evaluate_all_gates,
 )
-from src.config import TradingMode
 
 
 def _ctx(**overrides) -> RiskGateContext:
