@@ -1,0 +1,75 @@
+name: Claude Cloud Review (RAG + Knowledge Graph retrieval)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  retrieve-context:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install retrieval dependencies
+        run: pip install -r requirements.txt
+      - name: Build retrieval context (vector + full-text + hybrid + graph)
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          python -m review.build_context \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --out context.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-context
+          path: context.json
+
+  claude-review:
+    needs: retrieve-context
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: review-context
+      - name: Claude Code review (Pro/Max subscription -- no API key)
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request's diff. context.json in the working
+            directory holds related documents and facts retrieved from this
+            project's MongoDB Atlas RAG + knowledge graph store -- use it to
+            ground the review in prior decisions and related code, not just
+            the diff in isolation.
+
+            Flag correctness issues, security issues, and inconsistencies
+            with the conventions documented in CLAUDE.md.
+
+            This is advisory only: do not approve or merge. A human reviewer
+            makes the final call -- human-in-the-loop, adapted from the
+            fraud-review pattern in Anthropic's CMA_with_mongodb_atlas
+            cookbook.
+
+            Post your findings as a single summary comment via
+            `gh pr comment ${{ github.event.pull_request.number }} --body "..."`
+            (or as inline comments on specific lines via the inline-comment
+            tool where that's clearer). Do not just return the review as your
+            final text response -- it must be posted to the PR.
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"

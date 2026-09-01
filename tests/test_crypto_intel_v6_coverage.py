@@ -68,6 +68,9 @@ class TestShadowDeployerExtended:
         dep.start()
         # shadow_hours=999 means the window has not elapsed, and evaluate()
         # returns None rather than judging the challenger on a partial window.
+        # evaluate() is typed ABResult | None and returns None here, so the
+        # old `result.promoted is False` raised AttributeError on None -- the
+        # assertion contradicted the comment directly above it.
         result = dep.evaluate()
         assert result is None
 
@@ -140,9 +143,9 @@ class TestWalkForwardStudy:
     def test_wf_params_dataclass(self) -> None:
         from src.upgrade.optuna_wf import WFParams
 
-        p = WFParams(lr_min=1e-4, lr_max=1e-2)
-        assert p.lr_min < p.lr_max
-        assert 32 in p.batch_size_choices
+        p = WFParams(lr_min=1e-4, lr_max=1e-2, dropout_max=0.3)
+        assert p.lr_min == 1e-4
+        assert p.batch_size_choices == (32, 64, 128, 256)
 
     def test_run_short_data_no_crash(self, tmp_path) -> None:
         from src.upgrade.optuna_wf import WalkForwardStudy
@@ -181,7 +184,7 @@ class TestModelRegistryExtended:
 
         reg = ModelRegistry(tracking_uri=str(tmp_path / "mlruns"))
         model = _MLP2()
-        reg.log_model(model, model_name="test_model", horizon_idx=0, metrics={"sharpe": 1.5})
+        reg.log_model(model, model_name="m", horizon_idx=0, metrics={"sharpe": 1.5})
 
     def test_load_model_missing_returns_none(self, tmp_path) -> None:
         from src.upgrade.registry import ModelRegistry
@@ -334,8 +337,9 @@ class TestNBEATSHeadExtended:
     def test_batch_size_one(self) -> None:
         from src.models.nbeats import NBEATSHead
 
-        model = NBEATSHead(input_size=48)
-        x = torch.randn(1, 48)
+        model = NBEATSHead()
+        # default input_size is 96
+        x = torch.randn(1, 96)
         out = model(x)
         assert out.shape[-1] == 128
 
@@ -524,9 +528,9 @@ class TestDoWhySCMExtended:
                 "price": np.random.randn(30),
             }
         )
-        signals = scm.causal_signal(data)
-        assert isinstance(signals, dict)
-        assert all(isinstance(v, float) for v in signals.values())
+        signal = scm.causal_signal(data)
+        assert isinstance(signal, dict)
+        assert all(isinstance(v, float) for v in signal.values())
 
 
 # ─── DuckDBStore extended ─────────────────────────────────────────────────────
@@ -569,8 +573,7 @@ class TestDuckDBStoreExtended:
     def test_roundtrip_horizon(self, tmp_path) -> None:
         from src.data.duckdb_store import DuckDBStore
 
-        # Own file: the row-count assertion below must not see other tests' writes.
-        store = DuckDBStore(path=tmp_path / "roundtrip.duckdb")
+        store = DuckDBStore(path=tmp_path / "t.duckdb")
         store.write_horizon_metric(
             horizon_id=3, label="5m", sharpe=2.1, confidence=0.9, direction=-1, drift_detected=True
         )
@@ -605,7 +608,7 @@ class TestMicrostructureExtended:
             kyle_estimator=KyleLambdaEstimator(),
             last_price=50000.0,
             last_trade_volume=100.0,
-            last_trade_side="sell",
+            last_trade_side="buy",
         )
         assert hasattr(ft, "ofi")
         assert hasattr(ft, "vpin")
@@ -675,7 +678,7 @@ class TestTFTExtended:
     def test_grn_forward(self) -> None:
         from src.models.tft import GatedResidualNetwork
 
-        grn = GatedResidualNetwork(input_dim=32, hidden_dim=48, output_dim=64)
+        grn = GatedResidualNetwork(input_dim=32, hidden_dim=64, output_dim=64)
         x = torch.randn(4, 32)
         out = grn(x)
         assert out.shape == (4, 64)
@@ -684,10 +687,10 @@ class TestTFTExtended:
         from src.models.tft import VariableSelectionNetwork
 
         vsn = VariableSelectionNetwork(n_vars=5, hidden_dim=32)
-        # forward expects [B, T, n_vars, hidden_dim]
-        x = torch.randn(2, 3, 5, 32)
+        # forward takes [B, T, n_vars, hidden_dim]
+        x = torch.randn(2, 4, 5, 32)
         out = vsn(x)
-        assert out.shape == (2, 3, 32)
+        assert out.shape == (2, 4, 32)
 
     def test_tft_head_forward(self) -> None:
         from src.models.tft import TFTHead
@@ -805,12 +808,12 @@ class TestRLExecutionAgentExtended:
         for n in [1, 5, 10, 20]:
             state = RLExecutionState(n_horizons=n)
             obs = state.build(
-                horizon_confidences=[0.7, 0.6],
-                regime_id=1,
+                horizon_confidences=[0.8] * n,
+                regime_id=0,
                 ecc_features={},
                 realized_pnl=0.0,
                 drawdown=0.0,
-                kyle_lambda=1e-6,
+                kyle_lambda=0.0,
             )
             assert obs.ndim == 1
             assert obs.shape == (_STATE_DIM,)

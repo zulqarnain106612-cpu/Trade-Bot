@@ -245,6 +245,28 @@ def check_settings_are_read() -> list[str]:
         # consumer rather than having lost one.
         "rate_limit_per_minute",
         "rate_limit_per_second",
+        # StrategySettings' breakout (bo_*) and mean-reversion (mr_*) knobs
+        # describe a Bollinger/Donchian parameterisation that was never
+        # wired. src/strategies/mean_reversion.py is a cointegration pairs
+        # strategy and src/strategies/breakout.py takes its parameters as
+        # function arguments; neither reads StrategySettings at all.
+        # Confirmed not purge fallout: at the commit before the purge, these
+        # names appeared only in src/config.py, so nothing has ever read
+        # them. Listed rather than deleted -- they are operator-facing env
+        # keys, and removing them is a config-surface change -- but listed
+        # rather than ignored so a NEW unread setting still fails the gate.
+        # TODO: wire them into the two strategies or drop them deliberately.
+        "bo_atr_period",
+        "bo_entry_period",
+        "bo_exit_period",
+        "bo_max_atr_pct",
+        "bo_min_atr_pct",
+        "mr_entry_z",
+        "mr_exit_z",
+        "mr_lookback",
+        "mr_max_half_life",
+        "mr_min_half_life",
+        "mr_require_ou",
     }
     config = REPO / "src" / "config.py"
     declared: dict[str, str] = {}
@@ -585,6 +607,14 @@ def check_protocol_methods_are_called() -> list[str]:
 # wrong. They are listed rather than deleted so the count cannot grow
 # silently: a NEW unread field is a wiring mistake and should fail here.
 _UNREAD_FIELD_ALLOWED = {
+    # KyberKeyPair / KyberCiphertext belong to pq_transport, a Kyber-768
+    # transport stub with no production consumer: PQTransportStub reports
+    # itself unavailable and raises on keygen. These are the shapes the real
+    # implementation will fill in, so nothing reads them back yet.
+    "encapsulation_key",
+    "decapsulation_key",
+    "ciphertext",
+    "shared_secret",
     # TripleBarrierResult remains unconstructed — the per-observation record
     # is superseded by TripleBarrierComposition, which aggregates the same
     # exit information. Kept because AFML Ch.4 sample-uniqueness weighting
@@ -1000,6 +1030,14 @@ _WALL_CLOCK_ARITHMETIC_ALLOWED = {
     # Compared against an ISO timestamp returned by the Dune API. That is an
     # absolute external instant; a monotonic clock has no relationship to it.
     ("src/intelligence/onchain/dune_provider.py", "_results_fresh"),
+    # Staleness of an OHLCV bar is measured against the exchange's own
+    # timestamp_utc, an absolute external instant. A monotonic clock has no
+    # relationship to it.
+    ("src/data/quality_gate.py", "check_ohlcv"),
+    # Same: compared against the macro release date parsed from the provider.
+    ("src/data/quality_gate.py", "check_macro"),
+    # since_ms is an exchange API parameter and must be a real epoch time.
+    ("src/engine/orchestrator.py", "_tick"),
 }
 
 
@@ -1127,6 +1165,7 @@ def check_cpu_bound_work_is_offloaded() -> list[str]:
                         f"{_rel(path)}:{node.lineno} {name}() called inline in "
                         f"async {fn.name}() — offload with to_thread/run_in_executor"
                     )
+    return problems
 
 
 def _dataclass_attributes() -> dict[str, set[str] | None]:

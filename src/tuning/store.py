@@ -23,6 +23,7 @@ last promotion instead of the original .env default.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -80,7 +81,13 @@ class VersionedConfigStore:
         self._path = path
         self._lock = threading.Lock()
         self._history: dict[str, list[ConfigVersion]] = {}
+        self._truncated_tail = False
         self._load()
+
+    @property
+    def truncated_tail(self) -> bool:
+        """True if the last line on disk was unparseable and was dropped."""
+        return self._truncated_tail
 
     @property
     def path(self) -> Path:
@@ -90,17 +97,34 @@ class VersionedConfigStore:
         if not self._path.exists():
             return
         with self._path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
+            lines = [ln.strip() for ln in f]
+        last_idx = len(lines) - 1
+        for idx, line in enumerate(lines):
+            if not line:
+                continue
+            try:
                 record = ConfigVersion.from_dict(json.loads(line))
-                self._history.setdefault(record.param_name, []).append(record)
+            except (ValueError, KeyError, TypeError):
+                # A crash between write() and the OS flushing the tail can
+                # leave a half-written final line. That is recoverable: the
+                # promotion it described never completed. Corruption anywhere
+                # earlier means history was rewritten under us, which this
+                # store's whole contract says cannot happen -- fail loudly.
+                if idx == last_idx:
+                    self._truncated_tail = True
+                    break
+                raise
+            self._history.setdefault(record.param_name, []).append(record)
 
     def _append_to_disk(self, record: ConfigVersion) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("a", encoding="utf-8") as f:
             f.write(record.to_json() + "\n")
+            # Durability is this store's only job; without the fsync a
+            # promotion can be acknowledged in memory and lost on power cut,
+            # leaving the registry ahead of its own audit trail.
+            f.flush()
+            os.fsync(f.fileno())
 
     def current(self, param_name: str) -> ConfigVersion:
         with self._lock:
@@ -143,15 +167,32 @@ class VersionedConfigStore:
 
     def rollback(self, param_name: str) -> ConfigVersion:
         """
-        Revert to the value two versions back by appending a new record
-        (marked is_rollback=True) that copies the prior value forward --
-        never deletes or edits history.
+        Revert to the newest prior value that has not already been rolled
+        away from, by appending a new record (marked is_rollback=True) that
+        copies that value forward -- never deletes or edits history.
+
+        Taking existing[-2] unconditionally re-promoted known-bad values on
+        the second rollback: with history A, B(bad), rollback->A, the next
+        rollback's [-2] is B itself. Every value a rollback has previously
+        rejected is quarantined here, so repeated watchdog rollbacks walk
+        back through history instead of oscillating between two values.
         """
         with self._lock:
             existing = self._history.get(param_name)
             if not existing or len(existing) < 2:
                 raise NoPriorVersionError(param_name)
-            prior = existing[-2]
+
+            rejected = {existing[-1].value}
+            for idx, rec in enumerate(existing):
+                if rec.is_rollback and idx > 0:
+                    rejected.add(existing[idx - 1].value)
+
+            prior = next(
+                (rec for rec in reversed(existing[:-1]) if rec.value not in rejected),
+                None,
+            )
+            if prior is None:
+                raise NoPriorVersionError(param_name)
             next_version = existing[-1].version + 1
             record = ConfigVersion(
                 param_name=param_name,

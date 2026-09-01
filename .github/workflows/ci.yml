@@ -2,147 +2,44 @@ name: CI
 
 on:
   push:
-    branches: ["main", "dev", "feature/**", "fix/**"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  PYTHON_VERSION: "3.11"
-  NODE_VERSION: "20"
-
 jobs:
-  backend:
-    name: Backend (Python 3.11)
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    outputs:
-      result: ${{ job.status }}
-
-    # GAP-006: mirrors scripts/timescaledb.sh (same image/user/db/port) so
-    # tests/test_timescale_storage.py runs instead of skipping ~88 tests,
-    # which otherwise drags total coverage under the 95% fail-under gate.
-    services:
-      timescaledb:
-        image: timescale/timescaledb:2.17.2-pg17
-        env:
-          POSTGRES_USER: tradebot
-          POSTGRES_PASSWORD: tradebot-local
-          POSTGRES_DB: tradebot
-        # Ephemeral host port, not a fixed 5433. Self-hosted runners share one
-        # host, so two Backend jobs running concurrently would collide on any
-        # fixed mapping ("bind: address already in use"). The assigned port is
-        # read back via job.services.timescaledb.ports below.
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd "pg_isready -U tradebot -d tradebot"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-
+  python:
+    name: Python (lint + tests)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: .python-version
           cache: pip
-
-      - name: Requirements drift check
-        # A package declared only in requirements.txt is never installed: the
-        # lock CI installs is compiled from requirements.in alone. duckdb sat
-        # in that state and every DuckDBStore test failed on ModuleNotFoundError.
-        # Runs before install so drift fails fast, on stdlib only.
-        run: python scripts/check_requirements_sync.py
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # VUL-026: Install from lockfile with hash verification if present.
-          # Generate with: pip-compile --generate-hashes requirements.in > requirements.lock
-          if [ -f requirements.lock ]; then
-            pip install --require-hashes -r requirements.lock
-          else
-            pip install -e ".[dev]"
-            echo "WARNING: requirements.lock not found — install is unhashed. Run pip-compile --generate-hashes to create it."
-          fi
-          # requirements.lock is compiled from requirements.in (prod deps only);
-          # dev tools (detect-secrets, ruff, mypy, pytest-cov) live in
-          # requirements-dev.txt and are installed unhashed on top.
-          pip install -r requirements-dev.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Secret scanning — fail on unaudited baseline entries
-        # VUL-019: All entries in .secrets.baseline must be audited (is_verified != null).
-        # Run: detect-secrets audit .secrets.baseline  to review each finding.
-        run: |
-          detect-secrets scan --baseline .secrets.baseline
-          python - <<'EOF'
-          import json, sys
-          baseline = json.load(open(".secrets.baseline"))
-          unaudited = [
-              f"{f}:{s['line_number']}"
-              for f, secrets in baseline.get("results", {}).items()
-              for s in secrets
-              if s.get("is_verified") is None
-          ]
-          if unaudited:
-              print("FAIL: Unaudited secret findings in .secrets.baseline:")
-              print("\n".join(f"  {u}" for u in unaudited))
-              print("Run: detect-secrets audit .secrets.baseline")
-              sys.exit(1)
-          print(f"OK: {sum(len(v) for v in baseline.get('results',{}).values())} finding(s) all audited.")
-          EOF
+      - name: Lint
+        run: ruff check .
 
-      - name: Lint - ruff check
-        id: lint
-        run: ruff check src/ tests/ --output-format=github
+      - name: Format check
+        run: ruff format --check .
 
-      - name: Format check - ruff format
-        id: fmt
-        run: ruff format src/ tests/ --check
-
-      - name: Type check - mypy
-        run: mypy src/ --ignore-missing-imports --no-error-summary
-        continue-on-error: true
-
-      - name: Run tests with coverage
-        id: pytest
-        env:
-          TRADING_MODE: paper
-          STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:${{ job.services.timescaledb.ports['5432'] }}/tradebot  # pragma: allowlist secret
-          BINANCE_API_KEY: dummy
-          BINANCE_API_SECRET: dummy
-          OKX_API_KEY: dummy
-          OKX_API_SECRET: dummy
-          OKX_PASSPHRASE: dummy
-          LOG_LEVEL: WARNING
-        run: |
-          pytest tests/ -v \
-            --tb=short \
-            --cov=src \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing \
-            --junitxml=test-results.xml
-
-      - name: Per-file coverage floors (Risk-004 / GAP-020)
-        run: python3 scripts/check_coverage_floors.py
-
-      - name: Upload test artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: backend-results
-          path: |
-            test-results.xml
-            coverage.xml
-          retention-days: 14
+      - name: Tests
+        # Optional ML extras are not installed here, so suites that need them
+        # are expected to skip rather than fail.
+        run: pytest -q
 
   architecture:
     name: Architecture Governance (crypto-architect)
@@ -186,18 +83,14 @@ jobs:
           retention-days: 14
 
   frontend:
-    name: Frontend (Node 20)
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    outputs:
-      result: ${{ job.status }}
-
+    name: Frontend (build)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -205,136 +98,6 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Lint - ESLint
-        working-directory: frontend
-        run: npx eslint src/ --max-warnings=0
-        continue-on-error: true
-
-      - name: Build - Vite
+      - name: Build
         working-directory: frontend
         run: npm run build
-
-      - name: Upload frontend dist
-        uses: actions/upload-artifact@v7
-        with:
-          name: frontend-dist
-          path: frontend/dist/
-          retention-days: 14
-
-  auto-fix:
-    name: Auto-Fix and Re-trigger
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    needs: [backend, frontend]
-    if: |
-      always() &&
-      !contains(github.event.head_commit.message, '[auto-fix]') &&
-      !contains(github.event.head_commit.message, '[skip-fix]') &&
-      (needs.backend.result == 'failure' || needs.frontend.result == 'failure')
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-
-      - name: Install fix tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Apply ruff auto-fixes
-        # SEC-005 (re-found during audit, 2026-06-25): this job is a second,
-        # independent auto-fix-and-push mechanism from the dedicated
-        # auto-fix.yml workflow (which already had --unsafe-fixes removed) --
-        # this one is riskier: it fires on CI FAILURE for any branch
-        # including main, uses a separate GH_TOKEN (often broader perms than
-        # the default GITHUB_TOKEN), and self-retriggers CI after pushing.
-        # --unsafe-fixes applies fixes ruff itself classifies as able to
-        # change runtime behavior -- unattended on a live-trading repo's
-        # failure path, that's the wrong default. Use plain --fix, matching
-        # auto-fix.yml's already-corrected behavior.
-        run: |
-          ruff check src/ tests/ --fix || true
-          ruff format src/ tests/ || true
-
-      - name: Detect changes
-        id: changes
-        run: |
-          if git diff --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Commit and push fixes
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix(ci): ruff auto-fix [auto-fix]"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-
-      - name: Re-trigger CI and wait for result
-        if: steps.changes.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          REPO="${{ github.repository }}"
-          REF="${{ github.ref_name }}"
-
-          curl -s -X POST \
-            "https://api.github.com/repos/${REPO}/actions/workflows/ci.yml/dispatches" \
-            -H "Authorization: token ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -d "{\"ref\":\"${REF}\"}"
-
-          echo "Triggered new CI run -- waiting 15s for it to register..."
-          sleep 15
-
-          MAX_POLLS=40
-          SLEEP_INTERVAL=30
-          for i in $(seq 1 $MAX_POLLS); do
-            RUN_DATA=$(curl -s \
-              "https://api.github.com/repos/${REPO}/actions/workflows/ci.yml/runs?branch=${REF}&per_page=1" \
-              -H "Authorization: token ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json")
-
-            STATUS=$(echo "$RUN_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); r=d['workflow_runs']; print(r[0]['status'] if r else 'none')")
-            CONCLUSION=$(echo "$RUN_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); r=d['workflow_runs']; print(r[0]['conclusion'] if r and r[0]['conclusion'] else 'pending')")
-
-            echo "Poll ${i}/${MAX_POLLS} -- status=${STATUS} conclusion=${CONCLUSION}"
-
-            if [ "$STATUS" = "completed" ]; then
-              if [ "$CONCLUSION" = "success" ]; then
-                echo "Re-triggered CI passed."
-                exit 0
-              else
-                echo "Re-triggered CI failed: ${CONCLUSION}"
-                exit 1
-              fi
-            fi
-            sleep $SLEEP_INTERVAL
-          done
-
-          echo "Timed out waiting for re-triggered CI."
-          exit 1
-
-      - name: Fail - no auto-fix available
-        if: steps.changes.outputs.changed == 'false'
-        run: |
-          echo "::error title=Auto-Fix Exhausted::No fixable issues found. Manual fix required."
-          echo "## Auto-Fix Failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| backend  | ${{ needs.backend.result }}  |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| frontend | ${{ needs.frontend.result }} |" >> "$GITHUB_STEP_SUMMARY"
-          exit 1

@@ -193,17 +193,20 @@ class TestEnsemblePredictor:
         assert isinstance(result, EnsemblePrediction)
         assert isinstance(result.point_estimate, float)
 
-    def test_predict_without_fit(self):
+    def test_predict_without_fit_refuses(self):
+        # No member is fitted, so none has an opinion. A 0.0 point estimate
+        # here would be a maximally confident forecast of exactly zero.
         ep = EnsemblePredictor()
-        result = ep.predict(_make_X(1))
-        assert isinstance(result, EnsemblePrediction)
-        assert result.point_estimate == 0.0
+        with pytest.raises(RuntimeError, match="every ensemble member failed"):
+            ep.predict(_make_X(1))
 
-    def test_predict_with_member_exception(self):
+    def test_predict_with_member_exception_excludes_that_member(self):
         ep = EnsemblePredictor()
+        ep.fit(_make_X(), _make_y())
         ep.models["xgboost"].predict_with_uncertainty = MagicMock(side_effect=RuntimeError("fail"))
         result = ep.predict(_make_X(1))
         assert isinstance(result, EnsemblePrediction)
+        assert "xgboost" not in result.individual_predictions
 
 
 # ---------------------------------------------------------------------------

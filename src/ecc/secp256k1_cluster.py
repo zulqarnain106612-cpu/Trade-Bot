@@ -111,7 +111,13 @@ class AddressClusterer:
 
         def find(x: str) -> str:
             while parent.get(x, x) != x:
-                parent[x] = parent.get(parent.get(x, x), x)
+                p = parent.get(x, x)
+                # Path halving: jump to the grandparent. A root has no entry
+                # in `parent`, so its own value (not the original x) is the
+                # correct default -- defaulting to x here would silently
+                # unwind the union on the next find(), splitting addresses
+                # that share a transaction back into separate clusters.
+                parent[x] = parent.get(p, p)
                 x = parent[x]
             return x
 

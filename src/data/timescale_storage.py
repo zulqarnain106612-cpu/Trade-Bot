@@ -126,6 +126,13 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason     TEXT,
     approved_by     TEXT,
     raw_signal      DOUBLE PRECISION,
+    -- Migrations v7 (ensemble_point_estimate, ensemble_blend_weight) and v8
+    -- (pre_blend_p_long, ensemble_p_long); see the SQLite DDL for why NULL
+    -- and 0.0 differ here.
+    ensemble_point_estimate DOUBLE PRECISION,
+    pre_blend_p_long      DOUBLE PRECISION,
+    ensemble_p_long       DOUBLE PRECISION,
+    ensemble_blend_weight DOUBLE PRECISION,
     created_at      BIGINT  NOT NULL
         DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT
 );
@@ -304,9 +311,19 @@ ALTER TABLE regime_snapshots
         "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_point_estimate DOUBLE PRECISION;\n"
         "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_blend_weight DOUBLE PRECISION;",
     ),
+    # v8 — parity with storage._MIGRATIONS v8. The fresh-install DDL above
+    # already declares these two, so this is a no-op on a new database; it
+    # exists for databases created before the DDL listed them.
+    (
+        8,
+        "add pre_blend_p_long/ensemble_p_long to trades -- the two inputs the "
+        "ensemble blend actually combined",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_blend_p_long DOUBLE PRECISION;\n"
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_p_long DOUBLE PRECISION;",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 7
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 8
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (
@@ -774,10 +791,12 @@ class TimescaleBackend:
                         entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,
                         kelly_fraction, regime_at_entry, meta_label_prob,
                         exit_reason, approved_by, raw_signal,
-                        ensemble_point_estimate, ensemble_blend_weight
+                        ensemble_point_estimate, ensemble_blend_weight,
+                        pre_blend_p_long, ensemble_p_long
                     ) VALUES (
                         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
+                        $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+                        $24,$25
                     )
                     """,
                     trade.id,
@@ -803,6 +822,8 @@ class TimescaleBackend:
                     trade.raw_signal,
                     trade.ensemble_point_estimate,
                     trade.ensemble_blend_weight,
+                    trade.pre_blend_p_long,
+                    trade.ensemble_p_long,
                 )
         except asyncpg.UniqueViolationError as exc:
             raise ValueError(f"Trade id={trade.id!r} already exists") from exc
@@ -914,7 +935,8 @@ class TimescaleBackend:
             " entry_ts, exit_ts, pnl_usd, pnl_pct, fee_usd,"
             " kelly_fraction, regime_at_entry, meta_label_prob,"
             " exit_reason, approved_by, raw_signal,"
-            " ensemble_point_estimate, ensemble_blend_weight"
+            " ensemble_point_estimate, ensemble_blend_weight,"
+            " pre_blend_p_long, ensemble_p_long"
             f" FROM trades{where}"
             f" ORDER BY entry_ts DESC LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         )
@@ -945,6 +967,8 @@ class TimescaleBackend:
                 raw_signal=r["raw_signal"],
                 ensemble_point_estimate=r["ensemble_point_estimate"],
                 ensemble_blend_weight=r["ensemble_blend_weight"],
+                pre_blend_p_long=r["pre_blend_p_long"],
+                ensemble_p_long=r["ensemble_p_long"],
             )
             for r in rows
         ]

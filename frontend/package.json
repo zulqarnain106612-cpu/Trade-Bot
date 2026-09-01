@@ -8,40 +8,27 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint \"src/**/*.{js,jsx}\"",
-    "format": "prettier --write \"src/**/*.{js,jsx,css,html}\"",
     "icons": "node scripts/build-icons.mjs",
     "electron:dev": "concurrently -k -n vite,electron -c blue,yellow \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
     "electron:build": "npm run icons && npm run build && electron-builder",
     "desktop:install": "bash scripts/install-desktop-shortcut.sh"
   },
   "dependencies": {
-    "es-toolkit": "^1.49.0",
-    "lodash": "^4.17.21",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "recharts": "^3.10.1",
-    "reselect": "^5.2.0"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@vitejs/plugin-react": "^6.0.5",
-    "autoprefixer": "^10.4.19",
     "concurrently": "^9.1.0",
-    "electron": "^43.3.0",
+    "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
-    "eslint": "^10.8.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-config-standard": "^17.0.0",
-    "eslint-plugin-import": "^2.31.0",
-    "eslint-plugin-jsx-a11y": "^6.8.1",
-    "eslint-plugin-react": "^7.33.0",
-    "eslint-plugin-react-hooks": "^4.6.0",
     "postcss": "^8.4.38",
-    "prettier": "^3.9.6",
     "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.1",
-    "wait-on": "^9.1.0"
+    "wait-on": "^8.0.1"
   },
   "build": {
     "appId": "com.tradebot.dashboard",

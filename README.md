@@ -264,26 +264,24 @@ Dependency files, and which one actually installs:
 
 | File | Role |
 |---|---|
-| `requirements.in` | **the source of truth** for runtime deps — add packages here |
-| `requirements.lock` | compiled from `requirements.in` with hashes; what CI installs |
-| `requirements.txt` | version-range mirror of `requirements.in`, for `mutation-testing.yml` only (its Python predates the lock's `numpy`) |
-| `requirements-dev.txt` | lint/type/test/security tooling, installed unhashed on top |
-| `requirements-optional.txt` | heavy extras imported lazily behind `try/except ImportError`; installed by nothing |
+| `requirements.txt` | **the source of truth** for runtime deps — what CI installs |
+| `requirements-dev.txt` | lint/test tooling, installed on top in CI |
+| `requirements-optional.txt` | heavy ML extras imported lazily behind `try/except ImportError` |
 
-Adding a runtime dep to `requirements.txt` alone does nothing — it is never
-installed. Put it in `requirements.in` and recompile **on Python 3.11**, the
-version CI uses:
+Add a runtime dependency to `requirements.txt`. Heavy or lazily-imported
+packages belong in `requirements-optional.txt`, which nothing installs by
+default — code that needs them must degrade gracefully when they are absent.
 
 ```bash
-python3.11 -m piptools compile --allow-unsafe --generate-hashes \
-    requirements.in -o requirements.lock
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-`pip-compile` resolves per interpreter. A lock built on a newer Python drops
-transitive deps that only 3.11 needs and pins wheels 3.11 cannot install — and
-nothing finds out until CI's `--require-hashes` install fails.
-
-`scripts/check_requirements_sync.py` fails CI on that drift.
+> The pre-purge setup compiled a hash-pinned `requirements.lock` from a
+> `requirements.in` with `pip-compile`. Both files were removed by the config
+> purge (#144) and the current set uses plain range pins instead. Restoring
+> hash-pinned locking is a deliberate follow-up: it requires `pip-tools` run on
+> Python 3.11 specifically, because `pip-compile` resolves per interpreter and a
+> lock built on a newer Python pins wheels 3.11 cannot install.
 
 ### 2. Environment file
 
@@ -412,3 +410,4 @@ Set `TRADING_MODE=live` in `.env` — the only way to unlock live trading.
 - Carver (2019) *Systematic Trading*
 - Peters (1994) *Fractal Market Hypothesis*
 - Thorp (2006) "The Kelly Criterion in Blackjack, Sports Betting and the Stock Market"
+// test change

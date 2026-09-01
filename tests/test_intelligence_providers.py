@@ -350,7 +350,7 @@ class TestBybitIntelligenceProvider:
 
     def test_get_cache_expired(self, provider):
         provider._cache_ttl = 1
-        provider._cache["k"] = (time.time() - 10.0, "value")
+        provider._cache["k"] = (time.monotonic() - 10.0, "value")
         assert provider._get_cache("k") is None
 
     @pytest.mark.asyncio
@@ -1489,17 +1489,19 @@ class TestBinanceIntelligenceProvider:
         assert result == pytest.approx(2.5)
 
     @pytest.mark.asyncio
-    async def test_whale_ratio_market_raises_returns_neutral_and_caches(self, provider):
-        """BadSymbol from market() must return 1.0 and cache the neutral so the
-        next call within TTL skips the network rather than retrying."""
+    async def test_whale_ratio_market_raises_propagates_and_caches_nothing(self, provider):
+        """BadSymbol from market() must propagate. fetch_metrics() gathers this
+        with return_exceptions=True and owns the failure branch — the confidence
+        penalty and the fallback. Returning 1.0 here made a total failure
+        indistinguishable from a genuine neutral reading, and caching it kept
+        that fiction alive for a whole TTL."""
         provider._perp = AsyncMock()
         provider._perp.market = MagicMock(side_effect=Exception("BadSymbol"))
         provider._cache_ttl = 300
 
-        result = await provider._fetch_whale_taker_ratio()
-        assert result == 1.0
-        # The neutral must be cached so a second call does not hit the exchange
-        assert provider._get_cache(f"whale:{provider._perp_symbol}") == pytest.approx(1.0)
+        with pytest.raises(Exception, match="BadSymbol"):
+            await provider._fetch_whale_taker_ratio()
+        assert provider._get_cache(f"whale:{provider._perp_symbol}") is None
 
     # -- caching (TTL expiry via base helper) ----------------------------------
 
@@ -1508,12 +1510,12 @@ class TestBinanceIntelligenceProvider:
 
     def test_get_cache_expired_returns_none(self, provider):
         provider._cache_ttl = 1
-        provider._cache["k"] = (time.time() - 10.0, "value")
+        provider._cache["k"] = (time.monotonic() - 10.0, "value")
         assert provider._get_cache("k") is None
 
     def test_get_cache_hit_returns_value(self, provider):
         provider._cache_ttl = 300
-        provider._cache["k"] = (time.time(), "fresh")
+        provider._cache["k"] = (time.monotonic(), "fresh")
         assert provider._get_cache("k") == "fresh"
 
     @pytest.mark.asyncio
@@ -1628,7 +1630,7 @@ class TestBaseProviderCacheHelpers:
         assert "k" in base._cache
 
     def test_set_cache_stores_timestamp(self, base):
-        before = time.time()
+        before = time.monotonic()
         base._set_cache("k", "v")
         ts, val = base._cache["k"]
         assert ts >= before
@@ -1646,7 +1648,7 @@ class TestBaseProviderCacheHelpers:
 
     def test_get_cache_expired_returns_none(self, base):
         base._cache_ttl = 1
-        base._cache = {"k": (time.time() - 10.0, "stale")}
+        base._cache = {"k": (time.monotonic() - 10.0, "stale")}
         assert base._get_cache("k") is None
 
     def test_get_cache_no_cache_attr_returns_none(self, base):

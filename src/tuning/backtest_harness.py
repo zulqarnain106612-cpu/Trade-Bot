@@ -318,165 +318,6 @@ def run_slippage_coeff_backtest(
 
 
 # ---------------------------------------------------------------------------
-# risk.ensemble_blend_weight -- EnsemblePredictor blend recalibration
-# ---------------------------------------------------------------------------
-#
-# "Prediction accuracy" style, like run_slippage_coeff_backtest (recalibrate
-# a coefficient against a realized error signal), NOT the Kelly/regime-input
-# style of run_entropy_threshold_backtest (replay a pure function of a
-# stored regime value). No retraining or resimulated fills -- only the
-# blended p_long implied by a candidate blend weight is recomputed and
-# scored against the trade's already-realized outcome.
-
-
-@dataclass(frozen=True)
-class EnsembleBlendSample:
-    """
-    One historical closed trade with both the XGBoost direction model's
-    p_long and EnsemblePredictor's point_estimate logged at signal time
-    (src/engine/signal_engine.py's ensemble-blend wiring; persisted via
-    trades.ensemble_point_estimate / trades.ensemble_blend_weight --
-    src/data/storage.py's update_trade_ensemble_fields).
-
-    `raw_p_long` is the XGBoost model's OWN probability BEFORE blending --
-    reconstructed from the persisted post-blend `raw_signal` via the inverse
-    of signal_engine.py's linear blend (see
-    ensemble_blend_samples_from_trades), not read from a separate column.
-    This lets the harness replay what p_long WOULD have been under any
-    candidate blend weight, not just the one that was live when the trade
-    was taken.
-    """
-
-    raw_p_long: float
-    ensemble_point_estimate: float
-    direction: int  # 1=long, 0=short -- the direction actually traded
-    raw_return: float  # realized return, signed to the direction actually traded
-
-
-def ensemble_blend_samples_from_trades(
-    trades: list[TradeRecord],
-) -> list[EnsembleBlendSample]:
-    """
-    Build EnsembleBlendSample list from closed TradeRecord rows
-    (src/data/storage.py). Skips trades where ensemble blending wasn't
-    active (ensemble_point_estimate/ensemble_blend_weight NULL -- the
-    predictor wasn't injected, or RiskSettings.ensemble_blend_weight was
-    0.0 at signal time) or not yet closed (exit_price is None), and skips
-    blend_weight in {0.0, 1.0} where the champion-vs-challenger inversion
-    below is degenerate (0.0: raw_p_long IS raw_signal already, no
-    reconstruction needed but also no ensemble signal was actually blended
-    in, so there is nothing to recalibrate from; 1.0: raw_signal carries no
-    information about raw_p_long at all).
-    """
-    samples: list[EnsembleBlendSample] = []
-    for t in trades:
-        if t.exit_price is None or t.entry_price <= 0.0:
-            continue
-        w = t.ensemble_blend_weight
-        e = t.ensemble_point_estimate
-        p_blended = t.raw_signal
-        if w is None or e is None or p_blended is None:
-            continue
-        if not (0.0 < w < 1.0):
-            continue
-        # Inverse of signal_engine.py's p_long = (1-w)*raw_p_long + w*e.
-        raw_p_long = (p_blended - w * e) / (1.0 - w)
-        raw_p_long = min(max(raw_p_long, 0.0), 1.0)
-        raw_return = (t.exit_price / t.entry_price - 1.0) * (1 if t.direction == 1 else -1)
-        samples.append(
-            EnsembleBlendSample(
-                raw_p_long=raw_p_long,
-                ensemble_point_estimate=e,
-                direction=t.direction,
-                raw_return=raw_return,
-            )
-        )
-    samples.reverse()  # oldest-first, matching every other *_samples_from_* builder
-    return samples
-
-
-def _blended_p_long(sample: EnsembleBlendSample, weight: float) -> float:
-    return (1.0 - weight) * sample.raw_p_long + weight * sample.ensemble_point_estimate
-
-
-def run_ensemble_blend_backtest(
-    samples: list[EnsembleBlendSample],
-    champion_weight: float,
-    challenger_weight: float,
-    features_cfg: FeatureSettings | None = None,
-) -> list[MetricComparison]:
-    """
-    Recalibrate `risk.ensemble_blend_weight` against realized OOS trade
-    outcomes.
-
-    Two metrics, both "higher is better" per src.tuning.evaluator's
-    convention:
-      - ensemble_prediction_accuracy: -mean((p_win_implied - realized_win)^2)
-        per fold, i.e. negative Brier score (Brier 1950) of the blend
-        weight's implied win-probability for the direction actually
-        traded, against whether that trade actually won. Measures
-        calibration, not direction -- the direction traded is taken as
-        given (no resimulated fills for a different direction).
-      - oos_sharpe: per-fold Sharpe of the trade's realized return, sign-
-        flipped whenever the candidate weight's implied direction would
-        have disagreed with the direction actually traded (same
-        direction-flip simplification run_feature_window_backtest uses --
-        not a full re-execution/re-fill simulation).
-    """
-    if features_cfg is None:
-        features_cfg = FeatureSettings()
-
-    folds = _make_folds(len(samples), features_cfg.cpcv_n_splits, features_cfg.purge_gap_bars)
-
-    champion_fold_neg_brier: list[float] = []
-    challenger_fold_neg_brier: list[float] = []
-    champion_fold_sharpes: list[float] = []
-    challenger_fold_sharpes: list[float] = []
-
-    for start, end in folds:
-        fold_samples = samples[start:end]
-        if not fold_samples:
-            continue
-
-        champion_briers: list[float] = []
-        challenger_briers: list[float] = []
-        champion_returns: list[float] = []
-        challenger_returns: list[float] = []
-
-        for s in fold_samples:
-            realized_win = 1.0 if s.raw_return > 0.0 else 0.0
-
-            champion_p_long = _blended_p_long(s, champion_weight)
-            champion_p_win = champion_p_long if s.direction == 1 else (1.0 - champion_p_long)
-            champion_briers.append((champion_p_win - realized_win) ** 2)
-            champion_direction = 1 if champion_p_long >= 0.5 else 0
-            champion_returns.append(
-                s.raw_return if champion_direction == s.direction else -s.raw_return
-            )
-
-            challenger_p_long = _blended_p_long(s, challenger_weight)
-            challenger_p_win = challenger_p_long if s.direction == 1 else (1.0 - challenger_p_long)
-            challenger_briers.append((challenger_p_win - realized_win) ** 2)
-            challenger_direction = 1 if challenger_p_long >= 0.5 else 0
-            challenger_returns.append(
-                s.raw_return if challenger_direction == s.direction else -s.raw_return
-            )
-
-        champion_fold_neg_brier.append(-statistics.mean(champion_briers))
-        challenger_fold_neg_brier.append(-statistics.mean(challenger_briers))
-        champion_fold_sharpes.append(_fold_sharpe(champion_returns))
-        challenger_fold_sharpes.append(_fold_sharpe(challenger_returns))
-
-    evaluator = ChallengerEvaluator()
-    return [
-        evaluator.compare_metric(
-            "ensemble_prediction_accuracy", champion_fold_neg_brier, challenger_fold_neg_brier
-        ),
-        evaluator.compare_metric("oos_sharpe", champion_fold_sharpes, challenger_fold_sharpes),
-    ]
-
-
-# ---------------------------------------------------------------------------
 # Phase 8 item 3 -- feature-window parameters
 # ---------------------------------------------------------------------------
 
@@ -720,4 +561,132 @@ def run_xgboost_hyperparam_backtest(
     return [
         evaluator.compare_metric("oos_sharpe", champion_sharpes, challenger_sharpes),
         evaluator.compare_metric("accuracy", champion_acc, challenger_acc),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# risk.ensemble_blend_weight — recalibration against realized outcomes
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EnsembleBlendSample:
+    """
+    One closed trade with both inputs to the ensemble blend it was taken on.
+
+    Holding the two inputs rather than the blended result is what makes any
+    candidate weight computable: `(1-w)*raw_p_long + w*ensemble_p_long` for
+    any w, on every sample. The blended value alone cannot be inverted — the
+    online-trainer blend perturbs it again immediately afterwards.
+
+    `raw_return` is signed to the direction actually traded, so a winning
+    short is positive.
+    """
+
+    raw_p_long: float
+    ensemble_p_long: float
+    direction: int  # 1 = long, 0 = short — the direction actually traded
+    raw_return: float
+
+
+def ensemble_blend_samples_from_trades(
+    trades: list[TradeRecord],
+) -> list[EnsembleBlendSample]:
+    """
+    Build blend samples from closed trades, oldest-first.
+
+    Skips trades that cannot answer the question: still open (no realized
+    return), or taken before the v7 migration / without an ensemble
+    (blend columns NULL). A NULL weight is not the same as a 0.0 weight —
+    the first never blended and is not a sample, the second blended at the
+    floor of the range and is.
+    """
+    samples: list[EnsembleBlendSample] = []
+    for t in trades:
+        if t.exit_price is None or t.entry_price <= 0.0:
+            continue
+        if t.pre_blend_p_long is None or t.ensemble_p_long is None:
+            continue
+        raw_return = (t.exit_price / t.entry_price - 1.0) * (1.0 if t.direction == 1 else -1.0)
+        samples.append(
+            EnsembleBlendSample(
+                raw_p_long=t.pre_blend_p_long,
+                ensemble_p_long=t.ensemble_p_long,
+                direction=t.direction,
+                raw_return=raw_return,
+            )
+        )
+    samples.reverse()  # fetch_trades returns newest-first; folds assume chronological
+    return samples
+
+
+def _blended_p_long(sample: EnsembleBlendSample, weight: float) -> float:
+    return (1.0 - weight) * sample.raw_p_long + weight * sample.ensemble_p_long
+
+
+def run_ensemble_blend_backtest(
+    samples: list[EnsembleBlendSample],
+    champion_weight: float,
+    challenger_weight: float,
+    features_cfg: FeatureSettings | None = None,
+) -> list[MetricComparison]:
+    """
+    Recalibrate `risk.ensemble_blend_weight` against realized trade outcomes.
+
+    Two metrics, both "higher is better" after negation per
+    src.tuning.evaluator's convention:
+
+      - ensemble_calibration: negative Brier score (Brier 1950) of the
+        weight's implied win probability for the direction actually traded,
+        against whether that trade actually won. This measures calibration
+        and takes the direction traded as given.
+      - oos_sharpe: per-fold Sharpe of the realized return, sign-flipped on
+        samples where the candidate weight's implied direction disagrees with
+        the direction actually traded.
+
+    The sign flip is the same simplification run_feature_window_backtest
+    makes, and carries the same caveat: it is not a re-execution. A flipped
+    direction would in reality have had its own fill price, fees and slippage,
+    so this is an approximation of the decision's value, not of the P&L.
+    """
+    if features_cfg is None:
+        features_cfg = FeatureSettings()
+
+    folds = _make_folds(len(samples), features_cfg.cpcv_n_splits, features_cfg.purge_gap_bars)
+    evaluator = ChallengerEvaluator()
+
+    champion_neg_brier: list[float] = []
+    challenger_neg_brier: list[float] = []
+    champion_sharpes: list[float] = []
+    challenger_sharpes: list[float] = []
+
+    for start, end in folds:
+        fold = samples[start:end]
+        if not fold:
+            continue
+
+        briers: dict[float, list[float]] = {champion_weight: [], challenger_weight: []}
+        returns: dict[float, list[float]] = {champion_weight: [], challenger_weight: []}
+
+        for sample in fold:
+            realized_win = 1.0 if sample.raw_return > 0.0 else 0.0
+            for weight in (champion_weight, challenger_weight):
+                p_long = _blended_p_long(sample, weight)
+                p_win = p_long if sample.direction == 1 else 1.0 - p_long
+                briers[weight].append((p_win - realized_win) ** 2)
+                implied_direction = 1 if p_long >= 0.5 else 0
+                returns[weight].append(
+                    sample.raw_return
+                    if implied_direction == sample.direction
+                    else -sample.raw_return
+                )
+
+        champion_neg_brier.append(-statistics.fmean(briers[champion_weight]))
+        challenger_neg_brier.append(-statistics.fmean(briers[challenger_weight]))
+        champion_sharpes.append(_fold_sharpe(returns[champion_weight]))
+        challenger_sharpes.append(_fold_sharpe(returns[challenger_weight]))
+
+    return [
+        evaluator.compare_metric("ensemble_calibration", champion_neg_brier, challenger_neg_brier),
+        evaluator.compare_metric("oos_sharpe", champion_sharpes, challenger_sharpes),
     ]

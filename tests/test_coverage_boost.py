@@ -300,7 +300,7 @@ class TestCoinGeckoProvider:
 
     def test_get_cache_expired(self):
         p = CoinGeckoIntelligenceProvider(cache_ttl_s=1)
-        p._cache["k"] = (time.time() - 10.0, "value")
+        p._cache["k"] = (time.monotonic() - 10.0, "value")
         assert p._get_cache("k") is None
 
     def test_singleton_returns_same_instance(self):

@@ -15,6 +15,7 @@ from typing import Any
 import ccxt.async_support as ccxt
 import structlog
 
+from src.execution.idempotency import derive_idempotency_key
 from src.execution.order_fsm import OrderFSM
 from src.execution.order_manager import OrderManager
 
@@ -35,6 +36,7 @@ class LiveExecutorOrderFSM:
             symbol=symbol,
             side=side,
             quantity=quantity,
+            purpose="entry",
         )
     """
 
@@ -49,11 +51,21 @@ class LiveExecutorOrderFSM:
         symbol: str,
         side: str,
         quantity: float,
+        *,
+        purpose: str,
+        intent_id: str | None = None,
+        strategy_id: str = "live_executor",
     ) -> tuple[OrderFSM, dict[str, Any]]:
         """
         Place a market order and track via FSM.
 
         Replaces _place_market_order polling loop with state machine.
+
+        ``purpose`` and ``intent_id`` define the order's identity for LAW3
+        de-duplication -- see :func:`derive_idempotency_key`. Mirrors
+        LiveExecutor._place_market_order: ``purpose`` is keyword-only and
+        required so a new call site cannot inherit a default that silently
+        collides with an unrelated order.
 
         Returns:
             (OrderFSM, final_order_dict from exchange)
@@ -64,12 +76,22 @@ class LiveExecutorOrderFSM:
         """
         exchange = self._fetcher.get_order_exchange()
 
+        idempotency_key = derive_idempotency_key(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            purpose=purpose,
+            intent_id=intent_id,
+        )
+
         try:
             fsm, order = await self._order_manager.place_order_with_fsm(
                 exchange=exchange,
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
+                idempotency_key=idempotency_key,
             )
 
             self._log.info(

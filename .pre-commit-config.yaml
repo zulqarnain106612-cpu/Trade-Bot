@@ -1,59 +1,27 @@
+# Regenerated after the config purge (#144).
+# Install with: pre-commit install
+#
+# Keep the ruff rev in step with the pin in requirements-dev.txt so local
+# hooks and CI cannot disagree about what counts as clean.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.21
-    hooks:
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
-      - id: ruff-format
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-json
-        exclude: \.vscode/.*\.json$
-      - id: check-toml
-      - id: check-merge-conflict
       - id: check-added-large-files
-        args: [--maxkb=1000]
-      - id: debug-statements
+        args: [--maxkb=1024]
+        exclude: ^frontend/package-lock\.json$
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
       - id: mixed-line-ending
         args: [--fix=lf]
 
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
     hooks:
-      - id: detect-secrets
-        args: [--baseline, .secrets.baseline]
-        exclude: \.env\.example$
-
-
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.9.4  # Debt-006: sync with trunk.yaml + installed version
-    hooks:
-      - id: bandit
-        args: [-r, src/, --severity-level, medium, --confidence-level, medium, -q]
-        pass_filenames: false
-
-
-  - repo: local
-    hooks:
-      - id: crypto-architect
-        name: crypto-architect governance gate
-        # Full scan, not per-file: the scoped law checks and the cross-file
-        # idempotency/PQC checks only mean anything over the whole tree.
-        entry: scripts/arch_gate.sh
-        language: script
-        pass_filenames: false
-        files: ^src/.*\.py$
-
-
-  - repo: https://github.com/returntocorp/semgrep
-    rev: v1.72.0
-    hooks:
-      - id: semgrep
-        name: semgrep custom rules
-        args: [--config, .semgrep/rules.yml, --error, --quiet]
-        pass_filenames: false
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

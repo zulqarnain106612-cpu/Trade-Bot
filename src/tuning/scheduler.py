@@ -1,7 +1,7 @@
 """
 Auto-tuning scheduler -- the "explicit startup step" referenced by
 src/tuning/bootstrap.py's module docstring, and the automated counterpart
-to scripts/run_tuning_attempt.py (which remains the manual entrypoint;
+to the manual tuning entrypoint that the config purge (#144) removed;
 this module reuses the exact same process-wide singletons from
 src/tuning/state.py so both paths share one audit trail / version store).
 
@@ -144,6 +144,8 @@ class AutoTuningScheduler:
         # the first cycle -- whether reached via _loop() or a direct
         # _attempt_all() call in tests -- always attempts them once.
         self._xgboost_cycle_interval = max(1, xgboost_cycle_interval)
+        # E-09 walk-forward retrain: runs every N cycles (default 48h at 1h/cycle)
+        self._e09_retrain_interval = 48
         self._cycle_count = 0
         self._task: asyncio.Task[None] | None = None
         self._stopped = False
@@ -209,6 +211,7 @@ class AutoTuningScheduler:
                     # matching _attempt_all()'s own doc comment and the
                     # direct-_attempt_all() test path.
                     await self._attempt_all()
+                    await self._maybe_retrain_e09()
                     self._cycle_count += 1
                     self._check_redteam_due()
             except Exception as exc:
@@ -376,6 +379,7 @@ class AutoTuningScheduler:
                     "risk.ensemble_blend_weight",
                     evaluate_ensemble_blend,
                     primary_metric="oos_sharpe",
+                    closed_trade_count=closed_trade_count,
                 )
                 log.info(
                     "tuning.scheduler_attempt",
@@ -521,6 +525,26 @@ class AutoTuningScheduler:
                                 error=str(exc),
                                 exc_info=True,
                             )
+
+    async def _maybe_retrain_e09(self) -> None:
+        """Trigger E-09 walk-forward retrain every _e09_retrain_interval cycles (CRYPTO_BOX only)."""
+        import os
+
+        if self._cycle_count % self._e09_retrain_interval != 0:
+            return
+        if os.environ.get("CRYPTO_BOX", "").lower() not in ("1", "true", "yes"):
+            return
+        try:
+            from src.tuning.engine_backtest import retrain_e09_walkforward
+
+            df = await self._build_feature_bars_df()
+            if df is None or len(df) < 230:
+                log.info("e09_retrain_skipped", reason="insufficient_bars")
+                return
+            n = await retrain_e09_walkforward(df, self._symbol)
+            log.info("e09_retrain_complete", n_samples=n)
+        except Exception as exc:
+            log.error("e09_retrain_failed", error=str(exc), exc_info=True)
 
     def _load_direction_model(self) -> XGBClassifier | None:
         try:

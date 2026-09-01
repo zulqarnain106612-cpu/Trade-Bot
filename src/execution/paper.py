@@ -35,9 +35,14 @@ from typing import Final
 import structlog
 
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
-from src.data.storage import AnyStorageBackend, EquityRecord, TradeRecord
+from src.data.storage import AnyStorageBackend, BlendAudit, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
 from src.execution.base import AbstractExecutor
+from src.execution.idempotency import (
+    DuplicateOrderError,
+    IdempotencyRegistry,
+    derive_idempotency_key,
+)
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 from src.risk.slippage import SlippageModel
@@ -203,6 +208,7 @@ class PaperExecutor(AbstractExecutor):
         self._peak_equity: float = self._starting_capital
 
         self._positions: dict[str, PaperPosition] = {}  # trade_id → position
+        self._idempotency: IdempotencyRegistry = IdempotencyRegistry()
         self._approval_queue: dict[str, ApprovalRequest] = {}  # request_id → request
         self._lock: asyncio.Lock = asyncio.Lock()
         self._drawdown_tracker = DrawdownTracker(self._starting_capital)
@@ -253,6 +259,7 @@ class PaperExecutor(AbstractExecutor):
         raw_signal: float,
         current_price: float,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> tuple[str | None, str]:
         """
         Route a signal through the correct execution mode.
@@ -292,6 +299,7 @@ class PaperExecutor(AbstractExecutor):
                 current_price,
                 approved_by="auto",
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -308,6 +316,7 @@ class PaperExecutor(AbstractExecutor):
                     current_price,
                     approved_by="auto_below_limit",
                     strategy_id=strategy_id,
+                    blend_audit=blend_audit,
                 )
                 return trade_id, "opened" if trade_id else "rejected"
             # Above limit — needs approval
@@ -337,6 +346,7 @@ class PaperExecutor(AbstractExecutor):
                 current_price,
                 approved_by=operator,
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -365,6 +375,7 @@ class PaperExecutor(AbstractExecutor):
                 current_price,
                 approved_by=operator,
                 strategy_id=strategy_id,
+                blend_audit=blend_audit,
             )
             return trade_id, "opened" if trade_id else "rejected"
 
@@ -719,6 +730,10 @@ class PaperExecutor(AbstractExecutor):
         return self._cash
 
     @property
+    def idempotency(self) -> IdempotencyRegistry:
+        return self._idempotency
+
+    @property
     def equity_usd(self) -> float:
         return self._equity_usd()
 
@@ -789,6 +804,7 @@ class PaperExecutor(AbstractExecutor):
         adv_20d: float = 0.0,
         spread_bps: float = 2.0,
         strategy_id: str = "signal_engine_v1",
+        blend_audit: BlendAudit | None = None,
     ) -> str | None:
         """
         Open a paper position and persist trade record.
@@ -798,8 +814,32 @@ class PaperExecutor(AbstractExecutor):
         the same cost model used by gate 0 (src/risk/slippage.py), making the
         30-day paper track record a credible basis for the live-gate decision.
 
-        Returns trade_id on success, None if cash is insufficient.
+        Returns trade_id on success, None if cash is insufficient or the same
+        order intent was already submitted (LAW3).
         """
+        # LAW3: paper dedupes on the same key as live. Paper is the venue where
+        # a duplicate-submission bug is supposed to be caught, so weakening the
+        # guard here would defeat the point of paper trading.
+        side = "buy" if direction == 1 else "sell"
+        idempotency_key = derive_idempotency_key(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            side=side,
+            quantity=kelly_result.quantity,
+            purpose="entry",
+        )
+        try:
+            await self._idempotency.reserve(idempotency_key)
+        except DuplicateOrderError as exc:
+            self._log.warning(
+                "paper.duplicate_order_suppressed",
+                symbol=symbol,
+                side=side,
+                idempotency_key=idempotency_key,
+                prior_trade_id=exc.record.order_id,
+            )
+            return None
+
         # GAP-011: simulate realistic fill price via SlippageModel (same model as gate 0)
         simulated_fill_price = current_price
         if adv_20d > 0.0 and kelly_result.quantity > 0.0:
@@ -833,6 +873,9 @@ class PaperExecutor(AbstractExecutor):
                     cash=round(self._cash, 2),
                     needed=round(notional + entry_fee, 2),
                 )
+                # No position was opened, so the intent may legitimately be
+                # retried once cash frees up -- release the key.
+                await self._idempotency.fail(idempotency_key, "insufficient_cash", retryable=True)
                 return None
 
             trade_id = str(uuid.uuid4())
@@ -862,6 +905,8 @@ class PaperExecutor(AbstractExecutor):
             )
             self._positions[trade_id] = pos
 
+        await self._idempotency.complete(idempotency_key, trade_id)
+
         # Persist entry record (exit fields are None until close)
         trade_record = TradeRecord(
             id=trade_id,
@@ -885,6 +930,9 @@ class PaperExecutor(AbstractExecutor):
             exit_reason=None,
             approved_by=approved_by,
             raw_signal=raw_signal,
+            pre_blend_p_long=blend_audit.pre_blend_p_long if blend_audit else None,
+            ensemble_p_long=blend_audit.ensemble_p_long if blend_audit else None,
+            ensemble_blend_weight=blend_audit.blend_weight if blend_audit else None,
         )
         await self._storage.insert_trade(trade_record)
         await self._snapshot_equity()

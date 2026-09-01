@@ -225,7 +225,8 @@ class PerformanceDriftDetector:
         # loop that risk gates depend on, instead of failing closed on a
         # bad input. Skip this call's drawdown update rather than crash;
         # the invalid sample is discarded, not silently treated as 0% or
-        # 100% drawdown.
+        # 100% drawdown. The peak guard below is the same failure mode for
+        # the denominator this actually divides by.
         if starting_equity <= 0.0:
             self._log.error(
                 "performance_drift.invalid_starting_equity",
@@ -233,8 +234,17 @@ class PerformanceDriftDetector:
                 current_equity=current_equity,
             )
             return
+        if self._live_equity_peak <= 0.0:
+            return
 
-        drawdown_pct = (self._live_equity_peak - current_equity) / starting_equity
+        # Drawdown is peak-relative, not start-relative. Dividing by
+        # starting_equity inflated the figure by exactly the account's growth
+        # factor: on an account that doubled, a true 30% drawdown from peak
+        # read as 60%. That number is compared against the backtest's
+        # max_drawdown_pct, which is peak-relative by construction, so the
+        # halt fired hardest on the accounts that had performed best. Matches
+        # gates.DrawdownTracker, stress_simulator and capital_preservation_floor.
+        drawdown_pct = (self._live_equity_peak - current_equity) / self._live_equity_peak
         if drawdown_pct > self._max_live_drawdown_pct:
             self._max_live_drawdown_pct = drawdown_pct
 

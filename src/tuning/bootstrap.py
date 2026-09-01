@@ -138,10 +138,11 @@ def register_ensemble_blend_weight(
     themselves rather than via an operator-configured default.
 
     Evaluated by backtest_harness.run_ensemble_blend_backtest against
-    realized OOS trade outcomes where both p_long and the ensemble's
-    point_estimate were logged at signal time (AuditRecord / the
-    trades.ensemble_point_estimate column -- see
-    src/data/storage.py's update_trade_ensemble_fields).
+    realized OOS trade outcomes where both inputs to the blend were logged
+    at signal time -- the trades.pre_blend_p_long and trades.ensemble_p_long
+    columns (src/data/storage.py's TradeRecord). Both inputs are stored
+    rather than the blended result because the blended value alone cannot be
+    inverted back to its inputs.
     """
     settings = settings or get_settings()
     default = settings.risk.ensemble_blend_weight
@@ -153,7 +154,7 @@ def register_ensemble_blend_weight(
         floor=floor,
         ceiling=ceiling,
         current=current,
-        eval_strategy="ensemble_prediction_accuracy",
+        eval_strategy="ensemble_calibration",
     )
     registry.register(param)
     return param
@@ -184,48 +185,6 @@ def register_slippage_impact_coeff(
         ceiling=ceiling,
         current=current,
         eval_strategy="realized_fill_error",
-    )
-    registry.register(param)
-    return param
-
-
-def register_ensemble_blend_weight(
-    registry: ParameterRegistry,
-    settings: Settings | None = None,
-    store: VersionedConfigStore | None = None,
-) -> TunableParameter:
-    """
-    RiskSettings.ensemble_blend_weight -- how much of signal_engine.py's
-    p_long comes from the diversified prediction ensemble
-    (src/intelligence/ensemble_predictor.py) vs. the XGBoost direction
-    model. Registered so this weight can only move via the same
-    propose/evaluate/gate/shadow-mode machinery as every other tunable
-    parameter -- never a direct .env edit while the bot is live.
-
-    Registered but deliberately left UNSCHEDULED in
-    src/tuning/scheduler.py's _attempt_all() -- same documented state
-    hmm.entropy_threshold was in during Phase 4 before its backtest
-    harness existed (see scheduler.py's module docstring: "Any other
-    registered parameter with no evaluate_fn is intentionally left
-    unscheduled here"). A dedicated backtest harness comparing champion
-    vs. challenger blend weights against realized OOS trade outcomes is
-    future work; until it exists this parameter is visible/adjustable
-    manually (scripts/run_tuning_attempt.py, /self-tuning/status) but not
-    auto-tuned on a cycle.
-    """
-    settings = settings or get_settings()
-    default = settings.risk.ensemble_blend_weight
-    floor, ceiling = _symmetric_bounds(default)
-    floor = max(0.0, floor)
-    ceiling = min(1.0, ceiling)
-    current = _resume_current("risk.ensemble_blend_weight", default, floor, ceiling, store)
-    param = TunableParameter(
-        name="risk.ensemble_blend_weight",
-        description="Weight of the prediction ensemble's implied probability in p_long.",
-        floor=floor,
-        ceiling=ceiling,
-        current=current,
-        eval_strategy="ensemble_blend_oos_accuracy",
     )
     registry.register(param)
     return param

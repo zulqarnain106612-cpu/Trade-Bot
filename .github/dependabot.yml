@@ -1,64 +1,49 @@
+# Regenerated after the config purge (#144).
+#
+# Grouped deliberately: the pre-purge config opened one PR per package, which
+# is how 11 dependency PRs accumulated against manifests that had been deleted.
 version: 2
 
 updates:
-  # Python dependencies
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: "UTC"
     open-pull-requests-limit: 5
     groups:
-      dev-dependencies:
-        patterns: ["pytest*", "ruff", "mypy*", "bandit*", "pip-audit*"]
+      python-minor-patch:
+        applies-to: version-updates
         update-types: ["minor", "patch"]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
     ignore:
-      # Pin major versions manually — breaking changes in core deps
-      - dependency-name: "xgboost"
+      # Major bumps of the heavy ML stack need a deliberate migration, not a bot.
+      - dependency-name: torch
         update-types: ["version-update:semver-major"]
-      - dependency-name: "hmmlearn"
+      - dependency-name: transformers
         update-types: ["version-update:semver-major"]
-      - dependency-name: "pandas"
+      - dependency-name: mlflow
         update-types: ["version-update:semver-major"]
-      - dependency-name: "ccxt"
-        update-types: ["version-update:semver-major"]
-    labels:
-      - "dependencies"
-      - "python"
-    commit-message:
-      prefix: "chore(deps)"
 
-  # Frontend (npm)
   - package-ecosystem: npm
     directory: "/frontend"
     schedule:
       interval: weekly
-      day: monday
-      time: "06:30"
-      timezone: "UTC"
     open-pull-requests-limit: 5
     groups:
-      vite-react:
-        patterns: ["vite", "react*", "@vitejs/*"]
-        update-types: ["minor", "patch"]
-    labels:
-      - "dependencies"
-      - "frontend"
-    commit-message:
-      prefix: "chore(deps)"
+      frontend-build:
+        patterns: ["vite", "@vitejs/*", "tailwindcss", "postcss", "autoprefixer"]
+      frontend-runtime:
+        patterns: ["react", "react-dom", "recharts"]
+      electron:
+        patterns: ["electron", "electron-builder"]
 
-  # GitHub Actions
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
-      day: monday
-      time: "07:00"
-      timezone: "UTC"
-    labels:
-      - "dependencies"
-      - "github-actions"
-    commit-message:
-      prefix: "chore(actions)"
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]

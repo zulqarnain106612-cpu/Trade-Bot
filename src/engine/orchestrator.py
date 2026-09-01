@@ -22,6 +22,7 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace as _dc_replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -40,8 +41,10 @@ from src.config import (
     runtime_config,
 )
 from src.data.fetcher import MarketDataFetcher
+from src.data.provider_cache import get_provider_cache
 from src.data.storage import (
     AnyStorageBackend,
+    BlendAudit,
     MissedTradeRecord,
     ModelMetricsRecord,
     RegimeSnapshotRecord,
@@ -50,6 +53,7 @@ from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
 )
+from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
 from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
 from src.engine.strategy_portfolio import (
     InputNeed,
@@ -94,6 +98,29 @@ from src.tuning.meta_allocator import get_allocation_controller
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+def _blend_audit(result: SignalResult) -> BlendAudit | None:
+    """
+    The tick's ensemble-blend inputs, or None when no blend happened.
+
+    All three are set together or not at all (see SignalEngine.tick), so a
+    partial set means something went wrong upstream and is treated as no
+    blend rather than recorded half-formed — a sample the tuning harness
+    cannot re-score is worse than an absent one.
+    """
+    if (
+        result.pre_blend_p_long is None
+        or result.ensemble_p_long is None
+        or result.ensemble_blend_weight is None
+    ):
+        return None
+    return BlendAudit(
+        pre_blend_p_long=result.pre_blend_p_long,
+        ensemble_p_long=result.ensemble_p_long,
+        blend_weight=result.ensemble_blend_weight,
+    )
+
 
 # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
 _RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
@@ -284,6 +311,10 @@ class Orchestrator:
         # Keyed by trade_id rather than strategy_id so a strategy running
         # several positions contributes each one's delta exactly once.
         self._last_unrealized_by_trade: dict[str, float] = {}
+
+        # Crypto-Box 18-engine ensemble — activated only when CRYPTO_BOX=true.
+        # Silently disabled otherwise, so the existing pipeline is unaffected.
+        self._crypto_box = CryptoBoxSignalAdapter()
 
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
@@ -496,6 +527,10 @@ class Orchestrator:
             asyncio.create_task(self._allocation_rebalance_loop(), name="allocation_rebalance")
         )
 
+        # Crypto-Box background data provider loops (no-op when CRYPTO_BOX!=true)
+        if self._crypto_box.enabled:
+            tasks.extend(self._crypto_box_provider_tasks())
+
         # Wait until stop event
         await self._stop_event.wait()
         self._running = False
@@ -553,6 +588,34 @@ class Orchestrator:
         if self._non_primary_executor is not None:
             executors.append(self._non_primary_executor)
         return executors
+
+    def _crypto_box_provider_tasks(self) -> list[asyncio.Task[None]]:
+        """Spawn background polling loops for all Crypto-Box data providers."""
+        tasks: list[asyncio.Task[None]] = []
+        try:
+            from src.data.block_height_provider import BlockHeightProvider
+            from src.data.deribit_provider import DeribitProvider
+            from src.data.exchange_flow_provider import ExchangeFlowProvider
+            from src.data.macro_provider import MacroProvider
+            from src.data.sentiment_provider import SentimentProvider
+
+            sp = SentimentProvider()
+            mp = MacroProvider()
+            dp = DeribitProvider()
+            xp = ExchangeFlowProvider()
+            bp = BlockHeightProvider()
+            tasks.append(asyncio.create_task(sp.run_fg_loop(), name="cb_sentiment_fg"))
+            tasks.append(asyncio.create_task(sp.run_rss_loop(), name="cb_sentiment_rss"))
+            tasks.append(asyncio.create_task(mp.run_loop(), name="cb_macro"))
+            tasks.append(asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"))
+            tasks.append(asyncio.create_task(bp.run_loop(), name="cb_block_height"))
+            tasks.extend(
+                asyncio.create_task(dp.run_loop(f"{coin}/USDT"), name=f"cb_deribit_{coin}")
+                for coin in ("BTC", "ETH")
+            )
+        except Exception as exc:
+            self._log.warning("orchestrator.cb_provider_tasks_failed", error=str(exc))
+        return tasks
 
     async def shutdown(self) -> None:
         """Flush state, close all subsystems, and shut down training executor."""
@@ -792,6 +855,82 @@ class Orchestrator:
             drift_detector=self._drift_detector,
         )
 
+        # Crypto-Box augmentation — blends 18-engine ensemble into Kelly sizing.
+        # Only active when CRYPTO_BOX=true; fails open to unmodified result.
+        if self._crypto_box.enabled and result.kelly_result is not None:
+            try:
+                _tf_secs = TIMEFRAME_SECONDS.get(tf, 3600)
+                _since_ms = int((time.time() - 300 * _tf_secs) * 1000)
+                _bar_recs = await self._storage.fetch_bars(
+                    self._symbol, tf.value, _since_ms, limit=300
+                )
+                bars = (
+                    pd.DataFrame(
+                        [
+                            {
+                                "timestamp_utc": b.ts,
+                                "open": b.open,
+                                "high": b.high,
+                                "low": b.low,
+                                "close": b.close,
+                                "volume": b.volume,
+                            }
+                            for b in _bar_recs
+                        ]
+                    )
+                    if _bar_recs
+                    else None
+                )
+                spot = float(bars["close"].iloc[-1]) if bars is not None and len(bars) else 0.0
+                _cache_snap = get_provider_cache().snapshot(self._symbol)
+                _cb_data: dict[str, Any] = {"ohlcv": bars, "spot": spot, **_cache_snap}
+                cb_signal = await self._crypto_box.get_signal(self._symbol, _cb_data)
+                if cb_signal is not None:
+                    # Circuit breaker: always suppress even when kelly_multiplier==0
+                    if "manipulation_circuit_breaker" in cb_signal.warnings:
+                        result = _dc_replace(
+                            result,
+                            tradeable=False,
+                            skip_reason="crypto_box_circuit_breaker",
+                        )
+                    elif cb_signal.kelly_multiplier > 0.0:
+                        # Scale Kelly by crypto-box confidence; halve on direction conflict
+                        direction_match = (
+                            cb_signal.direction == 0 or cb_signal.direction == result.direction
+                        )
+                        scale = cb_signal.kelly_multiplier if direction_match else 0.5
+                        assert result.kelly_result is not None
+                        new_adj = max(
+                            0.0,
+                            min(
+                                result.kelly_result.adjusted_fraction * scale,
+                                result.kelly_result.adjusted_fraction,
+                            ),
+                        )
+                        new_kelly = _dc_replace(result.kelly_result, adjusted_fraction=new_adj)
+                        result = _dc_replace(result, kelly_result=new_kelly)
+                    try:
+                        from src.diagnostics.audit_trail import get_audit_trail
+
+                        get_audit_trail().record(
+                            event_type="crypto_box_signal",
+                            reason_code=cb_signal.regime,
+                            details={
+                                "symbol": self._symbol,
+                                "direction": cb_signal.direction,
+                                "confidence": cb_signal.confidence,
+                                "kelly_multiplier": cb_signal.kelly_multiplier,
+                                "warnings": ",".join(cb_signal.warnings),
+                            },
+                        )
+                    except Exception as _audit_exc:
+                        self._log.warning(
+                            "orchestrator.crypto_box_audit_failed",
+                            error=str(_audit_exc),
+                        )
+            except Exception as _cb_exc:
+                self._log.warning("orchestrator.crypto_box_augment_failed", error=str(_cb_exc))
+
         # Persist regime snapshot
         if result.regime is not None:
             latest_ts = await self._storage.latest_bar_ts(self._symbol, tf.value) or 0
@@ -969,6 +1108,7 @@ class Orchestrator:
                 meta_label_prob=result.p_bet,
                 raw_signal=result.p_long,
                 current_price=current_price,
+                blend_audit=_blend_audit(result),
             )
 
             self._log.info(

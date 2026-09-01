@@ -8,6 +8,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from conftest import settings_double
 from src.config import Timeframe, TradingMode
 from src.data.storage import BarRecord
 from src.engine.signal_engine import SignalResult
@@ -50,6 +51,9 @@ def _make_storage():
 def _make_fetcher():
     f = AsyncMock()
     f.bootstrap_history = AsyncMock(return_value=100)
+    # A bare AsyncMock child returns a coroutine from .get(), which the
+    # precision loader feeds straight to float(). Give it a real mapping.
+    f.fetch_symbol_precision = AsyncMock(return_value={})
     f.fetch_ticker_price = AsyncMock(return_value=50_000.0)
     return f
 
@@ -74,7 +78,7 @@ def _make_orch():
     storage = _make_storage()
     fetcher = _make_fetcher()
     with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-        cfg = MagicMock()
+        cfg = settings_double()
         cfg.primary_symbol = "BTC/USDT"
         cfg.active_timeframes = [Timeframe.INTRADAY]
         cfg.primary_timeframe = Timeframe.INTRADAY
@@ -407,7 +411,7 @@ def _make_orch_cfg(trading_mode=TradingMode.PAPER):
     storage = _make_storage()
     fetcher = _make_fetcher()
     with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-        cfg = MagicMock()
+        cfg = settings_double()
         cfg.primary_symbol = "BTC/USDT"
         cfg.active_timeframes = [Timeframe.INTRADAY]
         cfg.primary_timeframe = Timeframe.INTRADAY
@@ -633,7 +637,7 @@ class TestPositionMonitorDriftRecordOnClose:
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -911,7 +915,7 @@ class TestTrainModelsRemainingBranches:
         storage.insert_model_metrics = AsyncMock(return_value=None)
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -1086,7 +1090,7 @@ class TestPositionMonitorRemainingBranches:
         storage = _make_storage()
         fetcher = _make_fetcher()
         with patch("src.engine.orchestrator.get_settings") as mock_cfg:
-            cfg = MagicMock()
+            cfg = settings_double()
             cfg.primary_symbol = "BTC/USDT"
             cfg.active_timeframes = [Timeframe.INTRADAY]
             cfg.primary_timeframe = Timeframe.INTRADAY
@@ -1357,6 +1361,143 @@ class TestPositionMonitorRemainingBranches:
 # ---------------------------------------------------------------------------
 # _timeframe_loop() — a full successful tick through the loop
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _monitor_positions_for — KeyError and exception paths
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorPositionsFor:
+    def _make_orch_with_controls(self):
+        orch = _make_orch()
+        orch._drift_detector = None
+        orch._drift_adapter = None
+        return orch
+
+    def _controls(self) -> dict:
+        return {
+            "stop_loss_enabled": True,
+            "stop_loss_pct": 2.0,
+            "take_profit_enabled": True,
+            "take_profit_pct": 4.0,
+            "max_holding_period_s": 86_400.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_position_wrong_symbol_is_skipped(self):
+        orch = self._make_orch_with_controls()
+        executor = _make_executor()
+        executor.mark_to_market = AsyncMock(return_value=None)
+        executor.open_positions_safe = AsyncMock(
+            return_value=[
+                {
+                    "symbol": "ETH/USDT",  # not the primary symbol
+                    "trade_id": "t1",
+                    "unrealized_pnl_pct": -10.0,
+                    "entry_ts": 0,
+                    "direction": "long",
+                }
+            ]
+        )
+        executor.close_position = AsyncMock(return_value=0.0)
+
+        with patch(
+            "src.engine.orchestrator.runtime_config.get_risk_controls",
+            new_callable=AsyncMock,
+            return_value=self._controls(),
+        ):
+            await orch._monitor_positions_for(executor, price=50_000.0)
+
+        executor.close_position.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_key_error_during_close_is_silently_ignored(self):
+        orch = self._make_orch_with_controls()
+        executor = _make_executor()
+        executor.mark_to_market = AsyncMock(return_value=None)
+        pos = {
+            "symbol": "BTC/USDT",
+            "trade_id": "t1",
+            "unrealized_pnl_pct": -5.0,
+            "entry_ts": 0,
+            "direction": "long",
+        }
+        executor.open_positions_safe = AsyncMock(return_value=[pos])
+        executor.close_position = AsyncMock(side_effect=KeyError("already closed"))
+
+        with (
+            patch(
+                "src.engine.orchestrator.runtime_config.get_risk_controls",
+                new_callable=AsyncMock,
+                return_value=self._controls(),
+            ),
+            patch(
+                "src.engine.orchestrator.check_position_exit",
+                return_value="stop_loss",
+            ),
+        ):
+            await orch._monitor_positions_for(executor, price=50_000.0)
+        # No exception raised — KeyError swallowed
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_during_close_is_logged_not_raised(self):
+        orch = self._make_orch_with_controls()
+        executor = _make_executor()
+        executor.mark_to_market = AsyncMock(return_value=None)
+        pos = {
+            "symbol": "BTC/USDT",
+            "trade_id": "t2",
+            "unrealized_pnl_pct": 5.0,
+            "entry_ts": 0,
+            "direction": "long",
+        }
+        executor.open_positions_safe = AsyncMock(return_value=[pos])
+        executor.close_position = AsyncMock(side_effect=RuntimeError("exchange down"))
+
+        with (
+            patch(
+                "src.engine.orchestrator.runtime_config.get_risk_controls",
+                new_callable=AsyncMock,
+                return_value=self._controls(),
+            ),
+            patch(
+                "src.engine.orchestrator.check_position_exit",
+                return_value="profit_target",
+            ),
+        ):
+            await orch._monitor_positions_for(executor, price=50_000.0)
+        # RuntimeError swallowed — loop continues
+
+    @pytest.mark.asyncio
+    async def test_no_exit_reason_does_not_call_close(self):
+        orch = self._make_orch_with_controls()
+        executor = _make_executor()
+        executor.mark_to_market = AsyncMock(return_value=None)
+        pos = {
+            "symbol": "BTC/USDT",
+            "trade_id": "t3",
+            "unrealized_pnl_pct": 0.5,
+            "entry_ts": 0,
+            "direction": "long",
+        }
+        executor.open_positions_safe = AsyncMock(return_value=[pos])
+        executor.close_position = AsyncMock(return_value=0.0)
+
+        with (
+            patch(
+                "src.engine.orchestrator.runtime_config.get_risk_controls",
+                new_callable=AsyncMock,
+                return_value=self._controls(),
+            ),
+            patch(
+                "src.engine.orchestrator.check_position_exit",
+                return_value=None,
+            ),
+        ):
+            await orch._monitor_positions_for(executor, price=50_000.0)
+
+        executor.close_position.assert_not_awaited()
 
 
 class TestTimeframeLoopSuccessfulTick:

@@ -8,6 +8,7 @@ through every major branch.
 from __future__ import annotations
 
 import asyncio
+import math
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -830,6 +831,17 @@ def _ensemble_prediction(point_estimate: float) -> EnsemblePrediction:
     )
 
 
+def _p_ensemble_long(point_estimate: float) -> float:
+    """The ensemble's point estimate as a probability, per the engine's mapping.
+
+    point_estimate is on a log-return scale, not a probability — the engine
+    maps it through tanh of its own signal-to-noise ratio, using the
+    uncertainties _ensemble_prediction stamps above.
+    """
+    sigma = math.sqrt(0.03**2 + 0.02**2)
+    return 0.5 * (1.0 + math.tanh(point_estimate / sigma))
+
+
 class TestEnsembleBlendPersistence:
     async def _run(self, e, monkeypatch, blend_weight, predict_direction_return=(1, 0.8)):
         settings = Settings(risk={"ensemble_blend_weight": blend_weight})
@@ -875,40 +887,46 @@ class TestEnsembleBlendPersistence:
     @pytest.mark.asyncio
     async def test_zero_blend_weight_ignores_injected_predictor(self, monkeypatch):
         predictor = MagicMock()
-        predictor.predict.return_value = _ensemble_prediction(0.2)
+        predictor.predict_row.return_value = _ensemble_prediction(0.2)
         e = _make_engine(ensemble=predictor)
         r = await self._run(e, monkeypatch, blend_weight=0.0)
         assert r.p_long == pytest.approx(0.8)
         assert r.ensemble_point_estimate is None
-        predictor.predict.assert_not_called()
+        predictor.predict_row.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_nonzero_blend_weight_blends_p_long_and_rederives_direction(self, monkeypatch):
         predictor = MagicMock()
-        predictor.predict.return_value = _ensemble_prediction(0.2)
+        predictor.predict_row.return_value = _ensemble_prediction(0.2)
         e = _make_engine(ensemble=predictor)
-        # raw p_long=0.8 (long), ensemble point_estimate=0.2, weight=0.5
-        # -> blended = 0.5*0.8 + 0.5*0.2 = 0.5 -> direction stays long (>=0.5)
+        # raw p_long=0.8 (long), ensemble point estimate 0.2 mapped to a
+        # probability, weight=0.5 -> direction stays long (>=0.5)
         r = await self._run(e, monkeypatch, blend_weight=0.5, predict_direction_return=(1, 0.8))
-        assert r.p_long == pytest.approx(0.5)
+        expected = 0.5 * 0.8 + 0.5 * _p_ensemble_long(0.2)
+        assert r.p_long == pytest.approx(expected)
+        assert r.direction == 1
         assert r.ensemble_point_estimate == pytest.approx(0.2)
         assert r.ensemble_blend_weight == pytest.approx(0.5)
 
     @pytest.mark.asyncio
     async def test_blend_can_flip_direction(self, monkeypatch):
         predictor = MagicMock()
-        predictor.predict.return_value = _ensemble_prediction(0.1)
+        # A negative point estimate is what disagreement looks like on the
+        # log-return scale the ensemble emits; 0.1 is a *bullish* estimate and
+        # could never flip a long.
+        predictor.predict_row.return_value = _ensemble_prediction(-0.1)
         e = _make_engine(ensemble=predictor)
-        # raw p_long=0.6 (long), ensemble point_estimate=0.1, weight=0.8
-        # -> blended = 0.2*0.6 + 0.8*0.1 = 0.2 -> direction flips to short
+        # raw p_long=0.6 (long), weight=0.8 -> blended below 0.5 -> flips short
         r = await self._run(e, monkeypatch, blend_weight=0.8, predict_direction_return=(1, 0.6))
-        assert r.p_long == pytest.approx(0.2)
+        expected = 0.2 * 0.6 + 0.8 * _p_ensemble_long(-0.1)
+        assert r.p_long == pytest.approx(expected)
+        assert r.p_long < 0.5
         assert r.direction == 0
 
     @pytest.mark.asyncio
     async def test_predictor_exception_falls_back_to_unblended_p_long(self, monkeypatch):
         predictor = MagicMock()
-        predictor.predict.side_effect = RuntimeError("model not fitted")
+        predictor.predict_row.side_effect = RuntimeError("model not fitted")
         e = _make_engine(ensemble=predictor)
         r = await self._run(e, monkeypatch, blend_weight=0.5)
         assert r.p_long == pytest.approx(0.8)
@@ -1153,7 +1171,11 @@ class TestTask010FundingRateWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1221,7 +1243,11 @@ class TestTask010FundingRateWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1729,7 +1755,11 @@ class TestGARCHVolWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1794,7 +1824,11 @@ class TestGARCHVolWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
@@ -1848,7 +1882,11 @@ class TestGARCHVolWiring:
             patch(
                 "src.engine.signal_engine.evaluate_all_gates",
                 return_value=MagicMock(
-                    passed=True, status=MagicMock(value="ok"), reason="", details={}
+                    passed=True,
+                    status=MagicMock(value="ok"),
+                    reason="",
+                    details={},
+                    size_scalar=1.0,
                 ),
             ),
             patch(
