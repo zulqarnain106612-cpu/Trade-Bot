@@ -1288,7 +1288,7 @@ class Orchestrator:
         so async tasks are not blocked.
         """
         self._log.info("orchestrator.training_start", timeframe=tf.value)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # Load bars
         # SCAN2-010: compute exact cutoff timestamp instead of since_ts=0 (full table scan).

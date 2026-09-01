@@ -245,11 +245,12 @@ class OrderManager:
             asyncio.TimeoutError: Exceeded timeout_s
             ccxt.ExchangeError: Permanent error (non-retryable)
         """
-        start_time = asyncio.get_event_loop().time()
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
         attempt = 0
 
         while True:
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = loop.time() - start_time
             if elapsed > timeout_s:
                 raise TimeoutError(f"Order {order_id} confirmation exceeded {timeout_s}s")
 

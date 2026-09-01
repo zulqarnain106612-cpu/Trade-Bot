@@ -1605,7 +1605,7 @@ async def debug_selftest(request: Request) -> dict[str, Any]:
     _state.check_endpoint_rate_limit(
         "debug_selftest", request.client.host if request.client else ""
     )
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, run_pipeline_selftest)
     return result
 
