@@ -1282,13 +1282,20 @@ class SignalEngine:
             )
 
         # 10. Professional strategy filters (Carver, Chan, Peters, Elder, Schwager)
-        _atr_series = None
+        # A feed without high/low still has to reach the filters, so the true
+        # range falls back to the absolute close-to-close move. The previous
+        # fallback read bars["high"] - bars["low"], the very columns whose
+        # absence is the only way to reach it, so a feed missing them raised
+        # KeyError out of the tick instead of degrading -- while the `high=`
+        # and `low=` arguments below guard for exactly that case.
         if "high" in bars.columns and "low" in bars.columns:
             _atr_series = (bars["high"] - bars["low"]).rolling(14).mean()
+        else:
+            _atr_series = bars["close"].diff().abs().rolling(14).mean()
         _filter_result = apply_all_strategy_filters(
             close=bars["close"],
             volume=bars["volume"],
-            atr_series=_atr_series if _atr_series is not None else bars["high"] - bars["low"],
+            atr_series=_atr_series,
             direction=direction,
             regime_state=regime_state,
             prob_trending=_prob_trending,
