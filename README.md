@@ -354,6 +354,28 @@ npm run electron:dev     # dev mode: vite + electron together
 npm run electron:build   # packaged build via electron-builder
 ```
 
+### 7. Claude Code on the web (cloud sessions)
+
+Cloud sessions provision themselves: `.claude/hooks/session-start.sh` runs as a
+`SessionStart` hook (registered in `.claude/settings.json`) and builds a `.venv`,
+installs `requirements.txt` + `requirements-dev.txt`, runs `npm install` in
+`frontend/`, and exports `PATH`/`PYTHONPATH` plus throwaway paper-trading
+settings through `$CLAUDE_ENV_FILE`.
+
+The hook exits immediately unless `CLAUDE_CODE_REMOTE=true`, so local
+checkouts keep whatever environment you manage yourself. To exercise it:
+
+```bash
+CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR=$PWD CLAUDE_ENV_FILE=/tmp/env.sh \
+  ./.claude/hooks/session-start.sh
+```
+
+It installs into a virtualenv rather than the system interpreter because the
+container image ships distro-managed `cryptography` and `pip` without RECORD
+files, which makes an in-place upgrade fail. `requirements-optional.txt` is
+left out on purpose — the heavy ML extras are imported lazily and their suites
+self-skip, exactly as in CI.
+
 ## Tests
 
 ```bash
