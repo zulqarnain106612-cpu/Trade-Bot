@@ -55,8 +55,15 @@ def settings_double():
 # database or a subprocess pipe talks, and it never leaves the machine.
 
 
-class NetworkAccessDenied(RuntimeError):
-    """Raised when a test tries to open a real network connection."""
+class NetworkAccessDenied(OSError):
+    """Raised when a test tries to open a real network connection.
+
+    An OSError, not a bare RuntimeError, because that is what a refused
+    connection already raises: a suite that skips when its container is not
+    running (tests/test_timescale_storage.py) keeps skipping instead of
+    erroring, and code whose job is to fail open on an unreachable endpoint
+    still behaves the way it would on a machine with no route out.
+    """
 
 
 _REAL_CONNECT = _socket.socket.connect
