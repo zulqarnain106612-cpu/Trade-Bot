@@ -11,7 +11,12 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding a PR push is free -- the older run is about stale code. On main
+  # it is not: each merge cancelled the previous merge's run, so back-to-back
+  # merges left commits with no verdict at all. 60 of main's ~198 runs ended
+  # cancelled for exactly that reason, which is why red commits could sit
+  # unnoticed. Keep the saving on branches, let main's runs finish.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   python:
