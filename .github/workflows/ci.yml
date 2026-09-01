@@ -56,7 +56,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: .python-version
 
       # No dependency install: validate_arch.py is stdlib-only, so this job
       # reports law violations in seconds and never blocks on the lockfile.
