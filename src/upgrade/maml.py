@@ -46,12 +46,7 @@ def fast_adapt(
 
     for _ in range(k_steps):
         # Forward with adapted params via functional_call
-        try:
-            from torch.func import functional_call  # type: ignore[import]
-        except ImportError:
-            from torch._functorch.eager_transforms import (
-                functional_call,  # type: ignore[import, attr-defined, no-redef]
-            )
+        from torch.func import functional_call
 
         pred = functional_call(model, adapted, (support_x,))  # type: ignore[arg-type]
         loss = loss_fn(pred, support_y)
@@ -120,12 +115,7 @@ class MAMLOptimizer:
             )
 
             # Query loss with adapted parameters
-            try:
-                from torch.func import functional_call  # type: ignore[import]
-            except ImportError:
-                from torch._functorch.eager_transforms import (
-                    functional_call,  # type: ignore[import, attr-defined, no-redef]
-                )
+            from torch.func import functional_call
 
             pred_q = functional_call(self._model, adapted_params, (task["query_x"],))  # type: ignore[arg-type]
             outer_loss = outer_loss + self._loss_fn(pred_q, task["query_y"])

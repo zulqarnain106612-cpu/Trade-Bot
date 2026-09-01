@@ -140,7 +140,10 @@ class E13Contagion:
             if np.std(spx_slice) < 1e-10:
                 return {}
             data_pair = np.column_stack([btc_slice, spx_slice])
-            results = grangercausalitytests(data_pair, maxlag=2, verbose=False)
+            # statsmodels 0.15 removed the verbose kwarg (and prints nothing by
+            # default); passing it raised TypeError, which the except below
+            # swallowed -- so this returned {} for every input.
+            results = grangercausalitytests(data_pair, maxlag=2)
             return {f"lag_{lag}": float(res[0]["ssr_ftest"][1]) for lag, res in results.items()}
         except Exception:
             return {}
