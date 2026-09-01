@@ -16,6 +16,7 @@ Algorithms:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,39 @@ from src.execution.idempotency import (
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+_QUOTE_CURRENCIES = frozenset({"USDT", "USDC", "BUSD", "USD", ""})
+_FEE_FALLBACK_RATE = 0.0004
+
+
+def _fee_usd_from_order(order: dict, size_usd: float) -> float:
+    """Sum the quote-currency fees on a ccxt order, or estimate from notional.
+
+    Mirrors LiveExecutor._extract_fee_usd. ccxt reports fees either as
+    ``order["fees"]`` (a list, current) or ``order["fee"]`` (a single dict,
+    older responses), and either key can be present but null. A fee billed in
+    a non-quote currency -- BNB, or the base asset -- is not a USD number and
+    is not counted.
+    """
+    fees: list[dict] = order.get("fees") or []
+    if not fees:
+        single = order.get("fee")
+        if isinstance(single, dict):
+            fees = [single]
+
+    total = 0.0
+    for f in fees:
+        if not isinstance(f, dict):
+            continue
+        cost = f.get("cost")
+        currency = str(f.get("currency") or "").upper()
+        if cost is None or currency not in _QUOTE_CURRENCIES:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            total += float(cost)
+
+    return total if total > 0.0 else size_usd * _FEE_FALLBACK_RATE
 
 
 @dataclass
@@ -409,15 +443,13 @@ class SmartOrderRouter:
             order_id=str(order.get("id", "")),
             filled_qty=filled,
             avg_price=avg_price,
-            fee_usd=float(order.get("fee", {}).get("cost", size_usd * 0.0004)),
+            fee_usd=_fee_usd_from_order(order, size_usd),
             slippage_bps=slippage_bps,
             success=filled > 0,
         )
 
     async def close(self) -> None:
         """Close all exchange connections."""
-        import contextlib
-
         for ex in self._exchanges.values():
             with contextlib.suppress(Exception):
                 await ex.close()
