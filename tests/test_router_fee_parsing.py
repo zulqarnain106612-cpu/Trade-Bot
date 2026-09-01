@@ -13,7 +13,6 @@ import pytest
 
 from src.execution.router import _FEE_FALLBACK_RATE, _fee_usd_from_order
 
-
 SIZE = 10_000.0
 FALLBACK = SIZE * _FEE_FALLBACK_RATE
 
