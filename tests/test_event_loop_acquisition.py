@@ -15,7 +15,6 @@ import pathlib
 
 import pytest
 
-
 _SRC = pathlib.Path(__file__).resolve().parent.parent / "src"
 
 
