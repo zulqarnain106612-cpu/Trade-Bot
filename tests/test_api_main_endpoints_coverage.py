@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 from src.diagnostics.disaster_recovery import Discrepancy, DiscrepancyType
 from src.execution.unified_ledger import VenuePosition
 
-
 _API_KEY = "x" * 32
 _OP_SECRET = "y" * 32
 

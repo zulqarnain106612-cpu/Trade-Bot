@@ -14,7 +14,6 @@ from src.intelligence.probabilistic import (
     RiskAssessment,
 )
 
-
 # ---------------------------------------------------------------------------
 # ProbabilisticPrediction
 # ---------------------------------------------------------------------------

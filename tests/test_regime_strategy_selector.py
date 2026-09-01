@@ -14,7 +14,6 @@ from src.strategies.regime_strategy_selector import (
     select_strategy_from_prediction,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

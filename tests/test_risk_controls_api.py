@@ -26,7 +26,6 @@ import pytest
 from src.config import ExecutionMode, RuntimeConfig, get_settings
 from src.risk.gates import check_position_exit
 
-
 # ---------------------------------------------------------------------------
 # Pure logic: check_position_exit
 # ---------------------------------------------------------------------------

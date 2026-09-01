@@ -21,7 +21,6 @@ from typing import Any
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _ETH_RPC_URL = os.environ.get("ETH_RPC_URL", "http://127.0.0.1:8545")

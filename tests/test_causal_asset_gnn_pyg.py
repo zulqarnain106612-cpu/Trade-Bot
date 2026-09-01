@@ -14,7 +14,6 @@ import pandas as pd
 import pytest
 from pyg_stub import installed
 
-
 asset_gnn = importlib.import_module("src.causal.asset_gnn")
 
 

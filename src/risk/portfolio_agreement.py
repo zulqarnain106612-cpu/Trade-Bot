@@ -45,7 +45,6 @@ from typing import Protocol, runtime_checkable
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

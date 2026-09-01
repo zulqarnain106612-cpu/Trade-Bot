@@ -24,7 +24,6 @@ import structlog
 
 from src.intelligence.onchain.base import OnChainProvider
 
-
 log = structlog.get_logger(__name__)
 
 _BASE = "https://api.dune.com/api/v1"

@@ -17,7 +17,6 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-
 torch = pytest.importorskip("torch")
 
 

@@ -88,7 +88,6 @@ from src.strategies.position_sizing import (
 )
 from src.tuning.live_overrides import effective_risk_settings
 
-
 # Module-level adapter singleton -- stateless, safe to reuse across ticks.
 _PROB_ADAPTER = _ProbAdapter()
 

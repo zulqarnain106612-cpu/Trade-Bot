@@ -18,7 +18,6 @@ from src.ecc.zksnark_detect import (
     trace_spend_cluster,
 )
 
-
 _POOL = next(iter(sorted(_TORNADO_CONTRACTS)))
 _DEPOSIT_SELECTOR = "0xb214faa5"
 _WITHDRAW_SELECTOR = "0x21a0adb5"

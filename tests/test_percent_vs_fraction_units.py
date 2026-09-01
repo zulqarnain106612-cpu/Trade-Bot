@@ -20,7 +20,6 @@ import pytest
 
 from src.config import FeatureSettings, RiskSettings, SelfTuningSettings
 
-
 # Fields whose value is a FRACTION of 1 despite the _pct suffix.
 _FRACTION_FIELDS = [
     (RiskSettings, "capital_preservation_max_drawdown_pct"),

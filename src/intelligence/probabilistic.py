@@ -19,7 +19,6 @@ import structlog
 from scipy.special import expit  # Logistic function
 from scipy.stats import beta, norm
 
-
 log = structlog.get_logger(__name__)
 
 

@@ -19,7 +19,6 @@ from src.execution.idempotency import derive_idempotency_key
 from src.execution.order_fsm import OrderFSM
 from src.execution.order_manager import OrderManager
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

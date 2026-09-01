@@ -7,7 +7,6 @@ import pytest
 
 from src.intelligence.risk_quantification import RiskMetrics, RiskQuantifier
 
-
 # ---------------------------------------------------------------------------
 # RiskMetrics dataclass
 # ---------------------------------------------------------------------------

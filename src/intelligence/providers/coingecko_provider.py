@@ -25,7 +25,6 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _COINGECKO_GLOBAL_URL: Final[str] = "https://api.coingecko.com/api/v3/global"
@@ -156,16 +155,18 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
             return cached
 
         timeout = aiohttp.ClientTimeout(total=8.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(
                 _COINGECKO_GLOBAL_URL,
                 headers={"Accept": "application/json"},
-            ) as resp:
-                resp.raise_for_status()
-                body = await resp.json()
-                data: dict = body.get("data", {})
-                self._set_cache(cache_key, data)
-                return data
+            ) as resp,
+        ):
+            resp.raise_for_status()
+            body = await resp.json()
+            data: dict = body.get("data", {})
+            self._set_cache(cache_key, data)
+            return data
 
 
 # ---------------------------------------------------------------------------

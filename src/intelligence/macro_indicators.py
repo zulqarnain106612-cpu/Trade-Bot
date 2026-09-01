@@ -36,7 +36,6 @@ from typing import TYPE_CHECKING
 
 from src.intelligence.macro_regime import MacroIndicators
 
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
 

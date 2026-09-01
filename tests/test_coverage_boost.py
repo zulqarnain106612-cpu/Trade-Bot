@@ -21,7 +21,6 @@ from src.intelligence.providers.coingecko_provider import (
     get_coingecko_intelligence_provider,
 )
 
-
 # ---------------------------------------------------------------------------
 # IntelligenceAnalyzer (intelligence/metrics.py — lines 154-290)
 # ---------------------------------------------------------------------------

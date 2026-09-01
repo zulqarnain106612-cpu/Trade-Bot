@@ -16,7 +16,6 @@ from src.risk.vol_target_sizer import (
     vol_target_size_from_returns,
 )
 
-
 CAPITAL = 100_000.0
 HWM = CAPITAL
 

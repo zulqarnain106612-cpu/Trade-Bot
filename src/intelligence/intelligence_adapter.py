@@ -32,7 +32,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-
 if TYPE_CHECKING:
     from src.data.storage import Storage
     from src.intel import CryptoIntelligence

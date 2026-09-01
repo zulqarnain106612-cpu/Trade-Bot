@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 # Illustrative crisis-period daily return sequences (% as decimals) for
 # known historical crypto crashes. Real deployments should replace these
 # with actual historical OHLCV-derived return series fetched via the

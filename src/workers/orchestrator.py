@@ -26,7 +26,6 @@ from typing import Any
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _MIN_WORKERS = 2

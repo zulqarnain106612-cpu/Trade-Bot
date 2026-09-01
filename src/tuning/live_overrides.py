@@ -36,7 +36,6 @@ from src.config import (
 )
 from src.tuning.registry import parameter_registry
 
-
 # Matches src.tuning.backtest_harness.XGBOOST_INT_FIELDS -- duplicated here
 # (rather than imported) to avoid this leaf module depending on the
 # backtest harness; both must stay in sync with XGBoostSettings' own
