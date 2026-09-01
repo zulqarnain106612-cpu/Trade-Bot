@@ -28,7 +28,7 @@ class _FakeSession:
     async def __aexit__(self, *exc):
         return False
 
-    async def post(self, url, json, auth, **_kwargs):
+    async def post(self, url, json, headers, **_kwargs):
         if json["method"] == "getmempoolinfo":
             return _FakeResponse({"result": self._info})
         return _FakeResponse({"result": self._fees})

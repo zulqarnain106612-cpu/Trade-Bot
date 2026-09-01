@@ -51,12 +51,14 @@ class BitcoinRPCClient:
     async def _call(self, method: str, params: list | None = None) -> Any:
         import aiohttp
 
+        from src.features._rpc_auth import basic_auth_header
+
         payload = {"jsonrpc": "1.0", "id": method, "method": method, "params": params or []}
         async with aiohttp.ClientSession() as sess:
             async with sess.post(
                 self._url,
                 json=payload,
-                auth=aiohttp.BasicAuth(*self._auth),
+                headers=basic_auth_header(*self._auth),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 data = await resp.json(content_type=None)
