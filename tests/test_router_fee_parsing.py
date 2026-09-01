@@ -92,3 +92,82 @@ def test_the_router_result_carries_the_parsed_fee():
 
     assert result.fee_usd == pytest.approx(FALLBACK)
     assert result.success
+
+
+# ---------------------------------------------------------------------------
+# TWAP slice accounting and pacing
+# ---------------------------------------------------------------------------
+
+
+class _Exchange:
+    """Minimal ccxt-shaped exchange whose slices can be told to fail."""
+
+    def __init__(self, orders):
+        self._orders = list(orders)
+        self.submitted = 0
+
+    async def fetch_order_book(self, _symbol, limit=1):
+        return {"asks": [[100.0, 5.0]], "bids": [[99.0, 5.0]]}
+
+    async def create_order(self, *_a, **_k):
+        order = self._orders[self.submitted]
+        self.submitted += 1
+        if isinstance(order, Exception):
+            raise order
+        return order
+
+
+async def _run_twap(monkeypatch, orders):
+    import asyncio as _asyncio
+
+    from src.execution.router import SmartOrderRouter
+
+    sleeps: list[float] = []
+
+    async def _record_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(_asyncio, "sleep", _record_sleep)
+
+    router = SmartOrderRouter.__new__(SmartOrderRouter)
+    ex = _Exchange(orders)
+
+    async def _submit_slice(_ex, **kwargs):
+        return await ex.create_order()
+
+    router._submit_slice = _submit_slice
+    result = await router._twap(
+        ex,
+        venue="binance",
+        signal={"symbol": "BTC/USDT", "side": "buy", "horizon_seconds": 120},
+        size_usd=SIZE,
+        price=100.0,
+        route_id="r1",
+    )
+    return result, sleeps
+
+
+@pytest.mark.asyncio
+async def test_a_failed_twap_slice_does_not_collapse_the_schedule(monkeypatch):
+    """Skipping the wait turns the rest of the order into a burst."""
+    orders = [RuntimeError("venue rejected")] + [
+        {"filled": 1.0, "average": 100.0} for _ in range(11)
+    ]
+
+    _result, sleeps = await _run_twap(monkeypatch, orders)
+
+    # 12 slices, so 11 waits — the failure must not cost one
+    assert len(sleeps) == 11
+    assert all(s == pytest.approx(10.0) for s in sleeps)
+
+
+@pytest.mark.asyncio
+async def test_a_slice_with_no_reported_average_is_still_priced(monkeypatch):
+    """average=None used to raise mid-slice, crediting quantity but no cost."""
+    orders = [{"filled": 1.0, "average": None} for _ in range(12)]
+
+    result, _sleeps = await _run_twap(monkeypatch, orders)
+
+    assert result.filled_qty == pytest.approx(12.0)
+    # priced at the book instead of being dropped, so avg_price is the truth
+    assert result.avg_price == pytest.approx(100.0)

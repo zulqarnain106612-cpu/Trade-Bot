@@ -33,6 +33,16 @@ from src.execution.idempotency import (
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
+def _as_float(value: object, default: float) -> float:
+    """ccxt leaves numeric fields null when a venue does not report them."""
+    if value is None:
+        return default
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
 _QUOTE_CURRENCIES = frozenset({"USDT", "USDC", "BUSD", "USD", ""})
 _FEE_FALLBACK_RATE = 0.0004
 
@@ -404,14 +414,22 @@ class SmartOrderRouter:
                     side=side,
                     qty=qty,
                 )
-                filled += float(order.get("filled", 0.0))
-                total_cost += float(order.get("filled", 0.0)) * float(
-                    order.get("average", current_price)
-                )
-                if i < n_slices - 1:
-                    await asyncio.sleep(interval)
+                # Both numbers or neither: crediting the quantity and then
+                # failing to price it understates avg_price for the whole
+                # order. ccxt returns average=None on venues that do not
+                # report it, so float() alone is not safe.
+                slice_filled = _as_float(order.get("filled"), 0.0)
+                slice_price = _as_float(order.get("average"), current_price)
+                filled += slice_filled
+                total_cost += slice_filled * slice_price
             except Exception as exc:
                 log.debug("twap_slice_failed", slice=i, exc=str(exc))
+
+            # Outside the try: a failed slice must not collapse the schedule.
+            # Skipping the wait turns the remaining slices into a burst, which
+            # is the opposite of what a TWAP is for and trips rate limits.
+            if i < n_slices - 1:
+                await asyncio.sleep(interval)
 
         avg_price = total_cost / max(filled, 1e-9)
         slippage_bps = abs(avg_price - price) / max(price, 1e-9) * 10_000
