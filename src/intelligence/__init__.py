@@ -15,5 +15,4 @@ Authority:
 from src.intelligence.client import IntelligenceAggregator
 from src.intelligence.metrics import IntelligenceMetrics
 
-
 __all__ = ["IntelligenceAggregator", "IntelligenceMetrics"]

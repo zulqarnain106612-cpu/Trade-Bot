@@ -1,6 +1,6 @@
+from .config import TOP_K, VECTOR_INDEX_NAME
 from .db import get_collection
 from .embeddings import embed
-from .config import VECTOR_INDEX_NAME, TOP_K
 
 
 def vector_search(query: str, top_k: int = TOP_K) -> list[dict]:

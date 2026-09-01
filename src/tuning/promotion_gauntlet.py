@@ -21,7 +21,6 @@ from datetime import UTC, datetime
 
 from src.diagnostics.attribution import AttributedFill, compute_attribution
 
-
 _MS_PER_DAY = 86_400_000.0
 
 
@@ -51,8 +50,13 @@ class GauntletResult:
     failed_criteria: tuple[str, ...]
 
 
+# Frozen and slotted, so one shared instance is safe -- and evaluating it at
+# import time rather than per call keeps the default out of the signature.
+_DEFAULT_CRITERIA = GauntletCriteria()
+
+
 def evaluate_gauntlet(
-    observation: GauntletObservation, criteria: GauntletCriteria = GauntletCriteria()
+    observation: GauntletObservation, criteria: GauntletCriteria = _DEFAULT_CRITERIA
 ) -> GauntletResult:
     """
     Pure evaluation: a candidate must clear every criterion simultaneously.

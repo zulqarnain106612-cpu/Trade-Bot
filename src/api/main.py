@@ -84,9 +84,17 @@ from src.tuning.promotion_gauntlet import (
 from src.tuning.scheduler import AutoTuningScheduler
 from src.tuning.state import (
     audit_log as tuning_audit_log,
+)
+from src.tuning.state import (
     parameter_registry as tuning_registry,
+)
+from src.tuning.state import (
     pause_state as tuning_pause_state,
+)
+from src.tuning.state import (
     version_store as tuning_version_store,
+)
+from src.tuning.state import (
     watchdog as tuning_watchdog,
 )
 from src.tuning.store import NoPriorVersionError, NoVersionsError
@@ -94,7 +102,6 @@ from src.tuning.stress_simulator import (
     KNOWN_CRISIS_SCENARIOS,
     run_all_known_scenarios,
 )
-
 
 # H-13: UUID format regex — prevents timing oracle via huge string hash and DoS
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -702,7 +709,7 @@ async def trades(
     try:
         await _state.storage.validate_symbol(req_symbol)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     records = await _state.storage.fetch_trades(
         symbol=req_symbol,
@@ -752,7 +759,7 @@ async def missed_trades(
     try:
         await _state.storage.validate_symbol(req_symbol)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     records = await _state.storage.fetch_missed_trades(symbol=req_symbol, limit=limit)
     return {
@@ -979,11 +986,11 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
 
     try:
         new_mode = ExecutionMode(body.mode.lower())
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid mode {body.mode!r}. Must be one of: automatic, restricted, manual",
-        )
+        ) from exc
 
     old_mode = (await runtime_config.get_execution_mode()).value
     await runtime_config.set_execution_mode(new_mode)  # SCAN2-015: async — no event loop block

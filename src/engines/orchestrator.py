@@ -39,7 +39,6 @@ from src.engines.risk_quantifier import RiskQuantifier
 from src.engines.schema import EngineOutput
 from src.engines.signal_gate import TradeSignal, consensus_to_signal
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Per-engine SLA (Gap G-08 fix)

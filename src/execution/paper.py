@@ -47,7 +47,6 @@ from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
 from src.risk.slippage import SlippageModel
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------

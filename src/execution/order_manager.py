@@ -26,7 +26,6 @@ from src.execution.idempotency import (
 )
 from src.execution.order_fsm import OrderFSM, OrderFSMError, OrderFSMState, OrderStatus
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _ORDER_CONFIRM_POLLS: Final[int] = 10

@@ -69,7 +69,6 @@ from src.strategies.registry import Signal, StrategyProtocol, StrategyRegistry, 
 from src.strategies.signal_engine_adapter import STRATEGY_ID_SIGNAL_ENGINE
 from src.strategies.xsec_momentum import UniverseContext
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

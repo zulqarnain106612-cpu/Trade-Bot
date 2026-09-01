@@ -21,7 +21,6 @@ import numpy as np
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _MAX_LAG = 5  # test lags 1..5 bars

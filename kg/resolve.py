@@ -4,6 +4,7 @@ document's ingestion into dozens of coordinator-tier calls for no benefit;
 the model can cluster an entire name list in one schema-constrained call."""
 
 from common.claude_cli import run_claude
+
 from .config import KG_RESOLVE_MODEL
 from .schema import RESOLUTION_SCHEMA
 

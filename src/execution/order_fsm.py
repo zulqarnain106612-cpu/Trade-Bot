@@ -34,7 +34,6 @@ from typing import Any, Final
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

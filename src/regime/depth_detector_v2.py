@@ -21,7 +21,6 @@ import structlog
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # 9-regime labels in volatility-ascending order (first 5 preserve v1 semantics)

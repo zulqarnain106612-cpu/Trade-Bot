@@ -18,7 +18,6 @@ from test_tuning_scheduler import _FakeStorage
 from src.config import get_settings
 from src.tuning.scheduler import AutoTuningScheduler
 
-
 # ---------------------------------------------------------------------------
 # Tuning scheduler
 # ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ async def run() -> dict:
     expense_results = await asyncio.gather(*(get_expenses(m["id"], quarter) for m in members))
 
     travel_totals: dict[str, float] = {}
-    for member, raw in zip(members, expense_results):
+    for member, raw in zip(members, expense_results, strict=True):
         expenses = json.loads(raw)
         travel_totals[member["id"]] = sum(
             e["amount"] for e in expenses if e["category"] == "travel" and e["status"] == "approved"
@@ -55,7 +55,7 @@ async def run() -> dict:
     budget_results = await asyncio.gather(*(get_custom_budget(emp_id) for emp_id in over_standard))
 
     exceeded = []
-    for emp_id, budget_raw in zip(over_standard, budget_results):
+    for emp_id, budget_raw in zip(over_standard, budget_results, strict=True):
         budget = json.loads(budget_raw)
         limit = budget.get("travel_budget", standard_budget)
         total = travel_totals[emp_id]

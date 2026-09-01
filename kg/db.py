@@ -2,8 +2,10 @@
 cluster/database, separate collections) -- no new infra to provision."""
 
 from pymongo import MongoClient
-from rag_mongo.config import MONGODB_URI, MONGODB_DB
-from .config import KG_NODES_COLLECTION, KG_EDGES_COLLECTION
+
+from rag_mongo.config import MONGODB_DB, MONGODB_URI
+
+from .config import KG_EDGES_COLLECTION, KG_NODES_COLLECTION
 
 
 def _require_uri() -> str:

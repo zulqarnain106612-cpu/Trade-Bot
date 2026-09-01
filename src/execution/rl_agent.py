@@ -29,7 +29,6 @@ from typing import Any
 import numpy as np
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _MODEL_PATH = Path(os.environ.get("RL_MODEL_PATH", "./models/rl_execution"))

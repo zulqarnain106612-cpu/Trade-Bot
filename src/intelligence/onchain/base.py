@@ -23,7 +23,6 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
-
 log = structlog.get_logger(__name__)
 
 

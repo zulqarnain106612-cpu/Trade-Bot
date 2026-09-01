@@ -15,7 +15,6 @@ from dataclasses import dataclass
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # P2TR output type: OP_1 <32-byte-x-only-pubkey>

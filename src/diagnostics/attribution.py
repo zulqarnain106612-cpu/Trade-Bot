@@ -33,7 +33,6 @@ from dataclasses import dataclass, field, replace
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

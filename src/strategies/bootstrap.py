@@ -53,7 +53,6 @@ from src.strategies.registry import (
 from src.strategies.signal_engine_adapter import SignalEngineStrategy
 from src.strategies.xsec_momentum import CrossSectionalMomentumStrategy
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

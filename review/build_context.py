@@ -15,8 +15,8 @@ import json
 import re
 import subprocess
 
-from review.retrieval import hybrid, graph
 from review.config import REVIEW_MAX_CONTEXT_ITEMS
+from review.retrieval import graph, hybrid
 
 
 def _diff_text(base: str, head: str) -> str:

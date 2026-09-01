@@ -28,7 +28,6 @@ import structlog
 
 from src.strategies.registry import StrategyProtocol
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Minimum trades required before a strategy is given a Sharpe-derived weight

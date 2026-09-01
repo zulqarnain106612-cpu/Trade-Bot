@@ -7,11 +7,12 @@ minus the hosted-agent wrapper."""
 
 from __future__ import annotations
 
+from kg.config import KG_MAX_SUBGRAPH_TRIPLES
+from kg.db import get_edges_collection
+from rag_mongo.config import TOP_K
 from rag_mongo.db import get_collection
 from rag_mongo.retrieve import vector_search
-from rag_mongo.config import TOP_K
-from kg.db import get_edges_collection
-from kg.config import KG_MAX_SUBGRAPH_TRIPLES
+
 from .config import FULLTEXT_INDEX_NAME
 
 

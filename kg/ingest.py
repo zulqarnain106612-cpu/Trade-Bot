@@ -1,5 +1,5 @@
-from .extract import extract_triples
 from .assemble import assemble
+from .extract import extract_triples
 
 
 def ingest_document(text: str, source: str) -> dict:

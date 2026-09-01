@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pytest as _pytest
 
-
 _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
 os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
 
