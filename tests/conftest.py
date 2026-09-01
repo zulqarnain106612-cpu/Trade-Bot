@@ -13,8 +13,11 @@ module body is imported first, which is why this is not a fixture.
 from __future__ import annotations
 
 import os
+import socket as _socket
 import tempfile
 from pathlib import Path
+
+import pytest as _pytest
 
 
 _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
@@ -36,3 +39,48 @@ def settings_double():
     cfg = MagicMock()
     cfg.strategy_portfolio = StrategyPortfolioSettings()
     return cfg
+
+
+# ---------------------------------------------------------------------------
+# No test may open a real network connection.
+# ---------------------------------------------------------------------------
+#
+# The suite's standing rule is that nothing contacts a real exchange, node or
+# database. Nothing enforced it, so a test that forgot to patch its transport
+# silently made a real connection: it passed anyway, because the code under
+# test fails open, but it was exercising the "unreachable" branch rather than
+# the branch the test claimed to cover -- and it paid a DNS timeout per call
+# on a machine with no route out.
+#
+# Blocking the socket layer catches every client (requests, aiohttp, httpx,
+# raw sockets) in one place. AF_UNIX is left alone: it is how a local test
+# database or a subprocess pipe talks, and it never leaves the machine.
+
+
+class NetworkAccessDenied(RuntimeError):
+    """Raised when a test tries to open a real network connection."""
+
+
+def _deny(self, address, *_args, **_kwargs):
+    if getattr(self, "family", None) == getattr(_socket, "AF_UNIX", None):
+        return _REAL_CONNECT(self, address, *_args, **_kwargs)
+    raise NetworkAccessDenied(
+        f"a test tried to connect to {address!r}. Patch the transport instead: "
+        "a real connection means the test is exercising the failure branch, "
+        "not the one it claims to cover."
+    )
+
+
+_REAL_CONNECT = _socket.socket.connect
+_REAL_CONNECT_EX = _socket.socket.connect_ex
+
+
+@_pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    monkeypatch.setattr(_socket.socket, "connect", _deny)
+    monkeypatch.setattr(_socket.socket, "connect_ex", _deny)
+    monkeypatch.setattr(
+        _socket,
+        "create_connection",
+        lambda *a, **k: _deny(_socket.socket(), a[0] if a else None),
+    )
