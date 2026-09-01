@@ -41,7 +41,7 @@ class _FakeSession:
     async def __aexit__(self, *exc):
         return False
 
-    def post(self, url, json, auth, **_kwargs):
+    def post(self, url, json, headers, **_kwargs):
         self.last_request = json
         return _FakeResponse(self._payload)
 

@@ -40,6 +40,8 @@ async def fetch_mempool_features(
     try:
         import aiohttp
 
+        from src.features._rpc_auth import basic_auth_header
+
         payload_info = {"jsonrpc": "1.0", "id": "info", "method": "getmempoolinfo", "params": []}
         payload_fees = {
             "jsonrpc": "1.0",
@@ -47,13 +49,13 @@ async def fetch_mempool_features(
             "method": "estimatesmartfee",
             "params": [1, "CONSERVATIVE"],
         }
-        auth = aiohttp.BasicAuth(rpc_user, rpc_pass)
+        headers = basic_auth_header(rpc_user, rpc_pass)
         async with aiohttp.ClientSession() as sess:
             r_info = await sess.post(
-                rpc_url, json=payload_info, auth=auth, timeout=aiohttp.ClientTimeout(total=5)
+                rpc_url, json=payload_info, headers=headers, timeout=aiohttp.ClientTimeout(total=5)
             )
             r_fees = await sess.post(
-                rpc_url, json=payload_fees, auth=auth, timeout=aiohttp.ClientTimeout(total=5)
+                rpc_url, json=payload_fees, headers=headers, timeout=aiohttp.ClientTimeout(total=5)
             )
             info = (await r_info.json(content_type=None))["result"]
             fees = (await r_fees.json(content_type=None))["result"]
