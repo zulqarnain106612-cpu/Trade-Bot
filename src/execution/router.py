@@ -361,11 +361,16 @@ class SmartOrderRouter:
                     qty=slice_qty,
                     price=price,
                 )
-                filled += float(order.get("filled", 0.0))
-                total_cost += float(order.get("filled", 0.0)) * float(order.get("average", price))
-                await asyncio.sleep(0.5)
+                slice_filled = _as_float(order.get("filled"), 0.0)
+                slice_price = _as_float(order.get("average"), price)
+                filled += slice_filled
+                total_cost += slice_filled * slice_price
             except Exception as exc:
                 log.debug("iceberg_slice_failed", slice=i, exc=str(exc))
+
+            # Outside the try, for the same reason as in _twap: a rejected
+            # slice must not remove the gap before the next one.
+            await asyncio.sleep(0.5)
 
         avg_price = total_cost / max(filled, 1e-9)
         slippage_bps = abs(avg_price - price) / max(price, 1e-9) * 10_000

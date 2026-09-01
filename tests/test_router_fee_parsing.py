@@ -171,3 +171,52 @@ async def test_a_slice_with_no_reported_average_is_still_priced(monkeypatch):
     assert result.filled_qty == pytest.approx(12.0)
     # priced at the book instead of being dropped, so avg_price is the truth
     assert result.avg_price == pytest.approx(100.0)
+
+
+async def _run_iceberg(monkeypatch, orders):
+    import asyncio as _asyncio
+
+    from src.execution.router import SmartOrderRouter
+
+    sleeps: list[float] = []
+
+    async def _record_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(_asyncio, "sleep", _record_sleep)
+
+    router = SmartOrderRouter.__new__(SmartOrderRouter)
+    ex = _Exchange(orders)
+
+    async def _submit_slice(_ex, **kwargs):
+        return await ex.create_order()
+
+    router._submit_slice = _submit_slice
+    result = await router._iceberg(
+        ex,
+        venue="binance",
+        signal={"symbol": "BTC/USDT", "side": "buy"},
+        total_qty=10.0,
+        price=100.0,
+        route_id="r2",
+    )
+    return result, sleeps
+
+
+@pytest.mark.asyncio
+async def test_a_failed_iceberg_slice_keeps_the_gap_before_the_next(monkeypatch):
+    orders = [RuntimeError("rejected")] + [{"filled": 1.0, "average": 100.0} for _ in range(9)]
+
+    _result, sleeps = await _run_iceberg(monkeypatch, orders)
+
+    assert len(sleeps) == 10
+
+
+@pytest.mark.asyncio
+async def test_an_iceberg_slice_with_no_average_is_priced_at_the_limit(monkeypatch):
+    orders = [{"filled": 1.0, "average": None} for _ in range(10)]
+
+    result, _sleeps = await _run_iceberg(monkeypatch, orders)
+
+    assert result.filled_qty == pytest.approx(10.0)
+    assert result.avg_price == pytest.approx(100.0)
