@@ -15,7 +15,6 @@ from src.intelligence.providers.okx_provider import (
     get_okx_intelligence_provider,
 )
 
-
 _API_KEY = "x" * 32
 _OP_SECRET = "y" * 32
 

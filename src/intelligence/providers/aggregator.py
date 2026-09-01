@@ -44,7 +44,6 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Neutral value per field (used to detect whether a provider actually populated a field)

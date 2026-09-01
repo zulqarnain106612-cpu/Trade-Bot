@@ -26,7 +26,6 @@ import structlog
 
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BLOCKCHAIN_STATS_URL: Final[str] = "https://blockchain.info/stats?format=json"
@@ -149,15 +148,17 @@ class BlockchainIntelligenceProvider(ExchangeIntelligenceProvider):
             return cached
 
         timeout = aiohttp.ClientTimeout(total=8.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(
                 _BLOCKCHAIN_STATS_URL,
                 headers={"Accept": "application/json"},
-            ) as resp:
-                resp.raise_for_status()
-                data: dict = await resp.json()
-                self._set_cache(cache_key, data)
-                return data
+            ) as resp,
+        ):
+            resp.raise_for_status()
+            data: dict = await resp.json()
+            self._set_cache(cache_key, data)
+            return data
 
     @staticmethod
     def _zscore(history: list[float]) -> float:

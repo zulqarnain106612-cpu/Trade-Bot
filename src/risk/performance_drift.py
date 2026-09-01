@@ -26,8 +26,8 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 import structlog
-from scipy.stats import norm, t as t_dist
-
+from scipy.stats import norm
+from scipy.stats import t as t_dist
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 

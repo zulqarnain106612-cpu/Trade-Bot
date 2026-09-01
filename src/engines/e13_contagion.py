@@ -16,7 +16,6 @@ import structlog
 
 from src.engines.schema import EngineOutput
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _ENGINE_ID = "E-13"

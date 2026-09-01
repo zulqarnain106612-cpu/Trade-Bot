@@ -46,7 +46,6 @@ from src.tuning.proposer import Proposal, Proposer
 from src.tuning.registry import ParameterRegistry, TunableParameter
 from src.tuning.store import VersionedConfigStore
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 EvaluateFn = Callable[[TunableParameter, Proposal], list[MetricComparison]]

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # PortfolioCorrelationTracker unit tests (lives in risk/, wired by orchestrator)
 # ---------------------------------------------------------------------------

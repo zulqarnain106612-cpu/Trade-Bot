@@ -60,17 +60,26 @@ line-length = 100
 extend-exclude = ["frontend", "crypto-predictor"]
 
 [tool.ruff.lint]
-# Deliberately lean to start: real-error families only (pyflakes, pycodestyle,
-# async correctness). The stylistic families -- UP, B, SIM, I -- flag ~280
-# findings across the existing tree; enable them in a dedicated cleanup pass
-# rather than wiring CI to a tree that cannot pass it.
-select = ["E", "F", "W", "ASYNC"]
+# The dedicated cleanup pass the previous comment here asked for: UP, B, SIM
+# and I are now on, with the tree brought up to them. B is the one that earns
+# its place -- B905 caught zip() silently truncating an embedding batch.
+select = ["E", "F", "W", "ASYNC", "I", "UP", "B", "SIM"]
 ignore = [
     "E501",  # line length is the formatter's job, not the linter's
+    # Combining nested `with` statements onto one line makes the long
+    # patch stacks in the tests harder to read, not easier, and the
+    # formatter then wraps them into a shape neither rule wants.
+    "SIM117",
+    # A ternary is not always clearer than the if/else it replaces; the two
+    # sites this flags read better as blocks.
+    "SIM108",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
+# FastAPI's whole dependency-injection design is a call in an argument
+# default; B008 is not applicable to a router module.
+"src/api/main.py" = ["B008"]
 
 [tool.ruff.format]
 quote-style = "double"

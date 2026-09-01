@@ -17,7 +17,6 @@ import socket as _socket
 import tempfile
 from pathlib import Path
 
-
 _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
 os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
 

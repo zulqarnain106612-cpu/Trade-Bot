@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 from src.strategies.registry import Signal
 
-
 _MIN_ANNUALIZED_BASIS_PCT: float = 5.0
 _MAX_ANNUALIZED_BASIS_PCT_FOR_FULL_CONFIDENCE: float = 30.0
 

@@ -26,7 +26,6 @@ from fastapi import HTTPException, WebSocket, status
 
 from src.api.access_control import Role
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _HEADER_NAME = "x-api-key"

@@ -10,8 +10,9 @@ No test opens a ccxt connection -- both exchange handles are AsyncMocks.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from src.intelligence.providers.base import MAX_TICKER_SKEW_MS
 from src.intelligence.providers.binance_provider import BinanceIntelligenceProvider

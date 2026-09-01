@@ -23,7 +23,6 @@ import numpy as np
 import structlog
 from scipy.stats import t
 
-
 log = structlog.get_logger(__name__)
 
 

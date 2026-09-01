@@ -28,7 +28,6 @@ from src.data.timescale_storage import (
     open_timescale_storage,
 )
 
-
 ADMIN_DSN = os.environ.get(
     "STORAGE_TIMESCALE_DSN",
     "postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot",  # pragma: allowlist secret

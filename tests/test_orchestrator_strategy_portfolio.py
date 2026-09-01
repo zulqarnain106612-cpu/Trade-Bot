@@ -17,9 +17,9 @@ import numpy as np
 import pandas as pd
 import pytest
 import structlog
+from conftest import settings_double
 
 import src.engine.orchestrator as orch_mod
-from conftest import settings_double
 from src.config import StrategyPortfolioSettings, Timeframe
 from src.engine.orchestrator import Orchestrator
 from src.engine.strategy_portfolio import (

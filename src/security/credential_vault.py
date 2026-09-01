@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
-
 _HARDENED_OFFSET: Final[int] = 0x80000000
 
 

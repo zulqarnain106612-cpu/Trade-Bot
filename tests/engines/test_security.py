@@ -6,7 +6,6 @@ from src.security.constant_time import safe_compare, safe_compare_bytes, safe_co
 from src.security.credential_vault import CredentialVault
 from src.security.pq_transport import PQTransportStub
 
-
 # ---------------------------------------------------------------------------
 # Constant-time comparisons
 # ---------------------------------------------------------------------------

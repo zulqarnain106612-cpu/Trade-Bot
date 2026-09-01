@@ -2,7 +2,7 @@
 MongoDB. Idempotent via upsert-on-unique-key -- re-ingesting the same
 document does not duplicate nodes or edges, only adds a source reference."""
 
-from .db import get_nodes_collection, get_edges_collection
+from .db import get_edges_collection, get_nodes_collection
 from .resolve import resolve_entities
 
 

@@ -23,7 +23,6 @@ from typing import Any
 
 import structlog
 
-
 log = structlog.get_logger(__name__)
 
 _ENABLED = os.environ.get("TRACE_STARTERS", "true").lower() not in ("0", "false")

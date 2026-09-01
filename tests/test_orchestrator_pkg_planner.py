@@ -4,9 +4,9 @@ distinct from src/engine/orchestrator.py covered by tests/test_orchestrator*.py)
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 from orchestrator.planner import plan
 

@@ -16,7 +16,6 @@ from fastapi import HTTPException
 from src.api.access_control import Permission, Role
 from src.api.auth import verify_api_key
 
-
 PRIMARY = "a" * 40
 READONLY = "b" * 40
 

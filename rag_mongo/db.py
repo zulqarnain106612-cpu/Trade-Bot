@@ -1,6 +1,7 @@
 from pymongo import MongoClient
 from pymongo.operations import SearchIndexModel
-from .config import MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION, VECTOR_INDEX_NAME, EMBEDDING_DIM
+
+from .config import EMBEDDING_DIM, MONGODB_COLLECTION, MONGODB_DB, MONGODB_URI, VECTOR_INDEX_NAME
 
 
 def get_collection():

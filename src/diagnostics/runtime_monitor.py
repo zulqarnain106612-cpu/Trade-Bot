@@ -26,7 +26,6 @@ from typing import Any, Final
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 POLL_INTERVAL_S: Final[float] = 30.0  # health probe cadence

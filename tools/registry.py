@@ -24,8 +24,9 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict
+from typing import Any
 
 logger = logging.getLogger("ptc.registry")
 
@@ -46,7 +47,7 @@ class ToolRegistry:
     """Process-wide registry of tools, partitioned by orchestratable flag."""
 
     def __init__(self) -> None:
-        self._tools: Dict[str, ToolSpec] = {}
+        self._tools: dict[str, ToolSpec] = {}
 
     def register(
         self,
@@ -73,10 +74,10 @@ class ToolRegistry:
                 f"Unknown tool '{name}'. Registered tools: {sorted(self._tools)}"
             ) from exc
 
-    def list_orchestratable(self) -> Dict[str, ToolSpec]:
+    def list_orchestratable(self) -> dict[str, ToolSpec]:
         return {n: t for n, t in self._tools.items() if t.orchestratable}
 
-    def list_direct_only(self) -> Dict[str, ToolSpec]:
+    def list_direct_only(self) -> dict[str, ToolSpec]:
         return {n: t for n, t in self._tools.items() if not t.orchestratable}
 
     def assert_orchestratable(self, name: str) -> ToolSpec:
@@ -90,7 +91,7 @@ class ToolRegistry:
             )
         return spec
 
-    def namespace(self) -> Dict[str, Callable[..., Any]]:
+    def namespace(self) -> dict[str, Callable[..., Any]]:
         """{name: fn} for every orchestratable tool -- safe to import into scripts."""
         return {n: t.fn for n, t in self.list_orchestratable().items()}
 

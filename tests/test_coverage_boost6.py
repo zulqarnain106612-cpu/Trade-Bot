@@ -18,7 +18,6 @@ from src.risk.gates import (
 )
 from src.risk.performance_drift import DriftDetected
 
-
 # ---------------------------------------------------------------------------
 # DrawdownTracker edge-case properties (lines 621-654)
 # ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ import pytest
 
 from review import build_context as bc
 
-
 _REAL_DIFF_TEXT = bc._diff_text
 
 

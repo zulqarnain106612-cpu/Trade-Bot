@@ -6,7 +6,6 @@ import pytest
 
 from src.execution.order_throttler import OrderThrottler, ThrottleResult
 
-
 # ---------------------------------------------------------------------------
 # Construction validation
 # ---------------------------------------------------------------------------

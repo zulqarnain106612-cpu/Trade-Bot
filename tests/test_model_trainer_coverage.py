@@ -23,7 +23,6 @@ from src.features.pipeline import BASE_FEATURE_COLUMNS, FeatureMatrix
 from src.models.trainer import ModelTrainer, TrainingResult
 from src.risk.kelly import compute_win_loss_stats
 
-
 # Derived from BASE_FEATURE_COLUMNS so the count stays in sync as features are added.
 FEATURES = list(BASE_FEATURE_COLUMNS)
 N = len(FEATURES)  # 8 after garch_vol_forecast added as 8th base feature
@@ -716,14 +715,12 @@ class TestSaveLoad:
             assert loaded is not None
 
     def test_load_direction_missing_raises(self):
-        with tempfile.TemporaryDirectory() as d:
-            with pytest.raises(FileNotFoundError):
-                ModelTrainer.load_direction(d, "ETH/USDT", "1h")
+        with tempfile.TemporaryDirectory() as d, pytest.raises(FileNotFoundError):
+            ModelTrainer.load_direction(d, "ETH/USDT", "1h")
 
     def test_load_meta_missing_raises(self):
-        with tempfile.TemporaryDirectory() as d:
-            with pytest.raises(FileNotFoundError):
-                ModelTrainer.load_meta(d, "ETH/USDT", "1h")
+        with tempfile.TemporaryDirectory() as d, pytest.raises(FileNotFoundError):
+            ModelTrainer.load_meta(d, "ETH/USDT", "1h")
 
     def test_load_direction_rejects_path_traversal_timeframe(self):
         """UI-014: timeframe is interpolated directly into a model filename
@@ -972,9 +969,8 @@ class TestTrainEnsemble:
             assert loaded_pred.point_estimate == pytest.approx(original_pred.point_estimate)
 
     def test_load_ensemble_missing_raises(self):
-        with tempfile.TemporaryDirectory() as d:
-            with pytest.raises(FileNotFoundError):
-                ModelTrainer.load_ensemble(d, "ETH/USDT", "1h")
+        with tempfile.TemporaryDirectory() as d, pytest.raises(FileNotFoundError):
+            ModelTrainer.load_ensemble(d, "ETH/USDT", "1h")
 
     def test_load_ensemble_rejects_path_traversal_timeframe(self):
         with tempfile.TemporaryDirectory() as d:

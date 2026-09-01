@@ -20,7 +20,6 @@ import pytest
 from src.engines.schema import EngineOutput
 from src.tuning import engine_backtest as eb
 
-
 _ENGINE_MODULES = [
     ("src.engines.e01_statistical", "E01Statistical", "E-01"),
     ("src.engines.e02_microstructure", "E02Microstructure", "E-02"),

@@ -26,7 +26,6 @@ import pandas as pd
 
 from src.strategies.registry import Signal
 
-
 _DECILE_FRACTION: float = 0.1
 _MIN_UNIVERSE_SIZE: int = 10
 

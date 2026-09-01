@@ -55,7 +55,6 @@ import structlog
 
 from src.config import Timeframe
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

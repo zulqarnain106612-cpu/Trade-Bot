@@ -17,7 +17,6 @@ import pytest
 from src.data.quality_gate import DataQualityGate
 from src.engines.e10_supply import E10Supply
 
-
 # ---------------------------------------------------------------------------
 # E-10 supply
 # ---------------------------------------------------------------------------
