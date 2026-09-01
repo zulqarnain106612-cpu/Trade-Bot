@@ -700,8 +700,10 @@ def cross_file_checks(paths: list[Path]) -> list[Finding]:
             # (`base.py`, `__init__.py`) and silently drops file contents
             # from the combined text these checks scan.
             sources[_rel(p)] = p.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+        except OSError as exc:
+            # An unreadable file is not a law violation, but staying silent
+            # about it means the scan quietly covers less than it claims.
+            print(f"warning: could not read {_rel(p)}: {exc}", file=sys.stderr)
 
     combined = "\n".join(sources.values())
 
