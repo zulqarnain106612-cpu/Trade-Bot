@@ -61,26 +61,34 @@ class NetworkAccessDenied(RuntimeError):
     """Raised when a test tries to open a real network connection."""
 
 
-def _deny(self, address, *_args, **_kwargs):
-    if getattr(self, "family", None) == getattr(_socket, "AF_UNIX", None):
-        return _REAL_CONNECT(self, address, *_args, **_kwargs)
-    raise NetworkAccessDenied(
-        f"a test tried to connect to {address!r}. Patch the transport instead: "
-        "a real connection means the test is exercising the failure branch, "
-        "not the one it claims to cover."
-    )
-
-
 _REAL_CONNECT = _socket.socket.connect
 _REAL_CONNECT_EX = _socket.socket.connect_ex
 
 
+def _denier(real):
+    """Wrap one socket method so only AF_UNIX reaches the real one."""
+
+    def _deny(self, address, *args, **kwargs):
+        if getattr(self, "family", None) == getattr(_socket, "AF_UNIX", None):
+            return real(self, address, *args, **kwargs)
+        raise NetworkAccessDenied(
+            f"a test tried to connect to {address!r}. Patch the transport instead: "
+            "a real connection means the test is exercising the failure branch, "
+            "not the one it claims to cover."
+        )
+
+    return _deny
+
+
+def _deny_create_connection(address, *_args, **_kwargs):
+    raise NetworkAccessDenied(
+        f"a test tried to connect to {address!r}. Patch the transport instead."
+    )
+
+
 @_pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
-    monkeypatch.setattr(_socket.socket, "connect", _deny)
-    monkeypatch.setattr(_socket.socket, "connect_ex", _deny)
-    monkeypatch.setattr(
-        _socket,
-        "create_connection",
-        lambda *a, **k: _deny(_socket.socket(), a[0] if a else None),
-    )
+    monkeypatch.setattr(_socket.socket, "connect", _denier(_REAL_CONNECT))
+    monkeypatch.setattr(_socket.socket, "connect_ex", _denier(_REAL_CONNECT_EX))
+    # create_connection is TCP-only, so there is no AF_UNIX case to allow.
+    monkeypatch.setattr(_socket, "create_connection", _deny_create_connection)
