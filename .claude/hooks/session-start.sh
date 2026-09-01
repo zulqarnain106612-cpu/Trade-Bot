@@ -29,7 +29,9 @@ fi
 
 echo "==> Installing frontend dependencies"
 # `npm install` rather than `npm ci` so a warm container cache is reused.
-npm install --prefix frontend --no-audit --no-fund
+# `--no-save`: a plain install rewrites package-lock.json under this image's npm,
+# which would leave every cloud session starting on a dirty tree.
+npm install --prefix frontend --no-save --no-audit --no-fund
 
 # Put the virtualenv first on PATH so `pytest`, `ruff` and `python` resolve to
 # the pinned versions without an explicit `.venv/bin/` prefix or activation.
