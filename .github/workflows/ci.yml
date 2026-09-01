@@ -41,6 +41,11 @@ jobs:
         # are expected to skip rather than fail.
         run: pytest -q
 
+      - name: Per-file coverage floors
+        # The repo-wide gate is an aggregate: one file can rot from 99% to 40%
+        # and the total barely moves. Reads the .coverage the step above left.
+        run: python scripts/check_coverage_floors.py
+
   architecture:
     name: Architecture Governance (crypto-architect)
     runs-on: ubuntu-latest

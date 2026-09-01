@@ -44,6 +44,11 @@ jobs:
         with:
           name: review-context
       - name: Claude Code review (Pro/Max subscription -- no API key)
+        # Advisory only, per docs/CLOUD_REVIEW.md: a human makes the final
+        # call, so this must not gate a merge. It had been blocking one --
+        # on a large diff the reviewer runs out of turns and the step fails
+        # for an infrastructure reason that says nothing about the code.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -71,5 +76,8 @@ jobs:
             tool where that's clearer). Do not just return the review as your
             final text response -- it must be posted to the PR.
           claude_args: |
-            --max-turns 40
+            # 40 was not enough to read a large diff and still post the
+            # comment: the run ended in error_max_turns having written
+            # nothing to the PR.
+            --max-turns 120
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
