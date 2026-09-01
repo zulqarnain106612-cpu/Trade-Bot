@@ -28,17 +28,15 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
-
 
 # ── Severity ──────────────────────────────────────────────────────────────────
 
 _SEV_ORDER = ["INFO", "MEDIUM", "HIGH", "CRITICAL"]
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
@@ -47,16 +45,16 @@ class Severity(str, Enum):
     def _rank(self) -> int:
         return _SEV_ORDER.index(self.value)
 
-    def __lt__(self, other: "Severity") -> bool:
+    def __lt__(self, other: Severity) -> bool:
         return self._rank() < other._rank()
 
-    def __le__(self, other: "Severity") -> bool:
+    def __le__(self, other: Severity) -> bool:
         return self._rank() <= other._rank()
 
-    def __gt__(self, other: "Severity") -> bool:
+    def __gt__(self, other: Severity) -> bool:
         return self._rank() > other._rank()
 
-    def __ge__(self, other: "Severity") -> bool:
+    def __ge__(self, other: Severity) -> bool:
         return self._rank() >= other._rank()
 
     def __eq__(self, other: object) -> bool:
@@ -78,8 +76,8 @@ class Finding:
     passed: bool
     severity: Severity
     evidence: str
-    file: Optional[str] = None
-    line: Optional[int] = None
+    file: str | None = None
+    line: int | None = None
     suppressed: bool = False
 
     @property
@@ -613,16 +611,18 @@ class ASTChecker(ast.NodeVisitor):
         body_src = ast.unparse(node) if hasattr(ast, "unparse") else ""
 
         # Order functions without idempotency
-        if any(kw in name_lower for kw in ("send_order", "submit_order", "place_order")):
-            if "idempotency" not in body_src.lower():
-                self._f(
-                    "LAW3",
-                    f"Order function '{node.name}' lacks idempotency",
-                    False,
-                    Severity.CRITICAL,
-                    "Add idempotency_key parameter and enforce deduplication",
-                    node,
-                )
+        if (
+            any(kw in name_lower for kw in ("send_order", "submit_order", "place_order"))
+            and "idempotency" not in body_src.lower()
+        ):
+            self._f(
+                "LAW3",
+                f"Order function '{node.name}' lacks idempotency",
+                False,
+                Severity.CRITICAL,
+                "Add idempotency_key parameter and enforce deduplication",
+                node,
+            )
 
         # Signing functions without decode/display guard
         if any(kw in name_lower for kw in ("sign_tx", "sign_transaction", "sign_order")):
@@ -640,16 +640,17 @@ class ASTChecker(ast.NodeVisitor):
                 )
 
         # Risk functions missing VaR/CVaR
-        if any(kw in name_lower for kw in ("risk_check", "compute_risk", "pre_trade_risk")):
-            if not re.search(r"var_|cvar_|VaR|CVaR|value_at_risk", body_src, re.IGNORECASE):
-                self._f(
-                    "LAW1",
-                    f"Risk function '{node.name}' missing VaR/CVaR computation",
-                    False,
-                    Severity.CRITICAL,
-                    "Add VaR(95%) and CVaR computation; see risk.md",
-                    node,
-                )
+        if any(
+            kw in name_lower for kw in ("risk_check", "compute_risk", "pre_trade_risk")
+        ) and not re.search(r"var_|cvar_|VaR|CVaR|value_at_risk", body_src, re.IGNORECASE):
+            self._f(
+                "LAW1",
+                f"Risk function '{node.name}' missing VaR/CVaR computation",
+                False,
+                Severity.CRITICAL,
+                "Add VaR(95%) and CVaR computation; see risk.md",
+                node,
+            )
 
         self.generic_visit(node)
 
