@@ -55,4 +55,32 @@ echo "export PYTHONPATH=\"$PWD\"" >> "$CLAUDE_ENV_FILE"
   echo "export OPERATOR_SECRET=\"$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')\""
 } >> "$CLAUDE_ENV_FILE"
 
+# Preflight: the MongoDB-backed tooling CLAUDE.md points sessions at
+# (kg_cli.py, rag_cli.py, review/retrieval.py) needs two things this container
+# does not have by default. Report their state now, so a session finds out here
+# instead of part-way through a task.
+echo "==> Preflight"
+
+if [ -n "${MONGODB_URI:-}" ]; then
+  echo "    MONGODB_URI: set -- kg_cli.py / rag_cli.py can reach Atlas"
+else
+  echo "    MONGODB_URI: NOT set -- kg_cli.py and rag_cli.py will fail."
+  echo "                 Add it to the cloud environment's variables to enable them."
+  echo "                 (The GitHub Actions secret of the same name covers CI"
+  echo "                  review only; it is not visible in this container.)"
+fi
+
+# The embedding model is fetched from huggingface.co on first use. Some network
+# policies deny it, and then RAG fails on a proxy 403 rather than anything that
+# names the real cause.
+if ! command -v curl >/dev/null 2>&1; then
+  echo "    huggingface.co: not probed (no curl)"
+elif curl -fsS -o /dev/null --max-time 10 https://huggingface.co/ 2>/dev/null; then
+  echo "    huggingface.co: reachable -- embeddings can download on first use"
+else
+  echo "    huggingface.co: unreachable -- embedding downloads will fail, so"
+  echo "                    rag_cli.py cannot embed. Allow it in the cloud"
+  echo "                    environment's network policy to enable RAG."
+fi
+
 echo "==> Setup complete"
