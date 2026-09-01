@@ -376,6 +376,27 @@ files, which makes an in-place upgrade fail. `requirements-optional.txt` is
 left out on purpose — the heavy ML extras are imported lazily and their suites
 self-skip, exactly as in CI.
 
+#### What a cloud session cannot do until the environment is configured
+
+The hook prints a preflight summary at startup. Two capabilities depend on the
+cloud environment's own settings, not on anything in this repo:
+
+| Capability | Requires | Without it |
+|---|---|---|
+| `kg_cli.py`, `rag_cli.py`, `review/retrieval.py` | `MONGODB_URI` in the environment's variables | Both CLIs raise `MONGODB_URI not set` |
+| Embedding (`all-MiniLM-L6-v2`, so all of RAG) | `huggingface.co` allowed by the environment's network policy | The download fails with a proxy `403` |
+
+`MONGODB_URI` is configured in two independent places, and setting one does not
+set the other:
+
+- **GitHub Actions secret** — used by `.github/workflows/claude-review.yml`
+  (see `docs/CLOUD_REVIEW.md`). Already set; the cloud review runs against Atlas.
+- **Cloud environment variable** — what an interactive cloud session reads.
+  Set this if you want `kg_cli.py` / `rag_cli.py` usable in a web session.
+
+Neither is needed for the test suite, the linter, or the frontend build: those
+run fully offline, which is why CI is green without them.
+
 ## Tests
 
 ```bash

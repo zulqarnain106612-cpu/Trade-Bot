@@ -8,7 +8,10 @@ from .config import KG_NODES_COLLECTION, KG_EDGES_COLLECTION
 
 def _require_uri() -> str:
     if not MONGODB_URI:
-        raise RuntimeError("MONGODB_URI not set. Copy .env.example to .env and fill it in.")
+        raise RuntimeError(
+            "MONGODB_URI not set. Locally: copy .env.example to .env and fill it in. "
+            "In a Claude Code cloud session: set it in the environment's variables."
+        )
     return MONGODB_URI
 
 
