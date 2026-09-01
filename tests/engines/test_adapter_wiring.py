@@ -11,20 +11,18 @@ from __future__ import annotations
 import os
 
 
-def test_adapter_disabled_returns_none():
-    """Adapter with CRYPTO_BOX unset must return None synchronously."""
-    import asyncio
-
+async def test_adapter_disabled_returns_none():
+    """Adapter with CRYPTO_BOX unset must return None."""
     # Ensure env flag is unset
     os.environ.pop("CRYPTO_BOX", None)
     from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
 
     adapter = CryptoBoxSignalAdapter()
     assert not adapter.enabled
-    result = asyncio.get_event_loop().run_until_complete(
-        adapter.get_signal("BTC/USDT", {"spot": 50000.0})
-    )
-    assert result is None
+    # asyncio.get_event_loop() raises in a sync test on 3.12+ unless an earlier
+    # async test happened to leave a loop behind, which made this pass or fail
+    # by test order. asyncio_mode = "auto" runs this coroutine directly.
+    assert await adapter.get_signal("BTC/USDT", {"spot": 50000.0}) is None
 
 
 def test_predict_current_v2_disabled_returns_none():
