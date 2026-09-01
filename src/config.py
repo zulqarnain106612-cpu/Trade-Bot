@@ -895,29 +895,6 @@ class StrategyPortfolioSettings(BaseSettings):
     allocation_rebalance_interval_s: int = Field(default=3600, ge=60)
 
 
-class RegimeStrategySettings(BaseSettings):
-    """
-    Regime-conditional strategy gating
-    (src/strategies/regime_strategy_selector.py).
-
-    Read by select_strategy_from_config(). Defaults mirror the module-level
-    constants there, so the config path and the explicit-argument path agree
-    unless an operator deliberately overrides one.
-
-    A regime call below ``rs_min_confidence`` or above ``rs_max_entropy`` is
-    too uncertain to commit capital to, and the selector returns NEUTRAL
-    rather than guessing. ``rs_transition_guard`` additionally refuses to
-    open during a detected regime transition, where both mean-reversion and
-    breakout models lose their edge.
-    """
-
-    model_config = SettingsConfigDict(env_prefix="STRATEGY_", env_file=".env", extra="ignore")
-
-    rs_min_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
-    rs_max_entropy: float = Field(default=0.75, ge=0.0, le=1.0)
-    rs_transition_guard: bool = Field(default=True)
-
-
 class OrderThrottleSettings(BaseSettings):
     """
     Outgoing-order rate limiting (src/execution/order_throttler.py).
@@ -1068,8 +1045,13 @@ class Settings(BaseSettings):
     intelligence: IntelligenceSettings = Field(default_factory=IntelligenceSettings)
     self_tuning: SelfTuningSettings = Field(default_factory=SelfTuningSettings)
     strategy_portfolio: StrategyPortfolioSettings = Field(default_factory=StrategyPortfolioSettings)
-    strategy: RegimeStrategySettings = Field(default_factory=RegimeStrategySettings)
     order_throttle: OrderThrottleSettings = Field(default_factory=OrderThrottleSettings)
+    # One field, not two. `strategy` was declared twice -- once as
+    # RegimeStrategySettings and once as StrategySettings -- and the second
+    # silently won, leaving RegimeStrategySettings dead. StrategySettings is
+    # a strict superset of it (same rs_* fields, same defaults, same
+    # STRATEGY_ env prefix) plus the mr_* and bo_* knobs, so keeping this one
+    # is what select_strategy_from_config() was already reading.
     strategy: StrategySettings = Field(default_factory=StrategySettings)
 
     # Logging
