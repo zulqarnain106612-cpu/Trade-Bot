@@ -28,7 +28,6 @@ import structlog
 
 from src.intelligence.metrics import IntelligenceMetrics
 
-
 log = structlog.get_logger(__name__)
 
 # ============================================================================

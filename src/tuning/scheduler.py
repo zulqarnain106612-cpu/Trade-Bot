@@ -96,7 +96,6 @@ from src.tuning.redteam_scheduler import RedTeamScheduler
 from src.tuning.registry import TunableParameter
 from src.tuning.state import parameter_registry, pause_state, runner, version_store
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _MIN_SAMPLES = 30  # below this, CPCV folds would be too thin to mean anything

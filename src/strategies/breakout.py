@@ -22,7 +22,6 @@ import pandas as pd
 
 from src.strategies.registry import Signal
 
-
 _LOOKBACK_BARS: int = 20
 _VOLUME_MULTIPLE: float = 1.5
 _ATR_PERIOD: int = 14

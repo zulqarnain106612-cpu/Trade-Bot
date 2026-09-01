@@ -78,12 +78,14 @@ async def test_an_online_trainer_that_cannot_be_built_leaves_the_engine_running(
     orch = _make_orch()
     orch._log = MagicMock()
 
-    with _orch_patches():
-        with patch(
+    with (
+        _orch_patches(),
+        patch(
             "src.engine.orchestrator.OnlineTrainer",
             side_effect=RuntimeError("model dir unwritable"),
-        ):
-            await orch.startup()
+        ),
+    ):
+        await orch.startup()
 
     assert orch._engines, "the engine must still be built without an online trainer"
     events = [c[0][0] for c in orch._log.warning.call_args_list]

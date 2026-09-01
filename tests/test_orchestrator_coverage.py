@@ -12,8 +12,8 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from conftest import settings_double
+
 from src.config import Timeframe, TradingMode
 from src.data.storage import BarRecord
 
@@ -262,15 +262,15 @@ class TestOrchestratorStartup:
             captured_kwargs.update(kwargs)
             return MagicMock()
 
-        with _orch_patches() as (_, __, ___):
-            with (
-                patch(
-                    "src.engine.orchestrator.ModelTrainer.load_ensemble",
-                    side_effect=FileNotFoundError("no ensemble yet"),
-                ),
-                patch("src.engine.orchestrator.SignalEngine", side_effect=_capture_signal_engine),
-            ):
-                await orch.startup()
+        with (
+            _orch_patches() as (_, __, ___),
+            patch(
+                "src.engine.orchestrator.ModelTrainer.load_ensemble",
+                side_effect=FileNotFoundError("no ensemble yet"),
+            ),
+            patch("src.engine.orchestrator.SignalEngine", side_effect=_capture_signal_engine),
+        ):
+            await orch.startup()
         assert captured_kwargs["ensemble"] is None
 
     @pytest.mark.asyncio
@@ -286,15 +286,15 @@ class TestOrchestratorStartup:
             captured_kwargs.update(kwargs)
             return MagicMock()
 
-        with _orch_patches() as (_, __, ___):
-            with (
-                patch(
-                    "src.engine.orchestrator.ModelTrainer.load_ensemble",
-                    side_effect=RuntimeError("integrity check FAILED"),
-                ),
-                patch("src.engine.orchestrator.SignalEngine", side_effect=_capture_signal_engine),
-            ):
-                await orch.startup()
+        with (
+            _orch_patches() as (_, __, ___),
+            patch(
+                "src.engine.orchestrator.ModelTrainer.load_ensemble",
+                side_effect=RuntimeError("integrity check FAILED"),
+            ),
+            patch("src.engine.orchestrator.SignalEngine", side_effect=_capture_signal_engine),
+        ):
+            await orch.startup()
         assert captured_kwargs["ensemble"] is None
 
 

@@ -38,7 +38,6 @@ from typing import Final
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _DEFAULT_RATE: Final[float] = 10.0  # tokens per second

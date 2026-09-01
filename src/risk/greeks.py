@@ -17,7 +17,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-
 _SQRT_2PI: float = math.sqrt(2 * math.pi)
 
 

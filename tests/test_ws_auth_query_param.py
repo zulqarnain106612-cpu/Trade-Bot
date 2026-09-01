@@ -18,7 +18,6 @@ from fastapi import HTTPException
 from src.api.access_control import Role
 from src.api.auth import verify_ws_key
 
-
 _PRIMARY = "a" * 40
 _READONLY = "b" * 40
 

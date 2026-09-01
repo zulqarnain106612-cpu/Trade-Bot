@@ -39,7 +39,6 @@ from src.intelligence.probabilistic import (
     BayesianWhaleActivityModel,
 )
 
-
 log = structlog.get_logger(__name__)
 
 

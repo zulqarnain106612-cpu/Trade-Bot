@@ -27,7 +27,6 @@ from src.risk.gates import (
 )
 from src.risk.slippage import SlippageEstimate
 
-
 NON_FINITE = [math.nan, math.inf, -math.inf]
 
 

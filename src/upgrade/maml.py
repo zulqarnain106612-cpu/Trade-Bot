@@ -20,7 +20,6 @@ import structlog
 import torch
 import torch.nn as nn
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _DEFAULT_LR_INNER = 0.01

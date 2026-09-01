@@ -20,7 +20,6 @@ from src.risk.gates import (
     check_whale_activity,
 )
 
-
 # ------------------------------------------------------------ GateResult
 
 

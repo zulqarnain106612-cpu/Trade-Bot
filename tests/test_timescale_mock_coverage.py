@@ -35,7 +35,6 @@ from src.data.timescale_storage import (
     open_timescale_storage,
 )
 
-
 _TEST_DSN = "postgresql://user:pw@host/db"  # pragma: allowlist secret
 
 

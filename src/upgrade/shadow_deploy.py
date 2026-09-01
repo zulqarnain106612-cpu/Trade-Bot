@@ -25,7 +25,6 @@ from typing import Any
 import numpy as np
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _SHADOW_HOURS = float(__import__("os").environ.get("SHADOW_HOURS", "24"))

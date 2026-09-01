@@ -1,7 +1,9 @@
 """Local, zero-cost embedding model (no API calls)."""
 
 from functools import lru_cache
+
 from sentence_transformers import SentenceTransformer
+
 from .config import EMBEDDING_MODEL
 
 

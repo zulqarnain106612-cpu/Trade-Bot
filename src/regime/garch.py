@@ -38,7 +38,6 @@ import pandas as pd
 import structlog
 from scipy.optimize import minimize
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Returns are scaled up before fitting: raw crypto per-bar returns (~1e-3)

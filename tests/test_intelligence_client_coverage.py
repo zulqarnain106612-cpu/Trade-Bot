@@ -13,7 +13,6 @@ from src.intelligence.client import (
     get_intelligence_aggregator,
 )
 
-
 # ---------------------------------------------------------------------------
 # CacheEntry
 # ---------------------------------------------------------------------------
@@ -371,9 +370,8 @@ async def test_fetch_glassnode_whale_activity_empty_raises():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = AsyncMock(return_value=mock_resp)
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        with pytest.raises(ValueError):
-            await agg._fetch_glassnode_whale_activity("BTC", 1_000_000)
+    with patch("httpx.AsyncClient", return_value=mock_client), pytest.raises(ValueError):
+        await agg._fetch_glassnode_whale_activity("BTC", 1_000_000)
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ from src.intelligence.providers.binance_provider import BinanceIntelligenceProvi
 from src.intelligence.providers.bybit_provider import BybitIntelligenceProvider
 from src.intelligence.providers.okx_provider import OKXIntelligenceProvider
 
-
 # ---------------------------------------------------------------------------
 # _compute_stress_score — shared across all three providers
 # ---------------------------------------------------------------------------

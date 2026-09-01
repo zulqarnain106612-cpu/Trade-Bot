@@ -22,7 +22,6 @@ import pytest
 from src.features.pipeline import BASE_FEATURE_COLUMNS
 from src.models.trainer import ModelTrainer, _attach_feature_columns
 
-
 _ATTR = "_trade_bot_feature_columns"
 
 _FUNDING = "intelligence_binance_funding_rate_pct"

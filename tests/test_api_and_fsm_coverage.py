@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-
 # ---------------------------------------------------------------------------
 # middleware.py — validate_cors_config
 # ---------------------------------------------------------------------------
@@ -129,17 +128,15 @@ class TestVerifyApiKey:
     def test_wrong_key_raises_401(self):
         from src.api.auth import verify_api_key
 
-        with self._set_key():
-            with pytest.raises(HTTPException) as exc:
-                verify_api_key("wrong_key")
+        with self._set_key(), pytest.raises(HTTPException) as exc:
+            verify_api_key("wrong_key")
         assert exc.value.status_code == 401
 
     def test_missing_key_raises_401(self):
         from src.api.auth import verify_api_key
 
-        with self._set_key():
-            with pytest.raises(HTTPException) as exc:
-                verify_api_key(None)
+        with self._set_key(), pytest.raises(HTTPException) as exc:
+            verify_api_key(None)
         assert exc.value.status_code == 401
 
     def test_server_key_not_configured_raises_503(self):
@@ -188,9 +185,8 @@ class TestVerifyWsKey:
         from src.api.auth import verify_ws_key
 
         ws = self._mock_ws()
-        with self._set_key():
-            with pytest.raises(HTTPException) as exc:
-                await verify_ws_key(ws)
+        with self._set_key(), pytest.raises(HTTPException) as exc:
+            await verify_ws_key(ws)
         assert exc.value.status_code == 401
         ws.close.assert_called_once()
 
@@ -199,9 +195,8 @@ class TestVerifyWsKey:
         from src.api.auth import verify_ws_key
 
         ws = self._mock_ws(key="bad")
-        with self._set_key():
-            with pytest.raises(HTTPException) as exc:
-                await verify_ws_key(ws)
+        with self._set_key(), pytest.raises(HTTPException) as exc:
+            await verify_ws_key(ws)
         assert exc.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -282,7 +277,8 @@ class TestIntelligenceEndpoints:
     @pytest.mark.asyncio
     async def test_coverage_no_orchestrator_returns_error(self):
         import src.api.main as api_mod
-        from src.api.main import AppState as _AppState, get_intelligence_coverage
+        from src.api.main import AppState as _AppState
+        from src.api.main import get_intelligence_coverage
 
         state = _AppState()
         orig = api_mod._state

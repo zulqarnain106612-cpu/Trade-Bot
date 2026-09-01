@@ -14,7 +14,6 @@ from dataclasses import dataclass
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _RPC_URL = os.environ.get("BTC_RPC_URL", "http://127.0.0.1:8332")

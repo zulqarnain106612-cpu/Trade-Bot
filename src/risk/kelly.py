@@ -25,7 +25,6 @@ import structlog
 from src.config import RiskSettings, get_settings
 from src.intelligence.calibration import shrink_probability
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------

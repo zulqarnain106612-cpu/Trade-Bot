@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 
 from common.claude_cli import run_claude
+
 from .config import COORDINATOR_MODEL, MAX_SUBTASKS
 
 _SCHEMA_HINT = (

@@ -30,7 +30,6 @@ from typing import Any, Final
 import numpy as np
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # KS drift threshold — if D-statistic exceeds this, feature may have drifted

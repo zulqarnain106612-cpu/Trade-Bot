@@ -34,7 +34,6 @@ from src.config import FeatureSettings
 from src.regime.garch import rolling_garch_forecast
 from src.tuning.live_overrides import effective_feature_settings
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,6 @@ from src.execution.idempotency import (
     derive_idempotency_key,
 )
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 

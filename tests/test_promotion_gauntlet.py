@@ -14,7 +14,6 @@ from src.tuning.promotion_gauntlet import (
     observation_from_fills,
 )
 
-
 _DAY_MS = 86_400_000
 
 

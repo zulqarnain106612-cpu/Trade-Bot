@@ -84,9 +84,9 @@ def test_run_claude_nonzero_exit_raises():
             "common.claude_cli.subprocess.run",
             return_value=_completed("", returncode=1, stderr="boom"),
         ),
+        pytest.raises(ClaudeCLIError, match="exit 1"),
     ):
-        with pytest.raises(ClaudeCLIError, match="exit 1"):
-            run_claude("prompt", model="haiku")
+        run_claude("prompt", model="haiku")
 
 
 def test_run_claude_invalid_json_raises():

@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 from src.strategies.registry import Signal
 
-
 # Minimum *net* edge (bps, after round-trip cost) worth harvesting.
 _MIN_SPREAD_BPS: float = 15.0
 _MAX_SPREAD_BPS_FOR_FULL_CONFIDENCE: float = 60.0

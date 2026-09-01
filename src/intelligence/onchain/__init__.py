@@ -30,7 +30,6 @@ from src.intelligence.onchain.schema import (
     validate_provider_result,
 )
 
-
 __all__ = [
     # Schema
     "ALL_FIELDS",

@@ -23,7 +23,6 @@ from src.data.fetcher import (
 )
 from src.data.storage import BarRecord
 
-
 # ---------------------------------------------------------------------------
 # OrderBookSnapshot
 # ---------------------------------------------------------------------------
@@ -204,9 +203,8 @@ async def test_with_retry_raises_after_max_network_attempts():
     async def _always_fail():
         raise ccxt_async.NetworkError("network")
 
-    with patch("asyncio.sleep", new=AsyncMock()):
-        with pytest.raises(ccxt_async.NetworkError):
-            await _with_retry(lambda: _always_fail(), label="test", attempts=3, base_delay=0.01)
+    with patch("asyncio.sleep", new=AsyncMock()), pytest.raises(ccxt_async.NetworkError):
+        await _with_retry(lambda: _always_fail(), label="test", attempts=3, base_delay=0.01)
 
 
 @pytest.mark.asyncio
@@ -214,9 +212,8 @@ async def test_with_retry_raises_rate_limit_after_max_attempts():
     async def _rate_limit():
         raise ccxt_async.RateLimitExceeded("slow down")
 
-    with patch("asyncio.sleep", new=AsyncMock()):
-        with pytest.raises(ccxt_async.RateLimitExceeded):
-            await _with_retry(lambda: _rate_limit(), label="test", attempts=3, base_delay=0.01)
+    with patch("asyncio.sleep", new=AsyncMock()), pytest.raises(ccxt_async.RateLimitExceeded):
+        await _with_retry(lambda: _rate_limit(), label="test", attempts=3, base_delay=0.01)
 
 
 @pytest.mark.asyncio

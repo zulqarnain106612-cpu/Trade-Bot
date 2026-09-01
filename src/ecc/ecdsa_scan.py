@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Distinct r values held for nonce-reuse detection. Each entry is an int

@@ -27,7 +27,6 @@ import pytest
 from src.intelligence.metrics import IntelligenceAnalyzer
 from src.intelligence.providers.binance_provider import BinanceIntelligenceProvider
 
-
 # ---------------------------------------------------------------------------
 # Bug 1: whale taker-ratio ccxt-normalization fix
 # ---------------------------------------------------------------------------

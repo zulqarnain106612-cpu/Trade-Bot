@@ -23,7 +23,6 @@ from src.tuning.runner import TuningRunner
 from src.tuning.store import VersionedConfigStore
 from src.tuning.watchdog import PostPromotionWatchdog
 
-
 _settings = get_settings().self_tuning
 
 audit_log: TuningAuditLog = TuningAuditLog(_settings.audit_log_path)

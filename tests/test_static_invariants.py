@@ -25,7 +25,6 @@ from types import ModuleType
 
 import pytest
 
-
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check_static_invariants.py"
 
 

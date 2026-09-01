@@ -19,7 +19,6 @@ from dataclasses import dataclass
 
 from src.intelligence.macro_regime import MacroRegimeResult
 
-
 _MIN_BUDGET_SCALAR: float = 0.25  # Even at max risk-off, never fully zero out
 _MAX_BUDGET_SCALAR: float = 1.0  # Never scale ABOVE the Kelly-derived size
 
