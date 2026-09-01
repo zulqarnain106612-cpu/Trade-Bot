@@ -6,7 +6,10 @@ from .config import EMBEDDING_DIM, MONGODB_COLLECTION, MONGODB_DB, MONGODB_URI, 
 
 def get_collection():
     if not MONGODB_URI:
-        raise RuntimeError("MONGODB_URI not set. Copy .env.example to .env and fill it in.")
+        raise RuntimeError(
+            "MONGODB_URI not set. Locally: copy .env.example to .env and fill it in. "
+            "In a Claude Code cloud session: set it in the environment's variables."
+        )
     client = MongoClient(MONGODB_URI)
     return client[MONGODB_DB][MONGODB_COLLECTION]
 

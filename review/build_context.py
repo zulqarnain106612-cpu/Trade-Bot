@@ -33,12 +33,23 @@ def _candidate_terms(diff: str) -> list[str]:
 
 
 def build_context(base: str, head: str) -> dict:
+    """Retrieve grounding context, degrading to an empty set on failure.
+
+    The review this feeds is advisory and never gates a merge, so an
+    unreachable Atlas cluster must not either. Returning the empty context
+    means the reviewer reads the diff alone -- a worse review, not a red
+    check on every open pull request.
+    """
     diff = _diff_text(base, head)
     terms = _candidate_terms(diff)
     query_text = " ".join(terms[:20]) or "code change"
 
-    related_docs = hybrid(query_text, top_k=REVIEW_MAX_CONTEXT_ITEMS)
-    related_edges = graph(terms, limit=REVIEW_MAX_CONTEXT_ITEMS)
+    try:
+        related_docs = hybrid(query_text, top_k=REVIEW_MAX_CONTEXT_ITEMS)
+        related_edges = graph(terms, limit=REVIEW_MAX_CONTEXT_ITEMS)
+    except Exception as exc:  # noqa: BLE001 - any retrieval fault degrades the same way
+        print(f"warning: retrieval unavailable, reviewing the diff alone: {exc}")
+        return {"related_documents": [], "related_facts": [], "retrieval_error": str(exc)}
 
     return {
         "related_documents": [
