@@ -26,7 +26,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Every measured file must reach this, counting branch coverage.
+# Every measured file must reach this, counting branch coverage. Set below
+# the observed minimum across the 248 measured files (src/models/gru.py at
+# 91.67%) so the floor bites on a real regression rather than on today's
+# weakest file, which is why EXCEPTIONS is empty.
 MIN_PERCENT = 90.0
 
 # path -> (floor, reason). Keep the reason concrete; "hard to test" is not one.
