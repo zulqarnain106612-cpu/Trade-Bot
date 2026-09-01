@@ -150,14 +150,17 @@ class EnsembleSignal:
         regime = self.regime_detector.current()
         weights = self.regime_weights[regime]  # from calibration
         # Confidence gate: suppress any signal below threshold
-        filtered = {k: v for k, v in signals.items()
-                    if v.confidence >= self.thresholds[k]}
+        filtered = {k: v for k, v in signals.items() if v.confidence >= self.thresholds[k]}
         if not filtered:
             return Signal(action=HOLD, reason="all_signals_below_threshold")
-        ensemble_score = sum(weights[k] * v.value for k, v in filtered.items()
-                             if k in weights) / sum(weights[k] for k in filtered)
-        return Signal(value=ensemble_score, confidence=min(v.confidence
-                      for v in filtered.values()), regime=regime)
+        ensemble_score = sum(
+            weights[k] * v.value for k, v in filtered.items() if k in weights
+        ) / sum(weights[k] for k in filtered)
+        return Signal(
+            value=ensemble_score,
+            confidence=min(v.confidence for v in filtered.values()),
+            regime=regime,
+        )
 ```
 
 ---

@@ -43,14 +43,15 @@ RHODL Ratio (Realized HODLer Ratio):
 
 ### Multi-Chain Metrics
 ```python
-def stablecoin_dominance_signal(total_crypto_mcap: float,
-                                 stablecoin_mcap: float) -> float:
+def stablecoin_dominance_signal(total_crypto_mcap: float, stablecoin_mcap: float) -> float:
     """Rising stablecoin dominance = risk-off; falling = risk-on deployment"""
     return stablecoin_mcap / total_crypto_mcap
+
 
 def exchange_netflow(inflow: float, outflow: float) -> float:
     """Negative (outflow > inflow) = accumulation = bullish"""
     return inflow - outflow
+
 
 def etf_flow_signal(daily_flows: pd.Series, smoothing: int = 7) -> pd.Series:
     """7-day EMA of BTC spot ETF net flows as institutional demand proxy"""
@@ -82,27 +83,24 @@ def exchange_flow_signal(
     # Negative z-score = unusual outflows = accumulation signal (bullish)
     return -z_score.clip(-3, 3)
 
+
 def whale_accumulation_signal(
     whale_wallet_balances: pd.DataFrame,  # Rows: dates, Cols: wallet addresses
     threshold: float = 1000,  # BTC
 ) -> pd.Series:
-    whale_total = whale_wallet_balances[
-        whale_wallet_balances.iloc[-1] > threshold
-    ].sum(axis=1)
+    whale_total = whale_wallet_balances[whale_wallet_balances.iloc[-1] > threshold].sum(axis=1)
     return whale_total.pct_change(7)  # 7-day accumulation rate
 ```
 
 ### On-Chain Composite Index
 ```python
-def onchain_composite(
-    nupl: float, mvrv: float, sopr: float, exchange_netflow_z: float
-) -> float:
+def onchain_composite(nupl: float, mvrv: float, sopr: float, exchange_netflow_z: float) -> float:
     """Composite bull/bear score; range [-1, 1]"""
     components = {
-        "nupl": np.clip(nupl, -0.5, 1.0) / 1.0,           # Normalize to [-0.5, 1]
-        "mvrv": np.clip((mvrv - 2.0) / 3.0, -1, 1),       # Normalize around 2
-        "sopr": np.clip(sopr - 1.0, -0.5, 0.5) / 0.5,    # Distance from 1
-        "flow": np.clip(-exchange_netflow_z / 3, -1, 1),   # Inverted
+        "nupl": np.clip(nupl, -0.5, 1.0) / 1.0,  # Normalize to [-0.5, 1]
+        "mvrv": np.clip((mvrv - 2.0) / 3.0, -1, 1),  # Normalize around 2
+        "sopr": np.clip(sopr - 1.0, -0.5, 0.5) / 0.5,  # Distance from 1
+        "flow": np.clip(-exchange_netflow_z / 3, -1, 1),  # Inverted
     }
     weights = {"nupl": 0.30, "mvrv": 0.30, "sopr": 0.20, "flow": 0.20}
     return sum(w * components[k] for k, w in weights.items())
@@ -131,6 +129,7 @@ async def get_btc_fee_estimate() -> dict:
         r = await s.get("https://mempool.space/api/fees/recommended")
         return await r.json()
     # Returns: {"fastestFee": 15, "halfHourFee": 12, "hourFee": 8, "minimumFee": 2}
+
 
 async def watch_pending_large_eth_txs(web3, min_value_eth: float = 100):
     """Stream pending transactions above threshold"""
@@ -162,11 +161,11 @@ async def watch_pending_large_eth_txs(web3, min_value_eth: float = 100):
 # Preferred: use event logs (efficient, indexed)
 from web3.middleware import geth_poa_middleware
 
+
 def index_transfer_events(contract, from_block: int, to_block: int):
-    event_filter = contract.events.Transfer.create_filter(
-        fromBlock=from_block, toBlock=to_block
-    )
+    event_filter = contract.events.Transfer.create_filter(fromBlock=from_block, toBlock=to_block)
     return event_filter.get_all_entries()
+
 
 # For large ranges: use eth_getLogs directly with chunking
 async def get_logs_chunked(w3, filter_params, chunk=2000):
@@ -175,8 +174,7 @@ async def get_logs_chunked(w3, filter_params, chunk=2000):
     results = []
     for start in range(from_block, to_block, chunk):
         end = min(start + chunk - 1, to_block)
-        chunk_logs = await w3.eth.get_logs({**filter_params,
-                                             "fromBlock": start, "toBlock": end})
+        chunk_logs = await w3.eth.get_logs({**filter_params, "fromBlock": start, "toBlock": end})
         results.extend(chunk_logs)
         await asyncio.sleep(0.05)  # Rate limit protection
     return results
@@ -221,14 +219,19 @@ Feature Engine (aggregate metrics → trading signals)
 def is_stale(record_block: int, current_block: int, max_lag: int = 5) -> bool:
     return (current_block - record_block) > max_lag
 
+
 def get_validated_onchain_signal(
     raw_signal: float, record_block: int, current_block: int
 ) -> Optional[float]:
     if is_stale(record_block, current_block):
-        logger.warning("on_chain_signal_stale", extra={
-            "record_block": record_block, "current": current_block,
-            "lag": current_block - record_block
-        })
+        logger.warning(
+            "on_chain_signal_stale",
+            extra={
+                "record_block": record_block,
+                "current": current_block,
+                "lag": current_block - record_block,
+            },
+        )
         return None  # Do not use stale on-chain data in signal
     return raw_signal
 ```

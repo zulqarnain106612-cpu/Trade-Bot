@@ -67,28 +67,34 @@ architect-approved PQC algorithms for new systems.
 ### Implementation Pattern
 ```python
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 # PQC library: liboqs-python, pqcrypto, or dilithium-py
 from dilithium_py.dilithium import Dilithium3  # ML-DSA-65 compatible
 
-def hybrid_sign(message: bytes, ed25519_key: Ed25519PrivateKey,
-                ml_dsa_key: bytes) -> bytes:
+
+def hybrid_sign(message: bytes, ed25519_key: Ed25519PrivateKey, ml_dsa_key: bytes) -> bytes:
     """Both signatures must be produced and verified."""
     sig_classical = ed25519_key.sign(message)
     sig_pqc = Dilithium3.sign(ml_dsa_key, message)
     # Concatenate: [2B len_classical][sig_classical][2B len_pqc][sig_pqc]
     return (
-        len(sig_classical).to_bytes(2, "big") + sig_classical
-        + len(sig_pqc).to_bytes(2, "big") + sig_pqc
+        len(sig_classical).to_bytes(2, "big")
+        + sig_classical
+        + len(sig_pqc).to_bytes(2, "big")
+        + sig_pqc
     )
 
-def hybrid_verify(message: bytes, hybrid_sig: bytes,
-                  ed25519_pubkey, ml_dsa_pubkey: bytes) -> bool:
+
+def hybrid_verify(message: bytes, hybrid_sig: bytes, ed25519_pubkey, ml_dsa_pubkey: bytes) -> bool:
     """BOTH must pass — neither alone is sufficient."""
     offset = 0
-    len_c = int.from_bytes(hybrid_sig[offset:offset+2], "big"); offset += 2
-    sig_c = hybrid_sig[offset:offset+len_c]; offset += len_c
-    len_pqc = int.from_bytes(hybrid_sig[offset:offset+2], "big"); offset += 2
-    sig_pqc = hybrid_sig[offset:offset+len_pqc]
+    len_c = int.from_bytes(hybrid_sig[offset : offset + 2], "big")
+    offset += 2
+    sig_c = hybrid_sig[offset : offset + len_c]
+    offset += len_c
+    len_pqc = int.from_bytes(hybrid_sig[offset : offset + 2], "big")
+    offset += 2
+    sig_pqc = hybrid_sig[offset : offset + len_pqc]
     ed25519_pubkey.verify(sig_c, message)  # raises on failure
     return Dilithium3.verify(ml_dsa_pubkey, message, sig_pqc)
 ```
@@ -149,6 +155,7 @@ Phase 3 (2027): Wallet — hybrid key generation for all new wallet derivations
 
 ```python
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 privkey = Ed25519PrivateKey.generate()
 signature = privkey.sign(message)
 pubkey = privkey.public_key()

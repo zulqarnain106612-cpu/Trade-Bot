@@ -70,6 +70,7 @@ class Severity(str, Enum):
 
 # ── Result types ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Finding:
     law: str
@@ -128,9 +129,7 @@ class ValidationReport:
         return sorted({f.fingerprint for f in self.findings if not f.passed})
 
     def passed(self, fail_threshold: Severity = Severity.HIGH) -> bool:
-        return not any(
-            f.severity >= fail_threshold for f in self.open_failures()
-        )
+        return not any(f.severity >= fail_threshold for f in self.open_failures())
 
     def stats(self) -> dict:
         by_severity: dict[str, int] = {}
@@ -150,9 +149,9 @@ class ValidationReport:
         fail_threshold: Severity = Severity.HIGH,
     ) -> None:
         w = 72
-        print(f"\n{'='*w}")
+        print(f"\n{'=' * w}")
         print(f"COMPONENT: {self.component}  |  Crypto Architect v3")
-        print(f"{'='*w}")
+        print(f"{'=' * w}")
         printed = 0
         for f in self.open_failures():
             if f.severity >= min_severity:
@@ -164,12 +163,12 @@ class ValidationReport:
             print(f"  (no findings at or above {min_severity.value} severity)")
         s = self.stats()
         result_str = "PASS" if self.passed(fail_threshold) else "FAIL"
-        print(f"{'='*w}")
+        print(f"{'=' * w}")
         print(
             f"RESULT: {result_str} | Checks: {s['total_checks']} | "
             f"Failures: {s['failures']} | By severity: {s['by_severity']}"
         )
-        print(f"{'='*w}\n")
+        print(f"{'=' * w}\n")
 
     def to_dict(self, fail_threshold: Severity = Severity.HIGH) -> dict:
         return {
@@ -196,20 +195,22 @@ class ValidationReport:
             rule_id = f"{f.law}-{re.sub(r'[^a-z0-9]', '-', f.check.lower())[:40]}"
             if rule_id not in seen_rule_ids:
                 seen_rule_ids.add(rule_id)
-                rules.append({
-                    "id": rule_id,
-                    "name": f.check,
-                    "shortDescription": {"text": f"{f.law}: {f.check}"},
-                    "defaultConfiguration": {
-                        "level": sev_sarif.get(f.severity, "warning")
-                    },
-                    "properties": {"security-severity": {
-                        Severity.CRITICAL: "9.0",
-                        Severity.HIGH: "7.0",
-                        Severity.MEDIUM: "4.0",
-                        Severity.INFO: "1.0",
-                    }.get(f.severity, "4.0")},
-                })
+                rules.append(
+                    {
+                        "id": rule_id,
+                        "name": f.check,
+                        "shortDescription": {"text": f"{f.law}: {f.check}"},
+                        "defaultConfiguration": {"level": sev_sarif.get(f.severity, "warning")},
+                        "properties": {
+                            "security-severity": {
+                                Severity.CRITICAL: "9.0",
+                                Severity.HIGH: "7.0",
+                                Severity.MEDIUM: "4.0",
+                                Severity.INFO: "1.0",
+                            }.get(f.severity, "4.0")
+                        },
+                    }
+                )
 
             location: dict = {
                 "message": {"text": f.evidence},
@@ -220,98 +221,166 @@ class ValidationReport:
                     "region": {"startLine": f.line},
                 }
 
-            results.append({
-                "ruleId": rule_id,
-                "level": sev_sarif.get(f.severity, "warning"),
-                "message": {"text": f"{f.check}: {f.evidence}"},
-                "locations": [location],
-            })
+            results.append(
+                {
+                    "ruleId": rule_id,
+                    "level": sev_sarif.get(f.severity, "warning"),
+                    "message": {"text": f"{f.check}: {f.evidence}"},
+                    "locations": [location],
+                }
+            )
 
         return {
             "version": "2.1.0",
-            "$schema": (
-                "https://json.schemastore.org/sarif-2.1.0.json"
-            ),
-            "runs": [{
-                "tool": {
-                    "driver": {
-                        "name": "crypto-architect-validator",
-                        "version": "3.0.0",
-                        "rules": rules,
-                    }
-                },
-                "results": results,
-                "properties": {
-                    "component": self.component,
-                    "passed": self.passed(),
-                },
-            }],
+            "$schema": ("https://json.schemastore.org/sarif-2.1.0.json"),
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "crypto-architect-validator",
+                            "version": "3.0.0",
+                            "rules": rules,
+                        }
+                    },
+                    "results": results,
+                    "properties": {
+                        "component": self.component,
+                        "passed": self.passed(),
+                    },
+                }
+            ],
         }
 
 
 # ── Pattern-based checks (all languages) ─────────────────────────────────────
 
 # Each entry: (law, regex, description, severity)
-# Use # noqa:arch on a source line to suppress pattern hits.
+# Use # arch-ignore on a source line to suppress pattern hits.
 FORBIDDEN: list[tuple[str, str, str, Severity]] = [
     # LAW6 — secrets
-    ("LAW6", r'os\.environ\[.*?(KEY|SECRET|PASS|TOKEN|MNEMONIC)',
-     "Secret accessed from env var — use Vault", Severity.CRITICAL),
-    ("LAW6", r'private_key\s*=\s*["\']',
-     "Private key hardcoded as string literal", Severity.CRITICAL),
-    ("LAW6", r'api_secret\s*=\s*["\']',
-     "API secret hardcoded", Severity.CRITICAL),
-    ("LAW6", r'password\s*=\s*["\'](?!.{0,3}#.*placeholder)',
-     "Password hardcoded", Severity.CRITICAL),
-    ("LAW6", r'mnemonic\s*=\s*["\']',
-     "BIP39 mnemonic hardcoded", Severity.CRITICAL),
+    (
+        "LAW6",
+        r"os\.environ\[.*?(KEY|SECRET|PASS|TOKEN|MNEMONIC)",
+        "Secret accessed from env var — use Vault",
+        Severity.CRITICAL,
+    ),
+    (
+        "LAW6",
+        r'private_key\s*=\s*["\']',
+        "Private key hardcoded as string literal",
+        Severity.CRITICAL,
+    ),
+    ("LAW6", r'api_secret\s*=\s*["\']', "API secret hardcoded", Severity.CRITICAL),
+    (
+        "LAW6",
+        r'password\s*=\s*["\'](?!.{0,3}#.*placeholder)',
+        "Password hardcoded",
+        Severity.CRITICAL,
+    ),
+    ("LAW6", r'mnemonic\s*=\s*["\']', "BIP39 mnemonic hardcoded", Severity.CRITICAL),
     # LAW3 — execution bypasses
-    ("LAW3", r'skip_risk\s*=\s*True|skip_risk\s*=\s*true',
-     "Risk gate bypass flag", Severity.CRITICAL),
-    ("LAW3", r'bypass_risk|bypass_validation|skip_validation',
-     "Risk/validation bypass detected", Severity.CRITICAL),
+    (
+        "LAW3",
+        r"skip_risk\s*=\s*True|skip_risk\s*=\s*true",
+        "Risk gate bypass flag",
+        Severity.CRITICAL,
+    ),
+    (
+        "LAW3",
+        r"bypass_risk|bypass_validation|skip_validation",
+        "Risk/validation bypass detected",
+        Severity.CRITICAL,
+    ),
     # LAW5 — TLS
-    ("LAW5", r'verify\s*=\s*False|verify:\s*false|InsecureSkipVerify\s*:\s*true',
-     "TLS verification disabled", Severity.CRITICAL),
-    ("LAW5", r'requests\.(get|post|put|delete)\(.*verify=False',
-     "HTTP request with TLS verification disabled", Severity.CRITICAL),
+    (
+        "LAW5",
+        r"verify\s*=\s*False|verify:\s*false|InsecureSkipVerify\s*:\s*true",
+        "TLS verification disabled",
+        Severity.CRITICAL,
+    ),
+    (
+        "LAW5",
+        r"requests\.(get|post|put|delete)\(.*verify=False",
+        "HTTP request with TLS verification disabled",
+        Severity.CRITICAL,
+    ),
     # LAW7 — secret leakage in logs
-    ("LAW7", r'logger?\.(info|debug|warning|error|warn)\(.*?(secret|api_key|private_key|password|mnemonic)',
-     "Potential secret in log output", Severity.HIGH),
-    ("LAW7", r'print\(.*?(private_key|api_secret|password|mnemonic)',
-     "Potential secret in print statement", Severity.HIGH),
+    (
+        "LAW7",
+        r"logger?\.(info|debug|warning|error|warn)\(.*?(secret|api_key|private_key|password|mnemonic)",
+        "Potential secret in log output",
+        Severity.HIGH,
+    ),
+    (
+        "LAW7",
+        r"print\(.*?(private_key|api_secret|password|mnemonic)",
+        "Potential secret in print statement",
+        Severity.HIGH,
+    ),
     # LAW9 — model without confidence
-    ("LAW9", r'model\.predict\((?!.*confidence)',
-     "Model prediction without confidence check", Severity.HIGH),
+    (
+        "LAW9",
+        r"model\.predict\((?!.*confidence)",
+        "Model prediction without confidence check",
+        Severity.HIGH,
+    ),
     # LAW10 — order without wash guard
-    ("LAW10", r'submit_order\((?!.*wash)',
-     "Order submission without wash-trade guard (verify guard is upstream)",
-     Severity.MEDIUM),
+    (
+        "LAW10",
+        r"submit_order\((?!.*wash)",
+        "Order submission without wash-trade guard (verify guard is upstream)",
+        Severity.MEDIUM,
+    ),
     # LAW6 — .env pattern
-    ("LAW6", r'\.env(?:ironment)?\b.*\bsecret',
-     "Secret referenced via .env pattern", Severity.HIGH),
+    (
+        "LAW6",
+        r"\.env(?:ironment)?\b.*\bsecret",
+        "Secret referenced via .env pattern",
+        Severity.HIGH,
+    ),
     # LAW6 — blind signing.
     # Anchored on signing APIs, not a bare `sign(`: the loose form matched
     # every `np.sign()` in the feature and risk code and buried real hits.
-    ("LAW6",
-     r'\b(sign_transaction|signTransaction|sign_tx|sign_raw|sign_message|'
-     r'signMessage|sign_typed_data|signTypedData|eth_sign|personal_sign|'
-     r'sign_and_send|signAndSend)\s*\((?!.*decode|.*display|.*human_readable|.*show)',
-     "Potential blind signing — ensure transaction decoded before signing", Severity.HIGH),  # noqa:arch
+    (
+        "LAW6",
+        r"\b(sign_transaction|signTransaction|sign_tx|sign_raw|sign_message|"
+        r"signMessage|sign_typed_data|signTypedData|eth_sign|personal_sign|"
+        r"sign_and_send|signAndSend)\s*\((?!.*decode|.*display|.*human_readable|.*show)",
+        "Potential blind signing — ensure transaction decoded before signing",
+        Severity.HIGH,
+    ),  # arch-ignore
     # LAW12 — weak key exchange / deprecated crypto
-    ("LAW12", r'DH(?:E|_anon)?\b|DHE_RSA|TLS_RSA_WITH',
-     "Non-PFS or export-grade cipher suite reference", Severity.HIGH),
-    ("LAW12", r'MD5|SHA1(?!_\d)|sha1\b',
-     "Deprecated hash function (MD5/SHA1) — use SHA-256 or SHA-3", Severity.HIGH),  # noqa:arch
-    ("LAW12", r'RSA(?:_PKCS1_v15|_OAEP)?\b.*key_size\s*=\s*(?:512|1024|2048)',
-     "RSA key < 3072 bits is insufficient post-2030", Severity.MEDIUM),
+    (
+        "LAW12",
+        r"DH(?:E|_anon)?\b|DHE_RSA|TLS_RSA_WITH",
+        "Non-PFS or export-grade cipher suite reference",
+        Severity.HIGH,
+    ),
+    (
+        "LAW12",
+        r"MD5|SHA1(?!_\d)|sha1\b",
+        "Deprecated hash function (MD5/SHA1) — use SHA-256 or SHA-3",
+        Severity.HIGH,
+    ),  # arch-ignore
+    (
+        "LAW12",
+        r"RSA(?:_PKCS1_v15|_OAEP)?\b.*key_size\s*=\s*(?:512|1024|2048)",
+        "RSA key < 3072 bits is insufficient post-2030",
+        Severity.MEDIUM,
+    ),
     # LAW13 — adversarial resilience
-    ("LAW13", r'slippage\s*=\s*(?:0\.[5-9][0-9]|[1-9]\d*)',
-     "Slippage > 50bps — possible sandwich-attack magnet (review justification)",
-     Severity.MEDIUM),
-    ("LAW13", r'flash_crash_halt|circuit_breaker',
-     "Flash crash halt or circuit breaker reference — verify it is wired correctly",
-     Severity.INFO),
+    (
+        "LAW13",
+        r"slippage\s*=\s*(?:0\.[5-9][0-9]|[1-9]\d*)",
+        "Slippage > 50bps — possible sandwich-attack magnet (review justification)",
+        Severity.MEDIUM,
+    ),
+    (
+        "LAW13",
+        r"flash_crash_halt|circuit_breaker",
+        "Flash crash halt or circuit breaker reference — verify it is wired correctly",
+        Severity.INFO,
+    ),
 ]
 
 # Each entry: (law, regex, description, severity, scope)
@@ -323,40 +392,76 @@ FORBIDDEN: list[tuple[str, str, str, Severity]] = [
 # they name the modules that own the law, so a missing pattern is a genuine
 # architectural gap rather than an artefact of the scan.
 REQUIRED: list[tuple[str, str, str, Severity, str]] = [
-    ("LAW3", r'idempotency_key|idempotency|idem_key',
-     "Idempotency key on order submission", Severity.CRITICAL,
-     r'execution/(order_manager|router|live|base)\.py$'),
-    ("LAW7", r'correlation_id|trace_id',
-     "Correlation/trace ID in log events", Severity.HIGH,
-     r'execution/(order_manager|router)\.py$|engine/orchestrator\.py$'),
-    ("LAW1", r'var_|cvar_|value_at_risk|expected_shortfall|VaR|CVaR',
-     "VaR/CVaR computation present", Severity.CRITICAL,
-     r'risk/gates?\.py$'),
-    ("LAW4", r'confidence[_\s]*(threshold|gate|check|>|>=)|conf_threshold',
-     "Confidence threshold gating", Severity.HIGH,
-     r'engine/(signal_engine|orchestrator)\.py$'),
-    ("LAW9", r'model_registry|registry\.get|ModelRegistry',
-     "Model registry lookup", Severity.HIGH,
-     r'engine/signal_engine\.py$|models/model_registry\.py$'),
-    ("LAW10", r'wash_trade|is_wash|wash_guard|check_wash',
-     "Wash trade detection", Severity.HIGH,
-     r'execution/(order_manager|router)\.py$'),
-    ("LAW12", r'ML[_-]KEM|ML[_-]DSA|SLH[_-]DSA|Dilithium|Kyber|pqc_|post_quantum',
-     "PQC algorithm reference or migration marker", Severity.MEDIUM,
-     r'ecc/|security/'),
-    ("LAW13", r'flash_crash|market_halt|halt_new_entries|ADL_rank|socialized_loss',
-     "Flash crash / market halt handling", Severity.HIGH,
-     r'risk/gates?\.py$|risk/strategy_kill_switch\.py$'),
-    ("LAW4", r'conformal|coverage_guarantee|prediction_interval',
-     "Conformal prediction coverage for sizing models", Severity.MEDIUM,
-     r'risk/kelly\.py$|models/model_registry\.py$'),
+    (
+        "LAW3",
+        r"idempotency_key|idempotency|idem_key",
+        "Idempotency key on order submission",
+        Severity.CRITICAL,
+        r"execution/(order_manager|router|live|base)\.py$",
+    ),
+    (
+        "LAW7",
+        r"correlation_id|trace_id",
+        "Correlation/trace ID in log events",
+        Severity.HIGH,
+        r"execution/(order_manager|router)\.py$|engine/orchestrator\.py$",
+    ),
+    (
+        "LAW1",
+        r"var_|cvar_|value_at_risk|expected_shortfall|VaR|CVaR",
+        "VaR/CVaR computation present",
+        Severity.CRITICAL,
+        r"risk/gates?\.py$",
+    ),
+    (
+        "LAW4",
+        r"confidence[_\s]*(threshold|gate|check|>|>=)|conf_threshold",
+        "Confidence threshold gating",
+        Severity.HIGH,
+        r"engine/(signal_engine|orchestrator)\.py$",
+    ),
+    (
+        "LAW9",
+        r"model_registry|registry\.get|ModelRegistry",
+        "Model registry lookup",
+        Severity.HIGH,
+        r"engine/signal_engine\.py$|models/model_registry\.py$",
+    ),
+    (
+        "LAW10",
+        r"wash_trade|is_wash|wash_guard|check_wash",
+        "Wash trade detection",
+        Severity.HIGH,
+        r"execution/(order_manager|router)\.py$",
+    ),
+    (
+        "LAW12",
+        r"ML[_-]KEM|ML[_-]DSA|SLH[_-]DSA|Dilithium|Kyber|pqc_|post_quantum",
+        "PQC algorithm reference or migration marker",
+        Severity.MEDIUM,
+        r"ecc/|security/",
+    ),
+    (
+        "LAW13",
+        r"flash_crash|market_halt|halt_new_entries|ADL_rank|socialized_loss",
+        "Flash crash / market halt handling",
+        Severity.HIGH,
+        r"risk/gates?\.py$|risk/strategy_kill_switch\.py$",
+    ),
+    (
+        "LAW4",
+        r"conformal|coverage_guarantee|prediction_interval",
+        "Conformal prediction coverage for sizing models",
+        Severity.MEDIUM,
+        r"risk/kelly\.py$|models/model_registry\.py$",
+    ),
 ]
 
 
 def _is_pattern_definition_line(line: str) -> bool:
     """Heuristic: skip lines that are defining regex patterns in this file itself."""
     stripped = line.strip()
-    return stripped.startswith(('("LAW', "(r'", '(r"', '("IO', '# ── Pattern'))
+    return stripped.startswith(('("LAW', "(r'", '(r"', '("IO', "# ── Pattern"))
 
 
 def _rel(path: Path) -> str:
@@ -382,69 +487,100 @@ def check_patterns(path: Path) -> list[Finding]:
 
     for law, pattern, desc, severity in FORBIDDEN:
         for i, line in enumerate(lines, 1):
-            if "# noqa:arch" in line or "# noqa: arch" in line:
+            if "# arch-ignore" in line:
                 continue
             if _is_pattern_definition_line(line):
                 continue
             if re.search(pattern, line, re.IGNORECASE):
-                findings.append(Finding(
-                    law=law, check=desc, passed=False, severity=severity,
-                    evidence=f"Line {i}: {line.strip()[:120]}",
-                    file=rel, line=i,
-                ))
+                findings.append(
+                    Finding(
+                        law=law,
+                        check=desc,
+                        passed=False,
+                        severity=severity,
+                        evidence=f"Line {i}: {line.strip()[:120]}",
+                        file=rel,
+                        line=i,
+                    )
+                )
 
     for law, pattern, desc, severity, scope in REQUIRED:
         if not re.search(scope, rel):
             continue
         if not re.search(pattern, source, re.IGNORECASE):
-            findings.append(Finding(
-                law=law, check=desc, passed=False, severity=severity,
-                evidence=f"Required pattern '{pattern}' missing in {rel}",
-                file=rel,
-            ))
+            findings.append(
+                Finding(
+                    law=law,
+                    check=desc,
+                    passed=False,
+                    severity=severity,
+                    evidence=f"Required pattern '{pattern}' missing in {rel}",
+                    file=rel,
+                )
+            )
         else:
-            findings.append(Finding(
-                law=law, check=desc, passed=True,
-                severity=severity, evidence="Found", file=rel,
-            ))
+            findings.append(
+                Finding(
+                    law=law,
+                    check=desc,
+                    passed=True,
+                    severity=severity,
+                    evidence="Found",
+                    file=rel,
+                )
+            )
 
     return findings
 
 
 # ── AST-based checks (Python only) ───────────────────────────────────────────
 
+
 class ASTChecker(ast.NodeVisitor):
     def __init__(self, filepath: str) -> None:
         self.filepath = filepath
         self.findings: list[Finding] = []
 
-    def _f(self, law: str, check: str, passed: bool,
-           severity: Severity, evidence: str, node: ast.AST) -> None:
-        self.findings.append(Finding(
-            law=law, check=check, passed=passed, severity=severity,
-            evidence=evidence, file=self.filepath,
-            line=getattr(node, "lineno", None),
-        ))
+    def _f(
+        self, law: str, check: str, passed: bool, severity: Severity, evidence: str, node: ast.AST
+    ) -> None:
+        self.findings.append(
+            Finding(
+                law=law,
+                check=check,
+                passed=passed,
+                severity=severity,
+                evidence=evidence,
+                file=self.filepath,
+                line=getattr(node, "lineno", None),
+            )
+        )
 
     def visit_Call(self, node: ast.Call) -> None:
         func_str = ast.unparse(node.func) if hasattr(ast, "unparse") else ""
 
         # HTTP request without timeout
-        if re.search(r'requests\.(get|post|put|delete|patch)', func_str):
+        if re.search(r"requests\.(get|post|put|delete|patch)", func_str):
             kwarg_names = {kw.arg for kw in node.keywords}
             if "timeout" not in kwarg_names:
                 self._f(
-                    "LAW5", "HTTP request missing timeout",
-                    False, Severity.MEDIUM,
-                    f"Call: {ast.unparse(node)[:80]}", node,
+                    "LAW5",
+                    "HTTP request missing timeout",
+                    False,
+                    Severity.MEDIUM,
+                    f"Call: {ast.unparse(node)[:80]}",
+                    node,
                 )
 
-        # hashlib.md5 or hashlib.sha1 — deprecated  # noqa:arch
-        if func_str in ("hashlib.md5", "hashlib.sha1", "md5", "sha1"):  # noqa:arch
+        # hashlib.md5 or hashlib.sha1 — deprecated  # arch-ignore
+        if func_str in ("hashlib.md5", "hashlib.sha1", "md5", "sha1"):  # arch-ignore
             self._f(
-                "LAW12", "Deprecated hash function in use",
-                False, Severity.HIGH,
-                f"Use hashlib.sha256 or hashlib.sha3_256 instead: {func_str}", node,
+                "LAW12",
+                "Deprecated hash function in use",
+                False,
+                Severity.HIGH,
+                f"Use hashlib.sha256 or hashlib.sha3_256 instead: {func_str}",
+                node,
             )
 
         self.generic_visit(node)
@@ -452,17 +588,23 @@ class ASTChecker(ast.NodeVisitor):
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.type is None:
             self._f(
-                "LAW7", "Bare except clause swallows all exceptions",
-                False, Severity.MEDIUM,
-                "Use 'except Exception as e:' and log the error", node,
+                "LAW7",
+                "Bare except clause swallows all exceptions",
+                False,
+                Severity.MEDIUM,
+                "Use 'except Exception as e:' and log the error",
+                node,
             )
         self.generic_visit(node)
 
     def visit_Assert(self, node: ast.Assert) -> None:
         self._f(
-            "LAW3", "assert used for validation (stripped with -O flag)",
-            False, Severity.MEDIUM,
-            "Replace with explicit if/raise for production validation", node,
+            "LAW3",
+            "assert used for validation (stripped with -O flag)",
+            False,
+            Severity.MEDIUM,
+            "Replace with explicit if/raise for production validation",
+            node,
         )
         self.generic_visit(node)
 
@@ -474,31 +616,39 @@ class ASTChecker(ast.NodeVisitor):
         if any(kw in name_lower for kw in ("send_order", "submit_order", "place_order")):
             if "idempotency" not in body_src.lower():
                 self._f(
-                    "LAW3", f"Order function '{node.name}' lacks idempotency",
-                    False, Severity.CRITICAL,
-                    "Add idempotency_key parameter and enforce deduplication", node,
+                    "LAW3",
+                    f"Order function '{node.name}' lacks idempotency",
+                    False,
+                    Severity.CRITICAL,
+                    "Add idempotency_key parameter and enforce deduplication",
+                    node,
                 )
 
         # Signing functions without decode/display guard
         if any(kw in name_lower for kw in ("sign_tx", "sign_transaction", "sign_order")):
             has_decode = any(
-                kw in body_src.lower()
-                for kw in ("decode", "display", "human_readable", "show_tx")
+                kw in body_src.lower() for kw in ("decode", "display", "human_readable", "show_tx")
             )
             if not has_decode:
                 self._f(
-                    "LAW6", f"Signing function '{node.name}' missing transaction decode step",
-                    False, Severity.HIGH,
-                    "Decode and display transaction before signing (anti-blind-signing)", node,
+                    "LAW6",
+                    f"Signing function '{node.name}' missing transaction decode step",
+                    False,
+                    Severity.HIGH,
+                    "Decode and display transaction before signing (anti-blind-signing)",
+                    node,
                 )
 
         # Risk functions missing VaR/CVaR
         if any(kw in name_lower for kw in ("risk_check", "compute_risk", "pre_trade_risk")):
-            if not re.search(r'var_|cvar_|VaR|CVaR|value_at_risk', body_src, re.IGNORECASE):
+            if not re.search(r"var_|cvar_|VaR|CVaR|value_at_risk", body_src, re.IGNORECASE):
                 self._f(
-                    "LAW1", f"Risk function '{node.name}' missing VaR/CVaR computation",
-                    False, Severity.CRITICAL,
-                    "Add VaR(95%) and CVaR computation; see risk.md", node,
+                    "LAW1",
+                    f"Risk function '{node.name}' missing VaR/CVaR computation",
+                    False,
+                    Severity.CRITICAL,
+                    "Add VaR(95%) and CVaR computation; see risk.md",
+                    node,
                 )
 
         self.generic_visit(node)
@@ -508,9 +658,12 @@ class ASTChecker(ast.NodeVisitor):
 
     def visit_Global(self, node: ast.Global) -> None:
         self._f(
-            "LAW2", f"Global variable mutation: {', '.join(node.names)}",
-            False, Severity.MEDIUM,
-            "Shared mutable globals create race conditions; use message passing", node,
+            "LAW2",
+            f"Global variable mutation: {', '.join(node.names)}",
+            False,
+            Severity.MEDIUM,
+            "Shared mutable globals create race conditions; use message passing",
+            node,
         )
         self.generic_visit(node)
 
@@ -522,14 +675,16 @@ def check_ast(path: Path) -> list[Finding]:
         source = path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(source, filename=str(path))
     except SyntaxError as exc:
-        return [Finding("AST", "Python parse error", False, Severity.HIGH,
-                        str(exc), file=_rel(path))]
+        return [
+            Finding("AST", "Python parse error", False, Severity.HIGH, str(exc), file=_rel(path))
+        ]
     checker = ASTChecker(filepath=_rel(path))
     checker.visit(tree)
     return checker.findings
 
 
 # ── Cross-file checks ─────────────────────────────────────────────────────────
+
 
 def cross_file_checks(paths: list[Path]) -> list[Finding]:
     """
@@ -551,39 +706,39 @@ def cross_file_checks(paths: list[Path]) -> list[Finding]:
     combined = "\n".join(sources.values())
 
     # If order submission exists anywhere, idempotency must appear somewhere
-    has_submit = bool(re.search(
-        r'submit_order|send_order|place_order', combined, re.IGNORECASE
-    ))
-    has_idem = bool(re.search(
-        r'idempotency_key|idempotency|idem_key', combined, re.IGNORECASE
-    ))
+    has_submit = bool(re.search(r"submit_order|send_order|place_order", combined, re.IGNORECASE))
+    has_idem = bool(re.search(r"idempotency_key|idempotency|idem_key", combined, re.IGNORECASE))
     if has_submit and not has_idem:
-        findings.append(Finding(
-            law="LAW3",
-            check="Cross-file: order submission exists but no idempotency key found",
-            passed=False,
-            severity=Severity.CRITICAL,
-            evidence="Add idempotency_key to all order submission paths (cross-file scan)",
-        ))
+        findings.append(
+            Finding(
+                law="LAW3",
+                check="Cross-file: order submission exists but no idempotency key found",
+                passed=False,
+                severity=Severity.CRITICAL,
+                evidence="Add idempotency_key to all order submission paths (cross-file scan)",
+            )
+        )
 
     # PQC roadmap: if any new key infra present, PQC marker should appear
-    has_key_gen = bool(re.search(
-        r'generate_key|create_key|KeyPair|key_ceremony', combined, re.IGNORECASE
-    ))
-    has_pqc = bool(re.search(
-        r'pqc_|ML[_-]KEM|ML[_-]DSA|post_quantum|pqc_roadmap', combined, re.IGNORECASE
-    ))
+    has_key_gen = bool(
+        re.search(r"generate_key|create_key|KeyPair|key_ceremony", combined, re.IGNORECASE)
+    )
+    has_pqc = bool(
+        re.search(r"pqc_|ML[_-]KEM|ML[_-]DSA|post_quantum|pqc_roadmap", combined, re.IGNORECASE)
+    )
     if has_key_gen and not has_pqc:
-        findings.append(Finding(
-            law="LAW12",
-            check="Cross-file: key generation found but no PQC roadmap marker",
-            passed=False,
-            severity=Severity.MEDIUM,
-            evidence=(
-                "Add pqc_roadmap reference or hybrid key logic near key generation; "
-                "see Law 12 and ecc-crypto.md"
-            ),
-        ))
+        findings.append(
+            Finding(
+                law="LAW12",
+                check="Cross-file: key generation found but no PQC roadmap marker",
+                passed=False,
+                severity=Severity.MEDIUM,
+                evidence=(
+                    "Add pqc_roadmap reference or hybrid key logic near key generation; "
+                    "see Law 12 and ecc-crypto.md"
+                ),
+            )
+        )
 
     return findings
 
@@ -611,9 +766,15 @@ DESIGN_CHECKS: dict[str, list[tuple[str, Severity]]] = {
         ("Cross-strategy consolidated position view for portfolio risk?", Severity.HIGH),
     ],
     "LAW3": [
-        ("Order path: Signal→Risk→Sizing→Validation→Exchange→Audit all present?", Severity.CRITICAL),
+        (
+            "Order path: Signal→Risk→Sizing→Validation→Exchange→Audit all present?",
+            Severity.CRITICAL,
+        ),
         ("Idempotency key on every order submission?", Severity.CRITICAL),
-        ("Order state machine: PENDING/SUBMITTED/PARTIAL/FILLED/REJECTED/CANCELLED?", Severity.HIGH),
+        (
+            "Order state machine: PENDING/SUBMITTED/PARTIAL/FILLED/REJECTED/CANCELLED?",
+            Severity.HIGH,
+        ),
         ("Orphaned order reconciliation loop defined and scheduled?", Severity.HIGH),
         ("Fat-finger guard: reject if notional > N × recent average?", Severity.HIGH),
         ("OCO pairs placed on entry fill; partial fill triggers adjustment?", Severity.MEDIUM),
@@ -698,7 +859,10 @@ DESIGN_CHECKS: dict[str, list[tuple[str, Severity]]] = {
         ("HSM vendor PQC upgrade path verified (ML-KEM/ML-DSA firmware support)?", Severity.MEDIUM),
         ("Long-lived secrets (VPN, vault transport) prioritized in PQC migration?", Severity.HIGH),
         ("ML-KEM or X25519MLKEM768 evaluated for new transport key exchange?", Severity.MEDIUM),
-        ("Deprecated hashes (MD5, SHA1) absent from all cryptographic paths?", Severity.CRITICAL),  # noqa:arch
+        (
+            "Deprecated hashes (MD5, SHA1) absent from all cryptographic paths?",
+            Severity.CRITICAL,
+        ),  # arch-ignore
         ("RSA keys ≥ 3072 bits wherever classical RSA still required?", Severity.HIGH),
     ],
     "LAW13": [
@@ -724,10 +888,15 @@ def run_interactive_checks(laws: list[str]) -> list[Finding]:
         for check, severity in DESIGN_CHECKS[law]:
             answer = input(f"  [{severity.value}] {check} [y/N]: ").strip().lower()
             passed = answer == "y"
-            findings.append(Finding(
-                law=law, check=check, passed=passed, severity=severity,
-                evidence="" if passed else "Not confirmed — resolve before proceeding",
-            ))
+            findings.append(
+                Finding(
+                    law=law,
+                    check=check,
+                    passed=passed,
+                    severity=severity,
+                    evidence="" if passed else "Not confirmed — resolve before proceeding",
+                )
+            )
     return findings
 
 
@@ -738,8 +907,17 @@ SCAN_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".go", ".rs", ".mjs"}
 # Vendored, generated and cache trees: never our architecture to govern, and
 # node_modules alone would multiply scan time by orders of magnitude.
 SKIP_DIRS = {
-    "__pycache__", ".venv", "venv", "node_modules", ".git", "dist", "build",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "site-packages",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "site-packages",
 }
 
 
@@ -759,6 +937,7 @@ def scan_directory(dirpath: Path) -> list[Finding]:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Crypto Architect Validation v3.0",
@@ -770,24 +949,28 @@ def main() -> None:
     parser.add_argument("--dir", type=Path)
     parser.add_argument("--non-interactive", action="store_true")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--sarif", action="store_true",
-                        help="Output SARIF v2.1 (GitHub Advanced Security)")
-    parser.add_argument("--output-file", type=Path,
-                        help="Write report to file instead of stdout")
     parser.add_argument(
-        "--min-severity", default="MEDIUM",
+        "--sarif", action="store_true", help="Output SARIF v2.1 (GitHub Advanced Security)"
+    )
+    parser.add_argument("--output-file", type=Path, help="Write report to file instead of stdout")
+    parser.add_argument(
+        "--min-severity",
+        default="MEDIUM",
         choices=[s.value for s in Severity],
     )
     parser.add_argument(
-        "--fail-on", default="HIGH",
+        "--fail-on",
+        default="HIGH",
         choices=[s.value for s in Severity],
     )
     parser.add_argument(
-        "--baseline", type=Path,
+        "--baseline",
+        type=Path,
         help="JSON file of accepted finding fingerprints; matches are suppressed",
     )
     parser.add_argument(
-        "--write-baseline", type=Path,
+        "--write-baseline",
+        type=Path,
         help="Write current failures as a baseline file and exit 0",
     )
     args = parser.parse_args()
@@ -839,11 +1022,7 @@ def main() -> None:
         if not args.baseline.exists():
             print(f"ERROR: Baseline not found: {args.baseline}", file=sys.stderr)
             sys.exit(2)
-        known = set(
-            json.loads(args.baseline.read_text(encoding="utf-8")).get(
-                "fingerprints", []
-            )
-        )
+        known = set(json.loads(args.baseline.read_text(encoding="utf-8")).get("fingerprints", []))
         report.apply_baseline(known)
 
     if args.sarif:
@@ -852,6 +1031,7 @@ def main() -> None:
         output = json.dumps(report.to_dict(fail_threshold=fail_sev), indent=2)
     else:
         import io
+
         buf = io.StringIO()
         _stdout = sys.stdout
         sys.stdout = buf

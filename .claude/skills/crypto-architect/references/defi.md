@@ -139,8 +139,8 @@ bundle = {
 def net_restaking_yield(
     gross_apy: float,
     slashing_probability: float,  # Annual probability of slashing event
-    slash_fraction: float,        # Fraction of stake slashed per event
-    sc_risk_premium: float,       # Smart contract risk adjustment
+    slash_fraction: float,  # Fraction of stake slashed per event
+    sc_risk_premium: float,  # Smart contract risk adjustment
 ) -> float:
     # Expected loss from slashing (actuarial)
     slashing_cost = slashing_probability * slash_fraction

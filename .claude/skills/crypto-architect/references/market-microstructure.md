@@ -20,8 +20,7 @@ Price Impact = Effective Spread - Realized Spread
 
 ### Construction
 ```python
-def order_flow_imbalance(bids: pd.DataFrame, asks: pd.DataFrame,
-                          level: int = 1) -> pd.Series:
+def order_flow_imbalance(bids: pd.DataFrame, asks: pd.DataFrame, level: int = 1) -> pd.Series:
     """
     OFI at level L: change in bid quantity - change in ask quantity at best L levels.
     Positive = buying pressure; Negative = selling pressure.
@@ -37,12 +36,12 @@ def order_flow_imbalance(bids: pd.DataFrame, asks: pd.DataFrame,
     ask_leave = ask_change.clip(lower=0)
     return (bid_pressure + bid_leave) - (ask_pressure + ask_leave)
 
+
 def multi_level_ofi(bids, asks, levels=5, weights=None) -> pd.Series:
     """Weighted sum of OFI across L levels (Kolm et al. 2023)."""
     if weights is None:
         weights = [1 / (i + 1) for i in range(levels)]  # Depth decay
-    ofi = sum(w * order_flow_imbalance(bids, asks, i + 1)
-              for i, w in enumerate(weights))
+    ofi = sum(w * order_flow_imbalance(bids, asks, i + 1) for i, w in enumerate(weights))
     return ofi / sum(weights)
 ```
 
@@ -167,8 +166,7 @@ IS = Decision Price - Arrival Price    (opportunity cost of delay)
 
 ### Lee-Ready Algorithm (limit order data)
 ```python
-def classify_trade(price: float, bid: float, ask: float,
-                   prev_price: float = None) -> int:
+def classify_trade(price: float, bid: float, ask: float, prev_price: float = None) -> int:
     """Returns +1 (buy) or -1 (sell)"""
     midpoint = (bid + ask) / 2
     if price > midpoint + 0.001:
@@ -206,21 +204,21 @@ VPIN = Σ|V_buy - V_sell| / (n × V_bar)
 ## Liquidity Metrics for Execution Planning
 
 ```python
-def amihud_illiquidity(returns: pd.Series, volume_usd: pd.Series,
-                        window: int = 30) -> pd.Series:
+def amihud_illiquidity(returns: pd.Series, volume_usd: pd.Series, window: int = 30) -> pd.Series:
     """
     Amihud (2002): |return| / volume. Higher = more illiquid.
     Suitable for daily data; not for HFT.
     """
     return (returns.abs() / volume_usd).rolling(window).mean()
 
-def kyle_lambda(price_changes: pd.Series, signed_volume: pd.Series,
-                window: int = 100) -> float:
+
+def kyle_lambda(price_changes: pd.Series, signed_volume: pd.Series, window: int = 100) -> float:
     """
     Kyle's lambda: OLS regression ΔP = λ × signed_volume + ε
     Higher lambda = price more sensitive to order flow = less liquid
     """
     from sklearn.linear_model import LinearRegression
+
     X = signed_volume.values.reshape(-1, 1)
     y = price_changes.values
     model = LinearRegression().fit(X, y)

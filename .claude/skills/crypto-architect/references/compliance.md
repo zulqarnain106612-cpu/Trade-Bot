@@ -89,12 +89,9 @@ def is_wash_trade(order_a: Order, order_b: Order, config: WashConfig) -> bool:
     same_account = order_a.account_id == order_b.account_id
     opposing_sides = order_a.side != order_b.side
     same_symbol = order_a.symbol == order_b.symbol
-    within_window = (
-        abs(order_a.timestamp - order_b.timestamp) < config.window_ms
-    )
+    within_window = abs(order_a.timestamp - order_b.timestamp) < config.window_ms
     size_match = (
-        abs(order_a.quantity - order_b.quantity)
-        / max(order_a.quantity, order_b.quantity)
+        abs(order_a.quantity - order_b.quantity) / max(order_a.quantity, order_b.quantity)
         < config.size_tolerance
     )
     return same_account and opposing_sides and same_symbol and within_window and size_match
@@ -190,9 +187,7 @@ Trade Event → Reporting Adapter → Regulatory Report Format → ARM/SDR
 
 ### Wallet Screening Implementation
 ```python
-async def screen_withdrawal(
-    address: str, amount: float, currency: str
-) -> ScreenResult:
+async def screen_withdrawal(address: str, amount: float, currency: str) -> ScreenResult:
     result = await chainalysis_client.screen(address)
     # Direct hit
     if result.risk_score > config.block_threshold:

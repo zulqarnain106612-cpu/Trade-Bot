@@ -180,9 +180,10 @@ t7: fill notification received
 ### Shared Memory IPC
 ```python
 import mmap, struct
+
 shm = mmap.mmap(fd, size=4096)
 shm.write(struct.pack("!ddd", bid, ask, timestamp_ns))  # zero-copy write
-bid, ask, ts = struct.unpack("!ddd", shm.read(24))      # consumer: no copy
+bid, ask, ts = struct.unpack("!ddd", shm.read(24))  # consumer: no copy
 ```
 - `shm_open` + `mmap`: inter-process on same host; < 1μs latency
 
@@ -222,7 +223,7 @@ CLOSED → [N failures in window] → OPEN → [timeout] → HALF-OPEN → [succ
 
 ### Retry with Exponential Backoff + Jitter
 ```python
-delay = min(cap, base * (2 ** attempt)) + random.uniform(0, jitter)
+delay = min(cap, base * (2**attempt)) + random.uniform(0, jitter)
 # Base: 100ms, Cap: 60s, Jitter: ±20%
 ```
 - Idempotency key mandatory before retrying any order submission

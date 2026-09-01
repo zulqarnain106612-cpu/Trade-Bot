@@ -102,11 +102,12 @@
 ```python
 @dataclass
 class VenueHealth:
-    avg_latency_ms: float     # rolling 5-min p95 API latency
-    fill_rate: float          # recent fills / submitted orders
-    api_error_rate: float     # 5xx / total requests
-    funding_anomaly: bool     # extreme funding rate vs composite
-    status: str               # HEALTHY | DEGRADED | UNHEALTHY
+    avg_latency_ms: float  # rolling 5-min p95 API latency
+    fill_rate: float  # recent fills / submitted orders
+    api_error_rate: float  # 5xx / total requests
+    funding_anomaly: bool  # extreme funding rate vs composite
+    status: str  # HEALTHY | DEGRADED | UNHEALTHY
+
 
 def score_venue(h: VenueHealth) -> str:
     if h.api_error_rate > 0.05 or h.avg_latency_ms > 500:

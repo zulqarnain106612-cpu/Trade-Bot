@@ -41,7 +41,7 @@ ARCH_FAIL_ON=MEDIUM scripts/arch_gate.sh      # tighten the threshold
 ```
 
 The gate fails on HIGH and CRITICAL findings. Suppress a genuine false positive
-with `# noqa:arch` on the offending line — never by loosening a pattern.
+with `# arch-ignore` on the offending line — never by loosening a pattern.
 
 ## The baseline is debt, not approval
 
