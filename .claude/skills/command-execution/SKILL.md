@@ -115,7 +115,7 @@ Max 5 attempts. **Never retry destructive commands** (rm, DROP, DELETE, truncate
 
 ## What NOT to do
 
-- Never set `max_lines` > 100 without explicit written justification.
+- Never set `max_lines` > 60 without explicit written justification.
 - Never use `filter_mode=none` for commands with unbounded output (logs,
   verbose test output, package lists, git history). Use `none` only when
   output is guaranteed < 10 lines.
