@@ -22,6 +22,9 @@ aiosqlite>=0.20,<1.0
 asyncpg>=0.29,<1.0
 duckdb>=1.0,<2.0
 pymongo>=4.9,<5.0
+# Pins the CA bundle pymongo verifies Atlas against; a bare CI runner's
+# system trust store cannot verify the Atlas chain (opaque SSL handshake error).
+certifi>=2024.2.2
 
 # --- exchange / market data -------------------------------------------------
 ccxt>=4.3,<5.0

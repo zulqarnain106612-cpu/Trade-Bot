@@ -210,21 +210,33 @@ class ValidationReport:
                     }
                 )
 
-            location: dict = {
-                "message": {"text": f.evidence},
-            }
-            if f.file and f.line:
-                location["physicalLocation"] = {
-                    "artifactLocation": {"uri": f.file},
-                    "region": {"startLine": f.line},
-                }
+            # A location carrying only a message and no physicalLocation is
+            # schema-valid but GitHub cannot anchor it to a file: it accepts the
+            # upload and then fails processing for the whole submission, which
+            # surfaces as a neutral "Error when processing the SARIF file" check
+            # and silently costs every other finding its code-scanning alert.
+            # An absence check ("required pattern missing in X") names a file but
+            # has no line to point at, so anchor it to the top of that file; a
+            # finding with no file at all (an unreadable path) becomes a
+            # repository-level result rather than an unanchorable location.
+            locations: list[dict] = []
+            if f.file:
+                locations.append(
+                    {
+                        "message": {"text": f.evidence},
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": f.file},
+                            "region": {"startLine": f.line or 1},
+                        },
+                    }
+                )
 
             results.append(
                 {
                     "ruleId": rule_id,
                     "level": sev_sarif.get(f.severity, "warning"),
                     "message": {"text": f"{f.check}: {f.evidence}"},
-                    "locations": [location],
+                    "locations": locations,
                 }
             )
 

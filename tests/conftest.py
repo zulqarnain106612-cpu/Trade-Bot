@@ -16,6 +16,7 @@ import os
 import socket as _socket
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
 os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
@@ -58,15 +59,51 @@ class NetworkAccessDenied(OSError):
     """Raised when a test tries to open a real network connection.
 
     An OSError, not a bare RuntimeError, because that is what a refused
-    connection already raises: a suite that skips when its container is not
-    running (tests/test_timescale_storage.py) keeps skipping instead of
-    erroring, and code whose job is to fail open on an unreachable endpoint
-    still behaves the way it would on a machine with no route out.
+    connection already raises: code whose job is to fail open on an
+    unreachable endpoint still behaves the way it would on a machine with no
+    route out.
     """
+
+
+# The one exception, and it is narrow: a TimescaleDB the operator deliberately
+# provisioned and named in STORAGE_TIMESCALE_DSN. tests/test_timescale_storage.py
+# is an integration suite -- it exists to exercise a real database -- so denying
+# it a socket did not make it hermetic, it made it disappear: 92 tests skipped
+# on a laptop and in CI alike, and the storage backend reported green by
+# absence. Only a loopback address on the configured port is let through, so
+# this can never become a route to an exchange, a node, or anything off-box;
+# with the variable unset (a plain `pytest` run) nothing is allowed at all.
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _allowed_endpoints() -> frozenset[tuple[str, int]]:
+    dsn = os.environ.get("STORAGE_TIMESCALE_DSN")
+    if not dsn:
+        return frozenset()
+    try:
+        parsed = urlparse(dsn)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:  # pragma: no cover - a malformed DSN allows nothing
+        return frozenset()
+    if host not in _LOOPBACK_HOSTS:
+        return frozenset()
+    return frozenset((h, port or 5432) for h in _LOOPBACK_HOSTS)
+
+
+_ALLOWED_ENDPOINTS = _allowed_endpoints()
+
+
+def _is_allowed(address) -> bool:
+    return (
+        isinstance(address, tuple)
+        and len(address) >= 2
+        and (address[0], address[1]) in _ALLOWED_ENDPOINTS
+    )
 
 
 _REAL_CONNECT = _socket.socket.connect
 _REAL_CONNECT_EX = _socket.socket.connect_ex
+_REAL_CREATE_CONNECTION = _socket.create_connection
 
 
 def _denier(real):
@@ -74,6 +111,8 @@ def _denier(real):
 
     def _deny(self, address, *args, **kwargs):
         if getattr(self, "family", None) == getattr(_socket, "AF_UNIX", None):
+            return real(self, address, *args, **kwargs)
+        if _is_allowed(address):
             return real(self, address, *args, **kwargs)
         raise NetworkAccessDenied(
             f"a test tried to connect to {address!r}. Patch the transport instead: "
@@ -85,6 +124,8 @@ def _denier(real):
 
 
 def _deny_create_connection(address, *_args, **_kwargs):
+    if _is_allowed(address):
+        return _REAL_CREATE_CONNECTION(address, *_args, **_kwargs)
     raise NetworkAccessDenied(
         f"a test tried to connect to {address!r}. Patch the transport instead."
     )
