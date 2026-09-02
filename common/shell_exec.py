@@ -94,7 +94,14 @@ def _capture(command: str, stream: str, timeout: int) -> tuple[int, str]:
     Run command in a new process group so the entire tree can be killed on
     timeout. Works on both local and cloud container environments.
     """
-    proc = subprocess.Popen(
+    # bandit B602: shell=True is this module's contract, not an oversight. A
+    # declaration's "command" is a shell command *line* -- pipes, globs and
+    # redirection are the point (see COMMAND_EXEC_SCHEMA and the jq filter
+    # mode), so there is no argv list to pass instead. The string comes from a
+    # schema-validated declaration written by a developer, never from network
+    # or user input, and this module is developer tooling rather than a request
+    # path. Scoped to this call so B602 stays enforced everywhere else.
+    proc = subprocess.Popen(  # nosec B602
         command,
         shell=True,
         stdout=subprocess.PIPE,
