@@ -35,6 +35,22 @@ future questions don't re-pay the extraction cost. Queries only load a
 bounded subgraph (`KG_MAX_SUBGRAPH_TRIPLES`), never the whole graph.
 See `docs/KNOWLEDGE_GRAPH.md`.
 
+## Command Execution (output-capped, schema-enforced)
+
+Every shell command Claude runs must be declared as a `COMMAND_EXEC_SCHEMA`
+object (see `common/command_schema.py`) and executed via `common/shell_exec.run()`.
+Raw stdout/stderr never enters context. Works in local terminal sessions and
+cloud containers (`CLAUDE_CODE_REMOTE=true`).
+Skill: `.claude/skills/command-execution/SKILL.md`
+
+Hard rules:
+- `max_lines` cap is mandatory on every command. Default: 50.
+- Use `filter_mode` (grep/tail/regex/fields) to extract only needed data.
+- `filter_mode=jq` requires `jq` on PATH -- use `fields`/`regex` on cloud containers.
+- If `result["truncated"]` is True -> fix `filter_expr`, never raise `max_lines`.
+- Never retry destructive commands (rm, DROP, DELETE).
+- Never set `max_lines` > 100 without explicit justification.
+
 ## Cloud review + retrieval (Component 5)
 
 Every pull request is automatically reviewed by `.github/workflows/claude-review.yml`,
