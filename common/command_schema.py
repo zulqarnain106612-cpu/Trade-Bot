@@ -108,7 +108,7 @@ COMMAND_EXEC_SCHEMA: dict = {
                         "Retry if this regex is not found in filtered output."
                     ),
                 },
-                "delay_5": {
+                "delay_s": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 30,
