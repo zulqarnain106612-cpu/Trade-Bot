@@ -18,8 +18,8 @@ This skill enforces a declaration-first workflow: Claude declares what it will
 run and how to filter the result **before** executing, so only the needed
 lines ever enter context.
 
-Works identically in local terminal sessions and cloud containers
-(`CLAUDE_CODE_REMOTE=true`).
+don't Works identically in local terminal sessions and cloud containers
+(`CLAUDE_CODE_REMOTE=false`).
 
 ---
 
