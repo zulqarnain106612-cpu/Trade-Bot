@@ -30,31 +30,33 @@ Works identically in local terminal sessions and cloud containers
 ```python
 from common.shell_exec import run
 
-result = run({
-    "command": "<exact shell string>",
-    "output_policy": {
-        "max_lines":   40,        # REQUIRED. Hard cap. Never > 100.
-        "stream":      "stdout",  # stdout | stderr | both
-        "filter_mode": "tail",    # see filter_mode guide below
-        "filter_expr": "",        # required for grep/regex/jq/fields/head(N)/tail(N)
-        "on_empty":    "ok",      # ok | error
-    },
-    # omit retry_policy entirely if no retry needed
-    "retry_policy": {
-        "max_attempts": 2,
-        "retry_on":     ["nonzero_exit"],
-        "delay_s":      1,
-    },
-})
+result = run(
+    {
+        "command": "<exact shell string>",
+        "output_policy": {
+            "max_lines": 40,  # REQUIRED. Hard cap. Never > 100.
+            "stream": "stdout",  # stdout | stderr | both
+            "filter_mode": "tail",  # see filter_mode guide below
+            "filter_expr": "",  # required for grep/regex/jq/fields/head(N)/tail(N)
+            "on_empty": "ok",  # ok | error
+        },
+        # omit retry_policy entirely if no retry needed
+        "retry_policy": {
+            "max_attempts": 2,
+            "retry_on": ["nonzero_exit"],
+            "delay_s": 1,
+        },
+    }
+)
 ```
 
 ### 2. Use only these four result fields
 
 ```python
 result["filtered_output"]  # only this enters context — capped, filtered text
-result["exit_code"]        # 0 = success
-result["truncated"]        # True → tighten filter_expr, do NOT raise max_lines
-result["attempt_count"]    # how many runs it took
+result["exit_code"]  # 0 = success
+result["truncated"]  # True → tighten filter_expr, do NOT raise max_lines
+result["attempt_count"]  # how many runs it took
 ```
 
 Never paste raw subprocess output into conversation.

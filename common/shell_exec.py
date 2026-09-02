@@ -40,6 +40,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -87,6 +88,7 @@ except ImportError:
 # Internal: capture
 # ---------------------------------------------------------------------------
 
+
 def _capture(command: str, stream: str, timeout: int) -> tuple[int, str]:
     """
     Run command in a new process group so the entire tree can be killed on
@@ -104,11 +106,10 @@ def _capture(command: str, stream: str, timeout: int) -> tuple[int, str]:
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        # Kill the entire process group, not just the shell
-        try:
+        # Kill the entire process group, not just the shell. The group is
+        # already gone if the command exited between the timeout and this call.
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except ProcessLookupError:
-            pass
         proc.wait()
         raise
 
@@ -126,6 +127,7 @@ def _capture(command: str, stream: str, timeout: int) -> tuple[int, str]:
 # Internal: filter
 # ---------------------------------------------------------------------------
 
+
 def _filter(text: str, mode: str, expr: str) -> str:
     """Apply pre-cap filter. Returns filtered text (may still exceed max_lines)."""
     if not mode or mode == "none":
@@ -142,14 +144,14 @@ def _filter(text: str, mode: str, expr: str) -> str:
         return "\n".join(lines[-n:])
 
     if mode == "grep":
-        return "\n".join(l for l in lines if expr in l)
+        return "\n".join(line for line in lines if expr in line)
 
     if mode == "regex":
         try:
             pat = re.compile(expr)
         except re.error as exc:
             raise ValueError(f"filter_expr is not a valid regex: {exc}") from exc
-        return "\n".join(l for l in lines if pat.search(l))
+        return "\n".join(line for line in lines if pat.search(line))
 
     if mode == "jq":
         if not shutil.which("jq"):
@@ -194,6 +196,7 @@ def _filter(text: str, mode: str, expr: str) -> str:
 # Internal: cap
 # ---------------------------------------------------------------------------
 
+
 def _cap(text: str, max_lines: int) -> tuple[str, bool]:
     """Hard-cap to max_lines. Returns (capped_text, truncated_flag)."""
     lines = text.splitlines()
@@ -209,6 +212,7 @@ def _cap(text: str, max_lines: int) -> tuple[str, bool]:
 # Internal: retry check
 # ---------------------------------------------------------------------------
 
+
 def _should_retry(
     exit_code: int,
     output: str,
@@ -219,15 +223,15 @@ def _should_retry(
         return True
     if "empty_output" in retry_on and not output.strip():
         return True
-    if "pattern_absent" in retry_on and pattern_absent:
-        if not re.search(pattern_absent, output):
-            return True
-    return False
+    return bool(
+        "pattern_absent" in retry_on and pattern_absent and not re.search(pattern_absent, output)
+    )
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     """
@@ -253,25 +257,25 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     """
     _validate(declaration)
 
-    cmd:    str = declaration["command"]
+    cmd: str = declaration["command"]
     policy: dict = declaration["output_policy"]
-    max_lines:   int  = policy.get("max_lines", 50)
-    stream:      str  = policy.get("stream", "stdout")
-    filter_mode: str  = policy.get("filter_mode", "none")
-    filter_expr: str  = policy.get("filter_expr", "")
-    on_empty:    str  = policy.get("on_empty", "ok")
+    max_lines: int = policy.get("max_lines", 50)
+    stream: str = policy.get("stream", "stdout")
+    filter_mode: str = policy.get("filter_mode", "none")
+    filter_expr: str = policy.get("filter_expr", "")
+    on_empty: str = policy.get("on_empty", "ok")
 
-    retry:        dict      = declaration.get("retry_policy", {})
-    max_attempts: int       = retry.get("max_attempts", 1)
-    retry_on:     list[str] = retry.get("retry_on", [])
-    pattern_absent: str     = retry.get("pattern_absent", "")
-    delay_s:      float     = retry.get("delay_s", 1.0)
+    retry: dict = declaration.get("retry_policy", {})
+    max_attempts: int = retry.get("max_attempts", 1)
+    retry_on: list[str] = retry.get("retry_on", [])
+    pattern_absent: str = retry.get("pattern_absent", "")
+    delay_s: float = retry.get("delay_s", 1.0)
 
-    exit_code:    int       = -1
-    capped:       str       = ""
-    truncated:    bool      = False
-    attempt:      int       = 0
-    last_error:   str | None = None
+    exit_code: int = -1
+    capped: str = ""
+    truncated: bool = False
+    attempt: int = 0
+    last_error: str | None = None
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -283,30 +287,35 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
                 continue
             break
 
-        filtered         = _filter(raw, filter_mode, filter_expr)
+        filtered = _filter(raw, filter_mode, filter_expr)
         capped, truncated = _cap(filtered, max_lines)
 
         # on_empty guard
         if on_empty == "error" and not capped.strip():
             last_error = "empty output after filter"
             effective_retry_on = list(set(retry_on) | {"empty_output"})
-            if attempt < max_attempts and _should_retry(exit_code, capped, effective_retry_on, pattern_absent):
+            if attempt < max_attempts and _should_retry(
+                exit_code, capped, effective_retry_on, pattern_absent
+            ):
                 time.sleep(delay_s)
                 continue
             break
 
-        if attempt < max_attempts and retry_on:
-            if _should_retry(exit_code, capped, retry_on, pattern_absent):
-                time.sleep(delay_s)
-                continue
+        if (
+            attempt < max_attempts
+            and retry_on
+            and _should_retry(exit_code, capped, retry_on, pattern_absent)
+        ):
+            time.sleep(delay_s)
+            continue
 
         last_error = None
         break
 
     return {
-        "exit_code":       exit_code,
+        "exit_code": exit_code,
         "filtered_output": capped,
-        "truncated":       truncated,
-        "attempt_count":   attempt,
-        "error":           last_error,
+        "truncated": truncated,
+        "attempt_count": attempt,
+        "error": last_error,
     }

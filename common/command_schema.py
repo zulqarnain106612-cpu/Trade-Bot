@@ -26,13 +26,11 @@ COMMAND_EXEC_SCHEMA: dict = {
     "required": ["command", "output_policy"],
     "additionalProperties": False,
     "properties": {
-
         "command": {
             "type": "string",
             "minLength": 1,
             "description": "Exact shell command string to execute.",
         },
-
         "output_policy": {
             "type": "object",
             "required": ["max_lines"],
@@ -83,7 +81,6 @@ COMMAND_EXEC_SCHEMA: dict = {
                 },
             },
         },
-
         "retry_policy": {
             "type": "object",
             "additionalProperties": False,
@@ -120,7 +117,6 @@ COMMAND_EXEC_SCHEMA: dict = {
                 },
             },
         },
-
         # result is populated by shell_exec.run() — never set by caller.
         # Declared here so callers can validate response shape.
         "result": {
@@ -128,11 +124,11 @@ COMMAND_EXEC_SCHEMA: dict = {
             "readOnly": True,
             "additionalProperties": False,
             "properties": {
-                "exit_code":       {"type": "integer"},
+                "exit_code": {"type": "integer"},
                 "filtered_output": {"type": "string"},
-                "truncated":       {"type": "boolean"},
-                "attempt_count":   {"type": "integer"},
-                "error":           {"type": ["string", "null"]},
+                "truncated": {"type": "boolean"},
+                "attempt_count": {"type": "integer"},
+                "error": {"type": ["string", "null"]},
             },
         },
     },
