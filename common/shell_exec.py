@@ -7,7 +7,7 @@ being returned to the caller.
 
 Works identically in:
   - Local terminal (CLAUDE_CODE_REMOTE unset or "false")
-  - Cloud containers (CLAUDE_CODE_REMOTE=true, provisioned by session-start.sh)
+  - Cloud containers (CLAUDE_CODE_REMOTE=false, provisioned by session-start.sh)
 
 Environment differences handled automatically:
   - filter_mode=jq: graceful error if jq binary absent (common on cloud containers)
