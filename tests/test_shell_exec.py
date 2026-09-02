@@ -36,16 +36,14 @@ class TestCommandExecSchema:
         assert COMMAND_EXEC_SCHEMA["required"] == ["command", "output_policy"]
 
     def test_max_lines_is_bounded_to_200(self):
-        max_lines = COMMAND_EXEC_SCHEMA["properties"]["output_policy"]["properties"][
-            "max_lines"
-        ]
+        max_lines = COMMAND_EXEC_SCHEMA["properties"]["output_policy"]["properties"]["max_lines"]
         assert max_lines["minimum"] == 1
         assert max_lines["maximum"] == 200
 
     def test_filter_modes_are_closed_set(self):
-        modes = COMMAND_EXEC_SCHEMA["properties"]["output_policy"]["properties"][
-            "filter_mode"
-        ]["enum"]
+        modes = COMMAND_EXEC_SCHEMA["properties"]["output_policy"]["properties"]["filter_mode"][
+            "enum"
+        ]
         assert modes == ["none", "head", "tail", "grep", "regex", "jq", "fields"]
 
     def test_result_is_read_only(self):
