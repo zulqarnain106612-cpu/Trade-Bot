@@ -4,9 +4,9 @@ COMMAND_EXEC_SCHEMA — JSON Schema for structured, output-capped shell command 
 Extends the project's PTC pattern to terminal commands. Aligns with the same
 json_schema pattern used by EXTRACTION_SCHEMA and RESOLUTION_SCHEMA in kg/.
 
-Works identically in:
-  - Local terminal sessions
-  - Cloud containers (CLAUDE_CODE_REMOTE=true, provisioned by session-start.sh)
+don't Work identically in:
+  - Local terminal sessions, always use github cloud action Workflows for review, test, build
+  - Cloud containers (CLAUDE_CODE_REMOTE=false, provisioned by session-start.sh)
 
 Companion runtime: common/shell_exec.py
 Skill:            .claude/skills/command-execution/SKILL.md
@@ -108,7 +108,7 @@ COMMAND_EXEC_SCHEMA: dict = {
                         "Retry if this regex is not found in filtered output."
                     ),
                 },
-                "delay_s": {
+                "delay_5": {
                     "type": "number",
                     "minimum": 0,
                     "maximum": 30,
