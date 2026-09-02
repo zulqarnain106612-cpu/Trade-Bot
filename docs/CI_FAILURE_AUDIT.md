@@ -25,7 +25,7 @@ those gates was re-run on `2deefab` (current `main`):
 |---|---|
 | `ruff check .` | All checks passed |
 | `ruff format --check .` | 581 files already formatted |
-| `pytest -q` | 6154 passed, 92 skipped |
+| `pytest -q` | 6154 passed, 92 skipped (the 92 are the TimescaleDB suite — see below) |
 | `python scripts/check_coverage_floors.py` | All 248 measured files clear their floor |
 | `scripts/arch_gate.sh` (`ARCH_PYTHON=python`) | RESULT: PASS (98 checks, 0 HIGH/CRITICAL) |
 | `npm ci && npm run build` (frontend) | Build succeeded |
@@ -73,22 +73,28 @@ and both were repaired by the commits cited above. Everything else was either
 repaired by a later commit on the same gate, or was never a product defect at
 all.
 
-## Flagged, not fixed here
+## Two environmental issues found while auditing — both fixed in this branch
 
-Two environmental issues are outside the scope of these 84 and are recorded
-rather than changed:
+Neither is traceable to any of the 84, but both were making CI report a
+confidence it had not earned.
 
-1. **MongoDB Atlas is unreachable from CI** (SSL handshake failure against
-   `ac-mg2dtc0-shard-00-*.2aaxv95.mongodb.net`). The advisory review workflow
-   now fails open, so pull requests are not blocked, but reviews run without
-   their RAG / knowledge-graph grounding. Most likely a paused cluster or an IP
-   allowlist that excludes GitHub runners — both are fixed from the Atlas
-   console, not from inside CI.
-2. **The TimescaleDB integration suite does not run anywhere.** All 92 of
-   `pytest`'s skips are `tests/test_timescale_storage.py`, which needs a live
-   TimescaleDB; `ci.yml` no longer provides the service container the older
-   workflow did. These tests are green-by-absence, not green. Restoring the
-   service to `ci.yml` is a separate change from this audit.
+1. **MongoDB Atlas was unreachable from CI** — an SSL handshake failure against
+   `ac-mg2dtc0-shard-00-*.2aaxv95.mongodb.net`, which read as a network or
+   allowlist problem but was not one. `rag_mongo/db.py` and `kg/db.py` built
+   their `MongoClient` with no `tlsCAFile`, so pymongo verified Atlas's chain
+   against whatever CA store the runner image happened to ship. Both now pin
+   `certifi.where()` (and `certifi` is an explicit requirement), which is
+   ignored for a non-TLS URI and so leaves local `mongodb://` runs alone.
+   Advisory reviews had been running without their RAG / knowledge-graph
+   grounding for as long as this was broken.
+
+2. **The TimescaleDB integration suite ran nowhere.** All 92 of `pytest`'s skips
+   were `tests/test_timescale_storage.py`, which needs a live TimescaleDB;
+   `ci.yml` had lost the service container an older workflow provided, so the
+   storage backend was green by absence rather than green. `ci.yml`'s Python job
+   now runs `timescale/timescaledb:2.17.2-pg17` as a service on host port 5433
+   with a `pg_isready` health gate, and sets `STORAGE_TIMESCALE_DSN` to match
+   the DSN the suite already defaults to.
 
 ## Full table
 

@@ -1,6 +1,7 @@
 """Reuses the RAG component's Mongo connection settings (same Atlas
 cluster/database, separate collections) -- no new infra to provision."""
 
+import certifi
 from pymongo import MongoClient
 
 from rag_mongo.config import MONGODB_DB, MONGODB_URI
@@ -17,9 +18,16 @@ def _require_uri() -> str:
     return MONGODB_URI
 
 
+def _client() -> MongoClient:
+    # Same certifi pinning as rag_mongo.db.get_collection: Atlas's chain is not
+    # verifiable against a bare CI runner's system trust store, and the failure
+    # reads as an opaque SSL handshake error. Ignored for a non-TLS URI.
+    return MongoClient(_require_uri(), tlsCAFile=certifi.where())
+
+
 def get_nodes_collection():
-    return MongoClient(_require_uri())[MONGODB_DB][KG_NODES_COLLECTION]
+    return _client()[MONGODB_DB][KG_NODES_COLLECTION]
 
 
 def get_edges_collection():
-    return MongoClient(_require_uri())[MONGODB_DB][KG_EDGES_COLLECTION]
+    return _client()[MONGODB_DB][KG_EDGES_COLLECTION]

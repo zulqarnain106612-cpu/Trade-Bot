@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import certifi
 import pytest
 
 import kg.db as kg_db
@@ -27,7 +28,7 @@ def test_get_nodes_collection():
         patch.object(kg_db, "MongoClient", return_value=fake_client) as mock_client_cls,
     ):
         col = kg_db.get_nodes_collection()
-    mock_client_cls.assert_called_once_with("mongodb://x")
+    mock_client_cls.assert_called_once_with("mongodb://x", tlsCAFile=certifi.where())
     assert col is fake_client[kg_db.MONGODB_DB][kg_db.KG_NODES_COLLECTION]
 
 
