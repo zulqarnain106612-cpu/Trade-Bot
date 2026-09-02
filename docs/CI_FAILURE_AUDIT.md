@@ -94,7 +94,12 @@ confidence it had not earned.
    storage backend was green by absence rather than green. `ci.yml`'s Python job
    now runs `timescale/timescaledb:2.17.2-pg17` as a service on host port 5433
    with a `pg_isready` health gate, and sets `STORAGE_TIMESCALE_DSN` to match
-   the DSN the suite already defaults to.
+   the DSN the suite already defaults to. The suite's own guard was also made
+   honest: it skipped on *any* connection error, which is right on a laptop
+   with no container and wrong wherever a database was deliberately
+   provisioned — there the 92 tests would quietly evaporate again. An explicit
+   `STORAGE_TIMESCALE_DSN` now means an unreachable database fails rather than
+   skips, so the suite cannot silently stop running a second time.
 
 ## Full table
 
