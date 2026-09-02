@@ -1,7 +1,10 @@
 # Test and lint tooling.
 #   pip install -r requirements.txt -r requirements-dev.txt
 
-pytest>=8.2,<9.0
+# The <9.0 cap held the suite on 8.x, which is affected by PYSEC-2026-1845;
+# the fix is 9.0.3. Raising the floor past the advisory rather than pinning
+# to it keeps pip-audit green without freezing the suite on one release.
+pytest>=9.0.3,<10.0
 pytest-asyncio>=0.23,<2.0
 pytest-cov>=5.0,<8.0
 ruff==0.16.5
