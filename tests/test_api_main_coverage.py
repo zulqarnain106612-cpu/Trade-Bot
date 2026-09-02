@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 
 from src.config import StrategyPortfolioSettings
 
-
 # We need a valid API key for the tests
 _API_KEY = "x" * 32
 
@@ -948,9 +947,8 @@ def test_websocket_rejects_bad_key(mock_state):
     from starlette.websockets import WebSocketDisconnect
 
     client = _get_client()
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws?x_api_key=wrong"):
-            pass
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws?x_api_key=wrong"):
+        pass
 
 
 def test_websocket_full_tick_cycle(mock_state):

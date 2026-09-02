@@ -41,7 +41,6 @@ import structlog
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import StandardScaler
 
-
 if TYPE_CHECKING:
     pass
 

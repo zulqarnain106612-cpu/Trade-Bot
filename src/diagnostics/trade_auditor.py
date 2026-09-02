@@ -26,7 +26,6 @@ from typing import Any, Final
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 MAX_AUDIT_RECORDS: Final[int] = 2000  # rolling window — FIFO eviction

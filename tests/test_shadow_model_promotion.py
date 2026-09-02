@@ -19,7 +19,6 @@ from src.data.storage import ModelMetricsRecord
 from src.engine.signal_engine import ShadowBundle, SignalEngine
 from src.models.model_registry import ModelRegistry
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

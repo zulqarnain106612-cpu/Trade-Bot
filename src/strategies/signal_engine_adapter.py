@@ -13,7 +13,6 @@ from __future__ import annotations
 from src.engine.signal_engine import SignalResult
 from src.strategies.registry import Signal
 
-
 STRATEGY_ID_SIGNAL_ENGINE: str = "signal_engine_v1"
 
 

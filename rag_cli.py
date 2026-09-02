@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from rag_mongo.db import ensure_vector_index, ensure_fulltext_index
+from rag_mongo.db import ensure_fulltext_index, ensure_vector_index
 from rag_mongo.ingest import ingest_text
 from rag_mongo.pipeline import answer_query
 

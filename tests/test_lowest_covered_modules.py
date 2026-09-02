@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # src/models/gru.py — the unconditioned initial hidden state
 # ---------------------------------------------------------------------------

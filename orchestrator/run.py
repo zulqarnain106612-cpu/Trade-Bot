@@ -20,8 +20,8 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .planner import plan
-from .worker import execute
 from .synthesizer import synthesize
+from .worker import execute
 
 
 def run(task: str) -> dict:

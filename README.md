@@ -354,6 +354,49 @@ npm run electron:dev     # dev mode: vite + electron together
 npm run electron:build   # packaged build via electron-builder
 ```
 
+### 7. Claude Code on the web (cloud sessions)
+
+Cloud sessions provision themselves: `.claude/hooks/session-start.sh` runs as a
+`SessionStart` hook (registered in `.claude/settings.json`) and builds a `.venv`,
+installs `requirements.txt` + `requirements-dev.txt`, runs `npm install` in
+`frontend/`, and exports `PATH`/`PYTHONPATH` plus throwaway paper-trading
+settings through `$CLAUDE_ENV_FILE`.
+
+The hook exits immediately unless `CLAUDE_CODE_REMOTE=true`, so local
+checkouts keep whatever environment you manage yourself. To exercise it:
+
+```bash
+CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR=$PWD CLAUDE_ENV_FILE=/tmp/env.sh \
+  ./.claude/hooks/session-start.sh
+```
+
+It installs into a virtualenv rather than the system interpreter because the
+container image ships distro-managed `cryptography` and `pip` without RECORD
+files, which makes an in-place upgrade fail. `requirements-optional.txt` is
+left out on purpose — the heavy ML extras are imported lazily and their suites
+self-skip, exactly as in CI.
+
+#### What a cloud session cannot do until the environment is configured
+
+The hook prints a preflight summary at startup. Two capabilities depend on the
+cloud environment's own settings, not on anything in this repo:
+
+| Capability | Requires | Without it |
+|---|---|---|
+| `kg_cli.py`, `rag_cli.py`, `review/retrieval.py` | `MONGODB_URI` in the environment's variables | Both CLIs raise `MONGODB_URI not set` |
+| Embedding (`all-MiniLM-L6-v2`, so all of RAG) | `huggingface.co` allowed by the environment's network policy | The download fails with a proxy `403` |
+
+`MONGODB_URI` is configured in two independent places, and setting one does not
+set the other:
+
+- **GitHub Actions secret** — used by `.github/workflows/claude-review.yml`
+  (see `docs/CLOUD_REVIEW.md`). Already set; the cloud review runs against Atlas.
+- **Cloud environment variable** — what an interactive cloud session reads.
+  Set this if you want `kg_cli.py` / `rag_cli.py` usable in a web session.
+
+Neither is needed for the test suite, the linter, or the frontend build: those
+run fully offline, which is why CI is green without them.
+
 ## Tests
 
 ```bash

@@ -7,8 +7,8 @@ import contextlib
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
-
 from conftest import settings_double
+
 from src.config import Timeframe, TradingMode
 from src.data.storage import BarRecord
 from src.engine.signal_engine import SignalResult

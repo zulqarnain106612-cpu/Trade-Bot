@@ -96,7 +96,6 @@ from src.strategies.signal_engine_adapter import (
 )
 from src.tuning.meta_allocator import get_allocation_controller
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
@@ -1288,7 +1287,7 @@ class Orchestrator:
         so async tasks are not blocked.
         """
         self._log.info("orchestrator.training_start", timeframe=tf.value)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # Load bars
         # SCAN2-010: compute exact cutoff timestamp instead of since_ts=0 (full table scan).

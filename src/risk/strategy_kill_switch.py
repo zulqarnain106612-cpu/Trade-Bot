@@ -43,7 +43,6 @@ from src.tuning.promotion_gauntlet import (
     evaluate_gauntlet,
 )
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _MS_PER_DAY: float = 86_400_000.0

@@ -21,7 +21,6 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-
 # A spot/perp basis is only meaningful if both legs were observed at
 # roughly the same instant. Two minutes is loose enough for venues that
 # stamp tickers lazily and tight enough that a genuinely stalled feed is

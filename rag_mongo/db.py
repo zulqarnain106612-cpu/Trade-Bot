@@ -1,12 +1,22 @@
+import certifi
 from pymongo import MongoClient
 from pymongo.operations import SearchIndexModel
-from .config import MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION, VECTOR_INDEX_NAME, EMBEDDING_DIM
+
+from .config import EMBEDDING_DIM, MONGODB_COLLECTION, MONGODB_DB, MONGODB_URI, VECTOR_INDEX_NAME
 
 
 def get_collection():
     if not MONGODB_URI:
-        raise RuntimeError("MONGODB_URI not set. Copy .env.example to .env and fill it in.")
-    client = MongoClient(MONGODB_URI)
+        raise RuntimeError(
+            "MONGODB_URI not set. Locally: copy .env.example to .env and fill it in. "
+            "In a Claude Code cloud session: set it in the environment's variables."
+        )
+    # Atlas serves a chain rooted in a CA that a bare GitHub runner's system
+    # trust store does not carry, which surfaces as an SSL handshake failure
+    # rather than anything that names a certificate. Pin pymongo to certifi's
+    # bundle so verification does not depend on the host image. Ignored for a
+    # non-TLS URI, so local mongodb:// runs are unaffected.
+    client = MongoClient(MONGODB_URI, tlsCAFile=certifi.where())
     return client[MONGODB_DB][MONGODB_COLLECTION]
 
 

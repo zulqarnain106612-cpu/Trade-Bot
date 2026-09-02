@@ -27,7 +27,6 @@ from statsmodels.tsa.stattools import coint
 
 from src.strategies.registry import Signal
 
-
 # Entry/exit thresholds — Vidyamurthy (2004) Ch.3 standard z-score bands.
 _ENTRY_Z: float = 2.0
 _EXIT_Z: float = 0.5

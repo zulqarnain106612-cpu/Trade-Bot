@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 
 from src.api.access_control import Permission, Role
 
-
 _TRADE_KEY = "t" * 32
 _READ_KEY = "r" * 32
 

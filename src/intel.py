@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any
 import structlog
 import yaml
 
-
 if TYPE_CHECKING:
     from src.workers.orchestrator import WorkerResult
 

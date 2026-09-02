@@ -109,11 +109,13 @@ async def test_bars_without_a_high_low_range_fall_back_for_atr():
     engine = _engine_with(bars)
 
     filter_pass = {"passes": True, "scalar": 1.0, "filters_failed": [], "details": {}}
-    with _full_path(engine):
-        with patch(
+    with (
+        _full_path(engine),
+        patch(
             "src.engine.signal_engine.apply_all_strategy_filters", return_value=filter_pass
-        ) as filters:
-            await engine.tick(**_TICK)
+        ) as filters,
+    ):
+        await engine.tick(**_TICK)
 
     assert filters.called
     atr = filters.call_args.kwargs["atr_series"]

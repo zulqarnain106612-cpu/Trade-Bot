@@ -52,6 +52,16 @@ _RETRY_BASE_DELAY_S: float = 1.0  # doubles each attempt (exponential backoff)
 _ORDERBOOK_DEPTH: int = 20  # levels fetched for OFI
 
 
+def _as_float(value: object, default: float) -> float:
+    """ccxt leaves numeric market fields null when an exchange omits them."""
+    if value is None:
+        return default
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------------------------------------------------------------------
 # OrderBook snapshot — typed transport for OFI feature
 # ---------------------------------------------------------------------------
@@ -687,16 +697,20 @@ class MarketDataFetcher:
             raise ValueError(f"Symbol {symbol!r} not found in {exchange_id} markets")
 
         market = markets[symbol]
-        precision = market.get("precision", {})
-        limits = market.get("limits", {})
-        amount_limits = limits.get("amount", {})
-        cost_limits = limits.get("cost", {})
+        # Every one of these can be present and null: ccxt fills the keys in
+        # even for markets whose precision or limits an exchange does not
+        # publish, so `.get(key, default)` returns None rather than the
+        # default and float(None) raises on the order-sizing path.
+        precision = market.get("precision") or {}
+        limits = market.get("limits") or {}
+        amount_limits = limits.get("amount") or {}
+        cost_limits = limits.get("cost") or {}
 
         return {
-            "amount_precision": float(precision.get("amount", 8)),
-            "price_precision": float(precision.get("price", 8)),
-            "min_amount": float(amount_limits.get("min", 0.0) or 0.0),
-            "min_cost": float(cost_limits.get("min", 0.0) or 0.0),
+            "amount_precision": _as_float(precision.get("amount"), 8.0),
+            "price_precision": _as_float(precision.get("price"), 8.0),
+            "min_amount": _as_float(amount_limits.get("min"), 0.0),
+            "min_cost": _as_float(cost_limits.get("min"), 0.0),
         }
 
     # ------------------------------------------------------------------

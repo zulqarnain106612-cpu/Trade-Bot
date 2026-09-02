@@ -23,7 +23,6 @@ from typing import Any
 
 import structlog
 
-
 log = structlog.get_logger(__name__)
 
 _ENABLED = os.environ.get("TRACE_STARTERS", "true").lower() not in ("0", "false")
@@ -49,7 +48,14 @@ def _short_repr(obj: Any, limit: int = 240) -> str:
 
 
 def _install_asyncio_task_factory(loop: asyncio.AbstractEventLoop | None = None) -> None:
-    loop = loop or asyncio.get_event_loop()
+    if loop is None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Called from sync startup code before the loop exists. There is no
+            # loop to instrument yet, and asyncio.get_event_loop() raises here
+            # on 3.12+ rather than quietly creating one.
+            return
 
     with contextlib.suppress(Exception):
         loop.get_task_factory()

@@ -11,12 +11,43 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding a PR push is free -- the older run is about stale code. On main
+  # it is not: each merge cancelled the previous merge's run, so back-to-back
+  # merges left commits with no verdict at all. 60 of main's ~198 runs ended
+  # cancelled for exactly that reason, which is why red commits could sit
+  # unnoticed. Keep the saving on branches, let main's runs finish.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   python:
     name: Python (lint + tests)
     runs-on: ubuntu-latest
+
+    services:
+      # Without this, every test in tests/test_timescale_storage.py skips and
+      # the storage backend is green by absence: 92 of pytest's skips were that
+      # one file. The suite creates and drops its own throwaway database per
+      # session, so the service only has to be up and have the extension
+      # available -- the image's initdb installs it.
+      timescaledb:
+        image: timescale/timescaledb:2.17.2-pg17
+        env:
+          POSTGRES_USER: tradebot
+          POSTGRES_PASSWORD: tradebot-local
+          POSTGRES_DB: tradebot
+        ports:
+          # 5433 on the host matches the suite's default DSN. The host side is
+          # the runner's own network namespace, so nothing else contends for it.
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U tradebot -d tradebot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot
+
     steps:
       - uses: actions/checkout@v7
 
@@ -38,13 +69,55 @@ jobs:
 
       - name: Tests
         # Optional ML extras are not installed here, so suites that need them
-        # are expected to skip rather than fail.
+        # are expected to skip rather than fail. The TimescaleDB suite is not
+        # in that category any more -- the service above means it runs.
         run: pytest -q
 
       - name: Per-file coverage floors
         # The repo-wide gate is an aggregate: one file can rot from 99% to 40%
         # and the total barely moves. Reads the .coverage the step above left.
         run: python scripts/check_coverage_floors.py
+
+  architecture:
+    name: Architecture Governance (crypto-architect)
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ job.status }}
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      # No dependency install: validate_arch.py is stdlib-only, so this job
+      # reports law violations in seconds and never blocks on the lockfile.
+      - name: Crypto Architect law gate
+        env:
+          ARCH_PYTHON: python
+        run: scripts/arch_gate.sh --sarif arch.sarif
+
+      - name: Upload SARIF to code scanning
+        # Runs even on gate failure so the annotations land on the PR.
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: arch.sarif
+          category: crypto-architect
+
+      - name: Upload architecture report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-sarif
+          path: arch.sarif
+          retention-days: 14
 
   frontend:
     name: Frontend (build)

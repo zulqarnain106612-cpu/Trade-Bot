@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:

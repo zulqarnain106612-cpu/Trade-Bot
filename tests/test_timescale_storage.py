@@ -28,10 +28,10 @@ from src.data.timescale_storage import (
     open_timescale_storage,
 )
 
-
-ADMIN_DSN = os.environ.get(
-    "STORAGE_TIMESCALE_DSN",
-    "postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot",  # pragma: allowlist secret
+_DSN_FROM_ENV = os.environ.get("STORAGE_TIMESCALE_DSN")
+ADMIN_DSN = (
+    _DSN_FROM_ENV
+    or "postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot"  # pragma: allowlist secret
 )
 
 _ALL_TABLES = (
@@ -40,6 +40,14 @@ _ALL_TABLES = (
 )
 
 _SKIP_MSG = "TimescaleDB container not running — bash scripts/timescaledb.sh up"
+
+# Skipping on any connection error is right on a laptop with no container, and
+# wrong anywhere a TimescaleDB was deliberately provisioned: there the whole
+# suite would evaporate into 92 skips and the storage backend would report green
+# by absence. STORAGE_TIMESCALE_DSN being set is that deliberate provisioning
+# -- CI sets it alongside the service container -- so there an unreachable
+# database is a failure, not a skip.
+_DSN_IS_EXPLICIT = bool(_DSN_FROM_ENV)
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +69,12 @@ def test_dsn():
 
     try:
         asyncio.run(_admin_execute(f'CREATE DATABASE "{db_name}"'))
-    except (OSError, ConnectionError, asyncpg.PostgresError):
+    except (OSError, ConnectionError, asyncpg.PostgresError) as exc:
+        if _DSN_IS_EXPLICIT:
+            raise RuntimeError(
+                f"STORAGE_TIMESCALE_DSN is set to {ADMIN_DSN!r} but the database "
+                f"is unreachable, so this suite cannot be skipped away: {exc}"
+            ) from exc
         pytest.skip(_SKIP_MSG)
 
     yield ADMIN_DSN.rsplit("/", 1)[0] + "/" + db_name

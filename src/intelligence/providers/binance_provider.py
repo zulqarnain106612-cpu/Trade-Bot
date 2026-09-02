@@ -50,7 +50,6 @@ from src.intelligence.providers.base import (
     tickers_are_synchronous,
 )
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # How many funding periods to fetch for z-score baseline (each period = 8h)

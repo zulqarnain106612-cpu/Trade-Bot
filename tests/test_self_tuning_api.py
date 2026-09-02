@@ -14,7 +14,6 @@ import pytest
 
 from src.tuning.registry import TunableParameter
 
-
 _TEST_SECRET = "test-operator-secret"  # pragma: allowlist secret
 _WRONG_SECRET = "wrong-secret"  # pragma: allowlist secret
 

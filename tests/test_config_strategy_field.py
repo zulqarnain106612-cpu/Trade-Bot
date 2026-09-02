@@ -16,7 +16,6 @@ from collections import Counter
 
 from src.config import Settings, StrategySettings, get_settings
 
-
 _CONFIG_SRC = pathlib.Path(__file__).resolve().parent.parent / "src" / "config.py"
 
 

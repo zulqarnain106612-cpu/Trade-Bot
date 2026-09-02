@@ -20,7 +20,6 @@ from typing import Any
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _RPC_URL = os.environ.get("BTC_RPC_URL", "http://127.0.0.1:8332")
@@ -54,14 +53,16 @@ class BitcoinRPCClient:
         from src.features._rpc_auth import basic_auth_header
 
         payload = {"jsonrpc": "1.0", "id": method, "method": method, "params": params or []}
-        async with aiohttp.ClientSession() as sess:
-            async with sess.post(
+        async with (
+            aiohttp.ClientSession() as sess,
+            sess.post(
                 self._url,
                 json=payload,
                 headers=basic_auth_header(*self._auth),
                 timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                data = await resp.json(content_type=None)
+            ) as resp,
+        ):
+            data = await resp.json(content_type=None)
         if data.get("error"):
             raise RuntimeError(f"RPC error: {data['error']}")
         return data["result"]

@@ -16,6 +16,7 @@ Algorithms:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,8 +29,50 @@ from src.execution.idempotency import (
     derive_idempotency_key,
 )
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+def _as_float(value: object, default: float) -> float:
+    """ccxt leaves numeric fields null when a venue does not report them."""
+    if value is None:
+        return default
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+_QUOTE_CURRENCIES = frozenset({"USDT", "USDC", "BUSD", "USD", ""})
+_FEE_FALLBACK_RATE = 0.0004
+
+
+def _fee_usd_from_order(order: dict, size_usd: float) -> float:
+    """Sum the quote-currency fees on a ccxt order, or estimate from notional.
+
+    Mirrors LiveExecutor._extract_fee_usd. ccxt reports fees either as
+    ``order["fees"]`` (a list, current) or ``order["fee"]`` (a single dict,
+    older responses), and either key can be present but null. A fee billed in
+    a non-quote currency -- BNB, or the base asset -- is not a USD number and
+    is not counted.
+    """
+    fees: list[dict] = order.get("fees") or []
+    if not fees:
+        single = order.get("fee")
+        if isinstance(single, dict):
+            fees = [single]
+
+    total = 0.0
+    for f in fees:
+        if not isinstance(f, dict):
+            continue
+        cost = f.get("cost")
+        currency = str(f.get("currency") or "").upper()
+        if cost is None or currency not in _QUOTE_CURRENCIES:
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            total += float(cost)
+
+    return total if total > 0.0 else size_usd * _FEE_FALLBACK_RATE
 
 
 @dataclass
@@ -317,11 +360,16 @@ class SmartOrderRouter:
                     qty=slice_qty,
                     price=price,
                 )
-                filled += float(order.get("filled", 0.0))
-                total_cost += float(order.get("filled", 0.0)) * float(order.get("average", price))
-                await asyncio.sleep(0.5)
+                slice_filled = _as_float(order.get("filled"), 0.0)
+                slice_price = _as_float(order.get("average"), price)
+                filled += slice_filled
+                total_cost += slice_filled * slice_price
             except Exception as exc:
                 log.debug("iceberg_slice_failed", slice=i, exc=str(exc))
+
+            # Outside the try, for the same reason as in _twap: a rejected
+            # slice must not remove the gap before the next one.
+            await asyncio.sleep(0.5)
 
         avg_price = total_cost / max(filled, 1e-9)
         slippage_bps = abs(avg_price - price) / max(price, 1e-9) * 10_000
@@ -370,14 +418,22 @@ class SmartOrderRouter:
                     side=side,
                     qty=qty,
                 )
-                filled += float(order.get("filled", 0.0))
-                total_cost += float(order.get("filled", 0.0)) * float(
-                    order.get("average", current_price)
-                )
-                if i < n_slices - 1:
-                    await asyncio.sleep(interval)
+                # Both numbers or neither: crediting the quantity and then
+                # failing to price it understates avg_price for the whole
+                # order. ccxt returns average=None on venues that do not
+                # report it, so float() alone is not safe.
+                slice_filled = _as_float(order.get("filled"), 0.0)
+                slice_price = _as_float(order.get("average"), current_price)
+                filled += slice_filled
+                total_cost += slice_filled * slice_price
             except Exception as exc:
                 log.debug("twap_slice_failed", slice=i, exc=str(exc))
+
+            # Outside the try: a failed slice must not collapse the schedule.
+            # Skipping the wait turns the remaining slices into a burst, which
+            # is the opposite of what a TWAP is for and trips rate limits.
+            if i < n_slices - 1:
+                await asyncio.sleep(interval)
 
         avg_price = total_cost / max(filled, 1e-9)
         slippage_bps = abs(avg_price - price) / max(price, 1e-9) * 10_000
@@ -409,15 +465,13 @@ class SmartOrderRouter:
             order_id=str(order.get("id", "")),
             filled_qty=filled,
             avg_price=avg_price,
-            fee_usd=float(order.get("fee", {}).get("cost", size_usd * 0.0004)),
+            fee_usd=_fee_usd_from_order(order, size_usd),
             slippage_bps=slippage_bps,
             success=filled > 0,
         )
 
     async def close(self) -> None:
         """Close all exchange connections."""
-        import contextlib
-
         for ex in self._exchanges.values():
             with contextlib.suppress(Exception):
                 await ex.close()

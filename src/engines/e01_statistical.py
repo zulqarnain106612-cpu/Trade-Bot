@@ -15,7 +15,6 @@ import structlog
 
 from src.engines.schema import EngineOutput
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _ENGINE_ID = "E-01"
@@ -39,7 +38,7 @@ class E01Statistical:
             )
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             arima_pred = await loop.run_in_executor(None, self._arima_predict, df, spot)
             hmm_conf = self._hmm_confidence(data)
             confidence = max(0.0, min(1.0, hmm_conf))
