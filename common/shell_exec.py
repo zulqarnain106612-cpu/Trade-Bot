@@ -5,8 +5,8 @@ Executes a command declaration dict (validated against COMMAND_EXEC_SCHEMA)
 and returns a bounded result. Raw stdout/stderr NEVER exceeds max_lines before
 being returned to the caller.
 
-Works identically in:
-  - Local terminal (CLAUDE_CODE_REMOTE unset or "false")
+don't Work identically in:
+  - Local terminal sessions, always use github cloud action Workflows for review, test, build
   - Cloud containers (CLAUDE_CODE_REMOTE=false, provisioned by session-start.sh)
 
 Environment differences handled automatically:
