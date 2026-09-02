@@ -1,0 +1,121 @@
+name: Security
+
+# Regenerated after the config purge. The pre-purge tree gated every PR on
+# Bandit, pip-audit, npm audit, TruffleHog and Semgrep; the purge deleted those
+# workflows and the config-set regeneration rebuilt only ci.yml and codeql.yml,
+# so secret scanning and dependency CVE scanning silently stopped running.
+#
+# Semgrep is deliberately not reinstated here: its rulesets are fetched from
+# the semgrep.dev registry at scan time, which makes the job fail closed on a
+# registry outage. CodeQL (codeql.yml) already provides semantic SAST for
+# python, javascript and javascript-typescript, so the coverage is not lost.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Dependency advisories land against code that has not changed, so a scan
+    # that only runs on push would go stale on a quiet week.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bandit:
+    name: Bandit (Python SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install Bandit
+        run: python -m pip install --upgrade pip bandit
+
+      - name: Scan
+        # -ll fails on MEDIUM severity and above. The tree currently reports 30
+        # LOW findings and zero at MEDIUM+, so this gate is meaningful rather
+        # than pre-broken: it blocks a real regression without needing a
+        # baseline file that everyone learns to regenerate.
+        run: bandit -q -r src kg rag_mongo orchestrator common tools review -ll
+
+  pip-audit:
+    name: pip-audit (Python CVE scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      - name: Audit runtime dependencies
+        run: pip-audit -r requirements.txt --progress-spinner off
+
+      - name: Audit dev dependencies
+        run: pip-audit -r requirements-dev.txt --progress-spinner off
+
+      # requirements-optional.txt is not audited. pip-audit resolves a manifest
+      # by dry-run installing it, and the optional extras pull the full CUDA
+      # torch/transformers stack -- minutes of download for packages that no
+      # CI job installs. The two manifests above are exactly what ci.yml
+      # installs, so they are what can actually reach a runner.
+
+  npm-audit:
+    name: npm audit (frontend CVE scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Audit
+        working-directory: frontend
+        # --audit-level=high blocks high and critical only. Moderate advisories
+        # in a build-time-only dependency tree are noise that would train
+        # everyone to ignore this job.
+        run: npm audit --audit-level=high
+
+  secrets:
+    name: TruffleHog (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install TruffleHog
+        # Pinned rather than floating: a scanner that silently changes its
+        # detector set between runs turns a red build into a mystery.
+        env:
+          TRUFFLEHOG_VERSION: 3.90.10
+        run: |
+          curl -sSfL \
+            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" \
+            -o trufflehog.tar.gz
+          tar xzf trufflehog.tar.gz trufflehog
+          ./trufflehog --version
+
+      - name: Scan
+        # --only-verified: report a credential only when it authenticates
+        # against its provider. Unverified matches are overwhelmingly high-
+        # entropy strings that are not secrets, and a gate that cries wolf gets
+        # switched off. A filesystem scan of the checkout is used rather than a
+        # base..head diff so the job cannot pass by scanning an empty range.
+        run: ./trufflehog filesystem . --only-verified --no-update --fail
