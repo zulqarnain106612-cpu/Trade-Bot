@@ -94,12 +94,17 @@ confidence it had not earned.
    storage backend was green by absence rather than green. `ci.yml`'s Python job
    now runs `timescale/timescaledb:2.17.2-pg17` as a service on host port 5433
    with a `pg_isready` health gate, and sets `STORAGE_TIMESCALE_DSN` to match
-   the DSN the suite already defaults to. The suite's own guard was also made
-   honest: it skipped on *any* connection error, which is right on a laptop
-   with no container and wrong wherever a database was deliberately
-   provisioned — there the 92 tests would quietly evaporate again. An explicit
-   `STORAGE_TIMESCALE_DSN` now means an unreachable database fails rather than
-   skips, so the suite cannot silently stop running a second time.
+   the DSN the suite already defaults to. Two further changes were needed
+   before those tests could actually execute. The suite's guard skipped on
+   *any* connection error, which is right on a laptop with no container and
+   wrong wherever a database was deliberately provisioned; an explicit
+   `STORAGE_TIMESCALE_DSN` now makes an unreachable database fail rather than
+   skip. That change immediately exposed the real reason the suite had never
+   run anywhere: `tests/conftest.py` blocks every non-AF_UNIX socket, so
+   `asyncpg` could not reach the service even with it healthy and listening.
+   The guard now permits exactly one address — a loopback host on the port
+   named in `STORAGE_TIMESCALE_DSN` — and denies everything else as before, so
+   it still cannot become a route to an exchange or a node.
 
 ## Full table
 
