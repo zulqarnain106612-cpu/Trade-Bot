@@ -36,4 +36,6 @@ vaderSentiment>=3.3,<4.0           # src/intelligence sentiment
 aiokafka>=0.10,<1.0                # src/workers
 
 # --- soft dependencies (guarded by try/except with a fallback) --------------
-graphsense-lib>=24.1                # src/ecc/secp256k1_cluster.py UTXO clustering
+# 24.1 was never a real release: graphsense-lib is on 2.x (latest 2.16.3), so the
+# old pin resolved to nothing and made this whole manifest uninstallable.
+graphsense-lib>=2.16,<3.0          # src/ecc/secp256k1_cluster.py UTXO clustering

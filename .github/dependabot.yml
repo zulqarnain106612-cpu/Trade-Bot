@@ -38,6 +38,12 @@ updates:
         patterns: ["react", "react-dom", "recharts"]
       electron:
         patterns: ["electron", "electron-builder"]
+      # Catch-all, listed last so the named groups above claim their members
+      # first. Without it every ungrouped frontend package still opens its own
+      # PR -- which is how #141 (es-toolkit) ended up orphaned against a
+      # manifest that no longer declared the dependency.
+      frontend-other:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: "/"
