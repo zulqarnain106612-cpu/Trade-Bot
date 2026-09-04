@@ -87,74 +87,31 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Build an auditable copy of the dependency tree
+      - name: Install
         working-directory: frontend
-        # The audit endpoint rejects this project's lockfile outright:
+        # --ignore-scripts: nothing here needs a package's postinstall to run,
+        # and not running them keeps a compromised dependency from executing
+        # during the job whose purpose is to look for compromised dependencies.
+        run: npm ci --ignore-scripts
+
+      - name: Audit
+        working-directory: frontend
+        # Audits the installed tree, not the lockfile. That distinction is the
+        # whole fix: asked to audit the lockfile, npm builds a virtual tree,
+        # falls back to the legacy quick endpoint, and gets
         #
         #   400 Bad Request - Invalid package tree, run npm install to
         #   rebuild your package-lock.json
         #
-        # The lockfile is not malformed and rebuilding it changes nothing.
-        # @tailwindcss/oxide-wasm32-wasi declares bundleDependencies, so its
-        # six children are marked inBundle and carry no `resolved` or
-        # `integrity` -- they ship inside the parent tarball, which is how npm
-        # records a bundled dependency. The endpoint cannot resolve them and
-        # rejects the whole request rather than skipping them.
+        # because @tailwindcss/oxide-wasm32-wasi declares bundleDependencies
+        # and its six children carry no `resolved`/`integrity` -- correct for
+        # bundled packages, unresolvable for that endpoint. The scan had been
+        # failing on this while looking exactly like a real advisory.
         #
-        # --omit=optional would clear the error and is the wrong fix: it drops
-        # 106 packages, 12 of which do install on linux-x64 (sharp's libvips
-        # binaries, rolldown, lightningcss, tailwind's oxide). Losing CVE
-        # coverage on code that actually ships is worse than the bug.
-        #
-        # So the bundled subtree is removed from a *copy* and everything else
-        # is audited as before. wasm32 is not an install target here, so
-        # nothing that ships loses coverage.
-        run: |
-          mkdir -p "$RUNNER_TEMP/audit"
-          cp package.json package-lock.json "$RUNNER_TEMP/audit/"
-          node - "$RUNNER_TEMP/audit/package-lock.json" <<'NODE'
-          const fs = require("fs");
-          const path = process.argv[2];
-          const lock = JSON.parse(fs.readFileSync(path, "utf8"));
-
-          const bundlers = Object.entries(lock.packages).filter(
-            ([, meta]) => meta.bundleDependencies
-          );
-
-          // Guard, not decoration: a future dependency that bundles children
-          // would hit the same 400, and silently dropping it would shrink the
-          // scan without anyone noticing. Anything unexpected fails here.
-          const unexpected = bundlers.filter(
-            ([name, meta]) =>
-              name !== "node_modules/@tailwindcss/oxide-wasm32-wasi" || !meta.optional
-          );
-          if (unexpected.length) {
-            console.error(
-              "::error::unexpected bundleDependencies, review before auditing: " +
-                unexpected.map(([n]) => n).join(", ")
-            );
-            process.exit(1);
-          }
-
-          const before = Object.keys(lock.packages).length;
-          for (const [name] of bundlers) {
-            for (const key of Object.keys(lock.packages)) {
-              if (key === name || key.startsWith(name + "/")) {
-                delete lock.packages[key];
-              }
-            }
-          }
-          const removed = before - Object.keys(lock.packages).length;
-          console.log(`removed ${removed} bundled entries; ${Object.keys(lock.packages).length} remain auditable`);
-
-          fs.writeFileSync(path, JSON.stringify(lock, null, 2) + "\n");
-          NODE
-
-      - name: Audit
-        working-directory: ${{ runner.temp }}/audit
-        # --audit-level=high blocks high and critical only. Moderate advisories
-        # in a build-time-only dependency tree are noise that would train
-        # everyone to ignore this job.
+        # Installing first sidesteps it rather than working around it: that
+        # package is cpu:[wasm32] and optional, so npm never installs it on
+        # linux-x64 and it is not in the tree to reject. What gets audited is
+        # then exactly what ships, which is what the job was always for.
         #
         # `npm audit` exits 1 for three unrelated things, and this job used to
         # report all of them as if the frontend had vulnerabilities:
@@ -167,6 +124,10 @@ jobs:
         # npm writes "audit endpoint returned an error" for (2) and (3) and
         # nothing like it for (1), which is what separates a verdict from a
         # non-scan.
+        #
+        # --audit-level=high blocks high and critical only. Moderate
+        # advisories in a build-time-only tree are noise that would train
+        # everyone to ignore this job.
         run: |
           for attempt in 1 2 3; do
             # `| tee` would make the pipeline status tee's own 0, so the
@@ -187,7 +148,7 @@ jobs:
             fi
 
             if grep -q "Invalid package tree" audit.log; then
-              echo "::error::The audit endpoint rejected the tree even after the bundled subtree was removed, so no CVE scan ran. See the comment on the previous step."
+              echo "::error::The audit endpoint rejected the installed tree, so no CVE scan ran. See the comment on this step."
               exit 1
             fi
 
