@@ -107,8 +107,14 @@ def _capture(command: str, stream: str, timeout: int) -> tuple[int, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        # New process group: lets us kill children on timeout
-        preexec_fn=os.setsid,
+        # New session (and so a new process group): lets us kill children on
+        # timeout. start_new_session, not preexec_fn=os.setsid: preexec_fn
+        # runs Python between fork and exec, which is not async-signal-safe
+        # and can deadlock if any other thread holds a lock at fork time --
+        # and this module is called from FastAPI handlers and asyncio
+        # executors, both of which are threaded. start_new_session is the
+        # same setsid() call made safely in C, and it is not deprecated.
+        start_new_session=True,
     )
     try:
         stdout, stderr = proc.communicate(timeout=timeout)

@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 import pytest
 
+import common.shell_exec
 from common.command_schema import COMMAND_EXEC_SCHEMA
 from common.shell_exec import _cap, _capture, _filter, _should_retry, run
 
@@ -177,6 +178,41 @@ class TestCapture:
             pytest.raises(subprocess.TimeoutExpired),
         ):
             _capture("sleep 30", "stdout", 1)
+
+    def test_new_session_is_requested_without_preexec_fn(self):
+        """The process group must come from start_new_session, not preexec_fn.
+
+        preexec_fn runs Python between fork and exec. That is not
+        async-signal-safe: if any other thread holds a lock at fork time the
+        child can deadlock before exec, and this module is called from
+        FastAPI handlers and asyncio executors, both threaded. The two
+        timeout tests above prove a killable group still exists; this one
+        pins how it is created, because both spellings pass those tests and
+        only one is safe.
+        """
+        import ast
+        from pathlib import Path as _Path
+
+        module = _Path(common.shell_exec.__file__)
+        tree = ast.parse(module.read_text(), filename=str(module))
+
+        popens = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "Popen"
+        ]
+        assert popens, "no subprocess.Popen call found"
+
+        for call in popens:
+            kwargs = {kw.arg for kw in call.keywords}
+            assert "preexec_fn" not in kwargs, (
+                "preexec_fn is unsafe in a threaded process; use start_new_session=True"
+            )
+            assert "start_new_session" in kwargs, (
+                "the timeout path kills a process group, which needs start_new_session=True"
+            )
 
 
 # ---------------------------------------------------------------------------
