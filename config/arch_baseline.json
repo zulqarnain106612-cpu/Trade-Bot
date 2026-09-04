@@ -4,12 +4,6 @@
   "fingerprints": [
     "LAW10|Wash trade detection|src/execution/order_manager.py",
     "LAW10|Wash trade detection|src/execution/router.py",
-    "LAW12|PQC algorithm reference or migration marker|src/ecc/__init__.py",
-    "LAW12|PQC algorithm reference or migration marker|src/ecc/ecdsa_scan.py",
-    "LAW12|PQC algorithm reference or migration marker|src/ecc/schnorr_taproot.py",
-    "LAW12|PQC algorithm reference or migration marker|src/ecc/secp256k1_cluster.py",
-    "LAW12|PQC algorithm reference or migration marker|src/ecc/utxo_curve.py",
-    "LAW12|PQC algorithm reference or migration marker|src/ecc/zksnark_detect.py",
     "LAW13|Flash crash / market halt handling|src/risk/gate.py",
     "LAW13|Flash crash / market halt handling|src/risk/gates.py",
     "LAW13|Flash crash / market halt handling|src/risk/strategy_kill_switch.py",

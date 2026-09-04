@@ -9,6 +9,26 @@ Ed25519 uses RFC 6979-equivalent deterministic nonce internally:
 Attack defended:
   - ECDSA k-reuse → full private key recovery (A1 from cross-layer table)
   - Kocher timing attack → Ed25519 complete-addition-law, constant time
+
+post_quantum posture (LAW12):
+  Ed25519 is a discrete-log signature and Shor's algorithm breaks it
+  outright. The NIST replacement is ML-DSA (FIPS 204); ML-KEM is not
+  relevant here, as nothing in this module establishes a shared secret.
+
+  It is not urgent, and the reason is worth stating so nobody reprioritises
+  it on the word "broken". These signatures authenticate API requests that
+  carry a timestamp and are rejected outside a short window, so there is no
+  harvest-now-decrypt-later exposure: a captured signature is worthless
+  later, and forging one requires a cryptographically relevant quantum
+  computer *while the request window is open*. That is the opposite of the
+  situation for long-lived encrypted data.
+
+  Migration is therefore a swap of the signing primitive, not a protocol
+  change: sign_request/verify are the only two call sites, and the key is
+  loaded as opaque bytes from the environment. The blocker is external --
+  ML-DSA is not in `cryptography` as of the pinned version, and any
+  counterparty verifying these signatures has to accept the new algorithm
+  before we can emit it. Revisit when that lands.
 """
 
 from __future__ import annotations
