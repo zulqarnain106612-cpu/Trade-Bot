@@ -107,31 +107,61 @@ jobs:
         run: npm run build
 
       - name: Open a pull request
-        uses: peter-evans/create-pull-request@v7
-        with:
-          add-paths: frontend/package-lock.json
-          branch: chore/frontend-lockfile-refresh
-          delete-branch: true
-          commit-message: |
-            chore(frontend): regenerate package-lock.json so npm audit can read it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REASON: ${{ inputs.reason }}
+          BEFORE: ${{ steps.before.outputs.status }}
+          AFTER: ${{ steps.after.outputs.status }}
+        # Done with git and gh rather than a create-pull-request action: a
+        # third-party action here would have to be pinned to a commit hash to
+        # satisfy CodeQL, and this needs about fifteen lines of shell anyway.
+        #
+        # The inputs above are passed as env vars, not interpolated into the
+        # script body -- `${{ inputs.reason }}` is attacker-controlled text
+        # and expanding it inside `run:` would be a shell injection.
+        run: |
+          if git diff --quiet -- frontend/package-lock.json; then
+            echo "Lockfile already correct -- nothing to open a PR for."
+            exit 0
+          fi
 
-            Opened by the Frontend lockfile refresh workflow.
-          title: "chore(frontend): regenerate package-lock.json so npm audit can read it"
-          body: |
-            Opened by [Frontend lockfile refresh](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          BRANCH="chore/frontend-lockfile-refresh"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add frontend/package-lock.json
+          git commit -m "chore(frontend): regenerate package-lock.json so npm audit can read it"
+          git push --force-with-lease origin "$BRANCH"
 
-            **Reason:** ${{ inputs.reason }}
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "Opened by [Frontend lockfile refresh](${RUN_URL})."
+            echo
+            echo "**Reason:** ${REASON}"
+            echo
+            echo "\`npm audit\` exit status before the refresh: \`${BEFORE}\`"
+            echo "\`npm audit\` exit status after the refresh: \`${AFTER}\`"
+            echo
+            echo "The run verified, in this order, that the regenerated lockfile:"
+            echo
+            echo "1. carries \`resolved\` and \`integrity\` on every non-link entry;"
+            echo "2. is accepted by the npm audit endpoint (no \`Invalid package tree\`);"
+            echo "3. installs cleanly with \`npm ci\`;"
+            echo "4. builds."
+            echo
+            echo "A non-zero *after* status with no \`Invalid package tree\` in the log"
+            echo "means the scan ran and found high or critical advisories -- a real"
+            echo "result that this refresh made visible again, not a failure of it."
+          } > pr-body.md
 
-            `npm audit` exit status before the refresh: `${{ steps.before.outputs.status }}`
-            `npm audit` exit status after the refresh: `${{ steps.after.outputs.status }}`
-
-            The run verified, in this order, that the regenerated lockfile:
-
-            1. carries `resolved` and `integrity` on every non-link entry;
-            2. is accepted by the npm audit endpoint (no `Invalid package tree`);
-            3. installs cleanly with `npm ci`;
-            4. builds.
-
-            A non-zero *after* status with no `Invalid package tree` in the log
-            means the scan ran and found high or critical advisories -- a real
-            result that this refresh made visible again, not a failure of it.
+          # A PR from a previous run may still be open against this branch;
+          # the force-push above already updated it.
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH" --body-file pr-body.md
+          else
+            gh pr create \
+              --base "${GITHUB_REF_NAME}" \
+              --head "$BRANCH" \
+              --title "chore(frontend): regenerate package-lock.json so npm audit can read it" \
+              --body-file pr-body.md
+          fi
