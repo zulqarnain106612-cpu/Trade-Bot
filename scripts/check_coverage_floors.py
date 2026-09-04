@@ -38,11 +38,14 @@ EXCEPTIONS: dict[str, tuple[float, str]] = {}
 
 def _coverage_json() -> dict:
     """Return coverage's JSON report, generated from the existing .coverage."""
+    # check=False: a failure here means "pytest has not run yet", and the
+    # SystemExit below says so. CalledProcessError would not.
     proc = subprocess.run(
         [sys.executable, "-m", "coverage", "json", "-o", "-", "--quiet"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr)

@@ -114,7 +114,7 @@ def test_predict_rule_based_long_on_high_confidence():
 def test_predict_rule_based_short_on_low_confidence():
     with patch.dict(sys.modules, {"stable_baselines3": None}):
         agent = RLExecutionAgent()
-    action, prob = agent.predict([0.2] * 10)
+    action, _prob = agent.predict([0.2] * 10)
     assert action == 2
 
 
@@ -212,7 +212,7 @@ def test_execution_env_reset_with_no_episodes_does_not_divide_by_zero():
 def test_execution_env_step_returns_reward_and_terminates_after_50():
     with patch.dict(sys.modules, {"gymnasium": None}):
         env = _ExecutionEnv([{"realized_return": 0.10}])
-    obs, reward, done, truncated, info = env.step(1)
+    _obs, reward, done, truncated, _info = env.step(1)
     assert done is False
     assert truncated is False
     assert reward > 0  # long on a positive return, net of fee+impact
