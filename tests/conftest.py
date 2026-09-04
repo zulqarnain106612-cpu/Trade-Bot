@@ -18,6 +18,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pytest
+
 _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
 os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
 
@@ -138,3 +140,27 @@ def _deny_create_connection(address, *_args, **_kwargs):
 _socket.socket.connect = _denier(_REAL_CONNECT)
 _socket.socket.connect_ex = _denier(_REAL_CONNECT_EX)
 _socket.create_connection = _deny_create_connection
+
+
+# ---------------------------------------------------------------------------
+# The cached MongoClient must not survive one test into the next.
+# ---------------------------------------------------------------------------
+#
+# `kg.db._client_for` and `rag_mongo.db._client_for` are `lru_cache`d so the
+# process builds one client rather than one per call. That cache is keyed on
+# the URI, and every test that patches `MongoClient` patches `MONGODB_URI` to
+# the same stub string -- so without this, the second test to run gets the
+# first test's mock back and never calls its own. Clearing around each test
+# keeps them independent of collection order.
+
+
+@pytest.fixture(autouse=True)
+def _clear_mongo_client_caches():
+    import kg.db
+    import rag_mongo.db
+
+    kg.db._client_for.cache_clear()
+    rag_mongo.db._client_for.cache_clear()
+    yield
+    kg.db._client_for.cache_clear()
+    rag_mongo.db._client_for.cache_clear()

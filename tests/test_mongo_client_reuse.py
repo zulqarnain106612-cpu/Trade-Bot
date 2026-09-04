@@ -20,15 +20,6 @@ import kg.db
 import rag_mongo.db
 
 
-@pytest.fixture(autouse=True)
-def _clear_client_caches():
-    kg.db._client_for.cache_clear()
-    rag_mongo.db._client_for.cache_clear()
-    yield
-    kg.db._client_for.cache_clear()
-    rag_mongo.db._client_for.cache_clear()
-
-
 def test_kg_reuses_one_client_across_both_collections() -> None:
     with (
         patch.object(kg.db, "MongoClient", return_value=MagicMock()) as mock_client,
