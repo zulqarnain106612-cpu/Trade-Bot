@@ -48,20 +48,21 @@ def test_recovery_ack_request_rejects_invalid_operator():
 
 
 def test_get_crypto_box_adapter_is_cached():
-    api_main._crypto_box_adapter = None
+    _get_crypto_box_adapter.cache_clear()
     fake_adapter = MagicMock()
-    with patch(
-        "src.engine.crypto_box_adapter.CryptoBoxSignalAdapter", return_value=fake_adapter
-    ) as mock_cls:
-        first = _get_crypto_box_adapter()
-        second = _get_crypto_box_adapter()
-    assert first is second is fake_adapter
-    mock_cls.assert_called_once()  # constructed once, reused after
-    api_main._crypto_box_adapter = None
+    try:
+        with patch(
+            "src.engine.crypto_box_adapter.CryptoBoxSignalAdapter", return_value=fake_adapter
+        ) as mock_cls:
+            first = _get_crypto_box_adapter()
+            second = _get_crypto_box_adapter()
+        assert first is second is fake_adapter
+        mock_cls.assert_called_once()  # constructed once, reused after
+    finally:
+        _get_crypto_box_adapter.cache_clear()
 
 
 async def test_crypto_box_status_shapes_response():
-    api_main._crypto_box_adapter = MagicMock(enabled=True)
     fake_cache = MagicMock()
     fake_cache.get_sentiment.return_value = {"score": 0.5}
     fake_cache.get_macro.return_value = {"dxy": 103.456789, "label": "risk_on"}
@@ -71,7 +72,12 @@ async def test_crypto_box_status_shapes_response():
         "unrelated_key": {},
     }
 
-    with patch("src.data.provider_cache.get_provider_cache", return_value=fake_cache):
+    fake_adapter = MagicMock(enabled=True)
+
+    with (
+        patch("src.data.provider_cache.get_provider_cache", return_value=fake_cache),
+        patch.object(api_main, "_get_crypto_box_adapter", return_value=fake_adapter),
+    ):
         result = await crypto_box_status()
 
     assert result["enabled"] is True
@@ -80,20 +86,22 @@ async def test_crypto_box_status_shapes_response():
     assert result["macro"]["label"] == "risk_on"  # non-floats passed through
     assert result["orderbook_symbols"] == ["BTCUSDT"]
     assert result["options_symbols"] == ["BTC"]
-    api_main._crypto_box_adapter = None
 
 
 async def test_crypto_box_status_handles_empty_macro():
-    api_main._crypto_box_adapter = MagicMock(enabled=False)
     fake_cache = MagicMock()
     fake_cache.get_sentiment.return_value = None
     fake_cache.get_macro.return_value = None
     fake_cache._data = {}
 
-    with patch("src.data.provider_cache.get_provider_cache", return_value=fake_cache):
+    fake_adapter = MagicMock(enabled=False)
+
+    with (
+        patch("src.data.provider_cache.get_provider_cache", return_value=fake_cache),
+        patch.object(api_main, "_get_crypto_box_adapter", return_value=fake_adapter),
+    ):
         result = await crypto_box_status()
 
     assert result["enabled"] is False
     assert result["macro"] == {}
     assert result["orderbook_symbols"] == []
-    api_main._crypto_box_adapter = None
