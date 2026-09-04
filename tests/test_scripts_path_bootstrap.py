@@ -73,9 +73,7 @@ def _is_repo_root_bootstrap(node: ast.stmt) -> bool:
         and target.value.id == "sys"
     ):
         return False
-    return any(
-        isinstance(sub, ast.Name) and sub.id == "__file__" for sub in ast.walk(call)
-    )
+    return any(isinstance(sub, ast.Name) and sub.id == "__file__" for sub in ast.walk(call))
 
 
 @pytest.mark.parametrize("script", _python_scripts(), ids=lambda p: p.name)
