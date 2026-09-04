@@ -430,6 +430,26 @@ def require_ready() -> None:
         raise HTTPException(status_code=503, detail="Server starting up. Retry shortly.")
 
 
+def require_orchestrator() -> Orchestrator:
+    """Return the running orchestrator, or raise HTTP 503.
+
+    require_ready() checks `_state.ready`, which lifespan sets after
+    assigning `_state.orchestrator` -- so routes depending on it reached
+    for `_state.orchestrator` behind a bare
+    `assert ... is not None  # guaranteed by require_ready`. The invariant
+    holds, but `python -O` strips asserts, and an assert is the wrong tool
+    for a condition whose documented answer is a 503 rather than a crash.
+
+    Several routes here already write the check out by hand; this is that,
+    in one place, returning the value so callers stop re-reading a global
+    they have just narrowed.
+    """
+    orchestrator = _state.orchestrator
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="Server starting up. Retry shortly.")
+    return orchestrator
+
+
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
@@ -631,8 +651,8 @@ async def status() -> dict[str, Any]:
     """Current equity, open positions, regime, execution mode."""
     from src.diagnostics.signal_debugger import get_degradation_tracker
 
-    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    orchestrator = require_orchestrator()
+    executor = cast(AbstractExecutor, orchestrator._executor)
     cfg = get_settings()
 
     equity_usd = executor.equity_usd if executor else 0.0
@@ -687,10 +707,7 @@ async def status() -> dict[str, Any]:
         "shadow_models": shadow_models,
         # H-08: truncate error strings — full tracebacks may leak internal paths/filenames
         "last_retrain_errors": {
-            tf: str(err)[:200]
-            for tf, err in (
-                _state.orchestrator._last_retrain_error if _state.orchestrator else {}
-            ).items()
+            tf: str(err)[:200] for tf, err in orchestrator._last_retrain_error.items()
         },
         "timestamp": datetime.now(tz=UTC).isoformat(),
     }
@@ -887,8 +904,8 @@ async def crypto_box_status() -> dict[str, Any]:
 @app.get("/approvals", dependencies=[Depends(api_key_header), Depends(require_ready)])
 async def approvals() -> dict[str, Any]:
     """All pending approval requests."""
-    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    orchestrator = require_orchestrator()
+    executor = cast(AbstractExecutor, orchestrator._executor)
     if executor is None:
         return {"approvals": []}
     return {"approvals": executor.pending_approvals()}
@@ -934,8 +951,8 @@ async def resolve_approval(
     # H-13: validate UUID format before dict lookup — prevents timing oracle and DoS
     if not _UUID_RE.match(request_id):
         raise HTTPException(status_code=400, detail="Invalid request_id format.")
-    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    orchestrator = require_orchestrator()
+    executor = cast(AbstractExecutor, orchestrator._executor)
     if executor is None:
         raise HTTPException(status_code=503, detail="Executor not initialized")
 
@@ -1547,8 +1564,8 @@ async def debug_reconcile() -> dict[str, Any]:
                            reference_quantity}, ...],
     }
     """
-    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    orchestrator = require_orchestrator()
+    executor = cast(AbstractExecutor, orchestrator._executor)
     cfg = get_settings()
 
     local_positions = await executor.open_positions_safe()
@@ -1873,10 +1890,10 @@ async def get_strategy_gauntlet() -> dict[str, Any]:
                                      realized_max_drawdown_pct}, ...},
     }
     """
-    assert _state.orchestrator is not None  # guaranteed by require_ready dependency
+    orchestrator = require_orchestrator()
     tracker = get_attribution_tracker()
     criteria = GauntletCriteria()
-    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    executor = cast(AbstractExecutor, orchestrator._executor)
     equity_usd = float(executor.equity_usd) if executor else 0.0
 
     candidates: dict[str, Any] = {}
