@@ -63,7 +63,9 @@ extend-exclude = ["frontend", "crypto-predictor"]
 # The dedicated cleanup pass the previous comment here asked for: UP, B, SIM
 # and I are now on, with the tree brought up to them. B is the one that earns
 # its place -- B905 caught zip() silently truncating an embedding batch.
-select = ["E", "F", "W", "ASYNC", "I", "UP", "B", "SIM"]
+# PLW1510 is listed on its own, not the whole PLW family: it is the one
+# that catches a subprocess whose failure nobody looks at.
+select = ["E", "F", "W", "ASYNC", "I", "UP", "B", "SIM", "PLW1510"]
 ignore = [
     "E501",  # line length is the formatter's job, not the linter's
     # Combining nested `with` statements onto one line makes the long
