@@ -732,7 +732,10 @@ class StorageBackend:
 
         row = await conn.execute("PRAGMA user_version")
         fetched = await row.fetchone()
-        assert fetched is not None, "PRAGMA user_version returned no row"
+        if fetched is None:
+            # Stripped under -O as an assert, leaving `fetched[0]` to raise
+            # TypeError on None instead of naming what went wrong.
+            raise RuntimeError("PRAGMA user_version returned no row")
         current: int = fetched[0]
 
         if current == _SCHEMA_VERSION:
