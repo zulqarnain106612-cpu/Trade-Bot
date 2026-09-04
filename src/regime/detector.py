@@ -424,7 +424,8 @@ class RegimeDetector:
         self._state_map = _assign_canonical_states(self._model)
         self._fitted = True
 
-        # H-07: SHA-256 replaces MD5 — more collision-resistant; 16 hex chars = 64 bits
+        # H-07 replaced a weaker digest here with SHA-256, which is more
+        # collision-resistant; 16 hex chars = 64 bits.
         self._train_hash = hashlib.sha256(obs_df.to_numpy(dtype=np.float64).tobytes()).hexdigest()[
             :16
         ]
