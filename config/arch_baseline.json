@@ -4,9 +4,6 @@
   "fingerprints": [
     "LAW10|Wash trade detection|src/execution/order_manager.py",
     "LAW10|Wash trade detection|src/execution/router.py",
-    "LAW12|Deprecated hash function (MD5/SHA1) \u2014 use SHA-256 or SHA-3|src/regime/detector.py",
-    "LAW12|Deprecated hash function (MD5/SHA1) \u2014 use SHA-256 or SHA-3|src/workers/orchestrator.py",
-    "LAW12|Deprecated hash function in use|src/workers/orchestrator.py",
     "LAW12|PQC algorithm reference or migration marker|src/ecc/__init__.py",
     "LAW12|PQC algorithm reference or migration marker|src/ecc/ecdsa_scan.py",
     "LAW12|PQC algorithm reference or migration marker|src/ecc/schnorr_taproot.py",
