@@ -93,27 +93,42 @@ jobs:
         # in a build-time-only dependency tree are noise that would train
         # everyone to ignore this job.
         #
+        # --omit=optional is what makes the scan run at all. Without it the
+        # audit endpoint rejects the whole tree:
+        #
+        #   400 Bad Request - Invalid package tree, run npm install to
+        #   rebuild your package-lock.json
+        #
+        # The tree is not actually invalid. @tailwindcss/oxide-wasm32-wasi is
+        # an optional cpu:[wasm32] variant that declares bundleDependencies,
+        # so its six children are marked inBundle and carry no `resolved` or
+        # `integrity` -- they ship inside the parent tarball, which is exactly
+        # how npm records a bundled dependency. The audit endpoint cannot look
+        # them up and rejects the request rather than skipping them.
+        # Regenerating the lockfile reproduces the same entries, because they
+        # are correct.
+        #
+        # Omitting optional deps loses no coverage on this runner: npm ci
+        # never installs a wasm32 package on linux-x64, so the omitted
+        # subtree is not code that ships or builds here.
+        #
         # `npm audit` exits 1 for three unrelated things, and this job used to
-        # treat them identically -- both PRs that went red here on 2026-09-04
-        # were red for a reason that had nothing to do with their diff:
+        # report all of them as if the frontend had vulnerabilities:
         #
-        #   1. high/critical advisories found  -> a real verdict, must fail
-        #   2. 5xx from registry.npmjs.org     -> transient, worth retrying
-        #   3. 400 "Invalid package tree"      -> the lockfile is malformed;
-        #                                         no scan ran at all, so
-        #                                         passing would be a lie
+        #   1. high/critical advisories found -> a real verdict, must fail
+        #   2. 5xx from registry.npmjs.org    -> transient, worth retrying
+        #   3. a rejected tree                -> no scan ran, so passing
+        #                                        would be a lie
         #
-        # Only (1) and (3) are failures worth reporting, and they need
-        # different messages. npm writes "audit endpoint returned an error"
-        # for (2) and (3) and nothing like it for (1), which is what
-        # separates a verdict from a non-scan.
+        # npm writes "audit endpoint returned an error" for (2) and (3) and
+        # nothing like it for (1), which is what separates a verdict from a
+        # non-scan.
         run: |
           for attempt in 1 2 3; do
-            # `| tee` would make the pipeline exit status tee's, which is
-            # always 0 -- the audit result has to be read before anything
-            # else runs.
+            # `| tee` would make the pipeline status tee's own 0, so the
+            # audit result has to be read before anything else runs.
             set +e
-            npm audit --audit-level=high > audit.log 2>&1
+            npm audit --audit-level=high --omit=optional > audit.log 2>&1
             status=$?
             set -e
             cat audit.log
@@ -128,7 +143,7 @@ jobs:
             fi
 
             if grep -q "Invalid package tree" audit.log; then
-              echo "::error::frontend/package-lock.json is not a valid audit tree, so no CVE scan ran. Regenerate it with the 'Frontend lockfile refresh' workflow."
+              echo "::error::The audit endpoint rejected the dependency tree, so no CVE scan ran. A newly added dependency is likely bundling its own children; see the comment on this step."
               exit 1
             fi
 
