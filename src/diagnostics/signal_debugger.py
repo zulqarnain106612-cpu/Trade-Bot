@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 import statistics
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -422,6 +423,7 @@ _drift_monitor: FeatureDriftMonitor | None = None
 # with several active_timeframes, never multiple symbols concurrently)
 # keeps each engine's predictions/resolutions isolated.
 _degradation_trackers: dict[str, ModelDegradationTracker] = {}
+_singleton_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -517,12 +519,25 @@ def get_label_shift_detector() -> LabelShiftDetector:
 
 def get_drift_monitor() -> FeatureDriftMonitor:
     global _drift_monitor
-    if _drift_monitor is None:
-        _drift_monitor = FeatureDriftMonitor()
-    return _drift_monitor
+    # Locked: the check and the assignment are separate steps, so two of the
+    # concurrent timeframe loops described above can both find it unset and
+    # both build a monitor. The second replaces the first, and a drift
+    # monitor that has seen half the features is worse than one that has
+    # seen none -- it still answers.
+    with _singleton_lock:
+        if _drift_monitor is None:
+            _drift_monitor = FeatureDriftMonitor()
+        return _drift_monitor
 
 
 def get_degradation_tracker(timeframe: str = "default") -> ModelDegradationTracker:
-    if timeframe not in _degradation_trackers:
-        _degradation_trackers[timeframe] = ModelDegradationTracker()
-    return _degradation_trackers[timeframe]
+    # Same lock, same reason. Per-timeframe keys mean two loops usually miss
+    # each other, but "usually" is not the guarantee this needs: two callers
+    # for one timeframe both building a tracker leaves each holding a
+    # different object, and whichever is discarded takes its recorded
+    # predictions with it -- which is the exact failure the per-timeframe
+    # scoping above was introduced to fix.
+    with _singleton_lock:
+        if timeframe not in _degradation_trackers:
+            _degradation_trackers[timeframe] = ModelDegradationTracker()
+        return _degradation_trackers[timeframe]
