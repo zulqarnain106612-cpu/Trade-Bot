@@ -201,7 +201,9 @@ jobs:
         # report all of them as if the frontend had vulnerabilities:
         #
         #   1. high/critical advisories found -> a real verdict, must fail
-        #   2. 5xx from registry.npmjs.org    -> transient, worth retrying
+        #   2. registry unreachable           -> retried, then a warning:
+        #                                        a finding fails this job,
+        #                                        being unable to ask does not
         #   3. a rejected tree                -> no scan ran, so passing
         #                                        would be a lie
         #
@@ -249,8 +251,18 @@ jobs:
             sleep $((attempt * 15))
           done
 
-          echo "::error::npm audit could not reach the registry after 2 attempts."
-          exit 1
+          # Warning, not error. A finding fails this job; being unable to ask
+          # does not. The endpoint npm uses here is being retired and has
+          # been alternately instant, 503, and hanging past 300s within the
+          # same hour -- failing every PR in the repository on that is the
+          # exact "fails closed on someone else's registry outage" problem
+          # this file's header gives as the reason Semgrep is not reinstated.
+          #
+          # This is not a coverage gap: .github/dependabot.yml watches
+          # /frontend for npm advisories independently of this job and opens
+          # PRs for them, so an outage here delays a duplicate check rather
+          # than removing the only one.
+          echo "::warning::npm audit could not reach the registry after 2 attempts -- no CVE scan ran this time. Dependabot still watches /frontend independently."
 
   secrets:
     name: TruffleHog (secret scan)
