@@ -7,6 +7,20 @@ Parses P2TR (Pay-to-Taproot, BIP-341) inputs to identify:
   - Smart-money divergence: when large Taproot signers move against spot
 
 Output fed to 4h and 1W horizons.
+
+post_quantum posture (LAW12):
+  Nothing here is a cryptographic trust boundary. This module reads
+  public chain data and produces a score; it holds no key, signs
+  nothing, establishes no shared secret, and protects no secret of
+  ours. There is therefore nothing in it for a CRQC to break, and no
+  ML-KEM or ML-DSA migration applies.
+
+  A CRQC changes what these signals *mean*, not what this code must
+  protect. BIP-340 Schnorr and MuSig2 are
+  discrete-log schemes and a CRQC breaks both, but this module only
+  parses P2TR spends to identify who is signing. If Bitcoin migrates
+  its signature scheme, the parsing changes because the script format
+  does -- a chain-upgrade follow, not a security migration.
 """
 
 from __future__ import annotations
