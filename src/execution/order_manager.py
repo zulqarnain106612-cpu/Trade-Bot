@@ -146,15 +146,14 @@ class OrderManager:
         # invented, and it composes with the tick's trace_id: a filled order
         # can be traced back to the signal that asked for it.
         #
-        # Unbound in the finally below rather than cleared, so the trace_id
-        # bound by the surrounding tick survives.
-        structlog.contextvars.bind_contextvars(order_key=idempotency_key)
-        try:
+        # bound_contextvars rather than clear_contextvars: clearing would take
+        # the trace_id the surrounding tick bound. It also restores whatever
+        # order_key was bound before instead of deleting the name outright,
+        # which is the difference if a submission ever runs inside another.
+        with structlog.contextvars.bound_contextvars(order_key=idempotency_key):
             return await self._place_order_with_fsm(
                 exchange, symbol, side, quantity, idempotency_key, params
             )
-        finally:
-            structlog.contextvars.unbind_contextvars("order_key")
 
     async def _place_order_with_fsm(
         self,
