@@ -14,7 +14,13 @@ from src.api import __main__ as api_main
 
 
 def test_main_passes_the_api_settings_through_to_uvicorn():
-    settings = SimpleNamespace(api=SimpleNamespace(host="127.0.0.1", port=9000, reload=True))
+    # log_level/log_as_json: main() calls configure_logging(settings) before
+    # handing off to uvicorn, so the double has to carry them.
+    settings = SimpleNamespace(
+        api=SimpleNamespace(host="127.0.0.1", port=9000, reload=True),
+        log_level="INFO",
+        log_as_json=False,
+    )
     with (
         patch.object(api_main, "get_settings", return_value=settings),
         patch.object(api_main.uvicorn, "run") as run,
