@@ -704,8 +704,10 @@ class StorageBackend:
         with self._lock_init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        assert self._lock is not None
-        return self._lock
+            # Returned from inside the guard: this is the only place the
+            # attribute is narrowed to non-None without an assert, which
+            # `python -O` would strip.
+            return self._lock
 
     async def initialize(self) -> None:
         """Open WAL-mode connection, create required directories, and apply DDL."""
