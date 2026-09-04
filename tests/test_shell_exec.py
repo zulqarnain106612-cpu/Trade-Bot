@@ -23,8 +23,8 @@ from unittest.mock import patch
 
 import pytest
 
-import common.shell_exec
 from common.command_schema import COMMAND_EXEC_SCHEMA
+from common.shell_exec import __file__ as _shell_exec_file
 from common.shell_exec import _cap, _capture, _filter, _should_retry, run
 
 # ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ class TestCapture:
         import ast
         from pathlib import Path as _Path
 
-        module = _Path(common.shell_exec.__file__)
+        module = _Path(_shell_exec_file)
         tree = ast.parse(module.read_text(), filename=str(module))
 
         popens = [
