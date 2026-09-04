@@ -68,6 +68,7 @@ from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consist
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.unified_ledger import get_unified_ledger
+from src.logging_setup import configure_logging
 from src.risk.strategy_kill_switch import (
     GauntletNotPassedError,
     get_strategy_kill_switch_manager,
@@ -239,6 +240,11 @@ _state = AppState()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize all subsystems on startup, clean up on shutdown."""
+    # First, so the startup failures below are formatted and filtered the way
+    # the operator configured. Idempotent -- src/api/__main__ calls it too,
+    # and uvicorn --reload runs this in a fresh process each time.
+    configure_logging()
+
     # Fail fast on auth misconfiguration before accepting connections
     api_key = os.environ.get("API_SECRET_KEY", "").strip()
     if not api_key:
