@@ -45,7 +45,6 @@
     "LAW7|Correlation/trace ID in log events|src/engine/orchestrator.py",
     "LAW7|Correlation/trace ID in log events|src/execution/order_manager.py",
     "LAW7|Correlation/trace ID in log events|src/execution/router.py",
-    "LAW9|Model prediction without confidence check|src/execution/rl_agent.py",
     "LAW9|Model prediction without confidence check|src/intelligence/ensemble_predictor.py",
     "LAW9|Model prediction without confidence check|src/models/trainer.py",
     "LAW9|Model prediction without confidence check|src/regime/detector.py",
