@@ -92,7 +92,33 @@ jobs:
         # --audit-level=high blocks high and critical only. Moderate advisories
         # in a build-time-only dependency tree are noise that would train
         # everyone to ignore this job.
-        run: npm audit --audit-level=high
+        #
+        # Retried because the audit endpoint is a network call to
+        # registry.npmjs.org, and a 503 from it exits 1 exactly as a real
+        # advisory does -- two PRs went red on "503 Service Unavailable" with
+        # nothing wrong in the tree. Retrying is the narrow fix: it does not
+        # weaken the gate, because a genuine high/critical finding fails all
+        # three attempts identically. Note the file header's reasoning for
+        # leaving Semgrep out -- a job that fails closed on someone else's
+        # registry outage. This keeps npm audit from being that job without
+        # giving up the scan.
+        run: |
+          for attempt in 1 2 3; do
+            if npm audit --audit-level=high; then
+              exit 0
+            fi
+            # npm exits 1 both for "advisories found" and for a dead endpoint.
+            # Only a reachable registry produces a report, so its presence is
+            # what separates a real verdict from a transport failure.
+            if npm audit --json 2>/dev/null | grep -q '"vulnerabilities"'; then
+              echo "npm audit reported high or critical advisories."
+              exit 1
+            fi
+            echo "npm audit attempt ${attempt}: registry unreachable, retrying."
+            sleep $((attempt * 15))
+          done
+          echo "npm audit could not reach the registry after 3 attempts."
+          exit 1
 
   secrets:
     name: TruffleHog (secret scan)
