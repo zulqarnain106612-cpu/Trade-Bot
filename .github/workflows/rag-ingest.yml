@@ -1,0 +1,46 @@
+name: RAG ingest (repo -> Atlas)
+
+# Repo-wide re-ingest of the MongoDB Atlas RAG store. Runs here, on a GitHub
+# runner, rather than on a developer machine: the embedding pass is ~8k chunks
+# of local MiniLM inference and takes the better part of an hour on 4 cores.
+# Manual (workflow_dispatch) by default -- the script clears and rebuilds the
+# `documents` collection, so it is not something to fire on every push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_tests:
+        description: "Ingest tests/ as well as first-party source and docs"
+        type: boolean
+        default: true
+
+concurrency:
+  # The ingest deletes before it inserts; two concurrent runs would race to
+  # rebuild the same collection and leave it half-populated.
+  group: rag-ingest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ingestion dependencies
+        run: pip install -r requirements.txt
+      - name: Ingest repository into Atlas
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          RAG_INGEST_INCLUDE_TESTS: ${{ inputs.include_tests }}
+        run: python scripts/ingest_repo.py
+      - name: Verify retrieval end to end
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: python scripts/rag_smoke.py
