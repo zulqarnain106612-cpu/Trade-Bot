@@ -1203,8 +1203,10 @@ class RuntimeConfig:
         with self._init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        assert self._lock is not None
-        return self._lock
+            # Returned from inside the guard: this is the only place the
+            # attribute is narrowed to non-None without an assert, which
+            # `python -O` would strip.
+            return self._lock
 
     async def get_execution_mode(self) -> ExecutionMode:
         async with self._get_lock():
