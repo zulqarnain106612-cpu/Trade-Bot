@@ -18,10 +18,17 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
-from rag_mongo.db import get_collection
-from rag_mongo.embeddings import embed_batch
-from rag_mongo.ingest import chunk_text
+# `python scripts/x.py` puts scripts/ on sys.path, not the repo root, so the
+# first-party imports below are not resolvable on their own -- the RAG ingest
+# workflow failed on exactly that (ModuleNotFoundError: rag_mongo). Anchoring
+# on __file__ rather than the cwd keeps it correct from any directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from rag_mongo.db import get_collection  # noqa: E402
+from rag_mongo.embeddings import embed_batch  # noqa: E402
+from rag_mongo.ingest import chunk_text  # noqa: E402
 
 EXCLUDE_PATHSPECS = [":!:frontend/*", ":!:.venv/*", ":!:crypto-predictor/*"]
 INCLUDE_GLOBS = ["*.py", "*.md", "*.toml", "*.yml", "*.yaml"]

@@ -3,9 +3,18 @@
 
 from __future__ import annotations
 
-from kg.db import get_edges_collection, get_nodes_collection
-from rag_mongo.db import get_collection
-from review import retrieval
+import sys
+from pathlib import Path
+
+# `python scripts/x.py` puts scripts/ on sys.path, not the repo root, so the
+# first-party imports below are not resolvable on their own -- the RAG ingest
+# workflow failed on exactly that (ModuleNotFoundError: rag_mongo). Anchoring
+# on __file__ rather than the cwd keeps it correct from any directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from kg.db import get_edges_collection, get_nodes_collection  # noqa: E402
+from rag_mongo.db import get_collection  # noqa: E402
+from review import retrieval  # noqa: E402
 
 QUERIES = [
     "vector search retrieval",
