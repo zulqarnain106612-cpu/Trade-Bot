@@ -387,3 +387,30 @@ def test_blend_audit_is_none_when_the_blend_inputs_are_incomplete():
     )
 
     assert _blend_audit(partial) is None
+
+
+def test_kelly_scaling_does_not_rely_on_an_assert_for_narrowing():
+    """The Kelly-scaling arm must survive `python -O`.
+
+    It used to read ``result.kelly_result`` behind a bare
+    ``assert result.kelly_result is not None``. The assert was there for the
+    type checker -- the enclosing guard already established the invariant --
+    but ``-O`` strips asserts, and asserts are not a validation mechanism in
+    production code (Crypto Architect LAW3, which flagged this line). The
+    binding is now a plain local taken at the guard, so the narrowing holds
+    with or without assertions.
+
+    AST-level rather than behavioural: the arm's behaviour is covered by the
+    tests above, and what needs pinning is that no assert comes back.
+    """
+    import ast
+    from pathlib import Path
+
+    module = Path(__file__).resolve().parent.parent / "src" / "engine" / "orchestrator.py"
+    tree = ast.parse(module.read_text(), filename=str(module))
+    asserts = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+
+    assert not asserts, (
+        f"src/engine/orchestrator.py uses `assert` at line(s) {asserts}. "
+        "Asserts are stripped under -O; use an explicit check or bind a local."
+    )
