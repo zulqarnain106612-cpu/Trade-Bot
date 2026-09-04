@@ -21,8 +21,15 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from pathlib import Path
 
-from tools.registry import registry
+# `python scripts/x.py` puts scripts/ on sys.path, not the repo root, so the
+# first-party imports below are not resolvable on their own -- the RAG ingest
+# workflow failed on exactly that (ModuleNotFoundError: rag_mongo). Anchoring
+# on __file__ rather than the cwd keeps it correct from any directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.registry import registry  # noqa: E402
 
 # Fail fast if this script is later edited to call a non-orchestratable tool.
 NAMESPACE = registry.namespace()
