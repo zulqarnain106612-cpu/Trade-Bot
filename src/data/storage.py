@@ -728,7 +728,12 @@ class StorageBackend:
     async def _run_migrations(self) -> None:
         """Apply any pending schema migrations via PRAGMA user_version."""
         conn = self._conn
-        assert conn is not None
+        if conn is None:
+            # initialize() opens the connection before calling this, so a None
+            # here is a programming error rather than a runtime condition --
+            # but an assert says that in a form -O deletes, leaving the next
+            # line to raise AttributeError mid-migration instead.
+            raise RuntimeError("_run_migrations() called before the connection was opened")
 
         row = await conn.execute("PRAGMA user_version")
         fetched = await row.fetchone()
