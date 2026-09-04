@@ -93,31 +93,50 @@ jobs:
         # in a build-time-only dependency tree are noise that would train
         # everyone to ignore this job.
         #
-        # Retried because the audit endpoint is a network call to
-        # registry.npmjs.org, and a 503 from it exits 1 exactly as a real
-        # advisory does -- two PRs went red on "503 Service Unavailable" with
-        # nothing wrong in the tree. Retrying is the narrow fix: it does not
-        # weaken the gate, because a genuine high/critical finding fails all
-        # three attempts identically. Note the file header's reasoning for
-        # leaving Semgrep out -- a job that fails closed on someone else's
-        # registry outage. This keeps npm audit from being that job without
-        # giving up the scan.
+        # `npm audit` exits 1 for three unrelated things, and this job used to
+        # treat them identically -- both PRs that went red here on 2026-09-04
+        # were red for a reason that had nothing to do with their diff:
+        #
+        #   1. high/critical advisories found  -> a real verdict, must fail
+        #   2. 5xx from registry.npmjs.org     -> transient, worth retrying
+        #   3. 400 "Invalid package tree"      -> the lockfile is malformed;
+        #                                         no scan ran at all, so
+        #                                         passing would be a lie
+        #
+        # Only (1) and (3) are failures worth reporting, and they need
+        # different messages. npm writes "audit endpoint returned an error"
+        # for (2) and (3) and nothing like it for (1), which is what
+        # separates a verdict from a non-scan.
         run: |
           for attempt in 1 2 3; do
-            if npm audit --audit-level=high; then
+            # `| tee` would make the pipeline exit status tee's, which is
+            # always 0 -- the audit result has to be read before anything
+            # else runs.
+            set +e
+            npm audit --audit-level=high > audit.log 2>&1
+            status=$?
+            set -e
+            cat audit.log
+
+            if [ "$status" -eq 0 ]; then
               exit 0
             fi
-            # npm exits 1 both for "advisories found" and for a dead endpoint.
-            # Only a reachable registry produces a report, so its presence is
-            # what separates a real verdict from a transport failure.
-            if npm audit --json 2>/dev/null | grep -q '"vulnerabilities"'; then
-              echo "npm audit reported high or critical advisories."
+
+            if ! grep -q "audit endpoint returned an error" audit.log; then
+              echo "::error::npm audit reported high or critical advisories."
               exit 1
             fi
+
+            if grep -q "Invalid package tree" audit.log; then
+              echo "::error::frontend/package-lock.json is not a valid audit tree, so no CVE scan ran. Regenerate it with the 'Frontend lockfile refresh' workflow."
+              exit 1
+            fi
+
             echo "npm audit attempt ${attempt}: registry unreachable, retrying."
             sleep $((attempt * 15))
           done
-          echo "npm audit could not reach the registry after 3 attempts."
+
+          echo "::error::npm audit could not reach the registry after 3 attempts."
           exit 1
 
   secrets:
