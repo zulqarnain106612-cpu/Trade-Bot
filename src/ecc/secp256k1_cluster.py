@@ -9,6 +9,21 @@ Output: cluster_flow_score ∈ [-1, +1]
   -1 → large whale clusters are distributing (selling)
 
 Fed to all 10 horizons as the ECC cluster feature.
+
+post_quantum posture (LAW12):
+  Nothing here is a cryptographic trust boundary. This module reads
+  public chain data and produces a score; it holds no key, signs
+  nothing, establishes no shared secret, and protects no secret of
+  ours. There is therefore nothing in it for a CRQC to break, and no
+  ML-KEM or ML-DSA migration applies.
+
+  A CRQC changes what these signals *mean*, not what this code must
+  protect. The curve operations here are
+  analysis over public keys already published on-chain -- deriving and
+  comparing addresses -- not signing. Clustering by common-input
+  ownership stays valid under a CRQC; what changes is that the funds
+  being clustered are no longer safe, which is the chain's problem
+  rather than this module's.
 """
 
 from __future__ import annotations
