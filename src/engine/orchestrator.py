@@ -856,7 +856,10 @@ class Orchestrator:
 
         # Crypto-Box augmentation — blends 18-engine ensemble into Kelly sizing.
         # Only active when CRYPTO_BOX=true; fails open to unmodified result.
-        if self._crypto_box.enabled and result.kelly_result is not None:
+        # Bound here rather than re-read below: the circuit-breaker branch
+        # rebinds `result`, which loses the narrowing this guard establishes.
+        _entry_kelly = result.kelly_result
+        if self._crypto_box.enabled and _entry_kelly is not None:
             try:
                 _tf_secs = TIMEFRAME_SECONDS.get(tf, 3600)
                 _since_ms = int((time.time() - 300 * _tf_secs) * 1000)
@@ -898,15 +901,14 @@ class Orchestrator:
                             cb_signal.direction == 0 or cb_signal.direction == result.direction
                         )
                         scale = cb_signal.kelly_multiplier if direction_match else 0.5
-                        assert result.kelly_result is not None
                         new_adj = max(
                             0.0,
                             min(
-                                result.kelly_result.adjusted_fraction * scale,
-                                result.kelly_result.adjusted_fraction,
+                                _entry_kelly.adjusted_fraction * scale,
+                                _entry_kelly.adjusted_fraction,
                             ),
                         )
-                        new_kelly = _dc_replace(result.kelly_result, adjusted_fraction=new_adj)
+                        new_kelly = _dc_replace(_entry_kelly, adjusted_fraction=new_adj)
                         result = _dc_replace(result, kelly_result=new_kelly)
                     try:
                         from src.diagnostics.audit_trail import get_audit_trail
