@@ -38,6 +38,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Annotated, Any, cast
 
 import structlog
@@ -845,17 +846,20 @@ async def regime(timeframe: str) -> dict[str, Any]:
     }
 
 
-_crypto_box_adapter: object | None = None
-
-
+@lru_cache(maxsize=1)
 def _get_crypto_box_adapter() -> Any:
-    """Return a cached CryptoBoxSignalAdapter singleton (avoids re-init on every request)."""
-    global _crypto_box_adapter
-    if _crypto_box_adapter is None:
-        from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
+    """Return a cached CryptoBoxSignalAdapter singleton (avoids re-init on every request).
 
-        _crypto_box_adapter = CryptoBoxSignalAdapter()
-    return _crypto_box_adapter
+    lru_cache rather than a module global guarded by `global`: the read of the
+    global and the assignment to it were two separate steps, so two requests
+    arriving together could both find it unset and both construct an adapter,
+    with the second silently replacing the first. This is also the idiom
+    get_settings() in src/config.py already uses for a process-wide singleton,
+    and it gives tests cache_clear() instead of reaching for the global.
+    """
+    from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
+
+    return CryptoBoxSignalAdapter()
 
 
 @app.get("/crypto-box/status", dependencies=[Depends(api_key_header)])
