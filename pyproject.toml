@@ -63,10 +63,12 @@ extend-exclude = ["frontend", "crypto-predictor"]
 # The dedicated cleanup pass the previous comment here asked for: UP, B, SIM
 # and I are now on, with the tree brought up to them. B is the one that earns
 # its place -- B905 caught zip() silently truncating an embedding batch.
-# RUF059 is listed on its own rather than the whole RUF family: RUF001-003
-# flag every non-ASCII character, and the comments here use arrows and
-# em-dashes throughout.
-select = ["E", "F", "W", "ASYNC", "I", "UP", "B", "SIM", "RUF059"]
+# The two trailing codes are listed individually rather than pulling in their
+# whole families: RUF001-003 flag every non-ASCII character and the comments
+# here use arrows and em-dashes throughout, and PLW is mostly style. RUF059
+# catches an unpacked value nobody reads; PLW1510 catches a subprocess whose
+# failure nobody looks at.
+select = ["E", "F", "W", "ASYNC", "I", "UP", "B", "SIM", "RUF059", "PLW1510"]
 ignore = [
     "E501",  # line length is the formatter's job, not the linter's
     # Combining nested `with` statements onto one line makes the long
