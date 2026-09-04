@@ -141,7 +141,10 @@ class TestBarPruning:
 
         from src.engine.orchestrator import Orchestrator
 
-        assert "self._prune_old_bars()" in inspect.getsource(Orchestrator._tick)
+        # _tick_traced, not _tick: _tick is now the wrapper that binds the
+        # trace id and delegates. The tick body -- and the pruner's only
+        # caller -- is in _tick_traced.
+        assert "self._prune_old_bars()" in inspect.getsource(Orchestrator._tick_traced)
 
 
 class TestSchedulerSuppliesTheCount:
