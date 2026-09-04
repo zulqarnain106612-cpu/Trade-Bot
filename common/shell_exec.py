@@ -167,12 +167,15 @@ def _filter(text: str, mode: str, expr: str) -> str:
                 "On cloud containers use filter_mode=fields or filter_mode=regex instead. "
                 "Install locally: apt-get install jq / brew install jq"
             )
+        # check=False: a failed jq query is reported as a ValueError naming
+        # the query, which is more useful than CalledProcessError.
         proc = subprocess.run(
             ["jq", "-r", expr],
             input=text,
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         if proc.returncode != 0:
             raise ValueError(f"jq query failed: {proc.stderr.strip()}")

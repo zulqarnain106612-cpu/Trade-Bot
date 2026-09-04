@@ -56,7 +56,9 @@ def run_claude(
         cmd += ["--json-schema", json.dumps(json_schema)]
     elif max_turns:
         cmd += ["--max-turns", str(max_turns)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    # check=False: the returncode is inspected below and turned into a
+    # ClaudeCLIError carrying stderr, which check=True would discard.
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
     if proc.returncode != 0:
         raise ClaudeCLIError(f"claude -p failed (exit {proc.returncode}): {proc.stderr[:500]}")
     try:
