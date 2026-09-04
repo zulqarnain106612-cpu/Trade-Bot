@@ -24,10 +24,17 @@ rather than a fixture.
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
-import tools.example_tools  # noqa: F401  -- registers the tools under test
 from tools.registry import registry
+
+# Imported for the registration side effect, not for a name. import_module
+# rather than a plain import with a suppression comment: that silenced ruff
+# but not CodeQL, which still read an unused binding and flagged it. This
+# form has no binding to be unused, and says why the import is here.
+importlib.import_module("tools.example_tools")
 
 # Verbs that change something, cost money, or cannot be undone. Matched as
 # whole words against the registered tool name, so `get_deleted_count` does
