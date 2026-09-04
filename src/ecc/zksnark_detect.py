@@ -11,6 +11,22 @@ being hidden before execution on centralized venues.
 Output: dark_pool_pressure ∈ [0, 1]
   0 → transparent on-chain flows
   1 → fully mixed / maximum privacy routing
+
+post_quantum posture (LAW12):
+  Nothing here is a cryptographic trust boundary. This module reads
+  public chain data and produces a score; it holds no key, signs
+  nothing, establishes no shared secret, and protects no secret of
+  ours. There is therefore nothing in it for a CRQC to break, and no
+  ML-KEM or ML-DSA migration applies.
+
+  A CRQC changes what these signals *mean*, not what this code must
+  protect. Worth noting because it is the
+  one place where "quantum-safe" is a live question about someone
+  else's cryptography: mixer anonymity sets rest on zkSNARK soundness,
+  and several proving systems are not post-quantum sound. If that
+  breaks, historical mixing becomes de-anonymisable and this
+  module's inference gets *easier*, not harder. Either way it is an
+  observation about the chain, not an obligation on this code.
 """
 
 from __future__ import annotations
