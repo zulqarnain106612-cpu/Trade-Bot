@@ -36,9 +36,11 @@ from tools.registry import registry
 # form has no binding to be unused, and says why the import is here.
 importlib.import_module("tools.example_tools")
 
-# Verbs that change something, cost money, or cannot be undone. Matched as
-# whole words against the registered tool name, so `get_deleted_count` does
-# not trip on `delete`.
+# Verbs that change something, cost money, or cannot be undone. Matched
+# against the tool name's leading token only, not anywhere in the name, so
+# `get_deleted_count` reads as `get` and does not trip on `delete`. The cost
+# of matching only the head is that `sync_and_delete_all` reads as `sync` and
+# passes -- consistent with this being a floor rather than a proof.
 SIDE_EFFECTING_VERBS = frozenset(
     {
         "cancel",
