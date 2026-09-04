@@ -12,6 +12,21 @@ associated with known exchanges or custodians → short signal.
 Output: ecdsa_weakness_score ∈ [0, 1]
   0.0 → no weaknesses detected
   0.95 → near-certain private key extractable (nonce reuse confirmed)
+
+post_quantum posture (LAW12):
+  Nothing here is a cryptographic trust boundary. This module reads
+  public chain data and produces a score; it holds no key, signs
+  nothing, establishes no shared secret, and protects no secret of
+  ours. There is therefore nothing in it for a CRQC to break, and no
+  ML-KEM or ML-DSA migration applies.
+
+  A CRQC changes what these signals *mean*, not what this code must
+  protect. This one is the clearest case:
+  it scores addresses by whether nonce reuse makes a private key
+  extractable. Against a CRQC every secp256k1 key is extractable, so
+  the score stops discriminating between addresses and the feature
+  goes to noise. That is a signal-validity question for whoever owns
+  the model, not a key-management one.
 """
 
 from __future__ import annotations
