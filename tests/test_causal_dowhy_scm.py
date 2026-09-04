@@ -63,7 +63,7 @@ def _fake_dowhy_with_causal_model(estimate_value=1.5, refutation_p_value=0.3):
 
 
 def test_estimate_effect_happy_path():
-    fake_module, fake_model = _fake_dowhy_with_causal_model(
+    fake_module, _fake_model = _fake_dowhy_with_causal_model(
         estimate_value=2.5, refutation_p_value=0.42
     )
     with patch.dict(sys.modules, {"dowhy": fake_module}):
@@ -78,7 +78,7 @@ def test_estimate_effect_happy_path():
 
 
 def test_estimate_effect_none_value_defaults_to_zero_ate():
-    fake_module, fake_model = _fake_dowhy_with_causal_model(estimate_value=None)
+    fake_module, _fake_model = _fake_dowhy_with_causal_model(estimate_value=None)
     with patch.dict(sys.modules, {"dowhy": fake_module}):
         scm = DoWhySCM()
         result = scm.estimate_effect(pd.DataFrame({"a": [1]}), "a", "b")

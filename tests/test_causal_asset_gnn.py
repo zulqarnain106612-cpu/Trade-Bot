@@ -36,7 +36,7 @@ def test_build_correlation_graph_high_threshold_yields_no_edges():
 
 
 def test_build_correlation_graph_uses_full_history_when_shorter_than_window():
-    edges, weights = build_correlation_graph(_price_df(n_rows=10), threshold=0.6, window=60)
+    edges, _weights = build_correlation_graph(_price_df(n_rows=10), threshold=0.6, window=60)
     assert isinstance(edges, list)
 
 
