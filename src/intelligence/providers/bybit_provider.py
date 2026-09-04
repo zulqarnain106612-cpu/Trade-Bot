@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import statistics
+import threading
 import time
 from typing import Any, Final
 
@@ -372,6 +373,7 @@ class BybitIntelligenceProvider(ExchangeIntelligenceProvider):
 # ---------------------------------------------------------------------------
 
 _provider: BybitIntelligenceProvider | None = None
+_provider_lock = threading.Lock()
 
 
 def get_bybit_intelligence_provider(
@@ -384,9 +386,15 @@ def get_bybit_intelligence_provider(
     The symbol/perp_symbol arguments are only used on first call.
     """
     global _provider
-    if _provider is None:
-        _provider = BybitIntelligenceProvider(
-            symbol=symbol,
-            perp_symbol=perp_symbol,
-        )
-    return _provider
+    # Locked, not a bare check-then-assign: the two steps have a constructor
+    # between them, so two callers arriving together could both find it unset
+    # and both build a provider -- each with its own ccxt client and rate-limit
+    # budget, against an exchange that counts them as one. Same shape as
+    # get_allocation_controller() in src/tuning/meta_allocator.py.
+    with _provider_lock:
+        if _provider is None:
+            _provider = BybitIntelligenceProvider(
+                symbol=symbol,
+                perp_symbol=perp_symbol,
+            )
+        return _provider

@@ -17,6 +17,7 @@ Authority:
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Final
 
@@ -174,11 +175,14 @@ class CoinGeckoIntelligenceProvider(ExchangeIntelligenceProvider):
 # ---------------------------------------------------------------------------
 
 _provider: CoinGeckoIntelligenceProvider | None = None
+_provider_lock = threading.Lock()
 
 
 def get_coingecko_intelligence_provider() -> CoinGeckoIntelligenceProvider:
     """Return the module-level CoinGeckoIntelligenceProvider singleton."""
     global _provider
-    if _provider is None:
-        _provider = CoinGeckoIntelligenceProvider()
-    return _provider
+    # Locked, not a bare check-then-assign -- see binance_provider for why.
+    with _provider_lock:
+        if _provider is None:
+            _provider = CoinGeckoIntelligenceProvider()
+        return _provider
