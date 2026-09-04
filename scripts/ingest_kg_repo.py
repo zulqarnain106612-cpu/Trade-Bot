@@ -15,9 +15,16 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
-from kg.db import get_edges_collection, get_nodes_collection
-from kg.ingest import ingest_document
+# `python scripts/x.py` puts scripts/ on sys.path, not the repo root, so the
+# first-party imports below are not resolvable on their own -- the RAG ingest
+# workflow failed on exactly that (ModuleNotFoundError: rag_mongo). Anchoring
+# on __file__ rather than the cwd keeps it correct from any directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from kg.db import get_edges_collection, get_nodes_collection  # noqa: E402
+from kg.ingest import ingest_document  # noqa: E402
 
 EXCLUDE_PATHSPECS = [":!:frontend/*", ":!:.venv/*", ":!:crypto-predictor/*"]
 INCLUDE_GLOBS = ["*.py", "*.md", "*.toml", "*.yml", "*.yaml"]
