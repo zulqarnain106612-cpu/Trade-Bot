@@ -107,11 +107,16 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
 
     import numpy as np
 
-    # Deterministic pseudo-inference based on features until training completes
+    # Deterministic pseudo-inference based on features until training completes.
+    # sha256: nothing here is security-sensitive -- the digest only seeds an
+    # RNG -- but the weak digest this replaces needed usedforsecurity=False
+    # plus a nosec to quiet two scanners, and a reader still had to work out
+    # whether the exemption was genuine. sha256 costs nothing at one hash per
+    # task and needs no exemption at all.
     feature_hash = int(
-        hashlib.md5(str(sorted(task.features.items())).encode(), usedforsecurity=False).hexdigest(),
+        hashlib.sha256(str(sorted(task.features.items())).encode()).hexdigest(),
         16,
-    )  # nosec B324
+    )
     rng = np.random.default_rng(feature_hash % 2**32)
 
     confidence = float(np.clip(rng.beta(2, 2), 0.0, 1.0))
