@@ -209,15 +209,18 @@ jobs:
         # nothing like it for (1), which is what separates a verdict from a
         # non-scan.
         #
-        # Each attempt is bounded: npm sits on a failing endpoint for about
-        # six minutes before giving up, so three unbounded attempts held every
-        # PR in the queue for twenty. A timeout turns that into a fast red.
+        # Each attempt is bounded, and two of them rather than three. The
+        # audit endpoint is being retired and has been slow all day: a
+        # successful call takes seconds, a struggling one has taken up to six
+        # minutes, and unbounded attempts held every PR in the queue for
+        # twenty. 300s is comfortably above the observed success latency and
+        # caps the job at ten minutes.
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2; do
             # `| tee` would make the pipeline status tee's own 0, so the
             # audit result has to be read before anything else runs.
             set +e
-            timeout 150 npm audit --audit-level=high > audit.log 2>&1
+            timeout 300 npm audit --audit-level=high > audit.log 2>&1
             status=$?
             set -e
             cat audit.log
@@ -227,7 +230,7 @@ jobs:
             fi
 
             if [ "$status" -eq 124 ]; then
-              echo "npm audit attempt ${attempt}: timed out after 150s, retrying."
+              echo "npm audit attempt ${attempt}: timed out after 300s, retrying."
               sleep $((attempt * 15))
               continue
             fi
@@ -246,7 +249,7 @@ jobs:
             sleep $((attempt * 15))
           done
 
-          echo "::error::npm audit could not reach the registry after 3 attempts."
+          echo "::error::npm audit could not reach the registry after 2 attempts."
           exit 1
 
   secrets:
