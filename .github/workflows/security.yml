@@ -273,12 +273,25 @@ jobs:
       - name: Install TruffleHog
         # Pinned rather than floating: a scanner that silently changes its
         # detector set between runs turns a red build into a mystery.
+        #
+        # The version pin alone does not make the download trustworthy. A
+        # release asset is mutable -- it can be replaced in place on the
+        # release, and a redirect or proxy can serve something else entirely --
+        # and this tarball is unpacked and executed on a runner that has just
+        # checked out the repository. So the pin names *which* artifact, and
+        # the digest below is what makes it that artifact.
         env:
           TRUFFLEHOG_VERSION: 3.90.10
+          TRUFFLEHOG_SHA256: 32d349aea9b5b6644bb9a8ab8cb44314ce5912d730a16b1466511fc6c69a7ffc
         run: |
           curl -sSfL \
             "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" \
             -o trufflehog.tar.gz
+
+          # Verified before the archive is unpacked, not after: `tar x` on an
+          # untrusted archive is itself the thing being guarded against.
+          echo "${TRUFFLEHOG_SHA256}  trufflehog.tar.gz" | sha256sum --check --strict
+
           tar xzf trufflehog.tar.gz trufflehog
           ./trufflehog --version
 
