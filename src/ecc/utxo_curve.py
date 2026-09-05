@@ -10,6 +10,17 @@ hodler_index ∈ [0, 1]:
   1 → all supply has been dormant for ≥ 365 days (aged supply)
 
 supply_shock_proxy = hodler_index > 0.75 → reduce short exposure
+
+post_quantum posture (LAW12):
+  Nothing here is a cryptographic trust boundary. This module reads
+  public chain data and produces a score; it holds no key, signs
+  nothing, establishes no shared secret, and protects no secret of
+  ours. There is therefore nothing in it for a CRQC to break, and no
+  ML-KEM or ML-DSA migration applies.
+
+  A CRQC changes what these signals *mean*, not what this code must
+  protect: UTXO ages are timestamps, and
+  a quantum computer does not make coins older or younger.
 """
 
 from __future__ import annotations
