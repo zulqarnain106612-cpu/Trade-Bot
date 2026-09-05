@@ -424,7 +424,8 @@ class RegimeDetector:
         self._state_map = _assign_canonical_states(self._model)
         self._fitted = True
 
-        # H-07: SHA-256 replaces MD5 — more collision-resistant; 16 hex chars = 64 bits
+        # H-07 replaced a weaker digest here with SHA-256, which is more
+        # collision-resistant; 16 hex chars = 64 bits.
         self._train_hash = hashlib.sha256(obs_df.to_numpy(dtype=np.float64).tobytes()).hexdigest()[
             :16
         ]
@@ -819,5 +820,9 @@ class RegimeDetector:
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
             raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
-        assert self._scaler is not None
-        return self._scaler.transform(obs.to_numpy(dtype=np.float64))
+        # _require_fitted() rather than an assert: `python -O` strips asserts,
+        # and this one covered less than the helper already does. Transforming
+        # with a scaler while _fitted is False, or while _model is None, is the
+        # same "not fitted" mistake and now gets the same clear RuntimeError.
+        _, scaler = self._require_fitted()
+        return scaler.transform(obs.to_numpy(dtype=np.float64))
