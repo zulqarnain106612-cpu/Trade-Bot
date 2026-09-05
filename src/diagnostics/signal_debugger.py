@@ -396,12 +396,19 @@ def run_pipeline_selftest() -> dict[str, Any]:
             }
         )
         fm = build_feature_matrix(df)
-        assert fm.features is not None, "feature matrix is None"
-        assert len(fm.features) > 0, "feature matrix empty"
+        # if/raise, not assert: `python -O` strips asserts, and a selftest
+        # whose checks vanish reports passed=True on a broken pipeline --
+        # the one failure mode a selftest must not have. The raises land in
+        # the except below exactly as the asserts did.
+        if fm.features is None:
+            raise ValueError("feature matrix is None")
+        if len(fm.features) == 0:
+            raise ValueError("feature matrix empty")
         # list(), not the bare tuple: pandas reads a tuple key as one label,
         # so this raised and the selftest reported itself as a pipeline
         # failure on every run.
-        assert not fm.features[list(FEATURE_COLUMNS)].isna().any().any(), "NaN in features"
+        if fm.features[list(FEATURE_COLUMNS)].isna().any().any():
+            raise ValueError("NaN in features")
         result.update(passed=True, n_features=len(FEATURE_COLUMNS), n_rows=len(fm.features))
         log.info("signal_debugger.selftest_passed", rows=len(fm.features))
     except Exception as exc:

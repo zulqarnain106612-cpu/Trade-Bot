@@ -236,7 +236,6 @@ def check_settings_are_read() -> list[str]:
     genuine consumption that happens to live in the declaring module.
     """
     known_decorative = {
-        "log_as_json",
         # ccxt's own limiter governs these. Verified: enableRateLimit=True is
         # set at every exchange construction site — _build_binance and
         # _build_okx in src/data/fetcher.py, and the router's instance in
