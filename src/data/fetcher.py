@@ -339,8 +339,10 @@ class MarketDataFetcher:
         with self._sem_init_guard:
             if self._gap_fill_sem is None:
                 self._gap_fill_sem = asyncio.Semaphore(1)
-        assert self._gap_fill_sem is not None
-        return self._gap_fill_sem
+            # Returned from inside the guard: this is the only place the
+            # attribute is narrowed to non-None without an assert, which
+            # `python -O` would strip.
+            return self._gap_fill_sem
 
     async def initialize(self) -> None:
         """Build ccxt exchange instances and load markets."""
