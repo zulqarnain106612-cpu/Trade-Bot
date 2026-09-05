@@ -704,8 +704,10 @@ class StorageBackend:
         with self._lock_init_guard:
             if self._lock is None:
                 self._lock = asyncio.Lock()
-        assert self._lock is not None
-        return self._lock
+            # Returned from inside the guard: this is the only place the
+            # attribute is narrowed to non-None without an assert, which
+            # `python -O` would strip.
+            return self._lock
 
     async def initialize(self) -> None:
         """Open WAL-mode connection, create required directories, and apply DDL."""
@@ -728,11 +730,19 @@ class StorageBackend:
     async def _run_migrations(self) -> None:
         """Apply any pending schema migrations via PRAGMA user_version."""
         conn = self._conn
-        assert conn is not None
+        if conn is None:
+            # initialize() opens the connection before calling this, so a None
+            # here is a programming error rather than a runtime condition --
+            # but an assert says that in a form -O deletes, leaving the next
+            # line to raise AttributeError mid-migration instead.
+            raise RuntimeError("_run_migrations() called before the connection was opened")
 
         row = await conn.execute("PRAGMA user_version")
         fetched = await row.fetchone()
-        assert fetched is not None, "PRAGMA user_version returned no row"
+        if fetched is None:
+            # Stripped under -O as an assert, leaving `fetched[0]` to raise
+            # TypeError on None instead of naming what went wrong.
+            raise RuntimeError("PRAGMA user_version returned no row")
         current: int = fetched[0]
 
         if current == _SCHEMA_VERSION:

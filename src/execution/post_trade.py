@@ -197,10 +197,18 @@ class PostTradeAnalytics:
         return fill
 
     def _persist(self, fill: FillRecord) -> None:
-        """Persist fill record to DuckDB feature_log table."""
-        assert self._store is not None
+        """Persist fill record to DuckDB feature_log table.
+
+        No-op without a store. The one caller already checks, but an assert
+        is stripped by `python -O`, which would leave this dereferencing
+        None; guarding here makes the method correct on its own terms
+        rather than dependent on its caller remembering.
+        """
+        store = self._store
+        if store is None:
+            return
         try:
-            self._store.write_feature_log(
+            store.write_feature_log(
                 symbol=fill.symbol,
                 features={
                     "fill_ratio": fill.fill_ratio,
