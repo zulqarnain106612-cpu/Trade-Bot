@@ -407,7 +407,7 @@ def test_an_always_capped_kelly_is_reported_as_an_anomaly():
 def test_get_auditor_returns_one_process_wide_instance():
     from src.diagnostics import trade_auditor
 
-    trade_auditor._auditor = None
+    trade_auditor.get_auditor.cache_clear()
     first = trade_auditor.get_auditor()
 
     assert trade_auditor.get_auditor() is first

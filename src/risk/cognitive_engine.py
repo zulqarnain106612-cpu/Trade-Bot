@@ -32,6 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import lru_cache
 from typing import Final, Protocol
 
 import numpy as np
@@ -831,11 +832,14 @@ class CognitiveEngine:
 
 
 # ── Module-level singleton (safe for async use — evaluate() is stateless) ────
-_engine: CognitiveEngine | None = None
-
-
+@lru_cache(maxsize=1)
 def get_cognitive_engine() -> CognitiveEngine:
-    global _engine
-    if _engine is None:
-        _engine = CognitiveEngine()
-    return _engine
+    """Process-wide CognitiveEngine.
+
+    lru_cache rather than a module global under `global`: the read and the
+    assignment were two steps, so two callers arriving together could both
+    find it unset and both construct one, with the second silently replacing
+    the first. Same idiom as get_settings() in src/config.py, and it gives
+    tests cache_clear() instead of reaching for the global.
+    """
+    return CognitiveEngine()
