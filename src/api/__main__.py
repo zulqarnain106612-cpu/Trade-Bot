@@ -21,10 +21,15 @@ from __future__ import annotations
 import uvicorn
 
 from src.config import get_settings
+from src.logging_setup import configure_logging
 
 
 def main() -> None:
-    cfg = get_settings().api
+    settings = get_settings()
+    # Before uvicorn.run: everything this process logs, including startup,
+    # should already honour LOG_LEVEL and LOG_AS_JSON.
+    configure_logging(settings)
+    cfg = settings.api
     uvicorn.run(
         "src.api.main:app",
         host=cfg.host,
