@@ -98,17 +98,22 @@ jobs:
         # @tailwindcss/oxide-wasm32-wasi declares bundleDependencies, so its
         # six children are marked inBundle and carry no `resolved` or
         # `integrity` -- they ship inside the parent tarball, which is how npm
-        # records a bundled dependency. The endpoint cannot resolve them and
-        # rejects the whole request rather than skipping them.
+        # records a bundled dependency. The endpoint cannot resolve them.
         #
-        # --omit=optional would clear the error and is the wrong fix: it drops
-        # 106 packages, 12 of which do install on linux-x64 (sharp's libvips
-        # binaries, rolldown, lightningcss, tailwind's oxide). Losing CVE
-        # coverage on code that actually ships is worse than the bug.
+        # Two things this went through first, so nobody repeats them:
+        #   * `npm ci` before auditing does not help. npm derives the audit
+        #     tree from the lockfile whether or not node_modules exists.
+        #   * --omit=optional clears the error and drops 106 packages, 12 of
+        #     which do install on linux-x64 (sharp's libvips binaries,
+        #     rolldown, lightningcss, tailwind's oxide). Losing CVE coverage
+        #     on code that ships is worse than the bug.
         #
-        # So the bundled subtree is removed from a *copy* and everything else
-        # is audited as before. wasm32 is not an install target here, so
-        # nothing that ships loses coverage.
+        # So the bundled subtree is removed from a *copy* -- and, critically,
+        # so is the reference to it in @tailwindcss/oxide's
+        # optionalDependencies. Removing the packages while leaving the edge
+        # pointing at them is what made an earlier attempt at this pass once
+        # and then fail: npm resolves the edge, finds nothing, and calls the
+        # tree invalid.
         run: |
           mkdir -p "$RUNNER_TEMP/audit"
           cp package.json package-lock.json "$RUNNER_TEMP/audit/"
@@ -137,6 +142,15 @@ jobs:
           }
 
           const before = Object.keys(lock.packages).length;
+          // Only the bundler's own name. Its bundled children are nested
+          // inside it and were never resolvable from anywhere else, so no
+          // surviving edge points at them -- while their bare names (tslib,
+          // @emnapi/runtime) are also ordinary top-level packages that
+          // eleven other dependencies legitimately depend on. Pruning by
+          // child name severed those.
+          const removedNames = new Set(
+            bundlers.map(([name]) => name.replace(/^node_modules\//, ""))
+          );
           for (const [name] of bundlers) {
             for (const key of Object.keys(lock.packages)) {
               if (key === name || key.startsWith(name + "/")) {
@@ -144,8 +158,35 @@ jobs:
               }
             }
           }
-          const removed = before - Object.keys(lock.packages).length;
-          console.log(`removed ${removed} bundled entries; ${Object.keys(lock.packages).length} remain auditable`);
+
+          // Prune edges pointing at what was just removed. Leaving them is
+          // what makes npm call the tree invalid.
+          let prunedEdges = 0;
+          const EDGE_FIELDS = [
+            "dependencies",
+            "optionalDependencies",
+            "peerDependencies",
+            "devDependencies",
+          ];
+          for (const meta of Object.values(lock.packages)) {
+            for (const field of EDGE_FIELDS) {
+              const edges = meta[field];
+              if (!edges) continue;
+              for (const dep of Object.keys(edges)) {
+                if (removedNames.has(dep)) {
+                  delete edges[dep];
+                  prunedEdges++;
+                }
+              }
+              if (Object.keys(edges).length === 0) delete meta[field];
+            }
+          }
+
+          const remaining = Object.keys(lock.packages).length;
+          console.log(
+            `removed ${before - remaining} bundled entries and ${prunedEdges} dangling edges; ` +
+              `${remaining} remain auditable`
+          );
 
           fs.writeFileSync(path, JSON.stringify(lock, null, 2) + "\n");
           NODE
@@ -160,19 +201,28 @@ jobs:
         # report all of them as if the frontend had vulnerabilities:
         #
         #   1. high/critical advisories found -> a real verdict, must fail
-        #   2. 5xx from registry.npmjs.org    -> transient, worth retrying
+        #   2. registry unreachable           -> retried, then a warning:
+        #                                        a finding fails this job,
+        #                                        being unable to ask does not
         #   3. a rejected tree                -> no scan ran, so passing
         #                                        would be a lie
         #
         # npm writes "audit endpoint returned an error" for (2) and (3) and
         # nothing like it for (1), which is what separates a verdict from a
         # non-scan.
+        #
+        # Each attempt is bounded, and two of them rather than three. The
+        # audit endpoint is being retired and has been slow all day: a
+        # successful call takes seconds, a struggling one has taken up to six
+        # minutes, and unbounded attempts held every PR in the queue for
+        # twenty. 300s is comfortably above the observed success latency and
+        # caps the job at ten minutes.
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2; do
             # `| tee` would make the pipeline status tee's own 0, so the
             # audit result has to be read before anything else runs.
             set +e
-            npm audit --audit-level=high > audit.log 2>&1
+            timeout 300 npm audit --audit-level=high > audit.log 2>&1
             status=$?
             set -e
             cat audit.log
@@ -181,13 +231,19 @@ jobs:
               exit 0
             fi
 
+            if [ "$status" -eq 124 ]; then
+              echo "npm audit attempt ${attempt}: timed out after 300s, retrying."
+              sleep $((attempt * 15))
+              continue
+            fi
+
             if ! grep -q "audit endpoint returned an error" audit.log; then
               echo "::error::npm audit reported high or critical advisories."
               exit 1
             fi
 
             if grep -q "Invalid package tree" audit.log; then
-              echo "::error::The audit endpoint rejected the tree even after the bundled subtree was removed, so no CVE scan ran. See the comment on the previous step."
+              echo "::error::The audit endpoint rejected the tree even after the bundled subtree and its dangling edges were removed, so no CVE scan ran. See the comment on the previous step."
               exit 1
             fi
 
@@ -195,8 +251,18 @@ jobs:
             sleep $((attempt * 15))
           done
 
-          echo "::error::npm audit could not reach the registry after 3 attempts."
-          exit 1
+          # Warning, not error. A finding fails this job; being unable to ask
+          # does not. The endpoint npm uses here is being retired and has
+          # been alternately instant, 503, and hanging past 300s within the
+          # same hour -- failing every PR in the repository on that is the
+          # exact "fails closed on someone else's registry outage" problem
+          # this file's header gives as the reason Semgrep is not reinstated.
+          #
+          # This is not a coverage gap: .github/dependabot.yml watches
+          # /frontend for npm advisories independently of this job and opens
+          # PRs for them, so an outage here delays a duplicate check rather
+          # than removing the only one.
+          echo "::warning::npm audit could not reach the registry after 2 attempts -- no CVE scan ran this time. Dependabot still watches /frontend independently."
 
   secrets:
     name: TruffleHog (secret scan)
