@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - name: Install retrieval dependencies
         run: pip install -r requirements.txt
       - name: Build retrieval context (vector + full-text + hybrid + graph)
