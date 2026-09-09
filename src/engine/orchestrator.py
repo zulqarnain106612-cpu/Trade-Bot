@@ -693,6 +693,32 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     async def _tick(self, tf: Timeframe) -> None:
+        """Run one signal cycle under a fresh trace id.
+
+        Everything a tick reaches -- the signal engine, the executor, the
+        order manager, the router -- logs through structlog, and until now
+        nothing tied those lines together. Reconstructing which order came
+        from which signal meant reading timestamps and guessing, and the
+        several timeframe loops run concurrently, so the guess is wrong
+        whenever two ticks overlap. That is the LAW7 finding on this file.
+
+        contextvars rather than a threaded-through argument: each timeframe
+        loop is its own asyncio task with its own context, so the binding
+        cannot leak between concurrent ticks, and no intermediate function
+        has to carry a parameter it does not use. configure_logging() puts
+        merge_contextvars first in the chain, which is what makes the bound
+        values appear on every downstream event.
+        """
+        trace_id = uuid.uuid4().hex[:16]
+        structlog.contextvars.bind_contextvars(trace_id=trace_id, timeframe=tf.value)
+        try:
+            await self._tick_traced(tf)
+        finally:
+            # Unbind rather than clear: clear_contextvars() would also drop
+            # anything an outer scope bound around this loop.
+            structlog.contextvars.unbind_contextvars("trace_id", "timeframe")
+
+    async def _tick_traced(self, tf: Timeframe) -> None:
         """Execute one signal cycle for the given timeframe."""
         engine = self._engines.get(tf.value)
         if engine is None:

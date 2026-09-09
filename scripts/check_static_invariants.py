@@ -1035,7 +1035,9 @@ _WALL_CLOCK_ARITHMETIC_ALLOWED = {
     # Same: compared against the macro release date parsed from the provider.
     ("src/data/quality_gate.py", "check_macro"),
     # since_ms is an exchange API parameter and must be a real epoch time.
-    ("src/engine/orchestrator.py", "_tick"),
+    # _tick_traced, not _tick: the tick body moved there when _tick became the
+    # wrapper that binds the trace id.
+    ("src/engine/orchestrator.py", "_tick_traced"),
 }
 
 
