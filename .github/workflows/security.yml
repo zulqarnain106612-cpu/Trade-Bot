@@ -31,6 +31,7 @@ jobs:
   bandit:
     name: Bandit (Python SAST)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -52,6 +53,7 @@ jobs:
   pip-audit:
     name: pip-audit (Python CVE scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -78,6 +80,7 @@ jobs:
   npm-audit:
     name: npm audit (frontend CVE scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -267,6 +270,7 @@ jobs:
   secrets:
     name: TruffleHog (secret scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 

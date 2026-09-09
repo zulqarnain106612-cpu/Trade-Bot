@@ -4,15 +4,29 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Least privilege at the top: retrieve-context only reads the repository. The
+# write scopes this workflow needs to post a review are granted on the one job
+# that posts it, rather than to every job in the file.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  id-token: write
+
+concurrency:
+  # Keyed on the PR, not the ref, and superseding is the point: pushing three
+  # times to a PR queued three full reviews, each of which read the diff it was
+  # started for and posted its own comment. Only the review of the current head
+  # is worth paying for or reading.
+  group: claude-review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   retrieve-context:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A pull request from a fork gets no access to secrets, so MONGODB_URI
+    # would be empty and the retrieval would fail on connection rather than on
+    # anything about the code. Skip the whole workflow there instead of
+    # reporting infrastructure noise as a review.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v7
         with:
@@ -20,6 +34,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: pip
       - name: Install retrieval dependencies
         run: pip install -r requirements.txt
       - name: Build retrieval context (vector + full-text + hybrid + graph)
@@ -34,10 +49,26 @@ jobs:
         with:
           name: review-context
           path: context.json
+          # Without this the step warns and passes when build_context wrote
+          # nothing, and the review job then downloads an empty artifact and
+          # reviews the diff ungrounded -- the one thing this workflow exists
+          # to avoid -- with no signal that it happened.
+          if-no-files-found: error
+          # Retrieval context for a single PR review. It is superseded by the
+          # next push and has no value once the PR is merged.
+          retention-days: 7
 
   claude-review:
     needs: retrieve-context
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Posting the review comment.
+      pull-requests: write
+      issues: write
+      # OIDC for anthropics/claude-code-action.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
