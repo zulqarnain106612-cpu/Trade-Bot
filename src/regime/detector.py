@@ -820,5 +820,9 @@ class RegimeDetector:
         obs = features[HMM_FEATURE_COLS]
         if obs.isna().any().any():
             raise ValueError("Observation matrix contains NaN — drop NaN rows before inference.")
-        assert self._scaler is not None
-        return self._scaler.transform(obs.to_numpy(dtype=np.float64))
+        # _require_fitted() rather than an assert: `python -O` strips asserts,
+        # and this one covered less than the helper already does. Transforming
+        # with a scaler while _fitted is False, or while _model is None, is the
+        # same "not fitted" mistake and now gets the same clear RuntimeError.
+        _, scaler = self._require_fitted()
+        return scaler.transform(obs.to_numpy(dtype=np.float64))

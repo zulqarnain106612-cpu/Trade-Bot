@@ -22,6 +22,7 @@ import gc
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Final
 
 import structlog
@@ -340,11 +341,15 @@ class RuntimeMonitor:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_monitor: RuntimeMonitor | None = None
 
-
+@lru_cache(maxsize=1)
 def get_monitor() -> RuntimeMonitor:
-    global _monitor
-    if _monitor is None:
-        _monitor = RuntimeMonitor()
-    return _monitor
+    """Process-wide RuntimeMonitor.
+
+    lru_cache rather than a module global under `global`: the read and the
+    assignment were two steps, so two callers arriving together could both
+    find it unset and both construct one, with the second silently replacing
+    the first. Same idiom as get_settings() in src/config.py, and it gives
+    tests cache_clear() instead of reaching for the global.
+    """
+    return RuntimeMonitor()

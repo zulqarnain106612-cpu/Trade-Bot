@@ -29,6 +29,7 @@ Authority:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Protocol, runtime_checkable
 
 import structlog
@@ -129,12 +130,14 @@ class StrategyRegistry:
         return strategy_id in self._strategies
 
 
-_default_registry: StrategyRegistry | None = None
-
-
+@lru_cache(maxsize=1)
 def get_default_registry() -> StrategyRegistry:
-    """Process-wide default registry, lazily constructed."""
-    global _default_registry
-    if _default_registry is None:
-        _default_registry = StrategyRegistry()
-    return _default_registry
+    """Process-wide default registry, lazily constructed.
+
+    lru_cache rather than a module global under `global`: the read and the
+    assignment were two steps, so two callers arriving together could both
+    find it unset and both construct one, with the second silently replacing
+    the first. Same idiom as get_settings() in src/config.py, and it gives
+    tests cache_clear() instead of reaching for the global.
+    """
+    return StrategyRegistry()
