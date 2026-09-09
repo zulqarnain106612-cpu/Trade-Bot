@@ -11,10 +11,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Same rule as ci.yml: superseding a PR push is free, superseding a merge on
+  # main is not -- a cancelled analysis leaves that commit with no code
+  # scanning verdict at all.
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       security-events: write
       actions: read
@@ -22,7 +30,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python, javascript, javascript-typescript]
+        # `javascript` is an alias of `javascript-typescript`, not a narrower
+        # scope -- CodeQL resolves both to the same extractor over the same
+        # files. Listing both ran the identical analysis twice per event and
+        # uploaded two SARIFs of the same results under two categories. Each
+        # of the last runs' duplicate pair cost ~2 minutes for nothing.
+        language: [python, javascript-typescript]
 
     steps:
       - uses: actions/checkout@v7
