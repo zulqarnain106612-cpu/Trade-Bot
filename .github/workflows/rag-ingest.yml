@@ -34,7 +34,15 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install ingestion dependencies
-        run: pip install -r requirements.txt
+        run: |
+          # torch is a hard runtime dependency, and PyPI's default torch wheel
+          # bundles the CUDA stack -- the wheel plus its nvidia-* dependencies
+          # are several GB, on runners that have no GPU. That is what exhausted
+          # the disk here ("[Errno 28] No space left on device"). Installing the
+          # CPU build first from PyTorch's own index satisfies the requirement,
+          # so the pass below reuses it instead of resolving the CUDA one.
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          pip install -r requirements.txt
       - name: Ingest repository into Atlas
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
