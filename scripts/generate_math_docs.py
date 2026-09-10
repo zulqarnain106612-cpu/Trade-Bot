@@ -22,8 +22,13 @@ import argparse
 import sys
 from pathlib import Path
 
+# Anchor the repo root on __file__ inside the insert itself. Running this as
+# `python scripts/generate_math_docs.py` puts scripts/ on sys.path, never the
+# repo root, so the first-party import below would fail from anywhere but the
+# root. tests/test_scripts_path_bootstrap.py enforces this shape.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.mathcore.registry import MathRegistry, RegistryEntry, load_registry  # noqa: E402
 
