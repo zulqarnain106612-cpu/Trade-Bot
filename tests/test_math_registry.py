@@ -218,6 +218,79 @@ class TestLoaderRejectsDrift:
             load_registry(self._write(tmp_path, raw))
 
 
+class TestSemanticChecksInIsolation:
+    """
+    The rejections the JSON Schema masks.
+
+    load_registry validates structure before semantics, so several checks in
+    _check_semantics can never fire through the public entry point -- the
+    schema rejects the same document first. They are defence in depth: the
+    schema and the semantic pass are separate layers, and a schema relaxed
+    later must not silently take these with it. Exercising them directly is
+    the only way to prove they still work.
+    """
+
+    def raw_with(self, entries: list[dict]) -> dict:
+        return {
+            "domains": ["algebra"],
+            "verdict_definitions": {"load_bearing": "x" * 25, "folklore": "y" * 25},
+            "entries": entries,
+        }
+
+    def entry(self, **overrides) -> dict:
+        base = {
+            "id": "thing",
+            "name": "Thing",
+            "domain": "algebra",
+            "verdict": "load_bearing",
+            "role": "r" * 40,
+            "used_by": ["something"],
+            "repo_relevance": "none",
+            "status": "planned",
+        }
+        base.update(overrides)
+        return base
+
+    def check(self, entries: list[dict]) -> None:
+        from src.mathcore.registry import RegistryEntry, _check_semantics
+
+        raw = self.raw_with(entries)
+        _check_semantics(raw, [RegistryEntry.from_dict(e) for e in entries])
+
+    def test_unknown_verdict_is_rejected(self):
+        entry = self.entry(verdict="vibes")
+        with pytest.raises(RegistryError, match="no definition in verdict_definitions"):
+            self.check([entry])
+
+    def test_implemented_entry_with_no_owner_is_rejected(self):
+        entry = self.entry(status="implemented", wiring=[])
+        with pytest.raises(RegistryError, match="names no owning module"):
+            self.check([entry])
+
+    def test_implemented_entry_with_several_owners_is_rejected(self):
+        entry = self.entry(
+            status="implemented",
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "scripts/generate_math_docs.py", "kind": "owner"},
+            ],
+        )
+        with pytest.raises(RegistryError, match="claims several owners"):
+            self.check([entry])
+
+    def test_folklore_marked_implemented_is_rejected_by_the_semantic_pass(self):
+        # Unreachable through load_registry: the schema forbids this pairing
+        # first. Tested here so the second layer is known to work if the first
+        # is ever relaxed.
+        entry = self.entry(
+            verdict="folklore",
+            status="implemented",
+            wiring=[{"module": "src/mathcore/registry.py", "kind": "owner"}],
+        )
+        with pytest.raises(RegistryError, match="folklore"):
+            self.check([entry])
+
+
 class TestQueryApi:
     def test_get_returns_the_entry(self, registry):
         assert registry.get("ntt").name.startswith("Number-theoretic")
@@ -239,6 +312,18 @@ class TestQueryApi:
         dependents = {e.id for e in registry.dependents_of("finite-fields")}
         assert "cyclic-groups-dlp" in dependents
 
+    def test_by_relevance_filters_on_the_repo_relevance_field(self, registry):
+        security = registry.by_relevance("security")
+        assert security, "no security-relevant entries; the filter proves nothing"
+        assert all(e.repo_relevance == "security" for e in security)
+        assert not registry.by_relevance("not-a-relevance")
+
+    def test_consumers_lists_only_consumer_wiring(self, registry):
+        entry = registry.get("elliptic-curves")
+        assert entry.consumers, "expected consumer wiring on this entry"
+        assert all(w.kind == "consumer" for w in entry.consumers)
+        assert all(w.kind == "owner" for w in entry.owners)
+
     def test_owned_by_finds_the_owning_entry(self, registry):
         owned = registry.owned_by("src/mathcore/fields/ntt.py")
         assert {e.id for e in owned} == {"ntt"}
@@ -248,6 +333,21 @@ class TestQueryApi:
         # governance control.
         with pytest.raises(dataclasses.FrozenInstanceError):
             registry.get("ntt").verdict = "folklore"  # type: ignore[misc]
+
+
+class TestDefaultRegistry:
+    def test_returns_a_loaded_registry(self):
+        from src.mathcore.registry import default_registry
+
+        default_registry.cache_clear()
+        assert len(default_registry()) > 0
+
+    def test_is_cached_so_validation_runs_once_per_process(self):
+        from src.mathcore.registry import default_registry
+
+        default_registry.cache_clear()
+        assert default_registry() is default_registry()
+        default_registry.cache_clear()
 
 
 class TestDocumentationIsInSync:
