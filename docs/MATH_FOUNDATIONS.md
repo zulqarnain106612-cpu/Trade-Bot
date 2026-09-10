@@ -566,14 +566,14 @@ Constants derived from a published formula so that no backdoor can hide in them.
 - **References:** FIPS 180-4, RFC 7539, Bernstein et al., How to manipulate curve standards
 
 #### Pi where it is structural rather than decorative
-`pi-structural-uses` — **LOAD-BEARING** · relevance: security · status: planned
+`pi-structural-uses` — **LOAD-BEARING** · relevance: security · status: implemented
 
 In the discrete Gaussian exp(-pi|x|^2/s^2) the pi is not cosmetic: it makes the Gaussian self-dual under the Fourier transform, which is the property Poisson summation needs for the smoothing-parameter argument.
 
 - **Used by:** ML-KEM security analysis, ML-DSA, Falcon
 - **Risk if misused:** Dropping the pi from the Gaussian definition when porting a formula changes the width by a constant factor and silently moves the scheme below its smoothing parameter.
 - **Depends on:** `poisson-summation-smoothing`
-- **Consumed by:** `src/mathcore/harmonic/gaussian_lattice.py`
+- **Owned by:** `src/mathcore/harmonic/gaussian_lattice.py`
 
 #### e and the prime number theorem
 `e-prime-density` — **LOAD-BEARING** · status: not_applicable
