@@ -130,7 +130,7 @@ Makes signature aggregation and constant-size polynomial commitments possible by
 - **References:** IETF draft-irtf-cfrg-pairing-friendly-curves, EIP-4844
 
 #### Lattices and module algebra over polynomial rings
-`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: planned
+`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness base of the standardised post-quantum schemes: arithmetic in Z_q[x]/(x^n+1) with Learning With Errors as the assumption.
 
@@ -370,7 +370,7 @@ Defines S-box nonlinearity, correlation immunity and bent functions. It is the m
 - **Owned by:** `src/mathcore/harmonic/walsh_hadamard.py`
 
 #### Poisson summation and the lattice smoothing parameter
-`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: planned
+`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Fourier series on a lattice: it is how the discrete Gaussian is shown to behave like a continuous one above the smoothing parameter, which is the step every lattice security proof depends on.
 
