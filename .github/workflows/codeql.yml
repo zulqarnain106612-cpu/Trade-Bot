@@ -43,7 +43,7 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           # Pass the language for this matrix run
-          language: ${{ matrix.language }}
+          languages: ${{ matrix.language }}
           # Use the recommended query pack; adjust if you have custom queries
           queries: security-and-quality
 
@@ -51,7 +51,7 @@ jobs:
       # These are intentionally simple; adapt to your repo's build commands.
       - name: Set up Python (if needed)
         if: matrix.language == 'python'
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
