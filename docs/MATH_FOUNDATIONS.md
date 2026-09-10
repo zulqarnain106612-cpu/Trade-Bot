@@ -69,13 +69,14 @@ being used to predict prices, it is numerology.
 ## Algebra
 
 #### Finite fields GF(p) and GF(2^n)
-`finite-fields` — **LOAD-BEARING** · relevance: security · status: planned
+`finite-fields` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Provides the arithmetic every symmetric and asymmetric primitive is defined over. The AES S-box is multiplicative inversion in GF(2^8) followed by an affine map; every elliptic curve in use is defined over a prime field.
 
 - **Used by:** AES, secp256k1, Curve25519, ML-KEM, AES-GCM, Plonk, STARKs
 - **Risk if misused:** A field implementation with a data-dependent branch or a non-constant-time reduction leaks the secret scalar through timing, which turns a correct algorithm into a key-recovery oracle.
-- **Owned by:** `src/mathcore/fields/prime_field.py`, `src/mathcore/fields/binary_field.py`
+- **Owned by:** `src/mathcore/fields/__init__.py`
+- **Implemented by:** `src/mathcore/fields/prime_field.py`, `src/mathcore/fields/binary_field.py`
 - **Consumed by:** `src/mathcore/curves/secp256k1.py`
 - **References:** FIPS 197, SEC 2 v2
 
@@ -129,7 +130,7 @@ Makes signature aggregation and constant-size polynomial commitments possible by
 - **References:** IETF draft-irtf-cfrg-pairing-friendly-curves, EIP-4844
 
 #### Lattices and module algebra over polynomial rings
-`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: planned
+`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness base of the standardised post-quantum schemes: arithmetic in Z_q[x]/(x^n+1) with Learning With Errors as the assumption.
 
@@ -216,7 +217,7 @@ Choosing p = 2q+1 with q prime removes the small subgroups that would otherwise 
 - **References:** RFC 7919
 
 #### Pseudo-Mersenne and Solinas field primes
-`pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 Field primes of the shape 2^k - c admit reduction by shift-and-add instead of division, which is why these curves are fast enough for per-transaction verification.
 
@@ -348,7 +349,7 @@ The second half of the Baillie-PSW primality test. This is the one place where a
 ## Fourier and harmonic analysis
 
 #### Number-theoretic transform
-`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 The FFT carried out over a finite field. It turns polynomial multiplication from quadratic to n log n, which is what makes lattice cryptography and succinct proofs fast enough to deploy.
 
@@ -360,7 +361,7 @@ The FFT carried out over a finite field. It turns polynomial multiplication from
 - **References:** FIPS 203 Algorithm 9
 
 #### Walsh-Hadamard transform (Fourier analysis on the Boolean cube)
-`walsh-hadamard` — **LOAD-BEARING** · status: planned
+`walsh-hadamard` — **LOAD-BEARING** · status: implemented
 
 Defines S-box nonlinearity, correlation immunity and bent functions. It is the measurement that says whether a substitution box resists linear cryptanalysis.
 
@@ -369,7 +370,7 @@ Defines S-box nonlinearity, correlation immunity and bent functions. It is the m
 - **Owned by:** `src/mathcore/harmonic/walsh_hadamard.py`
 
 #### Poisson summation and the lattice smoothing parameter
-`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: planned
+`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Fourier series on a lattice: it is how the discrete Gaussian is shown to behave like a continuous one above the smoothing parameter, which is the step every lattice security proof depends on.
 
@@ -392,7 +393,7 @@ Period finding by quantum Fourier transform breaks factoring and discrete logari
 - **References:** Shor 1997, NIST IR 8547
 
 #### Spectral analysis of side channels
-`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: planned
+`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Power, electromagnetic and timing traces are correlated in the frequency domain; the FFT is what makes differential power analysis tractable over long traces.
 

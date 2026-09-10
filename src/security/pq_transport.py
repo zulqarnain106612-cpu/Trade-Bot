@@ -1,6 +1,15 @@
 """
 Quantum-safe transport stub — Kyber-768 / ML-KEM (Part II §9.5).
 
+⚠️  THIS IS NOT A WORKING KEM. It performs no key encapsulation, derives no
+shared secret, and provides no confidentiality against any adversary, quantum
+or classical. Every operational method raises rather than returning a value,
+so it cannot be mistaken at runtime for transport security — calling it fails
+loudly instead of returning a fake secret. It exists to document the migration
+path and to pin the FIPS 203 parameters (see ``validate_parameters``), nothing
+more. Do not wire it into a handshake until its body is replaced by a vetted
+ML-KEM implementation (liboqs-python or equivalent).
+
 NOT for immediate deployment — infrastructure stub + documentation.
 
 Quantum threat context:
@@ -46,7 +55,12 @@ class KyberCiphertext:
 
 class PQTransportStub:
     """
-    Stub for Kyber-768 key encapsulation.
+    Stub for Kyber-768 key encapsulation — inert by construction.
+
+    Not a KEM: keygen/encapsulate/decapsulate all raise. The one thing it can
+    honestly do is confirm its declared parameters are the real FIPS 203
+    ML-KEM-768 set, via :meth:`validate_parameters`, so a future wiring starts
+    from checked constants rather than copied ones.
 
     When liboqs-python is available, replace the body of each method
     with oqs.KeyEncapsulation("Kyber768") calls.
@@ -72,6 +86,26 @@ class PQTransportStub:
                 "Kyber-768 not yet wired: install liboqs-python and set "
                 "PQTransportStub._AVAILABLE = True. See src/security/pq_transport.py."
             )
+
+    # The declared Kyber-768 / ML-KEM-768 parameters, kept here so the stub and
+    # any eventual implementation agree on constants.
+    PARAMETERS = {"k": 3, "eta1": 2, "eta2": 2, "du": 10, "dv": 4}
+
+    @classmethod
+    def validate_parameters(cls) -> None:
+        """
+        Confirm this stub's declared parameters are the real FIPS 203 set.
+
+        The one operation the stub can perform honestly: it cannot encapsulate,
+        but it can prove the constants it would use are ML-KEM-768's, by
+        checking them through :func:`src.mathcore.fields.ntt.validate_kem_parameters`.
+        Raises if they have drifted. This is deliberately not a substitute for
+        the real thing -- validated parameters on an inert stub still encrypt
+        nothing -- but it means a future wiring starts from checked constants.
+        """
+        from src.mathcore.fields.ntt import validate_kem_parameters
+
+        validate_kem_parameters("ML-KEM-768", cls.PARAMETERS)
 
     @staticmethod
     def is_quantum_threat_imminent() -> bool:
