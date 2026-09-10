@@ -413,7 +413,7 @@ Schoenhage-Strassen and its successors make very large modular arithmetic practi
 ## Probability and information theory
 
 #### Birthday bound
-`birthday-bound` — **LOAD-BEARING** · relevance: security · status: planned
+`birthday-bound` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Sets collision resistance at half the digest length and governs how often a nonce or IV may be reused before collision becomes likely.
 
@@ -423,7 +423,7 @@ Sets collision resistance at half the digest length and governs how often a nonc
 - **References:** NIST SP 800-107
 
 #### Shannon entropy and min-entropy
-`shannon-entropy` — **LOAD-BEARING** · relevance: security · status: planned
+`shannon-entropy` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The measure that decides whether a seed, a nonce or a key is actually unpredictable. Min-entropy, not Shannon entropy, is the correct measure for key material because the adversary guesses the most likely value first.
 
@@ -433,7 +433,7 @@ The measure that decides whether a seed, a nonce or a key is actually unpredicta
 - **References:** NIST SP 800-90B
 
 #### Poisson block arrival
-`poisson-block-arrival` — **LOAD-BEARING** · relevance: strategy · status: planned
+`poisson-block-arrival` — **LOAD-BEARING** · relevance: strategy · status: implemented
 
 Proof-of-work block discovery is a memoryless process, so inter-arrival times are exponential. Every confirmation-time estimate and every difficulty-adjustment control loop rests on this.
 
@@ -444,7 +444,7 @@ Proof-of-work block discovery is a memoryless process, so inter-arrival times ar
 - **References:** Nakamoto 2008 section 11
 
 #### Gambler's ruin and double-spend probability
-`gamblers-ruin-doublespend` — **LOAD-BEARING** · relevance: strategy · status: planned
+`gamblers-ruin-doublespend` — **LOAD-BEARING** · relevance: strategy · status: implemented
 
 The random-walk argument that gives the probability an attacker with hash-rate fraction q catches up from z blocks behind. This is the actual mathematics behind 'wait six confirmations'.
 

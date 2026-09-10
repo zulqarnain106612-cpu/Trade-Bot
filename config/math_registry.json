@@ -869,7 +869,7 @@
         "Merkle tree security"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/birthday.py",
@@ -893,7 +893,7 @@
         "NIST SP 800-90B health tests"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/entropy.py",
@@ -917,7 +917,7 @@
         "every Nakamoto-style chain"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/confirmations.py",
@@ -945,7 +945,7 @@
         "exchange deposit-crediting policy"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/confirmations.py",
