@@ -625,7 +625,7 @@ Derives an unbounded key tree from one seed using HMAC-SHA512 and scalar additio
 - **References:** BIP-32, BIP-44, SLIP-0010
 
 #### RFC 6979 deterministic nonce generation
-`rfc6979-deterministic-nonces` — **LOAD-BEARING** · relevance: security · status: planned
+`rfc6979-deterministic-nonces` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Derives the ECDSA nonce deterministically from the key and message, removing the RNG from the signing path entirely and with it the entire biased-nonce attack class.
 

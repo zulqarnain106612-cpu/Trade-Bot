@@ -1367,7 +1367,7 @@
         "most modern signing libraries"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/security/api_signer.py",
