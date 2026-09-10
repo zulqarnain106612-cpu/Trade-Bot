@@ -513,7 +513,7 @@ Proves a committed vector is close to a low-degree polynomial without a trusted 
 ## Geometry, lattices and graphs
 
 #### LLL and BKZ lattice reduction
-`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: planned
+`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 The workhorse of practical lattice attacks. Sets the concrete security of every lattice scheme and, combined with the hidden number problem, recovers ECDSA keys from biased nonces.
 

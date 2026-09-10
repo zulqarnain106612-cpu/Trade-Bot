@@ -1109,7 +1109,7 @@
         "Coppersmith attacks on RSA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/lll.py",
