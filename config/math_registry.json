@@ -1,0 +1,1640 @@
+{
+  "registry_version": "1.0.0",
+  "generated_by": "docs/MATH_FOUNDATIONS.md authoring pass; validated by tests/test_math_registry.py",
+  "verdict_definitions": {
+    "load_bearing": "Removing it breaks a security proof or a protocol outright. The object is not decorative and cannot be substituted for another of similar size.",
+    "performance_critical": "The security argument survives without it, but the system becomes too slow to ship. Substitutable in principle, not in practice.",
+    "attack_surface": "The object is how the system is broken rather than how it is built. Tracked so that defences against it are explicit rather than incidental.",
+    "provenance_only": "The specific value carries no mathematical weight; it is chosen to be publicly re-derivable so that a backdoor cannot hide in it. Any other publicly derivable constant of the same size would do.",
+    "folklore": "Claimed to matter and does not. No surviving out-of-sample evidence, or no mechanism at all. Recorded here so the claim is refuted once rather than re-argued every time it resurfaces."
+  },
+  "domains": [
+    "algebra",
+    "number_theory",
+    "harmonic_analysis",
+    "probability_information",
+    "coding_theory",
+    "geometry_graphs",
+    "constants",
+    "protocol_primitives",
+    "numerology"
+  ],
+  "entries": [
+    {
+      "id": "finite-fields",
+      "name": "Finite fields GF(p) and GF(2^n)",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "Provides the arithmetic every symmetric and asymmetric primitive is defined over. The AES S-box is multiplicative inversion in GF(2^8) followed by an affine map; every elliptic curve in use is defined over a prime field.",
+      "used_by": [
+        "AES",
+        "secp256k1",
+        "Curve25519",
+        "ML-KEM",
+        "AES-GCM",
+        "Plonk",
+        "STARKs"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/fields/prime_field.py",
+          "kind": "owner",
+          "note": "F_p arithmetic with Barrett and Montgomery reduction"
+        },
+        {
+          "module": "src/mathcore/fields/binary_field.py",
+          "kind": "owner",
+          "note": "GF(2^n) for GCM and S-box analysis"
+        },
+        {
+          "module": "src/mathcore/curves/secp256k1.py",
+          "kind": "consumer"
+        }
+      ],
+      "risk_if_misused": "A field implementation with a data-dependent branch or a non-constant-time reduction leaks the secret scalar through timing, which turns a correct algorithm into a key-recovery oracle.",
+      "references": [
+        "FIPS 197",
+        "SEC 2 v2"
+      ]
+    },
+    {
+      "id": "cyclic-groups-dlp",
+      "name": "Cyclic groups and the discrete logarithm problem",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security is exactly the difficulty of recovering x from g^x in a group of large prime order.",
+      "used_by": [
+        "Diffie-Hellman",
+        "ECDSA",
+        "Schnorr/BIP-340",
+        "Ed25519"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/curves/secp256k1.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/ecc/ecdsa_scan.py",
+          "kind": "consumer"
+        }
+      ],
+      "risk_if_misused": "A group whose order has small factors admits Pohlig-Hellman decomposition, reducing a 256-bit problem to several small ones and recovering the key in practice.",
+      "depends_on": [
+        "finite-fields"
+      ],
+      "references": [
+        "SEC 1 v2",
+        "FIPS 186-5"
+      ]
+    },
+    {
+      "id": "elliptic-curves",
+      "name": "Elliptic curves over finite fields",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "Supplies the group in which the discrete logarithm is hard at 256-bit key sizes rather than 3072-bit ones. Every signature this project verifies or produces lives on one.",
+      "used_by": [
+        "Bitcoin secp256k1",
+        "Ethereum secp256k1",
+        "Solana Ed25519",
+        "Monero",
+        "TLS P-256"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/curves/secp256k1.py",
+          "kind": "owner",
+          "note": "curve parameters and verification-only point arithmetic"
+        },
+        {
+          "module": "src/ecc/ecdsa_scan.py",
+          "kind": "consumer",
+          "note": "already parses DER signatures and detects r-reuse"
+        },
+        {
+          "module": "src/ecc/schnorr_taproot.py",
+          "kind": "consumer",
+          "note": "BIP-340 and MuSig2 cosigner detection"
+        }
+      ],
+      "risk_if_misused": "Point arithmetic that does not validate an input point lies on the curve accepts an invalid-curve point and leaks the private scalar over repeated queries.",
+      "depends_on": [
+        "finite-fields",
+        "cyclic-groups-dlp"
+      ],
+      "references": [
+        "SEC 2 v2",
+        "RFC 8032",
+        "BIP-340"
+      ],
+      "notes": "Status describes the owning mathcore module, which does not exist yet. Elliptic curves are already in production use through the consumers listed here; what is planned is a single owned implementation of curve parameters and verification-only point arithmetic, so those consumers stop each carrying their own."
+    },
+    {
+      "id": "edwards-curves",
+      "name": "Twisted Edwards curves and Ed25519",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "A curve form with a complete addition law, so there is no special case for doubling or for the identity and therefore no branch for an attacker to time. Ed25519 also fixes the nonce deterministically by construction.",
+      "used_by": [
+        "Ed25519",
+        "Solana",
+        "Monero",
+        "SSH host keys",
+        "this project's API request signing"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/curves/ed25519.py",
+          "kind": "owner",
+          "note": "parameters and verification helpers"
+        },
+        {
+          "module": "src/security/api_signer.py",
+          "kind": "consumer",
+          "note": "Ed25519 request signing, already in use"
+        }
+      ],
+      "risk_if_misused": "Ed25519 has a cofactor of 8, so signature verification that does not follow one consistent convention can accept a signature another implementation rejects. For consensus-relevant checks this disagreement is a chain split, not a cosmetic difference.",
+      "depends_on": [
+        "elliptic-curves"
+      ],
+      "references": [
+        "RFC 8032",
+        "Chalkias et al. 2020, Taming the many EdDSAs"
+      ]
+    },
+    {
+      "id": "bilinear-pairings",
+      "name": "Bilinear pairings (Weil, Tate, ate)",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "Makes signature aggregation and constant-size polynomial commitments possible by turning a multiplicative relation in one group into an equality check in a target group.",
+      "used_by": [
+        "BLS12-381",
+        "Ethereum consensus BLS aggregation",
+        "KZG commitments",
+        "EIP-4844"
+      ],
+      "repo_relevance": "analytics",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/curves/bls12_381.py",
+          "kind": "owner",
+          "note": "parameters and verification of aggregate signatures only"
+        }
+      ],
+      "risk_if_misused": "A curve with a small embedding degree collapses the elliptic-curve DLP into a finite-field DLP via the MOV reduction, destroying the security margin.",
+      "depends_on": [
+        "elliptic-curves"
+      ],
+      "references": [
+        "IETF draft-irtf-cfrg-pairing-friendly-curves",
+        "EIP-4844"
+      ]
+    },
+    {
+      "id": "lattices-module-algebra",
+      "name": "Lattices and module algebra over polynomial rings",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "The hardness base of the standardised post-quantum schemes: arithmetic in Z_q[x]/(x^n+1) with Learning With Errors as the assumption.",
+      "used_by": [
+        "ML-KEM (Kyber)",
+        "ML-DSA (Dilithium)",
+        "Falcon",
+        "NTRU"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/harmonic/gaussian_lattice.py",
+          "kind": "owner",
+          "note": "discrete Gaussian and smoothing-parameter checks"
+        },
+        {
+          "module": "src/security/pq_transport.py",
+          "kind": "consumer",
+          "note": "currently an explicit Kyber-768 placeholder, not a working KEM"
+        }
+      ],
+      "risk_if_misused": "Sampling error terms from a distribution that is not the intended discrete Gaussian breaks the worst-case-to-average-case reduction, so the scheme has no proof left even though it still interoperates.",
+      "references": [
+        "FIPS 203",
+        "FIPS 204"
+      ],
+      "notes": "src/security/pq_transport.py is documented in-tree as a placeholder. Registering this entry as 'planned' rather than 'implemented' is the honest state; treating the placeholder as a KEM would be the single most dangerous misreading in this repository."
+    },
+    {
+      "id": "linear-algebra-f2",
+      "name": "Linear algebra over F_2",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "The language of linear and differential cryptanalysis and of diffusion design; MixColumns is a matrix multiplication chosen for its branch number.",
+      "used_by": [
+        "AES MixColumns",
+        "linear cryptanalysis",
+        "MDS matrix construction"
+      ],
+      "repo_relevance": "none",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/coding/mds.py",
+          "kind": "owner"
+        }
+      ],
+      "depends_on": [
+        "finite-fields"
+      ]
+    },
+    {
+      "id": "galois-field-gcm",
+      "name": "GF(2^128) multiplication in Galois/Counter Mode",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "GHASH authentication is polynomial evaluation in GF(2^128) modulo x^128+x^7+x^2+x+1. Every TLS record this bot exchanges with an exchange is authenticated this way.",
+      "used_by": [
+        "AES-GCM",
+        "TLS 1.3",
+        "every exchange REST and WebSocket session"
+      ],
+      "repo_relevance": "security",
+      "status": "not_applicable",
+      "risk_if_misused": "Reusing an IV under one GCM key reveals the authentication subkey and lets an attacker forge arbitrary authenticated messages; this is a total break, not a degradation.",
+      "depends_on": [
+        "finite-fields"
+      ],
+      "references": [
+        "NIST SP 800-38D"
+      ],
+      "notes": "Owned by the TLS stack, not by this project. Registered so that nobody implements GCM here: the correct action is to use the platform's."
+    },
+    {
+      "id": "isogenies",
+      "name": "Isogeny graphs of supersingular elliptic curves",
+      "domain": "algebra",
+      "verdict": "attack_surface",
+      "role": "A post-quantum hardness candidate whose flagship instance was broken, which is exactly why it is tracked: it is the cleanest available lesson about betting on a young assumption.",
+      "used_by": [
+        "SIDH/SIKE (broken 2022)",
+        "CSIDH",
+        "SQIsign"
+      ],
+      "repo_relevance": "none",
+      "status": "rejected",
+      "risk_if_misused": "SIKE was a NIST alternate candidate and fell to a classical attack in hours on one core. Adopting an isogeny scheme for key exchange here would take on that class of risk for no benefit over the standardised lattice KEM.",
+      "depends_on": [
+        "elliptic-curves"
+      ],
+      "references": [
+        "Castryck-Decru 2022"
+      ]
+    },
+    {
+      "id": "lagrange-interpolation",
+      "name": "Lagrange interpolation over a finite field",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "A degree-t polynomial is determined by t+1 points and by no fewer, which is precisely the threshold property behind secret sharing and threshold signing.",
+      "used_by": [
+        "Shamir secret sharing",
+        "threshold ECDSA custody",
+        "FROST",
+        "polynomial IOPs"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/fields/interpolation.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Sharing with a polynomial whose coefficients are not uniformly random, or reusing one across secrets, leaks the secret to a sub-threshold set of shareholders.",
+      "depends_on": [
+        "finite-fields"
+      ],
+      "references": [
+        "Shamir 1979"
+      ]
+    },
+    {
+      "id": "schwartz-zippel",
+      "name": "Schwartz-Zippel lemma",
+      "domain": "algebra",
+      "verdict": "load_bearing",
+      "role": "Two distinct low-degree polynomials agree on only a vanishing fraction of a large field, so checking one random point is a sound proof. This is the reason a succinct proof can be succinct at all.",
+      "used_by": [
+        "Groth16",
+        "Plonk",
+        "STARKs",
+        "every polynomial IOP"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "finite-fields"
+      ],
+      "references": [
+        "Schwartz 1980",
+        "Zippel 1979"
+      ]
+    },
+    {
+      "id": "prime-factorisation-rsa",
+      "name": "Integer factorisation and RSA",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "RSA security is the difficulty of recovering p and q from n = pq. Still present in exchange API authentication and in certificate chains.",
+      "used_by": [
+        "RSA-2048 TLS certificates",
+        "JWT RS256",
+        "legacy exchange API signing"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/factorization.py",
+          "kind": "owner",
+          "note": "Pollard rho and p-1, for auditing key quality only"
+        }
+      ],
+      "risk_if_misused": "Keys generated from a low-entropy pool share prime factors across the population, and a batch GCD over public keys recovers the private keys of every affected party at once.",
+      "references": [
+        "RFC 8017",
+        "Heninger et al. 2012, Mining Your Ps and Qs"
+      ]
+    },
+    {
+      "id": "safe-primes-dh",
+      "name": "Safe primes and prime-order subgroups",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "Choosing p = 2q+1 with q prime removes the small subgroups that would otherwise let an attacker confine a shared secret to a tiny set of values.",
+      "used_by": [
+        "finite-field Diffie-Hellman",
+        "DSA",
+        "TLS ffdhe groups"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/primality.py",
+          "kind": "consumer"
+        }
+      ],
+      "risk_if_misused": "Unvalidated DH parameters allow a small-subgroup confinement attack in which the shared secret takes one of a handful of values.",
+      "depends_on": [
+        "cyclic-groups-dlp"
+      ],
+      "references": [
+        "RFC 7919"
+      ]
+    },
+    {
+      "id": "pseudo-mersenne-primes",
+      "name": "Pseudo-Mersenne and Solinas field primes",
+      "domain": "number_theory",
+      "verdict": "performance_critical",
+      "role": "Field primes of the shape 2^k - c admit reduction by shift-and-add instead of division, which is why these curves are fast enough for per-transaction verification.",
+      "used_by": [
+        "secp256k1 (2^256 - 2^32 - 977)",
+        "Curve25519 (2^255 - 19)",
+        "NIST P-256"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/fields/prime_field.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "A hand-rolled fast reduction that is correct on random inputs but wrong on a narrow carry case produces a signature that verifies for the attacker's chosen message.",
+      "depends_on": [
+        "finite-fields"
+      ],
+      "references": [
+        "SEC 2 v2",
+        "RFC 7748"
+      ]
+    },
+    {
+      "id": "primality-testing-bpsw",
+      "name": "Baillie-PSW primality testing (Miller-Rabin plus strong Lucas)",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "The actual gate every generated RSA or DH prime passes. Combines a base-2 strong probable-prime test with a strong Lucas test, whose sequences are the Fibonacci family.",
+      "used_by": [
+        "OpenSSL key generation",
+        "GnuPG",
+        "every RSA keygen in practice"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/primality.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Too few Miller-Rabin rounds, or rounds with attacker-chosen bases, accepts a composite as prime and yields a modulus that factors trivially.",
+      "depends_on": [
+        "lucas-sequences"
+      ],
+      "references": [
+        "Baillie-Wagstaff 1980",
+        "FIPS 186-5 Appendix B"
+      ]
+    },
+    {
+      "id": "euler-theorem-totient",
+      "name": "Euler's theorem and the totient function phi(n)",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "Supplies RSA correctness: m^(ed) = m mod n when ed = 1 mod lambda(n). Without it RSA decryption does not invert encryption.",
+      "used_by": [
+        "RSA",
+        "Paillier"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "prime-factorisation-rsa"
+      ],
+      "notes": "Euler's totient is written phi(n) and has nothing to do with the golden ratio, also written phi. This symbol collision is a recurring source of the belief that the golden ratio underpins RSA. It does not."
+    },
+    {
+      "id": "chinese-remainder-theorem",
+      "name": "Chinese Remainder Theorem",
+      "domain": "number_theory",
+      "verdict": "performance_critical",
+      "role": "Splits an RSA private operation into two half-size operations modulo p and q, roughly a fourfold speedup.",
+      "used_by": [
+        "RSA-CRT",
+        "residue number system arithmetic"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/crt.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "A single bit-flip during one CRT half, whether from a fault injection or bad RAM, lets an observer factor the modulus from one faulty signature by a GCD. Verify every CRT signature before releasing it.",
+      "depends_on": [
+        "prime-factorisation-rsa"
+      ],
+      "references": [
+        "Boneh-DeMillo-Lipton 1997"
+      ]
+    },
+    {
+      "id": "quadratic-residues",
+      "name": "Quadratic residues, Legendre and Jacobi symbols",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "Decides whether a square root exists in a prime field, which is what makes a compressed public key decompressible and underpins the Rabin and Goldwasser-Micali constructions.",
+      "used_by": [
+        "compressed EC point decoding",
+        "Rabin cryptosystem",
+        "Goldwasser-Micali"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/residues.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Accepting a decompressed point without checking the residue condition admits an off-curve point, which is the entry point for invalid-curve key extraction.",
+      "depends_on": [
+        "finite-fields"
+      ]
+    },
+    {
+      "id": "tonelli-shanks",
+      "name": "Tonelli-Shanks square roots",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "Computes the y coordinate from x when decompressing a public key. Executed on every compressed key this project parses.",
+      "used_by": [
+        "secp256k1 point decompression",
+        "BLS hash-to-curve"
+      ],
+      "repo_relevance": "analytics",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/residues.py",
+          "kind": "owner"
+        }
+      ],
+      "depends_on": [
+        "quadratic-residues"
+      ]
+    },
+    {
+      "id": "class-groups-vdf",
+      "name": "Class groups of imaginary quadratic fields",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "Provides a group of unknown order without a trusted setup, which is what a verifiable delay function needs to be both slow to compute and fast to verify.",
+      "used_by": [
+        "Wesolowski VDF",
+        "Pietrzak VDF",
+        "Chia consensus"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "references": [
+        "Wesolowski 2019",
+        "Boneh et al. 2018"
+      ]
+    },
+    {
+      "id": "hasse-schoof",
+      "name": "Hasse's theorem and Schoof's point-counting algorithm",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "Bounds and then computes the order of a curve group, which is the number that must be prime for the curve to be usable at all.",
+      "used_by": [
+        "curve parameter generation",
+        "SEC/NIST curve validation"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "elliptic-curves"
+      ]
+    },
+    {
+      "id": "generic-dlp-algorithms",
+      "name": "Pollard rho, baby-step giant-step, Pohlig-Hellman, index calculus",
+      "domain": "number_theory",
+      "verdict": "attack_surface",
+      "role": "Set the actual security level of a group: square-root generic attacks are why a 256-bit group gives 128-bit security, and Pohlig-Hellman is why the order must be prime.",
+      "used_by": [
+        "security-level analysis of every deployed curve"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/dlp_bounds.py",
+          "kind": "owner",
+          "note": "computes achieved security level from group parameters; analysis, not an attack tool"
+        }
+      ],
+      "risk_if_misused": "Quoting a key's bit length as its security level overstates safety whenever the group order has small factors or a cofactor is mishandled.",
+      "depends_on": [
+        "cyclic-groups-dlp"
+      ]
+    },
+    {
+      "id": "number-field-sieve",
+      "name": "General Number Field Sieve",
+      "domain": "number_theory",
+      "verdict": "attack_surface",
+      "role": "Subexponential L_n[1/3] factorisation, which is the entire reason RSA needs 2048 or 3072 bits where an elliptic curve needs 256.",
+      "used_by": [
+        "RSA key-size selection",
+        "finite-field DH key-size selection"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/dlp_bounds.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Comparing an RSA modulus size with an elliptic-curve key size as if the same attack applied to both leads to keeping RSA-1024 alongside a 256-bit curve and believing they match.",
+      "depends_on": [
+        "prime-factorisation-rsa"
+      ],
+      "references": [
+        "NIST SP 800-57 Part 1"
+      ]
+    },
+    {
+      "id": "continued-fractions",
+      "name": "Continued fractions and Wiener's attack",
+      "domain": "number_theory",
+      "verdict": "attack_surface",
+      "role": "The convergents of e/n recover a small RSA private exponent directly. Also the source of the claim that the golden ratio is the most irrational number, its expansion being all ones.",
+      "used_by": [
+        "Wiener's attack",
+        "Boneh-Durfee extension",
+        "low-discrepancy sequence theory"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/continued_fractions.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Choosing a small private exponent d to speed up decryption exposes the key outright when d is below roughly n^0.25.",
+      "references": [
+        "Wiener 1990",
+        "Boneh-Durfee 1999"
+      ]
+    },
+    {
+      "id": "zk-friendly-primes",
+      "name": "Zero-knowledge-friendly field primes",
+      "domain": "number_theory",
+      "verdict": "performance_critical",
+      "role": "Primes chosen so that a large power of two divides p-1, giving the roots of unity an NTT needs, with reduction that costs a few instructions.",
+      "used_by": [
+        "Goldilocks 2^64-2^32+1",
+        "BabyBear",
+        "Mersenne31",
+        "Plonky3",
+        "Circle STARKs"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "finite-fields"
+      ],
+      "notes": "The primes are selected so that a large power of two divides p-1, which is an NTT requirement; the dependency runs from the transform to the prime, not the other way, so ntt depends_on this entry and not the reverse."
+    },
+    {
+      "id": "lucas-sequences",
+      "name": "Lucas sequences",
+      "domain": "number_theory",
+      "verdict": "load_bearing",
+      "role": "The second half of the Baillie-PSW primality test. This is the one place where a Fibonacci-family object does real cryptographic work.",
+      "used_by": [
+        "Baillie-PSW",
+        "Lucas-Lehmer testing"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/numbertheory/primality.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Implementing the ordinary rather than the strong Lucas test weakens the composite-rejection guarantee that the combined test relies on.",
+      "notes": "Frequently mistaken for evidence that the golden ratio matters in cryptography. The growth rate of these sequences is the golden ratio, but the test depends on their recurrence structure modulo n, not on that limit."
+    },
+    {
+      "id": "ntt",
+      "name": "Number-theoretic transform",
+      "domain": "harmonic_analysis",
+      "verdict": "performance_critical",
+      "role": "The FFT carried out over a finite field. It turns polynomial multiplication from quadratic to n log n, which is what makes lattice cryptography and succinct proofs fast enough to deploy.",
+      "used_by": [
+        "ML-KEM",
+        "ML-DSA",
+        "Plonk",
+        "STARK provers",
+        "Falcon"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/fields/ntt.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/security/pq_transport.py",
+          "kind": "consumer",
+          "note": "required before the Kyber placeholder can become real"
+        }
+      ],
+      "risk_if_misused": "A butterfly loop with a secret-dependent memory access pattern leaks the secret polynomial through cache timing, which is a published attack class against lattice KEMs, not a theoretical one.",
+      "depends_on": [
+        "finite-fields",
+        "zk-friendly-primes"
+      ],
+      "references": [
+        "FIPS 203 Algorithm 9"
+      ]
+    },
+    {
+      "id": "walsh-hadamard",
+      "name": "Walsh-Hadamard transform (Fourier analysis on the Boolean cube)",
+      "domain": "harmonic_analysis",
+      "verdict": "load_bearing",
+      "role": "Defines S-box nonlinearity, correlation immunity and bent functions. It is the measurement that says whether a substitution box resists linear cryptanalysis.",
+      "used_by": [
+        "AES S-box analysis",
+        "stream cipher filter design",
+        "bent function construction"
+      ],
+      "repo_relevance": "none",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/harmonic/walsh_hadamard.py",
+          "kind": "owner"
+        }
+      ],
+      "depends_on": [
+        "linear-algebra-f2"
+      ]
+    },
+    {
+      "id": "poisson-summation-smoothing",
+      "name": "Poisson summation and the lattice smoothing parameter",
+      "domain": "harmonic_analysis",
+      "verdict": "load_bearing",
+      "role": "Fourier series on a lattice: it is how the discrete Gaussian is shown to behave like a continuous one above the smoothing parameter, which is the step every lattice security proof depends on.",
+      "used_by": [
+        "ML-KEM security proof",
+        "ML-DSA",
+        "Falcon sampler",
+        "Regev's LWE reduction"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/harmonic/gaussian_lattice.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Choosing a Gaussian width below the smoothing parameter voids the reduction, so the scheme retains its interface and loses its proof without any visible symptom.",
+      "depends_on": [
+        "lattices-module-algebra"
+      ],
+      "references": [
+        "Micciancio-Regev 2007",
+        "Regev 2005"
+      ],
+      "notes": "This is where pi does structural rather than decorative work: the discrete Gaussian is defined as exp(-pi|x|^2/s^2) precisely so it is its own Fourier transform."
+    },
+    {
+      "id": "quantum-fourier-shor",
+      "name": "Quantum Fourier transform and Shor's algorithm",
+      "domain": "harmonic_analysis",
+      "verdict": "attack_surface",
+      "role": "Period finding by quantum Fourier transform breaks factoring and discrete logarithms alike. The Fourier transform is simultaneously what builds modern cryptography and what would destroy the currently deployed generation of it.",
+      "used_by": [
+        "the entire post-quantum migration rationale"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "docs/MATH_ROADMAP.md",
+          "kind": "doc",
+          "note": "drives the PQ migration schedule rather than any single module"
+        }
+      ],
+      "risk_if_misused": "Harvest-now-decrypt-later: traffic and on-chain signatures captured today are decryptable once a cryptographically relevant quantum computer exists. Long-lived secrets need migrating before that date, not after.",
+      "depends_on": [
+        "ntt"
+      ],
+      "references": [
+        "Shor 1997",
+        "NIST IR 8547"
+      ]
+    },
+    {
+      "id": "fft-side-channel",
+      "name": "Spectral analysis of side channels",
+      "domain": "harmonic_analysis",
+      "verdict": "attack_surface",
+      "role": "Power, electromagnetic and timing traces are correlated in the frequency domain; the FFT is what makes differential power analysis tractable over long traces.",
+      "used_by": [
+        "DPA and CPA against hardware wallets",
+        "timing analysis of signing code"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/harmonic/fft_spectral.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/security/constant_time.py",
+          "kind": "consumer",
+          "note": "existing constant-time comparisons gain an empirical timing-leak test"
+        }
+      ],
+      "risk_if_misused": "Asserting that a comparison is constant-time without measuring it. The only evidence that matters is a distribution of timings that does not separate by secret value.",
+      "references": [
+        "Kocher et al. 1999"
+      ]
+    },
+    {
+      "id": "fft-bignum-multiplication",
+      "name": "FFT-based big-integer multiplication",
+      "domain": "harmonic_analysis",
+      "verdict": "performance_critical",
+      "role": "Schoenhage-Strassen and its successors make very large modular arithmetic practical, which matters for large RSA moduli and for class-group VDFs.",
+      "used_by": [
+        "GMP",
+        "OpenSSL large-modulus paths"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "ntt"
+      ]
+    },
+    {
+      "id": "birthday-bound",
+      "name": "Birthday bound",
+      "domain": "probability_information",
+      "verdict": "load_bearing",
+      "role": "Sets collision resistance at half the digest length and governs how often a nonce or IV may be reused before collision becomes likely.",
+      "used_by": [
+        "SHA-256 128-bit collision resistance",
+        "GCM IV limits",
+        "Merkle tree security"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/probability/birthday.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Assuming a 256-bit hash gives 256-bit collision resistance leads to accepting truncated digests that are within reach of a birthday search.",
+      "references": [
+        "NIST SP 800-107"
+      ]
+    },
+    {
+      "id": "shannon-entropy",
+      "name": "Shannon entropy and min-entropy",
+      "domain": "probability_information",
+      "verdict": "load_bearing",
+      "role": "The measure that decides whether a seed, a nonce or a key is actually unpredictable. Min-entropy, not Shannon entropy, is the correct measure for key material because the adversary guesses the most likely value first.",
+      "used_by": [
+        "BIP-39 seed generation",
+        "RNG validation",
+        "NIST SP 800-90B health tests"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/probability/entropy.py",
+          "kind": "owner",
+          "note": "min-entropy estimators for auditing any RNG this project trusts"
+        }
+      ],
+      "risk_if_misused": "Quoting average Shannon entropy for a skewed source overstates unpredictability; a source with 128 bits of Shannon entropy and 30 bits of min-entropy is brute-forceable.",
+      "references": [
+        "NIST SP 800-90B"
+      ]
+    },
+    {
+      "id": "poisson-block-arrival",
+      "name": "Poisson block arrival",
+      "domain": "probability_information",
+      "verdict": "load_bearing",
+      "role": "Proof-of-work block discovery is a memoryless process, so inter-arrival times are exponential. Every confirmation-time estimate and every difficulty-adjustment control loop rests on this.",
+      "used_by": [
+        "Bitcoin",
+        "every Nakamoto-style chain"
+      ],
+      "repo_relevance": "strategy",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/probability/confirmations.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/features/derivatives.py",
+          "kind": "consumer",
+          "note": "settlement-timing features"
+        }
+      ],
+      "risk_if_misused": "Treating a ten-minute average as a ten-minute guarantee. The exponential tail means an hour-long gap is unremarkable, and a deposit-timing model that assumes otherwise will mis-size positions during confirmation waits.",
+      "references": [
+        "Nakamoto 2008 section 11"
+      ]
+    },
+    {
+      "id": "gamblers-ruin-doublespend",
+      "name": "Gambler's ruin and double-spend probability",
+      "domain": "probability_information",
+      "verdict": "load_bearing",
+      "role": "The random-walk argument that gives the probability an attacker with hash-rate fraction q catches up from z blocks behind. This is the actual mathematics behind 'wait six confirmations'.",
+      "used_by": [
+        "Bitcoin whitepaper section 11",
+        "exchange deposit-crediting policy"
+      ],
+      "repo_relevance": "strategy",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/probability/confirmations.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/risk/",
+          "kind": "consumer",
+          "note": "settlement risk before a deposit is treated as spendable"
+        }
+      ],
+      "risk_if_misused": "Using a fixed confirmation count regardless of transfer size and current hash-rate distribution. The required depth is a function of value at risk and attacker share, not a constant.",
+      "references": [
+        "Nakamoto 2008 section 11",
+        "Rosenfeld 2014"
+      ]
+    },
+    {
+      "id": "chernoff-committee-bounds",
+      "name": "Chernoff and Hoeffding bounds",
+      "domain": "probability_information",
+      "verdict": "load_bearing",
+      "role": "Bound the chance that a randomly sampled committee is adversarially controlled, which is what makes sampled-committee consensus safe at all.",
+      "used_by": [
+        "Algorand",
+        "Ethereum attestation committees",
+        "data availability sampling"
+      ],
+      "repo_relevance": "analytics",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/probability/committee.py",
+          "kind": "owner"
+        }
+      ],
+      "references": [
+        "Chen-Micali 2019"
+      ]
+    },
+    {
+      "id": "markov-selfish-mining",
+      "name": "Markov models of mining strategy",
+      "domain": "probability_information",
+      "verdict": "load_bearing",
+      "role": "Determines the hash-rate share above which withholding blocks becomes more profitable than honest mining, and therefore where a chain's incentive assumption stops holding.",
+      "used_by": [
+        "selfish-mining analysis",
+        "chain reorganisation risk assessment"
+      ],
+      "repo_relevance": "strategy",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/probability/reorg.py",
+          "kind": "owner"
+        }
+      ],
+      "references": [
+        "Eyal-Sirer 2014"
+      ]
+    },
+    {
+      "id": "reed-solomon",
+      "name": "Reed-Solomon codes",
+      "domain": "coding_theory",
+      "verdict": "load_bearing",
+      "role": "Erasure coding that lets a small random sample certify that a large block was published, which is the mechanism behind data availability sampling.",
+      "used_by": [
+        "EIP-4844 blobs",
+        "Danksharding",
+        "Celestia",
+        "FRI low-degree testing"
+      ],
+      "repo_relevance": "analytics",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/coding/reed_solomon.py",
+          "kind": "owner"
+        }
+      ],
+      "depends_on": [
+        "finite-fields",
+        "lagrange-interpolation"
+      ],
+      "references": [
+        "EIP-4844"
+      ]
+    },
+    {
+      "id": "goppa-codes",
+      "name": "Binary Goppa codes",
+      "domain": "coding_theory",
+      "verdict": "load_bearing",
+      "role": "The hardness base of Classic McEliece, the oldest unbroken post-quantum assumption and the conservative hedge against a lattice break.",
+      "used_by": [
+        "Classic McEliece"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "references": [
+        "Classic McEliece NIST submission"
+      ]
+    },
+    {
+      "id": "mds-matrices",
+      "name": "MDS matrices and branch number",
+      "domain": "coding_theory",
+      "verdict": "load_bearing",
+      "role": "Guarantees a minimum number of active S-boxes per round, converting a coding-theory bound directly into a differential-cryptanalysis bound.",
+      "used_by": [
+        "AES MixColumns",
+        "Poseidon",
+        "Rescue"
+      ],
+      "repo_relevance": "none",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/coding/mds.py",
+          "kind": "owner"
+        }
+      ],
+      "depends_on": [
+        "linear-algebra-f2"
+      ]
+    },
+    {
+      "id": "fri-proximity-testing",
+      "name": "FRI low-degree proximity testing",
+      "domain": "coding_theory",
+      "verdict": "load_bearing",
+      "role": "Proves a committed vector is close to a low-degree polynomial without a trusted setup, which is what makes STARKs transparent.",
+      "used_by": [
+        "STARKs",
+        "Plonky2",
+        "Circle STARKs"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "reed-solomon",
+        "ntt"
+      ]
+    },
+    {
+      "id": "lattice-reduction-lll",
+      "name": "LLL and BKZ lattice reduction",
+      "domain": "geometry_graphs",
+      "verdict": "attack_surface",
+      "role": "The workhorse of practical lattice attacks. Sets the concrete security of every lattice scheme and, combined with the hidden number problem, recovers ECDSA keys from biased nonces.",
+      "used_by": [
+        "ML-KEM parameter selection",
+        "ECDSA nonce-bias key recovery",
+        "Coppersmith attacks on RSA"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/lattice/lll.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "Underestimating BKZ progress when choosing lattice parameters produces a scheme that is secure on paper against yesterday's reduction and not against today's.",
+      "references": [
+        "Lenstra-Lenstra-Lovasz 1982",
+        "Albrecht et al. lattice estimator"
+      ]
+    },
+    {
+      "id": "hidden-number-problem",
+      "name": "Hidden number problem and biased-nonce key recovery",
+      "domain": "geometry_graphs",
+      "verdict": "attack_surface",
+      "role": "A handful of ECDSA signatures whose nonces share even a few known bits yield the private key by lattice reduction. This is the single most directly relevant attack in this registry for a system that signs.",
+      "used_by": [
+        "PS3 key recovery",
+        "repeated real-world Bitcoin wallet thefts",
+        "Minerva and TPM-Fail"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/lattice/hnp.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/ecc/ecdsa_scan.py",
+          "kind": "consumer",
+          "note": "existing module detects exact r-reuse; bias detection is the gap this closes"
+        }
+      ],
+      "risk_if_misused": "Any signer whose nonce generation is not RFC 6979 deterministic, or whose RNG is biased, leaks its key over enough signatures. Detection is necessary but the fix is deterministic nonces, not monitoring.",
+      "depends_on": [
+        "lattice-reduction-lll",
+        "elliptic-curves"
+      ],
+      "references": [
+        "Boneh-Venkatesan 1996",
+        "RFC 6979",
+        "Breitner-Heninger 2019"
+      ]
+    },
+    {
+      "id": "expander-graphs",
+      "name": "Expander and Ramanujan graphs",
+      "domain": "geometry_graphs",
+      "verdict": "load_bearing",
+      "role": "Rapid mixing is what makes a random walk in a supersingular isogeny graph, or a gossip network's propagation, reach a uniform distribution quickly.",
+      "used_by": [
+        "isogeny-based hash functions",
+        "peer-to-peer gossip analysis"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "isogenies"
+      ]
+    },
+    {
+      "id": "merkle-trees",
+      "name": "Merkle trees and DAGs",
+      "domain": "geometry_graphs",
+      "verdict": "load_bearing",
+      "role": "Logarithmic-size membership proofs against a constant-size commitment. Every SPV proof, state root and content-addressed store is one.",
+      "used_by": [
+        "Bitcoin block headers",
+        "Ethereum state trie",
+        "IPFS",
+        "certificate transparency"
+      ],
+      "repo_relevance": "analytics",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/commitments/merkle.py",
+          "kind": "owner"
+        }
+      ],
+      "risk_if_misused": "A tree that does not domain-separate leaves from internal nodes admits second-preimage attacks; Bitcoin's duplicate-transaction quirk is the well-known instance of getting this subtly wrong.",
+      "depends_on": [
+        "birthday-bound"
+      ],
+      "references": [
+        "RFC 6962"
+      ]
+    },
+    {
+      "id": "nutms-constants",
+      "name": "Nothing-up-my-sleeve constants",
+      "domain": "constants",
+      "verdict": "provenance_only",
+      "role": "Constants derived from a published formula so that no backdoor can hide in them. The value is irrelevant; the auditability is the whole point. MD5 uses sines, SHA-1 uses square roots, SHA-256 uses cube roots of small primes, Blowfish uses the digits of pi, BLAKE uses pi, RC5 uses e and the golden ratio, ARIA uses 1/pi.",
+      "used_by": [
+        "MD5",
+        "SHA-1",
+        "SHA-2",
+        "Blowfish",
+        "BLAKE2",
+        "RC5",
+        "RC6",
+        "TEA",
+        "ARIA"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/constants/nutms.py",
+          "kind": "owner",
+          "note": "re-derives published constants and asserts they match, so a swapped constant is caught rather than trusted"
+        }
+      ],
+      "risk_if_misused": "An unexplained constant is a place a backdoor can live. Dual_EC_DRBG's unexplained points were exactly that, and secp256k1's generator point has no published derivation either, which is a real if largely theoretical criticism of Bitcoin's curve.",
+      "references": [
+        "FIPS 180-4",
+        "RFC 7539",
+        "Bernstein et al., How to manipulate curve standards"
+      ]
+    },
+    {
+      "id": "pi-structural-uses",
+      "name": "Pi where it is structural rather than decorative",
+      "domain": "constants",
+      "verdict": "load_bearing",
+      "role": "In the discrete Gaussian exp(-pi|x|^2/s^2) the pi is not cosmetic: it makes the Gaussian self-dual under the Fourier transform, which is the property Poisson summation needs for the smoothing-parameter argument.",
+      "used_by": [
+        "ML-KEM security analysis",
+        "ML-DSA",
+        "Falcon"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/harmonic/gaussian_lattice.py",
+          "kind": "consumer"
+        }
+      ],
+      "risk_if_misused": "Dropping the pi from the Gaussian definition when porting a formula changes the width by a constant factor and silently moves the scheme below its smoothing parameter.",
+      "depends_on": [
+        "poisson-summation-smoothing"
+      ]
+    },
+    {
+      "id": "e-prime-density",
+      "name": "e and the prime number theorem",
+      "domain": "constants",
+      "verdict": "load_bearing",
+      "role": "The density of primes near n is about 1/ln(n), which sets how many candidates a keygen must test. For 2048-bit RSA that is roughly one in seven hundred odd candidates.",
+      "used_by": [
+        "RSA key generation cost models",
+        "DH parameter generation"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "primality-testing-bpsw"
+      ]
+    },
+    {
+      "id": "golden-ratio-nutms",
+      "name": "Golden ratio as a nothing-up-my-sleeve constant",
+      "domain": "constants",
+      "verdict": "provenance_only",
+      "role": "The value 0x9E3779B9 is floor(2^32/phi) and appears as the round constant delta in TEA, XTEA and XXTEA, as Q32 in RC5 and RC6, and as the multiplier in Knuth's Fibonacci hashing and splitmix64. It is a provenance choice and contributes no security property.",
+      "used_by": [
+        "TEA",
+        "XTEA",
+        "RC5",
+        "RC6",
+        "Knuth multiplicative hashing",
+        "splitmix64"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "notes": "This entry exists to state the accurate version of a claim that is usually made inaccurately in both directions. The golden ratio does appear in real ciphers; it appears there interchangeably with pi or any other publicly derivable irrational, and it carries no cryptographic weight."
+    },
+    {
+      "id": "fibonacci-hashing",
+      "name": "Fibonacci hashing and low-discrepancy sequences",
+      "domain": "constants",
+      "verdict": "provenance_only",
+      "role": "Multiplying by 2^k/phi spreads hash keys evenly because phi's continued fraction is all ones, making it the worst-approximable irrational. Useful for hash tables and quasi-random sampling; not a cryptographic property.",
+      "used_by": [
+        "hash table index derivation",
+        "R2 low-discrepancy sequences",
+        "quasi-Monte Carlo sampling"
+      ],
+      "repo_relevance": "infrastructure",
+      "status": "not_applicable",
+      "notes": "Legitimate but non-cryptographic. Never use a low-discrepancy sequence where unpredictability is required: it is designed to be evenly spread, which is the opposite of random."
+    },
+    {
+      "id": "lfsr-fibonacci-galois",
+      "name": "Fibonacci and Galois LFSR configurations",
+      "domain": "constants",
+      "verdict": "provenance_only",
+      "role": "Two equivalent wirings of a linear feedback shift register. The names honour Fibonacci and Galois; only the Galois connection is mathematical.",
+      "used_by": [
+        "A5/1",
+        "E0",
+        "legacy stream ciphers"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "notes": "Registered because the name is a common source of the belief that Fibonacci numbers appear in stream ciphers. The configuration is a wiring diagram, not a Fibonacci sequence."
+    },
+    {
+      "id": "bip32-hd-derivation",
+      "name": "BIP-32 hierarchical deterministic key derivation",
+      "domain": "protocol_primitives",
+      "verdict": "load_bearing",
+      "role": "Derives an unbounded key tree from one seed using HMAC-SHA512 and scalar addition on the curve. It is how a single backed-up seed controls every address a bot uses.",
+      "used_by": [
+        "every HD wallet",
+        "exchange deposit address generation"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/derivation/bip32.py",
+          "kind": "owner",
+          "note": "watch-only public derivation; private derivation stays out of this process"
+        },
+        {
+          "module": "src/security/credential_vault.py",
+          "kind": "consumer"
+        }
+      ],
+      "risk_if_misused": "An extended public key plus any one non-hardened child private key reveals the parent private key and therefore the whole branch. Use hardened derivation at account level, and never let an xpub and a child key meet.",
+      "depends_on": [
+        "elliptic-curves"
+      ],
+      "references": [
+        "BIP-32",
+        "BIP-44",
+        "SLIP-0010"
+      ]
+    },
+    {
+      "id": "rfc6979-deterministic-nonces",
+      "name": "RFC 6979 deterministic nonce generation",
+      "domain": "protocol_primitives",
+      "verdict": "load_bearing",
+      "role": "Derives the ECDSA nonce deterministically from the key and message, removing the RNG from the signing path entirely and with it the entire biased-nonce attack class.",
+      "used_by": [
+        "Bitcoin Core signing",
+        "Ed25519 by construction",
+        "most modern signing libraries"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/security/api_signer.py",
+          "kind": "consumer",
+          "note": "Ed25519 provides the equivalent guarantee by construction"
+        },
+        {
+          "module": "src/mathcore/derivation/nonces.py",
+          "kind": "owner",
+          "note": "verification helper that flags any signer not on a deterministic scheme"
+        }
+      ],
+      "risk_if_misused": "This is the fix for the hidden number problem. Any signing path that reintroduces a random nonce reintroduces the entire attack class, however good the RNG is believed to be.",
+      "depends_on": [
+        "hidden-number-problem"
+      ],
+      "references": [
+        "RFC 6979",
+        "RFC 8032"
+      ]
+    },
+    {
+      "id": "threshold-signatures",
+      "name": "Threshold signatures and secret sharing",
+      "domain": "protocol_primitives",
+      "verdict": "load_bearing",
+      "role": "Splits signing authority so that no single machine holds a spendable key, which is the only structural defence against a compromised trading host.",
+      "used_by": [
+        "FROST",
+        "MuSig2",
+        "institutional MPC custody"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "src/mathcore/derivation/threshold.py",
+          "kind": "owner"
+        },
+        {
+          "module": "src/ecc/schnorr_taproot.py",
+          "kind": "consumer",
+          "note": "MuSig2 cosigner detection already present"
+        }
+      ],
+      "risk_if_misused": "Naive multi-round threshold Schnorr is vulnerable to concurrent-session attacks (the Wagner ROS attack). Use a scheme with proven concurrent security, not an ad-hoc aggregation.",
+      "depends_on": [
+        "lagrange-interpolation",
+        "elliptic-curves"
+      ],
+      "references": [
+        "RFC 9591 FROST",
+        "MuSig2"
+      ]
+    },
+    {
+      "id": "hash-constructions",
+      "name": "Merkle-Damgard and sponge constructions",
+      "domain": "protocol_primitives",
+      "verdict": "load_bearing",
+      "role": "The two structural families behind deployed hashes. The distinction is operational: Merkle-Damgard admits length extension, sponge does not.",
+      "used_by": [
+        "SHA-256",
+        "SHA-3/Keccak",
+        "Ethereum keccak256"
+      ],
+      "repo_relevance": "security",
+      "status": "not_applicable",
+      "risk_if_misused": "Authenticating with a bare SHA-256 of secret concatenated with message permits length-extension forgery. Use HMAC or a sponge-based MAC instead.",
+      "references": [
+        "FIPS 202",
+        "RFC 2104"
+      ]
+    },
+    {
+      "id": "zk-friendly-hashes",
+      "name": "Arithmetisation-friendly hashes (Poseidon, Rescue)",
+      "domain": "protocol_primitives",
+      "verdict": "performance_critical",
+      "role": "Hashes built from low-degree power maps over a prime field so that proving a hash inside a circuit costs a handful of constraints instead of tens of thousands.",
+      "used_by": [
+        "Poseidon",
+        "Rescue-Prime",
+        "zk rollup state trees"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "finite-fields",
+        "mds-matrices"
+      ]
+    },
+    {
+      "id": "kzg-commitments",
+      "name": "KZG polynomial commitments",
+      "domain": "protocol_primitives",
+      "verdict": "load_bearing",
+      "role": "Constant-size commitment to a polynomial with constant-size opening proofs, at the cost of a trusted setup. The commitment scheme behind blob data availability.",
+      "used_by": [
+        "EIP-4844",
+        "Plonk",
+        "Ethereum Danksharding"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "depends_on": [
+        "bilinear-pairings",
+        "lagrange-interpolation"
+      ]
+    },
+    {
+      "id": "verifiable-random-functions",
+      "name": "Verifiable random functions",
+      "domain": "protocol_primitives",
+      "verdict": "load_bearing",
+      "role": "Produces a pseudorandom output with a proof that it was computed correctly, which is how a chain selects leaders without a bias-able beacon.",
+      "used_by": [
+        "Algorand sortition",
+        "Cardano Ouroboros Praos",
+        "Chainlink VRF"
+      ],
+      "repo_relevance": "analytics",
+      "status": "not_applicable",
+      "references": [
+        "RFC 9381"
+      ]
+    },
+    {
+      "id": "grover-hash-margins",
+      "name": "Grover's algorithm and symmetric key margins",
+      "domain": "protocol_primitives",
+      "verdict": "attack_surface",
+      "role": "A quadratic speedup on unstructured search, which halves the effective strength of symmetric keys and hash preimage resistance and is why AES-256 rather than AES-128 is the post-quantum recommendation.",
+      "used_by": [
+        "post-quantum symmetric parameter selection"
+      ],
+      "repo_relevance": "security",
+      "status": "planned",
+      "wiring": [
+        {
+          "module": "docs/MATH_ROADMAP.md",
+          "kind": "doc"
+        }
+      ],
+      "risk_if_misused": "Migrating asymmetric primitives to post-quantum schemes while leaving 128-bit symmetric keys in place leaves the weakest link untouched.",
+      "references": [
+        "Grover 1996",
+        "NIST IR 8547"
+      ]
+    },
+    {
+      "id": "protocol-magic-numbers",
+      "name": "Protocol magic numbers",
+      "domain": "protocol_primitives",
+      "verdict": "provenance_only",
+      "role": "Arbitrary tags for framing and replay separation: Bitcoin's network magic, chain IDs, version bits. They look like numerology and are pure engineering.",
+      "used_by": [
+        "Bitcoin P2P framing",
+        "EIP-155 chain IDs"
+      ],
+      "repo_relevance": "infrastructure",
+      "status": "not_applicable",
+      "notes": "Registered to draw the line clearly: an arbitrary constant that separates namespaces is engineering. An arbitrary constant claimed to predict price is not."
+    },
+    {
+      "id": "supply-schedule-geometric-series",
+      "name": "Bitcoin's 21 million supply cap",
+      "domain": "numerology",
+      "verdict": "provenance_only",
+      "role": "The cap is 210000 blocks times 50 BTC times the sum of a halving geometric series. It is arithmetic with a chosen parameter, not a mystical constant.",
+      "used_by": [
+        "Bitcoin issuance schedule"
+      ],
+      "repo_relevance": "none",
+      "status": "not_applicable",
+      "notes": "Included in the numerology domain because it is routinely presented as one, and the refutation is a one-line calculation."
+    },
+    {
+      "id": "fibonacci-retracement",
+      "name": "Fibonacci retracement levels",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "Claims that price reverses at ratios derived from the golden ratio. No mechanism, and no out-of-sample edge that survives correction for the number of levels and lookbacks tested.",
+      "used_by": [
+        "retail technical analysis",
+        "most charting platforms by default"
+      ],
+      "repo_relevance": "strategy",
+      "status": "rejected",
+      "risk_if_misused": "Its levels are popular enough to occasionally show real order-book clustering, which is self-fulfilling reflexivity rather than a property of the ratio. Treating that as predictive is how a strategy overfits a coincidence and sizes into it.",
+      "notes": "If any strategy proposes these levels as a feature, src/mathcore/folklore/gate.py requires it to clear the same walk-forward and multiple-testing bar as any other feature. There is no exemption for being 'natural'."
+    },
+    {
+      "id": "elliott-wave",
+      "name": "Elliott wave theory",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "Claims price moves in nested five-and-three wave patterns with golden-ratio proportions. Unfalsifiable in practice: wave counts are relabelled after the fact.",
+      "used_by": [
+        "retail technical analysis"
+      ],
+      "repo_relevance": "strategy",
+      "status": "rejected",
+      "risk_if_misused": "A model that can be relabelled to fit any outcome produces no testable signal, so backtests of it measure the analyst's hindsight rather than the market."
+    },
+    {
+      "id": "gann-methods",
+      "name": "Gann angles and squares",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "Claims price and time relate through fixed geometric angles. Requires an arbitrary choice of scale, so the angles are not scale-invariant and mean nothing across instruments.",
+      "used_by": [
+        "retail technical analysis"
+      ],
+      "repo_relevance": "strategy",
+      "status": "rejected",
+      "risk_if_misused": "The scale dependence means the same data yields different signals under a different axis choice, which is the definition of a non-signal."
+    },
+    {
+      "id": "stock-to-flow",
+      "name": "Stock-to-flow price model",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "Claimed a deterministic relationship between scarcity and price. Its econometrics were invalid: the cointegration argument did not hold, and it failed badly out of sample after 2021.",
+      "used_by": [
+        "crypto market commentary"
+      ],
+      "repo_relevance": "strategy",
+      "status": "rejected",
+      "risk_if_misused": "The most dangerous entry in this domain because it was dressed in regression output. Statistical presentation is not statistical validity; check stationarity and out-of-sample behaviour before trusting any such fit.",
+      "references": [
+        "Contested; see published critiques of the cointegration claim"
+      ]
+    },
+    {
+      "id": "rainbow-and-power-law-charts",
+      "name": "Rainbow charts and power-law price models",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "Log-scale bands fitted after the fact, with no mechanism and no rule for when the fit would be considered broken.",
+      "used_by": [
+        "crypto market commentary"
+      ],
+      "repo_relevance": "strategy",
+      "status": "rejected",
+      "risk_if_misused": "A curve refitted whenever price leaves it has no predictive content; it only ever looks correct in hindsight."
+    },
+    {
+      "id": "astro-lunar-trading",
+      "name": "Lunar and astrological trading signals",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "No mechanism. Any apparent effect is a multiple-comparisons artefact across the many cycles that can be tested.",
+      "used_by": [
+        "retail trading content"
+      ],
+      "repo_relevance": "strategy",
+      "status": "rejected",
+      "risk_if_misused": "Testing enough cycles guarantees that one will look significant. Without a correction for the number of hypotheses tested, the result is noise with a p-value attached."
+    },
+    {
+      "id": "meme-tokenomics-numbers",
+      "name": "Meme supply numbers and vanity addresses",
+      "domain": "numerology",
+      "verdict": "folklore",
+      "role": "Supply figures and addresses chosen for cultural resonance. Zero technical content, and occasionally a fraud signal rather than a neutral one.",
+      "used_by": [
+        "token launches"
+      ],
+      "repo_relevance": "analytics",
+      "status": "not_applicable",
+      "risk_if_misused": "Worth tracking as a categorical risk feature rather than a price feature: a supply number chosen for a joke says something about a project's governance, not about its value."
+    }
+  ]
+}

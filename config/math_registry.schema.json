@@ -1,0 +1,249 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://trade-bot.local/schemas/math-registry/1.0.0.json",
+  "title": "MathematicalFoundationsRegistry",
+  "description": "Canonical registry of every mathematical object that has, or is claimed to have, a role in cryptography or cryptocurrency, together with an explicit applicability verdict and the module in this repository that owns it. The registry is the single source of truth: docs/MATH_FOUNDATIONS.md is generated prose about it, and CI validates it. A claim that is not in here is not a claim this project makes.",
+  "type": "object",
+  "required": [
+    "registry_version",
+    "generated_by",
+    "verdict_definitions",
+    "domains",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "registry_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the registry content. Bump the minor on new entries, the major on a verdict definition change, because a verdict change can invalidate downstream code that gated on it."
+    },
+    "generated_by": {
+      "type": "string",
+      "description": "What produced this file, for provenance."
+    },
+    "verdict_definitions": {
+      "type": "object",
+      "description": "What each verdict means. Defined in the data, not only in prose, so that a reader of the JSON alone cannot misread 'folklore' as a soft warning.",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 20
+      },
+      "minProperties": 5
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Closed vocabulary of domains. Every entry.domain must appear here."
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/entry"
+      }
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "domain",
+        "verdict",
+        "role",
+        "used_by",
+        "repo_relevance",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "Stable slug. Referenced by module docstrings and by tests, so it must never be renamed once published -- add an alias entry instead."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 2
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "load_bearing",
+            "performance_critical",
+            "attack_surface",
+            "provenance_only",
+            "folklore"
+          ],
+          "description": "Applicability judgement. See verdict_definitions. This field is what downstream gates read: src/mathcore/folklore/ refuses to let a 'folklore' entry become a live trading signal without an explicit, statistically validated override."
+        },
+        "role": {
+          "type": "string",
+          "minLength": 30,
+          "description": "What the object actually does, stated so that removing it would visibly break something named here. Vague roles are how a registry rots into decoration."
+        },
+        "used_by": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": "Concrete systems, ciphers, protocols or chains that depend on it. At least one, and it must be checkable."
+        },
+        "repo_relevance": {
+          "type": "string",
+          "enum": [
+            "security",
+            "analytics",
+            "strategy",
+            "infrastructure",
+            "none"
+          ],
+          "description": "Which part of THIS project it touches. 'none' is an honest and common answer; an entry with relevance 'none' still belongs in the registry so that a future session does not re-litigate it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "implemented",
+            "planned",
+            "not_applicable",
+            "rejected"
+          ],
+          "description": "Implementation state of the OWNING module in this repository, not of the mathematics. 'implemented' asserts the owning module exists on disk and is checked against the filesystem at load time, so an entry cannot claim code that is not there. 'planned' means the owning module is specified in docs/MATH_ARCHITECTURE.md but not yet built, which is compatible with the object already being used through consumers. 'rejected' records a deliberate decision not to build it, which is more useful than silence."
+        },
+        "wiring": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/wiring_point"
+          },
+          "description": "Where it lands in the tree. Required in effect for any entry whose status is 'implemented' or 'planned'; enforced by the allOf rule below."
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "description": "Other entry ids this one builds on. Must resolve; must not form a cycle. Both are checked in tests."
+        },
+        "risk_if_misused": {
+          "type": "string",
+          "minLength": 20,
+          "description": "The concrete failure this object causes when used wrongly. Required for anything security-relevant."
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 4
+          },
+          "description": "Standard, RFC, paper or specification. Preferred over secondary sources."
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "implemented",
+                  "planned"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "wiring"
+            ],
+            "properties": {
+              "wiring": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "repo_relevance": {
+                "const": "security"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "risk_if_misused"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "folklore"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "risk_if_misused"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "not_applicable",
+                  "rejected",
+                  "planned"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "wiring_point": {
+      "type": "object",
+      "required": [
+        "module",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_./-]+$",
+          "description": "Repository-relative path of the module that owns or consumes this object."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "consumer",
+            "test",
+            "config",
+            "doc"
+          ],
+          "description": "owner: implements it. consumer: uses it. Exactly one owner is expected per implemented entry; tests assert that."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
