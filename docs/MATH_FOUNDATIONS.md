@@ -119,7 +119,7 @@ A curve form with a complete addition law, so there is no special case for doubl
 - **References:** RFC 8032, Chalkias et al. 2020, Taming the many EdDSAs
 
 #### Bilinear pairings (Weil, Tate, ate)
-`bilinear-pairings` — **LOAD-BEARING** · relevance: analytics · status: planned
+`bilinear-pairings` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Makes signature aggregation and constant-size polynomial commitments possible by turning a multiplicative relation in one group into an equality check in a target group.
 

@@ -2,12 +2,12 @@
 Elliptic curves for :mod:`mathcore`.
 
 ``secp256k1`` owns ``elliptic-curves`` and ``cyclic-groups-dlp``; ``ed25519``
-owns ``edwards-curves``. Both export a ``Point``, and they are different types
+owns ``edwards-curves``; ``bls12_381`` owns ``bilinear-pairings``. Both export a ``Point``, and they are different types
 over different curves -- import them qualified rather than from here when both
 are in play.
 """
 
-from . import ed25519, secp256k1
+from . import bls12_381, ed25519, secp256k1
 from .secp256k1 import (
     CURVE_ORDER,
     FIELD_PRIME,
@@ -28,6 +28,7 @@ __all__ = [
     "GENERATOR",
     "INFINITY",
     "Point",
+    "bls12_381",
     "ed25519",
     "is_on_curve",
     "parse_point",
