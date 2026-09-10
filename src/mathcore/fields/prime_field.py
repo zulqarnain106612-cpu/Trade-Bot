@@ -171,9 +171,7 @@ class PrimeField:
         if p % 2 == 0:
             raise ValueError(f"modulus must be odd, got {p}")
         if not isinstance(reduction, Reduction):
-            raise TypeError(
-                f"reduction must be a Reduction, got {type(reduction).__name__}"
-            )
+            raise TypeError(f"reduction must be a Reduction, got {type(reduction).__name__}")
 
         self.p = p
         self._reduction = reduction
@@ -274,9 +272,7 @@ class PrimeField:
         a = self.reduce(a)
         b = self.reduce(b)
         if self._reduction is Reduction.MONTGOMERY:
-            return self.from_montgomery(
-                self.mont_mul(self.to_montgomery(a), self.to_montgomery(b))
-            )
+            return self.from_montgomery(self.mont_mul(self.to_montgomery(a), self.to_montgomery(b)))
         return self.reduce(a * b)
 
     def square(self, a: int) -> int:
