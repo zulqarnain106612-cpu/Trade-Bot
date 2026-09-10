@@ -120,3 +120,30 @@ jobs:
             # nothing to the PR.
             --max-turns 120
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
+
+  # ---------------------------------------------------------------------
+  # All-green gate.
+  #
+  # Branch protection requires checks by name, so a job that never runs --
+  # skipped by an `if:`, or never reached because an earlier job failed --
+  # satisfies a required check by being absent. This job depends on every
+  # other job here and fails unless each one reported success, so "all
+  # green" becomes a single check that cannot be satisfied by absence.
+  #
+  # `if: always()` is load-bearing: without it the gate is itself skipped
+  # the moment any dependency fails, and a skipped gate blocks nothing.
+  # ---------------------------------------------------------------------
+  gate:
+    name: Cloud review gate (all jobs green)
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [retrieve-context, claude-review]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          # retrieve-context: skips on pull requests from forks, where the
+          # repository secrets it needs are not available to the workflow
+          ALLOW_SKIPPED: retrieve-context
+        run: python3 scripts/assert_jobs_green.py
