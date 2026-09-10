@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from src.mathcore.curves.secp256k1 import parse_point
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # Distinct r values held for nonce-reuse detection. Each entry is an int
@@ -117,9 +119,17 @@ def extract_ecdsa_signatures(raw_tx_hex: str) -> list[tuple[int, int, bytes, str
                         pubkey_offset = i + 2 + total_len + 1  # skip sighash byte
                         if pubkey_offset + 33 <= len(raw) and raw[pubkey_offset] in (0x02, 0x03):
                             pubkey = raw[pubkey_offset : pubkey_offset + 33]
-                            results.append((r, s, pubkey, txid))
-                            i = pubkey_offset + 33
-                            continue
+                            # A 0x02/0x03 prefix and the right length are not a
+                            # public key. Roughly half of all 32-byte strings
+                            # have no point on secp256k1, so an unchecked match
+                            # here is close to a coin flip -- and every stage
+                            # downstream treats what comes out of this function
+                            # as a real key. On-curve checking belongs at this
+                            # boundary, not deeper in.
+                            if parse_point(pubkey) is not None:
+                                results.append((r, s, pubkey, txid))
+                                i = pubkey_offset + 33
+                                continue
             i += 1
     except Exception as exc:
         log.debug("ecdsa_parse_error", exc=str(exc))
