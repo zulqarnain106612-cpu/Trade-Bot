@@ -51,6 +51,71 @@ Hard rules:
 - Never retry destructive commands (rm, DROP, DELETE).
 - Never set `max_lines` > 100 without explicit justification.
 
+## Command execution is enforced, not advised
+
+`COMMAND_EXEC_SCHEMA` is version **1.1.0** (`common/command_schema.py`). Beyond
+the output caps above, every declaration may and usually should carry:
+
+- `classification`: `read_only` | `mutating` | `destructive`. **Mandatory in
+  effect** -- `shell_exec.run()` refuses to execute when the declared class is
+  weaker than what `classify()` detects in the command string. Misdeclaring is
+  a hard error, not a warning.
+- `confirm_destructive`: required alongside `classification="destructive"`.
+  Destructive commands are never retried, whatever `retry_policy` says.
+- `timeout_s`: per-attempt wall clock, 1-900s. Declare it; do not rely on the
+  `run()` kwarg default.
+- `cwd`: validated to exist before anything runs.
+- `env`: `{inherit, allowlist, overrides}`. Use `allowlist` whenever the child
+  does not need the parent's secrets, which is almost always.
+- `output_policy.max_bytes`: byte cap, default 65536. `max_lines` alone is not
+  a bound -- one minified or base64 line can be megabytes.
+- `output_policy.redact`: secret masking, **on by default**. Turn it off only
+  when you have established the output cannot contain a credential.
+
+`result` now also carries `bytes_truncated`, `timed_out`, `duration_s`,
+`classification`, `redactions_applied`, `command_sha256` and `started_at`.
+
+A `PreToolUse` hook (`.claude/hooks/pre_tool_use.py`, policy in
+`config/command_policy.json`) enforces the same rules on raw Bash calls, so
+these constraints hold in a session that never read this file:
+
+- Unbounded reads are refused. Use `sed -n '1,5p'`, `head -5`, `grep -m 5`,
+  `-n 5`. Then fetch the next five in a separate call.
+- A bound larger than 5 lines is refused. Widening the first fetch is the
+  specific thing the directive forbids; page instead.
+- Destructive commands are refused, with the `shell_exec` path named in the
+  refusal.
+- Commands that would print credentials into the transcript are refused.
+
+The hook shares `classify()` with the runtime, so the two can never disagree.
+It fails **open** on its own misconfiguration and can be relaxed for one
+session with `TB_COMMAND_POLICY=warn|off` -- that override is the rollback
+path, not a way around a refusal you disagree with.
+
+## Mathematical foundations registry
+
+`config/math_registry.json` is the single source of truth for every
+mathematical object this project relies on or explicitly refuses, with a
+verdict on each (`load_bearing`, `performance_critical`, `attack_surface`,
+`provenance_only`, `folklore`). Load it through `src/mathcore/registry.py`,
+which validates it strictly on read.
+
+Rules:
+
+- **Never claim an implementation that does not exist.** An entry marked
+  `implemented` must name an owning module present on disk; the loader checks
+  the filesystem and refuses otherwise.
+- **Never mark a `folklore` entry `implemented`.** Numerology cannot become a
+  live signal by editing one field.
+- `depends_on` must resolve and the graph must stay acyclic. Both were violated
+  by the registry's first draft and caught by the loader; that is why the
+  checks exist.
+- `docs/MATH_FOUNDATIONS.md` is **generated**. Edit the registry, then run
+  `python3 scripts/generate_math_docs.py`. CI runs it with `--check`.
+
+Design laws, module contracts and wiring points: `docs/MATH_ARCHITECTURE.md`.
+Build order and exit gates: `docs/MATH_ROADMAP.md`.
+
 ## Cloud review + retrieval (Component 5)
 
 Every pull request is automatically reviewed by `.github/workflows/claude-review.yml`,
