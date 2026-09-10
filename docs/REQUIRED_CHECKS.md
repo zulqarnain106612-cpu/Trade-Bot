@@ -47,44 +47,80 @@ Three parts carry the weight:
 One implementation, five callers. A shell snippet copied into five workflows
 drifts; this does not.
 
-## Turning it on
+## Repository scope
 
-The workflow half is in the repository. The enforcement half is a repository
-setting and **has to be done by someone with admin rights** — it cannot be
-committed.
+Two different things are described as "repo-scoped", and only one of them
+needs a tool.
 
-Settings → Branches → branch protection rule for `main` → *Require status
-checks to pass before merging*, then add by name:
+**Files are repo-scoped once they are on the default branch.** The workflows,
+`config/command_policy.json`, `config/math_registry.schema.json`, the coverage
+gate in `pyproject.toml`, the `.claude/` hooks -- every branch cut from `main`
+carries them, and every session in the repository reads them. They do not need
+a setting to apply everywhere; they need to be merged.
 
-| Check to require | Covers |
+**Blocking is not a file.** Refusing a merge when a check is red is a GitHub
+setting, and nothing committed to the repository can enforce it. That makes it
+the one rule here invisible to review: nobody can tell from a diff whether it
+changed, drifted, or was switched off.
+
+`.github/rulesets/main-protection.json` closes that gap. The policy lives in
+the repository, reviewable as a diff, and is applied from there:
+
+```bash
+python3 scripts/apply_repo_ruleset.py --dry-run   # show what would be sent
+python3 scripts/apply_repo_ruleset.py             # create or update
+python3 scripts/apply_repo_ruleset.py --check     # verify, change nothing
+```
+
+A ruleset applies to **every** push and pull request targeting the branches in
+its `conditions`, for as long as it is active. It is repository state, not
+per-pull-request state.
+
+`GITHUB_TOKEN` needs the `administration: write` permission. **The default
+Actions token does not have it** -- use a fine-grained PAT or a GitHub App
+installation token. A 403 or 404 from this script almost always means the
+token is missing that permission, not that the repository is missing.
+
+Run `--check` periodically, or in a scheduled workflow once a token is
+available: it is what catches protection being turned off later. A rule that
+nobody re-verifies is a rule that quietly stops existing.
+
+### What the ruleset enforces
+
+| Rule | Effect |
+|---|---|
+| `required_status_checks` | The four gates below must be green |
+| `strict_required_status_checks_policy` | Branch must be up to date with the base first |
+| `pull_request` | Changes reach `main` through a pull request, with review threads resolved |
+| `non_fast_forward` | No force-pushes to `main` |
+| `deletion` | `main` cannot be deleted |
+
+| Required check | Covers |
 |---|---|
 | `CI gate (all jobs green)` | `python`, `architecture`, `frontend` |
 | `Security gate (all jobs green)` | `bandit`, `pip-audit`, `npm-audit`, `secrets` |
 | `CodeQL gate (all jobs green)` | `analyze` (both matrix legs) |
 | `Workflow lint gate (all jobs green)` | `actionlint` |
-| `Cloud review gate (all jobs green)` | `retrieve-context`, `claude-review` |
-
-Also enable *Require branches to be up to date before merging*, otherwise a
-green result from an older base can be merged into a base that has since
-changed.
 
 Require the **gates**, not the individual jobs. Requiring `python` directly
-reintroduces the hole: if that job is skipped, its check never appears, and
-the requirement is vacuously satisfied.
+reintroduces the hole: if that job is skipped its check never appears, and the
+requirement is vacuously satisfied. `tests/test_apply_repo_ruleset.py` asserts
+every required context names a gate that actually exists, because GitHub
+accepts a required check no workflow ever posts -- and then pull requests wait
+forever, or merge with nothing verified once the rule is relaxed.
 
 ### One judgement call for you
 
-`docs/CLOUD_REVIEW.md` and `CLAUDE.md` both describe the cloud review as
-**advisory only — it never approves or merges**. Making `Cloud review gate`
-a required check contradicts that: it turns an advisory bot into a merge
-blocker, and it will block on infrastructure problems (a missing
+`Cloud review gate (all jobs green)` is deliberately **not** required.
+`CLAUDE.md` and `docs/CLOUD_REVIEW.md` both describe the cloud review as
+advisory -- it never approves or merges. Requiring it would turn an advisory
+bot into a merge blocker and would block on infrastructure problems (a missing
 `MONGODB_URI`, an Atlas outage) that say nothing about the change under
 review.
 
-The gate job exists on that workflow either way, so its state is always
-visible. Whether to mark it *required* is your call. Recommendation: require
-the four correctness gates, leave the cloud review gate visible but not
-required, and revisit if it proves reliable.
+Its gate job still runs, so its state is always visible. Add the context to
+the ruleset if you want it blocking; a test asserts the current choice, so
+changing it means changing that test and these docs in the same commit.
 
 ## Legitimate skips
 

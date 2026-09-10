@@ -1,0 +1,88 @@
+{
+  "name": "main: all checks green",
+  "target": "branch",
+  "enforcement": "active",
+  "_comment": [
+    "Repository ruleset, version-controlled so the merge policy is reviewable",
+    "as a diff rather than living only in a settings page nobody can audit.",
+    "Apply with: python3 scripts/apply_repo_ruleset.py",
+    "",
+    "Rulesets are repository-scoped: this applies to every push and every pull",
+    "request targeting the branches in `conditions`, on every branch, not to",
+    "one PR. Anything committed to the repo (workflows, JSON schemas, the",
+    "coverage gate in pyproject.toml, .claude hooks) is already repo-scoped",
+    "once it is on the default branch -- files do not need a ruleset to apply",
+    "everywhere. What needs one is BLOCKING: refusing a merge when a check is",
+    "not green. That is a GitHub setting, not a file, which is why this exists.",
+    "",
+    "Underscore-prefixed keys are stripped before the payload is sent."
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion",
+      "_why": "The default branch must not be deletable."
+    },
+    {
+      "type": "non_fast_forward",
+      "_why": "No force-pushes to the default branch: they rewrite history other checkouts depend on."
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true
+      },
+      "_why": [
+        "Changes reach the default branch through a pull request, so the checks",
+        "below actually run before merge.",
+        "required_approving_review_count is 0 because this is a single-maintainer",
+        "repository and a non-zero count would block every merge; raise it when",
+        "there is a second reviewer.",
+        "required_review_thread_resolution leaves no unresolved review thread",
+        "behind a merge."
+      ]
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "CI gate (all jobs green)" },
+          { "context": "Security gate (all jobs green)" },
+          { "context": "CodeQL gate (all jobs green)" },
+          { "context": "Workflow lint gate (all jobs green)" }
+        ]
+      },
+      "_why": [
+        "These are the GATE checks, not the individual jobs. Requiring a job",
+        "directly reintroduces the hole this is meant to close: a job skipped by",
+        "an `if:`, or never reached because an earlier job failed, posts no check",
+        "at all, and a required check that never reports is satisfied by being",
+        "absent. Each gate depends on every job in its workflow and runs with",
+        "`if: always()`, so it reports on every run and fails on any non-success.",
+        "",
+        "strict_required_status_checks_policy requires the branch to be up to",
+        "date with the base first: without it, a green result measured against",
+        "an older base can be merged into a base that has since changed.",
+        "",
+        "'Cloud review gate (all jobs green)' is deliberately NOT required.",
+        "CLAUDE.md and docs/CLOUD_REVIEW.md both state the cloud review is",
+        "advisory and never approves or merges; requiring it would turn an",
+        "advisory bot into a merge blocker and would block on infrastructure",
+        "problems (a missing MONGODB_URI, an Atlas outage) that say nothing",
+        "about the change under review. Its gate job still runs, so its state is",
+        "always visible. Add the context here if that changes."
+      ]
+    }
+  ]
+}
