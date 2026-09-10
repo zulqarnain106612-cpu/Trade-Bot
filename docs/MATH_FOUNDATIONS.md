@@ -248,7 +248,7 @@ Supplies RSA correctness: m^(ed) = m mod n when ed = 1 mod lambda(n). Without it
 > Euler's totient is written phi(n) and has nothing to do with the golden ratio, also written phi. This symbol collision is a recurring source of the belief that the golden ratio underpins RSA. It does not.
 
 #### Chinese Remainder Theorem
-`chinese-remainder-theorem` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`chinese-remainder-theorem` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 Splits an RSA private operation into two half-size operations modulo p and q, roughly a fourfold speedup.
 
