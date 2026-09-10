@@ -135,12 +135,17 @@ class RLExecutionAgent:
             horizon_confidences, regime_id, ecc_features, realized_pnl, drawdown, kyle_lambda
         )
 
+        # Computed before the model branch because both paths report it: the
+        # SB3 policy returns an action and its internal state, never a
+        # probability, so a caller asking this agent "how sure are you"
+        # can only be answered from the inputs the state was built from.
+        mean_conf = float(np.mean(horizon_confidences)) if horizon_confidences else 0.5
+
         if self._model is not None and self._sb3_available:
-            action, _ = self._model.predict(state, deterministic=True)
-            return int(action), 0.9
+            action, _ = self._model.predict(state, deterministic=True)  # confidence: mean_conf
+            return int(action), mean_conf
 
         # Rule-based fallback: use mean confidence to decide
-        mean_conf = float(np.mean(horizon_confidences)) if horizon_confidences else 0.5
         if mean_conf > 0.7:
             return 1, mean_conf  # long
         if mean_conf < 0.4:
