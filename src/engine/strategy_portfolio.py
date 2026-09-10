@@ -50,6 +50,7 @@ tick by tick before any capital follows it.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -667,20 +668,28 @@ class StrategyPortfolioRunner:
 
 
 _runner: StrategyPortfolioRunner | None = None
+_runner_lock = threading.Lock()
 
 
 def get_portfolio_runner() -> StrategyPortfolioRunner:
     """Process-wide runner, lazily constructed (mirrors get_default_registry)."""
     global _runner
-    if _runner is None:
-        _runner = StrategyPortfolioRunner()
-    return _runner
+    # Locked, not a bare check-then-assign: the two steps have a constructor
+    # between them, so two callers arriving together could both find it unset
+    # and both build a runner. A second runner allocating capital against the
+    # same book is not a duplicate object, it is a second opinion nothing
+    # reconciles.
+    with _runner_lock:
+        if _runner is None:
+            _runner = StrategyPortfolioRunner()
+        return _runner
 
 
 def reset_portfolio_runner() -> None:
     """Drop the process-wide runner. Test-support only."""
     global _runner
-    _runner = None
+    with _runner_lock:
+        _runner = None
 
 
 __all__ = [
