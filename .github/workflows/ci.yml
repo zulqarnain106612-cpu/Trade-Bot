@@ -153,3 +153,27 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  # ---------------------------------------------------------------------
+  # All-green gate.
+  #
+  # Branch protection requires checks by name, so a job that never runs --
+  # skipped by an `if:`, or never reached because an earlier job failed --
+  # satisfies a required check by being absent. This job depends on every
+  # other job here and fails unless each one reported success, so "all
+  # green" becomes a single check that cannot be satisfied by absence.
+  #
+  # `if: always()` is load-bearing: without it the gate is itself skipped
+  # the moment any dependency fails, and a skipped gate blocks nothing.
+  # ---------------------------------------------------------------------
+  gate:
+    name: CI gate (all jobs green)
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [python, architecture, frontend]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/assert_jobs_green.py

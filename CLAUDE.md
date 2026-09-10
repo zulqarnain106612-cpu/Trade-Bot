@@ -51,6 +51,38 @@ Hard rules:
 - Never retry destructive commands (rm, DROP, DELETE).
 - Never set `max_lines` > 100 without explicit justification.
 
+## Required checks: no neutral, no skipped, no failed
+
+A pull request merges only when every check is green. Neutral, skipped,
+cancelled and failed are all "not green".
+
+GitHub cannot express that directly: branch protection requires checks **by
+name**, and a check that never reports satisfies the requirement by being
+absent. A job skipped by an `if:`, or never reached because an earlier job
+failed, produces no check at all.
+
+So every workflow that runs on a pull request ends in a `gate` job that
+`needs:` every other job in it, runs `if: always()`, and calls
+`scripts/assert_jobs_green.py`. The script exits non-zero unless every result
+is `success`; malformed input exits 2 rather than 0, because a gate that
+cannot evaluate has verified nothing.
+
+Rules:
+
+- **Add a job, add it to that workflow's gate `needs:`.**
+  `tests/test_assert_jobs_green.py` asserts the two sets are equal, so
+  forgetting fails the suite rather than silently narrowing coverage.
+- **Never drop `if: always()`** from a gate. Without it the gate is skipped
+  the moment a dependency fails, and a skipped required check blocks nothing.
+- **A legitimate skip goes in `ALLOW_SKIPPED`** with a comment saying why. It
+  excuses skipping only -- an allowed job that fails still fails the gate.
+  There is exactly one entry today (`retrieve-context`, on fork pull
+  requests).
+- **Require the gates in branch protection, not the individual jobs.**
+  Requiring a job directly reintroduces the hole.
+
+Setup steps and the required-check names: `docs/REQUIRED_CHECKS.md`.
+
 ## Cloud review + retrieval (Component 5)
 
 Every pull request is automatically reviewed by `.github/workflows/claude-review.yml`,
