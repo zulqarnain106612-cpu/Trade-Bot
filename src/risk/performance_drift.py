@@ -298,8 +298,6 @@ class PerformanceDriftDetector:
         if len(self._live_pnl_window) < 20:
             return None
         pnl_list = list(self._live_pnl_window)
-        if len(pnl_list) < 2:
-            return None
         mean_pnl = statistics.mean(pnl_list)
         std_pnl = statistics.stdev(pnl_list)
         if std_pnl > 0:
@@ -341,9 +339,6 @@ class PerformanceDriftDetector:
         # Calculate rolling Sharpe
         pnl_list = list(self._live_pnl_window)
         mean_pnl = statistics.mean(pnl_list)
-
-        if len(pnl_list) < 2:
-            return DriftDetected(drifted=False)
 
         std_pnl = statistics.stdev(pnl_list)
         baseline_sharpe = self._baseline.oos_sharpe
@@ -415,8 +410,6 @@ class PerformanceDriftDetector:
             return DriftDetected(drifted=False)
 
         # Calculate live accuracy from predictions
-        if not self._live_predictions:
-            return DriftDetected(drifted=False)
 
         correct = sum(1 for _, result in self._live_predictions if result == 1)
         live_accuracy = correct / len(self._live_predictions)

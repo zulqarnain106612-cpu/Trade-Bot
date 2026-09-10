@@ -91,6 +91,17 @@ def test_rolling_sortino_returns_none_when_no_downside():
     assert detector.current_rolling_sortino() is None
 
 
+def test_rolling_sortino_returns_none_when_squared_losses_underflow_to_zero():
+    detector = _detector()
+    # `if not losses` above catches the all-winning case, so the only way to
+    # reach the downside_std <= 0 guard is a loss so small that squaring it
+    # underflows: (-1e-200) ** 2 is exactly 0.0 in IEEE-754 double. The sum of
+    # squares is then 0, the semi-deviation is 0, and Sortino is undefined --
+    # which must read as None rather than a ZeroDivisionError.
+    _fill_window(detector, [10.0] * 19 + [-1e-200])
+    assert detector.current_rolling_sortino() is None
+
+
 def test_rolling_sortino_computes_with_mixed_pnl():
     detector = _detector()
     _fill_window(detector, [10.0, -5.0] * 15)
