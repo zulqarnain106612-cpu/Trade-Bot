@@ -361,7 +361,7 @@ The FFT carried out over a finite field. It turns polynomial multiplication from
 - **References:** FIPS 203 Algorithm 9
 
 #### Walsh-Hadamard transform (Fourier analysis on the Boolean cube)
-`walsh-hadamard` — **LOAD-BEARING** · status: planned
+`walsh-hadamard` — **LOAD-BEARING** · status: implemented
 
 Defines S-box nonlinearity, correlation immunity and bent functions. It is the measurement that says whether a substitution box resists linear cryptanalysis.
 
@@ -393,7 +393,7 @@ Period finding by quantum Fourier transform breaks factoring and discrete logari
 - **References:** Shor 1997, NIST IR 8547
 
 #### Spectral analysis of side channels
-`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: planned
+`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Power, electromagnetic and timing traces are correlated in the frequency domain; the FFT is what makes differential power analysis tractable over long traces.
 
