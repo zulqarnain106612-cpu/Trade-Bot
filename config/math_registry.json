@@ -1181,7 +1181,7 @@
         "certificate transparency"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/commitments/merkle.py",
@@ -1214,7 +1214,7 @@
         "ARIA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/constants/nutms.py",
