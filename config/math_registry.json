@@ -449,7 +449,7 @@
         "every RSA keygen in practice"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/primality.py",
@@ -493,7 +493,7 @@
         "residue number system arithmetic"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/crt.py",
@@ -520,7 +520,7 @@
         "Goldwasser-Micali"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -543,7 +543,7 @@
         "BLS hash-to-curve"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -693,7 +693,7 @@
         "Lucas-Lehmer testing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/primality.py",
