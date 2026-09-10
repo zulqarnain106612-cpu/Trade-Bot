@@ -111,7 +111,15 @@ when they are filled in.
 
 ### 3.1 `src/mathcore/fields/`
 
-**`src/mathcore/fields/prime_field.py`** — owns `finite-fields`,
+**`src/mathcore/fields/__init__.py`** — owns `finite-fields`.
+
+Finite fields are one algebraic object with two implementations here, one per
+characteristic. Neither module below implements the other's half, so neither
+can honestly be the sole owner and both cannot be owners — the registry allows
+exactly one. The package is the owner; the two modules are its `component`
+wiring points, held to the same existence check and re-exported from here.
+
+**`src/mathcore/fields/prime_field.py`** — component of `finite-fields`; owns
 `pseudo-mersenne-primes`.
 ```
 class PrimeField:
@@ -128,8 +136,9 @@ Non-goals: not constant-time in v1 and the docstring says so, so it is an
 analysis tool, not a signer. Constant-time variants arrive with a benchmark
 that proves the claim rather than asserting it.
 
-**`src/mathcore/fields/binary_field.py`** — owns `linear-algebra-f2` support
-and the GF(2^n) arithmetic behind `galois-field-gcm` analysis.
+**`src/mathcore/fields/binary_field.py`** — component of `finite-fields`;
+provides the `linear-algebra-f2` support and the GF(2^n) arithmetic behind
+`galois-field-gcm` analysis.
 ```
 class BinaryField:
     def __init__(self, degree: int, modulus_poly: int) -> None

@@ -69,13 +69,14 @@ being used to predict prices, it is numerology.
 ## Algebra
 
 #### Finite fields GF(p) and GF(2^n)
-`finite-fields` — **LOAD-BEARING** · relevance: security · status: planned
+`finite-fields` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Provides the arithmetic every symmetric and asymmetric primitive is defined over. The AES S-box is multiplicative inversion in GF(2^8) followed by an affine map; every elliptic curve in use is defined over a prime field.
 
 - **Used by:** AES, secp256k1, Curve25519, ML-KEM, AES-GCM, Plonk, STARKs
 - **Risk if misused:** A field implementation with a data-dependent branch or a non-constant-time reduction leaks the secret scalar through timing, which turns a correct algorithm into a key-recovery oracle.
-- **Owned by:** `src/mathcore/fields/prime_field.py`, `src/mathcore/fields/binary_field.py`
+- **Owned by:** `src/mathcore/fields/__init__.py`
+- **Implemented by:** `src/mathcore/fields/prime_field.py`, `src/mathcore/fields/binary_field.py`
 - **Consumed by:** `src/mathcore/curves/secp256k1.py`
 - **References:** FIPS 197, SEC 2 v2
 
