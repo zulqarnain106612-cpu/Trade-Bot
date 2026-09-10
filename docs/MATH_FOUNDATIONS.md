@@ -216,7 +216,7 @@ Choosing p = 2q+1 with q prime removes the small subgroups that would otherwise 
 - **References:** RFC 7919
 
 #### Pseudo-Mersenne and Solinas field primes
-`pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 Field primes of the shape 2^k - c admit reduction by shift-and-add instead of division, which is why these curves are fast enough for per-transaction verification.
 

@@ -416,7 +416,7 @@
         "NIST P-256"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/prime_field.py",
