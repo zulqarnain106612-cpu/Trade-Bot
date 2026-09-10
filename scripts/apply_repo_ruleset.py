@@ -253,11 +253,24 @@ def main() -> int:
     if not ok:
         print(f"apply failed ({status}): {_message(body)}", file=sys.stderr)
         if status in (403, 404):
-            print(
-                "\n403/404 here usually means the token lacks 'administration: write', "
-                "not that the repository is missing.",
-                file=sys.stderr,
-            )
+            detail = _message(body).lower()
+            if "proxy" in detail:
+                # An egress proxy that allows reads and refuses writes, as in a
+                # sandboxed agent session. The token is irrelevant here: the
+                # request never reached GitHub. Saying "check your token" sends
+                # the reader to fix something that is not broken.
+                print(
+                    "\nThis was refused by an egress proxy, not by GitHub -- the "
+                    "request never reached the API. The token is not the problem. "
+                    "Run this from an environment with direct network access.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "\n403/404 from GitHub usually means the token lacks "
+                    "'administration: write', not that the repository is missing.",
+                    file=sys.stderr,
+                )
         return 1
 
     print(f"ruleset {payload['name']!r} {action} on {owner}/{repo}.")
