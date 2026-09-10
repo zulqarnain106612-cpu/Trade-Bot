@@ -142,7 +142,7 @@ The hardness base of the standardised post-quantum schemes: arithmetic in Z_q[x]
 > src/security/pq_transport.py is documented in-tree as a placeholder. Registering this entry as 'planned' rather than 'implemented' is the honest state; treating the placeholder as a KEM would be the single most dangerous misreading in this repository.
 
 #### Linear algebra over F_2
-`linear-algebra-f2` — **LOAD-BEARING** · status: planned
+`linear-algebra-f2` — **LOAD-BEARING** · status: implemented
 
 The language of linear and differential cryptanalysis and of diffusion design; MixColumns is a matrix multiplication chosen for its branch number.
 
@@ -475,7 +475,7 @@ Determines the hash-rate share above which withholding blocks becomes more profi
 ## Coding theory
 
 #### Reed-Solomon codes
-`reed-solomon` — **LOAD-BEARING** · relevance: analytics · status: planned
+`reed-solomon` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Erasure coding that lets a small random sample certify that a large block was published, which is the mechanism behind data availability sampling.
 
@@ -493,7 +493,7 @@ The hardness base of Classic McEliece, the oldest unbroken post-quantum assumpti
 - **References:** Classic McEliece NIST submission
 
 #### MDS matrices and branch number
-`mds-matrices` — **LOAD-BEARING** · status: planned
+`mds-matrices` — **LOAD-BEARING** · status: implemented
 
 Guarantees a minimum number of active S-boxes per round, converting a coding-theory bound directly into a differential-cryptanalysis bound.
 

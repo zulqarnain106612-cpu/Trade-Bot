@@ -247,7 +247,7 @@
         "MDS matrix construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/mds.py",
@@ -1021,7 +1021,7 @@
         "FRI low-degree testing"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/reed_solomon.py",
@@ -1063,7 +1063,7 @@
         "Rescue"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/mds.py",
