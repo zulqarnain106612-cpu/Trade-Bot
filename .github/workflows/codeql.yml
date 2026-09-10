@@ -30,17 +30,17 @@ jobs:
       fail-fast: false
       matrix:
         # Use one entry per run. Use 'javascript' (covers JS/TS) and 'python' if applicable.
-        language: [python, javascript]
+        language: [python, javascript-typescript]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history is recommended for best CodeQL analysis (avoid shallow clones)
           fetch-depth: 0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           # Pass the language for this matrix run
           languages: ${{ matrix.language }}
@@ -51,7 +51,7 @@ jobs:
       # These are intentionally simple; adapt to your repo's build commands.
       - name: Set up Python (if needed)
         if: matrix.language == 'python'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.x"
 
@@ -62,13 +62,13 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
 
       - name: Install Node dependencies (if needed)
-        if: matrix.language == 'javascript'
-        uses: actions/setup-node@v4
+        if: matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "18"
 
       - name: Install & build Node (if present)
-        if: matrix.language == 'javascript'
+        if: matrix.language == 'javascript-typescript'
         run: |
           if [ -f package-lock.json ] || [ -f package.json ]; then
             npm ci || npm install --legacy-peer-deps || true
@@ -78,12 +78,12 @@ jobs:
       # Optional: run the autobuild step if no explicit build was performed.
       # For many repos the above language-specific steps are sufficient.
       - name: Perform CodeQL autobuild (fallback)
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         # autobuild is a safe no-op if build was already done; keep as fallback
         continue-on-error: false
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           # A human-readable category shown in the Code Scanning UI
-          category: "CodeQL - ${{ matrix.language }}"
+          category: "/language:${{ matrix.language }}"
