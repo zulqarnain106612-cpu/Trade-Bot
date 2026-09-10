@@ -637,7 +637,7 @@ Derives the ECDSA nonce deterministically from the key and message, removing the
 - **References:** RFC 6979, RFC 8032
 
 #### Threshold signatures and secret sharing
-`threshold-signatures` — **LOAD-BEARING** · relevance: security · status: planned
+`threshold-signatures` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Splits signing authority so that no single machine holds a spendable key, which is the only structural defence against a compromised trading host.
 
