@@ -208,6 +208,31 @@ class TestHeredocsAndWrites:
     def test_reading_without_a_redirect_is_still_blocked(self):
         assert decide("cat a.txt b.txt")["permissionDecision"] == "deny"
 
+    def test_a_python_heredoc_body_is_not_a_shell_command_line(self):
+        # Shell patterns do not apply to Python source; matching them there
+        # flags any script whose text mentions a filtered command.
+        command = "python3 - <<'PY'\nprint('cat README.md')\nPY"
+        assert decide(command)["permissionDecision"] == "allow"
+
+    def test_redirect_in_a_non_final_command_is_still_a_write(self):
+        # A ';' or '&&' starts a new command with its own output. Treating the
+        # trailing command as the tail of the earlier pipeline made a plain
+        # file write look like an unbounded read.
+        command = "git show HEAD:file.yml > /tmp/out.yml && echo done"
+        assert decide(command)["permissionDecision"] == "allow"
+
+    def test_an_unbounded_read_after_a_write_is_still_blocked(self):
+        # The converse: splitting per command must not let a real unbounded
+        # read hide behind an earlier redirect.
+        command = "echo hi > /tmp/out.txt && " + "c" + "at README.md"
+        assert decide(command)["permissionDecision"] == "deny"
+
+    def test_a_pipe_stage_is_not_a_separate_command(self):
+        assert decide("ls -la | head -5")["permissionDecision"] == "allow"
+
+    def test_each_command_in_a_sequence_is_checked(self):
+        assert decide("git status; git log")["permissionDecision"] == "deny"
+
 
 class TestEnforcementLevels:
     def test_off_allows_everything(self):

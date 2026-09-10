@@ -97,15 +97,21 @@ def _enforcement(policy: dict[str, Any]) -> str:
 # Command shape analysis
 # --------------------------------------------------------------------------
 
-_SEGMENT_SPLIT = re.compile(r"\|\||&&|\||;")
+# Separators that start a new command, each with its own output destination.
+_COMMAND_SPLIT = re.compile(r"\|\||&&|;")
 
-# Shells and interpreters whose heredoc body is executed rather than stored.
-# For these the body must still be analysed; for everything else the body is
-# data (a file being written) and analysing it produces false positives -- a
-# test that quotes a blocked pattern is not the same as running one.
-_INTERPRETERS = frozenset(
-    {"bash", "sh", "zsh", "ksh", "dash", "python", "python3", "node", "perl", "ruby", "php"}
-)
+# Within one command, the stages of a pipeline: only the last stage's output
+# is seen by the caller, the rest are consumed by the next stage.
+_STAGE_SPLIT = re.compile(r"(?<!\|)\|(?!\|)")
+
+# Shells whose heredoc body is itself a command line, and so must still be
+# analysed. Deliberately shells only. A Python, Node or Perl heredoc body is
+# executed too, but it is not a shell command line: matching shell patterns
+# against it flags any script whose source merely contains the word for a
+# filtered command, and catches nothing real, since textual classification
+# never saw inside an interpreter in the first place (see classify()). For
+# every other receiver the body is data being written to a file.
+_SHELL_INTERPRETERS = frozenset({"bash", "sh", "zsh", "ksh", "dash"})
 
 _HEREDOC_START = re.compile(r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 
@@ -131,7 +137,7 @@ def _strip_heredoc_bodies(command: str) -> str:
             idx += 1
             continue
 
-        if _head_word(line) in _INTERPRETERS:
+        if _head_word(line) in _SHELL_INTERPRETERS:
             idx += 1
             continue
 
@@ -154,9 +160,14 @@ def _is_write_not_read(segment: str) -> bool:
     return bool(re.search(r">>?\s*\S", segment)) or bool(_HEREDOC_START.search(segment))
 
 
-def _segments(command: str) -> list[str]:
-    """Split a command line into pipeline/sequence segments."""
-    return [seg.strip() for seg in _SEGMENT_SPLIT.split(command) if seg.strip()]
+def _commands(command_line: str) -> list[str]:
+    """Split a command line into independently-output-producing commands."""
+    return [c.strip() for c in _COMMAND_SPLIT.split(command_line) if c.strip()]
+
+
+def _stages(command: str) -> list[str]:
+    """Split one command into its pipeline stages."""
+    return [stage.strip() for stage in _STAGE_SPLIT.split(command) if stage.strip()]
 
 
 def _head_word(segment: str) -> str:
@@ -270,28 +281,40 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
         limit = int(bounded_cfg.get("max_declared_lines", 5))
         unbounded = set(bounded_cfg.get("unbounded_commands", []))
         exempt = set(bounded_cfg.get("exempt_commands", []))
+        # An exempt command is never itself an unbounded reader; the
+        # bounded_required_subcommands map is what re-arms specific
+        # subcommands of one, such as git log or kubectl logs.
+        unbounded -= exempt
         patterns = list(bounded_cfg.get("bounded_flag_patterns", []))
 
-        segs = _segments(command)
-        # Only the last segment's output reaches the transcript; anything
-        # earlier is consumed by the next stage of the pipeline.
-        tail_seg = segs[-1] if segs else command
-        head = _head_word(tail_seg)
-        reader_anywhere = any(_head_word(seg) in unbounded for seg in segs)
+        for cmd in _commands(command):
+            stages = _stages(cmd)
+            if not stages:
+                continue
 
-        needs_bound = (
-            head in unbounded
-            or (reader_anywhere and head not in exempt)
-            or any(_needs_bound(seg, bounded_cfg) for seg in segs)
-        ) and not _is_write_not_read(tail_seg)
-        if needs_bound and not _is_bounded(command, patterns):
+            # A command whose final stage redirects to a file or feeds a
+            # heredoc produces no transcript output, so no bound applies.
+            if _is_write_not_read(stages[-1]):
+                continue
+
+            offender = ""
+            for stage in stages:
+                stage_head = _head_word(stage)
+                if stage_head in unbounded or _needs_bound(stage, bounded_cfg):
+                    offender = stage_head
+                    break
+
+            if not offender or _is_bounded(cmd, patterns):
+                continue
+
             problems.append(
-                f"Unbounded read: `{head}` can emit an entire file, tree or history "
-                f"into context. Project directive is at most {limit} lines per fetch. "
-                f"Use `sed -n '1,{limit}p' FILE`, `head -{limit}`, "
+                f"Unbounded read: `{offender}` can emit an entire file, tree or "
+                f"history into context. Project directive is at most {limit} lines "
+                f"per fetch. Use `sed -n '1,{limit}p' FILE`, `head -{limit}`, "
                 f"`grep -m {limit} PATTERN FILE` or `-n {limit}`, then request the "
                 f"next {limit} lines in a separate call."
             )
+            break
 
         oversized = _oversized_bounds(command, bounded_cfg, limit)
         if oversized:
