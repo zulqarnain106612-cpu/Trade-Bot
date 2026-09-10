@@ -349,7 +349,7 @@ The second half of the Baillie-PSW primality test. This is the one place where a
 ## Fourier and harmonic analysis
 
 #### Number-theoretic transform
-`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 The FFT carried out over a finite field. It turns polynomial multiplication from quadratic to n log n, which is what makes lattice cryptography and succinct proofs fast enough to deploy.
 
