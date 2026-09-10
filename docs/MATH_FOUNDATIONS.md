@@ -227,7 +227,7 @@ Field primes of the shape 2^k - c admit reduction by shift-and-add instead of di
 - **References:** SEC 2 v2, RFC 7748
 
 #### Baillie-PSW primality testing (Miller-Rabin plus strong Lucas)
-`primality-testing-bpsw` — **LOAD-BEARING** · relevance: security · status: planned
+`primality-testing-bpsw` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The actual gate every generated RSA or DH prime passes. Combines a base-2 strong probable-prime test with a strong Lucas test, whose sequences are the Fibonacci family.
 
@@ -335,7 +335,7 @@ Primes chosen so that a large power of two divides p-1, giving the roots of unit
 > The primes are selected so that a large power of two divides p-1, which is an NTT requirement; the dependency runs from the transform to the prime, not the other way, so ntt depends_on this entry and not the reverse.
 
 #### Lucas sequences
-`lucas-sequences` — **LOAD-BEARING** · relevance: security · status: planned
+`lucas-sequences` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The second half of the Baillie-PSW primality test. This is the one place where a Fibonacci-family object does real cryptographic work.
 
