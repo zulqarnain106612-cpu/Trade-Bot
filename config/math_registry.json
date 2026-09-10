@@ -515,7 +515,7 @@
         "Goldwasser-Micali"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -538,7 +538,7 @@
         "BLS hash-to-curve"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",

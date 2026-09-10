@@ -259,7 +259,7 @@ Splits an RSA private operation into two half-size operations modulo p and q, ro
 - **References:** Boneh-DeMillo-Lipton 1997
 
 #### Quadratic residues, Legendre and Jacobi symbols
-`quadratic-residues` — **LOAD-BEARING** · relevance: security · status: planned
+`quadratic-residues` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Decides whether a square root exists in a prime field, which is what makes a compressed public key decompressible and underpins the Rabin and Goldwasser-Micali constructions.
 
@@ -269,7 +269,7 @@ Decides whether a square root exists in a prime field, which is what makes a com
 - **Owned by:** `src/mathcore/numbertheory/residues.py`
 
 #### Tonelli-Shanks square roots
-`tonelli-shanks` — **LOAD-BEARING** · relevance: analytics · status: planned
+`tonelli-shanks` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Computes the y coordinate from x when decompressing a public key. Executed on every compressed key this project parses.
 
