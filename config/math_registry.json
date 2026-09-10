@@ -155,7 +155,7 @@
         "this project's API request signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/ed25519.py",
