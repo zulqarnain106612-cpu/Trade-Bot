@@ -81,7 +81,7 @@ Provides the arithmetic every symmetric and asymmetric primitive is defined over
 - **References:** FIPS 197, SEC 2 v2
 
 #### Cyclic groups and the discrete logarithm problem
-`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: planned
+`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security is exactly the difficulty of recovering x from g^x in a group of large prime order.
 
@@ -93,7 +93,7 @@ The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security i
 - **References:** SEC 1 v2, FIPS 186-5
 
 #### Elliptic curves over finite fields
-`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Supplies the group in which the discrete logarithm is hard at 256-bit key sizes rather than 3072-bit ones. Every signature this project verifies or produces lives on one.
 
