@@ -50,15 +50,15 @@ def _boundaries(p: int) -> list[int]:
 
 def test_curve_primes_match_their_published_values() -> None:
     """SEC 2 v2 and RFC 7748 give these constants explicitly."""
-    assert int(
-        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16
-    ) == SECP256K1_P
-    assert int(
-        "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16
-    ) == CURVE25519_P
-    assert int(
-        "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16
-    ) == NIST_P256_P
+    assert (
+        int("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16) == SECP256K1_P
+    )
+    assert (
+        int("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16) == CURVE25519_P
+    )
+    assert (
+        int("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16) == NIST_P256_P
+    )
 
 
 @pytest.mark.parametrize("p", (MERSENNE31, SECP256K1_P, CURVE25519_P))
@@ -140,9 +140,7 @@ def test_pseudo_mersenne_strategy_refuses_a_modulus_without_the_shape() -> None:
 
 
 def test_repr_names_the_modulus_and_strategy() -> None:
-    assert repr(PrimeField(SMALL_P, Reduction.BARRETT)) == (
-        "PrimeField(p=257, reduction=barrett)"
-    )
+    assert repr(PrimeField(SMALL_P, Reduction.BARRETT)) == ("PrimeField(p=257, reduction=barrett)")
 
 
 def test_accessors_report_the_configured_shape() -> None:
