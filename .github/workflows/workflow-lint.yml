@@ -1,0 +1,71 @@
+name: Workflow lint
+
+# Nothing validated the workflow files themselves. They are only parsed when
+# GitHub runs them, so a schema mistake -- a misspelled key, an expression
+# referring to a context that is not available where it is written, a job
+# depending on one that does not exist -- lands on main and shows up as a
+# workflow that quietly stops triggering, or as a value that silently resolves
+# to the empty string. That is exactly how `outputs: {result: ${{ job.status }}}`
+# survived in ci.yml: `job` is not a context allowed in `jobs.<id>.outputs`, so
+# it evaluated to nothing and no run ever complained.
+#
+# actionlint checks the workflow schema, expression contexts and types, action
+# input names, `runs-on` labels, and -- via shellcheck and pyflakes, both
+# preinstalled on ubuntu-latest -- the bodies of `run:` steps.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  actionlint:
+    name: actionlint (workflow schema)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install actionlint
+        # Same rule as the TruffleHog step in security.yml: the version pin
+        # names which artifact, and the digest is what makes it that artifact.
+        # A release asset is mutable, and this binary is executed on a runner
+        # that has just checked out the repository.
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          curl -sSfL \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            -o actionlint.tar.gz
+
+          # Verified before the archive is unpacked: `tar x` on an untrusted
+          # archive is itself the thing being guarded against.
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check --strict
+
+          tar xzf actionlint.tar.gz actionlint
+          ./actionlint --version
+
+      - name: Lint workflows
+        # Findings are emitted as GitHub annotations so they land on the
+        # changed line in the PR rather than only in the log. The template is
+        # Go text/template consumed by actionlint, so `$err` must reach it
+        # unexpanded -- single quotes are load-bearing here, not a mistake.
+        run: |
+          # shellcheck disable=SC2016
+          ./actionlint -format \
+            '{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}}%0A{{end}}'

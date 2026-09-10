@@ -8,7 +8,7 @@
 # --- async I/O and HTTP -----------------------------------------------------
 aiohttp>=3.9,<4.0
 httpx>=0.27,<1.0
-requests>=2.32,<3.0
+requests>=2.34.2,<3.0
 websockets>=12.0,<16.0
 
 # --- API surface ------------------------------------------------------------
@@ -36,7 +36,7 @@ scipy>=1.13,<2.0
 scikit-learn>=1.9.0,<2.0
 statsmodels>=0.15,<1.0   # 0.15 removed grangercausalitytests(verbose=)
 networkx>=3.3,<4.0
-joblib>=1.4,<2.0
+joblib>=1.6.0,<2.0
 
 # Implicit dependency, not an import: pandas.read_parquet/to_parquet need a
 # parquet engine, and src/data/{orderbook_stream,exchange_flow_provider,

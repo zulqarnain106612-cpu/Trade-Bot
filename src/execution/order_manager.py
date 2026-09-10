@@ -139,6 +139,33 @@ class OrderManager:
         if not idempotency_key:
             raise OrderFSMError("idempotency_key is required for order submission (LAW3)")
 
+        # Bind the key for the life of this submission so every line logged
+        # under it -- here, in the router, and in the retry loop -- names the
+        # order it belongs to. The key is already the order's stable identity
+        # (it is the venue's client order id), so nothing new has to be
+        # invented, and it composes with the tick's trace_id: a filled order
+        # can be traced back to the signal that asked for it.
+        #
+        # bound_contextvars rather than clear_contextvars: clearing would take
+        # the trace_id the surrounding tick bound. It also restores whatever
+        # order_key was bound before instead of deleting the name outright,
+        # which is the difference if a submission ever runs inside another.
+        with structlog.contextvars.bound_contextvars(order_key=idempotency_key):
+            return await self._place_order_with_fsm(
+                exchange, symbol, side, quantity, idempotency_key, params
+            )
+
+    async def _place_order_with_fsm(
+        self,
+        exchange: ccxt.async_support.Exchange,
+        symbol: str,
+        side: str,
+        quantity: float,
+        idempotency_key: str,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[OrderFSM, dict[str, Any]]:
+        """Body of place_order_with_fsm, run with order_key bound."""
+
         # Claim the key before anything can reach the wire. Raises
         # DuplicateOrderError to the caller if this intent was already sent.
         await self._idempotency.reserve(idempotency_key)

@@ -22,6 +22,10 @@ jobs:
   python:
     name: Python (lint + tests)
     runs-on: ubuntu-latest
+    # The suite takes ~15 minutes. Without a cap a job that wedges on the
+    # TimescaleDB service holds a runner for GitHub's 6-hour default before
+    # anyone finds out, and the PR just looks slow rather than broken.
+    timeout-minutes: 30
 
     services:
       # Without this, every test in tests/test_timescale_storage.py skips and
@@ -81,8 +85,11 @@ jobs:
   architecture:
     name: Architecture Governance (crypto-architect)
     runs-on: ubuntu-latest
-    outputs:
-      result: ${{ job.status }}
+    # `outputs: {result: ${{ job.status }}}` used to sit here. No job declared
+    # `needs: architecture`, so nothing ever read it -- and `job` is not one of
+    # the contexts allowed in `jobs.<id>.outputs`, so it resolved to an empty
+    # string anyway. Dead either way.
+    timeout-minutes: 10
     permissions:
       contents: read
       security-events: write
@@ -122,6 +129,7 @@ jobs:
   frontend:
     name: Frontend (build)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
