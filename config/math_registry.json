@@ -36,16 +36,21 @@
         "STARKs"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
-          "module": "src/mathcore/fields/prime_field.py",
+          "module": "src/mathcore/fields/__init__.py",
           "kind": "owner",
-          "note": "F_p arithmetic with Barrett and Montgomery reduction"
+          "note": "Owns finite fields as one object; the two characteristics are implemented by the component modules below and re-exported here. One entry, one owner, two implementations."
+        },
+        {
+          "module": "src/mathcore/fields/prime_field.py",
+          "kind": "component",
+          "note": "F_p arithmetic with Barrett, Montgomery and pseudo-Mersenne reduction"
         },
         {
           "module": "src/mathcore/fields/binary_field.py",
-          "kind": "owner",
+          "kind": "component",
           "note": "GF(2^n) for GCM and S-box analysis"
         },
         {
