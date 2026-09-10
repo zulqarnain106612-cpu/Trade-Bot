@@ -32,4 +32,7 @@ __all__ = [
     "Reduction",
     "SECP256K1_P",
     "as_pseudo_mersenne",
+    "lagrange_interpolate_at",
+    "shamir_reconstruct",
+    "shamir_split",
 ]
