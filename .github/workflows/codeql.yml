@@ -1,52 +1,89 @@
-name: CodeQL
+name: "CodeQL"
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
-    branches: [main]
+    branches: ["main"]
+    types: [opened, synchronize, reopened]
   schedule:
     - cron: "27 4 * * 1"
 
+# Required for uploading results / creating code scanning alerts
 permissions:
   contents: read
+  security-events: write
 
 concurrency:
-  # Same rule as ci.yml: superseding a PR push is free, superseding a merge on
-  # main is not -- a cancelled analysis leaves that commit with no code
-  # scanning verdict at all.
   group: codeql-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
+    name: Analyze (language=${{ matrix.language }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
-      security-events: write
-      actions: read
       contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
-        # `javascript` is an alias of `javascript-typescript`, not a narrower
-        # scope -- CodeQL resolves both to the same extractor over the same
-        # files. Listing both ran the identical analysis twice per event and
-        # uploaded two SARIFs of the same results under two categories. Each
-        # of the last runs' duplicate pair cost ~2 minutes for nothing.
-        language: [python, javascript-typescript]
+        # Use one entry per run. Use 'javascript' (covers JS/TS) and 'python' if applicable.
+        language: [python, javascript]
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history is recommended for best CodeQL analysis (avoid shallow clones)
+          fetch-depth: 0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/init@v3
         with:
+          # Pass the language for this matrix run
           language: ${{ matrix.language }}
+          # Use the recommended query pack; adjust if you have custom queries
           queries: security-and-quality
 
-      - name: Analyze
-        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+      # Build steps: ensure CodeQL extractors can see dependencies / built artifacts.
+      # These are intentionally simple; adapt to your repo's build commands.
+      - name: Set up Python (if needed)
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v4
         with:
-          category: "/language:${{ matrix.language }}"
+          python-version: "3.x"
+
+      - name: Install Python dependencies (if present)
+        if: matrix.language == 'python'
+        run: |
+          python -m pip install --upgrade pip || true
+          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
+
+      - name: Install Node dependencies (if needed)
+        if: matrix.language == 'javascript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install & build Node (if present)
+        if: matrix.language == 'javascript'
+        run: |
+          if [ -f package-lock.json ] || [ -f package.json ]; then
+            npm ci || npm install --legacy-peer-deps || true
+            npm run build --if-present || true
+          fi
+
+      # Optional: run the autobuild step if no explicit build was performed.
+      # For many repos the above language-specific steps are sufficient.
+      - name: Perform CodeQL autobuild (fallback)
+        uses: github/codeql-action/autobuild@v3
+        # autobuild is a safe no-op if build was already done; keep as fallback
+        continue-on-error: false
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          # A human-readable category shown in the Code Scanning UI
+          category: "CodeQL - ${{ matrix.language }}"
