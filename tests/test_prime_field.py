@@ -50,15 +50,15 @@ def _boundaries(p: int) -> list[int]:
 
 def test_curve_primes_match_their_published_values() -> None:
     """SEC 2 v2 and RFC 7748 give these constants explicitly."""
-    assert SECP256K1_P == int(
+    assert int(
         "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16
-    )
-    assert CURVE25519_P == int(
+    ) == SECP256K1_P
+    assert int(
         "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16
-    )
-    assert NIST_P256_P == int(
+    ) == CURVE25519_P
+    assert int(
         "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16
-    )
+    ) == NIST_P256_P
 
 
 @pytest.mark.parametrize("p", (MERSENNE31, SECP256K1_P, CURVE25519_P))
