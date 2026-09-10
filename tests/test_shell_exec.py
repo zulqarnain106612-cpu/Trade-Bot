@@ -364,7 +364,14 @@ class TestRun:
             "exit_code",
             "filtered_output",
             "truncated",
+            "bytes_truncated",
+            "timed_out",
             "attempt_count",
+            "duration_s",
+            "classification",
+            "redactions_applied",
+            "command_sha256",
+            "started_at",
             "error",
         }
 
@@ -428,6 +435,9 @@ class TestRunRetry:
         result = run(
             {
                 "command": f"test -f {flag} && echo ok || (touch {flag} && exit 1)",
+                # touch mutates the filesystem: schema 1.1.0 refuses a
+                # declaration whose classification is weaker than reality.
+                "classification": "mutating",
                 "output_policy": {"max_lines": 5},
                 "retry_policy": {
                     "max_attempts": 2,
@@ -523,6 +533,9 @@ class TestRunOnEmpty:
         result = run(
             {
                 "command": f"test -f {flag} && echo ok || touch {flag}",
+                # touch mutates the filesystem: schema 1.1.0 refuses a
+                # declaration whose classification is weaker than reality.
+                "classification": "mutating",
                 "output_policy": {"max_lines": 5, "on_empty": "error"},
                 "retry_policy": {
                     "max_attempts": 2,

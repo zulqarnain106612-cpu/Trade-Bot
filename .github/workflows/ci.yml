@@ -72,6 +72,12 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
           pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Math registry is valid and its document is in sync
+        # The registry is a governance artefact: it must not be able to claim
+        # a module that does not exist, and its generated document must not
+        # drift from it. Both are cheap to check and expensive to discover late.
+        run: python3 scripts/generate_math_docs.py --check
+
       - name: Lint
         run: ruff check .
 
