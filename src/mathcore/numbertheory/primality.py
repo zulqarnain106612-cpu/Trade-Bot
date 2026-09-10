@@ -51,10 +51,60 @@ __all__ = [
 # tests below are odd and coprime to all of them, which their preconditions
 # assume.
 SMALL_PRIMES: tuple[int, ...] = (
-    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67,
-    71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149,
-    151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229,
-    233, 239, 241, 251,
+    2,
+    3,
+    5,
+    7,
+    11,
+    13,
+    17,
+    19,
+    23,
+    29,
+    31,
+    37,
+    41,
+    43,
+    47,
+    53,
+    59,
+    61,
+    67,
+    71,
+    73,
+    79,
+    83,
+    89,
+    97,
+    101,
+    103,
+    107,
+    109,
+    113,
+    127,
+    131,
+    137,
+    139,
+    149,
+    151,
+    157,
+    163,
+    167,
+    173,
+    179,
+    181,
+    191,
+    193,
+    197,
+    199,
+    211,
+    223,
+    227,
+    229,
+    233,
+    239,
+    241,
+    251,
 )
 
 
@@ -186,9 +236,14 @@ def selfridge_parameters(n: int) -> tuple[int, int, int]:
 
 
 def _is_perfect_square(n: int) -> bool:
-    """Exact integer square test, via ``math.isqrt``. Not constant time."""
-    if n < 0:
-        return False
+    """
+    Exact integer square test, via ``math.isqrt``.
+
+    Non-negative ``n`` only -- the sole caller has already run
+    :func:`_check_odd_modulus`, so a sign guard here would be unreachable code
+    dressed up as safety. ``math.isqrt`` raises on a negative anyway.
+    Not constant time.
+    """
     root = math.isqrt(n)
     return root * root == n
 

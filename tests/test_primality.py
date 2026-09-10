@@ -211,7 +211,7 @@ def test_p_one_q_minus_one_gives_the_fibonacci_and_lucas_numbers() -> None:
     fib = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]
     luc = [2, 1, 3, 4, 7, 11, 18, 29, 47, 76, 123, 199, 322, 521, 843]
     modulus = 10**9 + 7
-    for k, (f, lucas_k) in enumerate(zip(fib, luc)):
+    for k, (f, lucas_k) in enumerate(zip(fib, luc, strict=True)):
         u, v, _ = lucas_sequence(modulus, 1, -1, k)
         assert u == f, k
         assert v == lucas_k, k
@@ -259,7 +259,7 @@ def test_selfridge_reports_a_shared_factor_as_a_composite_sentinel() -> None:
 
 def test_selfridge_does_not_mistake_n_itself_for_a_shared_factor() -> None:
     """``(5/5) == 0``, but 5 is prime; the scan must continue past it."""
-    d, p, q = selfridge_parameters(5)
+    d, p, _q = selfridge_parameters(5)
     assert p == 1
     assert d == -7
 
