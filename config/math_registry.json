@@ -975,7 +975,7 @@
         "data availability sampling"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/committee.py",
@@ -997,7 +997,7 @@
         "chain reorganisation risk assessment"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/reorg.py",
