@@ -107,6 +107,13 @@ Rules:
   the filesystem and refuses otherwise.
 - **Never mark a `folklore` entry `implemented`.** Numerology cannot become a
   live signal by editing one field.
+- **One owner per entry.** An object that is genuinely one concept with more
+  than one implementation -- `finite-fields`, GF(p) and GF(2^n) -- names the
+  package as `owner` and each implementing module as a `component`. Components
+  are held to the same existence check as owners; the kind buys a second
+  module, not a weaker standard. `registry.implemented_by()` answers "what am
+  I on the hook for if I change this file?"; `owned_by()` does not see
+  components.
 - `depends_on` must resolve and the graph must stay acyclic. Both were violated
   by the registry's first draft and caught by the loader; that is why the
   checks exist.
