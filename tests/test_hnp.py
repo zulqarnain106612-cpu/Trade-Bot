@@ -198,3 +198,64 @@ def test_the_signature_carries_its_own_leak_description() -> None:
     sig = Signature(r=1, s=2, z=3, known_high_bits=8)
     assert sig.known_value == 0
     assert (sig.r, sig.s, sig.z, sig.known_high_bits) == (1, 2, 3, 8)
+
+
+# ---- real 256-bit secp256k1 recovery ---------------------------------------
+#
+# The toy-modulus tests above prove the mechanism. These prove the integer LLL
+# makes it work on the actual curve the project signs on, without the reduction
+# blowing up -- the whole reason `integer_lll_reduce` exists. Kept to large-bias
+# cases so the lattice dimension, and the test runtime, stay small; the
+# shrinking-bias direction is covered on the small modulus above and the
+# feasibility ceiling is stated in `recovery_limits()`.
+
+import hashlib  # noqa: E402
+
+from src.mathcore.curves.secp256k1 import (  # noqa: E402
+    CURVE_ORDER as SECP_N,
+)
+from src.mathcore.curves.secp256k1 import (  # noqa: E402
+    GENERATOR,
+    scalar_multiply,
+)
+from src.mathcore.derivation.nonces import generate_k  # noqa: E402
+
+
+def _secp_sign(key: int, message_hash: int, nonce: int) -> tuple[int, int]:
+    r = scalar_multiply(nonce, GENERATOR).x % SECP_N
+    s = (pow(nonce, -1, SECP_N) * (message_hash + r * key)) % SECP_N
+    return r, s
+
+
+@pytest.mark.parametrize(("unknown_bits", "count"), [(128, 4), (64, 6)])
+def test_a_real_secp256k1_key_is_recovered_from_biased_nonces(
+    unknown_bits: int, count: int
+) -> None:
+    """End-to-end on the real curve: 256-bit key, integer-LLL reduction."""
+    rng = random.Random(f"secp-{unknown_bits}")
+    key = rng.randrange(1, SECP_N)
+    known = 256 - unknown_bits
+    sigs = []
+    for _ in range(count):
+        z = rng.randrange(SECP_N)
+        k = rng.randrange(1, 1 << unknown_bits)
+        r, s = _secp_sign(key, z, k)
+        sigs.append(Signature(r, s, z, known_high_bits=known))
+    assert recover_private_key(sigs, SECP_N, 256) == key
+
+
+def test_rfc6979_signatures_on_secp256k1_do_not_yield_the_key() -> None:
+    """
+    The exit gate's negative direction, on the real curve with real RFC 6979
+    nonces. There is no bias to find, so claiming one returns None -- the
+    deterministic signer is exactly what closes the hole this attack opens.
+    """
+    key = 0xDEADBEEF00C0FFEE
+    sigs = []
+    for i in range(6):
+        digest = hashlib.sha256(f"payload-{i}".encode()).digest()
+        z = int.from_bytes(digest, "big") % SECP_N
+        k = generate_k(SECP_N, key, digest)
+        r, s = _secp_sign(key, z, k)
+        sigs.append(Signature(r, s, z, known_high_bits=64))
+    assert recover_private_key(sigs, SECP_N, 256) is None
