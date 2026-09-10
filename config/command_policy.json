@@ -1,0 +1,127 @@
+{
+  "$schema": "https://trade-bot.local/schemas/command-policy/1.0.0.json",
+  "policy_version": "1.0.0",
+  "enforcement": "block",
+  "_enforcement_values": [
+    "block",
+    "warn",
+    "off"
+  ],
+  "_enforcement_note": "block: refuse the tool call and explain. warn: allow but inject the reason as feedback. off: allow silently. The TB_COMMAND_POLICY env var overrides this value for one session, which is the documented rollback path -- edit this file for a durable change.",
+  "bounded_output": {
+    "enabled": true,
+    "max_declared_lines": 5,
+    "_note": "Project directive: fetch at most 5 lines per call, then request the next 5. A read command must carry an explicit bound (head -N, tail -N, sed -n 'a,bp', grep -m N, git log -n N, --max-count) with N <= max_declared_lines.",
+    "bounded_flag_patterns": [
+      "\\|\\s*(head|tail)\\s+(-n\\s*)?-?([1-5])\\b",
+      "\\b(head|tail)\\s+(-n\\s*)?-?([1-5])\\b",
+      "\\bsed\\s+-n\\s*['\"]?\\s*[0-9]+\\s*,\\s*[0-9]+\\s*p",
+      "\\bsed\\s+-n\\s*['\"]?\\s*[0-9]+\\s*p",
+      "\\bgrep\\b[^|]*\\s-m\\s*[1-5]\\b",
+      "\\bgrep\\b[^|]*--max-count[= ][1-5]\\b",
+      "\\b(git\\s+log|git\\s+shortlog)\\b[^|]*\\s-n?\\s*[1-5]\\b",
+      "\\bhead\\s+-c\\s+[0-9]+\\b",
+      "\\bwc\\b",
+      "\\b(ls|find)\\b[^|]*\\|\\s*(head|tail|wc)\\b",
+      "\\bgrep\\b[^|]*\\s-[a-zA-Z]*c\\b"
+    ],
+    "unbounded_commands": [
+      "cat",
+      "less",
+      "more",
+      "bat",
+      "strings",
+      "find",
+      "tree",
+      "env",
+      "printenv",
+      "history",
+      "journalctl",
+      "dmesg"
+    ],
+    "exempt_commands": [
+      "cd",
+      "pwd",
+      "echo",
+      "printf",
+      "true",
+      "false",
+      "test",
+      "which",
+      "command",
+      "mkdir",
+      "touch",
+      "cp",
+      "mv",
+      "python",
+      "python3",
+      "pip",
+      "pip3",
+      "pytest",
+      "ruff",
+      "mypy",
+      "black",
+      "npm",
+      "npx",
+      "node",
+      "make",
+      "git"
+    ],
+    "_exempt_note": "Commands whose output is either trivially small or whose own tooling already bounds it (pytest -q, ruff, git with -n). Exemption applies to the FIRST word of a pipeline segment only; a pipeline that ends in an unbounded reader is still checked.",
+    "bounded_required_subcommands": {
+      "git": [
+        "log",
+        "diff",
+        "show",
+        "blame",
+        "shortlog",
+        "reflog"
+      ],
+      "docker": [
+        "logs"
+      ],
+      "kubectl": [
+        "logs"
+      ],
+      "npm": [
+        "ls"
+      ]
+    },
+    "_subcommand_note": "Commands that are exempt as a whole but have subcommands whose output is unbounded. `git` is exempt so that `git status` and `git add` are not nagged, but `git log` with no -n can page thousands of commits into context.",
+    "oversized_bound_patterns": [
+      "\\b(?:head|tail)\\s+(?:-n\\s*)?-?(\\d+)\\b",
+      "\\bgrep\\b[^|]*?\\s-m\\s*(\\d+)\\b",
+      "\\bgrep\\b[^|]*?--max-count[= ](\\d+)\\b",
+      "\\b(?:git\\s+\\w+|docker\\s+logs|kubectl\\s+logs)\\b[^|]*?\\s(?:-n|--max-count|--tail)[= ]?(\\d+)\\b"
+    ],
+    "oversized_range_patterns": [
+      "\\bsed\\s+-n\\s*['\\\"]?\\s*(\\d+)\\s*,\\s*(\\d+)\\s*p"
+    ],
+    "_oversized_note": "A bound that is present but large is not a bound. head -100 puts 100 lines in context just as surely as cat does. These patterns extract the declared N and compare it against max_declared_lines; sed ranges are compared by span.",
+    "max_declared_bytes": 2000,
+    "oversized_byte_patterns": [
+      "\\b(?:head|tail)\\s+-c\\s*(\\d+)\\b"
+    ],
+    "_byte_note": "head -c is a legitimate bound for output with no newlines, but a byte bound is still a bound: -c 500000 is unbounded in practice. Compared against max_declared_bytes rather than max_declared_lines.",
+    "_count_note": "grep -c emits a single count line, so it is inherently bounded and must not be treated as an unbounded read just because it follows a reader in the pipeline."
+  },
+  "destructive": {
+    "enabled": true,
+    "_note": "Destructive commands are refused outright. They are not blocked because they are forbidden -- they are blocked because they must be run through common/shell_exec.run() with classification='destructive' and confirm_destructive=True, which records the authorization. The hook names that path in its refusal.",
+    "allow_marker": "TB_DESTRUCTIVE_OK=1",
+    "_allow_marker_note": "Prefixing a command with this marker documents that a human authorized this specific irreversible action. The marker is deliberately noisy so it cannot be added by habit."
+  },
+  "secret_echo": {
+    "enabled": true,
+    "_note": "Refuse commands that would print a credential store straight into the transcript, which is how a secret ends up in an LLM context and in the session log.",
+    "patterns": [
+      "\\bcat\\b[^|]*\\.(env|pem|key|p12|pfx|keystore)\\b",
+      "\\bcat\\b[^|]*(id_rsa|id_ed25519|credentials|\\.netrc|\\.pgpass)\\b",
+      "\\becho\\b[^|]*\\$(MONGODB_URI|GITHUB_TOKEN|ANTHROPIC_API_KEY|AWS_SECRET_ACCESS_KEY)\\b",
+      "\\b(env|printenv)\\b\\s*$",
+      "\\bgit\\s+config\\b[^|]*(credential|url\\..*insteadOf)",
+      "\\baws\\s+configure\\s+get\\b",
+      "\\bgh\\s+auth\\s+token\\b"
+    ]
+  }
+}
