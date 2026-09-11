@@ -195,7 +195,7 @@ Two distinct low-degree polynomials agree on only a vanishing fraction of a larg
 ## Number theory
 
 #### Integer factorisation and RSA
-`prime-factorisation-rsa` — **LOAD-BEARING** · relevance: security · status: planned
+`prime-factorisation-rsa` — **LOAD-BEARING** · relevance: security · status: implemented
 
 RSA security is the difficulty of recovering p and q from n = pq. Still present in exchange API authentication and in certificate chains.
 
@@ -294,7 +294,7 @@ Bounds and then computes the order of a curve group, which is the number that mu
 - **Depends on:** `elliptic-curves`
 
 #### Pollard rho, baby-step giant-step, Pohlig-Hellman, index calculus
-`generic-dlp-algorithms` — **ATTACK SURFACE** · relevance: security · status: planned
+`generic-dlp-algorithms` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Set the actual security level of a group: square-root generic attacks are why a 256-bit group gives 128-bit security, and Pohlig-Hellman is why the order must be prime.
 
@@ -304,7 +304,7 @@ Set the actual security level of a group: square-root generic attacks are why a 
 - **Owned by:** `src/mathcore/numbertheory/dlp_bounds.py`
 
 #### General Number Field Sieve
-`number-field-sieve` — **ATTACK SURFACE** · relevance: security · status: planned
+`number-field-sieve` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Subexponential L_n[1/3] factorisation, which is the entire reason RSA needs 2048 or 3072 bits where an elliptic curve needs 256.
 
@@ -315,7 +315,7 @@ Subexponential L_n[1/3] factorisation, which is the entire reason RSA needs 2048
 - **References:** NIST SP 800-57 Part 1
 
 #### Continued fractions and Wiener's attack
-`continued-fractions` — **ATTACK SURFACE** · relevance: security · status: planned
+`continued-fractions` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 The convergents of e/n recover a small RSA private exponent directly. Also the source of the claim that the golden ratio is the most irrational number, its expansion being all ones.
 

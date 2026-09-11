@@ -363,7 +363,7 @@
         "legacy exchange API signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/factorization.py",
@@ -593,7 +593,7 @@
         "security-level analysis of every deployed curve"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
@@ -617,7 +617,7 @@
         "finite-field DH key-size selection"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
@@ -644,7 +644,7 @@
         "low-discrepancy sequence theory"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/continued_fractions.py",
