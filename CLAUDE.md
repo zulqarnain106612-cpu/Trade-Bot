@@ -116,6 +116,39 @@ Rules:
 Design laws, module contracts and wiring points: `docs/MATH_ARCHITECTURE.md`.
 Build order and exit gates: `docs/MATH_ROADMAP.md`.
 
+## Quality and security requirements registry
+
+`config/quality_registry.json` is the single source of truth for every
+requirement, trading invariant, regression and security regression this project
+holds itself to, and for **which test decides each one**. Load it through
+`src/quality/registry.py`, which validates it strictly on read.
+
+Rules:
+
+- **Never claim a test that does not exist.** An entry at status `verified` or
+  `partial` must name at least one test file, and the loader stats every one of
+  them. A renamed or deleted test turns the claim red.
+- **Never leave work without an owner.** An entry at status `planned` must name
+  **no** test and **must** name the PR phase that will add one.
+- **A `critical` entry can never be an `accepted_gap`.** To waive it you must
+  first argue, in the diff, that it is not critical.
+- The id prefix and the declared `kind` are one fact: `INV-` invariant, `REG-`
+  regression, `SEC-` security regression, anything else a requirement.
+- `depends_on` must resolve and the graph must stay acyclic.
+- `docs/quality/REQUIREMENTS_TRACEABILITY.md` is **generated**. Edit the
+  registry, then run `python3 scripts/generate_quality_docs.py`. CI runs it
+  with `--check`.
+
+Every production defect gets a `REG-####` entry and a permanent test; every
+security finding gets a `SEC-####` entry and a permanent test. Neither test is
+ever deleted because the problem is fixed.
+
+Policy and taxonomy: `docs/quality/QUALITY_POLICY.md`,
+`docs/quality/TEST_STRATEGY.md`. Gates and workflows:
+`docs/quality/CI_GATE_ARCHITECTURE.md`. Phase sequence and branch mapping:
+`docs/quality/IMPLEMENTATION_PLAN.md`. Threat model, security policy, incident
+runbooks, key management and the GitHub configuration checklist: `docs/security/`.
+
 ## Required checks: no neutral, no skipped, no failed
 
 A pull request merges only when every check is green. Neutral, skipped,
