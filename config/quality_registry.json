@@ -715,11 +715,22 @@
       "statement": "A model artifact records model id, training-data hash, feature-schema hash, code commit, hyperparameters, seed, library versions, metrics, validation methodology and artifact hash.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-44",
-      "owning_modules": ["src/models/model_registry.py"],
-      "verification": [{ "test": "tests/test_model_registry.py", "test_type": "model" }],
-      "planned_in": "PR-004",
+      "owning_modules": ["src/models/provenance.py", "src/models/trainer.py"],
+      "verification": [
+        {
+          "test": "tests/models/test_model_provenance.py",
+          "test_type": "model",
+          "note": "All ten fields, with each hash asserted to change when its subject changes and not to change when something irrelevant does."
+        },
+        {
+          "test": "tests/models/test_model_artifacts.py",
+          "test_type": "model",
+          "note": "The manifest written by save() carries a complete record, and the legacy {file, sha256} keys still verify."
+        },
+        { "test": "tests/test_model_registry.py", "test_type": "model" }
+      ],
       "failure_mode": "A model in production cannot be traced to the data or code that made it."
     },
     {
@@ -729,10 +740,16 @@
       "statement": "Model output reaches an order only through SIGNAL -> RISK ENGINE -> EXECUTION POLICY; no module lets a model result skip the deterministic safety layer.",
       "criticality": "critical",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-45",
       "owning_modules": ["src/engine/signal_engine.py", "src/risk/gates.py"],
-      "planned_in": "PR-004",
+      "verification": [
+        {
+          "test": "tests/models/test_model_safety.py",
+          "test_type": "security",
+          "note": "Behavioural (confidence is not an input to any gate) and structural (no model or intelligence module imports an executor, and the engine does not discard the gate verdict)."
+        }
+      ],
       "failure_mode": "A confident model overrides the control designed to survive a confident model being wrong."
     },
     {
@@ -742,10 +759,16 @@
       "statement": "For a dataset truncated at T and the same dataset extended with arbitrary future data, the signal computed at T is identical.",
       "criticality": "critical",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-47",
-      "owning_modules": ["src/features/pipeline.py", "src/engine/signal_engine.py"],
-      "planned_in": "PR-004",
+      "owning_modules": ["src/models/leakage.py", "src/features/pipeline.py"],
+      "verification": [
+        {
+          "test": "tests/models/test_lookahead.py",
+          "test_type": "verification",
+          "note": "The detector is first shown to catch four deliberate leaks and to clear an honest feature, then run against the real pipeline with both real and absurd future data."
+        }
+      ],
       "failure_mode": "The backtest is a fantasy and the live strategy loses money the simulation never showed."
     },
     {
@@ -755,14 +778,18 @@
       "statement": "Feature, prediction, confidence, regime, calibration, performance and missingness drift are monitored; breaching a threshold moves the model to degraded/shadow rather than continuing to trust it.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-46",
       "owning_modules": ["src/risk/performance_drift.py", "src/risk/drift_integration.py"],
       "verification": [
+        {
+          "test": "tests/models/test_model_drift_demotion.py",
+          "test_type": "component",
+          "note": "A healthy model is not demoted, too little evidence is not drift, a degraded model halts the live track only, and a detector that cannot run fails closed."
+        },
         { "test": "tests/test_performance_drift.py", "test_type": "component" },
         { "test": "tests/test_drift_gate_wiring.py", "test_type": "integration" }
       ],
-      "planned_in": "PR-004",
       "failure_mode": "The model keeps trading a regime it was never trained on."
     },
     {
@@ -772,10 +799,16 @@
       "statement": "Each registered model can be loaded, predicted from, serialised, deserialised and reproduced to the recorded metrics from the recorded seed.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-44",
-      "owning_modules": ["src/models/model_registry.py"],
-      "planned_in": "PR-004",
+      "owning_modules": ["src/models/trainer.py"],
+      "verification": [
+        {
+          "test": "tests/models/test_model_artifacts.py",
+          "test_type": "model",
+          "note": "Load, predict, serialise, deserialise and reproduce bit-for-bit; a tampered artifact, a missing manifest and a swapped manifest are all refused."
+        }
+      ],
       "failure_mode": "A model that cannot be reloaded cannot be rolled back to."
     },
     {
@@ -785,14 +818,18 @@
       "statement": "A notebook or research script has no path to production trading parameters; promotion runs RESEARCH -> candidate -> validation -> shadow -> paper -> production.",
       "criticality": "critical",
       "subsystem": "model",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-83",
       "owning_modules": ["src/upgrade/shadow_deploy.py", "src/tuning/promotion_gauntlet.py"],
       "verification": [
+        {
+          "test": "tests/models/test_research_firewall.py",
+          "test_type": "verification",
+          "note": "The gauntlet is a conjunction with no partial credit, shadow evaluation is a time window a challenger cannot buy its way past, and no tuning or upgrade module imports an executor."
+        },
         { "test": "tests/test_shadow_model_promotion.py", "test_type": "verification" },
         { "test": "tests/test_upgrade_shadow_deploy.py", "test_type": "verification" }
       ],
-      "planned_in": "PR-004",
       "failure_mode": "An experiment becomes the production strategy by accident."
     },
     {
@@ -802,10 +839,16 @@
       "statement": "Model validation uses combinatorial purged cross-validation with an embargo, so adjacent-sample leakage cannot inflate the reported score.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-90,QE-86",
       "owning_modules": ["src/models/trainer.py"],
-      "planned_in": "PR-004",
+      "verification": [
+        {
+          "test": "tests/models/test_cpcv_purging.py",
+          "test_type": "verification",
+          "note": "Train and test never overlap, the purge gap before and the embargo after every test block are empty, and the fold count is the binomial coefficient rather than a single pass."
+        }
+      ],
       "failure_mode": "A leaky validation split reports skill the strategy does not have."
     },
 

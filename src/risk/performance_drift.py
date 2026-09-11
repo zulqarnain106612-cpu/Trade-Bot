@@ -23,7 +23,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 
 import structlog
 from scipy.stats import norm
@@ -81,16 +81,36 @@ class PerformanceBaseline:
     """
     Training-time performance baseline — set once during model training.
 
+    **UNITS: the four rate fields are FRACTIONS in [0, 1], not percentages**,
+    despite the `_pct` suffix on `max_drawdown_pct`. Every threshold in this
+    module is a fraction (`_DRIFT_ACCURACY_DROP_PP = 0.10` means ten
+    percentage points), every live value is computed as a fraction, and every
+    reason string formats with `:.1%`. The docstring here used to say "(%)",
+    which is the trap this validator now closes: a caller who believed it and
+    passed `58.0` produced a pooled proportion above 1 inside the
+    two-proportion z-test, `math.sqrt` of a negative, and a `ValueError`
+    reading "expected a nonnegative input" from deep inside a risk control —
+    which `check_performance_drift` then turned into a halt with a reason
+    nobody could act on.
+
     Attributes:
-        train_sharpe: In-sample Sharpe ratio from backtest
+        train_sharpe: In-sample Sharpe ratio from backtest (a ratio, unbounded)
         oos_sharpe: Out-of-sample Sharpe ratio (walk-forward validation)
-        train_accuracy: Training set model accuracy (%)
-        oos_accuracy: Out-of-sample accuracy (%)
-        train_win_rate: Training set win rate (%)
-        max_drawdown_pct: Maximum drawdown from backtest (%)
+        train_accuracy: Training set model accuracy, FRACTION in [0, 1]
+        oos_accuracy: Out-of-sample accuracy, FRACTION in [0, 1]
+        train_win_rate: Training set win rate, FRACTION in [0, 1]
+        max_drawdown_pct: Maximum drawdown from backtest, FRACTION in [0, 1]
         trades_in_backtest: Total trades in backtest
         set_at_ms: UNIX timestamp when baseline was recorded
     """
+
+    #: Fields that must be fractions in [0, 1].
+    _FRACTION_FIELDS: ClassVar[tuple[str, ...]] = (
+        "train_accuracy",
+        "oos_accuracy",
+        "train_win_rate",
+        "max_drawdown_pct",
+    )
 
     train_sharpe: float
     oos_sharpe: float
@@ -104,6 +124,25 @@ class PerformanceBaseline:
     train_sortino: float = 0.0
     oos_sortino: float = 0.0
     set_at_ms: int = field(default_factory=lambda: int(datetime.now(tz=UTC).timestamp() * 1000))
+
+    def __post_init__(self) -> None:
+        """
+        Catch a percentage-shaped value at construction, not hours later.
+
+        A baseline is built once at startup and consulted on every live tick,
+        so a unit mistake made here surfaces at the first drift check — by
+        which time the message has nothing to do with the mistake.
+        """
+        for name in self._FRACTION_FIELDS:
+            value = float(getattr(self, name))
+            if not math.isfinite(value):
+                raise ValueError(f"PerformanceBaseline.{name} must be finite, got {value}")
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"PerformanceBaseline.{name}={value} is outside [0, 1]. This field is a "
+                    f"FRACTION, not a percentage: pass {value / 100.0:g}, not {value:g}. "
+                    "Every threshold and live value in this module is a fraction."
+                )
 
     def to_dict(self) -> dict[str, Any]:
         return {
