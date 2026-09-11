@@ -84,14 +84,19 @@
       "statement": "For every order the system submits, notional <= the configured ceiling for that symbol and account, with no path that bypasses the check.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42",
       "owning_modules": ["src/risk/gates.py", "src/risk/kelly.py"],
       "verification": [
         {
+          "test": "tests/trading/invariants/test_inv_001_max_notional.py",
+          "test_type": "risk",
+          "note": "Pins the ceiling at the boundary, proves no otherwise-passing input talks the stack past it, and states the sizer-cap versus gate-authority relationship."
+        },
+        {
           "test": "tests/test_kelly_notional_cap.py",
           "test_type": "risk",
-          "note": "Caps the Kelly sizer's notional; does not yet prove the property across every sizing path."
+          "note": "Caps the Kelly sizer's notional."
         },
         {
           "test": "tests/test_cvar_notional_cap.py",
@@ -99,7 +104,6 @@
           "note": "Caps the CVaR path."
         }
       ],
-      "planned_in": "PR-002",
       "failure_mode": "A single mis-sized order puts more capital at risk than the risk policy permits.",
       "depends_on": ["RISK-001"]
     },
@@ -110,17 +114,21 @@
       "statement": "While the capital-preservation floor is breached, no new entry order may be produced by any strategy, engine or manual path.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42",
       "owning_modules": ["src/risk/capital_preservation_floor.py", "src/risk/gates.py"],
       "verification": [
         {
+          "test": "tests/trading/invariants/test_inv_002_capital_preservation_halt.py",
+          "test_type": "risk",
+          "note": "Halts at the threshold, never auto-clears on recovery, only re-authorisation lifts it, and it is evaluated first so the audit trail names the right control."
+        },
+        {
           "test": "tests/test_capital_preservation_floor.py",
           "test_type": "risk",
-          "note": "Covers the floor's own decision; the end-to-end block is PR-002."
+          "note": "Covers the floor's own decision."
         }
       ],
-      "planned_in": "PR-002",
       "failure_mode": "The bot keeps trading through the drawdown it was supposed to stop at."
     },
     {
@@ -156,17 +164,21 @@
       "statement": "Any non-finite value reaching price, quantity, notional, confidence or a risk scalar results in refusal, never in an order.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": ["src/risk/gates.py", "src/strategies/position_sizing.py"],
       "verification": [
+        {
+          "test": "tests/trading/invariants/test_inv_004_non_finite.py",
+          "test_type": "property",
+          "note": "Walks NaN and both infinities through every sizer, every gate and the assembled stack, and pins the two documented fail-open exceptions."
+        },
         {
           "test": "tests/test_gates_non_finite.py",
           "test_type": "risk",
-          "note": "Covers the gate stack; the property test over all numeric entry points is PR-002."
+          "note": "Covers the gate stack."
         }
       ],
-      "planned_in": "PR-002",
       "failure_mode": "A NaN propagates through sizing and an order of undefined size is submitted."
     },
     {
@@ -196,17 +208,21 @@
       "statement": "If the risk engine raises, times out or is unavailable, the decision is NO TRADE. There is no default-allow path.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42,QE-26",
       "owning_modules": ["src/risk/gates.py"],
       "verification": [
         {
+          "test": "tests/trading/invariants/test_inv_006_risk_engine_failure.py",
+          "test_type": "risk",
+          "note": "The drift gate fails closed on any exception; a raising gate propagates rather than becoming a pass; no except block in src/risk swallows into a default-allow."
+        },
+        {
           "test": "tests/test_risk_gates.py",
           "test_type": "risk",
-          "note": "Covers gate outcomes; the deliberate-failure-injection cases are PR-002."
+          "note": "Covers gate outcomes."
         }
       ],
-      "planned_in": "PR-002",
       "failure_mode": "An exception in the safety layer silently removes the safety layer.",
       "depends_on": ["GOV-004"]
     },
@@ -286,14 +302,23 @@
       "statement": "For every symbol and for the portfolio as a whole, exposure stays at or below the configured ceiling under every sizing path, including manual overrides.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-5",
       "owning_modules": ["src/strategies/position_sizing.py", "src/risk/gates.py"],
       "verification": [
+        {
+          "test": "tests/trading/invariants/test_inv_001_max_notional.py",
+          "test_type": "risk",
+          "note": "The composition: the sizer's cap is 25% of capital, the gate's ceiling is 5%, and the gate is the authority."
+        },
+        {
+          "test": "tests/risk/test_risk_limit_boundaries.py",
+          "test_type": "risk",
+          "note": "Just inside, exactly on, and just outside the position-size limit."
+        },
         { "test": "tests/test_position_sizing.py", "test_type": "risk" },
         { "test": "tests/test_risk_gates.py", "test_type": "risk" }
       ],
-      "planned_in": "PR-002",
       "failure_mode": "One oversized position turns a normal drawdown into an account-ending one."
     },
     {
@@ -303,10 +328,16 @@
       "statement": "Each configured risk limit has tests at limit-epsilon, limit, and limit+epsilon, so an off-by-one comparison cannot pass.",
       "criticality": "high",
       "subsystem": "risk",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-86",
       "owning_modules": ["src/risk/gates.py"],
-      "planned_in": "PR-002",
+      "verification": [
+        {
+          "test": "tests/risk/test_risk_limit_boundaries.py",
+          "test_type": "risk",
+          "note": "Nine limits, three cases each, with the inclusive or exclusive side of every comparison named in the test name and tabulated in the module docstring."
+        }
+      ],
       "failure_mode": "A `<` written where `<=` was meant permits exactly the trade the limit exists to stop."
     },
     {
@@ -316,10 +347,16 @@
       "statement": "For arbitrary generated inputs, the sizer returns a value in [0, limit] or refuses; it never returns a negative, non-finite or unbounded size.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-50",
       "owning_modules": ["src/strategies/position_sizing.py", "src/risk/kelly.py"],
-      "planned_in": "PR-002",
+      "verification": [
+        {
+          "test": "tests/property/test_position_sizing_properties.py",
+          "test_type": "property",
+          "note": "Seeded generation over pools weighted toward the values that break comparisons: finite, non-negative and under the ceiling for every sizer and for the combined recommendation."
+        }
+      ],
       "failure_mode": "A negative size inverts the intended direction of the trade."
     },
     {
@@ -329,10 +366,19 @@
       "statement": "Every value the system treats as a probability is in [0, 1] where it is consumed, or is rejected at the boundary.",
       "criticality": "high",
       "subsystem": "risk",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-50",
-      "owning_modules": ["src/risk/gates.py", "src/intelligence/calibration.py"],
-      "planned_in": "PR-002",
+      "owning_modules": [
+        "src/strategies/position_sizing.py",
+        "src/intelligence/calibration.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/risk/test_probability_bounds.py",
+          "test_type": "property",
+          "note": "An out-of-range probability refuses rather than saturating to the largest permitted bet, and the Bayesian shrinkage primitive guarantees its own output is a probability."
+        }
+      ],
       "failure_mode": "A confidence of 4.0 multiplies position size by four."
     },
     {
@@ -558,14 +604,18 @@
       "statement": "Aggregate exposure, cross-strategy correlation and portfolio agreement are evaluated before an order is sized, and a breach reduces or refuses the order rather than being reported after the fact.",
       "criticality": "high",
       "subsystem": "portfolio",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-2,QE-42",
       "owning_modules": ["src/risk/portfolio_correlation.py", "src/risk/portfolio_agreement.py"],
       "verification": [
+        {
+          "test": "tests/portfolio/test_portfolio_limits.py",
+          "test_type": "risk",
+          "note": "Both scalars asserted on the notional that reaches the sizer rather than on the number the tracker reports, and the small-sample shrinkage pinned as intended behaviour rather than discovered as a surprise."
+        },
         { "test": "tests/test_portfolio_correlation.py", "test_type": "risk" },
         { "test": "tests/test_portfolio_agreement.py", "test_type": "risk" }
       ],
-      "planned_in": "PR-002",
       "failure_mode": "Five uncorrelated-looking positions turn out to be one position in five costumes."
     },
     {
