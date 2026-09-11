@@ -78,6 +78,14 @@ jobs:
         # drift from it. Both are cheap to check and expensive to discover late.
         run: python3 scripts/generate_math_docs.py --check
 
+      - name: Quality registry is valid and its traceability document is in sync
+        # Same contract as the math registry, applied to requirements: an entry
+        # may not claim a test that is not on disk, and the generated matrix may
+        # not drift from the data it is generated from. Cheap to check, and the
+        # failure it prevents -- a traceability matrix citing a deleted test --
+        # is the kind that is only noticed during an audit.
+        run: python3 scripts/generate_quality_docs.py --check
+
       - name: Lint
         run: ruff check .
 

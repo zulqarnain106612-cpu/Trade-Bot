@@ -1,0 +1,1122 @@
+<!--
+GENERATED FILE — DO NOT EDIT BY HAND.
+
+Source of truth: config/quality_registry.json
+Regenerate with: python3 scripts/generate_quality_docs.py
+CI check:        python3 scripts/generate_quality_docs.py --check
+
+Editing this file directly will be reverted by the next regeneration and will
+fail CI. Change the registry instead; the registry is reviewed as a diff and
+validated by src/quality/registry.py at load time.
+-->
+
+# Requirements traceability
+
+Every requirement, trading invariant, regression and security regression this
+project holds itself to, and the test that decides each one.
+
+The chain this document exists to make auditable:
+
+```
+Requirement
+   ↓
+Implementation
+   ↓
+Test
+   ↓
+CI gate
+   ↓
+Release evidence
+```
+
+A row here is a claim about the tree, not an aspiration. The loader stats every
+named test file and every named owning module, so a row cannot survive the
+deletion of the thing it points at.
+
+## How to read a status
+
+**VERIFIED** — At least one named test file exists on disk and the entry is considered fully covered. No planned_in.
+
+**PARTIAL** — Named tests exist and cover part of the statement. planned_in names the PR that finishes it. This is the honest status for a requirement the tree already touches but does not yet pin down.
+
+**PLANNED** — No test exists yet. planned_in names the PR that will create one. Naming no test and no PR is not a permitted state.
+
+**ACCEPTED GAP** — A deliberate, attributed, dated decision not to verify. Requires a waiver. Never available to a critical entry.
+
+## Summary by status
+
+| Status | Entries |
+|---|---|
+| VERIFIED | 4 |
+| PARTIAL | 38 |
+| PLANNED | 49 |
+| ACCEPTED GAP | 0 |
+| **Total** | **91** |
+
+## Summary by subsystem
+
+| Subsystem | Entries | Verified |
+|---|---|---|
+| Risk | 10 | 0 |
+| Execution | 11 | 0 |
+| Portfolio | 1 | 0 |
+| Signal and features | 3 | 0 |
+| Models and leakage | 7 | 0 |
+| Data, money and time | 6 | 0 |
+| API and WebSocket | 9 | 0 |
+| Cryptography and secrets | 10 | 0 |
+| Supply chain and artifacts | 7 | 0 |
+| Resilience and recovery | 8 | 0 |
+| Release and production | 9 | 0 |
+| Governance | 10 | 4 |
+
+## Outstanding work by phase
+
+| Phase | Title | Entries |
+|---|---|---|
+| PR-001 | Quality/Security Foundation | — |
+| PR-002 | Risk Invariants + Boundary Tests | `INV-001`, `INV-002`, `INV-004`, `INV-006`, `PORT-001`, `RISK-001`, `RISK-002`, `RISK-003`, `RISK-004` |
+| PR-003 | Signal/Feature Verification | `DATA-001`, `DATA-002`, `DATA-003`, `DATA-004`, `INV-008`, `SIG-001`, `SIG-002` |
+| PR-004 | Model/Leakage Verification | `MODL-001`, `MODL-002`, `MODL-003`, `MODL-004`, `MODL-005`, `MODL-006`, `MODL-007` |
+| PR-005 | Execution/FSM/Exchange Contracts | `DATA-005`, `EXEC-001`, `EXEC-002`, `EXEC-003`, `EXEC-004`, `EXEC-006`, `INV-003`, `INV-005`, `INV-007` |
+| PR-006 | Regression + Property Testing | `EXEC-007`, `GOV-003`, `GOV-004`, `GOV-006`, `GOV-007`, `RES-008`, `RISK-006`, `SIG-003` |
+| PR-007 | API/WebSocket Security | `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`, `API-007`, `API-008`, `API-009`, `EXEC-005` |
+| PR-008 | Cryptographic/Secret Architecture | `SECR-001`, `SECR-002`, `SECR-003`, `SECR-004`, `SECR-005`, `SECR-006`, `SECR-007`, `SECR-008`, `SECR-009`, `SECR-010` |
+| PR-009 | Supply-Chain + Artifact Security | `SUP-001`, `SUP-002`, `SUP-003`, `SUP-004`, `SUP-005`, `SUP-006`, `SUP-007` |
+| PR-010 | Recovery/Chaos/Performance | `INV-009`, `RES-001`, `RES-002`, `RES-003`, `RES-004`, `RES-005`, `RES-006`, `RES-007` |
+| PR-011 | Paper-Trading Qualification | `INV-010`, `REL-001`, `RISK-005` |
+| PR-012 | Production/Canary Security Gate | `GOV-009`, `GOV-010`, `REL-002`, `REL-003`, `REL-004`, `REL-005`, `REL-006`, `REL-007`, `REL-008` |
+
+---
+
+## Risk
+
+#### `INV-001` — No order exceeds the configured maximum notional
+
+**PARTIAL → PR-002** · critical · invariant · source: QE-42
+
+For every order the system submits, notional <= the configured ceiling for that symbol and account, with no path that bypasses the check.
+
+- **If violated:** A single mis-sized order puts more capital at risk than the risk policy permits.
+- **Owned by:** `src/risk/gates.py`, `src/risk/kelly.py`
+- **Depends on:** `RISK-001`
+- **Verification:**
+  - `tests/test_kelly_notional_cap.py` (risk) — Caps the Kelly sizer's notional; does not yet prove the property across every sizing path.
+  - `tests/test_cvar_notional_cap.py` (risk) — Caps the CVaR path.
+
+#### `INV-002` — No new entry while a capital-preservation halt is active
+
+**PARTIAL → PR-002** · critical · invariant · source: QE-42
+
+While the capital-preservation floor is breached, no new entry order may be produced by any strategy, engine or manual path.
+
+- **If violated:** The bot keeps trading through the drawdown it was supposed to stop at.
+- **Owned by:** `src/risk/capital_preservation_floor.py`, `src/risk/gates.py`
+- **Verification:**
+  - `tests/test_capital_preservation_floor.py` (risk) — Covers the floor's own decision; the end-to-end block is PR-002.
+
+#### `INV-004` — NaN or Infinity cannot produce an executable order
+
+**PARTIAL → PR-002** · critical · invariant · source: QE-42
+
+Any non-finite value reaching price, quantity, notional, confidence or a risk scalar results in refusal, never in an order.
+
+- **If violated:** A NaN propagates through sizing and an order of undefined size is submitted.
+- **Owned by:** `src/risk/gates.py`
+- **Verification:**
+  - `tests/test_gates_non_finite.py` (risk) — Covers the gate stack; the property test over all numeric entry points is PR-002.
+
+#### `INV-006` — Risk engine failure cannot result in an executable order
+
+**PARTIAL → PR-002** · critical · invariant · source: QE-42,QE-26
+
+If the risk engine raises, times out or is unavailable, the decision is NO TRADE. There is no default-allow path.
+
+- **If violated:** An exception in the safety layer silently removes the safety layer.
+- **Owned by:** `src/risk/gates.py`
+- **Depends on:** `GOV-004`
+- **Verification:**
+  - `tests/test_risk_gates.py` (risk) — Covers gate outcomes; the deliberate-failure-injection cases are PR-002.
+
+#### `RISK-001` — Maximum position exposure must not exceed the configured ceiling
+
+**PARTIAL → PR-002** · critical · requirement · source: QE-5
+
+For every symbol and for the portfolio as a whole, exposure stays at or below the configured ceiling under every sizing path, including manual overrides.
+
+- **If violated:** One oversized position turns a normal drawdown into an account-ending one.
+- **Owned by:** `src/strategies/position_sizing.py`, `src/risk/gates.py`
+- **Verification:**
+  - `tests/test_position_sizing.py` (risk)
+  - `tests/test_risk_gates.py` (risk)
+
+#### `RISK-002` — Boundary values at every risk limit are exercised
+
+**PLANNED → PR-002** · high · requirement · source: QE-86
+
+Each configured risk limit has tests at limit-epsilon, limit, and limit+epsilon, so an off-by-one comparison cannot pass.
+
+- **If violated:** A `<` written where `<=` was meant permits exactly the trade the limit exists to stop.
+- **Owned by:** `src/risk/gates.py`
+- **Verification:** none yet
+
+#### `RISK-003` — Position size is non-negative and bounded
+
+**PLANNED → PR-002** · critical · requirement · source: QE-50
+
+For arbitrary generated inputs, the sizer returns a value in [0, limit] or refuses; it never returns a negative, non-finite or unbounded size.
+
+- **If violated:** A negative size inverts the intended direction of the trade.
+- **Owned by:** `src/strategies/position_sizing.py`, `src/risk/kelly.py`
+- **Verification:** none yet
+
+#### `RISK-004` — Probabilities and confidences stay within [0, 1]
+
+**PLANNED → PR-002** · high · requirement · source: QE-50
+
+Every value the system treats as a probability is in [0, 1] where it is consumed, or is rejected at the boundary.
+
+- **If violated:** A confidence of 4.0 multiplies position size by four.
+- **Owned by:** `src/risk/gates.py`, `src/intelligence/calibration.py`
+- **Verification:** none yet
+
+#### `RISK-005` — No optimizer may directly modify a live risk control
+
+**PARTIAL → PR-011** · critical · requirement · source: QE-84
+
+Self-tuning output reaches live risk parameters only through bounds, offline evaluation, out-of-sample check, risk tests, shadow, paper and an approval -- never directly.
+
+- **If violated:** An optimizer relaxes the very limit that would have stopped its own bad idea.
+- **Owned by:** `src/tuning/gate.py`, `src/tuning/promotion_gauntlet.py`, `src/tuning/live_overrides.py`
+- **Verification:**
+  - `tests/test_tuning_gate.py` (verification)
+  - `tests/test_promotion_gauntlet.py` (verification)
+
+#### `RISK-006` — Mutation score on the risk subsystem is at or above 90%
+
+**PLANNED → PR-006** · high · requirement · source: QE-49
+
+Nightly mutation testing of the risk modules kills at least 90% of generated mutants.
+
+- **If violated:** High line coverage hides a suite that would not notice if a comparison flipped.
+- **Owned by:** `src/risk/gates.py`
+- **Verification:** none yet
+
+## Execution
+
+#### `INV-003` — Unknown exchange order state cannot become FILLED without reconciliation
+
+**PARTIAL → PR-005** · critical · invariant · source: QE-42,QE-5
+
+An order whose exchange status is unknown, missing or unparseable is never transitioned to FILLED; it enters a reconciliation state instead.
+
+- **If violated:** The bot books a fill that never happened, and every downstream position figure is wrong.
+- **Owned by:** `src/execution/order_fsm.py`, `src/execution/live.py`
+- **Depends on:** `EXEC-004`
+- **Verification:**
+  - `tests/test_order_fsm_transition_table.py` (execution) — Pins the legal transition table.
+  - `tests/test_live_executor_fsm.py` (execution) — Covers the live executor's FSM use.
+
+#### `INV-005` — A disabled trading mode cannot submit orders
+
+**PARTIAL → PR-005** · critical · invariant · source: QE-42
+
+When live trading is disabled, no code path reaches the live exchange client, including scheduled jobs, retries and reconciliation.
+
+- **If violated:** The bot trades real money while the operator believes it is in paper mode.
+- **Owned by:** `src/execution/router.py`, `src/risk/gates.py`
+- **Verification:**
+  - `tests/test_paper_only_timeframe_routing.py` (execution) — Covers paper-only routing for one class of signal.
+
+#### `INV-007` — Duplicate execution requests cannot create duplicate positions
+
+**PARTIAL → PR-005** · critical · invariant · source: QE-42,QE-58
+
+Two execution requests carrying the same idempotency key produce at most one exchange order and one position change.
+
+- **If violated:** A retry doubles the position and the account is twice as exposed as intended.
+- **Owned by:** `src/execution/idempotency.py`
+- **Depends on:** `EXEC-001`
+- **Verification:**
+  - `tests/test_idempotency.py` (execution) — Covers the key store; the concurrent-duplicate race is PR-010.
+
+#### `INV-009` — Position and account state after restart reconcile with the exchange
+
+**PLANNED → PR-010** · critical · invariant · source: QE-42
+
+After any restart, the reconstructed position and balance state matches the exchange's, or the system halts rather than trading on a guess.
+
+- **If violated:** The bot restarts believing it is flat while holding a real position, and hedges nothing.
+- **Owned by:** `src/execution/unified_ledger.py`, `src/diagnostics/disaster_recovery.py`
+- **Verification:** none yet
+
+#### `EXEC-001` — Execution requests carry an idempotency key end to end
+
+**PARTIAL → PR-005** · critical · requirement · source: QE-58
+
+Every execution request carries a key derived from its decision, and the executor refuses to act twice on the same key.
+
+- **If violated:** A network retry becomes a second real order.
+- **Owned by:** `src/execution/idempotency.py`, `src/execution/router.py`
+- **Verification:**
+  - `tests/test_idempotency.py` (execution)
+
+#### `EXEC-002` — The order state machine is total and its transitions are legal
+
+**PARTIAL → PR-005** · critical · requirement · source: QE-90
+
+Every (state, event) pair has a defined outcome, and no transition outside the declared table is reachable.
+
+- **If violated:** An unhandled exchange event leaves an order in a state nothing knows how to close.
+- **Owned by:** `src/execution/order_fsm.py`
+- **Verification:**
+  - `tests/test_order_fsm_transition_table.py` (contract)
+  - `tests/test_order_fsm.py` (execution)
+
+#### `EXEC-003` — Exchange responses are validated against a declared contract
+
+**PLANNED → PR-005** · critical · requirement · source: QE-90,QE-51
+
+Every exchange response is parsed against a schema; unknown, missing or malformed fields produce an explicit failure, not a default.
+
+- **If violated:** A changed exchange field silently reads as zero and the bot mis-books a fill.
+- **Owned by:** `src/execution/live.py`, `src/execution/base.py`
+- **Verification:** none yet
+
+#### `EXEC-004` — Unknown exchange order status must never be treated as FILLED
+
+**PARTIAL → PR-005** · critical · requirement · source: QE-5
+
+An unrecognised status string maps to an explicit UNKNOWN outcome that triggers reconciliation, never to a terminal success.
+
+- **If violated:** Position accounting diverges from the exchange without anything reporting an error.
+- **Owned by:** `src/execution/order_fsm.py`
+- **Verification:**
+  - `tests/test_live_fsm_integration.py` (integration)
+
+#### `EXEC-005` — The kill switch is authenticated, authorized, audited, idempotent and durable
+
+**PARTIAL → PR-007** · critical · requirement · source: QE-25
+
+Activating the kill switch requires an operator role, writes an audit event, is safe to repeat, blocks new entries immediately, and survives restart.
+
+- **If violated:** The control of last resort is unavailable exactly when it is needed.
+- **Owned by:** `src/risk/strategy_kill_switch.py`
+- **Verification:**
+  - `tests/test_strategy_kill_switch.py` (component)
+  - `tests/test_strategy_kill_switch_wiring.py` (integration)
+
+#### `EXEC-006` — Partial fills and fees are accounted exactly
+
+**PARTIAL → PR-005** · high · requirement · source: QE-81
+
+Position, average price, fee and realised PnL after a sequence of partial fills match a hand-calculated fixture.
+
+- **If violated:** PnL is wrong, so every downstream risk decision is made on false numbers.
+- **Owned by:** `src/execution/order_manager.py`, `src/execution/post_trade.py`
+- **Verification:**
+  - `tests/test_order_manager_partial_fills.py` (unit)
+  - `tests/test_executor_fee_accounting.py` (unit)
+
+#### `EXEC-007` — Mutation score on the execution subsystem is at or above 90%
+
+**PLANNED → PR-006** · high · requirement · source: QE-49
+
+Nightly mutation testing of the execution modules kills at least 90% of generated mutants.
+
+- **If violated:** The FSM tests assert shape without asserting behaviour.
+- **Owned by:** `src/execution/order_fsm.py`
+- **Verification:** none yet
+
+## Portfolio
+
+#### `PORT-001` — Portfolio-level exposure, correlation and agreement limits are enforced
+
+**PARTIAL → PR-002** · high · requirement · source: QE-2,QE-42
+
+Aggregate exposure, cross-strategy correlation and portfolio agreement are evaluated before an order is sized, and a breach reduces or refuses the order rather than being reported after the fact.
+
+- **If violated:** Five uncorrelated-looking positions turn out to be one position in five costumes.
+- **Owned by:** `src/risk/portfolio_correlation.py`, `src/risk/portfolio_agreement.py`
+- **Verification:**
+  - `tests/test_portfolio_correlation.py` (risk)
+  - `tests/test_portfolio_agreement.py` (risk)
+
+## Signal and features
+
+#### `SIG-001` — Golden signal fixtures pin end-to-end behaviour
+
+**PLANNED → PR-003** · high · requirement · source: QE-43
+
+Named fixtures carry market input, features, regime, model output, signal, risk decision and expected final action, and CI fails on any unexplained change.
+
+- **If violated:** A refactor changes what the bot trades and nobody notices until the PnL does.
+- **Owned by:** `src/engine/signal_engine.py`
+- **Verification:** none yet
+
+#### `SIG-002` — Feature computation is deterministic and reproducible
+
+**PARTIAL → PR-003** · high · requirement · source: QE-86
+
+The same input bars produce bit-identical features across runs and processes.
+
+- **If violated:** A backtest cannot be reproduced, so a result cannot be trusted.
+- **Owned by:** `src/features/pipeline.py`
+- **Verification:**
+  - `tests/test_features.py` (unit)
+
+#### `SIG-003` — Mutation score on the signal subsystem is at or above 85%
+
+**PLANNED → PR-006** · medium · requirement · source: QE-49
+
+Nightly mutation testing of the signal modules kills at least 85% of generated mutants.
+
+- **If violated:** Signal tests assert that something was produced, not that it was right.
+- **Owned by:** `src/engine/signal_engine.py`
+- **Verification:** none yet
+
+## Models and leakage
+
+#### `MODL-001` — Every model artifact carries full provenance
+
+**PARTIAL → PR-004** · high · requirement · source: QE-44
+
+A model artifact records model id, training-data hash, feature-schema hash, code commit, hyperparameters, seed, library versions, metrics, validation methodology and artifact hash.
+
+- **If violated:** A model in production cannot be traced to the data or code that made it.
+- **Owned by:** `src/models/model_registry.py`
+- **Verification:**
+  - `tests/test_model_registry.py` (model)
+
+#### `MODL-002` — A model never decides to bypass the risk gate
+
+**PLANNED → PR-004** · critical · requirement · source: QE-45
+
+Model output reaches an order only through SIGNAL -> RISK ENGINE -> EXECUTION POLICY; no module lets a model result skip the deterministic safety layer.
+
+- **If violated:** A confident model overrides the control designed to survive a confident model being wrong.
+- **Owned by:** `src/engine/signal_engine.py`, `src/risk/gates.py`
+- **Verification:** none yet
+
+#### `MODL-003` — No lookahead: a signal at T is invariant to data after T
+
+**PLANNED → PR-004** · critical · requirement · source: QE-47
+
+For a dataset truncated at T and the same dataset extended with arbitrary future data, the signal computed at T is identical.
+
+- **If violated:** The backtest is a fantasy and the live strategy loses money the simulation never showed.
+- **Owned by:** `src/features/pipeline.py`, `src/engine/signal_engine.py`
+- **Verification:** none yet
+
+#### `MODL-004` — Model drift beyond threshold demotes the model
+
+**PARTIAL → PR-004** · high · requirement · source: QE-46
+
+Feature, prediction, confidence, regime, calibration, performance and missingness drift are monitored; breaching a threshold moves the model to degraded/shadow rather than continuing to trust it.
+
+- **If violated:** The model keeps trading a regime it was never trained on.
+- **Owned by:** `src/risk/performance_drift.py`, `src/risk/drift_integration.py`
+- **Verification:**
+  - `tests/test_performance_drift.py` (component)
+  - `tests/test_drift_gate_wiring.py` (integration)
+
+#### `MODL-005` — Model artifacts round-trip and reproduce
+
+**PLANNED → PR-004** · high · requirement · source: QE-44
+
+Each registered model can be loaded, predicted from, serialised, deserialised and reproduced to the recorded metrics from the recorded seed.
+
+- **If violated:** A model that cannot be reloaded cannot be rolled back to.
+- **Owned by:** `src/models/model_registry.py`
+- **Verification:** none yet
+
+#### `MODL-006` — Research output cannot change production parameters directly
+
+**PARTIAL → PR-004** · critical · requirement · source: QE-83
+
+A notebook or research script has no path to production trading parameters; promotion runs RESEARCH -> candidate -> validation -> shadow -> paper -> production.
+
+- **If violated:** An experiment becomes the production strategy by accident.
+- **Owned by:** `src/upgrade/shadow_deploy.py`, `src/tuning/promotion_gauntlet.py`
+- **Verification:**
+  - `tests/test_shadow_model_promotion.py` (verification)
+  - `tests/test_upgrade_shadow_deploy.py` (verification)
+
+#### `MODL-007` — Cross-validation respects time and purging
+
+**PLANNED → PR-004** · high · requirement · source: QE-90,QE-86
+
+Model validation uses combinatorial purged cross-validation with an embargo, so adjacent-sample leakage cannot inflate the reported score.
+
+- **If violated:** A leaky validation split reports skill the strategy does not have.
+- **Owned by:** `src/models/trainer.py`
+- **Verification:** none yet
+
+## Data, money and time
+
+#### `INV-008` — A stale market-data sample cannot be treated as current
+
+**PARTIAL → PR-003** · critical · invariant · source: QE-42,QE-80
+
+A sample older than the declared freshness budget is not used for a trading decision unless an explicit, named policy permits it.
+
+- **If violated:** The bot trades a price that no longer exists.
+- **Owned by:** `src/data/quality_gate.py`
+- **Depends on:** `DATA-002`
+- **Verification:**
+  - `tests/engines/test_supply_and_quality.py` (component) — Exercises the quality gate; the staleness property suite is PR-003.
+
+#### `DATA-001` — Market data failing the quality gate never reaches the signal engine
+
+**PARTIAL → PR-003** · critical · requirement · source: QE-80
+
+Schema, timestamp validity, monotonicity, freshness, OHLC consistency, non-negative volume, and absence of NaN/Infinity are all checked before use; failure means NO TRADE.
+
+- **If violated:** A corrupt bar becomes a signal, and the signal becomes an order.
+- **Owned by:** `src/data/quality_gate.py`
+- **Verification:**
+  - `tests/engines/test_supply_and_quality.py` (component)
+  - `tests/test_feature_bar_gaps.py` (unit)
+
+#### `DATA-002` — Data freshness budgets are declared and enforced
+
+**PLANNED → PR-003** · critical · requirement · source: QE-80,QE-42
+
+Every market-data consumer declares a maximum age, and a sample past it is refused rather than used.
+
+- **If violated:** A frozen feed looks like a calm market.
+- **Owned by:** `src/data/quality_gate.py`
+- **Verification:** none yet
+
+#### `DATA-003` — A single clock policy: internal timestamps are UTC and exchange skew is bounded
+
+**PLANNED → PR-003** · high · requirement · source: QE-79
+
+All internal timestamps are timezone-aware UTC; exchange-versus-local skew beyond the declared bound is detected and reported.
+
+- **If violated:** A DST shift or a naive datetime silently moves a bar an hour.
+- **Owned by:** `src/data/feeds.py`
+- **Verification:** none yet
+
+#### `DATA-004` — Money arithmetic uses a declared exact representation
+
+**PARTIAL → PR-003** · high · requirement · source: QE-78
+
+Where money is added, compared or rounded, the representation is documented and exact; float is used only where the doc says it may be.
+
+- **If violated:** Rounding drift accumulates until the ledger and the exchange disagree.
+- **Owned by:** `src/execution/unified_ledger.py`
+- **Verification:**
+  - `tests/test_percent_vs_fraction_units.py` (unit)
+  - `tests/test_unified_ledger.py` (unit)
+
+#### `DATA-005` — Tick size, lot size and minimum quantity are respected
+
+**PARTIAL → PR-005** · high · requirement · source: QE-78
+
+Every submitted order conforms to the venue's tick, lot and minimum-notional rules, checked before submission.
+
+- **If violated:** Orders are rejected by the venue at exactly the moment the strategy needs them.
+- **Owned by:** `src/data/fetcher.py`
+- **Verification:**
+  - `tests/test_fetcher_symbol_precision.py` (unit)
+
+## API and WebSocket
+
+#### `API-001` — The authorization matrix is executable and every cell is tested
+
+**PARTIAL → PR-007** · critical · requirement · source: QE-19
+
+For each (role, endpoint) pair the declared allow/deny outcome is asserted by a test, including the anonymous row.
+
+- **If violated:** A readonly token places a trade.
+- **Owned by:** `src/api/access_control.py`, `src/api/main.py`
+- **Verification:**
+  - `tests/test_api_role_enforcement.py` (api)
+  - `tests/test_access_control.py` (security)
+
+#### `API-002` — No insecure direct object references
+
+**PLANNED → PR-007** · critical · requirement · source: QE-20
+
+A caller cannot read or modify another principal's resource by substituting an identifier.
+
+- **If violated:** One authenticated user reads or cancels another's orders.
+- **Owned by:** `src/api/access_control.py`
+- **Verification:** none yet
+
+#### `API-003` — Injection payloads are rejected at the boundary
+
+**PLANNED → PR-007** · critical · requirement · source: QE-21
+
+SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payloads are refused wherever input reaches a database, filesystem, subprocess, external API or log.
+
+- **If violated:** An attacker reads or rewrites the trading database.
+- **Owned by:** `src/api/main.py`, `src/api/middleware.py`
+- **Verification:** none yet
+
+#### `API-004` — Outbound URL handling is SSRF-resistant
+
+**PLANNED → PR-007** · critical · requirement · source: QE-22
+
+Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.
+
+- **If violated:** The bot becomes the attacker's proxy into the private network and the metadata service.
+- **Owned by:** `src/intelligence/client.py`
+- **Verification:** none yet
+
+#### `API-005` — WebSocket payloads are validated regardless of connection state
+
+**PARTIAL → PR-007** · critical · requirement · source: QE-23
+
+An established connection confers no trust: every message is authenticated, schema-validated, size-bounded, rate-limited and replay-checked.
+
+- **If violated:** A single authenticated socket becomes an unauthenticated command channel.
+- **Owned by:** `src/api/main.py`, `src/data/orderbook_stream.py`
+- **Verification:**
+  - `tests/test_ws_auth_query_param.py` (security)
+
+#### `API-006` — Rate limiting protects authentication, trading and expensive endpoints
+
+**PARTIAL → PR-007** · high · requirement · source: QE-24
+
+Login, authentication, trade endpoints, sensitive mutations, WebSocket connections and expensive queries are rate-limited, and the limits are tested under burst and sustained load.
+
+- **If violated:** An attacker with a valid token issues thousands of orders before anything notices.
+- **Owned by:** `src/api/middleware.py`
+- **Verification:**
+  - `tests/test_selftest_rate_limit.py` (api)
+
+#### `API-007` — Security headers are present and correct
+
+**PLANNED → PR-007** · medium · requirement · source: QE-18
+
+Responses carry the declared security headers, and a test fails if one is removed.
+
+- **If violated:** A browser-side weakness that the headers would have closed.
+- **Owned by:** `src/api/middleware.py`
+- **Verification:** none yet
+
+#### `API-008` — A failing security control never opens a trading endpoint
+
+**PLANNED → PR-007** · critical · requirement · source: QE-55
+
+If authentication, authorization, rate limiting or logging is unavailable, the trading endpoints refuse rather than degrade to open.
+
+- **If violated:** An outage in the auth dependency turns the trade endpoint anonymous.
+- **Owned by:** `src/api/auth.py`, `src/api/middleware.py`
+- **Depends on:** `GOV-004`
+- **Verification:** none yet
+
+#### `API-009` — Error responses leak neither secrets nor internals
+
+**PLANNED → PR-007** · high · requirement · source: QE-18,QE-17
+
+No error path returns a credential, token, stack trace or internal hostname to a caller.
+
+- **If violated:** A 500 hands the attacker the next step.
+- **Owned by:** `src/api/main.py`
+- **Depends on:** `SECR-001`
+- **Verification:** none yet
+
+## Cryptography and secrets
+
+#### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
+
+**PARTIAL → PR-008** · critical · requirement · source: QE-9,QE-17
+
+Deliberately triggering errors that involve an API key, secret, JWT, database password, authorization header or exchange credential produces output containing none of them.
+
+- **If violated:** The exchange key is in a log file that gets shipped to a third-party log service.
+- **Owned by:** `src/logging_setup.py`, `common/command_schema.py`
+- **Verification:**
+  - `tests/test_logging_setup.py` (security)
+  - `tests/test_command_schema_policy.py` (security)
+
+#### `SECR-002` — Secret comparisons are constant-time
+
+**PARTIAL → PR-008** · high · requirement · source: QE-12
+
+Every comparison of a token, signature, key or password uses a constant-time primitive, and a test detects a reversion to `==`.
+
+- **If violated:** A timing oracle recovers a token one byte at a time.
+- **Owned by:** `src/security/constant_time.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `SECR-003` — Keys are environment-separated and rotatable, and rotation is tested
+
+**PLANNED → PR-008** · critical · requirement · source: QE-11
+
+Development, test, paper and production keys are distinct; rotation for normal, compromise, departure, server-compromise, exchange-incident and GitHub-compromise cases is documented and exercised.
+
+- **If violated:** A procedure nobody has run fails on the day it is needed.
+- **Owned by:** `src/security/credential_vault.py`
+- **Verification:** none yet
+
+#### `SECR-004` — The audit log is a verifiable hash chain
+
+**PARTIAL → PR-008** · critical · requirement · source: QE-16
+
+Each event hashes its own content plus the previous event's hash; modifying, deleting or reordering any event fails verification.
+
+- **If violated:** An attacker who reaches the host edits the record of what they did.
+- **Owned by:** `src/diagnostics/audit_trail.py`
+- **Verification:**
+  - `tests/test_audit_trail.py` (security)
+  - `tests/test_audit_chain_integrity_endpoint.py` (api)
+
+#### `SECR-005` — Signed requests reject tampering and replay
+
+**PARTIAL → PR-008** · critical · requirement · source: QE-12
+
+A correct signature is accepted; a modified request, timestamp or parameter is rejected; a replayed request is rejected where the protocol allows it.
+
+- **If violated:** A captured order request is replayed to double a position.
+- **Owned by:** `src/security/api_signer.py`
+- **Verification:**
+  - `tests/engines/test_security.py` (security)
+
+#### `SECR-006` — TLS is verified everywhere and never disabled to make a test pass
+
+**PLANNED → PR-008** · critical · requirement · source: QE-14,QE-15
+
+HTTPS, secure WebSocket and TLS database connections are required; expired certificates, hostname mismatch, weak protocols, broken chains and plaintext endpoints are detected; no code path disables verification.
+
+- **If violated:** An on-path attacker rewrites market data or order responses.
+- **Owned by:** `src/intelligence/client.py`
+- **Verification:** none yet
+
+#### `SECR-007` — Cryptographic randomness comes from the OS CSPRNG
+
+**PLANNED → PR-008** · critical · requirement · source: QE-12
+
+Nonces, keys, tokens and identifiers that must be unpredictable come from `secrets`/`os.urandom`, never from `random`.
+
+- **If violated:** A predictable token is guessable.
+- **Owned by:** `src/security/credential_vault.py`
+- **Verification:** none yet
+
+#### `SECR-008` — No custom cryptographic primitives
+
+**PARTIAL → PR-008** · critical · requirement · source: QE-8
+
+The application calls established libraries; it does not implement its own cipher, hash construction, KDF or signature scheme for security purposes.
+
+- **If violated:** A homemade primitive fails in a way only an attacker notices.
+- **Owned by:** `src/security/pq_transport.py`
+- **Verification:**
+  - `tests/test_security_pqc_posture.py` (security)
+
+#### `SECR-009` — Sensitive data at rest is encrypted, and the key is managed separately
+
+**PLANNED → PR-008** · high · requirement · source: QE-13
+
+Database backups, production databases, sensitive model artifacts, audit archives and configuration backups are encrypted, with keys held outside the encrypted store.
+
+- **If violated:** Ciphertext and key are stolen together and the encryption bought nothing.
+- **Owned by:** `src/security/credential_vault.py`
+- **Verification:** none yet
+
+#### `SECR-010` — The exchange key the bot holds cannot withdraw
+
+**PLANNED → PR-008** · critical · requirement · source: QE-10,QE-67
+
+The documented and verified key posture is trading-only, withdrawal-disabled, IP-restricted where supported, with separate paper and production keys on separate subaccounts.
+
+- **If violated:** A compromised host becomes a withdrawal, not just a bad trade.
+- **Owned by:** `src/security/credential_vault.py`
+- **Verification:** none yet
+
+## Supply chain and artifacts
+
+#### `SUP-001` — Every workflow declares least-privilege permissions
+
+**PLANNED → PR-009** · critical · requirement · source: QE-28
+
+Each workflow sets `permissions:` explicitly at the top level, starting from `contents: read`, and no workflow uses write-all.
+
+- **If violated:** A compromised action inherits write access to the repository.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `SUP-002` — Third-party actions are pinned to a full commit SHA
+
+**PLANNED → PR-009** · critical · requirement · source: QE-28
+
+No workflow references an action by tag or branch; every `uses:` names a 40-character SHA.
+
+- **If violated:** A retagged action runs attacker code inside CI with the repository's secrets.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `SUP-003` — Fork pull requests cannot reach production secrets
+
+**PLANNED → PR-009** · critical · requirement · source: QE-29,QE-30
+
+No workflow triggered by a fork pull request has access to a production secret, and this is asserted rather than assumed.
+
+- **If violated:** A malicious PR prints the exchange key by editing a test.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `SUP-004` — Release artifacts carry version, commit, lock, SBOM, hash and attestation
+
+**PLANNED → PR-009** · high · requirement · source: QE-37
+
+Every deployable artifact is accompanied by its provenance, and production verifies the artifact is exactly the one CI produced.
+
+- **If violated:** Nobody can prove what is running in production.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `SUP-005` — Dependency vulnerabilities are surveilled continuously
+
+**PLANNED → PR-009** · high · requirement · source: QE-27,QE-72
+
+Daily alerts, weekly dependency review, monthly full audit and an immediate path for a critical CVE are all configured and exercised.
+
+- **If violated:** A known-exploited dependency sits in production for weeks.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `SUP-006` — Container images run non-root with minimal capability
+
+**PLANNED → PR-009** · high · requirement · source: QE-36
+
+Images use a non-root user, a minimal base, a read-only filesystem where possible, dropped capabilities, no privileged mode, no host networking unless required, and resource limits -- and CI tests those properties.
+
+- **If violated:** A container escape becomes host root.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `SUP-007` — A dependency update cannot become a production deployment on its own
+
+**PLANNED → PR-009** · critical · requirement · source: QE-27
+
+Automated dependency PRs run the full quality gate and can never trigger the production workflow without the same approvals as any other change.
+
+- **If violated:** A compromised package auto-deploys itself.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+## Resilience and recovery
+
+#### `RES-001` — Every component failure has a declared, tested fail-safe behaviour
+
+**PLANNED → PR-010** · critical · requirement · source: QE-26
+
+Price feed, risk engine, exchange status, analytics, model, audit, database and WebSocket each have a documented failure policy, and a test asserts the system takes it.
+
+- **If violated:** Fail-open is chosen by default because no one chose anything.
+- **Owned by:** `src/diagnostics/runtime_monitor.py`
+- **Verification:** none yet
+
+#### `RES-002` — Crash during a fill replays to a safe, reconciled state
+
+**PLANNED → PR-010** · critical · requirement · source: QE-53
+
+Killing the process at each stage of an order lifecycle leaves a state the recovery path can reconcile without duplicating or losing an order.
+
+- **If violated:** A restart loses or doubles a live position.
+- **Owned by:** `src/diagnostics/disaster_recovery.py`
+- **Verification:** none yet
+
+#### `RES-003` — Backups are encrypted, off-host and restore-tested
+
+**PARTIAL → PR-010** · high · requirement · source: QE-39
+
+A scheduled drill restores from backup and verifies the result; a backup that has never been restored is not counted.
+
+- **If violated:** The backup turns out to be unreadable on the day it is needed.
+- **Owned by:** `src/diagnostics/disaster_recovery.py`
+- **Verification:**
+  - `tests/test_disaster_recovery.py` (recovery)
+
+#### `RES-004` — RTO and RPO are declared and measured
+
+**PLANNED → PR-010** · medium · requirement · source: QE-41
+
+Recovery time and data-loss objectives carry actual numbers chosen for this operation, and a drill measures whether they are met.
+
+- **If violated:** Recovery takes longer than anyone assumed and nobody had a number to check against.
+- **Owned by:** `src/diagnostics/disaster_recovery.py`
+- **Verification:** none yet
+
+#### `RES-005` — Concurrency produces no double order, lost order or corrupted position
+
+**PARTIAL → PR-010** · critical · requirement · source: QE-52
+
+Simultaneous signals on one symbol, and an order request interleaved with disconnect, reconnect and a duplicate response, leave exactly one consistent outcome.
+
+- **If violated:** A race doubles a position under exactly the market conditions that caused the race.
+- **Owned by:** `src/execution/order_manager.py`, `src/execution/idempotency.py`
+- **Verification:**
+  - `tests/test_runtime_monitor_concurrent_probes.py` (resilience)
+
+#### `RES-006` — Performance baselines exist and regressions are flagged
+
+**PLANNED → PR-010** · medium · requirement · source: QE-54
+
+p50/p95/p99, error rate, CPU and memory baselines are recorded for feature generation, signal generation, inference, risk evaluation, order processing, database, API and WebSocket, and a large regression fails or escalates.
+
+- **If violated:** The bot becomes too slow to act on its own signals and nothing says so.
+- **Owned by:** `src/diagnostics/instrumentation.py`
+- **Verification:** none yet
+
+#### `RES-007` — Chaos exercises end in a safe state, not merely a live process
+
+**PARTIAL → PR-010** · high · requirement · source: QE-53
+
+Killing the database, killing the WebSocket, delaying and corrupting exchange responses, dropping packets, returning 500s and restarting mid-fill all end in the declared safe state.
+
+- **If violated:** "It did not crash" is mistaken for "it stayed correct".
+- **Owned by:** `src/tuning/stress_simulator.py`, `src/tuning/redteam_scheduler.py`
+- **Verification:**
+  - `tests/test_stress_simulator.py` (chaos)
+  - `tests/test_redteam_scheduler.py` (chaos)
+
+#### `RES-008` — Malformed input is rejected safely with an audit event
+
+**PLANNED → PR-006** · high · requirement · source: QE-51
+
+Fuzzed API payloads, market data, exchange responses, WebSocket messages, configuration, model inputs and serialised state are rejected with no state corruption, no unauthorized action, no secret leakage, and an audit record.
+
+- **If violated:** A malformed message leaves the system in a state no test ever described.
+- **Owned by:** `src/data/quality_gate.py`, `src/api/main.py`
+- **Verification:** none yet
+
+## Release and production
+
+#### `INV-010` — Live mode cannot bypass qualification gates
+
+**PLANNED → PR-011** · critical · invariant · source: QE-42,QE-60
+
+Enabling live trading requires every qualification gate to have passed; no configuration flag, environment variable or API call skips one.
+
+- **If violated:** Untested strategy code reaches real capital.
+- **Owned by:** `src/risk/gates.py`
+- **Verification:** none yet
+
+#### `REL-001` — Paper qualification precedes live
+
+**PARTIAL → PR-011** · critical · requirement · source: QE-60,QE-62
+
+Live trading is unlocked only after the declared paper-trading qualification -- duration, sample count and performance criteria -- has been met and recorded.
+
+- **If violated:** A strategy meets real capital before it has ever met real conditions.
+- **Owned by:** `src/risk/gates.py`
+- **Verification:**
+  - `tests/test_risk_gate.py` (verification)
+
+#### `REL-002` — Production is a protected GitHub environment
+
+**PLANNED → PR-012** · critical · requirement · source: QE-62,QE-88
+
+Deployment to production requires environment approval, a trusted branch, a trusted workflow and short-lived credentials; pushing to main is not sufficient.
+
+- **If violated:** A merge becomes a deployment with nobody deciding.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `REL-003` — Canary precedes full exposure
+
+**PLANNED → PR-012** · critical · requirement · source: QE-63
+
+A new release trades at a reduced exposure with monitoring before exposure is increased; there is no paper-to-100% path.
+
+- **If violated:** A regression meets the whole account at once.
+- **Owned by:** `src/risk/gates.py`
+- **Verification:** none yet
+
+#### `REL-004` — Automatic halt triggers are machine-enforced
+
+**PARTIAL → PR-012** · critical · requirement · source: QE-64
+
+Unexpected position, reconciliation failure, data staleness, risk-engine failure, authentication anomaly, abnormal order rate, exchange errors, crash loop, model drift and unexpected configuration change each raise an alert, a safe halt and an audit record.
+
+- **If violated:** A human has to notice a problem that a rule could have caught in a second.
+- **Owned by:** `src/diagnostics/runtime_monitor.py`, `src/risk/strategy_kill_switch.py`
+- **Verification:**
+  - `tests/test_runtime_monitor_coverage.py` (component)
+
+#### `REL-005` — The production startup self-test blocks live on any failure
+
+**PLANNED → PR-012** · critical · requirement · source: QE-75
+
+Configuration, secrets, TLS, database, exchange authentication, market-data freshness, model load, risk engine, audit, kill switch, reconciliation and qualification are all checked at startup; any failure means LIVE BLOCKED.
+
+- **If violated:** The bot starts trading with a component that was never actually up.
+- **Owned by:** `src/api/main.py`, `src/diagnostics/runtime_monitor.py`
+- **Verification:** none yet
+
+#### `REL-006` — Configuration drift is detected and DEBUG never reaches production
+
+**PARTIAL → PR-012** · critical · requirement · source: QE-74
+
+Unexpected environment variables, risk limits, exchanges, endpoints, debug mode or authentication configuration are detected against a versioned baseline, and DEBUG=true is refused in production.
+
+- **If violated:** A debugging change made at 2am stays in production for a month.
+- **Owned by:** `src/config.py`
+- **Verification:**
+  - `tests/test_unenforced_config_knobs.py` (verification)
+  - `tests/test_env_example_documents_required_settings.py` (verification)
+
+#### `REL-007` — A behavioural security layer halts anomalous trading
+
+**PLANNED → PR-012** · critical · requirement · source: QE-66
+
+Order frequency, symbol set, size, direction and time-of-day are profiled, and a sharp deviation raises a security alert and halts trading even when the credentials are valid.
+
+- **If violated:** A credential thief drains the account using perfectly valid credentials.
+- **Owned by:** `src/diagnostics/runtime_monitor.py`
+- **Verification:** none yet
+
+#### `REL-008` — Rollback is defined and exercised
+
+**PLANNED → PR-012** · high · requirement · source: QE-61
+
+The production workflow can return to the previous trusted artifact, and a drill proves it.
+
+- **If violated:** The only way out of a bad deploy is forward.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+## Governance
+
+#### `GOV-001` — Every production defect yields a permanent regression test
+
+**VERIFIED** · high · requirement · source: QE-48
+
+A defect gets a REG-#### entry, a root cause, a test that fails before the fix, and that test is never deleted because the bug is gone.
+
+- **If violated:** The same bug ships twice.
+- **Owned by:** `config/quality_registry.json`, `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (verification) — The registry refuses a regression entry that names no test.
+
+#### `GOV-002` — Every security finding yields a permanent SEC-#### test
+
+**VERIFIED** · high · requirement · source: QE-73
+
+A security weakness gets a SEC-#### entry and a test that would fail if the weakness returned.
+
+- **If violated:** A fixed vulnerability quietly reappears in a refactor.
+- **Owned by:** `config/quality_registry.json`, `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (verification) — Same contract as GOV-001, applied to the security_regression kind.
+
+#### `GOV-003` — Mutation testing runs nightly on the critical subsystems
+
+**PLANNED → PR-006** · medium · requirement · source: QE-49
+
+Risk, execution, signals, position sizing and the order FSM are mutation-tested on a schedule, with per-subsystem thresholds.
+
+- **If violated:** Coverage is reported as quality evidence when it is not.
+- **Owned by:** `.github/workflows`
+- **Verification:** none yet
+
+#### `GOV-004` — No silent degradation in a security or risk path
+
+**PARTIAL → PR-006** · critical · requirement · source: QE-76
+
+A bare except, a broad exception handler, a `pass` in a critical path and a default-allow security decision are all detected by static analysis and individually reviewed.
+
+- **If violated:** A swallowed exception in the risk gate becomes a financial vulnerability.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (verification)
+
+#### `GOV-005` — Requirement-to-test traceability is machine-checked
+
+**VERIFIED** · high · requirement · source: QE-5
+
+Every requirement names its verifying tests, those files are checked to exist at load, and the traceability document is generated rather than maintained by hand.
+
+- **If violated:** The matrix says a requirement is covered by a test that was deleted last quarter.
+- **Owned by:** `src/quality/registry.py`, `scripts/generate_quality_docs.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (verification)
+  - `tests/quality/test_quality_docs_in_sync.py` (verification)
+
+#### `GOV-006` — Serious defects get a recorded root-cause analysis
+
+**PLANNED → PR-006** · medium · requirement · source: QE-57,QE-58
+
+Each serious defect records what happened, why detection failed, why the existing control failed, why the design permitted it, and the new control that prevents recurrence.
+
+- **If violated:** "Developer made a mistake" is accepted as a root cause and nothing changes.
+- **Owned by:** `docs/quality`
+- **Verification:** none yet
+
+#### `GOV-007` — Quality metrics are collected and escaped defects are counted per layer
+
+**PLANNED → PR-006** · medium · requirement · source: QE-59
+
+Pass rate, branch coverage, mutation score, regression count, escaped defects, vulnerabilities, secret incidents, MTTD, MTTR, deployment failure rate, rollback rate, recovery-test success, model drift, signal drift, data freshness and reconciliation failures are tracked.
+
+- **If violated:** Nobody can say which verification layer keeps letting defects through.
+- **Owned by:** `docs/quality`
+- **Verification:** none yet
+
+#### `GOV-008` — main is protected and every required check must be green
+
+**VERIFIED** · critical · requirement · source: QE-88
+
+Direct push, force push, CI bypass, merging a failing PR and unreviewed critical change are all refused; required checks are the workflow gates, not individual jobs.
+
+- **If violated:** A required check that never reports satisfies the requirement by being absent.
+- **Owned by:** `scripts/assert_jobs_green.py`, `scripts/apply_repo_ruleset.py`
+- **Verification:**
+  - `tests/test_assert_jobs_green.py` (verification)
+  - `tests/test_apply_repo_ruleset.py` (verification)
+
+#### `GOV-009` — The quality maturity target is Level 5 on the trading-critical path
+
+**PLANNED → PR-012** · medium · requirement · source: QE-85
+
+Supply-chain security, artifact provenance, cryptographic controls, continuous threat monitoring, formal traceability, mutation testing, red-team exercise and independent review all apply to the trading-critical path; non-critical utilities may sit lower, explicitly.
+
+- **If violated:** Maturity is claimed globally on the strength of the easiest subsystem.
+- **Owned by:** `docs/quality`
+- **Verification:** none yet
+
+#### `GOV-010` — "Production ready" is a conjunction, not a coverage number
+
+**PLANNED → PR-012** · critical · requirement · source: QE-87
+
+Production readiness requires every mandatory test, every critical security control, no unresolved critical or high defect, risk invariants, model verification, the regression suite, the recovery test, paper qualification, artifact integrity and production approval -- all of them.
+
+- **If violated:** A single green percentage is mistaken for readiness.
+- **Owned by:** `docs/quality`
+- **Verification:** none yet
+
+
+---
+
+## Governance
+
+This document is generated from `config/quality_registry.json`, which is
+validated on load by `src/quality/registry.py` and in CI by
+`tests/quality/test_quality_registry.py`. The validation is not decorative:
+
+- An entry marked `verified` or `partial` must name at least one test, and
+  every named test **must exist on disk**. The registry cannot claim a test
+  that was never written or that has since been deleted.
+- An entry marked `planned` must name **no** test and **must** name the PR that
+  will verify it. Unfinished work is not allowed to sit without an owner.
+- An entry marked `accepted_gap` must carry a waiver with a reason, a person
+  and a review date. A waiver with no expiry is a permanent hole.
+- A `critical` entry can **never** be an `accepted_gap`. To waive it you must
+  first argue, in the diff, that it is not critical.
+- The id prefix and the declared `kind` are one fact: `INV-` is an invariant,
+  `REG-` a regression, `SEC-` a security regression, anything else a
+  requirement. A mistyped kind cannot hide an invariant among the requirements.
+- Every `depends_on` must resolve, and the dependency graph must be acyclic.
+
+To add or change an entry, edit the registry and regenerate this file. See
+`docs/quality/QUALITY_POLICY.md` for the policy these requirements serve,
+`docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
+on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
+
+Registry version: 1.0.0 — 91 entries.

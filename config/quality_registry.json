@@ -1,0 +1,1465 @@
+{
+  "registry_version": "1.0.0",
+
+  "kind_definitions": {
+    "requirement": "A property the system must have, stated so that a test can decide it. Id prefix names the area (RISK, EXEC, DATA, MODEL, API, SECR, SUP, RES, REL, GOV).",
+    "invariant": "A trading invariant that must hold on every path, at all times. Id prefix INV. These are non-negotiable: an invariant may not be waived, and its verification may not be deleted.",
+    "regression": "A defect that reached a running system once. Id prefix REG. Its test outlives the fix and is never deleted because the bug is gone.",
+    "security_regression": "A security weakness that was once present or once possible. Id prefix SEC. Its test is permanent, so the weakness cannot silently return."
+  },
+
+  "status_definitions": {
+    "verified": "At least one named test file exists on disk and the entry is considered fully covered. No planned_in.",
+    "partial": "Named tests exist and cover part of the statement. planned_in names the PR that finishes it. This is the honest status for a requirement the tree already touches but does not yet pin down.",
+    "planned": "No test exists yet. planned_in names the PR that will create one. Naming no test and no PR is not a permitted state.",
+    "accepted_gap": "A deliberate, attributed, dated decision not to verify. Requires a waiver. Never available to a critical entry."
+  },
+
+  "criticality_definitions": {
+    "critical": "Violation can lose money, leak a credential, or let unreviewed code reach production. Cannot be waived.",
+    "high": "Violation degrades a safety control or hides a failure, without directly moving funds.",
+    "medium": "Violation costs correctness or operability but has a bounded blast radius.",
+    "low": "Violation is a quality or hygiene concern."
+  },
+
+  "test_types": {
+    "unit": "Does this function work?",
+    "component": "Does this subsystem work?",
+    "contract": "Does an interface behave as promised?",
+    "integration": "Do components work together?",
+    "api": "Does the HTTP surface behave and refuse correctly?",
+    "e2e": "Does the complete system work?",
+    "regression": "Did an old bug come back?",
+    "verification": "Does the implementation satisfy the requirement?",
+    "validation": "Does the system solve the intended problem?",
+    "property": "Does a general invariant always hold?",
+    "fuzz": "What happens with unexpected input?",
+    "security": "Can an attacker violate a security property?",
+    "model": "Is ML inference or training correct?",
+    "signal": "Does the strategy generate the intended signal?",
+    "risk": "Can an unsafe trade pass?",
+    "execution": "Does order state remain correct?",
+    "performance": "Is it fast and stable enough?",
+    "resilience": "Does it survive failures?",
+    "recovery": "Can it restore correct state?",
+    "chaos": "Does it fail safely under disruption?",
+    "mutation": "Would the suite notice if the logic were subtly wrong?"
+  },
+
+  "subsystems": [
+    "risk",
+    "execution",
+    "portfolio",
+    "signal",
+    "model",
+    "data",
+    "api",
+    "security",
+    "supply_chain",
+    "resilience",
+    "release",
+    "governance"
+  ],
+
+  "phases": {
+    "PR-001": "Quality/Security Foundation",
+    "PR-002": "Risk Invariants + Boundary Tests",
+    "PR-003": "Signal/Feature Verification",
+    "PR-004": "Model/Leakage Verification",
+    "PR-005": "Execution/FSM/Exchange Contracts",
+    "PR-006": "Regression + Property Testing",
+    "PR-007": "API/WebSocket Security",
+    "PR-008": "Cryptographic/Secret Architecture",
+    "PR-009": "Supply-Chain + Artifact Security",
+    "PR-010": "Recovery/Chaos/Performance",
+    "PR-011": "Paper-Trading Qualification",
+    "PR-012": "Production/Canary Security Gate"
+  },
+
+  "entries": [
+    {
+      "id": "INV-001",
+      "kind": "invariant",
+      "title": "No order exceeds the configured maximum notional",
+      "statement": "For every order the system submits, notional <= the configured ceiling for that symbol and account, with no path that bypasses the check.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "partial",
+      "source": "QE-42",
+      "owning_modules": ["src/risk/gates.py", "src/risk/kelly.py"],
+      "verification": [
+        {
+          "test": "tests/test_kelly_notional_cap.py",
+          "test_type": "risk",
+          "note": "Caps the Kelly sizer's notional; does not yet prove the property across every sizing path."
+        },
+        {
+          "test": "tests/test_cvar_notional_cap.py",
+          "test_type": "risk",
+          "note": "Caps the CVaR path."
+        }
+      ],
+      "planned_in": "PR-002",
+      "failure_mode": "A single mis-sized order puts more capital at risk than the risk policy permits.",
+      "depends_on": ["RISK-001"]
+    },
+    {
+      "id": "INV-002",
+      "kind": "invariant",
+      "title": "No new entry while a capital-preservation halt is active",
+      "statement": "While the capital-preservation floor is breached, no new entry order may be produced by any strategy, engine or manual path.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "partial",
+      "source": "QE-42",
+      "owning_modules": ["src/risk/capital_preservation_floor.py", "src/risk/gates.py"],
+      "verification": [
+        {
+          "test": "tests/test_capital_preservation_floor.py",
+          "test_type": "risk",
+          "note": "Covers the floor's own decision; the end-to-end block is PR-002."
+        }
+      ],
+      "planned_in": "PR-002",
+      "failure_mode": "The bot keeps trading through the drawdown it was supposed to stop at."
+    },
+    {
+      "id": "INV-003",
+      "kind": "invariant",
+      "title": "Unknown exchange order state cannot become FILLED without reconciliation",
+      "statement": "An order whose exchange status is unknown, missing or unparseable is never transitioned to FILLED; it enters a reconciliation state instead.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-42,QE-5",
+      "owning_modules": ["src/execution/order_fsm.py", "src/execution/live.py"],
+      "verification": [
+        {
+          "test": "tests/test_order_fsm_transition_table.py",
+          "test_type": "execution",
+          "note": "Pins the legal transition table."
+        },
+        {
+          "test": "tests/test_live_executor_fsm.py",
+          "test_type": "execution",
+          "note": "Covers the live executor's FSM use."
+        }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "The bot books a fill that never happened, and every downstream position figure is wrong.",
+      "depends_on": ["EXEC-004"]
+    },
+    {
+      "id": "INV-004",
+      "kind": "invariant",
+      "title": "NaN or Infinity cannot produce an executable order",
+      "statement": "Any non-finite value reaching price, quantity, notional, confidence or a risk scalar results in refusal, never in an order.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "partial",
+      "source": "QE-42",
+      "owning_modules": ["src/risk/gates.py"],
+      "verification": [
+        {
+          "test": "tests/test_gates_non_finite.py",
+          "test_type": "risk",
+          "note": "Covers the gate stack; the property test over all numeric entry points is PR-002."
+        }
+      ],
+      "planned_in": "PR-002",
+      "failure_mode": "A NaN propagates through sizing and an order of undefined size is submitted."
+    },
+    {
+      "id": "INV-005",
+      "kind": "invariant",
+      "title": "A disabled trading mode cannot submit orders",
+      "statement": "When live trading is disabled, no code path reaches the live exchange client, including scheduled jobs, retries and reconciliation.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-42",
+      "owning_modules": ["src/execution/router.py", "src/risk/gates.py"],
+      "verification": [
+        {
+          "test": "tests/test_paper_only_timeframe_routing.py",
+          "test_type": "execution",
+          "note": "Covers paper-only routing for one class of signal."
+        }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "The bot trades real money while the operator believes it is in paper mode."
+    },
+    {
+      "id": "INV-006",
+      "kind": "invariant",
+      "title": "Risk engine failure cannot result in an executable order",
+      "statement": "If the risk engine raises, times out or is unavailable, the decision is NO TRADE. There is no default-allow path.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "partial",
+      "source": "QE-42,QE-26",
+      "owning_modules": ["src/risk/gates.py"],
+      "verification": [
+        {
+          "test": "tests/test_risk_gates.py",
+          "test_type": "risk",
+          "note": "Covers gate outcomes; the deliberate-failure-injection cases are PR-002."
+        }
+      ],
+      "planned_in": "PR-002",
+      "failure_mode": "An exception in the safety layer silently removes the safety layer.",
+      "depends_on": ["GOV-004"]
+    },
+    {
+      "id": "INV-007",
+      "kind": "invariant",
+      "title": "Duplicate execution requests cannot create duplicate positions",
+      "statement": "Two execution requests carrying the same idempotency key produce at most one exchange order and one position change.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-42,QE-58",
+      "owning_modules": ["src/execution/idempotency.py"],
+      "verification": [
+        {
+          "test": "tests/test_idempotency.py",
+          "test_type": "execution",
+          "note": "Covers the key store; the concurrent-duplicate race is PR-010."
+        }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "A retry doubles the position and the account is twice as exposed as intended.",
+      "depends_on": ["EXEC-001"]
+    },
+    {
+      "id": "INV-008",
+      "kind": "invariant",
+      "title": "A stale market-data sample cannot be treated as current",
+      "statement": "A sample older than the declared freshness budget is not used for a trading decision unless an explicit, named policy permits it.",
+      "criticality": "critical",
+      "subsystem": "data",
+      "status": "partial",
+      "source": "QE-42,QE-80",
+      "owning_modules": ["src/data/quality_gate.py"],
+      "verification": [
+        {
+          "test": "tests/engines/test_supply_and_quality.py",
+          "test_type": "component",
+          "note": "Exercises the quality gate; the staleness property suite is PR-003."
+        }
+      ],
+      "planned_in": "PR-003",
+      "failure_mode": "The bot trades a price that no longer exists.",
+      "depends_on": ["DATA-002"]
+    },
+    {
+      "id": "INV-009",
+      "kind": "invariant",
+      "title": "Position and account state after restart reconcile with the exchange",
+      "statement": "After any restart, the reconstructed position and balance state matches the exchange's, or the system halts rather than trading on a guess.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "planned",
+      "source": "QE-42",
+      "owning_modules": ["src/execution/unified_ledger.py", "src/diagnostics/disaster_recovery.py"],
+      "planned_in": "PR-010",
+      "failure_mode": "The bot restarts believing it is flat while holding a real position, and hedges nothing."
+    },
+    {
+      "id": "INV-010",
+      "kind": "invariant",
+      "title": "Live mode cannot bypass qualification gates",
+      "statement": "Enabling live trading requires every qualification gate to have passed; no configuration flag, environment variable or API call skips one.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "planned",
+      "source": "QE-42,QE-60",
+      "owning_modules": ["src/risk/gates.py"],
+      "planned_in": "PR-011",
+      "failure_mode": "Untested strategy code reaches real capital."
+    },
+
+    {
+      "id": "RISK-001",
+      "kind": "requirement",
+      "title": "Maximum position exposure must not exceed the configured ceiling",
+      "statement": "For every symbol and for the portfolio as a whole, exposure stays at or below the configured ceiling under every sizing path, including manual overrides.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "partial",
+      "source": "QE-5",
+      "owning_modules": ["src/strategies/position_sizing.py", "src/risk/gates.py"],
+      "verification": [
+        { "test": "tests/test_position_sizing.py", "test_type": "risk" },
+        { "test": "tests/test_risk_gates.py", "test_type": "risk" }
+      ],
+      "planned_in": "PR-002",
+      "failure_mode": "One oversized position turns a normal drawdown into an account-ending one."
+    },
+    {
+      "id": "RISK-002",
+      "kind": "requirement",
+      "title": "Boundary values at every risk limit are exercised",
+      "statement": "Each configured risk limit has tests at limit-epsilon, limit, and limit+epsilon, so an off-by-one comparison cannot pass.",
+      "criticality": "high",
+      "subsystem": "risk",
+      "status": "planned",
+      "source": "QE-86",
+      "owning_modules": ["src/risk/gates.py"],
+      "planned_in": "PR-002",
+      "failure_mode": "A `<` written where `<=` was meant permits exactly the trade the limit exists to stop."
+    },
+    {
+      "id": "RISK-003",
+      "kind": "requirement",
+      "title": "Position size is non-negative and bounded",
+      "statement": "For arbitrary generated inputs, the sizer returns a value in [0, limit] or refuses; it never returns a negative, non-finite or unbounded size.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "planned",
+      "source": "QE-50",
+      "owning_modules": ["src/strategies/position_sizing.py", "src/risk/kelly.py"],
+      "planned_in": "PR-002",
+      "failure_mode": "A negative size inverts the intended direction of the trade."
+    },
+    {
+      "id": "RISK-004",
+      "kind": "requirement",
+      "title": "Probabilities and confidences stay within [0, 1]",
+      "statement": "Every value the system treats as a probability is in [0, 1] where it is consumed, or is rejected at the boundary.",
+      "criticality": "high",
+      "subsystem": "risk",
+      "status": "planned",
+      "source": "QE-50",
+      "owning_modules": ["src/risk/gates.py", "src/intelligence/calibration.py"],
+      "planned_in": "PR-002",
+      "failure_mode": "A confidence of 4.0 multiplies position size by four."
+    },
+    {
+      "id": "RISK-005",
+      "kind": "requirement",
+      "title": "No optimizer may directly modify a live risk control",
+      "statement": "Self-tuning output reaches live risk parameters only through bounds, offline evaluation, out-of-sample check, risk tests, shadow, paper and an approval -- never directly.",
+      "criticality": "critical",
+      "subsystem": "risk",
+      "status": "partial",
+      "source": "QE-84",
+      "owning_modules": ["src/tuning/gate.py", "src/tuning/promotion_gauntlet.py", "src/tuning/live_overrides.py"],
+      "verification": [
+        { "test": "tests/test_tuning_gate.py", "test_type": "verification" },
+        { "test": "tests/test_promotion_gauntlet.py", "test_type": "verification" }
+      ],
+      "planned_in": "PR-011",
+      "failure_mode": "An optimizer relaxes the very limit that would have stopped its own bad idea."
+    },
+    {
+      "id": "RISK-006",
+      "kind": "requirement",
+      "title": "Mutation score on the risk subsystem is at or above 90%",
+      "statement": "Nightly mutation testing of the risk modules kills at least 90% of generated mutants.",
+      "criticality": "high",
+      "subsystem": "risk",
+      "status": "planned",
+      "source": "QE-49",
+      "owning_modules": ["src/risk/gates.py"],
+      "planned_in": "PR-006",
+      "failure_mode": "High line coverage hides a suite that would not notice if a comparison flipped."
+    },
+
+    {
+      "id": "EXEC-001",
+      "kind": "requirement",
+      "title": "Execution requests carry an idempotency key end to end",
+      "statement": "Every execution request carries a key derived from its decision, and the executor refuses to act twice on the same key.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-58",
+      "owning_modules": ["src/execution/idempotency.py", "src/execution/router.py"],
+      "verification": [{ "test": "tests/test_idempotency.py", "test_type": "execution" }],
+      "planned_in": "PR-005",
+      "failure_mode": "A network retry becomes a second real order."
+    },
+    {
+      "id": "EXEC-002",
+      "kind": "requirement",
+      "title": "The order state machine is total and its transitions are legal",
+      "statement": "Every (state, event) pair has a defined outcome, and no transition outside the declared table is reachable.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-90",
+      "owning_modules": ["src/execution/order_fsm.py"],
+      "verification": [
+        { "test": "tests/test_order_fsm_transition_table.py", "test_type": "contract" },
+        { "test": "tests/test_order_fsm.py", "test_type": "execution" }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "An unhandled exchange event leaves an order in a state nothing knows how to close."
+    },
+    {
+      "id": "EXEC-003",
+      "kind": "requirement",
+      "title": "Exchange responses are validated against a declared contract",
+      "statement": "Every exchange response is parsed against a schema; unknown, missing or malformed fields produce an explicit failure, not a default.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "planned",
+      "source": "QE-90,QE-51",
+      "owning_modules": ["src/execution/live.py", "src/execution/base.py"],
+      "planned_in": "PR-005",
+      "failure_mode": "A changed exchange field silently reads as zero and the bot mis-books a fill."
+    },
+    {
+      "id": "EXEC-004",
+      "kind": "requirement",
+      "title": "Unknown exchange order status must never be treated as FILLED",
+      "statement": "An unrecognised status string maps to an explicit UNKNOWN outcome that triggers reconciliation, never to a terminal success.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-5",
+      "owning_modules": ["src/execution/order_fsm.py"],
+      "verification": [
+        { "test": "tests/test_live_fsm_integration.py", "test_type": "integration" }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "Position accounting diverges from the exchange without anything reporting an error."
+    },
+    {
+      "id": "EXEC-005",
+      "kind": "requirement",
+      "title": "The kill switch is authenticated, authorized, audited, idempotent and durable",
+      "statement": "Activating the kill switch requires an operator role, writes an audit event, is safe to repeat, blocks new entries immediately, and survives restart.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-25",
+      "owning_modules": ["src/risk/strategy_kill_switch.py"],
+      "verification": [
+        { "test": "tests/test_strategy_kill_switch.py", "test_type": "component" },
+        { "test": "tests/test_strategy_kill_switch_wiring.py", "test_type": "integration" }
+      ],
+      "planned_in": "PR-007",
+      "failure_mode": "The control of last resort is unavailable exactly when it is needed."
+    },
+    {
+      "id": "EXEC-006",
+      "kind": "requirement",
+      "title": "Partial fills and fees are accounted exactly",
+      "statement": "Position, average price, fee and realised PnL after a sequence of partial fills match a hand-calculated fixture.",
+      "criticality": "high",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-81",
+      "owning_modules": ["src/execution/order_manager.py", "src/execution/post_trade.py"],
+      "verification": [
+        { "test": "tests/test_order_manager_partial_fills.py", "test_type": "unit" },
+        { "test": "tests/test_executor_fee_accounting.py", "test_type": "unit" }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "PnL is wrong, so every downstream risk decision is made on false numbers."
+    },
+    {
+      "id": "EXEC-007",
+      "kind": "requirement",
+      "title": "Mutation score on the execution subsystem is at or above 90%",
+      "statement": "Nightly mutation testing of the execution modules kills at least 90% of generated mutants.",
+      "criticality": "high",
+      "subsystem": "execution",
+      "status": "planned",
+      "source": "QE-49",
+      "owning_modules": ["src/execution/order_fsm.py"],
+      "planned_in": "PR-006",
+      "failure_mode": "The FSM tests assert shape without asserting behaviour."
+    },
+
+    {
+      "id": "DATA-001",
+      "kind": "requirement",
+      "title": "Market data failing the quality gate never reaches the signal engine",
+      "statement": "Schema, timestamp validity, monotonicity, freshness, OHLC consistency, non-negative volume, and absence of NaN/Infinity are all checked before use; failure means NO TRADE.",
+      "criticality": "critical",
+      "subsystem": "data",
+      "status": "partial",
+      "source": "QE-80",
+      "owning_modules": ["src/data/quality_gate.py"],
+      "verification": [
+        { "test": "tests/engines/test_supply_and_quality.py", "test_type": "component" },
+        { "test": "tests/test_feature_bar_gaps.py", "test_type": "unit" }
+      ],
+      "planned_in": "PR-003",
+      "failure_mode": "A corrupt bar becomes a signal, and the signal becomes an order."
+    },
+    {
+      "id": "DATA-002",
+      "kind": "requirement",
+      "title": "Data freshness budgets are declared and enforced",
+      "statement": "Every market-data consumer declares a maximum age, and a sample past it is refused rather than used.",
+      "criticality": "critical",
+      "subsystem": "data",
+      "status": "planned",
+      "source": "QE-80,QE-42",
+      "owning_modules": ["src/data/quality_gate.py"],
+      "planned_in": "PR-003",
+      "failure_mode": "A frozen feed looks like a calm market."
+    },
+    {
+      "id": "DATA-003",
+      "kind": "requirement",
+      "title": "A single clock policy: internal timestamps are UTC and exchange skew is bounded",
+      "statement": "All internal timestamps are timezone-aware UTC; exchange-versus-local skew beyond the declared bound is detected and reported.",
+      "criticality": "high",
+      "subsystem": "data",
+      "status": "planned",
+      "source": "QE-79",
+      "owning_modules": ["src/data/feeds.py"],
+      "planned_in": "PR-003",
+      "failure_mode": "A DST shift or a naive datetime silently moves a bar an hour."
+    },
+    {
+      "id": "DATA-004",
+      "kind": "requirement",
+      "title": "Money arithmetic uses a declared exact representation",
+      "statement": "Where money is added, compared or rounded, the representation is documented and exact; float is used only where the doc says it may be.",
+      "criticality": "high",
+      "subsystem": "data",
+      "status": "partial",
+      "source": "QE-78",
+      "owning_modules": ["src/execution/unified_ledger.py"],
+      "verification": [
+        { "test": "tests/test_percent_vs_fraction_units.py", "test_type": "unit" },
+        { "test": "tests/test_unified_ledger.py", "test_type": "unit" }
+      ],
+      "planned_in": "PR-003",
+      "failure_mode": "Rounding drift accumulates until the ledger and the exchange disagree."
+    },
+    {
+      "id": "DATA-005",
+      "kind": "requirement",
+      "title": "Tick size, lot size and minimum quantity are respected",
+      "statement": "Every submitted order conforms to the venue's tick, lot and minimum-notional rules, checked before submission.",
+      "criticality": "high",
+      "subsystem": "data",
+      "status": "partial",
+      "source": "QE-78",
+      "owning_modules": ["src/data/fetcher.py"],
+      "verification": [
+        { "test": "tests/test_fetcher_symbol_precision.py", "test_type": "unit" }
+      ],
+      "planned_in": "PR-005",
+      "failure_mode": "Orders are rejected by the venue at exactly the moment the strategy needs them."
+    },
+
+    {
+      "id": "PORT-001",
+      "kind": "requirement",
+      "title": "Portfolio-level exposure, correlation and agreement limits are enforced",
+      "statement": "Aggregate exposure, cross-strategy correlation and portfolio agreement are evaluated before an order is sized, and a breach reduces or refuses the order rather than being reported after the fact.",
+      "criticality": "high",
+      "subsystem": "portfolio",
+      "status": "partial",
+      "source": "QE-2,QE-42",
+      "owning_modules": ["src/risk/portfolio_correlation.py", "src/risk/portfolio_agreement.py"],
+      "verification": [
+        { "test": "tests/test_portfolio_correlation.py", "test_type": "risk" },
+        { "test": "tests/test_portfolio_agreement.py", "test_type": "risk" }
+      ],
+      "planned_in": "PR-002",
+      "failure_mode": "Five uncorrelated-looking positions turn out to be one position in five costumes."
+    },
+    {
+      "id": "SIG-001",
+      "kind": "requirement",
+      "title": "Golden signal fixtures pin end-to-end behaviour",
+      "statement": "Named fixtures carry market input, features, regime, model output, signal, risk decision and expected final action, and CI fails on any unexplained change.",
+      "criticality": "high",
+      "subsystem": "signal",
+      "status": "planned",
+      "source": "QE-43",
+      "owning_modules": ["src/engine/signal_engine.py"],
+      "planned_in": "PR-003",
+      "failure_mode": "A refactor changes what the bot trades and nobody notices until the PnL does."
+    },
+    {
+      "id": "SIG-002",
+      "kind": "requirement",
+      "title": "Feature computation is deterministic and reproducible",
+      "statement": "The same input bars produce bit-identical features across runs and processes.",
+      "criticality": "high",
+      "subsystem": "signal",
+      "status": "partial",
+      "source": "QE-86",
+      "owning_modules": ["src/features/pipeline.py"],
+      "verification": [{ "test": "tests/test_features.py", "test_type": "unit" }],
+      "planned_in": "PR-003",
+      "failure_mode": "A backtest cannot be reproduced, so a result cannot be trusted."
+    },
+    {
+      "id": "SIG-003",
+      "kind": "requirement",
+      "title": "Mutation score on the signal subsystem is at or above 85%",
+      "statement": "Nightly mutation testing of the signal modules kills at least 85% of generated mutants.",
+      "criticality": "medium",
+      "subsystem": "signal",
+      "status": "planned",
+      "source": "QE-49",
+      "owning_modules": ["src/engine/signal_engine.py"],
+      "planned_in": "PR-006",
+      "failure_mode": "Signal tests assert that something was produced, not that it was right."
+    },
+
+    {
+      "id": "MODL-001",
+      "kind": "requirement",
+      "title": "Every model artifact carries full provenance",
+      "statement": "A model artifact records model id, training-data hash, feature-schema hash, code commit, hyperparameters, seed, library versions, metrics, validation methodology and artifact hash.",
+      "criticality": "high",
+      "subsystem": "model",
+      "status": "partial",
+      "source": "QE-44",
+      "owning_modules": ["src/models/model_registry.py"],
+      "verification": [{ "test": "tests/test_model_registry.py", "test_type": "model" }],
+      "planned_in": "PR-004",
+      "failure_mode": "A model in production cannot be traced to the data or code that made it."
+    },
+    {
+      "id": "MODL-002",
+      "kind": "requirement",
+      "title": "A model never decides to bypass the risk gate",
+      "statement": "Model output reaches an order only through SIGNAL -> RISK ENGINE -> EXECUTION POLICY; no module lets a model result skip the deterministic safety layer.",
+      "criticality": "critical",
+      "subsystem": "model",
+      "status": "planned",
+      "source": "QE-45",
+      "owning_modules": ["src/engine/signal_engine.py", "src/risk/gates.py"],
+      "planned_in": "PR-004",
+      "failure_mode": "A confident model overrides the control designed to survive a confident model being wrong."
+    },
+    {
+      "id": "MODL-003",
+      "kind": "requirement",
+      "title": "No lookahead: a signal at T is invariant to data after T",
+      "statement": "For a dataset truncated at T and the same dataset extended with arbitrary future data, the signal computed at T is identical.",
+      "criticality": "critical",
+      "subsystem": "model",
+      "status": "planned",
+      "source": "QE-47",
+      "owning_modules": ["src/features/pipeline.py", "src/engine/signal_engine.py"],
+      "planned_in": "PR-004",
+      "failure_mode": "The backtest is a fantasy and the live strategy loses money the simulation never showed."
+    },
+    {
+      "id": "MODL-004",
+      "kind": "requirement",
+      "title": "Model drift beyond threshold demotes the model",
+      "statement": "Feature, prediction, confidence, regime, calibration, performance and missingness drift are monitored; breaching a threshold moves the model to degraded/shadow rather than continuing to trust it.",
+      "criticality": "high",
+      "subsystem": "model",
+      "status": "partial",
+      "source": "QE-46",
+      "owning_modules": ["src/risk/performance_drift.py", "src/risk/drift_integration.py"],
+      "verification": [
+        { "test": "tests/test_performance_drift.py", "test_type": "component" },
+        { "test": "tests/test_drift_gate_wiring.py", "test_type": "integration" }
+      ],
+      "planned_in": "PR-004",
+      "failure_mode": "The model keeps trading a regime it was never trained on."
+    },
+    {
+      "id": "MODL-005",
+      "kind": "requirement",
+      "title": "Model artifacts round-trip and reproduce",
+      "statement": "Each registered model can be loaded, predicted from, serialised, deserialised and reproduced to the recorded metrics from the recorded seed.",
+      "criticality": "high",
+      "subsystem": "model",
+      "status": "planned",
+      "source": "QE-44",
+      "owning_modules": ["src/models/model_registry.py"],
+      "planned_in": "PR-004",
+      "failure_mode": "A model that cannot be reloaded cannot be rolled back to."
+    },
+    {
+      "id": "MODL-006",
+      "kind": "requirement",
+      "title": "Research output cannot change production parameters directly",
+      "statement": "A notebook or research script has no path to production trading parameters; promotion runs RESEARCH -> candidate -> validation -> shadow -> paper -> production.",
+      "criticality": "critical",
+      "subsystem": "model",
+      "status": "partial",
+      "source": "QE-83",
+      "owning_modules": ["src/upgrade/shadow_deploy.py", "src/tuning/promotion_gauntlet.py"],
+      "verification": [
+        { "test": "tests/test_shadow_model_promotion.py", "test_type": "verification" },
+        { "test": "tests/test_upgrade_shadow_deploy.py", "test_type": "verification" }
+      ],
+      "planned_in": "PR-004",
+      "failure_mode": "An experiment becomes the production strategy by accident."
+    },
+    {
+      "id": "MODL-007",
+      "kind": "requirement",
+      "title": "Cross-validation respects time and purging",
+      "statement": "Model validation uses combinatorial purged cross-validation with an embargo, so adjacent-sample leakage cannot inflate the reported score.",
+      "criticality": "high",
+      "subsystem": "model",
+      "status": "planned",
+      "source": "QE-90,QE-86",
+      "owning_modules": ["src/models/trainer.py"],
+      "planned_in": "PR-004",
+      "failure_mode": "A leaky validation split reports skill the strategy does not have."
+    },
+
+    {
+      "id": "API-001",
+      "kind": "requirement",
+      "title": "The authorization matrix is executable and every cell is tested",
+      "statement": "For each (role, endpoint) pair the declared allow/deny outcome is asserted by a test, including the anonymous row.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "partial",
+      "source": "QE-19",
+      "owning_modules": ["src/api/access_control.py", "src/api/main.py"],
+      "verification": [
+        { "test": "tests/test_api_role_enforcement.py", "test_type": "api" },
+        { "test": "tests/test_access_control.py", "test_type": "security" }
+      ],
+      "planned_in": "PR-007",
+      "failure_mode": "A readonly token places a trade."
+    },
+    {
+      "id": "API-002",
+      "kind": "requirement",
+      "title": "No insecure direct object references",
+      "statement": "A caller cannot read or modify another principal's resource by substituting an identifier.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "QE-20",
+      "owning_modules": ["src/api/access_control.py"],
+      "planned_in": "PR-007",
+      "failure_mode": "One authenticated user reads or cancels another's orders."
+    },
+    {
+      "id": "API-003",
+      "kind": "requirement",
+      "title": "Injection payloads are rejected at the boundary",
+      "statement": "SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payloads are refused wherever input reaches a database, filesystem, subprocess, external API or log.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "QE-21",
+      "owning_modules": ["src/api/main.py", "src/api/middleware.py"],
+      "planned_in": "PR-007",
+      "failure_mode": "An attacker reads or rewrites the trading database."
+    },
+    {
+      "id": "API-004",
+      "kind": "requirement",
+      "title": "Outbound URL handling is SSRF-resistant",
+      "statement": "Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "QE-22",
+      "owning_modules": ["src/intelligence/client.py"],
+      "planned_in": "PR-007",
+      "failure_mode": "The bot becomes the attacker's proxy into the private network and the metadata service."
+    },
+    {
+      "id": "API-005",
+      "kind": "requirement",
+      "title": "WebSocket payloads are validated regardless of connection state",
+      "statement": "An established connection confers no trust: every message is authenticated, schema-validated, size-bounded, rate-limited and replay-checked.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "partial",
+      "source": "QE-23",
+      "owning_modules": ["src/api/main.py", "src/data/orderbook_stream.py"],
+      "verification": [
+        { "test": "tests/test_ws_auth_query_param.py", "test_type": "security" }
+      ],
+      "planned_in": "PR-007",
+      "failure_mode": "A single authenticated socket becomes an unauthenticated command channel."
+    },
+    {
+      "id": "API-006",
+      "kind": "requirement",
+      "title": "Rate limiting protects authentication, trading and expensive endpoints",
+      "statement": "Login, authentication, trade endpoints, sensitive mutations, WebSocket connections and expensive queries are rate-limited, and the limits are tested under burst and sustained load.",
+      "criticality": "high",
+      "subsystem": "api",
+      "status": "partial",
+      "source": "QE-24",
+      "owning_modules": ["src/api/middleware.py"],
+      "verification": [
+        { "test": "tests/test_selftest_rate_limit.py", "test_type": "api" }
+      ],
+      "planned_in": "PR-007",
+      "failure_mode": "An attacker with a valid token issues thousands of orders before anything notices."
+    },
+    {
+      "id": "API-007",
+      "kind": "requirement",
+      "title": "Security headers are present and correct",
+      "statement": "Responses carry the declared security headers, and a test fails if one is removed.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "QE-18",
+      "owning_modules": ["src/api/middleware.py"],
+      "planned_in": "PR-007",
+      "failure_mode": "A browser-side weakness that the headers would have closed."
+    },
+    {
+      "id": "API-008",
+      "kind": "requirement",
+      "title": "A failing security control never opens a trading endpoint",
+      "statement": "If authentication, authorization, rate limiting or logging is unavailable, the trading endpoints refuse rather than degrade to open.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "QE-55",
+      "owning_modules": ["src/api/auth.py", "src/api/middleware.py"],
+      "planned_in": "PR-007",
+      "failure_mode": "An outage in the auth dependency turns the trade endpoint anonymous.",
+      "depends_on": ["GOV-004"]
+    },
+    {
+      "id": "API-009",
+      "kind": "requirement",
+      "title": "Error responses leak neither secrets nor internals",
+      "statement": "No error path returns a credential, token, stack trace or internal hostname to a caller.",
+      "criticality": "high",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "QE-18,QE-17",
+      "owning_modules": ["src/api/main.py"],
+      "planned_in": "PR-007",
+      "failure_mode": "A 500 hands the attacker the next step.",
+      "depends_on": ["SECR-001"]
+    },
+
+    {
+      "id": "SECR-001",
+      "kind": "requirement",
+      "title": "Secrets never appear in source, images, logs or workflow YAML",
+      "statement": "Deliberately triggering errors that involve an API key, secret, JWT, database password, authorization header or exchange credential produces output containing none of them.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "partial",
+      "source": "QE-9,QE-17",
+      "owning_modules": ["src/logging_setup.py", "common/command_schema.py"],
+      "verification": [
+        { "test": "tests/test_logging_setup.py", "test_type": "security" },
+        { "test": "tests/test_command_schema_policy.py", "test_type": "security" }
+      ],
+      "planned_in": "PR-008",
+      "failure_mode": "The exchange key is in a log file that gets shipped to a third-party log service."
+    },
+    {
+      "id": "SECR-002",
+      "kind": "requirement",
+      "title": "Secret comparisons are constant-time",
+      "statement": "Every comparison of a token, signature, key or password uses a constant-time primitive, and a test detects a reversion to `==`.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "partial",
+      "source": "QE-12",
+      "owning_modules": ["src/security/constant_time.py"],
+      "verification": [
+        { "test": "tests/test_static_invariants.py", "test_type": "security" }
+      ],
+      "planned_in": "PR-008",
+      "failure_mode": "A timing oracle recovers a token one byte at a time."
+    },
+    {
+      "id": "SECR-003",
+      "kind": "requirement",
+      "title": "Keys are environment-separated and rotatable, and rotation is tested",
+      "statement": "Development, test, paper and production keys are distinct; rotation for normal, compromise, departure, server-compromise, exchange-incident and GitHub-compromise cases is documented and exercised.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "planned",
+      "source": "QE-11",
+      "owning_modules": ["src/security/credential_vault.py"],
+      "planned_in": "PR-008",
+      "failure_mode": "A procedure nobody has run fails on the day it is needed."
+    },
+    {
+      "id": "SECR-004",
+      "kind": "requirement",
+      "title": "The audit log is a verifiable hash chain",
+      "statement": "Each event hashes its own content plus the previous event's hash; modifying, deleting or reordering any event fails verification.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "partial",
+      "source": "QE-16",
+      "owning_modules": ["src/diagnostics/audit_trail.py"],
+      "verification": [
+        { "test": "tests/test_audit_trail.py", "test_type": "security" },
+        { "test": "tests/test_audit_chain_integrity_endpoint.py", "test_type": "api" }
+      ],
+      "planned_in": "PR-008",
+      "failure_mode": "An attacker who reaches the host edits the record of what they did."
+    },
+    {
+      "id": "SECR-005",
+      "kind": "requirement",
+      "title": "Signed requests reject tampering and replay",
+      "statement": "A correct signature is accepted; a modified request, timestamp or parameter is rejected; a replayed request is rejected where the protocol allows it.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "partial",
+      "source": "QE-12",
+      "owning_modules": ["src/security/api_signer.py"],
+      "verification": [
+        { "test": "tests/engines/test_security.py", "test_type": "security" }
+      ],
+      "planned_in": "PR-008",
+      "failure_mode": "A captured order request is replayed to double a position."
+    },
+    {
+      "id": "SECR-006",
+      "kind": "requirement",
+      "title": "TLS is verified everywhere and never disabled to make a test pass",
+      "statement": "HTTPS, secure WebSocket and TLS database connections are required; expired certificates, hostname mismatch, weak protocols, broken chains and plaintext endpoints are detected; no code path disables verification.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "planned",
+      "source": "QE-14,QE-15",
+      "owning_modules": ["src/intelligence/client.py"],
+      "planned_in": "PR-008",
+      "failure_mode": "An on-path attacker rewrites market data or order responses."
+    },
+    {
+      "id": "SECR-007",
+      "kind": "requirement",
+      "title": "Cryptographic randomness comes from the OS CSPRNG",
+      "statement": "Nonces, keys, tokens and identifiers that must be unpredictable come from `secrets`/`os.urandom`, never from `random`.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "planned",
+      "source": "QE-12",
+      "owning_modules": ["src/security/credential_vault.py"],
+      "planned_in": "PR-008",
+      "failure_mode": "A predictable token is guessable."
+    },
+    {
+      "id": "SECR-008",
+      "kind": "requirement",
+      "title": "No custom cryptographic primitives",
+      "statement": "The application calls established libraries; it does not implement its own cipher, hash construction, KDF or signature scheme for security purposes.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "partial",
+      "source": "QE-8",
+      "owning_modules": ["src/security/pq_transport.py"],
+      "verification": [
+        { "test": "tests/test_security_pqc_posture.py", "test_type": "security" }
+      ],
+      "planned_in": "PR-008",
+      "failure_mode": "A homemade primitive fails in a way only an attacker notices."
+    },
+    {
+      "id": "SECR-009",
+      "kind": "requirement",
+      "title": "Sensitive data at rest is encrypted, and the key is managed separately",
+      "statement": "Database backups, production databases, sensitive model artifacts, audit archives and configuration backups are encrypted, with keys held outside the encrypted store.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "planned",
+      "source": "QE-13",
+      "owning_modules": ["src/security/credential_vault.py"],
+      "planned_in": "PR-008",
+      "failure_mode": "Ciphertext and key are stolen together and the encryption bought nothing."
+    },
+    {
+      "id": "SECR-010",
+      "kind": "requirement",
+      "title": "The exchange key the bot holds cannot withdraw",
+      "statement": "The documented and verified key posture is trading-only, withdrawal-disabled, IP-restricted where supported, with separate paper and production keys on separate subaccounts.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "planned",
+      "source": "QE-10,QE-67",
+      "owning_modules": ["src/security/credential_vault.py"],
+      "planned_in": "PR-008",
+      "failure_mode": "A compromised host becomes a withdrawal, not just a bad trade."
+    },
+
+    {
+      "id": "SUP-001",
+      "kind": "requirement",
+      "title": "Every workflow declares least-privilege permissions",
+      "statement": "Each workflow sets `permissions:` explicitly at the top level, starting from `contents: read`, and no workflow uses write-all.",
+      "criticality": "critical",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-28",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "A compromised action inherits write access to the repository."
+    },
+    {
+      "id": "SUP-002",
+      "kind": "requirement",
+      "title": "Third-party actions are pinned to a full commit SHA",
+      "statement": "No workflow references an action by tag or branch; every `uses:` names a 40-character SHA.",
+      "criticality": "critical",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-28",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "A retagged action runs attacker code inside CI with the repository's secrets."
+    },
+    {
+      "id": "SUP-003",
+      "kind": "requirement",
+      "title": "Fork pull requests cannot reach production secrets",
+      "statement": "No workflow triggered by a fork pull request has access to a production secret, and this is asserted rather than assumed.",
+      "criticality": "critical",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-29,QE-30",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "A malicious PR prints the exchange key by editing a test."
+    },
+    {
+      "id": "SUP-004",
+      "kind": "requirement",
+      "title": "Release artifacts carry version, commit, lock, SBOM, hash and attestation",
+      "statement": "Every deployable artifact is accompanied by its provenance, and production verifies the artifact is exactly the one CI produced.",
+      "criticality": "high",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-37",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "Nobody can prove what is running in production."
+    },
+    {
+      "id": "SUP-005",
+      "kind": "requirement",
+      "title": "Dependency vulnerabilities are surveilled continuously",
+      "statement": "Daily alerts, weekly dependency review, monthly full audit and an immediate path for a critical CVE are all configured and exercised.",
+      "criticality": "high",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-27,QE-72",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "A known-exploited dependency sits in production for weeks."
+    },
+    {
+      "id": "SUP-006",
+      "kind": "requirement",
+      "title": "Container images run non-root with minimal capability",
+      "statement": "Images use a non-root user, a minimal base, a read-only filesystem where possible, dropped capabilities, no privileged mode, no host networking unless required, and resource limits -- and CI tests those properties.",
+      "criticality": "high",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-36",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "A container escape becomes host root."
+    },
+    {
+      "id": "SUP-007",
+      "kind": "requirement",
+      "title": "A dependency update cannot become a production deployment on its own",
+      "statement": "Automated dependency PRs run the full quality gate and can never trigger the production workflow without the same approvals as any other change.",
+      "criticality": "critical",
+      "subsystem": "supply_chain",
+      "status": "planned",
+      "source": "QE-27",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-009",
+      "failure_mode": "A compromised package auto-deploys itself."
+    },
+
+    {
+      "id": "RES-001",
+      "kind": "requirement",
+      "title": "Every component failure has a declared, tested fail-safe behaviour",
+      "statement": "Price feed, risk engine, exchange status, analytics, model, audit, database and WebSocket each have a documented failure policy, and a test asserts the system takes it.",
+      "criticality": "critical",
+      "subsystem": "resilience",
+      "status": "planned",
+      "source": "QE-26",
+      "owning_modules": ["src/diagnostics/runtime_monitor.py"],
+      "planned_in": "PR-010",
+      "failure_mode": "Fail-open is chosen by default because no one chose anything."
+    },
+    {
+      "id": "RES-002",
+      "kind": "requirement",
+      "title": "Crash during a fill replays to a safe, reconciled state",
+      "statement": "Killing the process at each stage of an order lifecycle leaves a state the recovery path can reconcile without duplicating or losing an order.",
+      "criticality": "critical",
+      "subsystem": "resilience",
+      "status": "planned",
+      "source": "QE-53",
+      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "planned_in": "PR-010",
+      "failure_mode": "A restart loses or doubles a live position."
+    },
+    {
+      "id": "RES-003",
+      "kind": "requirement",
+      "title": "Backups are encrypted, off-host and restore-tested",
+      "statement": "A scheduled drill restores from backup and verifies the result; a backup that has never been restored is not counted.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "partial",
+      "source": "QE-39",
+      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "verification": [
+        { "test": "tests/test_disaster_recovery.py", "test_type": "recovery" }
+      ],
+      "planned_in": "PR-010",
+      "failure_mode": "The backup turns out to be unreadable on the day it is needed."
+    },
+    {
+      "id": "RES-004",
+      "kind": "requirement",
+      "title": "RTO and RPO are declared and measured",
+      "statement": "Recovery time and data-loss objectives carry actual numbers chosen for this operation, and a drill measures whether they are met.",
+      "criticality": "medium",
+      "subsystem": "resilience",
+      "status": "planned",
+      "source": "QE-41",
+      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "planned_in": "PR-010",
+      "failure_mode": "Recovery takes longer than anyone assumed and nobody had a number to check against."
+    },
+    {
+      "id": "RES-005",
+      "kind": "requirement",
+      "title": "Concurrency produces no double order, lost order or corrupted position",
+      "statement": "Simultaneous signals on one symbol, and an order request interleaved with disconnect, reconnect and a duplicate response, leave exactly one consistent outcome.",
+      "criticality": "critical",
+      "subsystem": "resilience",
+      "status": "partial",
+      "source": "QE-52",
+      "owning_modules": ["src/execution/order_manager.py", "src/execution/idempotency.py"],
+      "verification": [
+        { "test": "tests/test_runtime_monitor_concurrent_probes.py", "test_type": "resilience" }
+      ],
+      "planned_in": "PR-010",
+      "failure_mode": "A race doubles a position under exactly the market conditions that caused the race."
+    },
+    {
+      "id": "RES-006",
+      "kind": "requirement",
+      "title": "Performance baselines exist and regressions are flagged",
+      "statement": "p50/p95/p99, error rate, CPU and memory baselines are recorded for feature generation, signal generation, inference, risk evaluation, order processing, database, API and WebSocket, and a large regression fails or escalates.",
+      "criticality": "medium",
+      "subsystem": "resilience",
+      "status": "planned",
+      "source": "QE-54",
+      "owning_modules": ["src/diagnostics/instrumentation.py"],
+      "planned_in": "PR-010",
+      "failure_mode": "The bot becomes too slow to act on its own signals and nothing says so."
+    },
+    {
+      "id": "RES-007",
+      "kind": "requirement",
+      "title": "Chaos exercises end in a safe state, not merely a live process",
+      "statement": "Killing the database, killing the WebSocket, delaying and corrupting exchange responses, dropping packets, returning 500s and restarting mid-fill all end in the declared safe state.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "partial",
+      "source": "QE-53",
+      "owning_modules": ["src/tuning/stress_simulator.py", "src/tuning/redteam_scheduler.py"],
+      "verification": [
+        { "test": "tests/test_stress_simulator.py", "test_type": "chaos" },
+        { "test": "tests/test_redteam_scheduler.py", "test_type": "chaos" }
+      ],
+      "planned_in": "PR-010",
+      "failure_mode": "\"It did not crash\" is mistaken for \"it stayed correct\"."
+    },
+    {
+      "id": "RES-008",
+      "kind": "requirement",
+      "title": "Malformed input is rejected safely with an audit event",
+      "statement": "Fuzzed API payloads, market data, exchange responses, WebSocket messages, configuration, model inputs and serialised state are rejected with no state corruption, no unauthorized action, no secret leakage, and an audit record.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "planned",
+      "source": "QE-51",
+      "owning_modules": ["src/data/quality_gate.py", "src/api/main.py"],
+      "planned_in": "PR-006",
+      "failure_mode": "A malformed message leaves the system in a state no test ever described."
+    },
+
+    {
+      "id": "REL-001",
+      "kind": "requirement",
+      "title": "Paper qualification precedes live",
+      "statement": "Live trading is unlocked only after the declared paper-trading qualification -- duration, sample count and performance criteria -- has been met and recorded.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "partial",
+      "source": "QE-60,QE-62",
+      "owning_modules": ["src/risk/gates.py"],
+      "verification": [
+        { "test": "tests/test_risk_gate.py", "test_type": "verification" }
+      ],
+      "planned_in": "PR-011",
+      "failure_mode": "A strategy meets real capital before it has ever met real conditions."
+    },
+    {
+      "id": "REL-002",
+      "kind": "requirement",
+      "title": "Production is a protected GitHub environment",
+      "statement": "Deployment to production requires environment approval, a trusted branch, a trusted workflow and short-lived credentials; pushing to main is not sufficient.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "planned",
+      "source": "QE-62,QE-88",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-012",
+      "failure_mode": "A merge becomes a deployment with nobody deciding."
+    },
+    {
+      "id": "REL-003",
+      "kind": "requirement",
+      "title": "Canary precedes full exposure",
+      "statement": "A new release trades at a reduced exposure with monitoring before exposure is increased; there is no paper-to-100% path.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "planned",
+      "source": "QE-63",
+      "owning_modules": ["src/risk/gates.py"],
+      "planned_in": "PR-012",
+      "failure_mode": "A regression meets the whole account at once."
+    },
+    {
+      "id": "REL-004",
+      "kind": "requirement",
+      "title": "Automatic halt triggers are machine-enforced",
+      "statement": "Unexpected position, reconciliation failure, data staleness, risk-engine failure, authentication anomaly, abnormal order rate, exchange errors, crash loop, model drift and unexpected configuration change each raise an alert, a safe halt and an audit record.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "partial",
+      "source": "QE-64",
+      "owning_modules": ["src/diagnostics/runtime_monitor.py", "src/risk/strategy_kill_switch.py"],
+      "verification": [
+        { "test": "tests/test_runtime_monitor_coverage.py", "test_type": "component" }
+      ],
+      "planned_in": "PR-012",
+      "failure_mode": "A human has to notice a problem that a rule could have caught in a second."
+    },
+    {
+      "id": "REL-005",
+      "kind": "requirement",
+      "title": "The production startup self-test blocks live on any failure",
+      "statement": "Configuration, secrets, TLS, database, exchange authentication, market-data freshness, model load, risk engine, audit, kill switch, reconciliation and qualification are all checked at startup; any failure means LIVE BLOCKED.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "planned",
+      "source": "QE-75",
+      "owning_modules": ["src/api/main.py", "src/diagnostics/runtime_monitor.py"],
+      "planned_in": "PR-012",
+      "failure_mode": "The bot starts trading with a component that was never actually up."
+    },
+    {
+      "id": "REL-006",
+      "kind": "requirement",
+      "title": "Configuration drift is detected and DEBUG never reaches production",
+      "statement": "Unexpected environment variables, risk limits, exchanges, endpoints, debug mode or authentication configuration are detected against a versioned baseline, and DEBUG=true is refused in production.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "partial",
+      "source": "QE-74",
+      "owning_modules": ["src/config.py"],
+      "verification": [
+        { "test": "tests/test_unenforced_config_knobs.py", "test_type": "verification" },
+        { "test": "tests/test_env_example_documents_required_settings.py", "test_type": "verification" }
+      ],
+      "planned_in": "PR-012",
+      "failure_mode": "A debugging change made at 2am stays in production for a month."
+    },
+    {
+      "id": "REL-007",
+      "kind": "requirement",
+      "title": "A behavioural security layer halts anomalous trading",
+      "statement": "Order frequency, symbol set, size, direction and time-of-day are profiled, and a sharp deviation raises a security alert and halts trading even when the credentials are valid.",
+      "criticality": "critical",
+      "subsystem": "release",
+      "status": "planned",
+      "source": "QE-66",
+      "owning_modules": ["src/diagnostics/runtime_monitor.py"],
+      "planned_in": "PR-012",
+      "failure_mode": "A credential thief drains the account using perfectly valid credentials."
+    },
+    {
+      "id": "REL-008",
+      "kind": "requirement",
+      "title": "Rollback is defined and exercised",
+      "statement": "The production workflow can return to the previous trusted artifact, and a drill proves it.",
+      "criticality": "high",
+      "subsystem": "release",
+      "status": "planned",
+      "source": "QE-61",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-012",
+      "failure_mode": "The only way out of a bad deploy is forward."
+    },
+
+    {
+      "id": "GOV-001",
+      "kind": "requirement",
+      "title": "Every production defect yields a permanent regression test",
+      "statement": "A defect gets a REG-#### entry, a root cause, a test that fails before the fix, and that test is never deleted because the bug is gone.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-48",
+      "owning_modules": ["config/quality_registry.json", "src/quality/registry.py"],
+      "verification": [
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "verification",
+          "note": "The registry refuses a regression entry that names no test."
+        }
+      ],
+      "failure_mode": "The same bug ships twice."
+    },
+    {
+      "id": "GOV-002",
+      "kind": "requirement",
+      "title": "Every security finding yields a permanent SEC-#### test",
+      "statement": "A security weakness gets a SEC-#### entry and a test that would fail if the weakness returned.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-73",
+      "owning_modules": ["config/quality_registry.json", "src/quality/registry.py"],
+      "verification": [
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "verification",
+          "note": "Same contract as GOV-001, applied to the security_regression kind."
+        }
+      ],
+      "failure_mode": "A fixed vulnerability quietly reappears in a refactor."
+    },
+    {
+      "id": "GOV-003",
+      "kind": "requirement",
+      "title": "Mutation testing runs nightly on the critical subsystems",
+      "statement": "Risk, execution, signals, position sizing and the order FSM are mutation-tested on a schedule, with per-subsystem thresholds.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "planned",
+      "source": "QE-49",
+      "owning_modules": [".github/workflows"],
+      "planned_in": "PR-006",
+      "failure_mode": "Coverage is reported as quality evidence when it is not."
+    },
+    {
+      "id": "GOV-004",
+      "kind": "requirement",
+      "title": "No silent degradation in a security or risk path",
+      "statement": "A bare except, a broad exception handler, a `pass` in a critical path and a default-allow security decision are all detected by static analysis and individually reviewed.",
+      "criticality": "critical",
+      "subsystem": "governance",
+      "status": "partial",
+      "source": "QE-76",
+      "owning_modules": ["scripts/check_static_invariants.py"],
+      "verification": [
+        { "test": "tests/test_static_invariants.py", "test_type": "verification" }
+      ],
+      "planned_in": "PR-006",
+      "failure_mode": "A swallowed exception in the risk gate becomes a financial vulnerability."
+    },
+    {
+      "id": "GOV-005",
+      "kind": "requirement",
+      "title": "Requirement-to-test traceability is machine-checked",
+      "statement": "Every requirement names its verifying tests, those files are checked to exist at load, and the traceability document is generated rather than maintained by hand.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-5",
+      "owning_modules": ["src/quality/registry.py", "scripts/generate_quality_docs.py"],
+      "verification": [
+        { "test": "tests/quality/test_quality_registry.py", "test_type": "verification" },
+        { "test": "tests/quality/test_quality_docs_in_sync.py", "test_type": "verification" }
+      ],
+      "failure_mode": "The matrix says a requirement is covered by a test that was deleted last quarter."
+    },
+    {
+      "id": "GOV-006",
+      "kind": "requirement",
+      "title": "Serious defects get a recorded root-cause analysis",
+      "statement": "Each serious defect records what happened, why detection failed, why the existing control failed, why the design permitted it, and the new control that prevents recurrence.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "planned",
+      "source": "QE-57,QE-58",
+      "owning_modules": ["docs/quality"],
+      "planned_in": "PR-006",
+      "failure_mode": "\"Developer made a mistake\" is accepted as a root cause and nothing changes."
+    },
+    {
+      "id": "GOV-007",
+      "kind": "requirement",
+      "title": "Quality metrics are collected and escaped defects are counted per layer",
+      "statement": "Pass rate, branch coverage, mutation score, regression count, escaped defects, vulnerabilities, secret incidents, MTTD, MTTR, deployment failure rate, rollback rate, recovery-test success, model drift, signal drift, data freshness and reconciliation failures are tracked.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "planned",
+      "source": "QE-59",
+      "owning_modules": ["docs/quality"],
+      "planned_in": "PR-006",
+      "failure_mode": "Nobody can say which verification layer keeps letting defects through."
+    },
+    {
+      "id": "GOV-008",
+      "kind": "requirement",
+      "title": "main is protected and every required check must be green",
+      "statement": "Direct push, force push, CI bypass, merging a failing PR and unreviewed critical change are all refused; required checks are the workflow gates, not individual jobs.",
+      "criticality": "critical",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-88",
+      "owning_modules": ["scripts/assert_jobs_green.py", "scripts/apply_repo_ruleset.py"],
+      "verification": [
+        { "test": "tests/test_assert_jobs_green.py", "test_type": "verification" },
+        { "test": "tests/test_apply_repo_ruleset.py", "test_type": "verification" }
+      ],
+      "failure_mode": "A required check that never reports satisfies the requirement by being absent."
+    },
+    {
+      "id": "GOV-009",
+      "kind": "requirement",
+      "title": "The quality maturity target is Level 5 on the trading-critical path",
+      "statement": "Supply-chain security, artifact provenance, cryptographic controls, continuous threat monitoring, formal traceability, mutation testing, red-team exercise and independent review all apply to the trading-critical path; non-critical utilities may sit lower, explicitly.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "planned",
+      "source": "QE-85",
+      "owning_modules": ["docs/quality"],
+      "planned_in": "PR-012",
+      "failure_mode": "Maturity is claimed globally on the strength of the easiest subsystem."
+    },
+    {
+      "id": "GOV-010",
+      "kind": "requirement",
+      "title": "\"Production ready\" is a conjunction, not a coverage number",
+      "statement": "Production readiness requires every mandatory test, every critical security control, no unresolved critical or high defect, risk invariants, model verification, the regression suite, the recovery test, paper qualification, artifact integrity and production approval -- all of them.",
+      "criticality": "critical",
+      "subsystem": "governance",
+      "status": "planned",
+      "source": "QE-87",
+      "owning_modules": ["docs/quality"],
+      "planned_in": "PR-012",
+      "failure_mode": "A single green percentage is mistaken for readiness."
+    }
+  ]
+}
