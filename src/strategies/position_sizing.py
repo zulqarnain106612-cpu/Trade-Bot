@@ -54,6 +54,36 @@ _CORRELATION_REDUCE_THRESHOLD: Final[float] = 0.7
 _MIN_NOTIONAL_USD: Final[float] = 10.0
 
 
+def _non_finite(*values: float) -> bool:
+    """
+    True when any of *values* is NaN or an infinity.
+
+    Same guard, and the same reasoning, as ``src.risk.gates._non_finite`` and
+    the ``math.isfinite`` checks throughout ``src.risk.kelly``: every guard in
+    this module is of the form ``x <= 0`` or ``x < eps``, and IEEE-754 makes
+    *every* comparison against NaN False. So a NaN input does not trip the
+    early-return -- it walks straight past it.
+
+    Most of the sizers here survived that by accident. ``max(0.0, nan)``
+    returns 0.0 (Python's ``max`` keeps the first argument unless the second
+    compares greater, and nothing compares greater than NaN), so a NaN that
+    reached the end of ``carver_forecast_position`` came out as a refusal.
+    ``afml_bet_size`` did not: ``min(nan, max_fraction)`` returns ``nan`` by
+    the mirror of the same rule, and ``capital_usd * nan`` is ``nan``. That
+    NaN then flowed into ``recommend_position_notional``, where
+    ``nan <= 0.0`` is False and ``max(_MIN_NOTIONAL_USD, nan)`` is
+    ``_MIN_NOTIONAL_USD`` -- so unmeasurable inputs produced a live $10
+    recommendation instead of a refusal.
+
+    Depending on an accident of ``max`` versus ``min`` for a risk control is
+    not a control. Every entry point now checks explicitly, first, and
+    refuses by returning the 0.0 that already means "no edge, do not trade".
+
+    RISK-003, INV-004.
+    """
+    return any(not math.isfinite(v) for v in values)
+
+
 # ---------------------------------------------------------------------------
 # 1. Carver forecast-scaled position size — Systematic Trading Ch.4
 # ---------------------------------------------------------------------------
@@ -89,9 +119,15 @@ def carver_forecast_position(
     Carver (2019) p.72: "The position size is the forecast divided by the
     instrument risk, scaled to hit your target volatility."
     """
+    if _non_finite(capital_usd, forecast, daily_vol_pct, price, daily_vol_target_pct):
+        return 0.0
     if daily_vol_pct < 1e-6 or price < 1e-9:
         return 0.0
     if capital_usd <= 0:
+        return 0.0
+    # A zero or non-finite scalar would divide the forecast into nonsense;
+    # the caller has mis-specified the units rather than found no edge.
+    if _non_finite(forecast_scalar) or forecast_scalar <= 0.0:
         return 0.0
 
     clipped_forecast = float(np.clip(forecast, _FORECAST_SCALAR_MIN, _FORECAST_SCALAR_MAX))
@@ -129,6 +165,8 @@ def vol_target_quantity(
     Carver: "The most important decision in systematic trading is not
     what to trade, but how much to trade." (p.38)
     """
+    if _non_finite(capital_usd, price, daily_vol_pct, daily_vol_target_pct):
+        return 0.0
     if daily_vol_pct < 1e-6 or price < 1e-9 or capital_usd <= 0:
         return 0.0
     vol_cash = capital_usd * (daily_vol_target_pct / 100.0)
@@ -148,6 +186,12 @@ def estimate_daily_vol(close: np.ndarray | list[float], window: int = 20) -> flo
     arr = np.asarray(close, dtype=np.float64)
     if len(arr) < 2:
         return 0.01  # fallback 1%
+    # A single NaN or a non-positive close poisons the whole log-return
+    # series, and the resulting NaN vol would then walk past every
+    # `vol < 1e-6` guard downstream. Fall back to the same 1% the
+    # too-short-series case uses rather than returning an unusable number.
+    if not np.all(np.isfinite(arr)) or np.any(arr <= 0.0):
+        return 0.01
     log_ret = np.diff(np.log(arr + 1e-12))
     if len(log_ret) < 2:
         return 0.01
@@ -180,8 +224,18 @@ def correlation_adjusted_notional(
     AFML Ch.16 p.241: "Bet size should reflect not just the signal
     strength but also the portfolio's marginal contribution to risk."
     """
+    # An unreadable correlation is not "uncorrelated". Refusing is the only
+    # answer that keeps the concentration control a control: `nan <= threshold`
+    # is False, so without this the reduction became `notional * nan`.
+    if _non_finite(proposed_notional_usd, avg_correlation_with_book, threshold):
+        return 0.0
     if avg_correlation_with_book <= threshold:
         return proposed_notional_usd
+    # threshold == 1.0 would make the linear reduction below divide by zero.
+    # Reaching here means correlation exceeds a threshold of 1.0, so the book
+    # is reporting something impossible: refuse rather than raise.
+    if threshold >= 1.0:
+        return 0.0
     # Linear reduction from 1x at threshold to 0x at correlation=1
     reduction = (1.0 - avg_correlation_with_book) / (1.0 - threshold)
     reduction = float(np.clip(reduction, 0.0, 1.0))
@@ -214,6 +268,19 @@ def afml_bet_size(
 
     Returns notional_usd to deploy.
     """
+    # The one function in this module that actually leaked a NaN: `edge <= 0`
+    # is False for NaN and `min(nan, max_fraction)` returns nan, so the result
+    # was `capital_usd * nan`. See _non_finite.
+    if _non_finite(p_long, capital_usd, max_fraction):
+        return 0.0
+    if capital_usd <= 0.0 or max_fraction <= 0.0:
+        return 0.0
+    # A number outside [0, 1] is not a probability, and the clip below turns
+    # it into the *largest* permitted bet rather than a refusal: p_long=2.0
+    # gives an edge of 3.0, clipped to 1.0, so an obviously broken input
+    # produced a full max_fraction position. Refuse instead (RISK-004).
+    if not 0.0 <= p_long <= 1.0:
+        return 0.0
     edge = float(np.clip(2.0 * p_long - 1.0, -1.0, 1.0))
     if edge <= 0:
         return 0.0
@@ -246,7 +313,19 @@ def thorp_kelly_with_variance(
 
     Returns notional_usd.
     """
+    if _non_finite(
+        win_prob,
+        win_loss_ratio,
+        capital_usd,
+        price,
+        kelly_multiplier,
+        kelly_ceiling,
+        variance_penalty,
+    ):
+        return 0.0
     if win_prob <= 0 or win_prob >= 1 or win_loss_ratio <= 0:
+        return 0.0
+    if capital_usd <= 0.0 or kelly_multiplier <= 0.0 or kelly_ceiling <= 0.0:
         return 0.0
     q = 1.0 - win_prob
     kelly_f = (win_prob * win_loss_ratio - q) / win_loss_ratio
@@ -287,6 +366,30 @@ def recommend_position_notional(
     Returns dict with each method's notional, the correlation-adjusted
     minimum, and the recommended notional.
     """
+    # Stated at the entry point rather than left to emerge from three
+    # independent `min()` calls. Relying on the legs to each return 0.0 works
+    # today, but it makes the invariant a property of how min() treats NaN
+    # instead of something this function decides.
+    if _non_finite(
+        capital_usd,
+        price,
+        p_long,
+        win_prob,
+        win_loss_ratio,
+        forecast,
+        daily_vol_pct,
+        avg_book_correlation,
+        kelly_multiplier,
+        kelly_ceiling,
+    ):
+        return {
+            "thorp_kelly": 0.0,
+            "afml_bet_size": 0.0,
+            "carver_forecast": 0.0,
+            "correlation_adjusted": 0.0,
+            "recommended": 0.0,
+        }
+
     thorp = thorp_kelly_with_variance(
         win_prob,
         win_loss_ratio,

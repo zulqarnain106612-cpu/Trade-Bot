@@ -154,6 +154,69 @@ _socket.create_connection = _deny_create_connection
 # keeps them independent of collection order.
 
 
+# ---------------------------------------------------------------------------
+# Risk-gate fixtures, shared by tests/risk, tests/portfolio, tests/property and
+# tests/trading/invariants.
+# ---------------------------------------------------------------------------
+#
+# Every one of those suites needs the same two things: a RiskSettings with
+# known values rather than whatever the environment supplies, and a
+# RiskGateContext that passes every gate so a test can make exactly one thing
+# wrong and attribute the result to it. Defining them once here keeps the four
+# suites from drifting into four subtly different definitions of "otherwise
+# fine".
+
+
+@pytest.fixture
+def risk_cfg():
+    """RiskSettings at the documented defaults, independent of the environment.
+
+    `_env_file=None` matters: BaseSettings would otherwise read a developer's
+    `.env`, and a boundary test comparing against `max_position_size_pct`
+    would then be asserting against that machine's configuration.
+    """
+    from src.config import RiskSettings
+
+    return RiskSettings(_env_file=None)
+
+
+@pytest.fixture
+def passing_gate_ctx(risk_cfg):
+    """Factory for a RiskGateContext that passes every gate.
+
+    Call it with keyword overrides to break exactly one input:
+
+        ctx = passing_gate_ctx(notional_usd=1e9)
+    """
+    from src.config import TradingMode
+    from src.risk.gates import RiskGateContext
+
+    def _make(**overrides):
+        base = {
+            "daily_pnl_usd": 0.0,
+            "starting_equity_usd": 100_000.0,
+            "consecutive_loss_count": 0,
+            "regime_state": 1,  # trending; 2 is the volatile halt
+            "notional_usd": 1_000.0,  # 1% of capital, under the 5% ceiling
+            "capital_usd": 100_000.0,
+            "trading_mode": TradingMode.PAPER,
+            "direction_gate_pass": True,
+            "meta_gate_pass": True,
+            "paper_trading_days": 365,
+            "expected_edge_bps": 50.0,
+            "slippage_estimate": None,
+            "drift_detector": None,
+            "exchange_stress_score": None,
+            "whale_buy_sell_ratio": None,
+            "capital_preservation_halted": False,
+        }
+        base.update(overrides)
+        return RiskGateContext(**base)
+
+    _make.cfg = risk_cfg
+    return _make
+
+
 @pytest.fixture(autouse=True)
 def _clear_mongo_client_caches():
     import kg.db

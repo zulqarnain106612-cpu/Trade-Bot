@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 4 |
-| PARTIAL | 38 |
-| PLANNED | 49 |
+| VERIFIED | 13 |
+| PARTIAL | 32 |
+| PLANNED | 46 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -57,9 +57,9 @@ deletion of the thing it points at.
 
 | Subsystem | Entries | Verified |
 |---|---|---|
-| Risk | 10 | 0 |
+| Risk | 10 | 8 |
 | Execution | 11 | 0 |
-| Portfolio | 1 | 0 |
+| Portfolio | 1 | 1 |
 | Signal and features | 3 | 0 |
 | Models and leakage | 7 | 0 |
 | Data, money and time | 6 | 0 |
@@ -75,7 +75,7 @@ deletion of the thing it points at.
 | Phase | Title | Entries |
 |---|---|---|
 | PR-001 | Quality/Security Foundation | — |
-| PR-002 | Risk Invariants + Boundary Tests | `INV-001`, `INV-002`, `INV-004`, `INV-006`, `PORT-001`, `RISK-001`, `RISK-002`, `RISK-003`, `RISK-004` |
+| PR-002 | Risk Invariants + Boundary Tests | — |
 | PR-003 | Signal/Feature Verification | `DATA-001`, `DATA-002`, `DATA-003`, `DATA-004`, `INV-008`, `SIG-001`, `SIG-002` |
 | PR-004 | Model/Leakage Verification | `MODL-001`, `MODL-002`, `MODL-003`, `MODL-004`, `MODL-005`, `MODL-006`, `MODL-007` |
 | PR-005 | Execution/FSM/Exchange Contracts | `DATA-005`, `EXEC-001`, `EXEC-002`, `EXEC-003`, `EXEC-004`, `EXEC-006`, `INV-003`, `INV-005`, `INV-007` |
@@ -93,7 +93,7 @@ deletion of the thing it points at.
 
 #### `INV-001` — No order exceeds the configured maximum notional
 
-**PARTIAL → PR-002** · critical · invariant · source: QE-42
+**VERIFIED** · critical · invariant · source: QE-42
 
 For every order the system submits, notional <= the configured ceiling for that symbol and account, with no path that bypasses the check.
 
@@ -101,34 +101,37 @@ For every order the system submits, notional <= the configured ceiling for that 
 - **Owned by:** `src/risk/gates.py`, `src/risk/kelly.py`
 - **Depends on:** `RISK-001`
 - **Verification:**
-  - `tests/test_kelly_notional_cap.py` (risk) — Caps the Kelly sizer's notional; does not yet prove the property across every sizing path.
+  - `tests/trading/invariants/test_inv_001_max_notional.py` (risk) — Pins the ceiling at the boundary, proves no otherwise-passing input talks the stack past it, and states the sizer-cap versus gate-authority relationship.
+  - `tests/test_kelly_notional_cap.py` (risk) — Caps the Kelly sizer's notional.
   - `tests/test_cvar_notional_cap.py` (risk) — Caps the CVaR path.
 
 #### `INV-002` — No new entry while a capital-preservation halt is active
 
-**PARTIAL → PR-002** · critical · invariant · source: QE-42
+**VERIFIED** · critical · invariant · source: QE-42
 
 While the capital-preservation floor is breached, no new entry order may be produced by any strategy, engine or manual path.
 
 - **If violated:** The bot keeps trading through the drawdown it was supposed to stop at.
 - **Owned by:** `src/risk/capital_preservation_floor.py`, `src/risk/gates.py`
 - **Verification:**
-  - `tests/test_capital_preservation_floor.py` (risk) — Covers the floor's own decision; the end-to-end block is PR-002.
+  - `tests/trading/invariants/test_inv_002_capital_preservation_halt.py` (risk) — Halts at the threshold, never auto-clears on recovery, only re-authorisation lifts it, and it is evaluated first so the audit trail names the right control.
+  - `tests/test_capital_preservation_floor.py` (risk) — Covers the floor's own decision.
 
 #### `INV-004` — NaN or Infinity cannot produce an executable order
 
-**PARTIAL → PR-002** · critical · invariant · source: QE-42
+**VERIFIED** · critical · invariant · source: QE-42
 
 Any non-finite value reaching price, quantity, notional, confidence or a risk scalar results in refusal, never in an order.
 
 - **If violated:** A NaN propagates through sizing and an order of undefined size is submitted.
-- **Owned by:** `src/risk/gates.py`
+- **Owned by:** `src/risk/gates.py`, `src/strategies/position_sizing.py`
 - **Verification:**
-  - `tests/test_gates_non_finite.py` (risk) — Covers the gate stack; the property test over all numeric entry points is PR-002.
+  - `tests/trading/invariants/test_inv_004_non_finite.py` (property) — Walks NaN and both infinities through every sizer, every gate and the assembled stack, and pins the two documented fail-open exceptions.
+  - `tests/test_gates_non_finite.py` (risk) — Covers the gate stack.
 
 #### `INV-006` — Risk engine failure cannot result in an executable order
 
-**PARTIAL → PR-002** · critical · invariant · source: QE-42,QE-26
+**VERIFIED** · critical · invariant · source: QE-42,QE-26
 
 If the risk engine raises, times out or is unavailable, the decision is NO TRADE. There is no default-allow path.
 
@@ -136,49 +139,55 @@ If the risk engine raises, times out or is unavailable, the decision is NO TRADE
 - **Owned by:** `src/risk/gates.py`
 - **Depends on:** `GOV-004`
 - **Verification:**
-  - `tests/test_risk_gates.py` (risk) — Covers gate outcomes; the deliberate-failure-injection cases are PR-002.
+  - `tests/trading/invariants/test_inv_006_risk_engine_failure.py` (risk) — The drift gate fails closed on any exception; a raising gate propagates rather than becoming a pass; no except block in src/risk swallows into a default-allow.
+  - `tests/test_risk_gates.py` (risk) — Covers gate outcomes.
 
 #### `RISK-001` — Maximum position exposure must not exceed the configured ceiling
 
-**PARTIAL → PR-002** · critical · requirement · source: QE-5
+**VERIFIED** · critical · requirement · source: QE-5
 
 For every symbol and for the portfolio as a whole, exposure stays at or below the configured ceiling under every sizing path, including manual overrides.
 
 - **If violated:** One oversized position turns a normal drawdown into an account-ending one.
 - **Owned by:** `src/strategies/position_sizing.py`, `src/risk/gates.py`
 - **Verification:**
+  - `tests/trading/invariants/test_inv_001_max_notional.py` (risk) — The composition: the sizer's cap is 25% of capital, the gate's ceiling is 5%, and the gate is the authority.
+  - `tests/risk/test_risk_limit_boundaries.py` (risk) — Just inside, exactly on, and just outside the position-size limit.
   - `tests/test_position_sizing.py` (risk)
   - `tests/test_risk_gates.py` (risk)
 
 #### `RISK-002` — Boundary values at every risk limit are exercised
 
-**PLANNED → PR-002** · high · requirement · source: QE-86
+**VERIFIED** · high · requirement · source: QE-86
 
 Each configured risk limit has tests at limit-epsilon, limit, and limit+epsilon, so an off-by-one comparison cannot pass.
 
 - **If violated:** A `<` written where `<=` was meant permits exactly the trade the limit exists to stop.
 - **Owned by:** `src/risk/gates.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/risk/test_risk_limit_boundaries.py` (risk) — Nine limits, three cases each, with the inclusive or exclusive side of every comparison named in the test name and tabulated in the module docstring.
 
 #### `RISK-003` — Position size is non-negative and bounded
 
-**PLANNED → PR-002** · critical · requirement · source: QE-50
+**VERIFIED** · critical · requirement · source: QE-50
 
 For arbitrary generated inputs, the sizer returns a value in [0, limit] or refuses; it never returns a negative, non-finite or unbounded size.
 
 - **If violated:** A negative size inverts the intended direction of the trade.
 - **Owned by:** `src/strategies/position_sizing.py`, `src/risk/kelly.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/property/test_position_sizing_properties.py` (property) — Seeded generation over pools weighted toward the values that break comparisons: finite, non-negative and under the ceiling for every sizer and for the combined recommendation.
 
 #### `RISK-004` — Probabilities and confidences stay within [0, 1]
 
-**PLANNED → PR-002** · high · requirement · source: QE-50
+**VERIFIED** · high · requirement · source: QE-50
 
 Every value the system treats as a probability is in [0, 1] where it is consumed, or is rejected at the boundary.
 
 - **If violated:** A confidence of 4.0 multiplies position size by four.
-- **Owned by:** `src/risk/gates.py`, `src/intelligence/calibration.py`
-- **Verification:** none yet
+- **Owned by:** `src/strategies/position_sizing.py`, `src/intelligence/calibration.py`
+- **Verification:**
+  - `tests/risk/test_probability_bounds.py` (property) — An out-of-range probability refuses rather than saturating to the largest permitted bet, and the Bayesian shrinkage primitive guarantees its own output is a probability.
 
 #### `RISK-005` — No optimizer may directly modify a live risk control
 
@@ -332,13 +341,14 @@ Nightly mutation testing of the execution modules kills at least 90% of generate
 
 #### `PORT-001` — Portfolio-level exposure, correlation and agreement limits are enforced
 
-**PARTIAL → PR-002** · high · requirement · source: QE-2,QE-42
+**VERIFIED** · high · requirement · source: QE-2,QE-42
 
 Aggregate exposure, cross-strategy correlation and portfolio agreement are evaluated before an order is sized, and a breach reduces or refuses the order rather than being reported after the fact.
 
 - **If violated:** Five uncorrelated-looking positions turn out to be one position in five costumes.
 - **Owned by:** `src/risk/portfolio_correlation.py`, `src/risk/portfolio_agreement.py`
 - **Verification:**
+  - `tests/portfolio/test_portfolio_limits.py` (risk) — Both scalars asserted on the notional that reaches the sizer rather than on the number the tracker reports, and the small-sample shrinkage pinned as intended behaviour rather than discovered as a surprise.
   - `tests/test_portfolio_correlation.py` (risk)
   - `tests/test_portfolio_agreement.py` (risk)
 

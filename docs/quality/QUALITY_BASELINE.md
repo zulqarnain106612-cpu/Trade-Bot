@@ -47,9 +47,9 @@ Against the levels in `docs/quality/QUALITY_POLICY.md` §10.
 
 | Subsystem | Level today | What is missing for the next level |
 |---|---|---|
-| Risk | 2 → 3 | Boundary suites at every limit, property tests over sizing, failure-injection into the gate stack, mutation score |
+| Risk | 3 *(PR-002)* | Mutation score (`RISK-006`, PR-006). Boundaries, sizing properties and gate failure-injection are now covered. |
 | Execution | 2 → 3 | Exchange-response contract tests, total-FSM proof, concurrency and duplicate-response races |
-| Portfolio | 2 | Correlation and agreement limits are computed; the "breach reduces or refuses" path is not pinned |
+| Portfolio | 3 *(PR-002)* | Both scalars are now asserted on the notional that reaches the sizer rather than on the number the tracker reports. |
 | Signal | 2 | No golden fixtures; determinism is assumed rather than asserted |
 | Model | 2 | No lookahead gate, no purged cross-validation check, no artifact round-trip/reproduce test |
 | Data | 2 | Freshness budgets undeclared, clock policy unwritten, money representation undocumented |
