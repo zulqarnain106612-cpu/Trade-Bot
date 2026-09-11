@@ -36,16 +36,21 @@
         "STARKs"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
-          "module": "src/mathcore/fields/prime_field.py",
+          "module": "src/mathcore/fields/__init__.py",
           "kind": "owner",
-          "note": "F_p arithmetic with Barrett and Montgomery reduction"
+          "note": "Owns finite fields as one object; the two characteristics are implemented by the component modules below and re-exported here. One entry, one owner, two implementations."
+        },
+        {
+          "module": "src/mathcore/fields/prime_field.py",
+          "kind": "component",
+          "note": "F_p arithmetic with Barrett, Montgomery and pseudo-Mersenne reduction"
         },
         {
           "module": "src/mathcore/fields/binary_field.py",
-          "kind": "owner",
+          "kind": "component",
           "note": "GF(2^n) for GCM and S-box analysis"
         },
         {
@@ -72,7 +77,7 @@
         "Ed25519"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -106,7 +111,7 @@
         "TLS P-256"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -150,7 +155,7 @@
         "this project's API request signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/ed25519.py",
@@ -185,7 +190,7 @@
         "EIP-4844"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/bls12_381.py",
@@ -416,7 +421,7 @@
         "NIST P-256"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/prime_field.py",
@@ -444,7 +449,7 @@
         "every RSA keygen in practice"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/primality.py",
@@ -488,7 +493,7 @@
         "residue number system arithmetic"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/crt.py",
@@ -515,7 +520,7 @@
         "Goldwasser-Micali"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -538,7 +543,7 @@
         "BLS hash-to-curve"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -688,7 +693,7 @@
         "Lucas-Lehmer testing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/primality.py",
@@ -1104,7 +1109,7 @@
         "Coppersmith attacks on RSA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/lll.py",

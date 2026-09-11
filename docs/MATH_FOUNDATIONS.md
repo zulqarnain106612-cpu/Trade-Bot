@@ -69,18 +69,19 @@ being used to predict prices, it is numerology.
 ## Algebra
 
 #### Finite fields GF(p) and GF(2^n)
-`finite-fields` — **LOAD-BEARING** · relevance: security · status: planned
+`finite-fields` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Provides the arithmetic every symmetric and asymmetric primitive is defined over. The AES S-box is multiplicative inversion in GF(2^8) followed by an affine map; every elliptic curve in use is defined over a prime field.
 
 - **Used by:** AES, secp256k1, Curve25519, ML-KEM, AES-GCM, Plonk, STARKs
 - **Risk if misused:** A field implementation with a data-dependent branch or a non-constant-time reduction leaks the secret scalar through timing, which turns a correct algorithm into a key-recovery oracle.
-- **Owned by:** `src/mathcore/fields/prime_field.py`, `src/mathcore/fields/binary_field.py`
+- **Owned by:** `src/mathcore/fields/__init__.py`
+- **Implemented by:** `src/mathcore/fields/prime_field.py`, `src/mathcore/fields/binary_field.py`
 - **Consumed by:** `src/mathcore/curves/secp256k1.py`
 - **References:** FIPS 197, SEC 2 v2
 
 #### Cyclic groups and the discrete logarithm problem
-`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: planned
+`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security is exactly the difficulty of recovering x from g^x in a group of large prime order.
 
@@ -92,7 +93,7 @@ The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security i
 - **References:** SEC 1 v2, FIPS 186-5
 
 #### Elliptic curves over finite fields
-`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Supplies the group in which the discrete logarithm is hard at 256-bit key sizes rather than 3072-bit ones. Every signature this project verifies or produces lives on one.
 
@@ -106,7 +107,7 @@ Supplies the group in which the discrete logarithm is hard at 256-bit key sizes 
 > Status describes the owning mathcore module, which does not exist yet. Elliptic curves are already in production use through the consumers listed here; what is planned is a single owned implementation of curve parameters and verification-only point arithmetic, so those consumers stop each carrying their own.
 
 #### Twisted Edwards curves and Ed25519
-`edwards-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`edwards-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 A curve form with a complete addition law, so there is no special case for doubling or for the identity and therefore no branch for an attacker to time. Ed25519 also fixes the nonce deterministically by construction.
 
@@ -118,7 +119,7 @@ A curve form with a complete addition law, so there is no special case for doubl
 - **References:** RFC 8032, Chalkias et al. 2020, Taming the many EdDSAs
 
 #### Bilinear pairings (Weil, Tate, ate)
-`bilinear-pairings` — **LOAD-BEARING** · relevance: analytics · status: planned
+`bilinear-pairings` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Makes signature aggregation and constant-size polynomial commitments possible by turning a multiplicative relation in one group into an equality check in a target group.
 
@@ -216,7 +217,7 @@ Choosing p = 2q+1 with q prime removes the small subgroups that would otherwise 
 - **References:** RFC 7919
 
 #### Pseudo-Mersenne and Solinas field primes
-`pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 Field primes of the shape 2^k - c admit reduction by shift-and-add instead of division, which is why these curves are fast enough for per-transaction verification.
 
@@ -227,7 +228,7 @@ Field primes of the shape 2^k - c admit reduction by shift-and-add instead of di
 - **References:** SEC 2 v2, RFC 7748
 
 #### Baillie-PSW primality testing (Miller-Rabin plus strong Lucas)
-`primality-testing-bpsw` — **LOAD-BEARING** · relevance: security · status: planned
+`primality-testing-bpsw` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The actual gate every generated RSA or DH prime passes. Combines a base-2 strong probable-prime test with a strong Lucas test, whose sequences are the Fibonacci family.
 
@@ -248,7 +249,7 @@ Supplies RSA correctness: m^(ed) = m mod n when ed = 1 mod lambda(n). Without it
 > Euler's totient is written phi(n) and has nothing to do with the golden ratio, also written phi. This symbol collision is a recurring source of the belief that the golden ratio underpins RSA. It does not.
 
 #### Chinese Remainder Theorem
-`chinese-remainder-theorem` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`chinese-remainder-theorem` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 Splits an RSA private operation into two half-size operations modulo p and q, roughly a fourfold speedup.
 
@@ -259,7 +260,7 @@ Splits an RSA private operation into two half-size operations modulo p and q, ro
 - **References:** Boneh-DeMillo-Lipton 1997
 
 #### Quadratic residues, Legendre and Jacobi symbols
-`quadratic-residues` — **LOAD-BEARING** · relevance: security · status: planned
+`quadratic-residues` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Decides whether a square root exists in a prime field, which is what makes a compressed public key decompressible and underpins the Rabin and Goldwasser-Micali constructions.
 
@@ -269,7 +270,7 @@ Decides whether a square root exists in a prime field, which is what makes a com
 - **Owned by:** `src/mathcore/numbertheory/residues.py`
 
 #### Tonelli-Shanks square roots
-`tonelli-shanks` — **LOAD-BEARING** · relevance: analytics · status: planned
+`tonelli-shanks` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Computes the y coordinate from x when decompressing a public key. Executed on every compressed key this project parses.
 
@@ -335,7 +336,7 @@ Primes chosen so that a large power of two divides p-1, giving the roots of unit
 > The primes are selected so that a large power of two divides p-1, which is an NTT requirement; the dependency runs from the transform to the prime, not the other way, so ntt depends_on this entry and not the reverse.
 
 #### Lucas sequences
-`lucas-sequences` — **LOAD-BEARING** · relevance: security · status: planned
+`lucas-sequences` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The second half of the Baillie-PSW primality test. This is the one place where a Fibonacci-family object does real cryptographic work.
 
@@ -512,7 +513,7 @@ Proves a committed vector is close to a low-degree polynomial without a trusted 
 ## Geometry, lattices and graphs
 
 #### LLL and BKZ lattice reduction
-`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: planned
+`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 The workhorse of practical lattice attacks. Sets the concrete security of every lattice scheme and, combined with the hidden number problem, recovers ECDSA keys from biased nonces.
 
