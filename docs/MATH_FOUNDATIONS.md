@@ -174,7 +174,7 @@ A post-quantum hardness candidate whose flagship instance was broken, which is e
 - **References:** Castryck-Decru 2022
 
 #### Lagrange interpolation over a finite field
-`lagrange-interpolation` — **LOAD-BEARING** · relevance: security · status: planned
+`lagrange-interpolation` — **LOAD-BEARING** · relevance: security · status: implemented
 
 A degree-t polynomial is determined by t+1 points and by no fewer, which is precisely the threshold property behind secret sharing and threshold signing.
 
@@ -637,7 +637,7 @@ Derives the ECDSA nonce deterministically from the key and message, removing the
 - **References:** RFC 6979, RFC 8032
 
 #### Threshold signatures and secret sharing
-`threshold-signatures` — **LOAD-BEARING** · relevance: security · status: planned
+`threshold-signatures` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Splits signing authority so that no single machine holds a spendable key, which is the only structural defence against a compromised trading host.
 

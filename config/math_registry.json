@@ -319,7 +319,7 @@
         "polynomial IOPs"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/interpolation.py",
@@ -1401,7 +1401,7 @@
         "institutional MPC custody"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/derivation/threshold.py",
