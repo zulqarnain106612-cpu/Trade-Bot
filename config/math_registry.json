@@ -1134,7 +1134,7 @@
         "Minerva and TPM-Fail"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/hnp.py",

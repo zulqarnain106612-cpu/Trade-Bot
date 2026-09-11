@@ -523,7 +523,7 @@ The workhorse of practical lattice attacks. Sets the concrete security of every 
 - **References:** Lenstra-Lenstra-Lovasz 1982, Albrecht et al. lattice estimator
 
 #### Hidden number problem and biased-nonce key recovery
-`hidden-number-problem` — **ATTACK SURFACE** · relevance: security · status: planned
+`hidden-number-problem` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 A handful of ECDSA signatures whose nonces share even a few known bits yield the private key by lattice reduction. This is the single most directly relevant attack in this registry for a system that signs.
 
