@@ -233,6 +233,7 @@
           "type": "string",
           "enum": [
             "owner",
+            "component",
             "consumer",
             "test",
             "config",
