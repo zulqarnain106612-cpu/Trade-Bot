@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 13 |
-| PARTIAL | 32 |
-| PLANNED | 46 |
+| VERIFIED | 20 |
+| PARTIAL | 28 |
+| PLANNED | 43 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -60,9 +60,9 @@ deletion of the thing it points at.
 | Risk | 10 | 8 |
 | Execution | 11 | 0 |
 | Portfolio | 1 | 1 |
-| Signal and features | 3 | 0 |
+| Signal and features | 3 | 2 |
 | Models and leakage | 7 | 0 |
-| Data, money and time | 6 | 0 |
+| Data, money and time | 6 | 5 |
 | API and WebSocket | 9 | 0 |
 | Cryptography and secrets | 10 | 0 |
 | Supply chain and artifacts | 7 | 0 |
@@ -76,7 +76,7 @@ deletion of the thing it points at.
 |---|---|---|
 | PR-001 | Quality/Security Foundation | — |
 | PR-002 | Risk Invariants + Boundary Tests | — |
-| PR-003 | Signal/Feature Verification | `DATA-001`, `DATA-002`, `DATA-003`, `DATA-004`, `INV-008`, `SIG-001`, `SIG-002` |
+| PR-003 | Signal/Feature Verification | — |
 | PR-004 | Model/Leakage Verification | `MODL-001`, `MODL-002`, `MODL-003`, `MODL-004`, `MODL-005`, `MODL-006`, `MODL-007` |
 | PR-005 | Execution/FSM/Exchange Contracts | `DATA-005`, `EXEC-001`, `EXEC-002`, `EXEC-003`, `EXEC-004`, `EXEC-006`, `INV-003`, `INV-005`, `INV-007` |
 | PR-006 | Regression + Property Testing | `EXEC-007`, `GOV-003`, `GOV-004`, `GOV-006`, `GOV-007`, `RES-008`, `RISK-006`, `SIG-003` |
@@ -356,23 +356,27 @@ Aggregate exposure, cross-strategy correlation and portfolio agreement are evalu
 
 #### `SIG-001` — Golden signal fixtures pin end-to-end behaviour
 
-**PLANNED → PR-003** · high · requirement · source: QE-43
+**VERIFIED** · high · requirement · source: QE-43
 
 Named fixtures carry market input, features, regime, model output, signal, risk decision and expected final action, and CI fails on any unexplained change.
 
 - **If violated:** A refactor changes what the bot trades and nobody notices until the PnL does.
-- **Owned by:** `src/engine/signal_engine.py`
-- **Verification:** none yet
+- **Owned by:** `src/engine/signal_engine.py`, `scripts/generate_signal_fixtures.py`
+- **Verification:**
+  - `tests/signals/test_golden_signals.py` (signal) — Six cases covering clean long, clean short, flat signal, regime halt, corrupt data and stale data. Also asserts the fixture set has not become trivial, which a round-trip check alone cannot see.
+
+> The model's p_long is supplied by the case rather than computed: a retrained tree on a different library build produces different probabilities, so pinning it would fail for reasons unrelated to this project. Everything downstream of it is real production code.
 
 #### `SIG-002` — Feature computation is deterministic and reproducible
 
-**PARTIAL → PR-003** · high · requirement · source: QE-86
+**VERIFIED** · high · requirement · source: QE-86
 
 The same input bars produce bit-identical features across runs and processes.
 
 - **If violated:** A backtest cannot be reproduced, so a result cannot be trusted.
 - **Owned by:** `src/features/pipeline.py`
 - **Verification:**
+  - `tests/features/test_feature_determinism.py` (property) — Same process, different process (two subprocesses with deliberately different PYTHONHASHSEED), and prefix stability when later bars arrive.
   - `tests/test_features.py` (unit)
 
 #### `SIG-003` — Mutation score on the signal subsystem is at or above 85%
@@ -466,59 +470,70 @@ Model validation uses combinatorial purged cross-validation with an embargo, so 
 
 #### `INV-008` — A stale market-data sample cannot be treated as current
 
-**PARTIAL → PR-003** · critical · invariant · source: QE-42,QE-80
+**VERIFIED** · critical · invariant · source: QE-42,QE-80
 
 A sample older than the declared freshness budget is not used for a trading decision unless an explicit, named policy permits it.
 
 - **If violated:** The bot trades a price that no longer exists.
-- **Owned by:** `src/data/quality_gate.py`
+- **Owned by:** `src/data/quality_gate.py`, `src/engine/signal_engine.py`
 - **Depends on:** `DATA-002`
 - **Verification:**
-  - `tests/engines/test_supply_and_quality.py` (component) — Exercises the quality gate; the staleness property suite is PR-003.
+  - `tests/component/test_data_quality_gate.py` (component) — Staleness measured against a declared budget, with the budget named in the rejection.
+  - `tests/signals/test_golden_signals.py` (signal) — Golden case ETHUSDT_15m_case_003: a well-formed frame that stopped updating an hour ago is refused, and no risk decision is reached.
+  - `tests/engines/test_supply_and_quality.py` (component) — Exercises the quality gate.
 
 #### `DATA-001` — Market data failing the quality gate never reaches the signal engine
 
-**PARTIAL → PR-003** · critical · requirement · source: QE-80
+**VERIFIED** · critical · requirement · source: QE-80
 
 Schema, timestamp validity, monotonicity, freshness, OHLC consistency, non-negative volume, and absence of NaN/Infinity are all checked before use; failure means NO TRADE.
 
 - **If violated:** A corrupt bar becomes a signal, and the signal becomes an order.
-- **Owned by:** `src/data/quality_gate.py`
+- **Owned by:** `src/data/quality_gate.py`, `src/engine/signal_engine.py`
 - **Verification:**
+  - `tests/component/test_data_quality_gate.py` (component) — Every line of the source document's checklist, asserted on the rejection reason as well as on pass/fail.
+  - `tests/signals/test_golden_signals.py` (signal) — Golden case ETHUSDT_15m_case_002: one impossible bar refuses the frame before the feature pipeline is reached.
   - `tests/engines/test_supply_and_quality.py` (component)
   - `tests/test_feature_bar_gaps.py` (unit)
 
+> The gate existed and was tested from the day it was written, but no module in src/ ever called it -- so the statement above was false of the running system until PR-003 wired it into SignalEngine.tick.
+
 #### `DATA-002` — Data freshness budgets are declared and enforced
 
-**PLANNED → PR-003** · critical · requirement · source: QE-80,QE-42
+**VERIFIED** · critical · requirement · source: QE-80,QE-42
 
 Every market-data consumer declares a maximum age, and a sample past it is refused rather than used.
 
 - **If violated:** A frozen feed looks like a calm market.
 - **Owned by:** `src/data/quality_gate.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/component/test_data_quality_gate.py` (component) — FreshnessBudget.for_timeframe derives the budget from the bar interval; the rejection names the budget that refused it.
 
 #### `DATA-003` — A single clock policy: internal timestamps are UTC and exchange skew is bounded
 
-**PLANNED → PR-003** · high · requirement · source: QE-79
+**VERIFIED** · high · requirement · source: QE-79
 
 All internal timestamps are timezone-aware UTC; exchange-versus-local skew beyond the declared bound is detected and reported.
 
 - **If violated:** A DST shift or a naive datetime silently moves a bar an hour.
-- **Owned by:** `src/data/feeds.py`
-- **Verification:** none yet
+- **Owned by:** `src/data/clock.py`
+- **Verification:**
+  - `tests/component/test_clock_policy.py` (component) — Naive datetimes refused rather than assumed, other zones converted rather than relabelled, the DST gap and repeated hour shown to be absent in UTC, and venue skew measured against a declared budget.
 
 #### `DATA-004` — Money arithmetic uses a declared exact representation
 
-**PARTIAL → PR-003** · high · requirement · source: QE-78
+**VERIFIED** · high · requirement · source: QE-78
 
 Where money is added, compared or rounded, the representation is documented and exact; float is used only where the doc says it may be.
 
 - **If violated:** Rounding drift accumulates until the ledger and the exchange disagree.
-- **Owned by:** `src/execution/unified_ledger.py`
+- **Owned by:** `src/execution/unified_ledger.py`, `src/risk/kelly.py`, `docs/quality`
 - **Verification:**
+  - `tests/component/test_money_representation.py` (component) — The declared policy is float64 with Decimal at the exchange-precision boundary; quantisation never rounds up, accumulated drift over a day of fills stays inside 1e-9 relative, and the percent-versus-fraction units are pinned.
   - `tests/test_percent_vs_fraction_units.py` (unit)
   - `tests/test_unified_ledger.py` (unit)
+
+> The representation is float64, not Decimal, and docs/quality/MONEY_AND_TIME.md argues for that rather than claiming otherwise. It also records the conditions under which the decision should be re-argued.
 
 #### `DATA-005` — Tick size, lot size and minimum quantity are respected
 

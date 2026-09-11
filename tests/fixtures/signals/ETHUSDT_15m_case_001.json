@@ -1,0 +1,64 @@
+{
+  "case_id": "ETHUSDT_15m_case_001",
+  "data_quality": {
+    "checks_run": [
+      "schema",
+      "finite",
+      "timestamp_valid",
+      "monotonic",
+      "duplicates",
+      "ohlc_consistent",
+      "volume_non_negative",
+      "fresh",
+      "gaps",
+      "extreme_return",
+      "zero_volume_run"
+    ],
+    "passed": true,
+    "reason": ""
+  },
+  "description": "A downtrend with a short signal and a loss-making day, close to but inside the daily drawdown limit. Pins that a bad day does not halt until the limit is actually reached.",
+  "expected_action": "enter_short",
+  "features": {
+    "atr_momentum": 0.761878,
+    "frac_diff": 3068.839586,
+    "garch_vol_forecast": 0.005273,
+    "ofi": 0.098804,
+    "realized_vol_ratio": 0.315999,
+    "rolling_sharpe": -1.012512,
+    "volume_zscore": -0.220216,
+    "vwap_dev_zscore": -0.898765
+  },
+  "market": {
+    "bar_count": 320,
+    "first_close": 49783.4492,
+    "first_ts_ms": 1799712000000,
+    "last_close": 40761.0241,
+    "last_ts_ms": 1799999100000,
+    "now_ms": 1800000000000,
+    "symbol": "ETH/USDT",
+    "timeframe_s": 900
+  },
+  "model": {
+    "p_long": 0.29
+  },
+  "regime": {
+    "state": 1
+  },
+  "risk": {
+    "passed": true,
+    "reason": "all gates passed",
+    "size_scalar": 1.0,
+    "status": "pass"
+  },
+  "signal": {
+    "direction": -1,
+    "expected_edge_bps": 38.0
+  },
+  "tags": [
+    "clean",
+    "trending",
+    "short",
+    "near-drawdown-limit"
+  ]
+}
