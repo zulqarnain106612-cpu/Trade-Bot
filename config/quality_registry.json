@@ -415,10 +415,16 @@
       "statement": "Nightly mutation testing of the risk modules kills at least 90% of generated mutants.",
       "criticality": "high",
       "subsystem": "risk",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-49",
-      "owning_modules": ["src/risk/gates.py"],
-      "planned_in": "PR-006",
+      "owning_modules": ["config/mutation_thresholds.json", "scripts/check_mutation_score.py"],
+      "verification": [
+        {
+          "test": "tests/regression/test_regression_registry_contract.py",
+          "test_type": "mutation",
+          "note": "The 90% risk and sizing floors are declared, every target exists on disk, a run with no mutants is not a pass, and a timeout counts against the score."
+        }
+      ],
       "failure_mode": "High line coverage hides a suite that would not notice if a comparison flipped."
     },
 
@@ -547,10 +553,16 @@
       "statement": "Nightly mutation testing of the execution modules kills at least 90% of generated mutants.",
       "criticality": "high",
       "subsystem": "execution",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-49",
-      "owning_modules": ["src/execution/order_fsm.py"],
-      "planned_in": "PR-006",
+      "owning_modules": ["config/mutation_thresholds.json", ".github/workflows"],
+      "verification": [
+        {
+          "test": "tests/regression/test_regression_registry_contract.py",
+          "test_type": "mutation",
+          "note": "The execution subsystem's 90% floor, mutating order_fsm, idempotency and exchange_contract nightly."
+        }
+      ],
       "failure_mode": "The FSM tests assert shape without asserting behaviour."
     },
 
@@ -730,10 +742,16 @@
       "statement": "Nightly mutation testing of the signal modules kills at least 85% of generated mutants.",
       "criticality": "medium",
       "subsystem": "signal",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-49",
-      "owning_modules": ["src/engine/signal_engine.py"],
-      "planned_in": "PR-006",
+      "owning_modules": ["config/mutation_thresholds.json", ".github/workflows"],
+      "verification": [
+        {
+          "test": "tests/regression/test_regression_registry_contract.py",
+          "test_type": "mutation",
+          "note": "The signal subsystem's 85% floor."
+        }
+      ],
       "failure_mode": "Signal tests assert that something was produced, not that it was right."
     },
 
@@ -1359,10 +1377,16 @@
       "statement": "Fuzzed API payloads, market data, exchange responses, WebSocket messages, configuration, model inputs and serialised state are rejected with no state corruption, no unauthorized action, no secret leakage, and an audit record.",
       "criticality": "high",
       "subsystem": "resilience",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-51",
-      "owning_modules": ["src/data/quality_gate.py", "src/api/main.py"],
-      "planned_in": "PR-006",
+      "owning_modules": ["src/data/quality_gate.py", "src/execution/exchange_contract.py"],
+      "verification": [
+        {
+          "test": "tests/fuzz/test_malformed_input_is_safe.py",
+          "test_type": "fuzz",
+          "note": "Each arrow of the source document's chain is a separate assertion: rejected safely, no corrupted state, no secret leakage, audit event -- not merely 'it did not crash'."
+        }
+      ],
       "failure_mode": "A malformed message leaves the system in a state no test ever described."
     },
 
@@ -1526,10 +1550,21 @@
       "statement": "Risk, execution, signals, position sizing and the order FSM are mutation-tested on a schedule, with per-subsystem thresholds.",
       "criticality": "medium",
       "subsystem": "governance",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-49",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-006",
+      "owning_modules": [".github/workflows", "scripts/check_mutation_score.py"],
+      "verification": [
+        {
+          "test": "tests/regression/test_regression_registry_contract.py",
+          "test_type": "mutation",
+          "note": "nightly-quality.yml runs one matrix job per subsystem on a schedule; a pull-request gate that slow is one that gets switched off."
+        },
+        {
+          "test": "tests/test_assert_jobs_green.py",
+          "test_type": "verification",
+          "note": "The nightly workflow's own gate covers every job in it."
+        }
+      ],
       "failure_mode": "Coverage is reported as quality evidence when it is not."
     },
     {
@@ -1539,13 +1574,16 @@
       "statement": "A bare except, a broad exception handler, a `pass` in a critical path and a default-allow security decision are all detected by static analysis and individually reviewed.",
       "criticality": "critical",
       "subsystem": "governance",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-76",
       "owning_modules": ["scripts/check_static_invariants.py"],
       "verification": [
-        { "test": "tests/test_static_invariants.py", "test_type": "verification" }
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "verification",
+          "note": "check_no_silent_broad_except catches the `pass` shape; check_no_default_allow_on_failure catches the worse one -- a broad except in a risk, API, security or execution module that returns a permitting value."
+        }
       ],
-      "planned_in": "PR-006",
       "failure_mode": "A swallowed exception in the risk gate becomes a financial vulnerability."
     },
     {
@@ -1571,10 +1609,16 @@
       "statement": "Each serious defect records what happened, why detection failed, why the existing control failed, why the design permitted it, and the new control that prevents recurrence.",
       "criticality": "medium",
       "subsystem": "governance",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-57,QE-58",
       "owning_modules": ["docs/quality"],
-      "planned_in": "PR-006",
+      "verification": [
+        {
+          "test": "tests/regression/test_regression_registry_contract.py",
+          "test_type": "verification",
+          "note": "The template asks all five questions, refuses to stop at a person, requires the layer that should have caught it, and requires the regression test to fail against the pre-fix code."
+        }
+      ],
       "failure_mode": "\"Developer made a mistake\" is accepted as a root cause and nothing changes."
     },
     {
@@ -1584,10 +1628,16 @@
       "statement": "Pass rate, branch coverage, mutation score, regression count, escaped defects, vulnerabilities, secret incidents, MTTD, MTTR, deployment failure rate, rollback rate, recovery-test success, model drift, signal drift, data freshness and reconciliation failures are tracked.",
       "criticality": "medium",
       "subsystem": "governance",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-59",
-      "owning_modules": ["docs/quality"],
-      "planned_in": "PR-006",
+      "owning_modules": ["scripts/collect_quality_metrics.py", "docs/quality"],
+      "verification": [
+        {
+          "test": "tests/regression/test_regression_registry_contract.py",
+          "test_type": "verification",
+          "note": "A metric it cannot measure is reported as unavailable with a reason rather than omitted, and zero escaped defects is stated explicitly -- 'we have not measured this' and 'this is zero' are different statements."
+        }
+      ],
       "failure_mode": "Nobody can say which verification layer keeps letting defects through."
     },
     {

@@ -776,6 +776,82 @@ def check_no_silent_broad_except() -> list[str]:
     return problems
 
 
+#: Packages where an exception must never resolve to "allowed". A swallowed
+#: failure in a trading system is a financial-security vulnerability; a
+#: swallowed failure that then *returns permission* is the specific shape of
+#: it that costs money.
+_DEFAULT_ALLOW_PACKAGES: tuple[str, ...] = ("risk", "api", "security", "execution")
+
+#: Values that mean "permitted" when returned from a handler in one of those
+#: packages. `None` is absent on purpose: a bare return is already caught by
+#: check_no_silent_broad_except, and conflating the two would make one
+#: finding report as the other.
+_ALLOW_CONSTANTS: tuple[object, ...] = (True,)
+
+
+def check_no_default_allow_on_failure() -> list[str]:
+    """
+    GOV-004. An exception handler in a risk, API, security or execution module
+    that resolves to "allowed".
+
+    The source document's example:
+
+        try:
+            risk_check()
+        except:
+            pass
+
+        except Exception:
+            return True
+
+    The first shape is `check_no_silent_broad_except`'s. This is the second,
+    and it is worse: `pass` leaves the caller to decide what an absent answer
+    means, while `return True` decides for them -- in the direction that
+    submits the order.
+
+    What counts as "allowed" here is deliberately narrow: a literal `True`, or
+    a call to a constructor whose name says it passed (`pass_gate`, `allow`,
+    `permit`). Guessing more widely would produce findings a reviewer cannot
+    act on, and this check's value is that every finding is real.
+
+    Not flagged: a handler that logs and re-raises, one that returns a
+    refusal, or one that narrows the exception type to say what it expected.
+    A narrow `except` is control flow and the type documents the intent.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        if not any(part in _DEFAULT_ALLOW_PACKAGES for part in path.parts):
+            continue
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            caught = node.type
+            is_broad = caught is None or (
+                isinstance(caught, ast.Name) and caught.id in ("Exception", "BaseException")
+            )
+            if not is_broad:
+                continue
+            for stmt in ast.walk(node):
+                if not isinstance(stmt, ast.Return) or stmt.value is None:
+                    continue
+                returned = stmt.value
+                allows = isinstance(returned, ast.Constant) and any(
+                    returned.value is const for const in _ALLOW_CONSTANTS
+                )
+                if isinstance(returned, ast.Call):
+                    name = returned.func
+                    attr = getattr(name, "attr", None) or getattr(name, "id", "")
+                    allows = allows or attr in ("pass_gate", "allow", "permit")
+                if allows:
+                    problems.append(
+                        f"{_rel(path)}:{stmt.lineno} broad except returns a permitting "
+                        "value -- a failed check must not read as an approval. Return "
+                        "the refusal, or narrow the exception type to say what was "
+                        "expected."
+                    )
+    return problems
+
+
 def check_datetimes_are_timezone_aware() -> list[str]:
     """
     Naive datetimes, on a codebase whose domain prior is "UTC timestamps".
@@ -1324,6 +1400,7 @@ CHECKS = (
     ("docstrings citing missing modules", check_docstrings_do_not_cite_missing_modules),
     ("unauthenticated routes", check_every_route_is_authenticated),
     ("silent broad except", check_no_silent_broad_except),
+    ("default-allow on failure", check_no_default_allow_on_failure),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),
     ("positional column slices", check_positional_column_slices),

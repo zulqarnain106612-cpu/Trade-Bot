@@ -58,7 +58,7 @@ Against the levels in `docs/quality/QUALITY_POLICY.md` §10.
 | Supply chain | 2 | No SBOM, no attestation, no pin/permission assertions, no fork-secret test |
 | Resilience | 1 → 2 | No crash-replay, no restore drill, no declared RTO/RPO, no performance baselines |
 | Release | 1 | No protected environment, no canary, no startup self-test, no behavioural halt |
-| Governance | 3 | Traceability now machine-checked; metrics and mutation still missing |
+| Governance | 4 *(PR-006)* | Traceability machine-checked, mutation floors declared and run nightly, metrics collected, the no-default-allow rule enforced, and the RCA template pinned. |
 
 **Target: Level 5 on the trading-critical path** — risk, execution, signal,
 model, data and the security controls around credentials.
