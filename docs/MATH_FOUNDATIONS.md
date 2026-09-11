@@ -455,7 +455,7 @@ The random-walk argument that gives the probability an attacker with hash-rate f
 - **References:** Nakamoto 2008 section 11, Rosenfeld 2014
 
 #### Chernoff and Hoeffding bounds
-`chernoff-committee-bounds` — **LOAD-BEARING** · relevance: analytics · status: planned
+`chernoff-committee-bounds` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Bound the chance that a randomly sampled committee is adversarially controlled, which is what makes sampled-committee consensus safe at all.
 
@@ -464,7 +464,7 @@ Bound the chance that a randomly sampled committee is adversarially controlled, 
 - **References:** Chen-Micali 2019
 
 #### Markov models of mining strategy
-`markov-selfish-mining` — **LOAD-BEARING** · relevance: strategy · status: planned
+`markov-selfish-mining` — **LOAD-BEARING** · relevance: strategy · status: implemented
 
 Determines the hash-rate share above which withholding blocks becomes more profitable than honest mining, and therefore where a chain's incentive assumption stops holding.
 
