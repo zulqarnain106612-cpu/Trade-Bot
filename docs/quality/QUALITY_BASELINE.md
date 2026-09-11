@@ -48,7 +48,7 @@ Against the levels in `docs/quality/QUALITY_POLICY.md` §10.
 | Subsystem | Level today | What is missing for the next level |
 |---|---|---|
 | Risk | 3 *(PR-002)* | Mutation score (`RISK-006`, PR-006). Boundaries, sizing properties and gate failure-injection are now covered. |
-| Execution | 2 → 3 | Exchange-response contract tests, total-FSM proof, concurrency and duplicate-response races |
+| Execution | 3 *(PR-005)* | Concurrency and duplicate-response races under real interleaving (`RES-005`, PR-010), and mutation score (`EXEC-007`, PR-006). The exchange contract, the total FSM and idempotency are covered. |
 | Portfolio | 3 *(PR-002)* | Both scalars are now asserted on the notional that reaches the sizer rather than on the number the tracker reports. |
 | Signal | 3 *(PR-003)* | Mutation score (`SIG-003`, PR-006). Golden fixtures and cross-process determinism are now covered. |
 | Model | 3 *(PR-004)* | Lookahead gate, purged-CV assertions, artifact provenance and round-trip, drift demotion and the research firewall are all covered. |
