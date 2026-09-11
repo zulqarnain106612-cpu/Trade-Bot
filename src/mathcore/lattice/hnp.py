@@ -11,7 +11,8 @@ in two unknowns per signature and reveals nothing. But if the top bits of each
 ``k`` are known -- because the RNG was biased, stuck, or truncated -- then each
 signature pins ``d`` to a narrow interval, and enough such intervals intersect
 at a single point. Recovering that point is a *closest vector* problem, which
-:mod:`mathcore.lattice.lll` solves for the small dimensions here.
+:mod:`mathcore.lattice.lll` solves -- via its integer-preserving reduction, so
+real 256-bit key recovery is feasible, not just a toy demonstration.
 
 This module is the attack, implemented so the defender can run it against their
 own signatures before someone else does. It recovers a key **only** from
@@ -39,7 +40,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .lll import lll_reduce
+from .lll import integer_lll_reduce
 
 __all__ = [
     "Signature",
@@ -145,7 +146,7 @@ def recover_private_key(
     basis.append(penultimate)
     basis.append(last)
 
-    reduced = lll_reduce(basis)
+    reduced = integer_lll_reduce(basis)
 
     for row in reduced:
         # The candidate for d sits in the penultimate coordinate, recovered by
@@ -197,10 +198,11 @@ def recovery_limits() -> str:
         "sees nothing in a correctly randomised or RFC 6979 signer, and a None "
         "result is therefore the absence of this one detectable flaw, not proof "
         "that a signer is sound. It is also bounded by its engine: this "
-        "reference reduces the lattice with exact-rational LLL, which is "
-        "correct but scales only to a lattice of a few dozen dimensions. "
-        "Recovering a 256-bit key from a one- or two-bit leak needs tens to "
-        "hundreds of signatures and therefore floating-point BKZ, which this "
-        "module deliberately does not use -- an exact answer on a small lattice "
-        "over a fast, approximate one whose failures are silent."
+        "reference reduces the lattice with integer-preserving LLL, which is "
+        "exact and recovers a real 256-bit key when the leak is large enough to "
+        "need only a few dozen signatures. A one- or two-bit leak at 256 bits "
+        "needs hundreds of signatures, so the lattice grows past what any exact "
+        "LLL reduces quickly and the attack turns to floating-point BKZ, which "
+        "this module deliberately does not use -- an exact answer where one is "
+        "affordable over a fast approximate one whose failures are silent."
     )

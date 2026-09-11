@@ -36,6 +36,7 @@ from fractions import Fraction
 __all__ = [
     "DEFAULT_DELTA",
     "gram_schmidt",
+    "integer_lll_reduce",
     "is_lll_reduced",
     "lll_reduce",
     "lll_reduce_with_transform",
@@ -222,3 +223,136 @@ def _validate_shape(rows: list[list[int]]) -> None:
             f"{len(rows)} vectors of length {width} cannot be independent; "
             "LLL reduces a basis, not a spanning set"
         )
+
+
+# ---------------------------------------------------------------------------
+# Integer-preserving LLL (Cohen, Algorithm 2.6.3).
+#
+# The Fraction-based reduction above is the readable reference, but its
+# Gram-Schmidt coefficients grow in bit-size and it slows to a crawl past a few
+# dozen dimensions. The integer version below computes the same reduction with
+# no fractions at all: it carries the integer Gram determinants ``d[i]`` and the
+# scaled coefficients ``lambda[i][j] = d[j+1] * mu[i][j]``, so every quantity
+# stays a bounded-size integer and the whole thing is polynomial in practice,
+# not just in theory. It is what makes a real attack-sized lattice --
+# ``mathcore.lattice.hnp`` at 256 bits -- feasible.
+#
+# Same contract as ``lll_reduce``: same lattice, output satisfies
+# ``is_lll_reduced`` for the same delta. The two are cross-checked against each
+# other in the tests, which is the point of keeping both.
+# ---------------------------------------------------------------------------
+
+
+def integer_lll_reduce(
+    basis: Sequence[Sequence[int]], delta: Fraction = DEFAULT_DELTA
+) -> list[list[int]]:
+    """
+    Return an LLL-reduced basis of the same lattice, via integer arithmetic.
+
+    Behaviourally interchangeable with :func:`lll_reduce` -- same lattice, and
+    the output satisfies :func:`is_lll_reduced` for the same ``delta`` -- but it
+    carries integer Gram determinants and scaled coefficients instead of
+    Fractions, so it does not slow down as the coefficients would otherwise
+    grow. Use it when the dimension is more than a handful; use
+    :func:`lll_reduce` when readability of a small example matters more than
+    speed.
+
+    ``delta`` is still a :class:`~fractions.Fraction`; only the *lattice*
+    arithmetic is integer. Not constant time.
+    """
+    _validate_delta(delta)
+    b = [list(map(int, row)) for row in basis]
+    _validate_shape(b)
+    gram_schmidt(b)  # fail fast on a dependent basis, matching lll_reduce
+
+    n = len(b)
+    delta_num, delta_den = delta.numerator, delta.denominator
+
+    # d[i] is the i-th Gram determinant: d[0] = 1, d[i] = prod_{j<i} ||b*_j||^2.
+    d = [1] * (n + 1)
+    d[1] = _dot_int(b[0], b[0])
+    # lam[i][j] = d[j+1] * mu[i][j], an integer.
+    lam = [[0] * n for _ in range(n)]
+    kmax = 0
+
+    def _incremental_gs(k: int) -> None:
+        nonlocal kmax
+        if k <= kmax:
+            return
+        kmax = k
+        for j in range(k + 1):
+            u = _dot_int(b[k], b[j])
+            for i in range(j):
+                u = (d[i + 1] * u - lam[k][i] * lam[j][i]) // d[i]
+            if j < k:
+                lam[k][j] = u
+            else:
+                d[k + 1] = u
+
+    def _reduce(k: int, ell: int) -> None:
+        if 2 * abs(lam[k][ell]) <= d[ell + 1]:
+            return
+        q = _round_ratio(lam[k][ell], d[ell + 1])
+        b[k] = [x - q * y for x, y in zip(b[k], b[ell], strict=True)]
+        lam[k][ell] -= q * d[ell + 1]
+        for i in range(ell):
+            lam[k][i] -= q * lam[ell][i]
+
+    k = 1
+    while k < n:
+        _incremental_gs(k)
+        _reduce(k, k - 1)
+        # Lovasz, cleared of denominators. The condition
+        #   ||b*_k||^2 >= (delta - mu[k][k-1]^2) ||b*_{k-1}||^2
+        # becomes, with ||b*_i||^2 = d[i+1]/d[i] and lam = d[k]*mu and
+        # delta = delta_num/delta_den, a comparison of integers:
+        if delta_den * d[k + 1] * d[k - 1] >= (
+            delta_num * d[k] * d[k] - delta_den * lam[k][k - 1] ** 2
+        ):
+            for ell in range(k - 2, -1, -1):
+                _reduce(k, ell)
+            k += 1
+        else:
+            _swap(b, lam, d, k, kmax)
+            k = max(k - 1, 1)
+
+    return b
+
+
+def _dot_int(u: Sequence[int], v: Sequence[int]) -> int:
+    return sum(a * b for a, b in zip(u, v, strict=True))
+
+
+def _round_ratio(numerator: int, denominator: int) -> int:
+    """
+    Nearest integer to ``numerator / denominator``, halves away from zero.
+
+    ``denominator`` is always a positive Gram determinant ``d[ell+1]`` at the
+    one call site, so there is no sign branch -- adding one would be an
+    unreachable case dressed as safety.
+    """
+    floor = numerator // denominator
+    remainder = numerator - floor * denominator
+    twice = 2 * remainder
+    if twice > denominator or (twice == denominator and numerator > 0):
+        return floor + 1
+    return floor
+
+
+def _swap(
+    b: list[list[int]],
+    lam: list[list[int]],
+    d: list[int],
+    k: int,
+    kmax: int,
+) -> None:
+    """Cohen 2.6.3 SWAP(k): exchange b[k], b[k-1] and repair lam and d."""
+    b[k], b[k - 1] = b[k - 1], b[k]
+    for j in range(k - 1):
+        lam[k][j], lam[k - 1][j] = lam[k - 1][j], lam[k][j]
+    lam_val = lam[k][k - 1]
+    for i in range(k + 1, kmax + 1):
+        t = lam[i][k]
+        lam[i][k] = (d[k + 1] * lam[i][k - 1] - lam_val * t) // d[k]
+        lam[i][k - 1] = (lam_val * lam[i][k - 1] + t * d[k - 1]) // d[k]
+    d[k] = (d[k - 1] * d[k + 1] + lam_val * lam_val) // d[k]

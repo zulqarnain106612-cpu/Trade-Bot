@@ -10,6 +10,7 @@ from .hnp import Signature, recover_private_key, recovery_limits
 from .lll import (
     DEFAULT_DELTA,
     gram_schmidt,
+    integer_lll_reduce,
     is_lll_reduced,
     lll_reduce,
     lll_reduce_with_transform,
@@ -19,6 +20,7 @@ __all__ = [
     "DEFAULT_DELTA",
     "Signature",
     "gram_schmidt",
+    "integer_lll_reduce",
     "is_lll_reduced",
     "lll_reduce",
     "lll_reduce_with_transform",
