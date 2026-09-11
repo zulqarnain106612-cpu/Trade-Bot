@@ -363,7 +363,7 @@
         "legacy exchange API signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/factorization.py",
@@ -444,7 +444,7 @@
         "every RSA keygen in practice"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/primality.py",
@@ -488,7 +488,7 @@
         "residue number system arithmetic"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/crt.py",
@@ -515,7 +515,7 @@
         "Goldwasser-Micali"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -538,7 +538,7 @@
         "BLS hash-to-curve"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/residues.py",
@@ -593,7 +593,7 @@
         "security-level analysis of every deployed curve"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
@@ -617,7 +617,7 @@
         "finite-field DH key-size selection"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
@@ -644,7 +644,7 @@
         "low-discrepancy sequence theory"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/continued_fractions.py",
@@ -688,7 +688,7 @@
         "Lucas-Lehmer testing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/primality.py",
