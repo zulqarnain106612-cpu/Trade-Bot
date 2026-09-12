@@ -1230,10 +1230,13 @@
       "statement": "Each workflow sets `permissions:` explicitly at the top level, starting from `contents: read`, and no workflow uses write-all.",
       "criticality": "critical",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-28",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", "scripts/check_supply_chain.py"],
+      "verification": [
+        { "test": "tests/supply_chain/test_supply_chain_posture.py", "test_type": "security",
+          "note": "Every workflow declares explicit permissions, blanket grants are refused, and an unexplained top-level write scope fails -- checked against this repository and against synthetic violations." }
+      ],
       "failure_mode": "A compromised action inherits write access to the repository."
     },
     {
@@ -1243,10 +1246,13 @@
       "statement": "No workflow references an action by tag or branch; every `uses:` names a 40-character SHA.",
       "criticality": "critical",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-28",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", "scripts/check_supply_chain.py"],
+      "verification": [
+        { "test": "tests/supply_chain/test_supply_chain_posture.py", "test_type": "security",
+          "note": "Every `uses:` names a 40-hex SHA with a version comment; tags, branches, short SHAs and uncommented pins are all detected." }
+      ],
       "failure_mode": "A retagged action runs attacker code inside CI with the repository's secrets."
     },
     {
@@ -1256,10 +1262,13 @@
       "statement": "No workflow triggered by a fork pull request has access to a production secret, and this is asserted rather than assumed.",
       "criticality": "critical",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-29,QE-30",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", "scripts/check_supply_chain.py"],
+      "verification": [
+        { "test": "tests/supply_chain/test_supply_chain_posture.py", "test_type": "security",
+          "note": "pull_request_target is refused outright, and any stored secret reachable from a pull request must carry a fork guard; GITHUB_TOKEN is excluded because permissions bound it." }
+      ],
       "failure_mode": "A malicious PR prints the exchange key by editing a test."
     },
     {
@@ -1269,10 +1278,13 @@
       "statement": "Every deployable artifact is accompanied by its provenance, and production verifies the artifact is exactly the one CI produced.",
       "criticality": "high",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-37",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", "scripts/write_provenance.py", ".github/workflows/release.yml"],
+      "verification": [
+        { "test": "tests/supply_chain/test_artifact_provenance.py", "test_type": "security",
+          "note": "The record is verified from the uploaded artifact, and every corruption is caught: modified bytes, missing file, undescribed extra, wrong commit, emptied field, wrong schema version." }
+      ],
       "failure_mode": "Nobody can prove what is running in production."
     },
     {
@@ -1282,10 +1294,13 @@
       "statement": "Daily alerts, weekly dependency review, monthly full audit and an immediate path for a critical CVE are all configured and exercised.",
       "criticality": "high",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-27,QE-72",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", ".github/dependabot.yml"],
+      "verification": [
+        { "test": "tests/supply_chain/test_supply_chain_posture.py", "test_type": "security",
+          "note": "Dependabot covers pip, npm, github-actions and docker on a schedule, and the check fails when an ecosystem this repository has is missing." }
+      ],
       "failure_mode": "A known-exploited dependency sits in production for weeks."
     },
     {
@@ -1295,10 +1310,13 @@
       "statement": "Images use a non-root user, a minimal base, a read-only filesystem where possible, dropped capabilities, no privileged mode, no host networking unless required, and resource limits -- and CI tests those properties.",
       "criticality": "high",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-36",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", "Dockerfile"],
+      "verification": [
+        { "test": "tests/supply_chain/test_container_posture.py", "test_type": "security",
+          "note": "Non-root numeric user, root-owned code, multi-stage so no toolchain ships, digest-pinned slim base; CI builds the image, proves /app is unwritable under --read-only --cap-drop=ALL, and Trivy fails the job on HIGH/CRITICAL." }
+      ],
       "failure_mode": "A container escape becomes host root."
     },
     {
@@ -1308,10 +1326,13 @@
       "statement": "Automated dependency PRs run the full quality gate and can never trigger the production workflow without the same approvals as any other change.",
       "criticality": "critical",
       "subsystem": "supply_chain",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-27",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-009",
+      "owning_modules": [".github/workflows", "scripts/check_supply_chain.py"],
+      "verification": [
+        { "test": "tests/supply_chain/test_supply_chain_posture.py", "test_type": "security",
+          "note": "The release workflow triggers only on a version tag and workflow_dispatch; push-on-branch, pull_request and schedule are all detected, including a tag trigger that also accepts branches." }
+      ],
       "failure_mode": "A compromised package auto-deploys itself."
     },
 
