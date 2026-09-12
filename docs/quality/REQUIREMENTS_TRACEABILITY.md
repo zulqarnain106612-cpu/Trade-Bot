@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 54 |
-| PARTIAL | 12 |
-| PLANNED | 25 |
+| VERIFIED | 64 |
+| PARTIAL | 7 |
+| PLANNED | 20 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 10 | 0 |
+| Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
@@ -81,7 +81,7 @@ deletion of the thing it points at.
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
 | PR-007 | API/WebSocket Security | — |
-| PR-008 | Cryptographic/Secret Architecture | `SECR-001`, `SECR-002`, `SECR-003`, `SECR-004`, `SECR-005`, `SECR-006`, `SECR-007`, `SECR-008`, `SECR-009`, `SECR-010` |
+| PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | `SUP-001`, `SUP-002`, `SUP-003`, `SUP-004`, `SUP-005`, `SUP-006`, `SUP-007` |
 | PR-010 | Recovery/Chaos/Performance | `INV-009`, `RES-001`, `RES-002`, `RES-003`, `RES-004`, `RES-005`, `RES-006`, `RES-007` |
 | PR-011 | Paper-Trading Qualification | `INV-010`, `REL-001`, `RISK-005` |
@@ -681,7 +681,7 @@ No error path returns a credential, token, stack trace or internal hostname to a
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-9,QE-17
+**VERIFIED** · critical · requirement · source: QE-9,QE-17
 
 Deliberately triggering errors that involve an API key, secret, JWT, database password, authorization header or exchange credential produces output containing none of them.
 
@@ -690,10 +690,11 @@ Deliberately triggering errors that involve an API key, secret, JWT, database pa
 - **Verification:**
   - `tests/test_logging_setup.py` (security)
   - `tests/test_command_schema_policy.py` (security)
+  - `tests/security/test_secret_leak_provocation.py` (security) — Provokes the leak rather than asserting its absence: keys, connection URIs, JWTs and private keys are pushed through the log processor and through rendered exceptions.
 
 #### `SECR-002` — Secret comparisons are constant-time
 
-**PARTIAL → PR-008** · high · requirement · source: QE-12
+**VERIFIED** · high · requirement · source: QE-12
 
 Every comparison of a token, signature, key or password uses a constant-time primitive, and a test detects a reversion to `==`.
 
@@ -701,20 +702,22 @@ Every comparison of a token, signature, key or password uses a constant-time pri
 - **Owned by:** `src/security/constant_time.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (security)
+  - `tests/security/test_signing_and_constant_time.py` (security) — The helpers delegate to hmac.compare_digest, and a source-tree scan asserts no secret-named value is compared with == anywhere in src/.
 
 #### `SECR-003` — Keys are environment-separated and rotatable, and rotation is tested
 
-**PLANNED → PR-008** · critical · requirement · source: QE-11
+**VERIFIED** · critical · requirement · source: QE-11
 
 Development, test, paper and production keys are distinct; rotation for normal, compromise, departure, server-compromise, exchange-incident and GitHub-compromise cases is documented and exercised.
 
 - **If violated:** A procedure nobody has run fails on the day it is needed.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/key_lifecycle.py`
+- **Verification:**
+  - `tests/security/test_key_lifecycle.py` (security) — One master seed still yields distinct material per environment and per exchange; rotation advances generations, and compromise and departure revoke the previous one immediately.
 
 #### `SECR-004` — The audit log is a verifiable hash chain
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-16
+**VERIFIED** · critical · requirement · source: QE-16
 
 Each event hashes its own content plus the previous event's hash; modifying, deleting or reordering any event fails verification.
 
@@ -723,10 +726,11 @@ Each event hashes its own content plus the previous event's hash; modifying, del
 - **Verification:**
   - `tests/test_audit_trail.py` (security)
   - `tests/test_audit_chain_integrity_endpoint.py` (api)
+  - `tests/security/test_audit_chain_tamper_evidence.py` (security) — Each tampering is performed and then detected: edited field, recomputed hash, deletion, reordering, splice. Tip truncation and the eviction window are stated as the limits they are.
 
 #### `SECR-005` — Signed requests reject tampering and replay
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-12
+**VERIFIED** · critical · requirement · source: QE-12
 
 A correct signature is accepted; a modified request, timestamp or parameter is rejected; a replayed request is rejected where the protocol allows it.
 
@@ -734,30 +738,33 @@ A correct signature is accepted; a modified request, timestamp or parameter is r
 - **Owned by:** `src/security/api_signer.py`
 - **Verification:**
   - `tests/engines/test_security.py` (security)
+  - `tests/security/test_signing_and_constant_time.py` (security) — Tampering with any signed field breaks verification; stale, post-dated and replayed requests are refused by ReplayWindow, and an unverifiable signature never reaches its cache.
 
 #### `SECR-006` — TLS is verified everywhere and never disabled to make a test pass
 
-**PLANNED → PR-008** · critical · requirement · source: QE-14,QE-15
+**VERIFIED** · critical · requirement · source: QE-14,QE-15
 
 HTTPS, secure WebSocket and TLS database connections are required; expired certificates, hostname mismatch, weak protocols, broken chains and plaintext endpoints are detected; no code path disables verification.
 
 - **If violated:** An on-path attacker rewrites market data or order responses.
-- **Owned by:** `src/intelligence/client.py`
-- **Verification:** none yet
+- **Owned by:** `src/intelligence/client.py`, `src/security/tls.py`
+- **Verification:**
+  - `tests/security/test_randomness_and_tls.py` (security) — Cleartext destinations are refused except loopback, and a scanner asserts no source file spells verify=False, ssl=False, CERT_NONE, tlsInsecure or their relatives.
 
 #### `SECR-007` — Cryptographic randomness comes from the OS CSPRNG
 
-**PLANNED → PR-008** · critical · requirement · source: QE-12
+**VERIFIED** · critical · requirement · source: QE-12
 
 Nonces, keys, tokens and identifiers that must be unpredictable come from `secrets`/`os.urandom`, never from `random`.
 
 - **If violated:** A predictable token is guessable.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/randomness.py`
+- **Verification:**
+  - `tests/security/test_randomness_and_tls.py` (security) — Every unpredictable value comes from secrets, a short request is refused rather than quietly served, and src/security never imports random.
 
 #### `SECR-008` — No custom cryptographic primitives
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-8
+**VERIFIED** · critical · requirement · source: QE-8
 
 The application calls established libraries; it does not implement its own cipher, hash construction, KDF or signature scheme for security purposes.
 
@@ -765,26 +772,29 @@ The application calls established libraries; it does not implement its own ciphe
 - **Owned by:** `src/security/pq_transport.py`
 - **Verification:**
   - `tests/test_security_pqc_posture.py` (security)
+  - `tests/security/test_no_custom_primitives.py` (security) — Each security module delegates to cryptography, hmac, hashlib or secrets; no hand-rolled cipher, key schedule or comparison loop, and mathcore is kept out of the security path.
 
 #### `SECR-009` — Sensitive data at rest is encrypted, and the key is managed separately
 
-**PLANNED → PR-008** · high · requirement · source: QE-13
+**VERIFIED** · high · requirement · source: QE-13
 
 Database backups, production databases, sensitive model artifacts, audit archives and configuration backups are encrypted, with keys held outside the encrypted store.
 
 - **If violated:** Ciphertext and key are stolen together and the encryption bought nothing.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/at_rest.py`
+- **Verification:**
+  - `tests/security/test_at_rest_encryption.py` (security) — AES-256-GCM round trip, and the restore path under every failure that has caused a real outage: wrong key, truncation, flipped byte, wrong version, mismatched associated data -- all one exception type.
 
 #### `SECR-010` — The exchange key the bot holds cannot withdraw
 
-**PLANNED → PR-008** · critical · requirement · source: QE-10,QE-67
+**VERIFIED** · critical · requirement · source: QE-10,QE-67
 
 The documented and verified key posture is trading-only, withdrawal-disabled, IP-restricted where supported, with separate paper and production keys on separate subaccounts.
 
 - **If violated:** A compromised host becomes a withdrawal, not just a bad trade.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/exchange_key_posture.py`
+- **Verification:**
+  - `tests/security/test_exchange_key_posture.py` (security) — A withdrawal-capable or undeclared posture is refused, the shipped declaration is checked, and LiveExecutor asserts it before building any state. The live-venue verification remains a documented human step.
 
 ## Supply chain and artifacts
 

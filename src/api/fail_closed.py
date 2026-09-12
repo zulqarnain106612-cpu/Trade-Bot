@@ -106,7 +106,12 @@ class ControlHealthRegistry:
 
     def degraded(self) -> frozenset[SecurityControl]:
         """Controls that are unhealthy *or* have never reported."""
-        return frozenset(c for c in REQUIRED_FOR_TRADING if not self.status(c).healthy)
+        # Read back from the status rather than reusing the loop variable: the
+        # status a caller holds must be self-describing, and a status object
+        # whose `control` nobody reads is one that could name the wrong
+        # control without anything noticing.
+        statuses = (self.status(c) for c in REQUIRED_FOR_TRADING)
+        return frozenset(s.control for s in statuses if not s.healthy)
 
     def assert_trading_allowed(self) -> None:
         down = self.degraded()
