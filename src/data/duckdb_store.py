@@ -23,7 +23,6 @@ from typing import Any
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _DB_PATH = Path(os.environ.get("DUCKDB_PATH", "data/crypto_intel.duckdb"))

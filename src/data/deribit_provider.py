@@ -15,7 +15,6 @@ import aiohttp
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BASE = "https://www.deribit.com/api/v2/public"

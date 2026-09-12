@@ -24,7 +24,6 @@ from typing import Any
 
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BROKERS = os.environ.get("REDPANDA_BROKERS", "localhost:9092")

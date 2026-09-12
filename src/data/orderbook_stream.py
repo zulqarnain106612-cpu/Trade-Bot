@@ -19,7 +19,6 @@ import structlog
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BINANCE_WS = "wss://stream.binance.com:9443/ws"

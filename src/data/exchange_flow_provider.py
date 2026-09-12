@@ -27,7 +27,6 @@ import aiohttp
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _CEXS_URL = "https://api.llama.fi/cexs"
