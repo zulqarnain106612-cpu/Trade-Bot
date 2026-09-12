@@ -53,3 +53,14 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # SUP-005/SUP-006 -- the base image is a dependency like any other, and the
+  # one nobody thinks to update: it is pinned by digest (see Dockerfile), so
+  # without this entry it would stay on whatever was current the day it was
+  # written, accumulating CVEs that the Trivy job would then block a release
+  # on. The bot moves the digest; the scan decides whether it was enough.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
