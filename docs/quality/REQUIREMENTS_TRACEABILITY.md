@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 20 |
-| PARTIAL | 28 |
-| PLANNED | 43 |
+| VERIFIED | 27 |
+| PARTIAL | 25 |
+| PLANNED | 39 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -61,7 +61,7 @@ deletion of the thing it points at.
 | Execution | 11 | 0 |
 | Portfolio | 1 | 1 |
 | Signal and features | 3 | 2 |
-| Models and leakage | 7 | 0 |
+| Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 5 |
 | API and WebSocket | 9 | 0 |
 | Cryptography and secrets | 10 | 0 |
@@ -77,7 +77,7 @@ deletion of the thing it points at.
 | PR-001 | Quality/Security Foundation | — |
 | PR-002 | Risk Invariants + Boundary Tests | — |
 | PR-003 | Signal/Feature Verification | — |
-| PR-004 | Model/Leakage Verification | `MODL-001`, `MODL-002`, `MODL-003`, `MODL-004`, `MODL-005`, `MODL-006`, `MODL-007` |
+| PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | `DATA-005`, `EXEC-001`, `EXEC-002`, `EXEC-003`, `EXEC-004`, `EXEC-006`, `INV-003`, `INV-005`, `INV-007` |
 | PR-006 | Regression + Property Testing | `EXEC-007`, `GOV-003`, `GOV-004`, `GOV-006`, `GOV-007`, `RES-008`, `RISK-006`, `SIG-003` |
 | PR-007 | API/WebSocket Security | `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`, `API-007`, `API-008`, `API-009`, `EXEC-005` |
@@ -393,78 +393,86 @@ Nightly mutation testing of the signal modules kills at least 85% of generated m
 
 #### `MODL-001` — Every model artifact carries full provenance
 
-**PARTIAL → PR-004** · high · requirement · source: QE-44
+**VERIFIED** · high · requirement · source: QE-44
 
 A model artifact records model id, training-data hash, feature-schema hash, code commit, hyperparameters, seed, library versions, metrics, validation methodology and artifact hash.
 
 - **If violated:** A model in production cannot be traced to the data or code that made it.
-- **Owned by:** `src/models/model_registry.py`
+- **Owned by:** `src/models/provenance.py`, `src/models/trainer.py`
 - **Verification:**
+  - `tests/models/test_model_provenance.py` (model) — All ten fields, with each hash asserted to change when its subject changes and not to change when something irrelevant does.
+  - `tests/models/test_model_artifacts.py` (model) — The manifest written by save() carries a complete record, and the legacy {file, sha256} keys still verify.
   - `tests/test_model_registry.py` (model)
 
 #### `MODL-002` — A model never decides to bypass the risk gate
 
-**PLANNED → PR-004** · critical · requirement · source: QE-45
+**VERIFIED** · critical · requirement · source: QE-45
 
 Model output reaches an order only through SIGNAL -> RISK ENGINE -> EXECUTION POLICY; no module lets a model result skip the deterministic safety layer.
 
 - **If violated:** A confident model overrides the control designed to survive a confident model being wrong.
 - **Owned by:** `src/engine/signal_engine.py`, `src/risk/gates.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/models/test_model_safety.py` (security) — Behavioural (confidence is not an input to any gate) and structural (no model or intelligence module imports an executor, and the engine does not discard the gate verdict).
 
 #### `MODL-003` — No lookahead: a signal at T is invariant to data after T
 
-**PLANNED → PR-004** · critical · requirement · source: QE-47
+**VERIFIED** · critical · requirement · source: QE-47
 
 For a dataset truncated at T and the same dataset extended with arbitrary future data, the signal computed at T is identical.
 
 - **If violated:** The backtest is a fantasy and the live strategy loses money the simulation never showed.
-- **Owned by:** `src/features/pipeline.py`, `src/engine/signal_engine.py`
-- **Verification:** none yet
+- **Owned by:** `src/models/leakage.py`, `src/features/pipeline.py`
+- **Verification:**
+  - `tests/models/test_lookahead.py` (verification) — The detector is first shown to catch four deliberate leaks and to clear an honest feature, then run against the real pipeline with both real and absurd future data.
 
 #### `MODL-004` — Model drift beyond threshold demotes the model
 
-**PARTIAL → PR-004** · high · requirement · source: QE-46
+**VERIFIED** · high · requirement · source: QE-46
 
 Feature, prediction, confidence, regime, calibration, performance and missingness drift are monitored; breaching a threshold moves the model to degraded/shadow rather than continuing to trust it.
 
 - **If violated:** The model keeps trading a regime it was never trained on.
 - **Owned by:** `src/risk/performance_drift.py`, `src/risk/drift_integration.py`
 - **Verification:**
+  - `tests/models/test_model_drift_demotion.py` (component) — A healthy model is not demoted, too little evidence is not drift, a degraded model halts the live track only, and a detector that cannot run fails closed.
   - `tests/test_performance_drift.py` (component)
   - `tests/test_drift_gate_wiring.py` (integration)
 
 #### `MODL-005` — Model artifacts round-trip and reproduce
 
-**PLANNED → PR-004** · high · requirement · source: QE-44
+**VERIFIED** · high · requirement · source: QE-44
 
 Each registered model can be loaded, predicted from, serialised, deserialised and reproduced to the recorded metrics from the recorded seed.
 
 - **If violated:** A model that cannot be reloaded cannot be rolled back to.
-- **Owned by:** `src/models/model_registry.py`
-- **Verification:** none yet
+- **Owned by:** `src/models/trainer.py`
+- **Verification:**
+  - `tests/models/test_model_artifacts.py` (model) — Load, predict, serialise, deserialise and reproduce bit-for-bit; a tampered artifact, a missing manifest and a swapped manifest are all refused.
 
 #### `MODL-006` — Research output cannot change production parameters directly
 
-**PARTIAL → PR-004** · critical · requirement · source: QE-83
+**VERIFIED** · critical · requirement · source: QE-83
 
 A notebook or research script has no path to production trading parameters; promotion runs RESEARCH -> candidate -> validation -> shadow -> paper -> production.
 
 - **If violated:** An experiment becomes the production strategy by accident.
 - **Owned by:** `src/upgrade/shadow_deploy.py`, `src/tuning/promotion_gauntlet.py`
 - **Verification:**
+  - `tests/models/test_research_firewall.py` (verification) — The gauntlet is a conjunction with no partial credit, shadow evaluation is a time window a challenger cannot buy its way past, and no tuning or upgrade module imports an executor.
   - `tests/test_shadow_model_promotion.py` (verification)
   - `tests/test_upgrade_shadow_deploy.py` (verification)
 
 #### `MODL-007` — Cross-validation respects time and purging
 
-**PLANNED → PR-004** · high · requirement · source: QE-90,QE-86
+**VERIFIED** · high · requirement · source: QE-90,QE-86
 
 Model validation uses combinatorial purged cross-validation with an embargo, so adjacent-sample leakage cannot inflate the reported score.
 
 - **If violated:** A leaky validation split reports skill the strategy does not have.
 - **Owned by:** `src/models/trainer.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/models/test_cpcv_purging.py` (verification) — Train and test never overlap, the purge gap before and the embargo after every test block are empty, and the fold count is the binomial coefficient rather than a single pass.
 
 ## Data, money and time
 

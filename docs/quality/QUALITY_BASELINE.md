@@ -51,7 +51,7 @@ Against the levels in `docs/quality/QUALITY_POLICY.md` §10.
 | Execution | 2 → 3 | Exchange-response contract tests, total-FSM proof, concurrency and duplicate-response races |
 | Portfolio | 3 *(PR-002)* | Both scalars are now asserted on the notional that reaches the sizer rather than on the number the tracker reports. |
 | Signal | 3 *(PR-003)* | Mutation score (`SIG-003`, PR-006). Golden fixtures and cross-process determinism are now covered. |
-| Model | 2 | No lookahead gate, no purged cross-validation check, no artifact round-trip/reproduce test |
+| Model | 3 *(PR-004)* | Lookahead gate, purged-CV assertions, artifact provenance and round-trip, drift demotion and the research firewall are all covered. |
 | Data | 3 *(PR-003)* | Venue precision rules (`DATA-005`, PR-005). Freshness budgets, the clock policy and the money representation are now declared and enforced — and the quality gate is actually wired. |
 | API | 2 | Authorization matrix not exhaustive, no IDOR/injection/SSRF suites, headers untested |
 | Security (crypto/secrets) | 2 | No key-rotation drill, no TLS-failure suite, no CSPRNG assertion, no log-leak provocation suite |
