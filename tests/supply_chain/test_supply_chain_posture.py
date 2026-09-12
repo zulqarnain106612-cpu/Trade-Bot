@@ -304,7 +304,7 @@ class TestTheForkCheckDetects:
         assert check_fork_secret_isolation(fake_repo) == []
 
     def test_both_fork_triggers_are_in_scope(self):
-        assert FORK_TRIGGERS == frozenset({"pull_request", "pull_request_target"})
+        assert frozenset({"pull_request", "pull_request_target"}) == FORK_TRIGGERS
 
 
 class TestTheProductionCheckDetects:
@@ -396,6 +396,6 @@ class TestTheSurveillanceCheckDetects:
 
     def test_a_config_with_no_schedule(self, fake_repo):
         (fake_repo / ".github" / "dependabot.yml").write_text(
-            "version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: \"/\"\n"
+            'version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: "/"\n'
         )
         assert check_dependency_surveillance(fake_repo)

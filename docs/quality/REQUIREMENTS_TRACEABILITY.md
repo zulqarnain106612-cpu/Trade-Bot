@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 79 |
-| PARTIAL | 4 |
-| PLANNED | 8 |
+| VERIFIED | 82 |
+| PARTIAL | 2 |
+| PLANNED | 7 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -57,7 +57,7 @@ deletion of the thing it points at.
 
 | Subsystem | Entries | Verified |
 |---|---|---|
-| Risk | 10 | 9 |
+| Risk | 10 | 10 |
 | Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
 | Signal and features | 3 | 3 |
@@ -67,7 +67,7 @@ deletion of the thing it points at.
 | Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 9 | 0 |
+| Release and production | 9 | 2 |
 | Governance | 10 | 8 |
 
 ## Outstanding work by phase
@@ -84,7 +84,7 @@ deletion of the thing it points at.
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
-| PR-011 | Paper-Trading Qualification | `INV-010`, `REL-001`, `RISK-005` |
+| PR-011 | Paper-Trading Qualification | — |
 | PR-012 | Production/Canary Security Gate | `GOV-009`, `GOV-010`, `REL-002`, `REL-003`, `REL-004`, `REL-005`, `REL-006`, `REL-007`, `REL-008` |
 
 ---
@@ -191,7 +191,7 @@ Every value the system treats as a probability is in [0, 1] where it is consumed
 
 #### `RISK-005` — No optimizer may directly modify a live risk control
 
-**PARTIAL → PR-011** · critical · requirement · source: QE-84
+**VERIFIED** · critical · requirement · source: QE-84
 
 Self-tuning output reaches live risk parameters only through bounds, offline evaluation, out-of-sample check, risk tests, shadow, paper and an approval -- never directly.
 
@@ -200,6 +200,7 @@ Self-tuning output reaches live risk parameters only through bounds, offline eva
 - **Verification:**
   - `tests/test_tuning_gate.py` (verification)
   - `tests/test_promotion_gauntlet.py` (verification)
+  - `tests/qualification/test_self_tuning_firewall.py` (risk) — Bounds are checked before quality, so an excellent out-of-bounds proposal is refused before its improvement is weighed; a regression anywhere blocks promotion, and the optimizer cannot reach an executor.
 
 #### `RISK-006` — Mutation score on the risk subsystem is at or above 90%
 
@@ -974,24 +975,26 @@ Fuzzed API payloads, market data, exchange responses, WebSocket messages, config
 
 #### `INV-010` — Live mode cannot bypass qualification gates
 
-**PLANNED → PR-011** · critical · invariant · source: QE-42,QE-60
+**VERIFIED** · critical · invariant · source: QE-42,QE-60
 
 Enabling live trading requires every qualification gate to have passed; no configuration flag, environment variable or API call skips one.
 
 - **If violated:** Untested strategy code reaches real capital.
-- **Owned by:** `src/risk/gates.py`
-- **Verification:** none yet
+- **Owned by:** `src/risk/gates.py`, `src/risk/paper_qualification.py`, `src/execution/live.py`
+- **Verification:**
+  - `tests/qualification/test_paper_qualification.py` (security) — LiveExecutor asserts qualification before building any state; the gate takes no override parameter, reads no environment variable, and re-evaluates the stored measurements rather than trusting the stored verdict.
 
 #### `REL-001` — Paper qualification precedes live
 
-**PARTIAL → PR-011** · critical · requirement · source: QE-60,QE-62
+**VERIFIED** · critical · requirement · source: QE-60,QE-62
 
 Live trading is unlocked only after the declared paper-trading qualification -- duration, sample count and performance criteria -- has been met and recorded.
 
 - **If violated:** A strategy meets real capital before it has ever met real conditions.
-- **Owned by:** `src/risk/gates.py`
+- **Owned by:** `src/risk/gates.py`, `src/risk/paper_qualification.py`
 - **Verification:**
   - `tests/test_risk_gate.py` (verification)
+  - `tests/qualification/test_paper_qualification.py` (validation) — Duration, sample count and eight performance criteria, all of which must pass; the lucky fortnight fails on sample size however good its numbers, and tightening a threshold invalidates an older pass.
 
 #### `REL-002` — Production is a protected GitHub environment
 

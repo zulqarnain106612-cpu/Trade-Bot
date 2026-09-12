@@ -81,9 +81,7 @@ def _digest(path: Path) -> str:
 
 
 def build_record(bundle: Path) -> dict[str, Any]:
-    files = sorted(
-        p for p in bundle.iterdir() if p.is_file() and p.name != "provenance.json"
-    )
+    files = sorted(p for p in bundle.iterdir() if p.is_file() and p.name != "provenance.json")
     return {
         "schema_version": SCHEMA_VERSION,
         "version": _version(),
@@ -113,9 +111,7 @@ def verify(record_path: Path) -> list[str]:
             problems.append(f"missing or empty field: {field}")
 
     if record.get("schema_version") != SCHEMA_VERSION:
-        problems.append(
-            f"schema_version {record.get('schema_version')!r} is not {SCHEMA_VERSION}"
-        )
+        problems.append(f"schema_version {record.get('schema_version')!r} is not {SCHEMA_VERSION}")
 
     commit = str(record.get("commit", ""))
     if len(commit) != 40:
