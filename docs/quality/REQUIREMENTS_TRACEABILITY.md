@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 36 |
-| PARTIAL | 17 |
-| PLANNED | 38 |
+| VERIFIED | 44 |
+| PARTIAL | 16 |
+| PLANNED | 31 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -57,18 +57,18 @@ deletion of the thing it points at.
 
 | Subsystem | Entries | Verified |
 |---|---|---|
-| Risk | 10 | 8 |
-| Execution | 11 | 8 |
+| Risk | 10 | 9 |
+| Execution | 11 | 9 |
 | Portfolio | 1 | 1 |
-| Signal and features | 3 | 2 |
+| Signal and features | 3 | 3 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 0 |
 | Cryptography and secrets | 10 | 0 |
 | Supply chain and artifacts | 7 | 0 |
-| Resilience and recovery | 8 | 0 |
+| Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 10 | 4 |
+| Governance | 10 | 8 |
 
 ## Outstanding work by phase
 
@@ -79,7 +79,7 @@ deletion of the thing it points at.
 | PR-003 | Signal/Feature Verification | — |
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
-| PR-006 | Regression + Property Testing | `EXEC-007`, `GOV-003`, `GOV-004`, `GOV-006`, `GOV-007`, `RES-008`, `RISK-006`, `SIG-003` |
+| PR-006 | Regression + Property Testing | — |
 | PR-007 | API/WebSocket Security | `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`, `API-007`, `API-008`, `API-009`, `EXEC-005` |
 | PR-008 | Cryptographic/Secret Architecture | `SECR-001`, `SECR-002`, `SECR-003`, `SECR-004`, `SECR-005`, `SECR-006`, `SECR-007`, `SECR-008`, `SECR-009`, `SECR-010` |
 | PR-009 | Supply-Chain + Artifact Security | `SUP-001`, `SUP-002`, `SUP-003`, `SUP-004`, `SUP-005`, `SUP-006`, `SUP-007` |
@@ -203,13 +203,14 @@ Self-tuning output reaches live risk parameters only through bounds, offline eva
 
 #### `RISK-006` — Mutation score on the risk subsystem is at or above 90%
 
-**PLANNED → PR-006** · high · requirement · source: QE-49
+**VERIFIED** · high · requirement · source: QE-49
 
 Nightly mutation testing of the risk modules kills at least 90% of generated mutants.
 
 - **If violated:** High line coverage hides a suite that would not notice if a comparison flipped.
-- **Owned by:** `src/risk/gates.py`
-- **Verification:** none yet
+- **Owned by:** `config/mutation_thresholds.json`, `scripts/check_mutation_score.py`
+- **Verification:**
+  - `tests/regression/test_regression_registry_contract.py` (mutation) — The 90% risk and sizing floors are declared, every target exists on disk, a run with no mutants is not a pass, and a timeout counts against the score.
 
 ## Execution
 
@@ -338,13 +339,14 @@ Position, average price, fee and realised PnL after a sequence of partial fills 
 
 #### `EXEC-007` — Mutation score on the execution subsystem is at or above 90%
 
-**PLANNED → PR-006** · high · requirement · source: QE-49
+**VERIFIED** · high · requirement · source: QE-49
 
 Nightly mutation testing of the execution modules kills at least 90% of generated mutants.
 
 - **If violated:** The FSM tests assert shape without asserting behaviour.
-- **Owned by:** `src/execution/order_fsm.py`
-- **Verification:** none yet
+- **Owned by:** `config/mutation_thresholds.json`, `.github/workflows`
+- **Verification:**
+  - `tests/regression/test_regression_registry_contract.py` (mutation) — The execution subsystem's 90% floor, mutating order_fsm, idempotency and exchange_contract nightly.
 
 ## Portfolio
 
@@ -390,13 +392,14 @@ The same input bars produce bit-identical features across runs and processes.
 
 #### `SIG-003` — Mutation score on the signal subsystem is at or above 85%
 
-**PLANNED → PR-006** · medium · requirement · source: QE-49
+**VERIFIED** · medium · requirement · source: QE-49
 
 Nightly mutation testing of the signal modules kills at least 85% of generated mutants.
 
 - **If violated:** Signal tests assert that something was produced, not that it was right.
-- **Owned by:** `src/engine/signal_engine.py`
-- **Verification:** none yet
+- **Owned by:** `config/mutation_thresholds.json`, `.github/workflows`
+- **Verification:**
+  - `tests/regression/test_regression_registry_contract.py` (mutation) — The signal subsystem's 85% floor.
 
 ## Models and leakage
 
@@ -921,13 +924,14 @@ Killing the database, killing the WebSocket, delaying and corrupting exchange re
 
 #### `RES-008` — Malformed input is rejected safely with an audit event
 
-**PLANNED → PR-006** · high · requirement · source: QE-51
+**VERIFIED** · high · requirement · source: QE-51
 
 Fuzzed API payloads, market data, exchange responses, WebSocket messages, configuration, model inputs and serialised state are rejected with no state corruption, no unauthorized action, no secret leakage, and an audit record.
 
 - **If violated:** A malformed message leaves the system in a state no test ever described.
-- **Owned by:** `src/data/quality_gate.py`, `src/api/main.py`
-- **Verification:** none yet
+- **Owned by:** `src/data/quality_gate.py`, `src/execution/exchange_contract.py`
+- **Verification:**
+  - `tests/fuzz/test_malformed_input_is_safe.py` (fuzz) — Each arrow of the source document's chain is a separate assertion: rejected safely, no corrupted state, no secret leakage, audit event -- not merely 'it did not crash'.
 
 ## Release and production
 
@@ -1051,24 +1055,26 @@ A security weakness gets a SEC-#### entry and a test that would fail if the weak
 
 #### `GOV-003` — Mutation testing runs nightly on the critical subsystems
 
-**PLANNED → PR-006** · medium · requirement · source: QE-49
+**VERIFIED** · medium · requirement · source: QE-49
 
 Risk, execution, signals, position sizing and the order FSM are mutation-tested on a schedule, with per-subsystem thresholds.
 
 - **If violated:** Coverage is reported as quality evidence when it is not.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `scripts/check_mutation_score.py`
+- **Verification:**
+  - `tests/regression/test_regression_registry_contract.py` (mutation) — nightly-quality.yml runs one matrix job per subsystem on a schedule; a pull-request gate that slow is one that gets switched off.
+  - `tests/test_assert_jobs_green.py` (verification) — The nightly workflow's own gate covers every job in it.
 
 #### `GOV-004` — No silent degradation in a security or risk path
 
-**PARTIAL → PR-006** · critical · requirement · source: QE-76
+**VERIFIED** · critical · requirement · source: QE-76
 
 A bare except, a broad exception handler, a `pass` in a critical path and a default-allow security decision are all detected by static analysis and individually reviewed.
 
 - **If violated:** A swallowed exception in the risk gate becomes a financial vulnerability.
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
-  - `tests/test_static_invariants.py` (verification)
+  - `tests/test_static_invariants.py` (verification) — check_no_silent_broad_except catches the `pass` shape; check_no_default_allow_on_failure catches the worse one -- a broad except in a risk, API, security or execution module that returns a permitting value.
 
 #### `GOV-005` — Requirement-to-test traceability is machine-checked
 
@@ -1084,23 +1090,25 @@ Every requirement names its verifying tests, those files are checked to exist at
 
 #### `GOV-006` — Serious defects get a recorded root-cause analysis
 
-**PLANNED → PR-006** · medium · requirement · source: QE-57,QE-58
+**VERIFIED** · medium · requirement · source: QE-57,QE-58
 
 Each serious defect records what happened, why detection failed, why the existing control failed, why the design permitted it, and the new control that prevents recurrence.
 
 - **If violated:** "Developer made a mistake" is accepted as a root cause and nothing changes.
 - **Owned by:** `docs/quality`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/regression/test_regression_registry_contract.py` (verification) — The template asks all five questions, refuses to stop at a person, requires the layer that should have caught it, and requires the regression test to fail against the pre-fix code.
 
 #### `GOV-007` — Quality metrics are collected and escaped defects are counted per layer
 
-**PLANNED → PR-006** · medium · requirement · source: QE-59
+**VERIFIED** · medium · requirement · source: QE-59
 
 Pass rate, branch coverage, mutation score, regression count, escaped defects, vulnerabilities, secret incidents, MTTD, MTTR, deployment failure rate, rollback rate, recovery-test success, model drift, signal drift, data freshness and reconciliation failures are tracked.
 
 - **If violated:** Nobody can say which verification layer keeps letting defects through.
-- **Owned by:** `docs/quality`
-- **Verification:** none yet
+- **Owned by:** `scripts/collect_quality_metrics.py`, `docs/quality`
+- **Verification:**
+  - `tests/regression/test_regression_registry_contract.py` (verification) — A metric it cannot measure is reported as unavailable with a reason rather than omitted, and zero escaped defects is stated explicitly -- 'we have not measured this' and 'this is zero' are different statements.
 
 #### `GOV-008` — main is protected and every required check must be green
 
