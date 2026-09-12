@@ -301,10 +301,13 @@
       "statement": "Enabling live trading requires every qualification gate to have passed; no configuration flag, environment variable or API call skips one.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-42,QE-60",
-      "owning_modules": ["src/risk/gates.py"],
-      "planned_in": "PR-011",
+      "owning_modules": ["src/risk/gates.py", "src/risk/paper_qualification.py", "src/execution/live.py"],
+      "verification": [
+        { "test": "tests/qualification/test_paper_qualification.py", "test_type": "security",
+          "note": "LiveExecutor asserts qualification before building any state; the gate takes no override parameter, reads no environment variable, and re-evaluates the stored measurements rather than trusting the stored verdict." }
+      ],
       "failure_mode": "Untested strategy code reaches real capital."
     },
 
@@ -401,14 +404,15 @@
       "statement": "Self-tuning output reaches live risk parameters only through bounds, offline evaluation, out-of-sample check, risk tests, shadow, paper and an approval -- never directly.",
       "criticality": "critical",
       "subsystem": "risk",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-84",
       "owning_modules": ["src/tuning/gate.py", "src/tuning/promotion_gauntlet.py", "src/tuning/live_overrides.py"],
       "verification": [
         { "test": "tests/test_tuning_gate.py", "test_type": "verification" },
-        { "test": "tests/test_promotion_gauntlet.py", "test_type": "verification" }
+        { "test": "tests/test_promotion_gauntlet.py", "test_type": "verification" },
+        { "test": "tests/qualification/test_self_tuning_firewall.py", "test_type": "risk",
+          "note": "Bounds are checked before quality, so an excellent out-of-bounds proposal is refused before its improvement is weighed; a regression anywhere blocks promotion, and the optimizer cannot reach an executor." }
       ],
-      "planned_in": "PR-011",
       "failure_mode": "An optimizer relaxes the very limit that would have stopped its own bad idea."
     },
     {
@@ -1482,13 +1486,14 @@
       "statement": "Live trading is unlocked only after the declared paper-trading qualification -- duration, sample count and performance criteria -- has been met and recorded.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-60,QE-62",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": ["src/risk/gates.py", "src/risk/paper_qualification.py"],
       "verification": [
-        { "test": "tests/test_risk_gate.py", "test_type": "verification" }
+        { "test": "tests/test_risk_gate.py", "test_type": "verification" },
+        { "test": "tests/qualification/test_paper_qualification.py", "test_type": "validation",
+          "note": "Duration, sample count and eight performance criteria, all of which must pass; the lucky fortnight fails on sample size however good its numbers, and tightening a threshold invalidates an older pass." }
       ],
-      "planned_in": "PR-011",
       "failure_mode": "A strategy meets real capital before it has ever met real conditions."
     },
     {

@@ -250,9 +250,7 @@ def check_dependency_surveillance(root: Path = Path()) -> list[Finding]:
         required.add("docker")
 
     for missing in sorted(required - ecosystems):
-        found.append(
-            Finding("SUP-005", str(DEPENDABOT), f"no updates configured for {missing!r}")
-        )
+        found.append(Finding("SUP-005", str(DEPENDABOT), f"no updates configured for {missing!r}"))
     for update in updates:
         if not isinstance(update, dict):
             continue

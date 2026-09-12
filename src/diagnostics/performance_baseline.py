@@ -104,8 +104,7 @@ class Regression:
 
     def __str__(self) -> str:
         return (
-            f"{self.operation}.{self.metric}: {self.measured:.2f} exceeds "
-            f"budget {self.budget:.2f}"
+            f"{self.operation}.{self.metric}: {self.measured:.2f} exceeds budget {self.budget:.2f}"
         )
 
 
@@ -208,9 +207,7 @@ def check(
     return found
 
 
-def check_all(
-    measurements: Sequence[Measurement], path: Path | None = None
-) -> list[Regression]:
+def check_all(measurements: Sequence[Measurement], path: Path | None = None) -> list[Regression]:
     table = load_baselines(path)
     out: list[Regression] = []
     for measurement in measurements:

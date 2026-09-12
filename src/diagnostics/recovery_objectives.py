@@ -73,20 +73,17 @@ _RPO: Final[dict[DataClass, Objective]] = {
     DataClass.POSITION_STATE: Objective(
         DataClass.POSITION_STATE,
         0.0,
-        "Same reason: reconstructable from trade records, and worthless if "
-        "those are gone too.",
+        "Same reason: reconstructable from trade records, and worthless if those are gone too.",
     ),
     DataClass.AUDIT_TRAIL: Objective(
         DataClass.AUDIT_TRAIL,
         0.0,
-        "The audit trail's only job is to survive the incident that makes "
-        "somebody read it.",
+        "The audit trail's only job is to survive the incident that makes somebody read it.",
     ),
     DataClass.MARKET_HISTORY: Objective(
         DataClass.MARKET_HISTORY,
         60.0,
-        "Re-fetchable from the venue. Losing a minute costs a backfill, not "
-        "correctness.",
+        "Re-fetchable from the venue. Losing a minute costs a backfill, not correctness.",
     ),
     DataClass.MODEL_ARTIFACTS: Objective(
         DataClass.MODEL_ARTIFACTS,

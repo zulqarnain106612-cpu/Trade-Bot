@@ -54,6 +54,7 @@ from src.execution.order_manager import OrderManager
 from src.execution.order_throttler import OrderThrottler
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+from src.risk.paper_qualification import assert_qualified_for_live
 from src.security.exchange_key_posture import assert_declared_posture_is_safe
 
 # Bounded in-memory registry of recent order FSM states, for the
@@ -203,6 +204,11 @@ class LiveExecutor(AbstractExecutor):
         # live-money path passes through, and an undeclared posture must stop
         # trading rather than merely warn.
         assert_declared_posture_is_safe()
+        # INV-010/REL-001: live trading is unlocked by evidence, not by a
+        # flag. TRADING_MODE=live above says what the operator *wants*; this
+        # says whether the paper record earns it, re-checked against today's
+        # thresholds rather than the ones in force when it was written.
+        assert_qualified_for_live()
         self._storage = storage
         self._fetcher = fetcher
         self._cfg = cfg
