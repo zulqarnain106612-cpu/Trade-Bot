@@ -138,22 +138,23 @@
       "statement": "An order whose exchange status is unknown, missing or unparseable is never transitioned to FILLED; it enters a reconciliation state instead.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42,QE-5",
-      "owning_modules": ["src/execution/order_fsm.py", "src/execution/live.py"],
+      "owning_modules": ["src/execution/exchange_contract.py", "src/execution/order_fsm.py"],
       "verification": [
         {
-          "test": "tests/test_order_fsm_transition_table.py",
-          "test_type": "execution",
-          "note": "Pins the legal transition table."
+          "test": "tests/contract/test_exchange_order_contract.py",
+          "test_type": "contract",
+          "note": "There is no mapping from UNKNOWN to any FSM state, so an unrecognised status cannot become FILLED however the caller is written."
         },
         {
-          "test": "tests/test_live_executor_fsm.py",
+          "test": "tests/execution/test_order_fsm_totality.py",
           "test_type": "execution",
-          "note": "Covers the live executor's FSM use."
-        }
+          "note": "No terminal state can reach FILLED, and PENDING cannot jump past the FILLING confirmation step."
+        },
+        { "test": "tests/test_order_fsm_transition_table.py", "test_type": "execution" },
+        { "test": "tests/test_live_executor_fsm.py", "test_type": "execution" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "The bot books a fill that never happened, and every downstream position figure is wrong.",
       "depends_on": ["EXEC-004"]
     },
@@ -188,17 +189,17 @@
       "statement": "When live trading is disabled, no code path reaches the live exchange client, including scheduled jobs, retries and reconciliation.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42",
-      "owning_modules": ["src/execution/router.py", "src/risk/gates.py"],
+      "owning_modules": ["src/execution/paper.py", "src/risk/gates.py"],
       "verification": [
         {
-          "test": "tests/test_paper_only_timeframe_routing.py",
+          "test": "tests/trading/invariants/test_inv_005_disabled_mode.py",
           "test_type": "execution",
-          "note": "Covers paper-only routing for one class of signal."
-        }
+          "note": "The live gate refuses live until both models validate, the paper executor has no import or attribute reaching a venue, and every non-paper mode is gated by default."
+        },
+        { "test": "tests/test_paper_only_timeframe_routing.py", "test_type": "execution" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "The bot trades real money while the operator believes it is in paper mode."
     },
     {
@@ -233,17 +234,17 @@
       "statement": "Two execution requests carrying the same idempotency key produce at most one exchange order and one position change.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42,QE-58",
       "owning_modules": ["src/execution/idempotency.py"],
       "verification": [
         {
-          "test": "tests/test_idempotency.py",
+          "test": "tests/execution/test_idempotency_end_to_end.py",
           "test_type": "execution",
-          "note": "Covers the key store; the concurrent-duplicate race is PR-010."
-        }
+          "note": "Deterministic keys that do not collide across intents, a registry that refuses a replay, and 25 racing reservations that yield exactly one submission."
+        },
+        { "test": "tests/test_idempotency.py", "test_type": "execution" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "A retry doubles the position and the account is twice as exposed as intended.",
       "depends_on": ["EXEC-001"]
     },
@@ -428,11 +429,17 @@
       "statement": "Every execution request carries a key derived from its decision, and the executor refuses to act twice on the same key.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-58",
-      "owning_modules": ["src/execution/idempotency.py", "src/execution/router.py"],
-      "verification": [{ "test": "tests/test_idempotency.py", "test_type": "execution" }],
-      "planned_in": "PR-005",
+      "owning_modules": ["src/execution/idempotency.py", "src/execution/order_manager.py"],
+      "verification": [
+        {
+          "test": "tests/execution/test_idempotency_end_to_end.py",
+          "test_type": "execution",
+          "note": "The key travels to the venue as a client order id, and only a provably-unsent request releases it -- a timeout keeps it claimed."
+        },
+        { "test": "tests/test_idempotency.py", "test_type": "execution" }
+      ],
       "failure_mode": "A network retry becomes a second real order."
     },
     {
@@ -442,14 +449,18 @@
       "statement": "Every (state, event) pair has a defined outcome, and no transition outside the declared table is reachable.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-90",
       "owning_modules": ["src/execution/order_fsm.py"],
       "verification": [
+        {
+          "test": "tests/execution/test_order_fsm_totality.py",
+          "test_type": "contract",
+          "note": "The entire cross product of states and targets, each cell either a permitted transition or a refusal that leaves the state untouched."
+        },
         { "test": "tests/test_order_fsm_transition_table.py", "test_type": "contract" },
         { "test": "tests/test_order_fsm.py", "test_type": "execution" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "An unhandled exchange event leaves an order in a state nothing knows how to close."
     },
     {
@@ -459,10 +470,16 @@
       "statement": "Every exchange response is parsed against a schema; unknown, missing or malformed fields produce an explicit failure, not a default.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-90,QE-51",
-      "owning_modules": ["src/execution/live.py", "src/execution/base.py"],
-      "planned_in": "PR-005",
+      "owning_modules": ["src/execution/exchange_contract.py", "src/execution/order_manager.py"],
+      "verification": [
+        {
+          "test": "tests/contract/test_exchange_order_contract.py",
+          "test_type": "contract",
+          "note": "A total parse: every input yields an answer, and one the contract cannot vouch for reports needs_reconciliation rather than a plausible default."
+        }
+      ],
       "failure_mode": "A changed exchange field silently reads as zero and the bot mis-books a fill."
     },
     {
@@ -472,13 +489,17 @@
       "statement": "An unrecognised status string maps to an explicit UNKNOWN outcome that triggers reconciliation, never to a terminal success.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-5",
-      "owning_modules": ["src/execution/order_fsm.py"],
+      "owning_modules": ["src/execution/exchange_contract.py"],
       "verification": [
+        {
+          "test": "tests/contract/test_exchange_order_contract.py",
+          "test_type": "contract",
+          "note": "An unrecognised status maps to UNKNOWN, and an unknown status carrying an otherwise perfect fill still reconciles rather than booking it."
+        },
         { "test": "tests/test_live_fsm_integration.py", "test_type": "integration" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "Position accounting diverges from the exchange without anything reporting an error."
     },
     {
@@ -505,14 +526,18 @@
       "statement": "Position, average price, fee and realised PnL after a sequence of partial fills match a hand-calculated fixture.",
       "criticality": "high",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-81",
-      "owning_modules": ["src/execution/order_manager.py", "src/execution/post_trade.py"],
+      "owning_modules": ["src/execution/order_fsm.py", "src/execution/post_trade.py"],
       "verification": [
+        {
+          "test": "tests/execution/test_venue_precision.py",
+          "test_type": "unit",
+          "note": "Hand-calculated volume-weighted averages, including the arithmetic mean stated explicitly as the wrong answer, and 200 fills checked against an independent Decimal accumulation."
+        },
         { "test": "tests/test_order_manager_partial_fills.py", "test_type": "unit" },
         { "test": "tests/test_executor_fee_accounting.py", "test_type": "unit" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "PnL is wrong, so every downstream risk decision is made on false numbers."
     },
     {
@@ -623,13 +648,17 @@
       "statement": "Every submitted order conforms to the venue's tick, lot and minimum-notional rules, checked before submission.",
       "criticality": "high",
       "subsystem": "data",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-78",
-      "owning_modules": ["src/data/fetcher.py"],
+      "owning_modules": ["src/risk/kelly.py", "src/data/fetcher.py"],
       "verification": [
+        {
+          "test": "tests/execution/test_venue_precision.py",
+          "test_type": "unit",
+          "note": "Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees."
+        },
         { "test": "tests/test_fetcher_symbol_precision.py", "test_type": "unit" }
       ],
-      "planned_in": "PR-005",
       "failure_mode": "Orders are rejected by the venue at exactly the moment the strategy needs them."
     },
 

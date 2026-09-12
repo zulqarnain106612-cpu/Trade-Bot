@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 27 |
-| PARTIAL | 25 |
-| PLANNED | 39 |
+| VERIFIED | 36 |
+| PARTIAL | 17 |
+| PLANNED | 38 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -58,11 +58,11 @@ deletion of the thing it points at.
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 8 |
-| Execution | 11 | 0 |
+| Execution | 11 | 8 |
 | Portfolio | 1 | 1 |
 | Signal and features | 3 | 2 |
 | Models and leakage | 7 | 7 |
-| Data, money and time | 6 | 5 |
+| Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 0 |
 | Cryptography and secrets | 10 | 0 |
 | Supply chain and artifacts | 7 | 0 |
@@ -78,7 +78,7 @@ deletion of the thing it points at.
 | PR-002 | Risk Invariants + Boundary Tests | — |
 | PR-003 | Signal/Feature Verification | — |
 | PR-004 | Model/Leakage Verification | — |
-| PR-005 | Execution/FSM/Exchange Contracts | `DATA-005`, `EXEC-001`, `EXEC-002`, `EXEC-003`, `EXEC-004`, `EXEC-006`, `INV-003`, `INV-005`, `INV-007` |
+| PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | `EXEC-007`, `GOV-003`, `GOV-004`, `GOV-006`, `GOV-007`, `RES-008`, `RISK-006`, `SIG-003` |
 | PR-007 | API/WebSocket Security | `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`, `API-007`, `API-008`, `API-009`, `EXEC-005` |
 | PR-008 | Cryptographic/Secret Architecture | `SECR-001`, `SECR-002`, `SECR-003`, `SECR-004`, `SECR-005`, `SECR-006`, `SECR-007`, `SECR-008`, `SECR-009`, `SECR-010` |
@@ -215,31 +215,34 @@ Nightly mutation testing of the risk modules kills at least 90% of generated mut
 
 #### `INV-003` — Unknown exchange order state cannot become FILLED without reconciliation
 
-**PARTIAL → PR-005** · critical · invariant · source: QE-42,QE-5
+**VERIFIED** · critical · invariant · source: QE-42,QE-5
 
 An order whose exchange status is unknown, missing or unparseable is never transitioned to FILLED; it enters a reconciliation state instead.
 
 - **If violated:** The bot books a fill that never happened, and every downstream position figure is wrong.
-- **Owned by:** `src/execution/order_fsm.py`, `src/execution/live.py`
+- **Owned by:** `src/execution/exchange_contract.py`, `src/execution/order_fsm.py`
 - **Depends on:** `EXEC-004`
 - **Verification:**
-  - `tests/test_order_fsm_transition_table.py` (execution) — Pins the legal transition table.
-  - `tests/test_live_executor_fsm.py` (execution) — Covers the live executor's FSM use.
+  - `tests/contract/test_exchange_order_contract.py` (contract) — There is no mapping from UNKNOWN to any FSM state, so an unrecognised status cannot become FILLED however the caller is written.
+  - `tests/execution/test_order_fsm_totality.py` (execution) — No terminal state can reach FILLED, and PENDING cannot jump past the FILLING confirmation step.
+  - `tests/test_order_fsm_transition_table.py` (execution)
+  - `tests/test_live_executor_fsm.py` (execution)
 
 #### `INV-005` — A disabled trading mode cannot submit orders
 
-**PARTIAL → PR-005** · critical · invariant · source: QE-42
+**VERIFIED** · critical · invariant · source: QE-42
 
 When live trading is disabled, no code path reaches the live exchange client, including scheduled jobs, retries and reconciliation.
 
 - **If violated:** The bot trades real money while the operator believes it is in paper mode.
-- **Owned by:** `src/execution/router.py`, `src/risk/gates.py`
+- **Owned by:** `src/execution/paper.py`, `src/risk/gates.py`
 - **Verification:**
-  - `tests/test_paper_only_timeframe_routing.py` (execution) — Covers paper-only routing for one class of signal.
+  - `tests/trading/invariants/test_inv_005_disabled_mode.py` (execution) — The live gate refuses live until both models validate, the paper executor has no import or attribute reaching a venue, and every non-paper mode is gated by default.
+  - `tests/test_paper_only_timeframe_routing.py` (execution)
 
 #### `INV-007` — Duplicate execution requests cannot create duplicate positions
 
-**PARTIAL → PR-005** · critical · invariant · source: QE-42,QE-58
+**VERIFIED** · critical · invariant · source: QE-42,QE-58
 
 Two execution requests carrying the same idempotency key produce at most one exchange order and one position change.
 
@@ -247,7 +250,8 @@ Two execution requests carrying the same idempotency key produce at most one exc
 - **Owned by:** `src/execution/idempotency.py`
 - **Depends on:** `EXEC-001`
 - **Verification:**
-  - `tests/test_idempotency.py` (execution) — Covers the key store; the concurrent-duplicate race is PR-010.
+  - `tests/execution/test_idempotency_end_to_end.py` (execution) — Deterministic keys that do not collide across intents, a registry that refuses a replay, and 25 racing reservations that yield exactly one submission.
+  - `tests/test_idempotency.py` (execution)
 
 #### `INV-009` — Position and account state after restart reconcile with the exchange
 
@@ -261,46 +265,50 @@ After any restart, the reconstructed position and balance state matches the exch
 
 #### `EXEC-001` — Execution requests carry an idempotency key end to end
 
-**PARTIAL → PR-005** · critical · requirement · source: QE-58
+**VERIFIED** · critical · requirement · source: QE-58
 
 Every execution request carries a key derived from its decision, and the executor refuses to act twice on the same key.
 
 - **If violated:** A network retry becomes a second real order.
-- **Owned by:** `src/execution/idempotency.py`, `src/execution/router.py`
+- **Owned by:** `src/execution/idempotency.py`, `src/execution/order_manager.py`
 - **Verification:**
+  - `tests/execution/test_idempotency_end_to_end.py` (execution) — The key travels to the venue as a client order id, and only a provably-unsent request releases it -- a timeout keeps it claimed.
   - `tests/test_idempotency.py` (execution)
 
 #### `EXEC-002` — The order state machine is total and its transitions are legal
 
-**PARTIAL → PR-005** · critical · requirement · source: QE-90
+**VERIFIED** · critical · requirement · source: QE-90
 
 Every (state, event) pair has a defined outcome, and no transition outside the declared table is reachable.
 
 - **If violated:** An unhandled exchange event leaves an order in a state nothing knows how to close.
 - **Owned by:** `src/execution/order_fsm.py`
 - **Verification:**
+  - `tests/execution/test_order_fsm_totality.py` (contract) — The entire cross product of states and targets, each cell either a permitted transition or a refusal that leaves the state untouched.
   - `tests/test_order_fsm_transition_table.py` (contract)
   - `tests/test_order_fsm.py` (execution)
 
 #### `EXEC-003` — Exchange responses are validated against a declared contract
 
-**PLANNED → PR-005** · critical · requirement · source: QE-90,QE-51
+**VERIFIED** · critical · requirement · source: QE-90,QE-51
 
 Every exchange response is parsed against a schema; unknown, missing or malformed fields produce an explicit failure, not a default.
 
 - **If violated:** A changed exchange field silently reads as zero and the bot mis-books a fill.
-- **Owned by:** `src/execution/live.py`, `src/execution/base.py`
-- **Verification:** none yet
+- **Owned by:** `src/execution/exchange_contract.py`, `src/execution/order_manager.py`
+- **Verification:**
+  - `tests/contract/test_exchange_order_contract.py` (contract) — A total parse: every input yields an answer, and one the contract cannot vouch for reports needs_reconciliation rather than a plausible default.
 
 #### `EXEC-004` — Unknown exchange order status must never be treated as FILLED
 
-**PARTIAL → PR-005** · critical · requirement · source: QE-5
+**VERIFIED** · critical · requirement · source: QE-5
 
 An unrecognised status string maps to an explicit UNKNOWN outcome that triggers reconciliation, never to a terminal success.
 
 - **If violated:** Position accounting diverges from the exchange without anything reporting an error.
-- **Owned by:** `src/execution/order_fsm.py`
+- **Owned by:** `src/execution/exchange_contract.py`
 - **Verification:**
+  - `tests/contract/test_exchange_order_contract.py` (contract) — An unrecognised status maps to UNKNOWN, and an unknown status carrying an otherwise perfect fill still reconciles rather than booking it.
   - `tests/test_live_fsm_integration.py` (integration)
 
 #### `EXEC-005` — The kill switch is authenticated, authorized, audited, idempotent and durable
@@ -317,13 +325,14 @@ Activating the kill switch requires an operator role, writes an audit event, is 
 
 #### `EXEC-006` — Partial fills and fees are accounted exactly
 
-**PARTIAL → PR-005** · high · requirement · source: QE-81
+**VERIFIED** · high · requirement · source: QE-81
 
 Position, average price, fee and realised PnL after a sequence of partial fills match a hand-calculated fixture.
 
 - **If violated:** PnL is wrong, so every downstream risk decision is made on false numbers.
-- **Owned by:** `src/execution/order_manager.py`, `src/execution/post_trade.py`
+- **Owned by:** `src/execution/order_fsm.py`, `src/execution/post_trade.py`
 - **Verification:**
+  - `tests/execution/test_venue_precision.py` (unit) — Hand-calculated volume-weighted averages, including the arithmetic mean stated explicitly as the wrong answer, and 200 fills checked against an independent Decimal accumulation.
   - `tests/test_order_manager_partial_fills.py` (unit)
   - `tests/test_executor_fee_accounting.py` (unit)
 
@@ -545,13 +554,14 @@ Where money is added, compared or rounded, the representation is documented and 
 
 #### `DATA-005` — Tick size, lot size and minimum quantity are respected
 
-**PARTIAL → PR-005** · high · requirement · source: QE-78
+**VERIFIED** · high · requirement · source: QE-78
 
 Every submitted order conforms to the venue's tick, lot and minimum-notional rules, checked before submission.
 
 - **If violated:** Orders are rejected by the venue at exactly the moment the strategy needs them.
-- **Owned by:** `src/data/fetcher.py`
+- **Owned by:** `src/risk/kelly.py`, `src/data/fetcher.py`
 - **Verification:**
+  - `tests/execution/test_venue_precision.py` (unit) — Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees.
   - `tests/test_fetcher_symbol_precision.py` (unit)
 
 ## API and WebSocket

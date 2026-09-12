@@ -48,6 +48,10 @@ class OrderStatus(Enum):
     FAILED = "failed"  # Permanent error, terminal
 
 
+#: Relative slack on the overfill guard. See add_partial_fill.
+_OVERFILL_RELATIVE_TOLERANCE: Final[float] = 1e-9
+
+
 class OrderFSMError(Exception):
     """Order FSM validation error."""
 
@@ -269,12 +273,26 @@ class OrderFSM:
         old_filled = self._state.filled_qty
         self._state.filled_qty += qty
 
-        # Guard against overfill
-        if self._state.filled_qty > self._state.quantity:
+        # Guard against overfill.
+        #
+        # Compared with a relative tolerance, not exactly. An order filled in
+        # many pieces accumulates float error -- 200 fills of 0.001 sum to
+        # 0.19900000000000015, which is greater than 0.2 by 1.5e-16 -- so an
+        # exact comparison rejects the *last* fill of an order that filled
+        # perfectly, leaving it stuck in FILLING with the venue believing it
+        # complete. The tolerance is the one declared in
+        # docs/quality/MONEY_AND_TIME.md: 1e-9 relative, six orders of
+        # magnitude inside float64's precision and far inside any venue's
+        # reporting precision, so a real overfill still fails.
+        overfill_tolerance = abs(self._state.quantity) * _OVERFILL_RELATIVE_TOLERANCE
+        if self._state.filled_qty > self._state.quantity + overfill_tolerance:
             self._state.filled_qty = old_filled
             raise OrderFSMError(
                 f"Partial fill would exceed order quantity: {old_filled} + {qty} > {self._state.quantity}"
             )
+        # Clamp away the accumulated drift so the recorded quantity is the
+        # one the venue reports rather than one ulp above it.
+        self._state.filled_qty = min(self._state.filled_qty, self._state.quantity)
 
         # Update filled prices list and recalculate average
         self._state.filled_at_prices.append((price, qty))
