@@ -1,0 +1,43 @@
+{
+  "case_id": "ETHUSDT_15m_case_002",
+  "data_quality": {
+    "checks_run": [
+      "schema",
+      "finite",
+      "timestamp_valid",
+      "monotonic",
+      "duplicates",
+      "ohlc_consistent"
+    ],
+    "passed": false,
+    "reason": "impossible_ohlc: high < low in 1 bar(s)"
+  },
+  "description": "The same market with one impossible bar: high below low. The data quality gate refuses the frame, so the feature pipeline is never reached and no order is produced.",
+  "expected_action": "no_trade_data_quality",
+  "features": null,
+  "market": {
+    "bar_count": 320,
+    "first_close": 49783.4492,
+    "first_ts_ms": 1799712000000,
+    "last_close": 40761.0241,
+    "last_ts_ms": 1799999100000,
+    "now_ms": 1800000000000,
+    "symbol": "ETH/USDT",
+    "timeframe_s": 900
+  },
+  "model": {
+    "p_long": 0.29
+  },
+  "regime": {
+    "state": 1
+  },
+  "risk": null,
+  "signal": {
+    "direction": -1,
+    "expected_edge_bps": 38.0
+  },
+  "tags": [
+    "corrupt",
+    "data-quality"
+  ]
+}

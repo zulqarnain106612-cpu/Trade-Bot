@@ -17,7 +17,6 @@ import aiohttp
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _FG_URL = "https://api.alternative.me/fapi/v2/fear-and-greed-index/?limit=1"

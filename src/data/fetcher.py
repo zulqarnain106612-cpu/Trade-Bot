@@ -38,7 +38,6 @@ from src.config import (
 )
 from src.data.storage import AnyStorageBackend, BarRecord
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------

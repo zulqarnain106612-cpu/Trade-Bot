@@ -254,17 +254,26 @@
       "statement": "A sample older than the declared freshness budget is not used for a trading decision unless an explicit, named policy permits it.",
       "criticality": "critical",
       "subsystem": "data",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-42,QE-80",
-      "owning_modules": ["src/data/quality_gate.py"],
+      "owning_modules": ["src/data/quality_gate.py", "src/engine/signal_engine.py"],
       "verification": [
+        {
+          "test": "tests/component/test_data_quality_gate.py",
+          "test_type": "component",
+          "note": "Staleness measured against a declared budget, with the budget named in the rejection."
+        },
+        {
+          "test": "tests/signals/test_golden_signals.py",
+          "test_type": "signal",
+          "note": "Golden case ETHUSDT_15m_case_003: a well-formed frame that stopped updating an hour ago is refused, and no risk decision is reached."
+        },
         {
           "test": "tests/engines/test_supply_and_quality.py",
           "test_type": "component",
-          "note": "Exercises the quality gate; the staleness property suite is PR-003."
+          "note": "Exercises the quality gate."
         }
       ],
-      "planned_in": "PR-003",
       "failure_mode": "The bot trades a price that no longer exists.",
       "depends_on": ["DATA-002"]
     },
@@ -527,15 +536,25 @@
       "statement": "Schema, timestamp validity, monotonicity, freshness, OHLC consistency, non-negative volume, and absence of NaN/Infinity are all checked before use; failure means NO TRADE.",
       "criticality": "critical",
       "subsystem": "data",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-80",
-      "owning_modules": ["src/data/quality_gate.py"],
+      "owning_modules": ["src/data/quality_gate.py", "src/engine/signal_engine.py"],
       "verification": [
+        {
+          "test": "tests/component/test_data_quality_gate.py",
+          "test_type": "component",
+          "note": "Every line of the source document's checklist, asserted on the rejection reason as well as on pass/fail."
+        },
+        {
+          "test": "tests/signals/test_golden_signals.py",
+          "test_type": "signal",
+          "note": "Golden case ETHUSDT_15m_case_002: one impossible bar refuses the frame before the feature pipeline is reached."
+        },
         { "test": "tests/engines/test_supply_and_quality.py", "test_type": "component" },
         { "test": "tests/test_feature_bar_gaps.py", "test_type": "unit" }
       ],
-      "planned_in": "PR-003",
-      "failure_mode": "A corrupt bar becomes a signal, and the signal becomes an order."
+      "failure_mode": "A corrupt bar becomes a signal, and the signal becomes an order.",
+      "notes": "The gate existed and was tested from the day it was written, but no module in src/ ever called it -- so the statement above was false of the running system until PR-003 wired it into SignalEngine.tick."
     },
     {
       "id": "DATA-002",
@@ -544,10 +563,16 @@
       "statement": "Every market-data consumer declares a maximum age, and a sample past it is refused rather than used.",
       "criticality": "critical",
       "subsystem": "data",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-80,QE-42",
       "owning_modules": ["src/data/quality_gate.py"],
-      "planned_in": "PR-003",
+      "verification": [
+        {
+          "test": "tests/component/test_data_quality_gate.py",
+          "test_type": "component",
+          "note": "FreshnessBudget.for_timeframe derives the budget from the bar interval; the rejection names the budget that refused it."
+        }
+      ],
       "failure_mode": "A frozen feed looks like a calm market."
     },
     {
@@ -557,10 +582,16 @@
       "statement": "All internal timestamps are timezone-aware UTC; exchange-versus-local skew beyond the declared bound is detected and reported.",
       "criticality": "high",
       "subsystem": "data",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-79",
-      "owning_modules": ["src/data/feeds.py"],
-      "planned_in": "PR-003",
+      "owning_modules": ["src/data/clock.py"],
+      "verification": [
+        {
+          "test": "tests/component/test_clock_policy.py",
+          "test_type": "component",
+          "note": "Naive datetimes refused rather than assumed, other zones converted rather than relabelled, the DST gap and repeated hour shown to be absent in UTC, and venue skew measured against a declared budget."
+        }
+      ],
       "failure_mode": "A DST shift or a naive datetime silently moves a bar an hour."
     },
     {
@@ -570,15 +601,20 @@
       "statement": "Where money is added, compared or rounded, the representation is documented and exact; float is used only where the doc says it may be.",
       "criticality": "high",
       "subsystem": "data",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-78",
-      "owning_modules": ["src/execution/unified_ledger.py"],
+      "owning_modules": ["src/execution/unified_ledger.py", "src/risk/kelly.py", "docs/quality"],
       "verification": [
+        {
+          "test": "tests/component/test_money_representation.py",
+          "test_type": "component",
+          "note": "The declared policy is float64 with Decimal at the exchange-precision boundary; quantisation never rounds up, accumulated drift over a day of fills stays inside 1e-9 relative, and the percent-versus-fraction units are pinned."
+        },
         { "test": "tests/test_percent_vs_fraction_units.py", "test_type": "unit" },
         { "test": "tests/test_unified_ledger.py", "test_type": "unit" }
       ],
-      "planned_in": "PR-003",
-      "failure_mode": "Rounding drift accumulates until the ledger and the exchange disagree."
+      "failure_mode": "Rounding drift accumulates until the ledger and the exchange disagree.",
+      "notes": "The representation is float64, not Decimal, and docs/quality/MONEY_AND_TIME.md argues for that rather than claiming otherwise. It also records the conditions under which the decision should be re-argued."
     },
     {
       "id": "DATA-005",
@@ -625,11 +661,18 @@
       "statement": "Named fixtures carry market input, features, regime, model output, signal, risk decision and expected final action, and CI fails on any unexplained change.",
       "criticality": "high",
       "subsystem": "signal",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-43",
-      "owning_modules": ["src/engine/signal_engine.py"],
-      "planned_in": "PR-003",
-      "failure_mode": "A refactor changes what the bot trades and nobody notices until the PnL does."
+      "owning_modules": ["src/engine/signal_engine.py", "scripts/generate_signal_fixtures.py"],
+      "verification": [
+        {
+          "test": "tests/signals/test_golden_signals.py",
+          "test_type": "signal",
+          "note": "Six cases covering clean long, clean short, flat signal, regime halt, corrupt data and stale data. Also asserts the fixture set has not become trivial, which a round-trip check alone cannot see."
+        }
+      ],
+      "failure_mode": "A refactor changes what the bot trades and nobody notices until the PnL does.",
+      "notes": "The model's p_long is supplied by the case rather than computed: a retrained tree on a different library build produces different probabilities, so pinning it would fail for reasons unrelated to this project. Everything downstream of it is real production code."
     },
     {
       "id": "SIG-002",
@@ -638,11 +681,17 @@
       "statement": "The same input bars produce bit-identical features across runs and processes.",
       "criticality": "high",
       "subsystem": "signal",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-86",
       "owning_modules": ["src/features/pipeline.py"],
-      "verification": [{ "test": "tests/test_features.py", "test_type": "unit" }],
-      "planned_in": "PR-003",
+      "verification": [
+        {
+          "test": "tests/features/test_feature_determinism.py",
+          "test_type": "property",
+          "note": "Same process, different process (two subprocesses with deliberately different PYTHONHASHSEED), and prefix stability when later bars arrive."
+        },
+        { "test": "tests/test_features.py", "test_type": "unit" }
+      ],
       "failure_mode": "A backtest cannot be reproduced, so a result cannot be trusted."
     },
     {
@@ -666,11 +715,22 @@
       "statement": "A model artifact records model id, training-data hash, feature-schema hash, code commit, hyperparameters, seed, library versions, metrics, validation methodology and artifact hash.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-44",
-      "owning_modules": ["src/models/model_registry.py"],
-      "verification": [{ "test": "tests/test_model_registry.py", "test_type": "model" }],
-      "planned_in": "PR-004",
+      "owning_modules": ["src/models/provenance.py", "src/models/trainer.py"],
+      "verification": [
+        {
+          "test": "tests/models/test_model_provenance.py",
+          "test_type": "model",
+          "note": "All ten fields, with each hash asserted to change when its subject changes and not to change when something irrelevant does."
+        },
+        {
+          "test": "tests/models/test_model_artifacts.py",
+          "test_type": "model",
+          "note": "The manifest written by save() carries a complete record, and the legacy {file, sha256} keys still verify."
+        },
+        { "test": "tests/test_model_registry.py", "test_type": "model" }
+      ],
       "failure_mode": "A model in production cannot be traced to the data or code that made it."
     },
     {
@@ -680,10 +740,16 @@
       "statement": "Model output reaches an order only through SIGNAL -> RISK ENGINE -> EXECUTION POLICY; no module lets a model result skip the deterministic safety layer.",
       "criticality": "critical",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-45",
       "owning_modules": ["src/engine/signal_engine.py", "src/risk/gates.py"],
-      "planned_in": "PR-004",
+      "verification": [
+        {
+          "test": "tests/models/test_model_safety.py",
+          "test_type": "security",
+          "note": "Behavioural (confidence is not an input to any gate) and structural (no model or intelligence module imports an executor, and the engine does not discard the gate verdict)."
+        }
+      ],
       "failure_mode": "A confident model overrides the control designed to survive a confident model being wrong."
     },
     {
@@ -693,10 +759,16 @@
       "statement": "For a dataset truncated at T and the same dataset extended with arbitrary future data, the signal computed at T is identical.",
       "criticality": "critical",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-47",
-      "owning_modules": ["src/features/pipeline.py", "src/engine/signal_engine.py"],
-      "planned_in": "PR-004",
+      "owning_modules": ["src/models/leakage.py", "src/features/pipeline.py"],
+      "verification": [
+        {
+          "test": "tests/models/test_lookahead.py",
+          "test_type": "verification",
+          "note": "The detector is first shown to catch four deliberate leaks and to clear an honest feature, then run against the real pipeline with both real and absurd future data."
+        }
+      ],
       "failure_mode": "The backtest is a fantasy and the live strategy loses money the simulation never showed."
     },
     {
@@ -706,14 +778,18 @@
       "statement": "Feature, prediction, confidence, regime, calibration, performance and missingness drift are monitored; breaching a threshold moves the model to degraded/shadow rather than continuing to trust it.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-46",
       "owning_modules": ["src/risk/performance_drift.py", "src/risk/drift_integration.py"],
       "verification": [
+        {
+          "test": "tests/models/test_model_drift_demotion.py",
+          "test_type": "component",
+          "note": "A healthy model is not demoted, too little evidence is not drift, a degraded model halts the live track only, and a detector that cannot run fails closed."
+        },
         { "test": "tests/test_performance_drift.py", "test_type": "component" },
         { "test": "tests/test_drift_gate_wiring.py", "test_type": "integration" }
       ],
-      "planned_in": "PR-004",
       "failure_mode": "The model keeps trading a regime it was never trained on."
     },
     {
@@ -723,10 +799,16 @@
       "statement": "Each registered model can be loaded, predicted from, serialised, deserialised and reproduced to the recorded metrics from the recorded seed.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-44",
-      "owning_modules": ["src/models/model_registry.py"],
-      "planned_in": "PR-004",
+      "owning_modules": ["src/models/trainer.py"],
+      "verification": [
+        {
+          "test": "tests/models/test_model_artifacts.py",
+          "test_type": "model",
+          "note": "Load, predict, serialise, deserialise and reproduce bit-for-bit; a tampered artifact, a missing manifest and a swapped manifest are all refused."
+        }
+      ],
       "failure_mode": "A model that cannot be reloaded cannot be rolled back to."
     },
     {
@@ -736,14 +818,18 @@
       "statement": "A notebook or research script has no path to production trading parameters; promotion runs RESEARCH -> candidate -> validation -> shadow -> paper -> production.",
       "criticality": "critical",
       "subsystem": "model",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-83",
       "owning_modules": ["src/upgrade/shadow_deploy.py", "src/tuning/promotion_gauntlet.py"],
       "verification": [
+        {
+          "test": "tests/models/test_research_firewall.py",
+          "test_type": "verification",
+          "note": "The gauntlet is a conjunction with no partial credit, shadow evaluation is a time window a challenger cannot buy its way past, and no tuning or upgrade module imports an executor."
+        },
         { "test": "tests/test_shadow_model_promotion.py", "test_type": "verification" },
         { "test": "tests/test_upgrade_shadow_deploy.py", "test_type": "verification" }
       ],
-      "planned_in": "PR-004",
       "failure_mode": "An experiment becomes the production strategy by accident."
     },
     {
@@ -753,10 +839,16 @@
       "statement": "Model validation uses combinatorial purged cross-validation with an embargo, so adjacent-sample leakage cannot inflate the reported score.",
       "criticality": "high",
       "subsystem": "model",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-90,QE-86",
       "owning_modules": ["src/models/trainer.py"],
-      "planned_in": "PR-004",
+      "verification": [
+        {
+          "test": "tests/models/test_cpcv_purging.py",
+          "test_type": "verification",
+          "note": "Train and test never overlap, the purge gap before and the embargo after every test block are empty, and the fold count is the binomial coefficient rather than a single pass."
+        }
+      ],
       "failure_mode": "A leaky validation split reports skill the strategy does not have."
     },
 

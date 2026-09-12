@@ -61,6 +61,12 @@ _POSITIONAL_SLICE_ALLOWED = {
     ("src/models/trainer.py", "predict_direction"),
     ("src/models/trainer.py", "predict_meta"),
     ("src/tuning/backtest_harness.py", "_predict_direction_batch"),
+    # detect_future_poisoning replaces "the last N bars" with an absurd
+    # future. N is a count of bars by construction -- the caller says how
+    # much future to poison -- so taking them positionally is the operation,
+    # not a shortcut for selecting them by label. There is no name to select
+    # by: the index is an integer millisecond timestamp.
+    ("src/models/leakage.py", "detect_future_poisoning"),
 }
 
 

@@ -121,7 +121,7 @@ empty directory is a claim that something is tested there.
 |---|---|
 | PR-001 | `tests/quality/` |
 | PR-002 | `tests/risk/`, `tests/portfolio/`, `tests/trading/invariants/` |
-| PR-003 | `tests/features/`, `tests/signals/`, `tests/fixtures/market/`, `tests/fixtures/signals/` |
+| PR-003 | `tests/component/`, `tests/features/`, `tests/signals/`, `tests/fixtures/signals/` |
 | PR-004 | `tests/models/`, `tests/validation/`, `tests/fixtures/models/` |
 | PR-005 | `tests/execution/`, `tests/contract/`, `tests/fixtures/exchange/` |
 | PR-006 | `tests/property/`, `tests/fuzz/`, `tests/regression/` |
