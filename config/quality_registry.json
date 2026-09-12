@@ -515,14 +515,17 @@
       "statement": "Activating the kill switch requires an operator role, writes an audit event, is safe to repeat, blocks new entries immediately, and survives restart.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-25",
-      "owning_modules": ["src/risk/strategy_kill_switch.py"],
+      "owning_modules": ["src/risk/strategy_kill_switch.py", "src/execution/mode_persistence.py"],
       "verification": [
         { "test": "tests/test_strategy_kill_switch.py", "test_type": "component" },
-        { "test": "tests/test_strategy_kill_switch_wiring.py", "test_type": "integration" }
+        { "test": "tests/test_strategy_kill_switch_wiring.py", "test_type": "integration" },
+        { "test": "tests/api/test_kill_switch_durability.py", "test_type": "security",
+          "note": "Durability: the halt is persisted atomically and restored at startup; a missing file means a first start, an unreadable one resolves to the most restrictive mode." },
+        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "api",
+          "note": "The halt as an API control: authenticated, authorized by role, and idempotent when repeated." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "The control of last resort is unavailable exactly when it is needed."
     },
     {
@@ -906,14 +909,15 @@
       "statement": "For each (role, endpoint) pair the declared allow/deny outcome is asserted by a test, including the anonymous row.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-19",
       "owning_modules": ["src/api/access_control.py", "src/api/main.py"],
       "verification": [
         { "test": "tests/test_api_role_enforcement.py", "test_type": "api" },
-        { "test": "tests/test_access_control.py", "test_type": "security" }
+        { "test": "tests/test_access_control.py", "test_type": "security" },
+        { "test": "tests/authorization/test_authorization_matrix.py", "test_type": "security",
+          "note": "Every (role, endpoint) cell asserted, including the anonymous row and the escalation direction." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "A readonly token places a trade."
     },
     {
@@ -923,10 +927,13 @@
       "statement": "A caller cannot read or modify another principal's resource by substituting an identifier.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-20",
-      "owning_modules": ["src/api/access_control.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/access_control.py", "src/api/object_refs.py"],
+      "verification": [
+        { "test": "tests/authorization/test_object_references.py", "test_type": "security",
+          "note": "Identifiers are validated before any lookup, and every negative outcome returns one indistinguishable body." }
+      ],
       "failure_mode": "One authenticated user reads or cancels another's orders."
     },
     {
@@ -936,10 +943,13 @@
       "statement": "SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payloads are refused wherever input reaches a database, filesystem, subprocess, external API or log.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-21",
       "owning_modules": ["src/api/main.py", "src/api/middleware.py"],
-      "planned_in": "PR-007",
+      "verification": [
+        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "security",
+          "note": "Injection payloads refused at the parsers, the outbound surface and the header boundary." }
+      ],
       "failure_mode": "An attacker reads or rewrites the trading database."
     },
     {
@@ -949,10 +959,13 @@
       "statement": "Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-22",
-      "owning_modules": ["src/intelligence/client.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/intelligence/client.py", "src/api/ssrf.py"],
+      "verification": [
+        { "test": "tests/api/test_ssrf_protection.py", "test_type": "security",
+          "note": "Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client." }
+      ],
       "failure_mode": "The bot becomes the attacker's proxy into the private network and the metadata service."
     },
     {
@@ -962,13 +975,16 @@
       "statement": "An established connection confers no trust: every message is authenticated, schema-validated, size-bounded, rate-limited and replay-checked.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-23",
-      "owning_modules": ["src/api/main.py", "src/data/orderbook_stream.py"],
+      "owning_modules": ["src/api/main.py", "src/data/orderbook_stream.py", "src/api/ws_guard.py"],
       "verification": [
-        { "test": "tests/test_ws_auth_query_param.py", "test_type": "security" }
+        { "test": "tests/test_ws_auth_query_param.py", "test_type": "security" },
+        { "test": "tests/api/test_websocket_frame_guard.py", "test_type": "security",
+          "note": "Every inbound frame is size-bounded, schema-validated, freshness-checked, rate-limited and replay-checked, in that order, with one guard per connection." },
+        { "test": "tests/authentication/test_api_authentication.py", "test_type": "security",
+          "note": "The upgrade itself is authenticated before any state is touched." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "A single authenticated socket becomes an unauthenticated command channel."
     },
     {
@@ -978,13 +994,14 @@
       "statement": "Login, authentication, trade endpoints, sensitive mutations, WebSocket connections and expensive queries are rate-limited, and the limits are tested under burst and sustained load.",
       "criticality": "high",
       "subsystem": "api",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-24",
       "owning_modules": ["src/api/middleware.py"],
       "verification": [
-        { "test": "tests/test_selftest_rate_limit.py", "test_type": "api" }
+        { "test": "tests/test_selftest_rate_limit.py", "test_type": "api" },
+        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "api",
+          "note": "Rate limiting on the authentication, trading and diagnostic endpoints, keyed per client rather than globally." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "An attacker with a valid token issues thousands of orders before anything notices."
     },
     {
@@ -994,10 +1011,13 @@
       "statement": "Responses carry the declared security headers, and a test fails if one is removed.",
       "criticality": "medium",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-18",
-      "owning_modules": ["src/api/middleware.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/middleware.py", "src/api/security_headers.py"],
+      "verification": [
+        { "test": "tests/api/test_security_headers.py", "test_type": "security",
+          "note": "Each declared header is applied, HSTS only over TLS, and the middleware sits outermost so an error response still carries them." }
+      ],
       "failure_mode": "A browser-side weakness that the headers would have closed."
     },
     {
@@ -1007,10 +1027,13 @@
       "statement": "If authentication, authorization, rate limiting or logging is unavailable, the trading endpoints refuse rather than degrade to open.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-55",
-      "owning_modules": ["src/api/auth.py", "src/api/middleware.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/auth.py", "src/api/middleware.py", "src/api/fail_closed.py"],
+      "verification": [
+        { "test": "tests/api/test_fail_closed_controls.py", "test_type": "security",
+          "note": "A control that never reported counts as degraded, any single degradation closes the trading endpoints, and the read-only endpoints stay open by design." }
+      ],
       "failure_mode": "An outage in the auth dependency turns the trade endpoint anonymous.",
       "depends_on": ["GOV-004"]
     },
@@ -1021,10 +1044,13 @@
       "statement": "No error path returns a credential, token, stack trace or internal hostname to a caller.",
       "criticality": "high",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-18,QE-17",
-      "owning_modules": ["src/api/main.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/main.py", "src/api/error_hygiene.py"],
+      "verification": [
+        { "test": "tests/api/test_error_hygiene.py", "test_type": "security",
+          "note": "Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive." }
+      ],
       "failure_mode": "A 500 hands the attacker the next step.",
       "depends_on": ["SECR-001"]
     },

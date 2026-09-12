@@ -57,8 +57,23 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
+from src.api.error_hygiene import install_error_handlers
+from src.api.fail_closed import (
+    CONTROL_HEALTH,
+    UNAVAILABLE_DETAIL,
+    SecurityControlUnavailable,
+    mark_all_healthy,
+)
 from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
+from src.api.object_refs import (
+    NOT_FOUND_DETAIL,
+    ObjectRefError,
+    not_found_response,
+    validate_object_id,
+)
+from src.api.security_headers import SecurityHeadersMiddleware
+from src.api.ws_guard import WSFrameError, WSFrameGuard
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
 from src.data.fetcher import open_fetcher
 from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
@@ -67,6 +82,7 @@ from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
+from src.execution.mode_persistence import load_execution_mode, save_execution_mode
 from src.execution.unified_ledger import get_unified_ledger
 from src.logging_setup import configure_logging
 from src.risk.strategy_kill_switch import (
@@ -302,6 +318,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "api.fetcher_close_failed_on_startup_error", error=str(close_exc), exc_info=True
                 )
             raise
+        # API-008: the security controls are declared up only here, after
+        # startup has actually got past building them. Before this line the
+        # registry is empty and every trading endpoint refuses -- which is
+        # the correct answer during a partial start, not a bootstrap wart.
+        mark_all_healthy()
+
+        # EXEC-005: restore a halt an operator left in place before this
+        # process existed. Read after startup rather than at import so a
+        # corrupt file closes trading on a running server instead of
+        # preventing it from starting at all.
+        restored = load_execution_mode(await runtime_config.get_execution_mode())
+        if restored is not await runtime_config.get_execution_mode():
+            await runtime_config.set_execution_mode(restored)
+            log.warning("api.execution_mode_restored", mode=restored.value)
+
         _state.ready = True  # NEW-001: mark ready only after full startup
 
         # crypto-intel-v6: start IntelligenceAdapter when INTEL_ENABLED=true
@@ -368,6 +399,11 @@ app = FastAPI(
 
 cfg = get_settings()
 
+# API-007. Added before CORS so it is the *outermost* middleware and therefore
+# the last to touch the response: a header set here survives whatever the
+# inner layers did, including an error response CORS generated on its own.
+app.add_middleware(SecurityHeadersMiddleware)
+
 # SCAN3-012: CORS validation moved inside lifespan() — no longer runs at import time.
 app.add_middleware(
     CORSMiddleware,
@@ -377,6 +413,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["x-api-key", "content-type"],
 )
+
+# API-009. Registered on the app rather than wrapped around each endpoint:
+# the leaks worth worrying about come from the paths nobody wrote a handler
+# for, so the interception has to be the framework's last resort, not ours.
+install_error_handlers(app, log)
 
 # ---------------------------------------------------------------------------
 # Auth dependency — sole authentication mechanism for all endpoints
@@ -428,6 +469,21 @@ def requires(permission: Permission) -> Callable[..., None]:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     return _dependency
+
+
+def require_healthy_security_controls() -> None:
+    """
+    API-008 — refuse a trading operation unless every control is known good.
+
+    503, not 403: the caller did nothing wrong and the condition is expected
+    to clear, so the correct semantics are "unavailable, retry" rather than
+    "denied, don't bother". The detail names no control (see fail_closed).
+    """
+    try:
+        CONTROL_HEALTH.assert_trading_allowed()
+    except SecurityControlUnavailable as exc:
+        log.error("api.security_control_degraded", degraded=sorted(c.value for c in exc.degraded))
+        raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL) from exc
 
 
 def require_ready() -> None:
@@ -921,6 +977,7 @@ async def approvals() -> dict[str, Any]:
     "/approvals/{request_id}/resolve",
     dependencies=[
         Depends(requires(Permission.APPROVE_TRADE)),
+        Depends(require_healthy_security_controls),
         Depends(require_ready),
     ],
     responses={
@@ -977,7 +1034,10 @@ async def resolve_approval(
 
 @app.post(
     "/execution-mode",
-    dependencies=[Depends(requires(Permission.CHANGE_EXECUTION_MODE))],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_healthy_security_controls),
+    ],
     responses={
         400: {"description": "Invalid execution mode"},
         401: {"description": "Invalid operator secret"},
@@ -1022,6 +1082,13 @@ async def set_execution_mode(body: SetExecutionModeRequest) -> dict[str, Any]:
     old_mode = (await runtime_config.get_execution_mode()).value
     await runtime_config.set_execution_mode(new_mode)  # SCAN2-015: async — no event loop block
 
+    # EXEC-005: durability. Persisted *before* the audit write, so the only
+    # inconsistent window is "halted but unaudited" rather than "audited but
+    # trading". A failed write raises and the endpoint 500s -- an operator
+    # who is told the halt failed retries; one who is told it succeeded and
+    # finds the bot trading after a restart has no reason to.
+    save_execution_mode(new_mode)
+
     await _state.storage.insert_audit_event(
         event_type="execution_mode_change",
         operator=body.operator,
@@ -1054,6 +1121,7 @@ async def get_risk_controls() -> dict[str, Any]:
     "/risk-controls",
     dependencies=[
         Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_healthy_security_controls),
         Depends(require_ready),
     ],
     responses={
@@ -1338,6 +1406,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     heartbeat = cfg.api.ws_heartbeat_s
     log.info("api.ws_connected", client=str(ws.client))
 
+    # API-005: the socket is push-only, so anything arriving on it is
+    # unsolicited. Reading it is not optional -- an unread receive buffer is
+    # a memory sink a client controls, and never reading also means a client
+    # that starts sending commands after someone adds a handler would have
+    # been trusted by default. Every frame goes through the guard.
+    reader = asyncio.create_task(_guarded_ws_reader(ws))
+
     try:
         while True:
             await asyncio.sleep(heartbeat)
@@ -1380,8 +1455,42 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     except Exception as exc:
         log.error("api.ws_error", error=str(exc), exc_info=True)
     finally:
+        reader.cancel()
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
+
+
+async def _guarded_ws_reader(ws: WebSocket) -> None:
+    """
+    Drain and validate inbound frames for one connection (API-005).
+
+    One guard per socket, created here so it cannot be shared: a shared
+    budget lets one client exhaust another's, and shared nonces make two
+    honest clients collide.
+
+    A violation closes the connection rather than replying with an error.
+    Replying tells a prober which check it tripped, and a client sending
+    frames a push-only endpoint never asked for has already demonstrated it
+    is not the client this endpoint is for.
+    """
+    guard = WSFrameGuard()
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                guard.check(raw)
+            except WSFrameError as exc:
+                log.warning("api.ws_frame_rejected", reason=exc.reason, code=exc.close_code)
+                await ws.close(code=exc.close_code)
+                return
+            # No inbound command exists yet. A frame that passes every check
+            # is still not actionable, and silently ignoring it is correct
+            # until a handler is deliberately added above.
+            log.info("api.ws_frame_accepted_no_handler")
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        return
+    except Exception as exc:  # pragma: no cover - transport-level failures
+        log.warning("api.ws_reader_error", error=type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -1677,6 +1786,16 @@ async def get_order_status(
     # _ORDER_FSM_REGISTRY_MAX_SIZE in live.py) so this endpoint can actually
     # serve real reconciliation data instead of always falling through to
     # the "not available" branch below.
+    # API-002: validate the identifier before it reaches the registry lookup,
+    # and answer a malformed one exactly as an unknown one is answered. The
+    # registry is a dict keyed by exchange order id; an identifier allowed to
+    # carry separators or a null byte is one refactor away from being a path.
+    try:
+        validate_object_id(order_id)
+    except ObjectRefError as exc:
+        log.warning("api.order_status_bad_identifier", reason=exc.reason)
+        return not_found_response()
+
     if _state.orchestrator is None:
         return {"error": "Orchestrator not initialised."}
     executor = cast(AbstractExecutor, _state.orchestrator._executor)
@@ -1696,14 +1815,11 @@ async def get_order_status(
         )
         return {"error": "Failed to look up order status."}
     if state is None:
-        return {
-            "error": (
-                "Order not found in the recent-order registry -- it may "
-                "predate this process's startup, have aged out of the "
-                "bounded recent-order registry, or never have been "
-                "placed by this server."
-            )
-        }
+        # API-002: one body for "aged out", "predates this process" and
+        # "never existed". The distinction was useful to an operator and is
+        # exactly the oracle an enumerator wants, so it lives in the log.
+        log.info("api.order_status_not_found")
+        return not_found_response()
     return state.to_dict()
 
 
@@ -1993,6 +2109,7 @@ async def get_strategy_allocation() -> dict[str, Any]:
     tags=["monitoring"],
     dependencies=[
         Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_healthy_security_controls),
         Depends(require_ready),
     ],
     responses={
@@ -2021,11 +2138,20 @@ async def re_enable_strategy(
     )
     _verify_operator_secret(body.operator_secret, body.operator, "re_enable_strategy")
 
+    # API-002: the identifier is caller-supplied and was reaching both a
+    # registry lookup and the 404 body. Validated before the lookup, and the
+    # 404 no longer quotes it -- a message that echoes its input is a
+    # reflection point, and one that distinguishes "unregistered" from
+    # "malformed" is an enumeration oracle.
+    try:
+        validate_object_id(strategy_id)
+    except ObjectRefError as exc:
+        log.warning("api.re_enable_bad_identifier", reason=exc.reason)
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL) from exc
+
     manager = get_strategy_kill_switch_manager()
     if not manager.is_registered(strategy_id):
-        raise HTTPException(
-            status_code=404, detail=f"No kill switch registered for {strategy_id!r}."
-        )
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
 
     try:
         manager.re_enable(strategy_id, force=body.force)
