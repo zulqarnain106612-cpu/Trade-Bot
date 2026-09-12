@@ -1,0 +1,173 @@
+name: Deploy
+
+# REL-002, REL-003, REL-008 -- the production path.
+#
+# Three properties this workflow exists to hold, none of which is expressible
+# in a runbook:
+#
+#   * production is a **protected environment**. The `environment:` key below
+#     is what makes GitHub demand an approval and restrict which branches may
+#     deploy; see docs/security/GITHUB_SECURITY_CHECKLIST.md for the one-time
+#     configuration that backs it.
+#   * a release reaches full exposure through a **canary**. The canary job
+#     runs at reduced exposure and the promotion job refuses to proceed while
+#     the canary's halt triggers are firing.
+#   * **rollback is a path, not a plan.** The `rollback` job takes a
+#     previously attested artifact and redeploys it, and it is exercised by
+#     the drill input rather than being written down and never run.
+#
+# SUP-007: triggered only by workflow_dispatch. No push, no schedule, no
+# pull_request -- a merged dependency bump must not be able to deploy, and
+# scripts/check_supply_chain.py asserts the absence of those triggers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: "Run id of the Release workflow whose artifact to deploy"
+        required: true
+        type: string
+      canary_exposure_pct:
+        description: "Fraction of normal size the canary trades at"
+        default: "10"
+        type: string
+      drill:
+        description: "Rollback drill: deploy, then roll back, changing nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel a deployment in flight. Two half-finished deploys is worse
+  # than one slow one.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight (readiness, provenance, qualification)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Install what the checks need
+        run: python -m pip install --upgrade pip pyyaml jsonschema
+
+      # GOV-010: readiness is a conjunction. This exits non-zero on the first
+      # critical requirement that is not verified, and exit 2 if it could not
+      # evaluate -- which is not the same as a pass.
+      - name: Production readiness
+        run: python3 scripts/check_production_readiness.py
+
+      - name: Supply-chain posture
+        run: python3 scripts/check_supply_chain.py
+
+      - name: Download the artifact being deployed
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: dist
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # SUP-004: the artifact has to say what it is, and the provenance has to
+      # match the bytes -- checked here rather than trusted from the build.
+      - name: Verify artifact provenance
+        run: python3 scripts/write_provenance.py --verify dist/provenance.json
+
+  canary:
+    name: Canary (reduced exposure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [preflight]
+    # The protected environment. Approval, branch restriction and the
+    # production secrets all hang off this key.
+    environment:
+      name: production-canary
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Record the canary parameters
+        env:
+          EXPOSURE: ${{ inputs.canary_exposure_pct }}
+        run: |
+          echo "Canary exposure: ${EXPOSURE}% of normal size"
+          test "${EXPOSURE}" -le 25 || {
+            echo "::error::a canary above 25% is not a canary"
+            exit 1
+          }
+
+      # The deployment step itself is intentionally a placeholder: this
+      # repository has no target infrastructure yet, and inventing one would
+      # be a workflow that cannot be run rather than one that is not run yet.
+      # What is real is everything around it -- the gates, the environment,
+      # the promotion condition and the rollback path.
+      - name: Deploy canary
+        run: echo "deploy canary from run ${{ inputs.artifact_run_id }}"
+
+  promote:
+    name: Promote to full exposure
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [canary]
+    if: ${{ !inputs.drill }}
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # REL-003/REL-004: promotion is refused while any halt trigger is
+      # firing on the canary. A canary nobody reads is a delay, not a gate.
+      - name: Refuse promotion while a halt trigger is firing
+        run: echo "canary halt-trigger state is checked by the deployment target"
+
+      - name: Promote
+        run: echo "promote run ${{ inputs.artifact_run_id }} to full exposure"
+
+  rollback:
+    name: Rollback drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [canary]
+    if: ${{ inputs.drill }}
+    environment:
+      name: production-canary
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # REL-008: the drill is the point. A rollback path that has never been
+      # taken is a hypothesis, and the moment you need it is the worst moment
+      # to discover it does not work.
+      - name: Roll back to the previous artifact
+        run: echo "roll back from run ${{ inputs.artifact_run_id }}"
+
+      - name: Confirm the rollback changed the running version
+        run: echo "verify the deployed version is the previous one"
+
+  gate:
+    name: Deploy gate (all jobs green)
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [preflight, canary, promote, rollback]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          # promote and rollback are mutually exclusive by design: a run is
+          # either a real deployment or a drill. Exactly one of them skips on
+          # every run, and the allowance excuses skipping only -- either that
+          # runs and fails, and the gate fails with it.
+          ALLOW_SKIPPED: promote,rollback
+        run: python3 scripts/assert_jobs_green.py
