@@ -1503,10 +1503,13 @@
       "statement": "Deployment to production requires environment approval, a trusted branch, a trusted workflow and short-lived credentials; pushing to main is not sufficient.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-62,QE-88",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-012",
+      "owning_modules": [".github/workflows", ".github/workflows/deploy.yml"],
+      "verification": [
+        { "test": "tests/production/test_production_gate.py", "test_type": "security",
+          "note": "Every deploying job names a protected environment, promote uses the stricter one, the workflow is dispatch-only, and its token is read-only by default." }
+      ],
       "failure_mode": "A merge becomes a deployment with nobody deciding."
     },
     {
@@ -1516,10 +1519,13 @@
       "statement": "A new release trades at a reduced exposure with monitoring before exposure is increased; there is no paper-to-100% path.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-63",
-      "owning_modules": ["src/risk/gates.py"],
-      "planned_in": "PR-012",
+      "owning_modules": ["src/risk/gates.py", ".github/workflows/deploy.yml"],
+      "verification": [
+        { "test": "tests/production/test_production_gate.py", "test_type": "e2e",
+          "note": "Promotion depends on the canary, the canary exposure is bounded at 25 percent, and promotion is skipped during a rollback drill." }
+      ],
       "failure_mode": "A regression meets the whole account at once."
     },
     {
@@ -1529,13 +1535,14 @@
       "statement": "Unexpected position, reconciliation failure, data staleness, risk-engine failure, authentication anomaly, abnormal order rate, exchange errors, crash loop, model drift and unexpected configuration change each raise an alert, a safe halt and an audit record.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-64",
-      "owning_modules": ["src/diagnostics/runtime_monitor.py", "src/risk/strategy_kill_switch.py"],
+      "owning_modules": ["src/diagnostics/runtime_monitor.py", "src/risk/strategy_kill_switch.py", "src/diagnostics/halt_triggers.py"],
       "verification": [
-        { "test": "tests/test_runtime_monitor_coverage.py", "test_type": "component" }
+        { "test": "tests/test_runtime_monitor_coverage.py", "test_type": "component" },
+        { "test": "tests/production/test_halt_triggers.py", "test_type": "resilience",
+          "note": "Each condition fires alone, a compound incident takes the strictest severity rather than the first match, and a trigger whose state is missing or malformed fires instead of passing." }
       ],
-      "planned_in": "PR-012",
       "failure_mode": "A human has to notice a problem that a rule could have caught in a second."
     },
     {
@@ -1545,10 +1552,13 @@
       "statement": "Configuration, secrets, TLS, database, exchange authentication, market-data freshness, model load, risk engine, audit, kill switch, reconciliation and qualification are all checked at startup; any failure means LIVE BLOCKED.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-75",
-      "owning_modules": ["src/api/main.py", "src/diagnostics/runtime_monitor.py"],
-      "planned_in": "PR-012",
+      "owning_modules": ["src/api/main.py", "src/diagnostics/runtime_monitor.py", "src/diagnostics/startup_selftest.py"],
+      "verification": [
+        { "test": "tests/production/test_startup_selftest.py", "test_type": "verification",
+          "note": "Debug left on, a testnet endpoint, a cleartext endpoint, a percentage where a fraction was meant, a missing secret and an unreachable kill switch each block live; an unevaluated check blocks and stays distinct from a failed one." }
+      ],
       "failure_mode": "The bot starts trading with a component that was never actually up."
     },
     {
@@ -1558,14 +1568,15 @@
       "statement": "Unexpected environment variables, risk limits, exchanges, endpoints, debug mode or authentication configuration are detected against a versioned baseline, and DEBUG=true is refused in production.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-74",
-      "owning_modules": ["src/config.py"],
+      "owning_modules": ["src/config.py", "src/diagnostics/startup_selftest.py"],
       "verification": [
         { "test": "tests/test_unenforced_config_knobs.py", "test_type": "verification" },
-        { "test": "tests/test_env_example_documents_required_settings.py", "test_type": "verification" }
+        { "test": "tests/test_env_example_documents_required_settings.py", "test_type": "verification" },
+        { "test": "tests/production/test_startup_selftest.py", "test_type": "verification",
+          "note": "Drift is detected in both directions -- an added key is an unreviewed setting, a removed key is a deleted control -- and debug switching on shows as drift." }
       ],
-      "planned_in": "PR-012",
       "failure_mode": "A debugging change made at 2am stays in production for a month."
     },
     {
@@ -1575,10 +1586,13 @@
       "statement": "Order frequency, symbol set, size, direction and time-of-day are profiled, and a sharp deviation raises a security alert and halts trading even when the credentials are valid.",
       "criticality": "critical",
       "subsystem": "release",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-66",
-      "owning_modules": ["src/diagnostics/runtime_monitor.py"],
-      "planned_in": "PR-012",
+      "owning_modules": ["src/diagnostics/runtime_monitor.py", "src/diagnostics/behavioural_guard.py"],
+      "verification": [
+        { "test": "tests/production/test_behavioural_guard.py", "test_type": "security",
+          "note": "Unknown symbol, off-hours activity, bursts, sub-second intervals, outsized orders and long directional runs all halt, while a normal session does not trip the guard. The profile is declared rather than learned." }
+      ],
       "failure_mode": "A credential thief drains the account using perfectly valid credentials."
     },
     {
@@ -1588,10 +1602,13 @@
       "statement": "The production workflow can return to the previous trusted artifact, and a drill proves it.",
       "criticality": "high",
       "subsystem": "release",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-61",
-      "owning_modules": [".github/workflows"],
-      "planned_in": "PR-012",
+      "owning_modules": [".github/workflows", ".github/workflows/deploy.yml"],
+      "verification": [
+        { "test": "tests/production/test_production_gate.py", "test_type": "recovery",
+          "note": "A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion." }
+      ],
       "failure_mode": "The only way out of a bad deploy is forward."
     },
 
@@ -1753,10 +1770,13 @@
       "statement": "Supply-chain security, artifact provenance, cryptographic controls, continuous threat monitoring, formal traceability, mutation testing, red-team exercise and independent review all apply to the trading-critical path; non-critical utilities may sit lower, explicitly.",
       "criticality": "medium",
       "subsystem": "governance",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-85",
-      "owning_modules": ["docs/quality"],
-      "planned_in": "PR-012",
+      "owning_modules": ["docs/quality", "docs/quality/PRODUCTION_READINESS.md"],
+      "verification": [
+        { "test": "tests/production/test_production_gate.py", "test_type": "verification",
+          "note": "Each claimed Level 5 capability names an artifact that exists on disk: supply chain, provenance, cryptographic controls, threat model, recovery, traceability and the readiness conjunction." }
+      ],
       "failure_mode": "Maturity is claimed globally on the strength of the easiest subsystem."
     },
     {
@@ -1766,10 +1786,13 @@
       "statement": "Production readiness requires every mandatory test, every critical security control, no unresolved critical or high defect, risk invariants, model verification, the regression suite, the recovery test, paper qualification, artifact integrity and production approval -- all of them.",
       "criticality": "critical",
       "subsystem": "governance",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-87",
-      "owning_modules": ["docs/quality"],
-      "planned_in": "PR-012",
+      "owning_modules": ["docs/quality", "scripts/check_production_readiness.py", "docs/quality/PRODUCTION_READINESS.md"],
+      "verification": [
+        { "test": "tests/production/test_production_gate.py", "test_type": "verification",
+          "note": "Readiness reports blockers rather than a percentage, every critical entry must be verified, a claimed test that is missing is a blocker, and an evaluation that cannot run exits 2 rather than being folded into a failure." }
+      ],
       "failure_mode": "A single green percentage is mistaken for readiness."
     }
   ]
