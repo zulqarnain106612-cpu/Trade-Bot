@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "SECR-010 -- the declared security posture of every exchange API key this",
+    "bot holds. Loaded by src/security/exchange_key_posture.py and asserted at",
+    "startup; src/api tests fail if a forbidden capability is declared here.",
+    "",
+    "This file is a declaration, not a capability check. Nothing in this",
+    "process can prove the key on the exchange's side matches what is written",
+    "here. The operational verification -- attempt a withdrawal, confirm the",
+    "venue refuses -- is a documented human step in",
+    "docs/security/KEY_MANAGEMENT.md, repeated on every key rotation.",
+    "",
+    "declared_on is the date the posture was last verified against the",
+    "exchange's key page, not the date this file was edited."
+  ],
+  "binance": {
+    "capabilities": ["read", "trade"],
+    "ip_allowlisted": true,
+    "withdrawal_whitelist_only": true,
+    "declared_by": "operator",
+    "declared_on": "2026-09-12"
+  }
+}

@@ -54,6 +54,7 @@ from src.execution.order_manager import OrderManager
 from src.execution.order_throttler import OrderThrottler
 from src.risk.gates import DrawdownTracker
 from src.risk.kelly import KellyResult
+from src.security.exchange_key_posture import assert_declared_posture_is_safe
 
 # Bounded in-memory registry of recent order FSM states, for the
 # GET /orders/{order_id}/status reconciliation endpoint. This is
@@ -196,6 +197,12 @@ class LiveExecutor(AbstractExecutor):
                 "LiveExecutor instantiated without TRADING_MODE=live. "
                 "Set TRADING_MODE=live in .env to enable live trading."
             )
+        # SECR-010: refuse to start against a key whose posture has not been
+        # declared, or whose declaration claims withdrawal. Checked here
+        # rather than at import: this constructor is the narrowest point every
+        # live-money path passes through, and an undeclared posture must stop
+        # trading rather than merely warn.
+        assert_declared_posture_is_safe()
         self._storage = storage
         self._fetcher = fetcher
         self._cfg = cfg

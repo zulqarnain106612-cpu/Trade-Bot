@@ -73,6 +73,29 @@ a plaintext database column, or workflow YAML.
 The application must not possess withdrawal capability. This is verified at the
 exchange console, recorded as `SECR-010`, and re-checked at every rotation.
 
+### How that claim is held (PR-008)
+
+The posture of every key is declared in `config/exchange_key_posture.json` and
+asserted by `src/security/exchange_key_posture.py`. `LiveExecutor.__init__`
+calls `assert_declared_posture_is_safe()` before it builds any state, so a
+deployment with no declaration, a malformed one, or one claiming `withdraw` or
+`transfer` cannot place an order at all.
+
+Be clear about what that does and does not prove. It proves a human declared
+a posture and a reviewer can see it in a diff. It does **not** prove the key
+on the venue's side matches the declaration — that is the exchange's state,
+unreachable from this process. The declaration is therefore paired with one
+manual step, which is the actual verification:
+
+1. With the production key, call the venue's withdrawal endpoint for a
+   trivial amount to an address that is *not* on the withdrawal whitelist.
+2. Confirm the venue refuses, and record the refusal in the rotation log.
+3. Update `declared_on` in the declaration file to the date you did it.
+
+`declared_on` is the date of that check, not the date the file was edited. A
+stale `declared_on` next to a recent key rotation is the signal that step 1
+was skipped.
+
 ## 5. Rotation
 
 A rotation policy has six cases, not one:
@@ -116,6 +139,28 @@ cannot be undone.
 environment, on a schedule, and record the result. A drill that cannot be run
 without a production outage is a finding in itself.
 
+### What PR-008 made mechanical
+
+`src/security/key_lifecycle.py` turns two of the properties above from
+conventions into code:
+
+- **Separation** is a property of the derivation, not of who edits which
+  `.env`. The environment, exchange and generation are all bound into the
+  derived material, so copying the production seed into a developer's shell
+  still cannot produce the production key. `assert_usable_in()` is called at
+  the point of use, which is where a key handed across a boundary becomes
+  visible.
+- **Rotation** is a generation counter plus a reason, and the reason decides
+  the handover. `previous_generation_still_valid()` returns False for
+  `COMPROMISE` and `DEPARTURE` — the two cases where somebody other than the
+  operator knows the old key — and True for `SCHEDULED` and `SERVER_REBUILD`,
+  so a routine rotation is not an outage. A rotation that is always an outage
+  is a rotation that stops happening, which is the failure this distinction
+  exists to prevent.
+
+The manual steps above still stand; what the module removes is the chance of
+getting the *overlap* decision wrong under pressure.
+
 ## 7. Cryptographic hygiene around keys
 
 - Unpredictable values come from the OS CSPRNG, never `random` (`SECR-007`).
@@ -141,6 +186,22 @@ secret-manager backups
 For the audit archive specifically, consider authenticated or WORM-style
 external storage rather than relying solely on the local hash chain
 (`SECR-004`): a hash chain proves tampering, it does not prevent deletion.
+
+### The restore path is the part that must be exercised
+
+`src/security/at_rest.py` provides AES-256-GCM over a versioned envelope, and
+`round_trip_check()` exists to be called on an ordinary day rather than on the
+worst one. An encryption control that is never decrypted is a claim, not a
+control: the write path runs constantly and the read path runs once, under
+time pressure, when a database is already gone.
+
+Use the associated-data parameter for whatever names the blob — backup name,
+table, date. It is authenticated but not encrypted, and it is what stops one
+blob being silently swapped for another encrypted under the same key.
+
+Every decryption failure raises one exception type on purpose. Four
+distinguishable failures would invite a loop that tries keys until one stops
+raising, which is both an oracle and the shape of an unauthorised restore.
 
 ## 9. Compromise response
 

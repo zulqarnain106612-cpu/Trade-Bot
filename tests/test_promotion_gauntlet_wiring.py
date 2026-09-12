@@ -32,7 +32,7 @@ def _baseline() -> PerformanceBaseline:
         train_accuracy=0.6,
         oos_accuracy=0.55,
         train_win_rate=0.55,
-        max_drawdown_pct=10.0,
+        max_drawdown_pct=0.1,
         trades_in_backtest=600,
     )
 
