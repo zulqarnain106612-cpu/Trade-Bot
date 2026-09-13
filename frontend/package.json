@@ -30,7 +30,7 @@
     "postcss": "^8.5.28",
     "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3",
-    "vite": "^8.2.1",
+    "vite": "^8.3.0",
     "wait-on": "^9.1.0"
   },
   "build": {
