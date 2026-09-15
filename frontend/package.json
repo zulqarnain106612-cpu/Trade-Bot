@@ -14,8 +14,8 @@
     "desktop:install": "bash scripts/install-desktop-shortcut.sh"
   },
   "dependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "recharts": "^3.10.1"
   },
   "engines": {
