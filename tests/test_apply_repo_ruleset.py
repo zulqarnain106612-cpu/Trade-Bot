@@ -227,3 +227,46 @@ class TestRequiredContexts:
             ]
         }
         assert mod.required_contexts(payload) == ["A", "B"]
+
+
+def test_required_gate_workflows_trigger_on_every_pull_request() -> None:
+    """A required check must run on every pull request, or none of them merge.
+
+    GitHub treats a required check that never reports as *pending*, not as
+    absent: the pull request is blocked forever with no failing job to fix.
+    So a workflow whose gate is named in `required_status_checks` may not
+    path-scope its `pull_request:` trigger.
+
+    This is not hypothetical. `workflow-lint.yml` filtered its pull-request
+    trigger to `.github/workflows/**`, which made `Workflow lint gate (all
+    jobs green)` -- a required context -- unreachable for every pull request
+    that changed only source, and those pull requests sat blocked.
+    """
+    import re
+
+    ruleset = json.loads(RULESET.read_text())
+    required = {
+        check["context"]
+        for rule in ruleset["rules"]
+        if rule["type"] == "required_status_checks"
+        for check in rule["parameters"]["required_status_checks"]
+    }
+
+    workflows = PROJECT_ROOT / ".github" / "workflows"
+    unreachable = []
+    for path in sorted(workflows.glob("*.yml")):
+        text = path.read_text()
+        gates = {
+            m.group(1).strip() for m in re.finditer(r"name:\s*(.*gate \(all jobs green\))", text)
+        }
+        if not gates & required:
+            continue
+        # The `pull_request:` block runs until the next key at the same indent.
+        block = re.search(r"^  pull_request:\n((?:    .*\n|\n)*)", text, re.MULTILINE)
+        if block is not None and re.search(r"^    paths(-ignore)?:", block.group(1), re.MULTILINE):
+            unreachable.append(path.name)
+
+    assert not unreachable, (
+        "these workflows own a required gate but path-scope their pull_request "
+        f"trigger, so the gate never reports and every unrelated PR is blocked: {unreachable}"
+    )
