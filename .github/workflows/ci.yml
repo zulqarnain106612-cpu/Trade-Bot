@@ -78,6 +78,14 @@ jobs:
         # drift from it. Both are cheap to check and expensive to discover late.
         run: python3 scripts/generate_math_docs.py --check
 
+      - name: Quality registry is valid and its traceability document is in sync
+        # Same contract as the math registry, applied to requirements: an entry
+        # may not claim a test that is not on disk, and the generated matrix may
+        # not drift from the data it is generated from. Cheap to check, and the
+        # failure it prevents -- a traceability matrix citing a deleted test --
+        # is the kind that is only noticed during an audit.
+        run: python3 scripts/generate_quality_docs.py --check
+
       - name: Lint
         run: ruff check .
 
@@ -126,7 +134,7 @@ jobs:
         # Runs even on gate failure so the annotations land on the PR.
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: arch.sarif
           category: crypto-architect

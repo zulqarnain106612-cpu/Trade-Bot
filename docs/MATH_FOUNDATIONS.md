@@ -196,7 +196,7 @@ Two distinct low-degree polynomials agree on only a vanishing fraction of a larg
 ## Number theory
 
 #### Integer factorisation and RSA
-`prime-factorisation-rsa` — **LOAD-BEARING** · relevance: security · status: planned
+`prime-factorisation-rsa` — **LOAD-BEARING** · relevance: security · status: implemented
 
 RSA security is the difficulty of recovering p and q from n = pq. Still present in exchange API authentication and in certificate chains.
 
@@ -228,7 +228,7 @@ Field primes of the shape 2^k - c admit reduction by shift-and-add instead of di
 - **References:** SEC 2 v2, RFC 7748
 
 #### Baillie-PSW primality testing (Miller-Rabin plus strong Lucas)
-`primality-testing-bpsw` — **LOAD-BEARING** · relevance: security · status: planned
+`primality-testing-bpsw` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The actual gate every generated RSA or DH prime passes. Combines a base-2 strong probable-prime test with a strong Lucas test, whose sequences are the Fibonacci family.
 
@@ -249,7 +249,7 @@ Supplies RSA correctness: m^(ed) = m mod n when ed = 1 mod lambda(n). Without it
 > Euler's totient is written phi(n) and has nothing to do with the golden ratio, also written phi. This symbol collision is a recurring source of the belief that the golden ratio underpins RSA. It does not.
 
 #### Chinese Remainder Theorem
-`chinese-remainder-theorem` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`chinese-remainder-theorem` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 Splits an RSA private operation into two half-size operations modulo p and q, roughly a fourfold speedup.
 
@@ -260,7 +260,7 @@ Splits an RSA private operation into two half-size operations modulo p and q, ro
 - **References:** Boneh-DeMillo-Lipton 1997
 
 #### Quadratic residues, Legendre and Jacobi symbols
-`quadratic-residues` — **LOAD-BEARING** · relevance: security · status: planned
+`quadratic-residues` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Decides whether a square root exists in a prime field, which is what makes a compressed public key decompressible and underpins the Rabin and Goldwasser-Micali constructions.
 
@@ -270,7 +270,7 @@ Decides whether a square root exists in a prime field, which is what makes a com
 - **Owned by:** `src/mathcore/numbertheory/residues.py`
 
 #### Tonelli-Shanks square roots
-`tonelli-shanks` — **LOAD-BEARING** · relevance: analytics · status: planned
+`tonelli-shanks` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Computes the y coordinate from x when decompressing a public key. Executed on every compressed key this project parses.
 
@@ -295,7 +295,7 @@ Bounds and then computes the order of a curve group, which is the number that mu
 - **Depends on:** `elliptic-curves`
 
 #### Pollard rho, baby-step giant-step, Pohlig-Hellman, index calculus
-`generic-dlp-algorithms` — **ATTACK SURFACE** · relevance: security · status: planned
+`generic-dlp-algorithms` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Set the actual security level of a group: square-root generic attacks are why a 256-bit group gives 128-bit security, and Pohlig-Hellman is why the order must be prime.
 
@@ -305,7 +305,7 @@ Set the actual security level of a group: square-root generic attacks are why a 
 - **Owned by:** `src/mathcore/numbertheory/dlp_bounds.py`
 
 #### General Number Field Sieve
-`number-field-sieve` — **ATTACK SURFACE** · relevance: security · status: planned
+`number-field-sieve` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Subexponential L_n[1/3] factorisation, which is the entire reason RSA needs 2048 or 3072 bits where an elliptic curve needs 256.
 
@@ -316,7 +316,7 @@ Subexponential L_n[1/3] factorisation, which is the entire reason RSA needs 2048
 - **References:** NIST SP 800-57 Part 1
 
 #### Continued fractions and Wiener's attack
-`continued-fractions` — **ATTACK SURFACE** · relevance: security · status: planned
+`continued-fractions` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 The convergents of e/n recover a small RSA private exponent directly. Also the source of the claim that the golden ratio is the most irrational number, its expansion being all ones.
 
@@ -336,7 +336,7 @@ Primes chosen so that a large power of two divides p-1, giving the roots of unit
 > The primes are selected so that a large power of two divides p-1, which is an NTT requirement; the dependency runs from the transform to the prime, not the other way, so ntt depends_on this entry and not the reverse.
 
 #### Lucas sequences
-`lucas-sequences` — **LOAD-BEARING** · relevance: security · status: planned
+`lucas-sequences` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The second half of the Baillie-PSW primality test. This is the one place where a Fibonacci-family object does real cryptographic work.
 
@@ -414,7 +414,7 @@ Schoenhage-Strassen and its successors make very large modular arithmetic practi
 ## Probability and information theory
 
 #### Birthday bound
-`birthday-bound` — **LOAD-BEARING** · relevance: security · status: planned
+`birthday-bound` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Sets collision resistance at half the digest length and governs how often a nonce or IV may be reused before collision becomes likely.
 
@@ -424,7 +424,7 @@ Sets collision resistance at half the digest length and governs how often a nonc
 - **References:** NIST SP 800-107
 
 #### Shannon entropy and min-entropy
-`shannon-entropy` — **LOAD-BEARING** · relevance: security · status: planned
+`shannon-entropy` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The measure that decides whether a seed, a nonce or a key is actually unpredictable. Min-entropy, not Shannon entropy, is the correct measure for key material because the adversary guesses the most likely value first.
 
@@ -434,7 +434,7 @@ The measure that decides whether a seed, a nonce or a key is actually unpredicta
 - **References:** NIST SP 800-90B
 
 #### Poisson block arrival
-`poisson-block-arrival` — **LOAD-BEARING** · relevance: strategy · status: planned
+`poisson-block-arrival` — **LOAD-BEARING** · relevance: strategy · status: implemented
 
 Proof-of-work block discovery is a memoryless process, so inter-arrival times are exponential. Every confirmation-time estimate and every difficulty-adjustment control loop rests on this.
 
@@ -445,7 +445,7 @@ Proof-of-work block discovery is a memoryless process, so inter-arrival times ar
 - **References:** Nakamoto 2008 section 11
 
 #### Gambler's ruin and double-spend probability
-`gamblers-ruin-doublespend` — **LOAD-BEARING** · relevance: strategy · status: planned
+`gamblers-ruin-doublespend` — **LOAD-BEARING** · relevance: strategy · status: implemented
 
 The random-walk argument that gives the probability an attacker with hash-rate fraction q catches up from z blocks behind. This is the actual mathematics behind 'wait six confirmations'.
 
@@ -456,7 +456,7 @@ The random-walk argument that gives the probability an attacker with hash-rate f
 - **References:** Nakamoto 2008 section 11, Rosenfeld 2014
 
 #### Chernoff and Hoeffding bounds
-`chernoff-committee-bounds` — **LOAD-BEARING** · relevance: analytics · status: planned
+`chernoff-committee-bounds` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Bound the chance that a randomly sampled committee is adversarially controlled, which is what makes sampled-committee consensus safe at all.
 
@@ -465,7 +465,7 @@ Bound the chance that a randomly sampled committee is adversarially controlled, 
 - **References:** Chen-Micali 2019
 
 #### Markov models of mining strategy
-`markov-selfish-mining` — **LOAD-BEARING** · relevance: strategy · status: planned
+`markov-selfish-mining` — **LOAD-BEARING** · relevance: strategy · status: implemented
 
 Determines the hash-rate share above which withholding blocks becomes more profitable than honest mining, and therefore where a chain's incentive assumption stops holding.
 
