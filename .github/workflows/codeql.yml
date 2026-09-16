@@ -87,6 +87,9 @@ jobs:
         with:
           # A human-readable category shown in the Code Scanning UI
           category: "/language:${{ matrix.language }}"
+          # Uploading SARIF on pull_request creates an extra neutral "CodeQL"
+          # check run; keep PR checks strictly green-only and upload on push.
+          upload: ${{ github.event_name != 'pull_request' }}
 
   # ---------------------------------------------------------------------
   # All-green gate.
