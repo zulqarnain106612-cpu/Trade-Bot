@@ -12,6 +12,11 @@ from .binary_field import (
     GCM_POLY,
     BinaryField,
 )
+from .interpolation import (
+    lagrange_interpolate_at,
+    shamir_reconstruct,
+    shamir_split,
+)
 from .ntt import (
     ML_KEM_N,
     ML_KEM_Q,
@@ -49,8 +54,11 @@ __all__ = [
     "as_pseudo_mersenne",
     "base_case_multiply",
     "intt",
+    "lagrange_interpolate_at",
     "negacyclic_convolution",
     "ntt",
     "ntt_multiply",
+    "shamir_reconstruct",
+    "shamir_split",
     "validate_kem_parameters",
 ]
