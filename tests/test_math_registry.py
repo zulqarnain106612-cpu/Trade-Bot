@@ -140,6 +140,41 @@ class TestIntegrity:
             if entry.status == "implemented":
                 assert len(entry.owners) == 1, entry.id
 
+    def test_a_component_module_of_an_implemented_entry_also_exists(self, registry):
+        """A component carries an owner's obligations, not a weaker version."""
+        for entry in registry:
+            if entry.status != "implemented":
+                continue
+            for component in entry.components:
+                assert (PROJECT_ROOT / component.module).exists(), f"{entry.id}: {component.module}"
+
+    def test_components_never_appear_without_an_owner(self, registry):
+        for entry in registry:
+            if entry.components:
+                assert entry.owners, entry.id
+
+    def test_implementing_modules_is_the_owner_plus_the_components(self, registry):
+        for entry in registry:
+            assert entry.implementing_modules == entry.owners + entry.components
+
+    def test_implemented_by_finds_a_component_that_owned_by_does_not(self, registry):
+        """
+        The question "what am I on the hook for if I change this file?" must
+        reach a component module. ``owned_by`` deliberately does not.
+        """
+        component = "src/mathcore/fields/prime_field.py"
+        owned = {e.id for e in registry.owned_by(component)}
+        implements = {e.id for e in registry.implemented_by(component)}
+        # It owns pseudo-mersenne-primes outright, and is one of two component
+        # modules of finite-fields. Only the second query sees the second role.
+        assert "finite-fields" not in owned
+        assert {"finite-fields", "pseudo-mersenne-primes"} <= implements
+
+    def test_the_owner_is_reachable_through_both_queries(self, registry):
+        owner = "src/mathcore/fields/__init__.py"
+        assert [e.id for e in registry.owned_by(owner)] == ["finite-fields"]
+        assert [e.id for e in registry.implemented_by(owner)] == ["finite-fields"]
+
     def test_planned_and_implemented_entries_declare_wiring(self, registry):
         for entry in registry:
             if entry.status in {"implemented", "planned"}:
@@ -288,6 +323,24 @@ class TestSemanticChecksInIsolation:
             wiring=[{"module": "src/mathcore/registry.py", "kind": "owner"}],
         )
         with pytest.raises(RegistryError, match="folklore"):
+            self.check([entry])
+
+    def test_a_component_without_an_owner_is_refused(self):
+        """
+        A component is part of an implementation, not a substitute for one.
+        Without this check an entry could name implementing modules while
+        owning nothing, which reads as implemented and is accountable to no one.
+
+        Checked on a ``planned`` entry deliberately: an implemented one trips
+        the older "no owning module" rule first, so this guard is what closes
+        the same hole one status earlier, before the entry ever claims to be
+        finished.
+        """
+        entry = self.entry(
+            status="planned",
+            wiring=[{"module": "src/mathcore/registry.py", "kind": "component"}],
+        )
+        with pytest.raises(RegistryError, match="component modules but no owner"):
             self.check([entry])
 
 

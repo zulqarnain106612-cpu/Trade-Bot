@@ -151,9 +151,12 @@ def render_entry(entry: RegistryEntry) -> str:
         lines.append(f"- **Depends on:** {deps}\n")
 
     owners = tuple(w.module for w in entry.owners)
+    components = tuple(w.module for w in entry.components)
     consumers = tuple(w.module for w in entry.consumers)
     if owners:
         lines.append(f"- **Owned by:** {', '.join(f'`{m}`' for m in owners)}\n")
+    if components:
+        lines.append(f"- **Implemented by:** {', '.join(f'`{m}`' for m in components)}\n")
     if consumers:
         lines.append(f"- **Consumed by:** {', '.join(f'`{m}`' for m in consumers)}\n")
 
