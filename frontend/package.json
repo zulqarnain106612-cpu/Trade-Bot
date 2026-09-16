@@ -14,8 +14,8 @@
     "desktop:install": "bash scripts/install-desktop-shortcut.sh"
   },
   "dependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "recharts": "^3.10.1"
   },
   "engines": {
@@ -25,7 +25,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^10.0.5",
-    "electron": "^44.1.1",
+    "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
     "postcss": "^8.5.28",
     "sharp": "^0.35.3",
