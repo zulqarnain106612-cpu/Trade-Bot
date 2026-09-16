@@ -220,7 +220,7 @@
         "NTRU"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -774,7 +774,7 @@
         "Regev's LWE reduction"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
