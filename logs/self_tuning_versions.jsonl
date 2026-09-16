@@ -1,0 +1,3 @@
+{"evidence": {}, "is_rollback": false, "param_name": "hmm.entropy_threshold", "promoted_by": "bot", "timestamp": "2026-08-31T15:12:48.519466+00:00", "value": 0.5, "version": 1}
+{"evidence": {}, "is_rollback": false, "param_name": "hmm.entropy_threshold", "promoted_by": "bot", "timestamp": "2026-08-31T15:12:48.522391+00:00", "value": 0.65, "version": 2}
+{"evidence": {"reason": "auto-rollback", "reverted_to_version": 1}, "is_rollback": true, "param_name": "hmm.entropy_threshold", "promoted_by": "watchdog", "timestamp": "2026-08-31T15:12:48.531615+00:00", "value": 0.5, "version": 3}
