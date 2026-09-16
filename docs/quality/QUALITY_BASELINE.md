@@ -47,18 +47,31 @@ Against the levels in `docs/quality/QUALITY_POLICY.md` §10.
 
 | Subsystem | Level today | What is missing for the next level |
 |---|---|---|
+<<<<<<< HEAD
 | Risk | 3 *(PR-002)* | Mutation score (`RISK-006`, PR-006). Boundaries, sizing properties and gate failure-injection are now covered. |
 | Execution | 3 *(PR-005)* | Concurrency and duplicate-response races under real interleaving (`RES-005`, PR-010), and mutation score (`EXEC-007`, PR-006). The exchange contract, the total FSM and idempotency are covered. |
 | Portfolio | 3 *(PR-002)* | Both scalars are now asserted on the notional that reaches the sizer rather than on the number the tracker reports. |
 | Signal | 3 *(PR-003)* | Mutation score (`SIG-003`, PR-006). Golden fixtures and cross-process determinism are now covered. |
 | Model | 3 *(PR-004)* | Lookahead gate, purged-CV assertions, artifact provenance and round-trip, drift demotion and the research firewall are all covered. |
 | Data | 3 *(PR-003)* | Venue precision rules (`DATA-005`, PR-005). Freshness budgets, the clock policy and the money representation are now declared and enforced — and the quality gate is actually wired. |
+=======
+| Risk | 2 → 3 | Boundary suites at every limit, property tests over sizing, failure-injection into the gate stack, mutation score |
+| Execution | 2 → 3 | Exchange-response contract tests, total-FSM proof, concurrency and duplicate-response races |
+| Portfolio | 2 | Correlation and agreement limits are computed; the "breach reduces or refuses" path is not pinned |
+| Signal | 2 | No golden fixtures; determinism is assumed rather than asserted |
+| Model | 2 | No lookahead gate, no purged cross-validation check, no artifact round-trip/reproduce test |
+| Data | 2 | Freshness budgets undeclared, clock policy unwritten, money representation undocumented |
+>>>>>>> origin/main
 | API | 2 | Authorization matrix not exhaustive, no IDOR/injection/SSRF suites, headers untested |
 | Security (crypto/secrets) | 2 | No key-rotation drill, no TLS-failure suite, no CSPRNG assertion, no log-leak provocation suite |
 | Supply chain | 2 | No SBOM, no attestation, no pin/permission assertions, no fork-secret test |
 | Resilience | 1 → 2 | No crash-replay, no restore drill, no declared RTO/RPO, no performance baselines |
 | Release | 1 | No protected environment, no canary, no startup self-test, no behavioural halt |
+<<<<<<< HEAD
 | Governance | 4 *(PR-006)* | Traceability machine-checked, mutation floors declared and run nightly, metrics collected, the no-default-allow rule enforced, and the RCA template pinned. |
+=======
+| Governance | 3 | Traceability now machine-checked; metrics and mutation still missing |
+>>>>>>> origin/main
 
 **Target: Level 5 on the trading-critical path** — risk, execution, signal,
 model, data and the security controls around credentials.
@@ -104,6 +117,7 @@ Stated plainly, because a baseline that omits them is not a baseline.
    and production controls (`REL-002`…`REL-008`, `SUP-004`) describe a
    pipeline that does not exist yet; PR-009 and PR-012 build it and its tests
    together.
+<<<<<<< HEAD
 5. **A control can exist, be tested, and never be called.** `DataQualityGate`
    had its own test file from the day it was written and no module in `src/`
    ever invoked it, so every check ran in the suite and nowhere else. PR-003
@@ -111,6 +125,9 @@ Stated plainly, because a baseline that omits them is not a baseline.
    are separate questions, and the registry's `owning_modules` field is where
    the second one is recorded.
 6. **Environment-side security is out of scope for the repository.** Exchange
+=======
+5. **Environment-side security is out of scope for the repository.** Exchange
+>>>>>>> origin/main
    key restrictions, server hardening, network segmentation and backup
    encryption are recorded as requirements with documented procedures, but the
    repository can only verify the parts that reach code and CI. The split is
