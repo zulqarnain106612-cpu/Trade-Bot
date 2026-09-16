@@ -24,7 +24,7 @@ mlflow>=3.16.0,<4.0                # src/tuning
 evidently>=0.4,<1.0                # src/diagnostics drift
 
 # --- causal / topological ---------------------------------------------------
-dowhy>=0.11,<1.0                   # src/causal
+dowhy>=0.14,<1.0                   # src/causal
 giotto-tda>=0.6,<1.0               # src/features (imports as gtda)
 
 # --- market / chain data ----------------------------------------------------
