@@ -38,6 +38,7 @@ SCENARIOS = [
     ("database killed", {Component.DATABASE}, True),
     ("websocket killed", {Component.ORDER_BOOK_STREAM}, False),
     ("price feed frozen", {Component.PRICE_FEED}, False),
+    ("risk engine down", {Component.RISK_ENGINE}, False),
     ("exchange api unreachable", {Component.EXCHANGE_API}, True),
     ("exchange status unknown", {Component.EXCHANGE_STATUS}, False),
     ("model inference failing", {Component.MODEL_INFERENCE}, False),
