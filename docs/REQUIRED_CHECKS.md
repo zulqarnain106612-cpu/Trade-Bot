@@ -98,9 +98,21 @@ nobody re-verifies is a rule that quietly stops existing.
 | Required check | Covers |
 |---|---|
 | `CI gate (all jobs green)` | `python`, `architecture`, `frontend` |
-| `Security gate (all jobs green)` | `bandit`, `pip-audit`, `npm-audit`, `secrets` |
+| `Security gate (all jobs green)` | `bandit`, `pip-audit`, `npm-audit`, `secrets`, `supply-chain`, `dependency-review`, `container` |
 | `CodeQL gate (all jobs green)` | `analyze` (both matrix legs) |
 | `Workflow lint gate (all jobs green)` | `actionlint` |
+
+`Release gate (all jobs green)` is deliberately **not** a required check:
+release.yml runs only on a version tag or a manual dispatch, never on a pull
+request, so requiring it would block every pull request on a check that can
+never report. Its gate exists for the same reason as the others — so a failed
+build or a failed provenance verification cannot be mistaken for a successful
+release.
+
+`dependency-review` skips on push and schedule (it diffs a pull request's base
+against its head and has nothing to compare otherwise), which is why it is
+named in that workflow's `ALLOW_SKIPPED`. The allowance excuses skipping only:
+if it runs and fails, the gate fails.
 
 Require the **gates**, not the individual jobs. Requiring `python` directly
 reintroduces the hole: if that job is skipped its check never appears, and the

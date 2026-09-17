@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 64 |
+| VERIFIED | 71 |
 | PARTIAL | 7 |
-| PLANNED | 20 |
+| PLANNED | 13 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -65,7 +65,7 @@ deletion of the thing it points at.
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 10 |
-| Supply chain and artifacts | 7 | 0 |
+| Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
 | Governance | 10 | 8 |
@@ -82,7 +82,7 @@ deletion of the thing it points at.
 | PR-006 | Regression + Property Testing | — |
 | PR-007 | API/WebSocket Security | — |
 | PR-008 | Cryptographic/Secret Architecture | — |
-| PR-009 | Supply-Chain + Artifact Security | `SUP-001`, `SUP-002`, `SUP-003`, `SUP-004`, `SUP-005`, `SUP-006`, `SUP-007` |
+| PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | `INV-009`, `RES-001`, `RES-002`, `RES-003`, `RES-004`, `RES-005`, `RES-006`, `RES-007` |
 | PR-011 | Paper-Trading Qualification | `INV-010`, `REL-001`, `RISK-005` |
 | PR-012 | Production/Canary Security Gate | `GOV-009`, `GOV-010`, `REL-002`, `REL-003`, `REL-004`, `REL-005`, `REL-006`, `REL-007`, `REL-008` |
@@ -800,73 +800,80 @@ The documented and verified key posture is trading-only, withdrawal-disabled, IP
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
 
-**PLANNED → PR-009** · critical · requirement · source: QE-28
+**VERIFIED** · critical · requirement · source: QE-28
 
 Each workflow sets `permissions:` explicitly at the top level, starting from `contents: read`, and no workflow uses write-all.
 
 - **If violated:** A compromised action inherits write access to the repository.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `scripts/check_supply_chain.py`
+- **Verification:**
+  - `tests/supply_chain/test_supply_chain_posture.py` (security) — Every workflow declares explicit permissions, blanket grants are refused, and an unexplained top-level write scope fails -- checked against this repository and against synthetic violations.
 
 #### `SUP-002` — Third-party actions are pinned to a full commit SHA
 
-**PLANNED → PR-009** · critical · requirement · source: QE-28
+**VERIFIED** · critical · requirement · source: QE-28
 
 No workflow references an action by tag or branch; every `uses:` names a 40-character SHA.
 
 - **If violated:** A retagged action runs attacker code inside CI with the repository's secrets.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `scripts/check_supply_chain.py`
+- **Verification:**
+  - `tests/supply_chain/test_supply_chain_posture.py` (security) — Every `uses:` names a 40-hex SHA with a version comment; tags, branches, short SHAs and uncommented pins are all detected.
 
 #### `SUP-003` — Fork pull requests cannot reach production secrets
 
-**PLANNED → PR-009** · critical · requirement · source: QE-29,QE-30
+**VERIFIED** · critical · requirement · source: QE-29,QE-30
 
 No workflow triggered by a fork pull request has access to a production secret, and this is asserted rather than assumed.
 
 - **If violated:** A malicious PR prints the exchange key by editing a test.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `scripts/check_supply_chain.py`
+- **Verification:**
+  - `tests/supply_chain/test_supply_chain_posture.py` (security) — pull_request_target is refused outright, and any stored secret reachable from a pull request must carry a fork guard; GITHUB_TOKEN is excluded because permissions bound it.
 
 #### `SUP-004` — Release artifacts carry version, commit, lock, SBOM, hash and attestation
 
-**PLANNED → PR-009** · high · requirement · source: QE-37
+**VERIFIED** · high · requirement · source: QE-37
 
 Every deployable artifact is accompanied by its provenance, and production verifies the artifact is exactly the one CI produced.
 
 - **If violated:** Nobody can prove what is running in production.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `scripts/write_provenance.py`, `.github/workflows/release.yml`
+- **Verification:**
+  - `tests/supply_chain/test_artifact_provenance.py` (security) — The record is verified from the uploaded artifact, and every corruption is caught: modified bytes, missing file, undescribed extra, wrong commit, emptied field, wrong schema version.
 
 #### `SUP-005` — Dependency vulnerabilities are surveilled continuously
 
-**PLANNED → PR-009** · high · requirement · source: QE-27,QE-72
+**VERIFIED** · high · requirement · source: QE-27,QE-72
 
 Daily alerts, weekly dependency review, monthly full audit and an immediate path for a critical CVE are all configured and exercised.
 
 - **If violated:** A known-exploited dependency sits in production for weeks.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `.github/dependabot.yml`
+- **Verification:**
+  - `tests/supply_chain/test_supply_chain_posture.py` (security) — Dependabot covers pip, npm, github-actions and docker on a schedule, and the check fails when an ecosystem this repository has is missing.
 
 #### `SUP-006` — Container images run non-root with minimal capability
 
-**PLANNED → PR-009** · high · requirement · source: QE-36
+**VERIFIED** · high · requirement · source: QE-36
 
 Images use a non-root user, a minimal base, a read-only filesystem where possible, dropped capabilities, no privileged mode, no host networking unless required, and resource limits -- and CI tests those properties.
 
 - **If violated:** A container escape becomes host root.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `Dockerfile`
+- **Verification:**
+  - `tests/supply_chain/test_container_posture.py` (security) — Non-root numeric user, root-owned code, multi-stage so no toolchain ships, digest-pinned slim base; CI builds the image, proves /app is unwritable under --read-only --cap-drop=ALL, and Trivy fails the job on HIGH/CRITICAL.
 
 #### `SUP-007` — A dependency update cannot become a production deployment on its own
 
-**PLANNED → PR-009** · critical · requirement · source: QE-27
+**VERIFIED** · critical · requirement · source: QE-27
 
 Automated dependency PRs run the full quality gate and can never trigger the production workflow without the same approvals as any other change.
 
 - **If violated:** A compromised package auto-deploys itself.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `scripts/check_supply_chain.py`
+- **Verification:**
+  - `tests/supply_chain/test_supply_chain_posture.py` (security) — The release workflow triggers only on a version tag and workflow_dispatch; push-on-branch, pull_request and schedule are all detected, including a tag trigger that also accepts branches.
 
 ## Resilience and recovery
 

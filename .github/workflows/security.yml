@@ -319,14 +319,95 @@ jobs:
   # `if: always()` is load-bearing: without it the gate is itself skipped
   # the moment any dependency fails, and a skipped gate blocks nothing.
   # ---------------------------------------------------------------------
+  supply-chain:
+    name: Supply-chain posture (SUP-001..SUP-007)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Install PyYAML
+        run: python -m pip install --upgrade pip pyyaml
+
+      # Least privilege, SHA pinning, fork-secret isolation, dependency
+      # surveillance, and "a bot cannot publish". Every one of these is a
+      # property of the configuration and invisible at runtime, which is why
+      # it is a check rather than a convention.
+      - name: Check the supply-chain posture
+        run: python3 scripts/check_supply_chain.py
+
+  dependency-review:
+    name: Dependency review (new CVEs in this diff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only meaningful on a pull request: the action diffs the base against the
+    # head. On push and schedule there is nothing to diff, and a job that
+    # cannot run is excused here rather than reported as a pass.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  container:
+    name: Container build and scan (SUP-006)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Built, not just linted. A Dockerfile that describes a hardened image
+      # and does not build is a posture nobody is actually running.
+      - name: Build the image
+        run: docker build -t trade-bot:ci .
+
+      - name: Assert the image does not run as root
+        run: |
+          user=$(docker image inspect trade-bot:ci --format '{{.Config.User}}')
+          test "$user" = "10001:10001" || {
+            echo "::error::image runs as '${user:-root}', expected 10001:10001"
+            exit 1
+          }
+
+      - name: Assert the application cannot modify its own code
+        # Read-only, no capabilities, no privilege escalation -- the runtime
+        # posture the image is written for. If a future change needs to write
+        # under /app, it fails here rather than in production.
+        run: |
+          docker run --rm --read-only --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            --entrypoint sh trade-bot:ci -c 'touch /app/src/.probe' \
+            && { echo "::error::the running user can write to /app"; exit 1; } \
+            || echo "ok: /app is not writable by the application user"
+
+      - name: Scan the image for known vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: trade-bot:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
   gate:
     name: Security gate (all jobs green)
     runs-on: ubuntu-latest
     if: always()
-    needs: [bandit, pip-audit, npm-audit, secrets]
+    needs: [bandit, pip-audit, npm-audit, secrets, supply-chain, dependency-review, container]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Assert every job in this workflow succeeded
         env:
           NEEDS: ${{ toJSON(needs) }}
+          # dependency-review diffs a pull request's base against its head, so
+          # it has nothing to do on push, schedule or workflow_dispatch and
+          # skips itself there. The allowance excuses skipping only: if it
+          # runs on a pull request and fails, the gate still fails.
+          ALLOW_SKIPPED: dependency-review
         run: python3 scripts/assert_jobs_green.py
