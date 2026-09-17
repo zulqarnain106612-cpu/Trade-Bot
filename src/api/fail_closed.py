@@ -57,7 +57,14 @@ UNAVAILABLE_DETAIL: Final[str] = (
 
 @dataclass(frozen=True)
 class ControlStatus:
-    control: SecurityControl
+    """What one control last reported.
+
+    It deliberately does not carry the `SecurityControl` it describes. The
+    registry keys on that control and `status()` takes it as an argument, so
+    a copy inside the value would be a second place for the same fact to live
+    and the only thing it could ever do is disagree with the key.
+    """
+
     healthy: bool
     reason: str
 
@@ -88,11 +95,11 @@ class ControlHealthRegistry:
 
     def mark_healthy(self, control: SecurityControl) -> None:
         with self._lock:
-            self._status[control] = ControlStatus(control, True, "ok")
+            self._status[control] = ControlStatus(True, "ok")
 
     def mark_degraded(self, control: SecurityControl, reason: str) -> None:
         with self._lock:
-            self._status[control] = ControlStatus(control, False, reason)
+            self._status[control] = ControlStatus(False, reason)
 
     def status(self, control: SecurityControl) -> ControlStatus:
         with self._lock:
@@ -101,7 +108,7 @@ class ControlHealthRegistry:
                 # The default is a degraded status, not a missing entry, so
                 # every caller gets the same shape and none of them has to
                 # remember which way "unknown" resolves.
-                ControlStatus(control, False, "never reported"),
+                ControlStatus(False, "never reported"),
             )
 
     def degraded(self) -> frozenset[SecurityControl]:
