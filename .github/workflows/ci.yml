@@ -113,7 +113,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
           pip install -r requirements.txt -r requirements-dev.txt
-          pip install pytest-split
 
       - name: Run tests (sharded)
         # --cov-fail-under=0 overrides the 99% aggregate in pyproject.toml for
@@ -121,10 +120,23 @@ jobs:
         # third of the lines -- 55-65% -- which is not a coverage regression,
         # it is arithmetic. The real 99% gate is enforced once, in
         # python-coverage-floors, against the combined data.
+        #
+        # -n auto: sharding split the suite across three runners but left each
+        # one running pytest on a single core, so 415s of shard 3's 553s was
+        # one core doing CPU-bound crypto arithmetic while three sat idle.
+        # Three shards times four cores is twelve-way, not three-way.
+        #
+        # --dist loadfile, not the default: whole files stay on one worker.
+        # That is load-bearing for tests/test_timescale_storage.py, whose
+        # session fixture creates and drops a throwaway database named after a
+        # fresh uuid4. Spreading that file is *safe* -- each worker is its own
+        # pytest session and so gets its own database -- but it would create
+        # and migrate four of them where one will do.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
+            -n auto --dist loadfile \
             --cov-fail-under=0
 
       - name: Upload coverage data
@@ -152,16 +164,21 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
 
       - name: Install minimal deps for coverage check
+        # Minimal now means minimal. This step also installed
+        # `-r requirements.txt -r requirements-dev.txt` -- the CUDA-free torch
+        # build and the whole runtime tree -- and spent 104s of this job's 154s
+        # doing it, for three commands that never import the project: `coverage
+        # combine`, `coverage report`, and scripts/check_coverage_floors.py,
+        # which is stdlib-only and shells out to the `coverage` CLI.
+        #
+        # Nothing here reads requirements*.txt any more, so `cache: pip` above
+        # went with it: a cache keyed on files this job no longer installs from
+        # costs a restore and a save to hold one wheel.
         run: |
           python -m pip install --upgrade pip
           pip install coverage
-          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Download coverage shards
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0

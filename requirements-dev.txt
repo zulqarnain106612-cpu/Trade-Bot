@@ -7,4 +7,13 @@
 pytest>=9.1.1,<10.0
 pytest-asyncio>=0.23,<2.0
 pytest-cov>=5.0,<8.0
+# Test parallelism. Sharding divides the suite across runners; xdist divides
+# each shard across that runner's cores, which were otherwise idle -- 415s of
+# the slowest shard's 553s on run 35274283928 was one core running pytest.
+# pytest-cov starts a collector inside each worker and combines them into the
+# shard's data file, so the coverage gate reads exactly what it read before.
+pytest-xdist>=3.6,<4.0
+# Was `pip install pytest-split` inline in ci.yml, unpinned, so a release could
+# change how the suite divides without a commit here. Pinned like the rest.
+pytest-split>=0.9,<1.0
 ruff==0.16.6
