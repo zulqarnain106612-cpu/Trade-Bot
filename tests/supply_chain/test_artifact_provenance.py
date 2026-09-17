@@ -34,11 +34,19 @@ def bundle(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def record_path(bundle: Path) -> Path:
+def record_path(bundle: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = bundle / "provenance.json"
     record = build_record(bundle)
     # The real commit comes from GITHUB_SHA or git; in a tmp_path there is
     # neither, so supply one rather than testing the environment.
+    #
+    # GITHUB_SHA is pinned to the same value, not left alone. `verify()`
+    # compares the record against it when it is set, so on a developer's
+    # machine -- where it is unset -- the round-trip passed, and inside
+    # Actions -- where it is the real commit -- the same test failed with a
+    # mismatch against the synthetic sha. The test that *is* about a
+    # mismatch sets its own value over this one.
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
     record["commit"] = "a" * 40
     path.write_text(json.dumps(record, indent=2, sort_keys=True))
     return path
