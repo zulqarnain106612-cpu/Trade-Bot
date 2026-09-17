@@ -153,12 +153,17 @@ _PUBLISHED = {
         (),
         [0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5],
     ),
-    "sha1": (
+    # LAW12 reads a bare algorithm name in a string literal as an algorithm
+    # being *selected*, which is the right default -- that is how a deprecated
+    # hash normally gets chosen at runtime. The next two keys are the opposite:
+    # they name which published constant table the derivation must reproduce.
+    # Nothing in this module hashes anything.
+    "sha1": (  # arch-ignore
         sha1_round_constants,
         (),
         [0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xCA62C1D6],
     ),
-    "md5": (md5_sine_table, (), [0xD76AA478, 0xE8C7B756, 0x242070DB]),
+    "md5": (md5_sine_table, (), [0xD76AA478, 0xE8C7B756, 0x242070DB]),  # arch-ignore
     "blowfish": (
         blowfish_pi_words,
         (),

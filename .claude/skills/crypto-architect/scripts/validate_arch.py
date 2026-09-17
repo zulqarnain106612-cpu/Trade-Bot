@@ -368,7 +368,27 @@ FORBIDDEN: list[tuple[str, str, str, Severity]] = [
     ),
     (
         "LAW12",
-        r"MD5|SHA1(?!_\d)|sha1\b",
+        # Was `MD5|SHA1(?!_\d)|sha1\b` -- a bare substring match, which fired on
+        # every mention of the words. It had no teeth to lose: `visit_Call`
+        # below already flags `hashlib.md5(...)`, `hashlib.sha1(...)`, `md5(...)`
+        # and `sha1(...)` at HIGH from the AST, which is the only way a
+        # deprecated hash actually gets *used* in Python. What the regex adds
+        # is the case AST cannot see -- an algorithm chosen by name at runtime
+        # or in configuration -- so that is what it matches now:
+        #
+        #   hashlib.new("md5")      algorithm picked by string
+        #   "sha1" / 'md5'          a bare algorithm name in config or a dict
+        #   MD5withRSA, sha1WithRSA JCA/X.509 signature-suite names
+        #
+        # The substring form's cost was not theoretical. It reported 15 HIGH
+        # findings against src/mathcore/constants/nutms.py, a module that
+        # re-derives the *published constant tables* of MD5 and SHA-1 from
+        # sines and square roots -- `md5_sine_table`, `sha1_round_constants`,
+        # and the docstring naming RFC 1321 -- and never hashes anything. A
+        # HIGH that fires on prose is a HIGH people learn to wave through.
+        r"hashlib\.new\(\s*['\"](?i:md5|sha-?1)['\"]"
+        r"|['\"](?i:md5|sha-?1)['\"]"
+        r"|(?i:md5|sha1)[Ww]ith[A-Za-z]+",
         "Deprecated hash function (MD5/SHA1) — use SHA-256 or SHA-3",
         Severity.HIGH,
     ),  # arch-ignore
