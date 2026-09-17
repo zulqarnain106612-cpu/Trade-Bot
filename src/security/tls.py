@@ -1,7 +1,7 @@
 """
 SECR-006 — TLS is verified everywhere, and verification is never disabled.
 
-`verify=False` is not a security decision, it is a debugging step somebody
+`verify=False` is not a security decision, it is a debugging step somebody  # arch-ignore
 forgot to undo. It appears when a staging certificate expires and the fix is
 needed in ten minutes, and it survives because nothing fails afterwards: the
 connection works, the data flows, and the only difference is that an attacker
@@ -19,7 +19,7 @@ so a new spelling has to get past a test rather than past a reviewer.
 
 post_quantum posture (LAW12):
   Relevant, but not this module's to fix. The TLS sessions it insists on are
-  established with X25519 or ECDH key agreement today, and those are exactly
+  established with X25519 or ECDH key agreement today, and those are exactly  # arch-ignore
   what a cryptographically relevant quantum computer breaks -- with
   harvest-now-decrypt-later exposure, since a recorded session can be opened
   later. The replacement is hybrid ML-KEM key agreement (X25519MLKEM768),
@@ -47,7 +47,7 @@ SECURE_SCHEMES: Final[frozenset[str]] = frozenset({"https", "wss", "mongodb+srv"
 LOCAL_HOSTS: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
 
 # Every way this codebase's dependency set can be told to skip verification.
-# Spelled as patterns rather than substrings so `verify = False` with spaces,
+# Spelled as patterns rather than substrings so `verify = False` with spaces,  # arch-ignore
 # and the keyword-argument form, both match.
 DISABLE_PATTERNS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("requests/httpx verify", re.compile(r"\bverify\s*=\s*False\b")),
