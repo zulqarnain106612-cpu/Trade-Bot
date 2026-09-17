@@ -11,6 +11,11 @@ from .binary_field import (
     GCM_POLY,
     BinaryField,
 )
+from .interpolation import (
+    lagrange_interpolate_at,
+    shamir_reconstruct,
+    shamir_split,
+)
 from .prime_field import (
     CURVE25519_P,
     NIST_P256_P,
