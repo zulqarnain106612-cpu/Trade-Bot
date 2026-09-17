@@ -3,13 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
+  # No `paths-ignore` here. `CI gate (all jobs green)` is a required status
+  # check, and GitHub reads a required check that never reports as *pending*,
+  # not as absent: a docs-only pull request would sit blocked forever with no
+  # failing job to point at. tests/test_apply_repo_ruleset.py asserts this.
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
   workflow_dispatch:
 
 permissions:
@@ -17,6 +15,11 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
+  # Superseding a PR push is free -- the older run is about stale code. On main
+  # it is not: each merge cancelled the previous merge's run, so back-to-back
+  # merges left commits with no verdict at all. 60 of main's ~198 runs ended
+  # cancelled for exactly that reason, which is why red commits could sit
+  # unnoticed. Keep the saving on branches, let main's runs finish.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
@@ -88,6 +91,11 @@ jobs:
       STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot
       SHARD_INDEX: ${{ matrix.shard }}
       SHARD_TOTAL: ${{ matrix.total }}
+      # One data file per shard, suffixed so `coverage combine` in the floors
+      # job picks all three up. A bare `.coverage` from every shard would
+      # collide under `merge-multiple: true` and two thirds of the run would
+      # be silently discarded.
+      COVERAGE_FILE: .coverage.shard-${{ matrix.shard }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,21 +116,28 @@ jobs:
           pip install pytest-split
 
       - name: Run tests (sharded)
+        # --cov-fail-under=0 overrides the 99% aggregate in pyproject.toml for
+        # this step only. A shard runs a third of the suite and so measures a
+        # third of the lines -- 55-65% -- which is not a coverage regression,
+        # it is arithmetic. The real 99% gate is enforced once, in
+        # python-coverage-floors, against the combined data.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
-            --store-durations \
-            --durations-path .test_durations
+            --cov-fail-under=0
 
       - name: Upload coverage data
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: |
-            .coverage
-            .test_durations
+          path: .coverage.shard-${{ matrix.shard }}
+          # The data file is dot-prefixed and upload-artifact skips hidden
+          # files by default: without this the upload finds nothing and the
+          # floors job has no data to combine.
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 7
 
   python-coverage-floors:
@@ -149,15 +164,20 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Download coverage shards
-        uses: actions/download-artifact@95815c38f0d25f7d5d6d7d3b6f5e31fb5f5a6c94 # v6.0.0
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           pattern: coverage-shard-*
           merge-multiple: true
 
+      # No `|| true` on any of these. A combine or report that fails means the
+      # shards produced no usable data, and swallowing that turns the whole
+      # coverage gate into a job that cannot fail.
       - name: Combine coverage
-        run: |
-          coverage combine || true
-          coverage xml || true
+        run: coverage combine
+
+      - name: Repo-wide coverage gate
+        # fail_under = 99 comes from [tool.coverage.report] in pyproject.toml.
+        run: coverage report
 
       - name: Per-file coverage floors
         run: python scripts/check_coverage_floors.py
