@@ -57,14 +57,9 @@ UNAVAILABLE_DETAIL: Final[str] = (
 
 @dataclass(frozen=True)
 class ControlStatus:
-    """What one control last reported.
+    """What one control last reported, and which control that was."""
 
-    It deliberately does not carry the `SecurityControl` it describes. The
-    registry keys on that control and `status()` takes it as an argument, so
-    a copy inside the value would be a second place for the same fact to live
-    and the only thing it could ever do is disagree with the key.
-    """
-
+    control: SecurityControl
     healthy: bool
     reason: str
 
@@ -95,11 +90,11 @@ class ControlHealthRegistry:
 
     def mark_healthy(self, control: SecurityControl) -> None:
         with self._lock:
-            self._status[control] = ControlStatus(True, "ok")
+            self._status[control] = ControlStatus(control, True, "ok")
 
     def mark_degraded(self, control: SecurityControl, reason: str) -> None:
         with self._lock:
-            self._status[control] = ControlStatus(False, reason)
+            self._status[control] = ControlStatus(control, False, reason)
 
     def status(self, control: SecurityControl) -> ControlStatus:
         with self._lock:
@@ -108,12 +103,17 @@ class ControlHealthRegistry:
                 # The default is a degraded status, not a missing entry, so
                 # every caller gets the same shape and none of them has to
                 # remember which way "unknown" resolves.
-                ControlStatus(False, "never reported"),
+                ControlStatus(control, False, "never reported"),
             )
 
     def degraded(self) -> frozenset[SecurityControl]:
         """Controls that are unhealthy *or* have never reported."""
-        return frozenset(c for c in REQUIRED_FOR_TRADING if not self.status(c).healthy)
+        # Read the control back off the status rather than reusing the loop
+        # variable. The two are the same today, and that is the point: a
+        # status object whose `control` nobody reads is one that could name
+        # the wrong control without anything noticing.
+        statuses = (self.status(c) for c in REQUIRED_FOR_TRADING)
+        return frozenset(s.control for s in statuses if not s.healthy)
 
     def assert_trading_allowed(self) -> None:
         down = self.degraded()
