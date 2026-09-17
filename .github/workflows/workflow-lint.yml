@@ -19,10 +19,14 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/dependabot.yml"
+  # No `paths:` filter here, deliberately. `Workflow lint gate (all jobs green)`
+  # is a *required* status check on every pull request, and a required check
+  # that never reports is not skipped -- it stays pending forever and blocks
+  # the pull request with no failure to fix. Path-scoping the trigger made
+  # every pull request that did not touch a workflow file unmergeable.
+  # The gate is required unconditionally, so it must run unconditionally.
+  # The `push` trigger above keeps its filter: nothing requires it there.
   pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/dependabot.yml"
   workflow_dispatch:
 
 permissions:
