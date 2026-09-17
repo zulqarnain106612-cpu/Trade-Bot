@@ -252,7 +252,7 @@
         "MDS matrix construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/mds.py",
@@ -368,7 +368,7 @@
         "legacy exchange API signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/factorization.py",
@@ -598,7 +598,7 @@
         "security-level analysis of every deployed curve"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
@@ -622,7 +622,7 @@
         "finite-field DH key-size selection"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
@@ -649,7 +649,7 @@
         "low-discrepancy sequence theory"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/numbertheory/continued_fractions.py",
@@ -874,7 +874,7 @@
         "Merkle tree security"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/birthday.py",
@@ -898,7 +898,7 @@
         "NIST SP 800-90B health tests"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/entropy.py",
@@ -922,7 +922,7 @@
         "every Nakamoto-style chain"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/confirmations.py",
@@ -950,7 +950,7 @@
         "exchange deposit-crediting policy"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/confirmations.py",
@@ -980,7 +980,7 @@
         "data availability sampling"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/committee.py",
@@ -1002,7 +1002,7 @@
         "chain reorganisation risk assessment"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/reorg.py",
@@ -1026,7 +1026,7 @@
         "FRI low-degree testing"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/reed_solomon.py",
@@ -1068,7 +1068,7 @@
         "Rescue"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/mds.py",
