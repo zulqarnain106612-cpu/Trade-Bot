@@ -64,6 +64,24 @@ COPY --from=build --chown=root:root /build/common /app/common
 COPY --from=build --chown=root:root /build/config /app/config
 COPY --from=build --chown=root:root /build/scripts /app/scripts
 
+# The base image ships setuptools 79.0.1, and both packages the Trivy step in
+# security.yml fails on are inside its `_vendor` tree rather than in
+# requirements.txt: jaraco.context 5.3.0 (CVE-2026-23949, path traversal) and
+# wheel 0.45.1 (CVE-2026-24049, privilege escalation). Installing the fixed
+# versions alongside does not help -- a vendored copy is not a dependency pip
+# can resolve -- so setuptools itself has to move. 81.0.0 is the first release
+# that vendors jaraco.context 6.1.0 and wheel 0.46.3.
+#
+# The upper bound is not caution, it is a behaviour change: setuptools 82
+# removed `pkg_resources`, which several scientific packages still import at
+# runtime. Raising it is a deliberate decision, not a version bump.
+#
+# This belongs in the runtime stage, not the build stage: `COPY --from=build
+# /install` overlays the base's site-packages rather than replacing it, so an
+# upgrade performed there would leave the vulnerable dist-info in place for
+# the scanner to find.
+RUN python -m pip install --no-cache-dir --upgrade "setuptools>=81.0.0,<82.0.0"
+
 # Owned by root, run as tradebot: the running process cannot modify its own
 # code. This is the single most useful property in the file.
 USER 10001:10001
