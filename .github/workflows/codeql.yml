@@ -29,58 +29,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Use one entry per run. Use 'javascript' (covers JS/TS) and 'python' if applicable.
+        # Use one entry per run. 'javascript-typescript' covers JS and TS.
         language: [python, javascript-typescript]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Full history is recommended for best CodeQL analysis (avoid shallow clones)
-          fetch-depth: 0
+        # No `fetch-depth: 0`. CodeQL extracts the checked-out tree; it does
+        # not read history, and the full clone is pure latency on a repo this
+        # size. The action's own docs ask for a full fetch only for the
+        # `--diff-range` PR-only analysis mode, which this workflow does not
+        # use -- it analyses the whole tree every run, on purpose.
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
-          # Pass the language for this matrix run
           languages: ${{ matrix.language }}
-          # Use the recommended query pack; adjust if you have custom queries
           queries: security-and-quality
-
-      # Build steps: ensure CodeQL extractors can see dependencies / built artifacts.
-      # These are intentionally simple; adapt to your repo's build commands.
-      - name: Set up Python (if needed)
-        if: matrix.language == 'python'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.x"
-
-      - name: Install Python dependencies (if present)
-        if: matrix.language == 'python'
-        run: |
-          python -m pip install --upgrade pip || true
-          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
-
-      - name: Install Node dependencies (if needed)
-        if: matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "18"
-
-      - name: Install & build Node (if present)
-        if: matrix.language == 'javascript-typescript'
-        run: |
-          if [ -f package-lock.json ] || [ -f package.json ]; then
-            npm ci || npm install --legacy-peer-deps || true
-            npm run build --if-present || true
-          fi
-
-      # Optional: run the autobuild step if no explicit build was performed.
-      # For many repos the above language-specific steps are sufficient.
-      - name: Perform CodeQL autobuild (fallback)
-        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        # autobuild is a safe no-op if build was already done; keep as fallback
-        continue-on-error: false
+          # Both languages here are interpreted: CodeQL builds their databases
+          # by reading source, never by watching a compiler. `none` is the
+          # supported way to say so, and it is what removes the four steps
+          # that used to sit between init and analyse.
+          #
+          # Those steps cost 144s of a 292s job installing requirements.txt so
+          # that "CodeQL extractors can see dependencies" -- which the Python
+          # extractor does not do. It resolves imports against the source tree
+          # and its own bundled library models; an installed site-packages
+          # changes nothing it reports. The Node half was worse: `npm ci ||
+          # npm install --legacy-peer-deps || true` re-did work the frontend
+          # job in ci.yml already does, and swallowed its own failure, so it
+          # could only ever cost time or lie.
+          #
+          # The autobuild fallback went with them. With build-mode: none there
+          # is nothing to fall back to, and a no-op step that is documented as
+          # "safe" is how a real build failure becomes invisible.
+          build-mode: none
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9

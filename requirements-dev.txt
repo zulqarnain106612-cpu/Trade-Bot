@@ -7,4 +7,9 @@
 pytest>=9.1.1,<10.0
 pytest-asyncio>=0.23,<2.0
 pytest-cov>=5.0,<8.0
+# The suite is CPU-bound and took 813s of a ~990s CI run serially. xdist runs
+# it across every core the runner has; pytest-cov combines the per-worker
+# coverage data itself, so the 99% gate and scripts/check_coverage_floors.py
+# read the same .coverage they always did.
+pytest-xdist>=3.6,<4.0
 ruff==0.16.5
