@@ -36,7 +36,9 @@ without adding a new runtime dependency before it is needed.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 
 @dataclass
@@ -89,7 +91,16 @@ class PQTransportStub:
 
     # The declared Kyber-768 / ML-KEM-768 parameters, kept here so the stub and
     # any eventual implementation agree on constants.
-    PARAMETERS = {"k": 3, "eta1": 2, "eta2": 2, "du": 10, "dv": 4}
+    #
+    # MappingProxyType, not a bare dict: a dict here is one object shared by
+    # every instance and by the class, so a single write anywhere in the
+    # process would change the parameter set that validate_parameters() below
+    # certifies as FIPS 203's -- and certify the altered one from then on.
+    # That is exactly the failure check_no_mutable_class_attributes exists to
+    # stop, and it is worse on a constant whose whole job is to be checked.
+    PARAMETERS: Mapping[str, int] = MappingProxyType(
+        {"k": 3, "eta1": 2, "eta2": 2, "du": 10, "dv": 4}
+    )
 
     @classmethod
     def validate_parameters(cls) -> None:
