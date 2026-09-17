@@ -32,6 +32,7 @@ def test_the_comparators_agree_with_equality() -> None:
     assert safe_compare_tokens("key-123", "key-123")
     assert not safe_compare_tokens("key-123", "key-124")
 
+
 # ---- deterministic detector logic (injected clock) -------------------------
 
 
