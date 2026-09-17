@@ -24,6 +24,38 @@ _TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
 os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
 
 
+# ---------------------------------------------------------------------------
+# pandas' Arrow extension types must be registered before any sys.modules patch.
+# ---------------------------------------------------------------------------
+#
+# `unittest.mock.patch.dict("sys.modules", ...)` -- which several tests use to
+# inject a fake `yfinance` -- restores sys.modules *wholesale* on exit, so any
+# module first imported inside the block is evicted. pandas registers its
+# `pandas.period` Arrow extension type lazily, on the first `to_parquet()`
+# call, and remembers that it did so in a module-level flag. If that first call
+# happens inside such a block, the module is dropped, re-imported later with
+# the flag reset, and the second registration raises
+# `pyarrow.lib.ArrowKeyError: A type extension with name pandas.period already
+# defined` -- taking out whichever test happened to run next.
+#
+# Whether that ever happened depended purely on collection order, so it was
+# invisible until the suite was split into shards and the parquet tests landed
+# in a shard where nothing had warmed the import. Doing one throwaway write
+# here, at import time, makes the order irrelevant.
+def _warm_parquet_extension_types() -> None:
+    import io
+
+    try:
+        import pandas as _pd
+
+        _pd.DataFrame([{"warmup": 1}]).to_parquet(io.BytesIO(), index=False)
+    except Exception:  # pragma: no cover - no parquet engine installed
+        pass
+
+
+_warm_parquet_extension_types()
+
+
 def settings_double():
     """A `get_settings()` stand-in whose sub-configs are real, not MagicMocks.
 
