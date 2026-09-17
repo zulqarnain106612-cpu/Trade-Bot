@@ -126,17 +126,28 @@ jobs:
         # one core doing CPU-bound crypto arithmetic while three sat idle.
         # Three shards times four cores is twelve-way, not three-way.
         #
-        # --dist loadfile, not the default: whole files stay on one worker.
-        # That is load-bearing for tests/test_timescale_storage.py, whose
-        # session fixture creates and drops a throwaway database named after a
-        # fresh uuid4. Spreading that file is *safe* -- each worker is its own
-        # pytest session and so gets its own database -- but it would create
-        # and migrate four of them where one will do.
+        # --dist load, per test. The first attempt used --dist loadfile, to
+        # keep tests/test_timescale_storage.py's uuid-named throwaway database
+        # down to one instead of one per worker, and it made shard 3 *slower*:
+        # 553s to 652s. Whole-file granularity pins the suite's dominant file
+        # to a single worker, so the other three finish early and idle while
+        # all four have paid pytest's import cost. Per-test granularity is what
+        # actually fills them.
+        #
+        # Spreading the TimescaleDB file is safe -- each xdist worker is its
+        # own pytest session, so each gets its own uuid-named database and they
+        # cannot collide. The cost is a CREATE DATABASE and a migration per
+        # worker, seconds, against the minutes that pinning cost.
+        #
+        # --durations=15 so the next person tuning this reads the slow tests
+        # out of the log instead of inferring them from job timings, which is
+        # how the loadfile mistake above got made.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
-            -n auto --dist loadfile \
+            -n auto --dist load \
+            --durations=15 \
             --cov-fail-under=0
 
       - name: Upload coverage data
