@@ -82,9 +82,7 @@ class TestCompoundFailuresTakeTheStrictestAnswer:
 
 
 class TestTheBoundedFailuresEscalate:
-    @pytest.mark.parametrize(
-        "component", [Component.EXCHANGE_API, Component.DATABASE]
-    )
+    @pytest.mark.parametrize("component", [Component.EXCHANGE_API, Component.DATABASE])
     def test_a_retry_does_not_run_forever(self, component):
         # Unbounded retries against a venue that is genuinely down is how
         # duplicate orders appear on recovery.
@@ -137,7 +135,9 @@ class TestCorruptedAndDelayedResponses:
     def test_an_id_mismatch_is_never_treated_as_our_order(self):
         from src.execution.exchange_contract import parse_order
 
-        update = parse_order({"id": "somebody-elses", "status": "closed"}, expected_order_id="ord-1")
+        update = parse_order(
+            {"id": "somebody-elses", "status": "closed"}, expected_order_id="ord-1"
+        )
         assert update.needs_reconciliation
 
     def test_a_delayed_response_does_not_release_the_idempotency_key(self):

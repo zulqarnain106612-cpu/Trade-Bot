@@ -73,9 +73,7 @@ class TestDegradationIsBounded:
         # is a timer nobody set.
         assert policy.escalates_to is not None
 
-    @pytest.mark.parametrize(
-        "policy", [p for p in policy_table() if p.response is Response.RETRY]
-    )
+    @pytest.mark.parametrize("policy", [p for p in policy_table() if p.response is Response.RETRY])
     def test_a_retry_is_bounded_and_escalates(self, policy: FailSafe):
         # Unbounded retries against a venue that is genuinely down is how
         # duplicate orders appear on recovery.

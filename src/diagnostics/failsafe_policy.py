@@ -123,8 +123,7 @@ _POLICY: Final[dict[Component, FailSafe]] = {
     Component.EXCHANGE_STATUS: FailSafe(
         Component.EXCHANGE_STATUS,
         Response.HALT_NEW_ENTRIES,
-        "Not knowing whether the venue is in maintenance is not the same as "
-        "knowing it is fine.",
+        "Not knowing whether the venue is in maintenance is not the same as knowing it is fine.",
     ),
     # The audit log failing does not break trading, and that is exactly why it
     # must halt entries: a period of unaudited trading is unreconstructable.
