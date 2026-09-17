@@ -28,7 +28,8 @@ post_quantum posture (LAW12):
   The real quantum question here is harvest-now-decrypt-later, and this module
   is on the right side of it *provided the key never travels*. A backup
   encrypted today and stolen today stays unreadable; a key wrapped for
-  transport under ECDH or RSA does not. So the posture is a constraint, not a
+  transport under elliptic-curve Diffie-Hellman or RSA does not. So the
+  posture is a constraint, not a
   clean bill: keys are delivered out of band and never key-wrapped with a
   classical public-key scheme.
 
