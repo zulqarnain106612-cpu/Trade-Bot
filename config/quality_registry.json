@@ -285,10 +285,13 @@
       "statement": "After any restart, the reconstructed position and balance state matches the exchange's, or the system halts rather than trading on a guess.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-42",
       "owning_modules": ["src/execution/unified_ledger.py", "src/diagnostics/disaster_recovery.py"],
-      "planned_in": "PR-010",
+      "verification": [
+        { "test": "tests/recovery/test_crash_replay.py", "test_type": "recovery",
+          "note": "Reconstructed state is compared against the venue at every crash point; signed quantities, partial fills and dust are each distinguished from a missing position." }
+      ],
       "failure_mode": "The bot restarts believing it is flat while holding a real position, and hedges nothing."
     },
     {
@@ -1343,10 +1346,13 @@
       "statement": "Price feed, risk engine, exchange status, analytics, model, audit, database and WebSocket each have a documented failure policy, and a test asserts the system takes it.",
       "criticality": "critical",
       "subsystem": "resilience",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-26",
-      "owning_modules": ["src/diagnostics/runtime_monitor.py"],
-      "planned_in": "PR-010",
+      "owning_modules": ["src/diagnostics/runtime_monitor.py", "src/diagnostics/failsafe_policy.py"],
+      "verification": [
+        { "test": "tests/recovery/test_failsafe_policy.py", "test_type": "recovery",
+          "note": "Every component has a declared response, every degradation names what is lost and expires into a halt, and an undeclared component resolves to HALT_ALL rather than to carrying on." }
+      ],
       "failure_mode": "Fail-open is chosen by default because no one chose anything."
     },
     {
@@ -1356,10 +1362,13 @@
       "statement": "Killing the process at each stage of an order lifecycle leaves a state the recovery path can reconcile without duplicating or losing an order.",
       "criticality": "critical",
       "subsystem": "resilience",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-53",
       "owning_modules": ["src/diagnostics/disaster_recovery.py"],
-      "planned_in": "PR-010",
+      "verification": [
+        { "test": "tests/recovery/test_crash_replay.py", "test_type": "recovery",
+          "note": "The process is killed at each stage of the order lifecycle; the dangerous gap (venue filled, no local record) is reported rather than averaged away, and the replay cannot double the order." }
+      ],
       "failure_mode": "A restart loses or doubles a live position."
     },
     {
@@ -1369,13 +1378,14 @@
       "statement": "A scheduled drill restores from backup and verifies the result; a backup that has never been restored is not counted.",
       "criticality": "high",
       "subsystem": "resilience",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-39",
-      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "owning_modules": ["src/diagnostics/disaster_recovery.py", "src/diagnostics/recovery_objectives.py"],
       "verification": [
-        { "test": "tests/test_disaster_recovery.py", "test_type": "recovery" }
+        { "test": "tests/test_disaster_recovery.py", "test_type": "recovery" },
+        { "test": "tests/recovery/test_recovery_objectives.py", "test_type": "recovery",
+          "note": "The drill measures rather than asserts: slow, stale and throwing restores each fail, and a restore that raises is a failed drill instead of a crashed drill run." }
       ],
-      "planned_in": "PR-010",
       "failure_mode": "The backup turns out to be unreadable on the day it is needed."
     },
     {
@@ -1385,10 +1395,13 @@
       "statement": "Recovery time and data-loss objectives carry actual numbers chosen for this operation, and a drill measures whether they are met.",
       "criticality": "medium",
       "subsystem": "resilience",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-41",
-      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
-      "planned_in": "PR-010",
+      "owning_modules": ["src/diagnostics/disaster_recovery.py", "src/diagnostics/recovery_objectives.py"],
+      "verification": [
+        { "test": "tests/recovery/test_recovery_objectives.py", "test_type": "recovery",
+          "note": "Every data class carries a number and a justification; trade records tolerate no loss while market history tolerates a minute, and RTO is tighter with open positions than flat." }
+      ],
       "failure_mode": "Recovery takes longer than anyone assumed and nobody had a number to check against."
     },
     {
@@ -1398,13 +1411,14 @@
       "statement": "Simultaneous signals on one symbol, and an order request interleaved with disconnect, reconnect and a duplicate response, leave exactly one consistent outcome.",
       "criticality": "critical",
       "subsystem": "resilience",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-52",
       "owning_modules": ["src/execution/order_manager.py", "src/execution/idempotency.py"],
       "verification": [
-        { "test": "tests/test_runtime_monitor_concurrent_probes.py", "test_type": "resilience" }
+        { "test": "tests/test_runtime_monitor_concurrent_probes.py", "test_type": "resilience" },
+        { "test": "tests/recovery/test_concurrency_races.py", "test_type": "recovery",
+          "note": "Fifty coroutines race one idempotency key and exactly one wins; concurrent completion and failure cannot release a claimed key, and distinct decisions never collide into one key." }
       ],
-      "planned_in": "PR-010",
       "failure_mode": "A race doubles a position under exactly the market conditions that caused the race."
     },
     {
@@ -1414,10 +1428,13 @@
       "statement": "p50/p95/p99, error rate, CPU and memory baselines are recorded for feature generation, signal generation, inference, risk evaluation, order processing, database, API and WebSocket, and a large regression fails or escalates.",
       "criticality": "medium",
       "subsystem": "resilience",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-54",
-      "owning_modules": ["src/diagnostics/instrumentation.py"],
-      "planned_in": "PR-010",
+      "owning_modules": ["src/diagnostics/instrumentation.py", "src/diagnostics/performance_baseline.py", "config/performance_baselines.json"],
+      "verification": [
+        { "test": "tests/performance/test_performance_baselines.py", "test_type": "performance",
+          "note": "Percentile budgets for the whole trading path, with a tail regression caught where a mean would hide it, and an undeclared operation raising rather than passing silently." }
+      ],
       "failure_mode": "The bot becomes too slow to act on its own signals and nothing says so."
     },
     {
@@ -1427,14 +1444,15 @@
       "statement": "Killing the database, killing the WebSocket, delaying and corrupting exchange responses, dropping packets, returning 500s and restarting mid-fill all end in the declared safe state.",
       "criticality": "high",
       "subsystem": "resilience",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-53",
-      "owning_modules": ["src/tuning/stress_simulator.py", "src/tuning/redteam_scheduler.py"],
+      "owning_modules": ["src/tuning/stress_simulator.py", "src/tuning/redteam_scheduler.py", "src/diagnostics/failsafe_policy.py"],
       "verification": [
         { "test": "tests/test_stress_simulator.py", "test_type": "chaos" },
-        { "test": "tests/test_redteam_scheduler.py", "test_type": "chaos" }
+        { "test": "tests/test_redteam_scheduler.py", "test_type": "chaos" },
+        { "test": "tests/recovery/test_chaos_suite.py", "test_type": "chaos",
+          "note": "Each scenario from the source document resolves through the same policy table the runtime consults; compound failures take the strictest answer, and every bounded failure escalates." }
       ],
-      "planned_in": "PR-010",
       "failure_mode": "\"It did not crash\" is mistaken for \"it stayed correct\"."
     },
     {

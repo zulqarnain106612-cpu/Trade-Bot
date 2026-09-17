@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 71 |
-| PARTIAL | 7 |
-| PLANNED | 13 |
+| VERIFIED | 79 |
+| PARTIAL | 4 |
+| PLANNED | 8 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -58,7 +58,7 @@ deletion of the thing it points at.
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 9 |
-| Execution | 11 | 10 |
+| Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
 | Signal and features | 3 | 3 |
 | Models and leakage | 7 | 7 |
@@ -66,7 +66,7 @@ deletion of the thing it points at.
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 8 | 1 |
+| Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 0 |
 | Governance | 10 | 8 |
 
@@ -83,7 +83,7 @@ deletion of the thing it points at.
 | PR-007 | API/WebSocket Security | — |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
-| PR-010 | Recovery/Chaos/Performance | `INV-009`, `RES-001`, `RES-002`, `RES-003`, `RES-004`, `RES-005`, `RES-006`, `RES-007` |
+| PR-010 | Recovery/Chaos/Performance | — |
 | PR-011 | Paper-Trading Qualification | `INV-010`, `REL-001`, `RISK-005` |
 | PR-012 | Production/Canary Security Gate | `GOV-009`, `GOV-010`, `REL-002`, `REL-003`, `REL-004`, `REL-005`, `REL-006`, `REL-007`, `REL-008` |
 
@@ -256,13 +256,14 @@ Two execution requests carrying the same idempotency key produce at most one exc
 
 #### `INV-009` — Position and account state after restart reconcile with the exchange
 
-**PLANNED → PR-010** · critical · invariant · source: QE-42
+**VERIFIED** · critical · invariant · source: QE-42
 
 After any restart, the reconstructed position and balance state matches the exchange's, or the system halts rather than trading on a guess.
 
 - **If violated:** The bot restarts believing it is flat while holding a real position, and hedges nothing.
 - **Owned by:** `src/execution/unified_ledger.py`, `src/diagnostics/disaster_recovery.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/recovery/test_crash_replay.py` (recovery) — Reconstructed state is compared against the venue at every crash point; signed quantities, partial fills and dust are each distinguished from a missing position.
 
 #### `EXEC-001` — Execution requests carry an idempotency key end to end
 
@@ -879,48 +880,52 @@ Automated dependency PRs run the full quality gate and can never trigger the pro
 
 #### `RES-001` — Every component failure has a declared, tested fail-safe behaviour
 
-**PLANNED → PR-010** · critical · requirement · source: QE-26
+**VERIFIED** · critical · requirement · source: QE-26
 
 Price feed, risk engine, exchange status, analytics, model, audit, database and WebSocket each have a documented failure policy, and a test asserts the system takes it.
 
 - **If violated:** Fail-open is chosen by default because no one chose anything.
-- **Owned by:** `src/diagnostics/runtime_monitor.py`
-- **Verification:** none yet
+- **Owned by:** `src/diagnostics/runtime_monitor.py`, `src/diagnostics/failsafe_policy.py`
+- **Verification:**
+  - `tests/recovery/test_failsafe_policy.py` (recovery) — Every component has a declared response, every degradation names what is lost and expires into a halt, and an undeclared component resolves to HALT_ALL rather than to carrying on.
 
 #### `RES-002` — Crash during a fill replays to a safe, reconciled state
 
-**PLANNED → PR-010** · critical · requirement · source: QE-53
+**VERIFIED** · critical · requirement · source: QE-53
 
 Killing the process at each stage of an order lifecycle leaves a state the recovery path can reconcile without duplicating or losing an order.
 
 - **If violated:** A restart loses or doubles a live position.
 - **Owned by:** `src/diagnostics/disaster_recovery.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/recovery/test_crash_replay.py` (recovery) — The process is killed at each stage of the order lifecycle; the dangerous gap (venue filled, no local record) is reported rather than averaged away, and the replay cannot double the order.
 
 #### `RES-003` — Backups are encrypted, off-host and restore-tested
 
-**PARTIAL → PR-010** · high · requirement · source: QE-39
+**VERIFIED** · high · requirement · source: QE-39
 
 A scheduled drill restores from backup and verifies the result; a backup that has never been restored is not counted.
 
 - **If violated:** The backup turns out to be unreadable on the day it is needed.
-- **Owned by:** `src/diagnostics/disaster_recovery.py`
+- **Owned by:** `src/diagnostics/disaster_recovery.py`, `src/diagnostics/recovery_objectives.py`
 - **Verification:**
   - `tests/test_disaster_recovery.py` (recovery)
+  - `tests/recovery/test_recovery_objectives.py` (recovery) — The drill measures rather than asserts: slow, stale and throwing restores each fail, and a restore that raises is a failed drill instead of a crashed drill run.
 
 #### `RES-004` — RTO and RPO are declared and measured
 
-**PLANNED → PR-010** · medium · requirement · source: QE-41
+**VERIFIED** · medium · requirement · source: QE-41
 
 Recovery time and data-loss objectives carry actual numbers chosen for this operation, and a drill measures whether they are met.
 
 - **If violated:** Recovery takes longer than anyone assumed and nobody had a number to check against.
-- **Owned by:** `src/diagnostics/disaster_recovery.py`
-- **Verification:** none yet
+- **Owned by:** `src/diagnostics/disaster_recovery.py`, `src/diagnostics/recovery_objectives.py`
+- **Verification:**
+  - `tests/recovery/test_recovery_objectives.py` (recovery) — Every data class carries a number and a justification; trade records tolerate no loss while market history tolerates a minute, and RTO is tighter with open positions than flat.
 
 #### `RES-005` — Concurrency produces no double order, lost order or corrupted position
 
-**PARTIAL → PR-010** · critical · requirement · source: QE-52
+**VERIFIED** · critical · requirement · source: QE-52
 
 Simultaneous signals on one symbol, and an order request interleaved with disconnect, reconnect and a duplicate response, leave exactly one consistent outcome.
 
@@ -928,28 +933,31 @@ Simultaneous signals on one symbol, and an order request interleaved with discon
 - **Owned by:** `src/execution/order_manager.py`, `src/execution/idempotency.py`
 - **Verification:**
   - `tests/test_runtime_monitor_concurrent_probes.py` (resilience)
+  - `tests/recovery/test_concurrency_races.py` (recovery) — Fifty coroutines race one idempotency key and exactly one wins; concurrent completion and failure cannot release a claimed key, and distinct decisions never collide into one key.
 
 #### `RES-006` — Performance baselines exist and regressions are flagged
 
-**PLANNED → PR-010** · medium · requirement · source: QE-54
+**VERIFIED** · medium · requirement · source: QE-54
 
 p50/p95/p99, error rate, CPU and memory baselines are recorded for feature generation, signal generation, inference, risk evaluation, order processing, database, API and WebSocket, and a large regression fails or escalates.
 
 - **If violated:** The bot becomes too slow to act on its own signals and nothing says so.
-- **Owned by:** `src/diagnostics/instrumentation.py`
-- **Verification:** none yet
+- **Owned by:** `src/diagnostics/instrumentation.py`, `src/diagnostics/performance_baseline.py`, `config/performance_baselines.json`
+- **Verification:**
+  - `tests/performance/test_performance_baselines.py` (performance) — Percentile budgets for the whole trading path, with a tail regression caught where a mean would hide it, and an undeclared operation raising rather than passing silently.
 
 #### `RES-007` — Chaos exercises end in a safe state, not merely a live process
 
-**PARTIAL → PR-010** · high · requirement · source: QE-53
+**VERIFIED** · high · requirement · source: QE-53
 
 Killing the database, killing the WebSocket, delaying and corrupting exchange responses, dropping packets, returning 500s and restarting mid-fill all end in the declared safe state.
 
 - **If violated:** "It did not crash" is mistaken for "it stayed correct".
-- **Owned by:** `src/tuning/stress_simulator.py`, `src/tuning/redteam_scheduler.py`
+- **Owned by:** `src/tuning/stress_simulator.py`, `src/tuning/redteam_scheduler.py`, `src/diagnostics/failsafe_policy.py`
 - **Verification:**
   - `tests/test_stress_simulator.py` (chaos)
   - `tests/test_redteam_scheduler.py` (chaos)
+  - `tests/recovery/test_chaos_suite.py` (chaos) — Each scenario from the source document resolves through the same policy table the runtime consults; compound failures take the strictest answer, and every bounded failure escalates.
 
 #### `RES-008` — Malformed input is rejected safely with an audit event
 
