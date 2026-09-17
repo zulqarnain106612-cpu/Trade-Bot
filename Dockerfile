@@ -50,6 +50,20 @@ COPY scripts ./scripts
 
 FROM python@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS runtime
 
+# Debian security updates for packages already in the base. Pinning by digest
+# fixes the OS packages at whatever the last upstream rebuild shipped, and
+# that lags the security archive -- python:3.11-slim's current digest carries
+# gzip, libpcre2, libsqlite3 and perl-base at versions with 3 CRITICAL and 10
+# HIGH advisories, all of them already fixed in deb13u1/deb13u2. Re-pinning
+# cannot help: this *is* the newest digest.
+#
+# `upgrade`, never `install`: this is allowed to move packages the base chose,
+# and is not allowed to add any. The lists are dropped again so the package
+# index does not ship in the image.
+RUN apt-get update -qq \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq \
+    && rm -rf /var/lib/apt/lists/*
+
 # A fixed uid/gid rather than whatever the base assigns: a volume mounted from
 # the host has to match something, and "whatever useradd picked" is not a
 # thing a deployment can match.

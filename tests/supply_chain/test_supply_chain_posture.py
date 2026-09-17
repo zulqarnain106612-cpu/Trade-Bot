@@ -310,11 +310,19 @@ class TestTheForkCheckDetects:
 class TestTheProductionCheckDetects:
     @pytest.mark.parametrize("trigger", ["push", "pull_request", "schedule"])
     def test_a_release_workflow_with_an_automatic_trigger(self, fake_repo, trigger):
-        body = {
-            "push": "on: [push]",
-            "pull_request": "on: [pull_request]",
-            "schedule": 'on:\n  schedule:\n    - cron: "0 0 * * *"',
-        }[trigger]
+        # Indented to the template's level before interpolation. `schedule` is
+        # the only multi-line trigger, and an f-string indents the first line
+        # only: its continuation lines would land at column 0, which makes
+        # `textwrap.dedent` in write_workflow a no-op and the document
+        # unparseable -- a YAML error, which is not the thing under test.
+        body = textwrap.indent(
+            {
+                "push": "on: [push]",
+                "pull_request": "on: [pull_request]",
+                "schedule": 'on:\n  schedule:\n    - cron: "0 0 * * *"',
+            }[trigger],
+            " " * 12,
+        ).lstrip()
         write_workflow(
             fake_repo,
             "release.yml",
