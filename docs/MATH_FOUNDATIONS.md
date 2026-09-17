@@ -81,7 +81,7 @@ Provides the arithmetic every symmetric and asymmetric primitive is defined over
 - **References:** FIPS 197, SEC 2 v2
 
 #### Cyclic groups and the discrete logarithm problem
-`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: planned
+`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security is exactly the difficulty of recovering x from g^x in a group of large prime order.
 
@@ -93,7 +93,7 @@ The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security i
 - **References:** SEC 1 v2, FIPS 186-5
 
 #### Elliptic curves over finite fields
-`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Supplies the group in which the discrete logarithm is hard at 256-bit key sizes rather than 3072-bit ones. Every signature this project verifies or produces lives on one.
 
@@ -107,7 +107,7 @@ Supplies the group in which the discrete logarithm is hard at 256-bit key sizes 
 > Status describes the owning mathcore module, which does not exist yet. Elliptic curves are already in production use through the consumers listed here; what is planned is a single owned implementation of curve parameters and verification-only point arithmetic, so those consumers stop each carrying their own.
 
 #### Twisted Edwards curves and Ed25519
-`edwards-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`edwards-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 A curve form with a complete addition law, so there is no special case for doubling or for the identity and therefore no branch for an attacker to time. Ed25519 also fixes the nonce deterministically by construction.
 
@@ -513,7 +513,7 @@ Proves a committed vector is close to a low-degree polynomial without a trusted 
 ## Geometry, lattices and graphs
 
 #### LLL and BKZ lattice reduction
-`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: planned
+`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 The workhorse of practical lattice attacks. Sets the concrete security of every lattice scheme and, combined with the hidden number problem, recovers ECDSA keys from biased nonces.
 
@@ -523,7 +523,7 @@ The workhorse of practical lattice attacks. Sets the concrete security of every 
 - **References:** Lenstra-Lenstra-Lovasz 1982, Albrecht et al. lattice estimator
 
 #### Hidden number problem and biased-nonce key recovery
-`hidden-number-problem` — **ATTACK SURFACE** · relevance: security · status: planned
+`hidden-number-problem` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 A handful of ECDSA signatures whose nonces share even a few known bits yield the private key by lattice reduction. This is the single most directly relevant attack in this registry for a system that signs.
 
@@ -625,7 +625,7 @@ Derives an unbounded key tree from one seed using HMAC-SHA512 and scalar additio
 - **References:** BIP-32, BIP-44, SLIP-0010
 
 #### RFC 6979 deterministic nonce generation
-`rfc6979-deterministic-nonces` — **LOAD-BEARING** · relevance: security · status: planned
+`rfc6979-deterministic-nonces` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Derives the ECDSA nonce deterministically from the key and message, removing the RNG from the signing path entirely and with it the entire biased-nonce attack class.
 
