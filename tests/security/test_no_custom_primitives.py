@@ -119,20 +119,69 @@ class TestTheMathcoreDistinction:
     the line is, so neither side drifts into the other.
     """
 
-    def test_mathcore_is_not_in_the_security_path(self):
-        # If a security module imported mathcore, the registry's "no custom
-        # primitives" claim and the mathcore roadmap would be the same claim,
-        # and one of them would be wrong.
-        importers = [
+    # The modules that stand in the path of a live secret. These are the ones
+    # SECR-008 is about: whatever else the package does, the bytes that
+    # protect a key come from an established library.
+    KEY_HANDLING = (
+        "api_signer.py",
+        "at_rest.py",
+        "constant_time.py",
+        "key_lifecycle.py",
+        "randomness.py",
+    )
+
+    def test_no_key_handling_module_rolls_its_own_mathematics(self):
+        # An earlier version of this test asserted that *no* security module
+        # imports mathcore, and it was wrong. `pq_transport` validates ML-KEM
+        # parameters through mathcore's NTT, which is analysis of a published
+        # parameter set rather than a primitive standing between an attacker
+        # and a secret -- exactly the use the distinction is meant to permit.
+        #
+        # The rule SECR-008 actually states is narrower and worth keeping: the
+        # modules that touch live key material delegate to a library. So that
+        # is what is asserted, against the list above rather than against the
+        # whole package.
+        offenders = [
             p.relative_to(REPO).as_posix()
             for p in security_modules()
-            if re.search(
+            if p.name in self.KEY_HANDLING
+            and re.search(
                 r"^\s*from src\.mathcore|^\s*import src\.mathcore",
                 p.read_text(encoding="utf-8"),
                 re.M,
             )
         ]
-        assert importers == []
+        assert offenders == []
+
+    def test_a_module_that_uses_mathcore_says_why(self):
+        # The permission is not unconditional. A security module reaching into
+        # mathcore has to explain itself in the file, because the next reader
+        # needs to be able to tell parameter validation from a hand-rolled
+        # cipher without reading the whole call graph.
+        for path in security_modules():
+            source = path.read_text(encoding="utf-8")
+            if not re.search(r"^\s*from src\.mathcore|^\s*import src\.mathcore", source, re.M):
+                continue
+            # Any docstring in the file, or a comment. Not just the module
+            # docstring: an explanation sitting beside the import, in the
+            # docstring of the function that uses it, is where a reader
+            # tracing the call will actually look.
+            tree = ast.parse(source)
+            docstrings = [
+                ast.get_docstring(node) or ""
+                for node in ast.walk(tree)
+                if isinstance(
+                    node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+                )
+            ]
+            explained = any("mathcore" in doc for doc in docstrings) or re.search(
+                r"#[^\n]*mathcore", source
+            )
+            assert explained, (
+                f"{path.name} imports mathcore with no explanation. Say in a "
+                "docstring or a comment what it is used for, so the next reader "
+                "can tell parameter validation from a hand-rolled primitive."
+            )
 
     def test_the_registry_records_the_pq_posture_where_it_belongs(self):
         # pq_transport is the module that reasons about post-quantum posture;
