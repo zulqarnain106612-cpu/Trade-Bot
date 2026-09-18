@@ -500,14 +500,38 @@ def check_keyword_arguments_match_signatures() -> list[str]:
     become ``greeks_caps=`` cost a full CI round on 2026-08-01.
 
     Resolution is by bare name, not by import, so anything ambiguous across
-    modules is skipped rather than guessed.
+    modules is skipped rather than guessed. A name the calling module defines
+    itself is one of those ambiguities and is skipped too: the signature table
+    is built from ``src/`` only, while call sites are read from ``src/`` *and*
+    ``tests/``, so without this a test helper shadows nothing and every call to
+    it is checked against an unrelated function that happens to share its name.
+
+    That is not hypothetical. Four test modules define a local ``_result(...)``
+    helper, and ``src/diagnostics/startup_selftest.py`` defines
+    ``_result(name, ok, detail)``. Every one of those test calls was reported
+    as passing a parameter that does not exist -- 16 violations, none of them
+    real, against code where the local definition is the one Python binds.
     """
     accepted = _keyword_only_safe_signatures()
     problems: list[str] = []
     for root in (SRC, REPO / "tests"):
         for path in _py_files(root):
-            for node in ast.walk(_parse(path)):
+            tree = _parse(path)
+            # Module-level bindings shadow the table for this file.
+            local = {
+                stmt.name
+                for stmt in tree.body
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            }
+            for node in ast.walk(tree):
                 if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                if node.func.id in local:
+                    # The calling module binds this name itself, so that is
+                    # what Python calls -- whatever the table says about a
+                    # same-named function somewhere else. The cross-module
+                    # calls this check exists for are unaffected: a module
+                    # that calls a name it does not define is not in `local`.
                     continue
                 allowed = accepted.get(node.func.id)
                 if not allowed:  # unknown target, or **kwargs, or no named params
