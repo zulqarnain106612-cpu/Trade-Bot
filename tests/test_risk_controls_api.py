@@ -447,6 +447,18 @@ def api_client():
         api_main.Role.TRADE_AUTHORIZING
     )
     api_main.app.dependency_overrides[api_main.require_ready] = lambda: None
+    # API-008 added require_healthy_security_controls to the mutating
+    # endpoints. It reads the process-wide CONTROL_HEALTH registry, which
+    # starts degraded on purpose -- silence is not health -- so without this
+    # override every POST here answers 503 before authentication is even
+    # reached, and assertions about 401 and 200 test nothing.
+    #
+    # Overridden rather than satisfied by reporting each control healthy:
+    # that would mutate a process-wide registry from a test, which is the
+    # thing tests/api/test_fail_closed_controls.py deliberately refuses to do.
+    # What this suite is about is the risk-control endpoints, not the health
+    # gate; the gate has its own tests.
+    api_main.app.dependency_overrides[api_main.require_healthy_security_controls] = lambda: None
 
     client = TestClient(api_main.app)
     yield client, fake_storage, api_main

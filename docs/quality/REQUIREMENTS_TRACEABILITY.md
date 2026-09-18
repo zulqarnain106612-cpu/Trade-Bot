@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 44 |
-| PARTIAL | 16 |
-| PLANNED | 31 |
+| VERIFIED | 54 |
+| PARTIAL | 12 |
+| PLANNED | 25 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -58,12 +58,12 @@ deletion of the thing it points at.
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 9 |
-| Execution | 11 | 9 |
+| Execution | 11 | 10 |
 | Portfolio | 1 | 1 |
 | Signal and features | 3 | 3 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
-| API and WebSocket | 9 | 0 |
+| API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 0 |
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
@@ -80,7 +80,7 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`, `API-007`, `API-008`, `API-009`, `EXEC-005` |
+| PR-007 | API/WebSocket Security | — |
 | PR-008 | Cryptographic/Secret Architecture | `SECR-001`, `SECR-002`, `SECR-003`, `SECR-004`, `SECR-005`, `SECR-006`, `SECR-007`, `SECR-008`, `SECR-009`, `SECR-010` |
 | PR-009 | Supply-Chain + Artifact Security | `SUP-001`, `SUP-002`, `SUP-003`, `SUP-004`, `SUP-005`, `SUP-006`, `SUP-007` |
 | PR-010 | Recovery/Chaos/Performance | `INV-009`, `RES-001`, `RES-002`, `RES-003`, `RES-004`, `RES-005`, `RES-006`, `RES-007` |
@@ -314,15 +314,17 @@ An unrecognised status string maps to an explicit UNKNOWN outcome that triggers 
 
 #### `EXEC-005` — The kill switch is authenticated, authorized, audited, idempotent and durable
 
-**PARTIAL → PR-007** · critical · requirement · source: QE-25
+**VERIFIED** · critical · requirement · source: QE-25
 
 Activating the kill switch requires an operator role, writes an audit event, is safe to repeat, blocks new entries immediately, and survives restart.
 
 - **If violated:** The control of last resort is unavailable exactly when it is needed.
-- **Owned by:** `src/risk/strategy_kill_switch.py`
+- **Owned by:** `src/risk/strategy_kill_switch.py`, `src/execution/mode_persistence.py`
 - **Verification:**
   - `tests/test_strategy_kill_switch.py` (component)
   - `tests/test_strategy_kill_switch_wiring.py` (integration)
+  - `tests/api/test_kill_switch_durability.py` (security) — Durability: the halt is persisted atomically and restored at startup; a missing file means a first start, an unreadable one resolves to the most restrictive mode.
+  - `tests/api/test_injection_and_rate_limiting.py` (api) — The halt as an API control: authenticated, authorized by role, and idempotent when repeated.
 
 #### `EXEC-006` — Partial fills and fees are accounted exactly
 
@@ -571,7 +573,7 @@ Every submitted order conforms to the venue's tick, lot and minimum-notional rul
 
 #### `API-001` — The authorization matrix is executable and every cell is tested
 
-**PARTIAL → PR-007** · critical · requirement · source: QE-19
+**VERIFIED** · critical · requirement · source: QE-19
 
 For each (role, endpoint) pair the declared allow/deny outcome is asserted by a test, including the anonymous row.
 
@@ -580,51 +582,57 @@ For each (role, endpoint) pair the declared allow/deny outcome is asserted by a 
 - **Verification:**
   - `tests/test_api_role_enforcement.py` (api)
   - `tests/test_access_control.py` (security)
+  - `tests/authorization/test_authorization_matrix.py` (security) — Every (role, endpoint) cell asserted, including the anonymous row and the escalation direction.
 
 #### `API-002` — No insecure direct object references
 
-**PLANNED → PR-007** · critical · requirement · source: QE-20
+**VERIFIED** · critical · requirement · source: QE-20
 
 A caller cannot read or modify another principal's resource by substituting an identifier.
 
 - **If violated:** One authenticated user reads or cancels another's orders.
-- **Owned by:** `src/api/access_control.py`
-- **Verification:** none yet
+- **Owned by:** `src/api/access_control.py`, `src/api/object_refs.py`
+- **Verification:**
+  - `tests/authorization/test_object_references.py` (security) — Identifiers are validated before any lookup, and every negative outcome returns one indistinguishable body.
 
 #### `API-003` — Injection payloads are rejected at the boundary
 
-**PLANNED → PR-007** · critical · requirement · source: QE-21
+**VERIFIED** · critical · requirement · source: QE-21
 
 SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payloads are refused wherever input reaches a database, filesystem, subprocess, external API or log.
 
 - **If violated:** An attacker reads or rewrites the trading database.
 - **Owned by:** `src/api/main.py`, `src/api/middleware.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/api/test_injection_and_rate_limiting.py` (security) — Injection payloads refused at the parsers, the outbound surface and the header boundary.
 
 #### `API-004` — Outbound URL handling is SSRF-resistant
 
-**PLANNED → PR-007** · critical · requirement · source: QE-22
+**VERIFIED** · critical · requirement · source: QE-22
 
 Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.
 
 - **If violated:** The bot becomes the attacker's proxy into the private network and the metadata service.
-- **Owned by:** `src/intelligence/client.py`
-- **Verification:** none yet
+- **Owned by:** `src/intelligence/client.py`, `src/api/ssrf.py`
+- **Verification:**
+  - `tests/api/test_ssrf_protection.py` (security) — Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client.
 
 #### `API-005` — WebSocket payloads are validated regardless of connection state
 
-**PARTIAL → PR-007** · critical · requirement · source: QE-23
+**VERIFIED** · critical · requirement · source: QE-23
 
 An established connection confers no trust: every message is authenticated, schema-validated, size-bounded, rate-limited and replay-checked.
 
 - **If violated:** A single authenticated socket becomes an unauthenticated command channel.
-- **Owned by:** `src/api/main.py`, `src/data/orderbook_stream.py`
+- **Owned by:** `src/api/main.py`, `src/data/orderbook_stream.py`, `src/api/ws_guard.py`
 - **Verification:**
   - `tests/test_ws_auth_query_param.py` (security)
+  - `tests/api/test_websocket_frame_guard.py` (security) — Every inbound frame is size-bounded, schema-validated, freshness-checked, rate-limited and replay-checked, in that order, with one guard per connection.
+  - `tests/authentication/test_api_authentication.py` (security) — The upgrade itself is authenticated before any state is touched.
 
 #### `API-006` — Rate limiting protects authentication, trading and expensive endpoints
 
-**PARTIAL → PR-007** · high · requirement · source: QE-24
+**VERIFIED** · high · requirement · source: QE-24
 
 Login, authentication, trade endpoints, sensitive mutations, WebSocket connections and expensive queries are rate-limited, and the limits are tested under burst and sustained load.
 
@@ -632,38 +640,42 @@ Login, authentication, trade endpoints, sensitive mutations, WebSocket connectio
 - **Owned by:** `src/api/middleware.py`
 - **Verification:**
   - `tests/test_selftest_rate_limit.py` (api)
+  - `tests/api/test_injection_and_rate_limiting.py` (api) — Rate limiting on the authentication, trading and diagnostic endpoints, keyed per client rather than globally.
 
 #### `API-007` — Security headers are present and correct
 
-**PLANNED → PR-007** · medium · requirement · source: QE-18
+**VERIFIED** · medium · requirement · source: QE-18
 
 Responses carry the declared security headers, and a test fails if one is removed.
 
 - **If violated:** A browser-side weakness that the headers would have closed.
-- **Owned by:** `src/api/middleware.py`
-- **Verification:** none yet
+- **Owned by:** `src/api/middleware.py`, `src/api/security_headers.py`
+- **Verification:**
+  - `tests/api/test_security_headers.py` (security) — Each declared header is applied, HSTS only over TLS, and the middleware sits outermost so an error response still carries them.
 
 #### `API-008` — A failing security control never opens a trading endpoint
 
-**PLANNED → PR-007** · critical · requirement · source: QE-55
+**VERIFIED** · critical · requirement · source: QE-55
 
 If authentication, authorization, rate limiting or logging is unavailable, the trading endpoints refuse rather than degrade to open.
 
 - **If violated:** An outage in the auth dependency turns the trade endpoint anonymous.
-- **Owned by:** `src/api/auth.py`, `src/api/middleware.py`
+- **Owned by:** `src/api/auth.py`, `src/api/middleware.py`, `src/api/fail_closed.py`
 - **Depends on:** `GOV-004`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/api/test_fail_closed_controls.py` (security) — A control that never reported counts as degraded, any single degradation closes the trading endpoints, and the read-only endpoints stay open by design.
 
 #### `API-009` — Error responses leak neither secrets nor internals
 
-**PLANNED → PR-007** · high · requirement · source: QE-18,QE-17
+**VERIFIED** · high · requirement · source: QE-18,QE-17
 
 No error path returns a credential, token, stack trace or internal hostname to a caller.
 
 - **If violated:** A 500 hands the attacker the next step.
-- **Owned by:** `src/api/main.py`
+- **Owned by:** `src/api/main.py`, `src/api/error_hygiene.py`
 - **Depends on:** `SECR-001`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
 
 ## Cryptography and secrets
 
