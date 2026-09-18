@@ -35,6 +35,9 @@ from __future__ import annotations
 
 import base64
 import os
+import time
+from collections import OrderedDict
+from typing import Any, Final
 
 
 class ApiSigner:
@@ -87,3 +90,84 @@ class ApiSigner:
             return True
         except (InvalidSignature, ValueError):
             return False
+
+
+# ---------------------------------------------------------------------------
+# SECR-005 -- freshness and replay
+# ---------------------------------------------------------------------------
+
+# A valid signature stays valid forever, which is the whole problem: an
+# attacker who captures one signed "close all positions" can send it again
+# tomorrow and it verifies. Signing proves authorship, never recency, so the
+# timestamp is inside the signed payload (it already is, see sign_request) and
+# these two checks are what make it mean anything.
+
+MAX_TIMESTAMP_SKEW_S: Final[int] = 30
+
+# Bounded, because the cache is filled by whoever is talking to us. Sized
+# generously against the skew window: at any moment only signatures from the
+# last MAX_TIMESTAMP_SKEW_S seconds can still verify, so a cache that holds
+# more than one such window can never forget a signature that is still live.
+_SEEN_CACHE_SIZE: Final[int] = 4096
+
+
+class ReplayError(RuntimeError):
+    """A signed request that is stale, post-dated, or already used."""
+
+
+class ReplayWindow:
+    """
+    Remembers recently-accepted signatures and rejects a second use.
+
+    One instance per verifying process. The signature is the replay key
+    rather than a separate nonce: it is unique per (timestamp, method, path,
+    body) already, so a client needs nothing new and there is no field an
+    implementation can forget to send.
+    """
+
+    def __init__(self, now: Any = time.time) -> None:
+        self._now = now
+        self._seen: OrderedDict[str, float] = OrderedDict()
+
+    def check(self, signature_hex: str, timestamp: int) -> None:
+        """Raise `ReplayError` unless this signature is fresh and unused."""
+        now = float(self._now())
+        skew = now - float(timestamp)
+        if skew > MAX_TIMESTAMP_SKEW_S:
+            raise ReplayError("request timestamp is too old")
+        if -skew > MAX_TIMESTAMP_SKEW_S:
+            # Post-dated requests are refused too: accepting one would let an
+            # attacker mint a signature that stays replayable for as long as
+            # they cared to post-date it.
+            raise ReplayError("request timestamp is in the future")
+        if signature_hex in self._seen:
+            raise ReplayError("signature has already been used")
+        self._seen[signature_hex] = now
+        self._prune(now)
+
+    def _prune(self, now: float) -> None:
+        while self._seen and now - next(iter(self._seen.values())) > MAX_TIMESTAMP_SKEW_S:
+            self._seen.popitem(last=False)
+        while len(self._seen) > _SEEN_CACHE_SIZE:
+            self._seen.popitem(last=False)
+
+
+def verify_fresh_request(
+    signer: ApiSigner,
+    window: ReplayWindow,
+    method: str,
+    path: str,
+    body: str,
+    timestamp: int,
+    signature_hex: str,
+) -> None:
+    """
+    Full verification: authorship, then freshness, then single-use.
+
+    Raises `ReplayError`. Signature first, so that an unauthenticated caller
+    cannot fill the replay cache by sending garbage -- the cheap check is the
+    one an attacker controls the volume of.
+    """
+    if not signer.verify(method, path, body, timestamp, signature_hex):
+        raise ReplayError("signature does not verify")
+    window.check(signature_hex, timestamp)
