@@ -25,7 +25,9 @@ import json
 import os
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -48,6 +50,14 @@ from src.features.pipeline import (
     FeatureMatrix,
     get_active_feature_columns,
     meta_labels,
+)
+from src.models.provenance import (
+    ModelProvenance,
+    build_manifest,
+    code_commit,
+    hash_feature_schema,
+    hash_training_data,
+    library_versions,
 )
 from src.tuning.live_overrides import effective_feature_settings, effective_xgboost_settings
 
@@ -106,17 +116,26 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     os.replace(tmp_path, path)
 
 
-def _write_manifest(path: Path, data: bytes | None = None) -> None:
+def _write_manifest(
+    path: Path,
+    data: bytes | None = None,
+    provenance: ModelProvenance | None = None,
+) -> None:
     """
-    Write a SHA-256 manifest file alongside a model file.
+    Write the manifest file alongside a model file.
 
     `data` should be the exact bytes already written to `path` so the file
     is not re-read from disk; falls back to reading `path` if omitted.
+
+    MODL-001: the manifest now carries the artifact's full provenance record
+    when one is available, not only its digest. `file` and `sha256` keep their
+    original meaning and position, so a manifest written before this change
+    still verifies and a reader written against the old shape still works.
     """
-    digest = hashlib.sha256(data if data is not None else path.read_bytes()).hexdigest()
-    manifest = {"file": path.name, "sha256": digest}
+    payload = data if data is not None else path.read_bytes()
+    manifest = build_manifest(path, payload, provenance)
     manifest_path = path.with_suffix(_MANIFEST_SUFFIX)
-    _atomic_write_bytes(manifest_path, json.dumps(manifest).encode("utf-8"))
+    _atomic_write_bytes(manifest_path, json.dumps(manifest, indent=2).encode("utf-8"))
 
 
 def _verify_manifest(path: Path) -> bytes:
@@ -539,6 +558,81 @@ class ModelTrainer:
             symbol=symbol,
             timeframe=timeframe,
         )
+        # MODL-001. Filled by train_direction / train_meta_label and consumed
+        # by save(), which is the only place that knows the artifact bytes and
+        # therefore the only place that can complete the record. Keyed by
+        # MODEL_DIRECTION / MODEL_META_LABEL.
+        self._provenance: dict[str, dict[str, object]] = {}
+
+    # ------------------------------------------------------------------
+    # Provenance (MODL-001)
+    # ------------------------------------------------------------------
+
+    def _record_provenance(
+        self,
+        model_name: str,
+        X: np.ndarray,
+        y: np.ndarray,
+        columns: Sequence[str],
+        metrics: dict[str, float],
+        validation: str,
+    ) -> None:
+        """
+        Capture everything about this training run except the artifact hash.
+
+        The artifact hash cannot be known here -- it is a digest of the
+        serialised bytes, which only exist once save() has run -- so the
+        record is completed there. Splitting it is the honest shape: the
+        alternative is a placeholder hash that looks like a real one.
+        """
+        self._provenance[model_name] = {
+            "model_id": f"{model_name}:{self._symbol}:{self._timeframe}",
+            "training_data_hash": hash_training_data(X, y),
+            "feature_schema_hash": hash_feature_schema(list(columns)),
+            "code_commit": code_commit(),
+            "hyperparameters": self._xgb_cfg.model_dump(),
+            "random_seed": int(self._xgb_cfg.random_state),
+            "library_versions": library_versions(),
+            "metrics": {k: round(float(v), 6) for k, v in metrics.items()},
+            "validation_methodology": validation,
+            "symbol": self._symbol,
+            "timeframe": self._timeframe,
+            "feature_columns": list(columns),
+        }
+
+    def _cpcv_methodology(self) -> str:
+        """The validation methodology, in the terms that make it checkable."""
+        cfg = self._feature_cfg
+        return (
+            f"CPCV(n_splits={cfg.cpcv_n_splits}, n_test_splits={cfg.cpcv_n_test_splits}, "
+            f"purge_gap_bars={cfg.purge_gap_bars}, embargo_pct={cfg.embargo_pct})"
+        )
+
+    def provenance_for(self, model_name: str) -> dict[str, object] | None:
+        """The record captured for `model_name`, or None if it has not trained."""
+        record = self._provenance.get(model_name)
+        return dict(record) if record is not None else None
+
+    def _finish_provenance(self, model_name: str, data: bytes) -> ModelProvenance | None:
+        """
+        Complete the captured record with the artifact hash and a timestamp.
+
+        Returns None when nothing was captured -- a caller may legitimately
+        save a model it did not train here (a rollback, a hand-built
+        fixture), and writing a record full of blanks would assert provenance
+        that does not exist. The manifest then simply has no `provenance`
+        block, which `read_provenance` reports as None.
+        """
+        captured = self._provenance.get(model_name)
+        if captured is None:
+            return None
+        return ModelProvenance.from_dict(
+            {
+                **captured,
+                "artifact_sha256": hashlib.sha256(data).hexdigest(),
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        )
 
     # ------------------------------------------------------------------
     # Direction model
@@ -677,6 +771,23 @@ class ModelTrainer:
             live_gate_pass=live_gate,
             fold_metrics=fold_metrics,
             elapsed_s=round(elapsed, 2),
+        )
+
+        self._record_provenance(
+            MODEL_DIRECTION,
+            X,
+            y,
+            _active_cols,
+            {
+                "oos_sharpe": result.oos_sharpe,
+                "max_drawdown": result.max_drawdown,
+                "accuracy": result.accuracy,
+                "precision": result.precision,
+                "recall": result.recall,
+                "f1": result.f1,
+                "n_trades": result.n_trades,
+            },
+            self._cpcv_methodology(),
         )
 
         self._log.info(
@@ -919,6 +1030,26 @@ class ModelTrainer:
             elapsed_s=round(elapsed, 2),
         )
 
+        self._record_provenance(
+            MODEL_META_LABEL,
+            x_meta,
+            meta_y,
+            # The two derived columns are appended by both training and
+            # inference, so the schema hash has to include them or it would
+            # describe a matrix two columns narrower than the one fitted.
+            [*_active_cols_meta, "p_long", "confidence"],
+            {
+                "oos_sharpe": result.oos_sharpe,
+                "max_drawdown": result.max_drawdown,
+                "accuracy": result.accuracy,
+                "precision": result.precision,
+                "recall": result.recall,
+                "f1": result.f1,
+                "n_trades": result.n_trades,
+            },
+            self._cpcv_methodology(),
+        )
+
         self._log.info(
             "trainer.meta.done",
             oos_sharpe=result.oos_sharpe,
@@ -1098,7 +1229,7 @@ class ModelTrainer:
         )
         dir_data = dir_buf.getvalue()
         _atomic_write_bytes(dir_path, dir_data)
-        _write_manifest(dir_path, dir_data)
+        _write_manifest(dir_path, dir_data, self._finish_provenance(MODEL_DIRECTION, dir_data))
 
         joblib.dump(
             {
@@ -1113,7 +1244,7 @@ class ModelTrainer:
         )
         meta_data = meta_buf.getvalue()
         _atomic_write_bytes(meta_path, meta_data)
-        _write_manifest(meta_path, meta_data)
+        _write_manifest(meta_path, meta_data, self._finish_provenance(MODEL_META_LABEL, meta_data))
 
         self._log.info(
             "trainer.saved",

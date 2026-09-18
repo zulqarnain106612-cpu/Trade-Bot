@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "GOV-003, RISK-006, EXEC-007, SIG-003.",
+    "",
+    "Per-subsystem mutation-score floors. These are this project's engineering",
+    "targets, not universal standards -- the source document says so",
+    "explicitly. What they are for is the comparison against coverage: a high",
+    "coverage number with a poor mutation score is weak evidence, and these",
+    "numbers are what makes that comparison possible.",
+    "",
+    "'paths' are the modules mutated. 'min_score' is the fraction of generated",
+    "mutants the suite must kill. A subsystem whose score falls below its",
+    "floor fails the nightly job; it does not block a pull request, because a",
+    "mutation run is minutes of CPU per module and a PR gate that slow gets",
+    "switched off."
+  ],
+  "version": "1.0.0",
+  "subsystems": {
+    "risk": {
+      "paths": [
+        "src/risk/gates.py",
+        "src/risk/kelly.py",
+        "src/risk/capital_preservation_floor.py"
+      ],
+      "min_score": 0.90,
+      "requirement": "RISK-006"
+    },
+    "execution": {
+      "paths": [
+        "src/execution/order_fsm.py",
+        "src/execution/idempotency.py",
+        "src/execution/exchange_contract.py"
+      ],
+      "min_score": 0.90,
+      "requirement": "EXEC-007"
+    },
+    "sizing": {
+      "paths": ["src/strategies/position_sizing.py"],
+      "min_score": 0.90,
+      "requirement": "RISK-006"
+    },
+    "signal": {
+      "paths": ["src/engine/signal_engine.py", "src/features/pipeline.py"],
+      "min_score": 0.85,
+      "requirement": "SIG-003"
+    },
+    "data_quality": {
+      "paths": ["src/data/quality_gate.py", "src/data/clock.py"],
+      "min_score": 0.85,
+      "requirement": "GOV-003"
+    }
+  }
+}

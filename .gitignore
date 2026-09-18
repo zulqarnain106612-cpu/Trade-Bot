@@ -4,7 +4,11 @@ __pycache__/
 .env
 .coverage
 htmlcov/
-data/
+# Anchored to the repository root. Unanchored, `data/` matched `src/data/`
+# too -- which silently kept src/data/clock.py out of the repository while it
+# sat on disk looking committed, and left the quality registry naming an
+# owning module CI could not find.
+/data/
 logs/
 
 node_modules/

@@ -14,6 +14,8 @@ Authority:
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy.stats import beta
 
@@ -45,8 +47,37 @@ def shrink_probability(
     -------
     (posterior_mean, posterior_std) -- posterior_mean is the shrunk estimate;
     as n_obs -> infinity, posterior_mean -> observed_p (shrinkage vanishes).
+    posterior_mean is guaranteed finite and in [0, 1]; see the guards below.
+
+    Raises
+    ------
+    ValueError
+        On a non-finite input, or a non-positive prior_strength.
+
+    RISK-004. The guards are not decorative. ``np.clip(nan, 0, 1)`` is
+    ``nan``, and ``max(nan, 0.0)`` returns ``nan`` (Python's ``max`` keeps
+    the first argument unless the second compares greater, and nothing
+    compares greater than NaN), so both of the sanitising lines below used to
+    pass a NaN straight through into ``posterior_mean``. A NaN "probability"
+    then reaches the sizing layer, where every ``p <= 0`` guard is False for
+    it. Raising is the same choice
+    ``CapitalPreservationFloor.update_equity`` makes: a corrupt measurement
+    in a risk primitive is a fault to surface, not a value to clamp.
+
+    ``prior_p`` was not bounded at all, so a caller passing 2.0 obtained a
+    posterior mean above 1.0 -- a "probability" that then sized a bet.
     """
+    if not all(math.isfinite(v) for v in (observed_p, n_obs, prior_p, prior_strength)):
+        raise ValueError(
+            "shrink_probability requires finite inputs, got "
+            f"observed_p={observed_p}, n_obs={n_obs}, "
+            f"prior_p={prior_p}, prior_strength={prior_strength}"
+        )
+    if prior_strength <= 0.0:
+        raise ValueError(f"prior_strength must be > 0, got {prior_strength}")
+
     observed_p = float(np.clip(observed_p, 0.0, 1.0))
+    prior_p = float(np.clip(prior_p, 0.0, 1.0))
     n_obs = max(float(n_obs), 0.0)
     n_eff = prior_strength + n_obs
 
