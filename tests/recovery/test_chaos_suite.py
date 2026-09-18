@@ -38,6 +38,10 @@ SCENARIOS = [
     ("database killed", {Component.DATABASE}, True),
     ("websocket killed", {Component.ORDER_BOOK_STREAM}, False),
     ("price feed frozen", {Component.PRICE_FEED}, False),
+    # The one the list was missing, which is exactly the point of the
+    # coverage assertion below: a component nobody wrote a scenario for is a
+    # component nobody has thought about failing.
+    ("risk engine down", {Component.RISK_ENGINE}, False),
     ("exchange api unreachable", {Component.EXCHANGE_API}, True),
     ("exchange status unknown", {Component.EXCHANGE_STATUS}, False),
     ("model inference failing", {Component.MODEL_INFERENCE}, False),

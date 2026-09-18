@@ -50,6 +50,28 @@ COPY scripts ./scripts
 
 FROM python@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS runtime
 
+# Pin the base, then patch it.
+#
+# The digest above is the newest python:3.11-slim, and the Trivy gate still
+# fails on it: Debian has a fixed perl-base and the image has not been rebuilt
+# with it yet. That gap is normal and it is why pinning alone is not a
+# security posture -- a digest is reproducible, not current.
+#
+# Security upgrades only, and no new packages: `upgrade` rather than `install`
+# keeps the "no toolchain in the runtime layer" property that
+# tests/supply_chain/test_container_posture.py asserts. The lists are removed
+# in the same layer, or they ship inside the image for no reason.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# setuptools ships vendored dependencies (jaraco.*) that the scan reads out of
+# their METADATA, and the base image's copy lags the fixed release. Upgrading
+# it here is cheaper than carrying an ignore file that somebody has to
+# remember to prune.
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools
+
 # A fixed uid/gid rather than whatever the base assigns: a volume mounted from
 # the host has to match something, and "whatever useradd picked" is not a
 # thing a deployment can match.

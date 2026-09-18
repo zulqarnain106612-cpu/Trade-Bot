@@ -16,6 +16,7 @@ coverage to prove the round trip works.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -37,9 +38,13 @@ def bundle(tmp_path: Path) -> Path:
 def record_path(bundle: Path) -> Path:
     path = bundle / "provenance.json"
     record = build_record(bundle)
-    # The real commit comes from GITHUB_SHA or git; in a tmp_path there is
-    # neither, so supply one rather than testing the environment.
-    record["commit"] = "a" * 40
+    # The real commit comes from GITHUB_SHA or git. In a tmp_path there is
+    # often neither, so supply one -- but take GITHUB_SHA when it is set,
+    # because `verify()` deliberately refuses a record whose commit differs
+    # from the running job's. A hard-coded stub passed on a laptop and failed
+    # in Actions for precisely the reason the check exists, which made the
+    # test an assertion about the environment rather than about the record.
+    record["commit"] = os.environ.get("GITHUB_SHA") or "a" * 40
     path.write_text(json.dumps(record, indent=2, sort_keys=True))
     return path
 
@@ -95,7 +100,13 @@ class TestVerifyCatchesTampering:
     def test_a_commit_from_a_different_run(self, bundle, record_path, monkeypatch):
         # A cached or shallow checkout in the verifying job, or a record
         # carried over from a previous build.
-        monkeypatch.setenv("GITHUB_SHA", "b" * 40)
+        #
+        # Derived from the record rather than hard-coded: under Actions the
+        # fixture takes the real GITHUB_SHA, and a fixed stub here could
+        # happen to equal it -- which would make this assertion pass for the
+        # wrong reason on a laptop and fail in CI.
+        recorded = json.loads(record_path.read_text())["commit"]
+        monkeypatch.setenv("GITHUB_SHA", ("c" if recorded[0] != "c" else "d") * 40)
         assert any("does not match this run" in p for p in verify(record_path))
 
     @pytest.mark.parametrize("field", REQUIRED_FIELDS)
