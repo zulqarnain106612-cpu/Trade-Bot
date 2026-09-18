@@ -86,6 +86,19 @@ COPY --from=build --chown=root:root /build/common /app/common
 COPY --from=build --chown=root:root /build/config /app/config
 COPY --from=build --chown=root:root /build/scripts /app/scripts
 
+# After the copy, not before it.
+#
+# requirements.txt already floors msgpack at 1.2.1 and the build stage honours
+# it -- the image carries msgpack-1.2.2.dist-info. The scan nonetheless
+# reported 1.1.2 as installed, which means a second copy arrives in the
+# merged prefix from a dependency that ships its own. Upgrading here, once
+# everything is in place, makes the installed set unambiguous instead of
+# depending on which copy the scanner reads first.
+#
+# The alternative was a Trivy ignore entry, which would have hidden a real
+# second copy rather than removing it.
+RUN python -m pip install --no-cache-dir --upgrade "msgpack>=1.2.1"
+
 # Owned by root, run as tradebot: the running process cannot modify its own
 # code. This is the single most useful property in the file.
 USER 10001:10001
