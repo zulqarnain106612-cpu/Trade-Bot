@@ -77,7 +77,7 @@
         "Ed25519"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -111,7 +111,7 @@
         "TLS P-256"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -155,7 +155,7 @@
         "this project's API request signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/ed25519.py",
@@ -220,7 +220,7 @@
         "NTRU"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -319,7 +319,7 @@
         "polynomial IOPs"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/interpolation.py",
@@ -717,7 +717,7 @@
         "Falcon"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/ntt.py",
@@ -750,7 +750,7 @@
         "bent function construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/walsh_hadamard.py",
@@ -774,7 +774,7 @@
         "Regev's LWE reduction"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -829,7 +829,7 @@
         "timing analysis of signing code"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/fft_spectral.py",

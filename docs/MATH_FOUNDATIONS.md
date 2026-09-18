@@ -81,7 +81,7 @@ Provides the arithmetic every symmetric and asymmetric primitive is defined over
 - **References:** FIPS 197, SEC 2 v2
 
 #### Cyclic groups and the discrete logarithm problem
-`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: planned
+`cyclic-groups-dlp` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security is exactly the difficulty of recovering x from g^x in a group of large prime order.
 
@@ -93,7 +93,7 @@ The hardness assumption under Diffie-Hellman, DSA, ECDSA and Schnorr. Security i
 - **References:** SEC 1 v2, FIPS 186-5
 
 #### Elliptic curves over finite fields
-`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`elliptic-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Supplies the group in which the discrete logarithm is hard at 256-bit key sizes rather than 3072-bit ones. Every signature this project verifies or produces lives on one.
 
@@ -107,7 +107,7 @@ Supplies the group in which the discrete logarithm is hard at 256-bit key sizes 
 > Status describes the owning mathcore module, which does not exist yet. Elliptic curves are already in production use through the consumers listed here; what is planned is a single owned implementation of curve parameters and verification-only point arithmetic, so those consumers stop each carrying their own.
 
 #### Twisted Edwards curves and Ed25519
-`edwards-curves` — **LOAD-BEARING** · relevance: security · status: planned
+`edwards-curves` — **LOAD-BEARING** · relevance: security · status: implemented
 
 A curve form with a complete addition law, so there is no special case for doubling or for the identity and therefore no branch for an attacker to time. Ed25519 also fixes the nonce deterministically by construction.
 
@@ -130,7 +130,7 @@ Makes signature aggregation and constant-size polynomial commitments possible by
 - **References:** IETF draft-irtf-cfrg-pairing-friendly-curves, EIP-4844
 
 #### Lattices and module algebra over polynomial rings
-`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: planned
+`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness base of the standardised post-quantum schemes: arithmetic in Z_q[x]/(x^n+1) with Learning With Errors as the assumption.
 
@@ -174,7 +174,7 @@ A post-quantum hardness candidate whose flagship instance was broken, which is e
 - **References:** Castryck-Decru 2022
 
 #### Lagrange interpolation over a finite field
-`lagrange-interpolation` — **LOAD-BEARING** · relevance: security · status: planned
+`lagrange-interpolation` — **LOAD-BEARING** · relevance: security · status: implemented
 
 A degree-t polynomial is determined by t+1 points and by no fewer, which is precisely the threshold property behind secret sharing and threshold signing.
 
@@ -349,7 +349,7 @@ The second half of the Baillie-PSW primality test. This is the one place where a
 ## Fourier and harmonic analysis
 
 #### Number-theoretic transform
-`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 The FFT carried out over a finite field. It turns polynomial multiplication from quadratic to n log n, which is what makes lattice cryptography and succinct proofs fast enough to deploy.
 
@@ -361,7 +361,7 @@ The FFT carried out over a finite field. It turns polynomial multiplication from
 - **References:** FIPS 203 Algorithm 9
 
 #### Walsh-Hadamard transform (Fourier analysis on the Boolean cube)
-`walsh-hadamard` — **LOAD-BEARING** · status: planned
+`walsh-hadamard` — **LOAD-BEARING** · status: implemented
 
 Defines S-box nonlinearity, correlation immunity and bent functions. It is the measurement that says whether a substitution box resists linear cryptanalysis.
 
@@ -370,7 +370,7 @@ Defines S-box nonlinearity, correlation immunity and bent functions. It is the m
 - **Owned by:** `src/mathcore/harmonic/walsh_hadamard.py`
 
 #### Poisson summation and the lattice smoothing parameter
-`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: planned
+`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Fourier series on a lattice: it is how the discrete Gaussian is shown to behave like a continuous one above the smoothing parameter, which is the step every lattice security proof depends on.
 
@@ -393,7 +393,7 @@ Period finding by quantum Fourier transform breaks factoring and discrete logari
 - **References:** Shor 1997, NIST IR 8547
 
 #### Spectral analysis of side channels
-`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: planned
+`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Power, electromagnetic and timing traces are correlated in the frequency domain; the FFT is what makes differential power analysis tractable over long traces.
 
