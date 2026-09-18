@@ -9,6 +9,13 @@ on:
   # failing job to point at. tests/test_apply_repo_ruleset.py asserts this.
   pull_request:
   workflow_dispatch:
+    inputs:
+      refresh_durations:
+        description: >-
+          Re-time the suite and upload durations-shard-* artifacts. Merge them
+          into .test_durations and commit when the shard balance has drifted.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -69,8 +76,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-        total: [3]
+        # Five, not three. Shard-level parallelism is the only kind this suite
+        # currently tolerates (see the xdist note on the test step), and each
+        # shard is an independent runner, so the way to use more cores is more
+        # shards. At three the slowest was 553s of test time; at five the same
+        # ~1290s of work lands nearer 260s apiece. The cost is two more runners
+        # each paying ~110s of checkout, setup-python and install, which is
+        # concurrent with the others and so does not show up in wall clock.
+        shard: [1, 2, 3, 4, 5]
+        total: [5]
 
     services:
       timescaledb:
@@ -113,7 +127,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
           pip install -r requirements.txt -r requirements-dev.txt
-          pip install pytest-split
 
       - name: Run tests (sharded)
         # --cov-fail-under=0 overrides the 99% aggregate in pyproject.toml for
@@ -121,10 +134,55 @@ jobs:
         # third of the lines -- 55-65% -- which is not a coverage regression,
         # it is arithmetic. The real 99% gate is enforced once, in
         # python-coverage-floors, against the combined data.
+        #
+        # No pytest-xdist, and that is a measured decision rather than an
+        # omission. Both distributions were tried on this branch:
+        #
+        #   -n auto --dist loadfile   shard 3: 553s -> 652s, *slower*. Whole
+        #                             files pin the dominant file to one worker
+        #                             while the other three idle, after all
+        #                             four have paid the import cost.
+        #   -n auto --dist load       shard 3: failed.
+        #                             tests/test_signal_engine.py's
+        #                             TestEnsembleBlendPersistence reads state
+        #                             an earlier test in its class leaves
+        #                             behind, so splitting the class across
+        #                             workers changes the answer: 0.8299977
+        #                             where the assertion wants 0.8.
+        #
+        # The second is a real latent bug -- a test whose result depends on
+        # what ran before it is not pinned by its own assertions -- but fixing
+        # it belongs in a change about that test, not in a CI-speed one. Until
+        # then the suite is not parallel-safe inside a process, so parallelism
+        # stays at the shard level: every shard is a separate process and the
+        # order within it is exactly what it has always been.
+        #
+        # Reads the committed .test_durations, which is the whole point.
+        # Without it pytest-split says so in the log and falls back to
+        # splitting by test *count*:
+        #
+        #   [pytest-split] No test durations found. Pytest-split will split
+        #   tests evenly when no durations are found.
+        #
+        # Even splitting is why five shards came out 254s / 441s / 269s /
+        # 241s / 626s: shard 5 held about 40% of the runtime while three
+        # finished in four minutes and waited, and the slowest shard is the
+        # wall clock. The measured per-test totals were 54s / 188s / 73s /
+        # 63s / 303s against an even share of 136s.
+        #
+        # Deliberately no --store-durations here. pytest-split's
+        # --durations-path is both the read *and* the write path, so pointing
+        # it at a per-shard file to collect timings would stop it reading the
+        # committed one -- reintroducing the even split this file exists to
+        # replace. Refreshing is a separate, deliberate run: see
+        # `workflow_dispatch` above and the refresh-durations step below.
+        #
+        # --durations=15 keeps the worst offenders visible in the log.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
+            --durations=15 \
             --cov-fail-under=0
 
       - name: Upload coverage data
@@ -136,6 +194,43 @@ jobs:
           # The data file is dot-prefixed and upload-artifact skips hidden
           # files by default: without this the upload finds nothing and the
           # floors job has no data to combine.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      # ---------------------------------------------------------------
+      # Refreshing .test_durations.
+      #
+      # Only on an explicit `workflow_dispatch` with refresh_durations=true,
+      # because it re-runs this shard's group a second time purely to time
+      # it. The committed file is copied into place first so pytest-split
+      # still splits by the *old* timings -- otherwise the refresh run is
+      # itself unbalanced and the shard boundaries it measures are not the
+      # ones the next run will use.
+      #
+      # Download the five artifacts and merge them into .test_durations,
+      # taking each shard's entries for the tests it actually ran.
+      # ---------------------------------------------------------------
+      - name: Refresh test durations
+        if: inputs.refresh_durations
+        env:
+          DURATIONS_FILE: .test_durations.shard-${{ matrix.shard }}
+        run: |
+          cp .test_durations "$DURATIONS_FILE"
+          pytest -q \
+            --splits "$SHARD_TOTAL" \
+            --group "$SHARD_INDEX" \
+            --store-durations \
+            --durations-path "$DURATIONS_FILE" \
+            -p no:cacheprovider \
+            --no-cov
+
+      - name: Upload refreshed test durations
+        if: inputs.refresh_durations
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: durations-shard-${{ matrix.shard }}
+          path: .test_durations.shard-${{ matrix.shard }}
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -152,16 +247,21 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
 
       - name: Install minimal deps for coverage check
+        # Minimal now means minimal. This step also installed
+        # `-r requirements.txt -r requirements-dev.txt` -- the CUDA-free torch
+        # build and the whole runtime tree -- and spent 104s of this job's 154s
+        # doing it, for three commands that never import the project: `coverage
+        # combine`, `coverage report`, and scripts/check_coverage_floors.py,
+        # which is stdlib-only and shells out to the `coverage` CLI.
+        #
+        # Nothing here reads requirements*.txt any more, so `cache: pip` above
+        # went with it: a cache keyed on files this job no longer installs from
+        # costs a restore and a save to hold one wheel.
         run: |
           python -m pip install --upgrade pip
           pip install coverage
-          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Download coverage shards
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
