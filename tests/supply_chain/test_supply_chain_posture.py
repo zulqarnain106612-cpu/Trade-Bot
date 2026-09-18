@@ -310,25 +310,27 @@ class TestTheForkCheckDetects:
 class TestTheProductionCheckDetects:
     @pytest.mark.parametrize("trigger", ["push", "pull_request", "schedule"])
     def test_a_release_workflow_with_an_automatic_trigger(self, fake_repo, trigger):
+        # Each case is a complete workflow rather than a fragment spliced into
+        # an indented template. The schedule form is two lines deep, and
+        # interpolating it mid-template left its continuation lines at column
+        # zero: `textwrap.dedent` then found a common prefix of "" and stripped
+        # nothing, producing YAML that only failed under the parser. The test
+        # was checking the fixture, not the rule.
         body = {
-            "push": "on: [push]",
-            "pull_request": "on: [pull_request]",
-            "schedule": 'on:\n  schedule:\n    - cron: "0 0 * * *"',
+            "push": "on: [push]\n",
+            "pull_request": "on: [pull_request]\n",
+            "schedule": 'on:\n  schedule:\n    - cron: "0 0 * * *"\n',
         }[trigger]
         write_workflow(
             fake_repo,
             "release.yml",
-            f"""
-            name: Release
-            {body}
-            permissions:
-              contents: read
-            jobs:
-              build:
-                runs-on: ubuntu-latest
-                steps:
-                  - run: publish.sh
-            """,
+            "name: Release\n" + body + "permissions:\n"
+            "  contents: read\n"
+            "jobs:\n"
+            "  build:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: publish.sh\n",
         )
         assert check_bot_cannot_reach_production(fake_repo)
 

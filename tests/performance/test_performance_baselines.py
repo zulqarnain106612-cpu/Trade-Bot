@@ -108,9 +108,16 @@ class TestTheCheckCatchesRegressions:
         assert check(self._measurement(ms=50.0), baselines)
 
     def test_a_slow_tail_alone_is_caught(self, baselines):
-        # The regression a mean would hide entirely: 99 fast samples and one
+        # The regression a mean would hide entirely: a fast run with a tail
         # that takes a second.
-        durations = [1.0] * 99 + [1000.0]
+        #
+        # Two slow samples in a hundred, not one. `percentile` is nearest-rank
+        # by deliberate choice -- it never reports a number that was not
+        # measured -- so the p99 of a hundred samples is the 99th of them, and
+        # a single outlier is the 100th percentile rather than the 99th. One
+        # slow sample here asserted that the estimator interpolates, which is
+        # the thing the implementation refuses to do.
+        durations = [1.0] * 98 + [1000.0] * 2
         found = check(Measurement("risk_check", durations), baselines)
         assert any(r.metric == "p99_ms" for r in found)
 
