@@ -26,7 +26,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Union
 
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -36,7 +35,6 @@ import aiosqlite
 import structlog
 
 from src.config import get_settings
-
 
 # GAP-006: either storage backend — identical public interface, callers are
 # agnostic. Forward-ref strings keep the asyncpg-backed module a deferred
@@ -956,7 +954,8 @@ class StorageBackend:
             confidence: Provider confidence score [0.0, 1.0].
             source:     "backfill" | "live" | "test".
         """
-        from datetime import UTC, datetime as _dt
+        from datetime import UTC
+        from datetime import datetime as _dt
 
         conn = self._require_conn()
         fetched_at = int(_dt.now(UTC).timestamp() * 1000)

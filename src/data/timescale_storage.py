@@ -45,7 +45,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final
 
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -63,7 +62,6 @@ from src.data.storage import (
     RegimeSnapshotRecord,
     TradeRecord,
 )
-
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
