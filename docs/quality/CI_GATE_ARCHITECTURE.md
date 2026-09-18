@@ -151,7 +151,7 @@ splitting them, not by abandoning them.
 | `security.yml` | `security.yml` + `codeql.yml` | Dependency review, dependency audit, workflow-security checks, action-pin and permission assertions. PR-009. |
 | `integration.yml` | Inside `ci.yml` (TimescaleDB service) | Split out once exchange mocks and WebSocket integration exist. PR-005, PR-007. |
 | `regression.yml` | — | Created with the golden fixtures it runs. PR-003, PR-004, PR-006. |
-| `nightly-quality.yml` | — | Created with mutation, fuzz, chaos and performance. PR-006, PR-010. |
+| `nightly-quality.yml` | **Exists** *(PR-006)* — mutation matrix, extended fuzz, metrics | Chaos and performance jobs. PR-010. |
 | `release.yml` | — | Created with SBOM, hash and attestation. PR-009. |
 | `production.yml` | — | Created with the protected environment and canary. PR-012. |
 | (advisory) | `claude-review.yml` | Stays advisory. It never approves and never merges. |

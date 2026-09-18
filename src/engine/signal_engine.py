@@ -39,6 +39,7 @@ from xgboost import XGBClassifier
 from src.api.metrics import regime_ensemble_failure_total
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
+from src.data.quality_gate import DataQualityGate, FreshnessBudget
 from src.data.storage import AnyStorageBackend, ModelMetricsRecord
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.decision_log_writer import StructuralChangeRecord, append_to_decision_log
@@ -275,6 +276,10 @@ class SignalEngine:
         self._direction_model = direction_model
         self._meta_model = meta_model
         self._trainer = trainer
+        # DATA-001: one gate instance per engine. Stateless, so sharing one
+        # would work too, but a per-engine instance keeps a future
+        # per-symbol budget a one-line change rather than a refactor.
+        self._quality_gate = DataQualityGate()
         # Diversified prediction ensemble (ARIMA/XGBoost/LSTM/GP/TreeEnsemble),
         # trained by ModelTrainer.train_ensemble() alongside direction/meta.
         # None until the orchestrator's first retrain cycle produces one --
@@ -656,6 +661,27 @@ class SignalEngine:
         last_bar_ts_ms = int(bars.index[-1])
         if now_ms - last_bar_ts_ms < tf_ms:
             return self._skip("last_bar_not_yet_closed")
+
+        # DATA-001 / INV-008: the data-quality gate, wired.
+        #
+        # DataQualityGate has existed since the CAT-1 providers work and was
+        # covered by its own tests, but no module in src/ ever called it --
+        # the checks ran in the test suite and nowhere else, so "market data
+        # failing the quality gate never reaches the signal engine" was not
+        # true of the running system. This is the call that makes it true.
+        #
+        # The budget is derived from the timeframe rather than taken from the
+        # five-minute realtime default: the newest *closed* bar on a 15-minute
+        # timeframe is always at least fifteen minutes old, so the default
+        # would reject every well-formed frame. Three bars, not two, because
+        # the closed-bar check above has already let one full interval elapse.
+        _quality = self._quality_gate.check_bars(
+            bars,
+            budget=FreshnessBudget.for_timeframe(tf_ms / 1000.0, bars=3.0),
+        )
+        if not _quality.passed:
+            self._log.warning("signal.data_quality_reject", reason=_quality.reason)
+            return self._skip(f"data_quality:{_quality.reason}")
 
         # Resolve the previous tick's prediction now that a new bar has
         # closed — realized direction is the move between the last two

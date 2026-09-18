@@ -20,6 +20,12 @@ from typing import Any, Final
 import ccxt.async_support as ccxt
 import structlog
 
+from src.execution.exchange_contract import (
+    FSM_STATUS,
+    TERMINAL_FILLED,
+    ExchangeOrderStatus,
+    parse_order,
+)
 from src.execution.idempotency import (
     IdempotencyRegistry,
     client_order_id_params,
@@ -295,86 +301,65 @@ class OrderManager:
             cancelled_error: ccxt.ExchangeError | None = None
             try:
                 confirmed = await exchange.fetch_order(order_id, symbol)
-                status = confirmed.get("status", "").lower()
+                # EXEC-003: parse against the declared contract rather than
+                # reading fields ad hoc. The contract is total -- every
+                # response yields an OrderUpdate -- and it refuses a terminal
+                # fill that carries no usable price or quantity, which is the
+                # case that would otherwise record a position as acquired for
+                # free. See src/execution/exchange_contract.py.
+                update = parse_order(confirmed, expected_symbol=symbol, expected_order_id=order_id)
 
-                if status in {"closed", "filled"}:
-                    # Order fully filled
-                    # The same `or` trap UI-009 describes below, on the
-                    # quantity rather than the price: an exchange reporting a
-                    # terminal status with filled=0.0 fell through to the
-                    # requested `amount` and the order was recorded as
-                    # completely filled. A real fill is never 0, so missing
-                    # and explicitly-zero are both rejected below alongside a
-                    # missing price, rather than one being quietly guessed.
-                    filled_field = confirmed.get("filled")
-                    raw_filled = (
-                        filled_field if filled_field is not None else confirmed.get("amount")
-                    )
-                    # UI-009: check each field with `is None`, not `or` --
-                    # `confirmed.get("average") or confirmed.get("price")`
-                    # would treat an explicit 0.0 fill price exactly like a
-                    # missing field (0.0 is falsy) and silently fall through
-                    # to the next field / to a 0.0 default. A real fill
-                    # price is never legitimately 0.0, so both "missing" and
-                    # "explicitly zero" must be rejected the same way.
-                    average_field = confirmed.get("average")
-                    price_field = confirmed.get("price")
-                    raw_avg_price = average_field if average_field is not None else price_field
-                    bad_price = raw_avg_price is None or float(raw_avg_price) <= 0.0
-                    bad_qty = raw_filled is None or float(raw_filled) <= 0.0
-                    if bad_price or bad_qty:
-                        # An exchange reporting "filled" with no usable fill
-                        # price is a malformed/untrustworthy response --
-                        # silently defaulting to avg_price=0.0 would corrupt
-                        # PnL/notional accounting (a position recorded as
-                        # "acquired for free") rather than surfacing the
-                        # anomaly. Fail loudly so this gets a manual
-                        # reconciliation, matching the UNTRACKED_POSITION
-                        # critical-log pattern used elsewhere in the live
-                        # path for exchange responses that can't be trusted.
+                if update.needs_reconciliation:
+                    if update.status in TERMINAL_FILLED:
+                        # A venue reporting a completed fill it cannot
+                        # substantiate. Fail loudly for manual reconciliation
+                        # rather than booking the fill -- matching the
+                        # UNTRACKED_POSITION pattern used elsewhere on the
+                        # live path for responses that cannot be trusted.
                         self._log.critical(
                             "order_manager.filled_order_unusable_fill",
                             order_id=order_id,
                             symbol=symbol,
-                            bad_price=bad_price,
-                            bad_qty=bad_qty,
+                            problems=list(update.problems),
                             exchange_response=confirmed,
                             action="MANUAL_RECONCILIATION_REQUIRED",
                         )
-                        # Transition to FAILED here (not left to a caller's
-                        # except clause) since ValueError isn't one of the
-                        # exception types place_order_with_fsm's caller
-                        # already catches to perform this transition.
                         fsm.transition(
                             OrderStatus.FAILED,
                             {
                                 "error": "filled order missing fill price or quantity",
-                                "bad_price": bad_price,
-                                "bad_qty": bad_qty,
+                                "problems": list(update.problems),
                                 "exchange_response": confirmed,
                             },
                         )
                         raise ValueError(
-                            f"Order {order_id} reported {status!r} but exchange "
-                            "response has no usable "
-                            f"{'fill price' if bad_price else 'filled quantity'} "
-                            "-- cannot safely record the fill."
+                            f"Order {order_id} reported {update.raw_status!r} but the "
+                            f"exchange response {update.reason} -- cannot safely "
+                            "record the fill."
                         )
-                    avg_price = float(raw_avg_price)
-                    filled_qty = float(raw_filled)
-                    # BUGFIX (found during audit, 2026-06-25): the FSM may
-                    # already be in FILLING if a prior poll iteration saw an
-                    # "open"/"pending" exchange status first (see the
-                    # PENDING-guard two branches below, which this mirrors).
-                    # Calling transition(FILLING) unconditionally crashed
-                    # with "Invalid transition: filling -> filling" any time
-                    # the order didn't fill on the very first poll attempt --
-                    # i.e. on every order that wasn't instant-filled.
+
+                    # INV-003: an unrecognised status keeps polling. It never
+                    # becomes FILLED, and the loop's own timeout is what ends
+                    # it -- deliberately, because "the venue said something we
+                    # do not understand" is not evidence the order failed.
+                    self._log.warning(
+                        "order_unknown_status",
+                        order_id=order_id,
+                        status=update.raw_status,
+                        problems=list(update.problems),
+                        attempt=attempt,
+                    )
+                    continue
+
+                if update.status in TERMINAL_FILLED:
+                    filled_qty = float(update.filled_qty)
+                    avg_price = float(update.average_price)
+                    # The FSM may already be in FILLING if a prior poll saw an
+                    # open status first; transitioning unconditionally would
+                    # raise "Invalid transition: filling -> filling" on every
+                    # order that did not fill on the first attempt.
                     if fsm.state.status == OrderStatus.PENDING:
-                        fsm.transition(
-                            OrderStatus.FILLING,
-                            {"exchange_response": confirmed},
-                        )
+                        fsm.transition(OrderStatus.FILLING, {"exchange_response": confirmed})
                     fsm.transition(
                         OrderStatus.FILLED,
                         {
@@ -393,67 +378,35 @@ class OrderManager:
                     )
                     return confirmed
 
-                elif status in {"open", "pending"}:
-                    # Still pending, transition to FILLING if not already
+                if update.status is ExchangeOrderStatus.OPEN:
                     if fsm.state.status == OrderStatus.PENDING:
-                        fsm.transition(
-                            OrderStatus.FILLING,
-                            {"exchange_response": confirmed},
-                        )
+                        fsm.transition(OrderStatus.FILLING, {"exchange_response": confirmed})
                     else:
-                        # Update with latest response
                         fsm.state.exchange_response = confirmed
 
                     # OrderFSM has carried add_partial_fill/_calculate_vwap/
                     # fill_percentage since it was written, and nothing ever
                     # called them: the poll loop only ever looked at terminal
                     # statuses, so an order that filled in pieces reported
-                    # filled_qty=0 and average_fill_price=0 for its whole
-                    # life, then jumped straight to FILLED. Feeding each
-                    # poll's increment here is what those fields were for.
+                    # filled_qty=0 for its whole life then jumped to FILLED.
                     self._record_incremental_fill(fsm, confirmed)
-
                     self._log.debug(
-                        "order_pending",
-                        order_id=order_id,
-                        symbol=symbol,
-                        attempt=attempt,
+                        "order_pending", order_id=order_id, symbol=symbol, attempt=attempt
                     )
                     continue
 
-                elif status == "cancelled":
-                    # The FSM only allows CANCELLED from FILLING (not
-                    # directly from PENDING) -- a realistic outcome for a
-                    # market order rejected/cancelled instantly (no
-                    # liquidity, self-trade prevention, IOC-style rejection)
-                    # can report "cancelled" on the very first poll while
-                    # still PENDING. Mirror the same PENDING-guard the
-                    # "filled" and "open"/"pending" branches above already
-                    # use, or this raises an unhandled OrderFSMError instead
-                    # of properly recording the cancellation.
-                    if fsm.state.status == OrderStatus.PENDING:
-                        fsm.transition(
-                            OrderStatus.FILLING,
-                            {"exchange_response": confirmed},
-                        )
-                    fsm.transition(
-                        OrderStatus.CANCELLED,
-                        {"exchange_response": confirmed},
-                    )
-                    # Do not raise here -- see cancelled_error comment above.
-                    cancelled_error = ccxt.ExchangeError(
-                        f"Order {order_id} was cancelled on exchange"
-                    )
-
-                else:
-                    # Unknown status
-                    self._log.warning(
-                        "order_unknown_status",
-                        order_id=order_id,
-                        status=status,
-                        attempt=attempt,
-                    )
-                    continue
+                # Every remaining recognised status ends the order without a
+                # fill: cancelled, rejected, expired. The FSM only allows
+                # CANCELLED from FILLING, and a market order rejected
+                # instantly can report it on the very first poll while still
+                # PENDING, so mirror the guard the branches above use.
+                if fsm.state.status == OrderStatus.PENDING:
+                    fsm.transition(OrderStatus.FILLING, {"exchange_response": confirmed})
+                fsm.transition(FSM_STATUS[update.status], {"exchange_response": confirmed})
+                # Do not raise here -- see the cancelled_error comment above.
+                cancelled_error = ccxt.ExchangeError(
+                    f"Order {order_id} was cancelled on exchange (reported {update.raw_status!r})"
+                )
 
             except (ccxt.NetworkError, ccxt.RequestTimeout):
                 # Transient — retry
