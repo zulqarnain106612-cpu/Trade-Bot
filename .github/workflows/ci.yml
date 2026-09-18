@@ -234,7 +234,6 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
-          retention-days: 7
 
   python-coverage-floors:
     name: Python coverage floors
