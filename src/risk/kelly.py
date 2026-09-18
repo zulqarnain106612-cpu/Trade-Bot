@@ -826,5 +826,14 @@ def _floor_to_precision(value: float, decimal_places: int) -> float:
     """
     if decimal_places < 0:
         raise ValueError(f"decimal_places must be >= 0, got {decimal_places}")
+    # DATA-004. `Decimal(str(nan))` is `Decimal('NaN')`, and quantizing it
+    # returns NaN rather than raising -- so without this a non-finite quantity
+    # came out the other side still non-finite, wearing the authority of a
+    # value that had been "quantised to exchange precision". An infinity does
+    # raise InvalidOperation, which means the two cases behaved differently
+    # for no reason a caller could act on. Both are refused here, in the same
+    # way, with the same message.
+    if not math.isfinite(value):
+        raise ValueError(f"cannot quantise a non-finite quantity: {value}")
     q = Decimal(10) ** -decimal_places
     return float(Decimal(str(value)).quantize(q, rounding=ROUND_DOWN))
