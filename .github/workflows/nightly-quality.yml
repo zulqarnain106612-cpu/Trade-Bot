@@ -1,0 +1,141 @@
+name: Nightly quality
+
+# GOV-003, RES-008. The slow half of the test system: mutation testing and the
+# fuzz corpus. Both belong on a schedule rather than on a pull request --
+# a mutation run is minutes of CPU per module, and a PR gate that slow is one
+# that gets switched off.
+#
+# workflow_dispatch is here so a change to the thresholds or the corpus can be
+# proved before it is merged rather than discovered at 03:00.
+
+on:
+  schedule:
+    # 03:17 UTC. Not on the hour: GitHub's scheduler queues heavily at :00 and
+    # a nightly that starts forty minutes late every night is one nobody reads.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-quality
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: Mutation score (per subsystem)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      # Each subsystem is independent, and one that blows its budget must not
+      # take the others' results with it.
+      fail-fast: false
+      matrix:
+        subsystem: [risk, execution, sizing, signal, data_quality]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          pip install -r requirements.txt -r requirements-dev.txt
+          # Deliberately not in requirements-dev: see scripts/check_mutation_score.py.
+          pip install mutmut
+
+      - name: Mutation score
+        run: |
+          python3 scripts/check_mutation_score.py \
+            --subsystem "${{ matrix.subsystem }}" \
+            --report "mutation-${{ matrix.subsystem }}.json"
+
+      - name: Upload the score
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-${{ matrix.subsystem }}
+          path: mutation-${{ matrix.subsystem }}.json
+          retention-days: 30
+
+  fuzz:
+    name: Fuzz corpus (extended)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Fuzz
+        # The same suite the pull-request run executes, with the draw count
+        # raised. The corpus is seeded, so a nightly failure is reproducible
+        # locally with the seed the log prints.
+        env:
+          TRADE_BOT_FUZZ_DRAWS: "40000"
+        run: pytest tests/fuzz -q --no-cov
+
+  metrics:
+    name: Quality metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install pyyaml jsonschema
+
+      - name: Collect
+        run: python3 scripts/collect_quality_metrics.py --report quality-metrics.json
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-metrics
+          path: quality-metrics.json
+          retention-days: 90
+
+  # ---------------------------------------------------------------------
+  # All-green gate. See docs/quality/CI_GATE_ARCHITECTURE.md §2.
+  #
+  # This workflow does not run on pull requests, so branch protection never
+  # requires it -- but a nightly whose failures nobody notices is a nightly
+  # that stops being read, and the gate is what makes one failure one line.
+  # ---------------------------------------------------------------------
+  gate:
+    name: Nightly gate (all jobs green)
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [mutation, fuzz, metrics]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/assert_jobs_green.py

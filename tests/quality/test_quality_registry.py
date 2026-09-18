@@ -653,11 +653,22 @@ class TestTheRealRegistry:
         homeless = [e.id for e in registry.outstanding() if not (e.planned_in or e.waiver)]
         assert not homeless
 
-    def test_every_phase_has_work_or_is_finished(self, registry):
-        # A declared phase with nothing scheduled into it is either done or a
-        # typo. PR-001 is this PR, so it is allowed to be empty.
-        empty = [p for p in registry.phases if p != "PR-001" and not registry.by_phase(p)]
-        assert not empty
+    def test_completed_phases_are_an_unbroken_prefix(self, registry):
+        # The programme is a stacked sequence, so a phase with nothing left
+        # scheduled into it is a *finished* phase -- and finished phases must
+        # run from the start without a gap. A hole in the middle means either
+        # a phase was skipped or a planned_in was typo'd into the wrong PR.
+        phases = list(registry.phases)
+        finished = [p for p in phases if not registry.by_phase(p)]
+        assert finished == phases[: len(finished)], (
+            f"finished phases {finished} are not a prefix of {phases}"
+        )
+
+    def test_at_least_one_phase_still_has_work_or_everything_is_verified(self, registry):
+        # Guards the test above from passing vacuously once every phase is
+        # empty: at that point the registry must actually be finished.
+        if all(not registry.by_phase(p) for p in registry.phases):
+            assert not registry.outstanding()
 
     def test_every_entry_states_a_failure_mode(self, registry):
         # "What goes wrong" is the field that makes a requirement arguable.
