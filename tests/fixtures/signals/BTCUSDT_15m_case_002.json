@@ -1,0 +1,63 @@
+{
+  "case_id": "BTCUSDT_15m_case_002",
+  "data_quality": {
+    "checks_run": [
+      "schema",
+      "finite",
+      "timestamp_valid",
+      "monotonic",
+      "duplicates",
+      "ohlc_consistent",
+      "volume_non_negative",
+      "fresh",
+      "gaps",
+      "extreme_return",
+      "zero_volume_run"
+    ],
+    "passed": true,
+    "reason": ""
+  },
+  "description": "The same clean data in a volatile regime. The regime gate halts, so no order is produced however confident the model is.",
+  "expected_action": "no_trade_halt_regime",
+  "features": {
+    "atr_momentum": 1.996249,
+    "frac_diff": 4829.512455,
+    "garch_vol_forecast": 0.003736,
+    "ofi": 0.198322,
+    "realized_vol_ratio": 0.433571,
+    "rolling_sharpe": 0.87303,
+    "volume_zscore": -1.984961,
+    "vwap_dev_zscore": 0.396541
+  },
+  "market": {
+    "bar_count": 320,
+    "first_close": 49872.1333,
+    "first_ts_ms": 1799712000000,
+    "last_close": 54541.1074,
+    "last_ts_ms": 1799999100000,
+    "now_ms": 1800000000000,
+    "symbol": "BTC/USDT",
+    "timeframe_s": 900
+  },
+  "model": {
+    "p_long": 0.91
+  },
+  "regime": {
+    "state": 2
+  },
+  "risk": {
+    "passed": false,
+    "reason": "Regime is VOLATILE \u2014 no new positions permitted",
+    "size_scalar": 1.0,
+    "status": "halt_regime"
+  },
+  "signal": {
+    "direction": 1,
+    "expected_edge_bps": 120.0
+  },
+  "tags": [
+    "clean",
+    "volatile",
+    "halted"
+  ]
+}

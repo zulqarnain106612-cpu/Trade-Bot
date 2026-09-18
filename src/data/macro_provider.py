@@ -14,7 +14,6 @@ from pathlib import Path
 import pandas as pd
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _TICKERS = {
