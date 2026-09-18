@@ -93,6 +93,15 @@ class TestTheBuilderDoesNotShip:
         for smell in ("apt-get install", "build-essential", "gcc", "git "):
             assert smell not in runtime, f"runtime stage installs {smell!r}"
 
+    def test_the_package_manager_is_removed_from_the_runtime_image(self, text):
+        # pip in a runtime container is an install capability handed to anyone
+        # who gets execution -- and, concretely, it is how a vendored msgpack
+        # 1.1.2 kept appearing in the vulnerability scan long after the real
+        # dependency was floored at 1.2.1. Removing it is both the fix and the
+        # posture this file already claims.
+        runtime = text.split("AS runtime", 1)[-1]
+        assert "pip uninstall" in runtime
+
 
 class TestTheBaseIsPinnedAndMinimal:
     def test_every_base_is_pinned_by_digest(self, instructions):

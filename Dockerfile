@@ -86,18 +86,26 @@ COPY --from=build --chown=root:root /build/common /app/common
 COPY --from=build --chown=root:root /build/config /app/config
 COPY --from=build --chown=root:root /build/scripts /app/scripts
 
-# After the copy, not before it.
+# Remove the package manager from the runtime image.
 #
-# requirements.txt already floors msgpack at 1.2.1 and the build stage honours
-# it -- the image carries msgpack-1.2.2.dist-info. The scan nonetheless
-# reported 1.1.2 as installed, which means a second copy arrives in the
-# merged prefix from a dependency that ships its own. Upgrading here, once
-# everything is in place, makes the installed set unambiguous instead of
-# depending on which copy the scanner reads first.
+# This started as a vulnerability hunt and ended as a posture fix, which is
+# the more useful outcome. requirements.txt floors msgpack at 1.2.1 and the
+# image carries msgpack-1.2.2 -- yet the scan kept reporting 1.1.2 installed.
+# The second copy is pip's: pip vendors msgpack under `pip/_vendor`, pinned
+# to whatever that pip release shipped, and no upgrade of the real package
+# touches it.
 #
-# The alternative was a Trivy ignore entry, which would have hidden a real
-# second copy rather than removing it.
-RUN python -m pip install --no-cache-dir --upgrade "msgpack>=1.2.1"
+# The fix is not to chase the vendored copy. A runtime container has no
+# business carrying a package manager: it is an install capability handed to
+# anyone who gets execution, and this file already claims "no toolchain in
+# the runtime layer". Removing pip makes that claim true and takes the
+# vendored tree with it.
+#
+# setuptools stays -- pkg_resources is still imported by parts of the ML
+# stack at runtime, and removing it trades a scan finding for a crash.
+RUN python -m pip uninstall --yes pip wheel \
+    && rm -rf /usr/local/lib/python3.11/site-packages/pip \
+    && rm -rf /root/.cache
 
 # Owned by root, run as tradebot: the running process cannot modify its own
 # code. This is the single most useful property in the file.
