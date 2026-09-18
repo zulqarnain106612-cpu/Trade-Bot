@@ -9,6 +9,13 @@ on:
   # failing job to point at. tests/test_apply_repo_ruleset.py asserts this.
   pull_request:
   workflow_dispatch:
+    inputs:
+      refresh_durations:
+        description: >-
+          Re-time the suite and upload durations-shard-* artifacts. Merge them
+          into .test_durations and commit when the shard balance has drifted.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -150,27 +157,31 @@ jobs:
         # stays at the shard level: every shard is a separate process and the
         # order within it is exactly what it has always been.
         #
-        # --store-durations writes what each test actually cost. Without a
-        # committed .test_durations, pytest-split says so and falls back to
+        # Reads the committed .test_durations, which is the whole point.
+        # Without it pytest-split says so in the log and falls back to
         # splitting by test *count*:
         #
         #   [pytest-split] No test durations found. Pytest-split will split
         #   tests evenly when no durations are found.
         #
-        # Which is why five shards came out 254s / 441s / 269s / 241s / 626s
-        # -- shard 5 held about 40% of the runtime, and the slowest shard is
-        # the wall clock. Four tests in tests/test_tuning_scheduler.py are
-        # ~180s between them and all landed together.
+        # Even splitting is why five shards came out 254s / 441s / 269s /
+        # 241s / 626s: shard 5 held about 40% of the runtime while three
+        # finished in four minutes and waited, and the slowest shard is the
+        # wall clock. The measured per-test totals were 54s / 188s / 73s /
+        # 63s / 303s against an even share of 136s.
         #
-        # Durations are written per shard and uploaded, so refreshing the
-        # committed file is a download and a merge rather than a special run.
-        # --durations=15 keeps the worst offenders visible in the log too.
+        # Deliberately no --store-durations here. pytest-split's
+        # --durations-path is both the read *and* the write path, so pointing
+        # it at a per-shard file to collect timings would stop it reading the
+        # committed one -- reintroducing the even split this file exists to
+        # replace. Refreshing is a separate, deliberate run: see
+        # `workflow_dispatch` above and the refresh-durations step below.
+        #
+        # --durations=15 keeps the worst offenders visible in the log.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
-            --store-durations \
-            --durations-path ".test_durations.shard-${SHARD_INDEX}" \
             --durations=15 \
             --cov-fail-under=0
 
@@ -187,17 +198,42 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload test durations
-        if: always()
+      # ---------------------------------------------------------------
+      # Refreshing .test_durations.
+      #
+      # Only on an explicit `workflow_dispatch` with refresh_durations=true,
+      # because it re-runs this shard's group a second time purely to time
+      # it. The committed file is copied into place first so pytest-split
+      # still splits by the *old* timings -- otherwise the refresh run is
+      # itself unbalanced and the shard boundaries it measures are not the
+      # ones the next run will use.
+      #
+      # Download the five artifacts and merge them into .test_durations,
+      # taking each shard's entries for the tests it actually ran.
+      # ---------------------------------------------------------------
+      - name: Refresh test durations
+        if: inputs.refresh_durations
+        env:
+          DURATIONS_FILE: .test_durations.shard-${{ matrix.shard }}
+        run: |
+          cp .test_durations "$DURATIONS_FILE"
+          pytest -q \
+            --splits "$SHARD_TOTAL" \
+            --group "$SHARD_INDEX" \
+            --store-durations \
+            --durations-path "$DURATIONS_FILE" \
+            -p no:cacheprovider \
+            --no-cov
+
+      - name: Upload refreshed test durations
+        if: inputs.refresh_durations
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: durations-shard-${{ matrix.shard }}
           path: .test_durations.shard-${{ matrix.shard }}
           include-hidden-files: true
-          # Not `error`: a shard that failed early legitimately has no
-          # durations to report, and losing the timing data is not a reason
-          # to turn a test failure into two.
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 7
           retention-days: 7
 
   python-coverage-floors:
