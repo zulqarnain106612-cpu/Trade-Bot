@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 44 |
-| PARTIAL | 16 |
-| PLANNED | 31 |
+| VERIFIED | 64 |
+| PARTIAL | 7 |
+| PLANNED | 20 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -58,13 +58,13 @@ deletion of the thing it points at.
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 9 |
-| Execution | 11 | 9 |
+| Execution | 11 | 10 |
 | Portfolio | 1 | 1 |
 | Signal and features | 3 | 3 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
-| API and WebSocket | 9 | 0 |
-| Cryptography and secrets | 10 | 0 |
+| API and WebSocket | 9 | 9 |
+| Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
@@ -80,8 +80,8 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`, `API-007`, `API-008`, `API-009`, `EXEC-005` |
-| PR-008 | Cryptographic/Secret Architecture | `SECR-001`, `SECR-002`, `SECR-003`, `SECR-004`, `SECR-005`, `SECR-006`, `SECR-007`, `SECR-008`, `SECR-009`, `SECR-010` |
+| PR-007 | API/WebSocket Security | — |
+| PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | `SUP-001`, `SUP-002`, `SUP-003`, `SUP-004`, `SUP-005`, `SUP-006`, `SUP-007` |
 | PR-010 | Recovery/Chaos/Performance | `INV-009`, `RES-001`, `RES-002`, `RES-003`, `RES-004`, `RES-005`, `RES-006`, `RES-007` |
 | PR-011 | Paper-Trading Qualification | `INV-010`, `REL-001`, `RISK-005` |
@@ -314,15 +314,17 @@ An unrecognised status string maps to an explicit UNKNOWN outcome that triggers 
 
 #### `EXEC-005` — The kill switch is authenticated, authorized, audited, idempotent and durable
 
-**PARTIAL → PR-007** · critical · requirement · source: QE-25
+**VERIFIED** · critical · requirement · source: QE-25
 
 Activating the kill switch requires an operator role, writes an audit event, is safe to repeat, blocks new entries immediately, and survives restart.
 
 - **If violated:** The control of last resort is unavailable exactly when it is needed.
-- **Owned by:** `src/risk/strategy_kill_switch.py`
+- **Owned by:** `src/risk/strategy_kill_switch.py`, `src/execution/mode_persistence.py`
 - **Verification:**
   - `tests/test_strategy_kill_switch.py` (component)
   - `tests/test_strategy_kill_switch_wiring.py` (integration)
+  - `tests/api/test_kill_switch_durability.py` (security) — Durability: the halt is persisted atomically and restored at startup; a missing file means a first start, an unreadable one resolves to the most restrictive mode.
+  - `tests/api/test_injection_and_rate_limiting.py` (api) — The halt as an API control: authenticated, authorized by role, and idempotent when repeated.
 
 #### `EXEC-006` — Partial fills and fees are accounted exactly
 
@@ -571,7 +573,7 @@ Every submitted order conforms to the venue's tick, lot and minimum-notional rul
 
 #### `API-001` — The authorization matrix is executable and every cell is tested
 
-**PARTIAL → PR-007** · critical · requirement · source: QE-19
+**VERIFIED** · critical · requirement · source: QE-19
 
 For each (role, endpoint) pair the declared allow/deny outcome is asserted by a test, including the anonymous row.
 
@@ -580,51 +582,57 @@ For each (role, endpoint) pair the declared allow/deny outcome is asserted by a 
 - **Verification:**
   - `tests/test_api_role_enforcement.py` (api)
   - `tests/test_access_control.py` (security)
+  - `tests/authorization/test_authorization_matrix.py` (security) — Every (role, endpoint) cell asserted, including the anonymous row and the escalation direction.
 
 #### `API-002` — No insecure direct object references
 
-**PLANNED → PR-007** · critical · requirement · source: QE-20
+**VERIFIED** · critical · requirement · source: QE-20
 
 A caller cannot read or modify another principal's resource by substituting an identifier.
 
 - **If violated:** One authenticated user reads or cancels another's orders.
-- **Owned by:** `src/api/access_control.py`
-- **Verification:** none yet
+- **Owned by:** `src/api/access_control.py`, `src/api/object_refs.py`
+- **Verification:**
+  - `tests/authorization/test_object_references.py` (security) — Identifiers are validated before any lookup, and every negative outcome returns one indistinguishable body.
 
 #### `API-003` — Injection payloads are rejected at the boundary
 
-**PLANNED → PR-007** · critical · requirement · source: QE-21
+**VERIFIED** · critical · requirement · source: QE-21
 
 SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payloads are refused wherever input reaches a database, filesystem, subprocess, external API or log.
 
 - **If violated:** An attacker reads or rewrites the trading database.
 - **Owned by:** `src/api/main.py`, `src/api/middleware.py`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/api/test_injection_and_rate_limiting.py` (security) — Injection payloads refused at the parsers, the outbound surface and the header boundary.
 
 #### `API-004` — Outbound URL handling is SSRF-resistant
 
-**PLANNED → PR-007** · critical · requirement · source: QE-22
+**VERIFIED** · critical · requirement · source: QE-22
 
 Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.
 
 - **If violated:** The bot becomes the attacker's proxy into the private network and the metadata service.
-- **Owned by:** `src/intelligence/client.py`
-- **Verification:** none yet
+- **Owned by:** `src/intelligence/client.py`, `src/api/ssrf.py`
+- **Verification:**
+  - `tests/api/test_ssrf_protection.py` (security) — Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client.
 
 #### `API-005` — WebSocket payloads are validated regardless of connection state
 
-**PARTIAL → PR-007** · critical · requirement · source: QE-23
+**VERIFIED** · critical · requirement · source: QE-23
 
 An established connection confers no trust: every message is authenticated, schema-validated, size-bounded, rate-limited and replay-checked.
 
 - **If violated:** A single authenticated socket becomes an unauthenticated command channel.
-- **Owned by:** `src/api/main.py`, `src/data/orderbook_stream.py`
+- **Owned by:** `src/api/main.py`, `src/data/orderbook_stream.py`, `src/api/ws_guard.py`
 - **Verification:**
   - `tests/test_ws_auth_query_param.py` (security)
+  - `tests/api/test_websocket_frame_guard.py` (security) — Every inbound frame is size-bounded, schema-validated, freshness-checked, rate-limited and replay-checked, in that order, with one guard per connection.
+  - `tests/authentication/test_api_authentication.py` (security) — The upgrade itself is authenticated before any state is touched.
 
 #### `API-006` — Rate limiting protects authentication, trading and expensive endpoints
 
-**PARTIAL → PR-007** · high · requirement · source: QE-24
+**VERIFIED** · high · requirement · source: QE-24
 
 Login, authentication, trade endpoints, sensitive mutations, WebSocket connections and expensive queries are rate-limited, and the limits are tested under burst and sustained load.
 
@@ -632,44 +640,48 @@ Login, authentication, trade endpoints, sensitive mutations, WebSocket connectio
 - **Owned by:** `src/api/middleware.py`
 - **Verification:**
   - `tests/test_selftest_rate_limit.py` (api)
+  - `tests/api/test_injection_and_rate_limiting.py` (api) — Rate limiting on the authentication, trading and diagnostic endpoints, keyed per client rather than globally.
 
 #### `API-007` — Security headers are present and correct
 
-**PLANNED → PR-007** · medium · requirement · source: QE-18
+**VERIFIED** · medium · requirement · source: QE-18
 
 Responses carry the declared security headers, and a test fails if one is removed.
 
 - **If violated:** A browser-side weakness that the headers would have closed.
-- **Owned by:** `src/api/middleware.py`
-- **Verification:** none yet
+- **Owned by:** `src/api/middleware.py`, `src/api/security_headers.py`
+- **Verification:**
+  - `tests/api/test_security_headers.py` (security) — Each declared header is applied, HSTS only over TLS, and the middleware sits outermost so an error response still carries them.
 
 #### `API-008` — A failing security control never opens a trading endpoint
 
-**PLANNED → PR-007** · critical · requirement · source: QE-55
+**VERIFIED** · critical · requirement · source: QE-55
 
 If authentication, authorization, rate limiting or logging is unavailable, the trading endpoints refuse rather than degrade to open.
 
 - **If violated:** An outage in the auth dependency turns the trade endpoint anonymous.
-- **Owned by:** `src/api/auth.py`, `src/api/middleware.py`
+- **Owned by:** `src/api/auth.py`, `src/api/middleware.py`, `src/api/fail_closed.py`
 - **Depends on:** `GOV-004`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/api/test_fail_closed_controls.py` (security) — A control that never reported counts as degraded, any single degradation closes the trading endpoints, and the read-only endpoints stay open by design.
 
 #### `API-009` — Error responses leak neither secrets nor internals
 
-**PLANNED → PR-007** · high · requirement · source: QE-18,QE-17
+**VERIFIED** · high · requirement · source: QE-18,QE-17
 
 No error path returns a credential, token, stack trace or internal hostname to a caller.
 
 - **If violated:** A 500 hands the attacker the next step.
-- **Owned by:** `src/api/main.py`
+- **Owned by:** `src/api/main.py`, `src/api/error_hygiene.py`
 - **Depends on:** `SECR-001`
-- **Verification:** none yet
+- **Verification:**
+  - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
 
 ## Cryptography and secrets
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-9,QE-17
+**VERIFIED** · critical · requirement · source: QE-9,QE-17
 
 Deliberately triggering errors that involve an API key, secret, JWT, database password, authorization header or exchange credential produces output containing none of them.
 
@@ -678,10 +690,11 @@ Deliberately triggering errors that involve an API key, secret, JWT, database pa
 - **Verification:**
   - `tests/test_logging_setup.py` (security)
   - `tests/test_command_schema_policy.py` (security)
+  - `tests/security/test_secret_leak_provocation.py` (security) — Provokes the leak rather than asserting its absence: keys, connection URIs, JWTs and private keys are pushed through the log processor and through rendered exceptions.
 
 #### `SECR-002` — Secret comparisons are constant-time
 
-**PARTIAL → PR-008** · high · requirement · source: QE-12
+**VERIFIED** · high · requirement · source: QE-12
 
 Every comparison of a token, signature, key or password uses a constant-time primitive, and a test detects a reversion to `==`.
 
@@ -689,20 +702,22 @@ Every comparison of a token, signature, key or password uses a constant-time pri
 - **Owned by:** `src/security/constant_time.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (security)
+  - `tests/security/test_signing_and_constant_time.py` (security) — The helpers delegate to hmac.compare_digest, and a source-tree scan asserts no secret-named value is compared with == anywhere in src/.
 
 #### `SECR-003` — Keys are environment-separated and rotatable, and rotation is tested
 
-**PLANNED → PR-008** · critical · requirement · source: QE-11
+**VERIFIED** · critical · requirement · source: QE-11
 
 Development, test, paper and production keys are distinct; rotation for normal, compromise, departure, server-compromise, exchange-incident and GitHub-compromise cases is documented and exercised.
 
 - **If violated:** A procedure nobody has run fails on the day it is needed.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/key_lifecycle.py`
+- **Verification:**
+  - `tests/security/test_key_lifecycle.py` (security) — One master seed still yields distinct material per environment and per exchange; rotation advances generations, and compromise and departure revoke the previous one immediately.
 
 #### `SECR-004` — The audit log is a verifiable hash chain
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-16
+**VERIFIED** · critical · requirement · source: QE-16
 
 Each event hashes its own content plus the previous event's hash; modifying, deleting or reordering any event fails verification.
 
@@ -711,10 +726,11 @@ Each event hashes its own content plus the previous event's hash; modifying, del
 - **Verification:**
   - `tests/test_audit_trail.py` (security)
   - `tests/test_audit_chain_integrity_endpoint.py` (api)
+  - `tests/security/test_audit_chain_tamper_evidence.py` (security) — Each tampering is performed and then detected: edited field, recomputed hash, deletion, reordering, splice. Tip truncation and the eviction window are stated as the limits they are.
 
 #### `SECR-005` — Signed requests reject tampering and replay
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-12
+**VERIFIED** · critical · requirement · source: QE-12
 
 A correct signature is accepted; a modified request, timestamp or parameter is rejected; a replayed request is rejected where the protocol allows it.
 
@@ -722,30 +738,33 @@ A correct signature is accepted; a modified request, timestamp or parameter is r
 - **Owned by:** `src/security/api_signer.py`
 - **Verification:**
   - `tests/engines/test_security.py` (security)
+  - `tests/security/test_signing_and_constant_time.py` (security) — Tampering with any signed field breaks verification; stale, post-dated and replayed requests are refused by ReplayWindow, and an unverifiable signature never reaches its cache.
 
 #### `SECR-006` — TLS is verified everywhere and never disabled to make a test pass
 
-**PLANNED → PR-008** · critical · requirement · source: QE-14,QE-15
+**VERIFIED** · critical · requirement · source: QE-14,QE-15
 
 HTTPS, secure WebSocket and TLS database connections are required; expired certificates, hostname mismatch, weak protocols, broken chains and plaintext endpoints are detected; no code path disables verification.
 
 - **If violated:** An on-path attacker rewrites market data or order responses.
-- **Owned by:** `src/intelligence/client.py`
-- **Verification:** none yet
+- **Owned by:** `src/intelligence/client.py`, `src/security/tls.py`
+- **Verification:**
+  - `tests/security/test_randomness_and_tls.py` (security) — Cleartext destinations are refused except loopback, and a scanner asserts no source file spells verify=False, ssl=False, CERT_NONE, tlsInsecure or their relatives.
 
 #### `SECR-007` — Cryptographic randomness comes from the OS CSPRNG
 
-**PLANNED → PR-008** · critical · requirement · source: QE-12
+**VERIFIED** · critical · requirement · source: QE-12
 
 Nonces, keys, tokens and identifiers that must be unpredictable come from `secrets`/`os.urandom`, never from `random`.
 
 - **If violated:** A predictable token is guessable.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/randomness.py`
+- **Verification:**
+  - `tests/security/test_randomness_and_tls.py` (security) — Every unpredictable value comes from secrets, a short request is refused rather than quietly served, and src/security never imports random.
 
 #### `SECR-008` — No custom cryptographic primitives
 
-**PARTIAL → PR-008** · critical · requirement · source: QE-8
+**VERIFIED** · critical · requirement · source: QE-8
 
 The application calls established libraries; it does not implement its own cipher, hash construction, KDF or signature scheme for security purposes.
 
@@ -753,26 +772,29 @@ The application calls established libraries; it does not implement its own ciphe
 - **Owned by:** `src/security/pq_transport.py`
 - **Verification:**
   - `tests/test_security_pqc_posture.py` (security)
+  - `tests/security/test_no_custom_primitives.py` (security) — Each security module delegates to cryptography, hmac, hashlib or secrets; no hand-rolled cipher, key schedule or comparison loop, and mathcore is kept out of the security path.
 
 #### `SECR-009` — Sensitive data at rest is encrypted, and the key is managed separately
 
-**PLANNED → PR-008** · high · requirement · source: QE-13
+**VERIFIED** · high · requirement · source: QE-13
 
 Database backups, production databases, sensitive model artifacts, audit archives and configuration backups are encrypted, with keys held outside the encrypted store.
 
 - **If violated:** Ciphertext and key are stolen together and the encryption bought nothing.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/at_rest.py`
+- **Verification:**
+  - `tests/security/test_at_rest_encryption.py` (security) — AES-256-GCM round trip, and the restore path under every failure that has caused a real outage: wrong key, truncation, flipped byte, wrong version, mismatched associated data -- all one exception type.
 
 #### `SECR-010` — The exchange key the bot holds cannot withdraw
 
-**PLANNED → PR-008** · critical · requirement · source: QE-10,QE-67
+**VERIFIED** · critical · requirement · source: QE-10,QE-67
 
 The documented and verified key posture is trading-only, withdrawal-disabled, IP-restricted where supported, with separate paper and production keys on separate subaccounts.
 
 - **If violated:** A compromised host becomes a withdrawal, not just a bad trade.
-- **Owned by:** `src/security/credential_vault.py`
-- **Verification:** none yet
+- **Owned by:** `src/security/credential_vault.py`, `src/security/exchange_key_posture.py`
+- **Verification:**
+  - `tests/security/test_exchange_key_posture.py` (security) — A withdrawal-capable or undeclared posture is refused, the shipped declaration is checked, and LiveExecutor asserts it before building any state. The live-venue verification remains a documented human step.
 
 ## Supply chain and artifacts
 

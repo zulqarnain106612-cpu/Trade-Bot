@@ -515,14 +515,17 @@
       "statement": "Activating the kill switch requires an operator role, writes an audit event, is safe to repeat, blocks new entries immediately, and survives restart.",
       "criticality": "critical",
       "subsystem": "execution",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-25",
-      "owning_modules": ["src/risk/strategy_kill_switch.py"],
+      "owning_modules": ["src/risk/strategy_kill_switch.py", "src/execution/mode_persistence.py"],
       "verification": [
         { "test": "tests/test_strategy_kill_switch.py", "test_type": "component" },
-        { "test": "tests/test_strategy_kill_switch_wiring.py", "test_type": "integration" }
+        { "test": "tests/test_strategy_kill_switch_wiring.py", "test_type": "integration" },
+        { "test": "tests/api/test_kill_switch_durability.py", "test_type": "security",
+          "note": "Durability: the halt is persisted atomically and restored at startup; a missing file means a first start, an unreadable one resolves to the most restrictive mode." },
+        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "api",
+          "note": "The halt as an API control: authenticated, authorized by role, and idempotent when repeated." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "The control of last resort is unavailable exactly when it is needed."
     },
     {
@@ -906,14 +909,15 @@
       "statement": "For each (role, endpoint) pair the declared allow/deny outcome is asserted by a test, including the anonymous row.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-19",
       "owning_modules": ["src/api/access_control.py", "src/api/main.py"],
       "verification": [
         { "test": "tests/test_api_role_enforcement.py", "test_type": "api" },
-        { "test": "tests/test_access_control.py", "test_type": "security" }
+        { "test": "tests/test_access_control.py", "test_type": "security" },
+        { "test": "tests/authorization/test_authorization_matrix.py", "test_type": "security",
+          "note": "Every (role, endpoint) cell asserted, including the anonymous row and the escalation direction." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "A readonly token places a trade."
     },
     {
@@ -923,10 +927,13 @@
       "statement": "A caller cannot read or modify another principal's resource by substituting an identifier.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-20",
-      "owning_modules": ["src/api/access_control.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/access_control.py", "src/api/object_refs.py"],
+      "verification": [
+        { "test": "tests/authorization/test_object_references.py", "test_type": "security",
+          "note": "Identifiers are validated before any lookup, and every negative outcome returns one indistinguishable body." }
+      ],
       "failure_mode": "One authenticated user reads or cancels another's orders."
     },
     {
@@ -936,10 +943,13 @@
       "statement": "SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payloads are refused wherever input reaches a database, filesystem, subprocess, external API or log.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-21",
       "owning_modules": ["src/api/main.py", "src/api/middleware.py"],
-      "planned_in": "PR-007",
+      "verification": [
+        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "security",
+          "note": "Injection payloads refused at the parsers, the outbound surface and the header boundary." }
+      ],
       "failure_mode": "An attacker reads or rewrites the trading database."
     },
     {
@@ -949,10 +959,13 @@
       "statement": "Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-22",
-      "owning_modules": ["src/intelligence/client.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/intelligence/client.py", "src/api/ssrf.py"],
+      "verification": [
+        { "test": "tests/api/test_ssrf_protection.py", "test_type": "security",
+          "note": "Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client." }
+      ],
       "failure_mode": "The bot becomes the attacker's proxy into the private network and the metadata service."
     },
     {
@@ -962,13 +975,16 @@
       "statement": "An established connection confers no trust: every message is authenticated, schema-validated, size-bounded, rate-limited and replay-checked.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-23",
-      "owning_modules": ["src/api/main.py", "src/data/orderbook_stream.py"],
+      "owning_modules": ["src/api/main.py", "src/data/orderbook_stream.py", "src/api/ws_guard.py"],
       "verification": [
-        { "test": "tests/test_ws_auth_query_param.py", "test_type": "security" }
+        { "test": "tests/test_ws_auth_query_param.py", "test_type": "security" },
+        { "test": "tests/api/test_websocket_frame_guard.py", "test_type": "security",
+          "note": "Every inbound frame is size-bounded, schema-validated, freshness-checked, rate-limited and replay-checked, in that order, with one guard per connection." },
+        { "test": "tests/authentication/test_api_authentication.py", "test_type": "security",
+          "note": "The upgrade itself is authenticated before any state is touched." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "A single authenticated socket becomes an unauthenticated command channel."
     },
     {
@@ -978,13 +994,14 @@
       "statement": "Login, authentication, trade endpoints, sensitive mutations, WebSocket connections and expensive queries are rate-limited, and the limits are tested under burst and sustained load.",
       "criticality": "high",
       "subsystem": "api",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-24",
       "owning_modules": ["src/api/middleware.py"],
       "verification": [
-        { "test": "tests/test_selftest_rate_limit.py", "test_type": "api" }
+        { "test": "tests/test_selftest_rate_limit.py", "test_type": "api" },
+        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "api",
+          "note": "Rate limiting on the authentication, trading and diagnostic endpoints, keyed per client rather than globally." }
       ],
-      "planned_in": "PR-007",
       "failure_mode": "An attacker with a valid token issues thousands of orders before anything notices."
     },
     {
@@ -994,10 +1011,13 @@
       "statement": "Responses carry the declared security headers, and a test fails if one is removed.",
       "criticality": "medium",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-18",
-      "owning_modules": ["src/api/middleware.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/middleware.py", "src/api/security_headers.py"],
+      "verification": [
+        { "test": "tests/api/test_security_headers.py", "test_type": "security",
+          "note": "Each declared header is applied, HSTS only over TLS, and the middleware sits outermost so an error response still carries them." }
+      ],
       "failure_mode": "A browser-side weakness that the headers would have closed."
     },
     {
@@ -1007,10 +1027,13 @@
       "statement": "If authentication, authorization, rate limiting or logging is unavailable, the trading endpoints refuse rather than degrade to open.",
       "criticality": "critical",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-55",
-      "owning_modules": ["src/api/auth.py", "src/api/middleware.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/auth.py", "src/api/middleware.py", "src/api/fail_closed.py"],
+      "verification": [
+        { "test": "tests/api/test_fail_closed_controls.py", "test_type": "security",
+          "note": "A control that never reported counts as degraded, any single degradation closes the trading endpoints, and the read-only endpoints stay open by design." }
+      ],
       "failure_mode": "An outage in the auth dependency turns the trade endpoint anonymous.",
       "depends_on": ["GOV-004"]
     },
@@ -1021,10 +1044,13 @@
       "statement": "No error path returns a credential, token, stack trace or internal hostname to a caller.",
       "criticality": "high",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-18,QE-17",
-      "owning_modules": ["src/api/main.py"],
-      "planned_in": "PR-007",
+      "owning_modules": ["src/api/main.py", "src/api/error_hygiene.py"],
+      "verification": [
+        { "test": "tests/api/test_error_hygiene.py", "test_type": "security",
+          "note": "Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive." }
+      ],
       "failure_mode": "A 500 hands the attacker the next step.",
       "depends_on": ["SECR-001"]
     },
@@ -1036,14 +1062,15 @@
       "statement": "Deliberately triggering errors that involve an API key, secret, JWT, database password, authorization header or exchange credential produces output containing none of them.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-9,QE-17",
       "owning_modules": ["src/logging_setup.py", "common/command_schema.py"],
       "verification": [
         { "test": "tests/test_logging_setup.py", "test_type": "security" },
-        { "test": "tests/test_command_schema_policy.py", "test_type": "security" }
+        { "test": "tests/test_command_schema_policy.py", "test_type": "security" },
+        { "test": "tests/security/test_secret_leak_provocation.py", "test_type": "security",
+          "note": "Provokes the leak rather than asserting its absence: keys, connection URIs, JWTs and private keys are pushed through the log processor and through rendered exceptions." }
       ],
-      "planned_in": "PR-008",
       "failure_mode": "The exchange key is in a log file that gets shipped to a third-party log service."
     },
     {
@@ -1053,13 +1080,14 @@
       "statement": "Every comparison of a token, signature, key or password uses a constant-time primitive, and a test detects a reversion to `==`.",
       "criticality": "high",
       "subsystem": "security",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-12",
       "owning_modules": ["src/security/constant_time.py"],
       "verification": [
-        { "test": "tests/test_static_invariants.py", "test_type": "security" }
+        { "test": "tests/test_static_invariants.py", "test_type": "security" },
+        { "test": "tests/security/test_signing_and_constant_time.py", "test_type": "security",
+          "note": "The helpers delegate to hmac.compare_digest, and a source-tree scan asserts no secret-named value is compared with == anywhere in src/." }
       ],
-      "planned_in": "PR-008",
       "failure_mode": "A timing oracle recovers a token one byte at a time."
     },
     {
@@ -1069,10 +1097,13 @@
       "statement": "Development, test, paper and production keys are distinct; rotation for normal, compromise, departure, server-compromise, exchange-incident and GitHub-compromise cases is documented and exercised.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-11",
-      "owning_modules": ["src/security/credential_vault.py"],
-      "planned_in": "PR-008",
+      "owning_modules": ["src/security/credential_vault.py", "src/security/key_lifecycle.py"],
+      "verification": [
+        { "test": "tests/security/test_key_lifecycle.py", "test_type": "security",
+          "note": "One master seed still yields distinct material per environment and per exchange; rotation advances generations, and compromise and departure revoke the previous one immediately." }
+      ],
       "failure_mode": "A procedure nobody has run fails on the day it is needed."
     },
     {
@@ -1082,14 +1113,15 @@
       "statement": "Each event hashes its own content plus the previous event's hash; modifying, deleting or reordering any event fails verification.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-16",
       "owning_modules": ["src/diagnostics/audit_trail.py"],
       "verification": [
         { "test": "tests/test_audit_trail.py", "test_type": "security" },
-        { "test": "tests/test_audit_chain_integrity_endpoint.py", "test_type": "api" }
+        { "test": "tests/test_audit_chain_integrity_endpoint.py", "test_type": "api" },
+        { "test": "tests/security/test_audit_chain_tamper_evidence.py", "test_type": "security",
+          "note": "Each tampering is performed and then detected: edited field, recomputed hash, deletion, reordering, splice. Tip truncation and the eviction window are stated as the limits they are." }
       ],
-      "planned_in": "PR-008",
       "failure_mode": "An attacker who reaches the host edits the record of what they did."
     },
     {
@@ -1099,13 +1131,14 @@
       "statement": "A correct signature is accepted; a modified request, timestamp or parameter is rejected; a replayed request is rejected where the protocol allows it.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-12",
       "owning_modules": ["src/security/api_signer.py"],
       "verification": [
-        { "test": "tests/engines/test_security.py", "test_type": "security" }
+        { "test": "tests/engines/test_security.py", "test_type": "security" },
+        { "test": "tests/security/test_signing_and_constant_time.py", "test_type": "security",
+          "note": "Tampering with any signed field breaks verification; stale, post-dated and replayed requests are refused by ReplayWindow, and an unverifiable signature never reaches its cache." }
       ],
-      "planned_in": "PR-008",
       "failure_mode": "A captured order request is replayed to double a position."
     },
     {
@@ -1115,10 +1148,13 @@
       "statement": "HTTPS, secure WebSocket and TLS database connections are required; expired certificates, hostname mismatch, weak protocols, broken chains and plaintext endpoints are detected; no code path disables verification.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-14,QE-15",
-      "owning_modules": ["src/intelligence/client.py"],
-      "planned_in": "PR-008",
+      "owning_modules": ["src/intelligence/client.py", "src/security/tls.py"],
+      "verification": [
+        { "test": "tests/security/test_randomness_and_tls.py", "test_type": "security",
+          "note": "Cleartext destinations are refused except loopback, and a scanner asserts no source file spells verify=False, ssl=False, CERT_NONE, tlsInsecure or their relatives." }
+      ],
       "failure_mode": "An on-path attacker rewrites market data or order responses."
     },
     {
@@ -1128,10 +1164,13 @@
       "statement": "Nonces, keys, tokens and identifiers that must be unpredictable come from `secrets`/`os.urandom`, never from `random`.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-12",
-      "owning_modules": ["src/security/credential_vault.py"],
-      "planned_in": "PR-008",
+      "owning_modules": ["src/security/credential_vault.py", "src/security/randomness.py"],
+      "verification": [
+        { "test": "tests/security/test_randomness_and_tls.py", "test_type": "security",
+          "note": "Every unpredictable value comes from secrets, a short request is refused rather than quietly served, and src/security never imports random." }
+      ],
       "failure_mode": "A predictable token is guessable."
     },
     {
@@ -1141,13 +1180,14 @@
       "statement": "The application calls established libraries; it does not implement its own cipher, hash construction, KDF or signature scheme for security purposes.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "partial",
+      "status": "verified",
       "source": "QE-8",
       "owning_modules": ["src/security/pq_transport.py"],
       "verification": [
-        { "test": "tests/test_security_pqc_posture.py", "test_type": "security" }
+        { "test": "tests/test_security_pqc_posture.py", "test_type": "security" },
+        { "test": "tests/security/test_no_custom_primitives.py", "test_type": "security",
+          "note": "Each security module delegates to cryptography, hmac, hashlib or secrets; no hand-rolled cipher, key schedule or comparison loop, and mathcore is kept out of the security path." }
       ],
-      "planned_in": "PR-008",
       "failure_mode": "A homemade primitive fails in a way only an attacker notices."
     },
     {
@@ -1157,10 +1197,13 @@
       "statement": "Database backups, production databases, sensitive model artifacts, audit archives and configuration backups are encrypted, with keys held outside the encrypted store.",
       "criticality": "high",
       "subsystem": "security",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-13",
-      "owning_modules": ["src/security/credential_vault.py"],
-      "planned_in": "PR-008",
+      "owning_modules": ["src/security/credential_vault.py", "src/security/at_rest.py"],
+      "verification": [
+        { "test": "tests/security/test_at_rest_encryption.py", "test_type": "security",
+          "note": "AES-256-GCM round trip, and the restore path under every failure that has caused a real outage: wrong key, truncation, flipped byte, wrong version, mismatched associated data -- all one exception type." }
+      ],
       "failure_mode": "Ciphertext and key are stolen together and the encryption bought nothing."
     },
     {
@@ -1170,10 +1213,13 @@
       "statement": "The documented and verified key posture is trading-only, withdrawal-disabled, IP-restricted where supported, with separate paper and production keys on separate subaccounts.",
       "criticality": "critical",
       "subsystem": "security",
-      "status": "planned",
+      "status": "verified",
       "source": "QE-10,QE-67",
-      "owning_modules": ["src/security/credential_vault.py"],
-      "planned_in": "PR-008",
+      "owning_modules": ["src/security/credential_vault.py", "src/security/exchange_key_posture.py"],
+      "verification": [
+        { "test": "tests/security/test_exchange_key_posture.py", "test_type": "security",
+          "note": "A withdrawal-capable or undeclared posture is refused, the shipped declaration is checked, and LiveExecutor asserts it before building any state. The live-venue verification remains a documented human step." }
+      ],
       "failure_mode": "A compromised host becomes a withdrawal, not just a bad trade."
     },
 
