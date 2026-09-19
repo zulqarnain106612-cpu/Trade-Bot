@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zulqarnain106612-cpu/Trade-Bot/.claude/skills/quality-engineering/schemas/change_plan.schema.json",
+  "title": "Quality-engineering change plan",
+  "description": "What a change commits to before it is written: which requirement it serves, which test decides it, and how it fails. The value is not the document -- it is that the three questions have to be answerable before the code exists. A change that cannot name the test that decides it is a change nobody can tell is working, and that is discovered at the end of the work rather than the start. Validate with scripts/qe_gate.py --plan <file>.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "change_class", "requirements", "verification", "failure_mode"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "minLength": 15,
+      "description": "One sentence on what changes in behaviour, not what changes in the files."
+    },
+    "change_class": {
+      "type": "string",
+      "enum": [
+        "production_behaviour",
+        "test_only",
+        "workflow",
+        "config_schema",
+        "defect_fix",
+        "security_finding",
+        "docs_only",
+        "refactor_no_behaviour_change"
+      ]
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Registry ids this change serves. A new requirement is listed here with new: true and is added to the registry in the same commit.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "new"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(INV-[0-9]{3}|REG-[0-9]{4}|SEC-[0-9]{4}|[A-Z]{3,5}-[0-9]{3})$"
+          },
+          "new": { "type": "boolean" },
+          "status_after": {
+            "type": "string",
+            "enum": ["verified", "partial", "planned", "accepted_gap"]
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The tests that decide this change. Named before the code is written, because a test chosen afterwards tends to be a test the code already passes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test", "test_type", "decides"],
+        "properties": {
+          "test": {
+            "type": "string",
+            "pattern": "^tests/[A-Za-z0-9_/]+\\.py(::[A-Za-z0-9_:]+)?$"
+          },
+          "test_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "decides": {
+            "type": "string",
+            "minLength": 20,
+            "description": "What this test would catch that nothing else does. If the honest answer is 'nothing', the test is coverage rather than verification and should be replaced."
+          },
+          "new": { "type": "boolean" }
+        }
+      }
+    },
+    "failure_mode": {
+      "type": "string",
+      "minLength": 25,
+      "description": "What goes wrong in production if this change is wrong. The question that decides how much care the change deserves."
+    },
+    "blast_radius": {
+      "type": "string",
+      "enum": ["none", "observability", "single_strategy", "book", "funds"],
+      "description": "How far a mistake reaches. 'funds' means the change can move money and deserves the strictest review."
+    },
+    "rollback": {
+      "type": "string",
+      "minLength": 10,
+      "description": "How this is undone if it is wrong in production. 'Revert the commit' is a valid answer only when no state has migrated."
+    },
+    "gates_run": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "description": "Gate ids from qe.config.json that were run locally before pushing."
+    },
+    "notes": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "title": "A defect fix carries a REG- entry",
+      "description": "Every production defect gets a permanent regression test. Fixing without recording is how the same bug returns in six months and is investigated from scratch.",
+      "if": {
+        "properties": { "change_class": { "const": "defect_fix" } },
+        "required": ["change_class"]
+      },
+      "then": {
+        "properties": {
+          "requirements": { "contains": { "properties": { "id": { "pattern": "^REG-" } } } }
+        }
+      }
+    },
+    {
+      "title": "A security finding carries a SEC- entry",
+      "if": {
+        "properties": { "change_class": { "const": "security_finding" } },
+        "required": ["change_class"]
+      },
+      "then": {
+        "properties": {
+          "requirements": { "contains": { "properties": { "id": { "pattern": "^SEC-" } } } }
+        }
+      }
+    },
+    {
+      "title": "A change that can move money states its blast radius and its rollback",
+      "description": "Not ceremony: these are the two questions an operator asks at 3am, and the time to answer them is while the change is being designed.",
+      "if": {
+        "properties": { "change_class": { "const": "production_behaviour" } },
+        "required": ["change_class"]
+      },
+      "then": { "required": ["blast_radius", "rollback"] }
+    },
+    {
+      "title": "A refactor that changes no behaviour still names the tests that prove it",
+      "description": "The claim 'no behaviour change' is exactly the claim a test can check, and the refactor that quietly changed one is the reason this is not waived.",
+      "if": {
+        "properties": { "change_class": { "const": "refactor_no_behaviour_change" } },
+        "required": ["change_class"]
+      },
+      "then": {
+        "properties": { "verification": { "minItems": 1 } }
+      }
+    }
+  ]
+}
