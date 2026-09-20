@@ -1863,6 +1863,27 @@
       "depends_on": ["REG-0002"],
       "failure_mode": "A push made with GITHUB_TOKEN triggers no workflow. The controller arms auto-merge with that token, so the merge it produces wakes nothing and the queue stops advancing. Observed directly: #248 was armed by a human token and its merge triggered a run that promoted #258; #258 was armed by the controller, and its merge triggered nothing.",
       "notes": "The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring"
+    },
+    {
+      "id": "REG-0004",
+      "kind": "regression",
+      "title": "The queue is woken by a gating workflow finishing, not by a schedule",
+      "statement": "The controller triggers on workflow_run completion of every workflow that gates a pull request, and on a pull request being closed, so it is driven by work finishing rather than by a clock.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Derives the set of gating workflows from the workflows themselves and fails if the controller does not listen to one of them, so a new gate cannot quietly put the queue back on the clock."
+        }
+      ],
+      "depends_on": ["REG-0003"],
+      "failure_mode": "GitHub throttles and drops high-frequency schedules. The controller was set to */5 and did not fire once in the following hour while the repository's nightly schedule ran normally, leaving six mergeable entries parked with nothing failed and no signal.",
+      "notes": "The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring"
     }
   ]
 }

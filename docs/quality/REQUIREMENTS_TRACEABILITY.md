@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 53 |
+| VERIFIED | 54 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **100** |
+| **Total** | **101** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 19 | 17 |
+| Governance | 20 | 18 |
 
 ## Outstanding work by phase
 
@@ -1255,6 +1255,20 @@ A single controller pass merges the front entry when it is clean and promotes th
 
 > The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring
 
+#### `REG-0004` — The queue is woken by a gating workflow finishing, not by a schedule
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+The controller triggers on workflow_run completion of every workflow that gates a pull request, and on a pull request being closed, so it is driven by work finishing rather than by a clock.
+
+- **If violated:** GitHub throttles and drops high-frequency schedules. The controller was set to */5 and did not fire once in the following hour while the repository's nightly schedule ran normally, leaving six mergeable entries parked with nothing failed and no signal.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `REG-0003`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Derives the set of gating workflows from the workflows themselves and fails if the controller does not listen to one of them, so a new gate cannot quietly put the queue back on the clock.
+
+> The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring
+
 
 ---
 
@@ -1283,4 +1297,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 100 entries.
+Registry version: 1.0.0 — 101 entries.
