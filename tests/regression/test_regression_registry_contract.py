@@ -90,16 +90,8 @@ class TestTheRegistryHasAPlaceForDefects:
         # blend weight. It was filed as REG-0001 on this branch before the
         # queue defects took that id on main; the entry was renumbered in the
         # merge rather than dropped.
-        assert {e.id for e in registry.by_kind("regression")} == {
-            "REG-0001",
-            "REG-0002",
-            "REG-0003",
-            "REG-0004",
-            "REG-0005",
-        }
-        # SEC-0002: the queue controller granted contents: write workflow-wide
-        # and ran two actions from a movable ref, under pull_request_target.
-        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0002"}
+        assert {e.id for e in registry.by_kind("regression")} == {"REG-0005"}
+        assert {e.id for e in registry.by_kind("security_regression")} == set()
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -318,7 +310,7 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"monitoring": 4, "test-suite": 1, "static-analysis": 1}
+        assert metric["value"] == {"test-suite": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

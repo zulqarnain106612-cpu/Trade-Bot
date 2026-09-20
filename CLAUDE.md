@@ -121,45 +121,30 @@ Auto-merge does the rest. Every pull request is set to `--squash --auto`, so
 GitHub merges it the moment its required checks are green, with no session
 running and nobody watching.
 
-## The queue: one pull request at a time, finished before the next
+## Pull requests: open one, let the checks run, merge when green
 
 `main` is protected by a ruleset requiring the four gate checks **and** an
-up-to-date branch. Up-to-date is enforced, not waived: a green check means
-green against the main the change will actually land on.
+up-to-date branch. Nothing parks, promotes or serialises pull requests any
+more. Open one, its checks run, and it merges when they are green.
 
-`.github/workflows/pr-queue.yml` is what makes that affordable, and it is
-deliberately **not** GitHub's merge queue. That one dequeues a failing entry
-and starts the next, which sets the failure aside and lets half-finished pull
-requests pile up. This one keeps exactly one pull request active, keeps it
-active while it is red, and starts nothing else until it merges.
+There used to be a controller (`.github/workflows/pr-queue.yml`) that kept one
+entry active and parked the rest as drafts. It is removed, along with the draft
+guard every gating job carried for it. The reason is not that it was
+complicated: **a parked entry accumulated check runs whose conclusion was
+`skipped`, and GitHub counts a required check that reports `skipped` as
+satisfied.** #292 merged into `main` with all four gates skipped and its test
+suite never run. The mechanism built to guarantee "no neutral, no skipped, no
+failed" was the mechanism producing it.
 
-How it behaves:
+So:
 
-- A new pull request is **parked**: converted to a draft and labelled `queued`.
-  Parked entries run no jobs at all, so they cost nothing.
-- Exactly one entry is active. A red entry stays the active one -- fix it and
-  push; it keeps its place at the front.
-- When it merges, the oldest parked entry is updated from main, marked ready,
-  and armed with auto-merge. Its own run starts from `ready_for_review`.
-- Open the next pull request whenever you like. It joins the line. Nothing
-  waits on you and you wait on nothing.
+- **A gate job may carry no condition but `always()`.** Not a draft guard, not
+  anything else. `tests/test_assert_jobs_green.py` and `qe_gate.py` both check
+  this as an exact alternative rather than a substring.
+- **Nothing converts a pull request to a draft on your behalf.** A draft is a
+  human saying the work is not ready.
+- Open as many pull requests as you like. They are independent.
 
-The rules that keep it from stalling:
-
-- **A workflow that gates a pull request must also trigger on `merge_group`,**
-  so the checks can report if the native queue is ever enabled (GOV-014).
-- **Every job of a gating workflow carries the draft guard**, and the gate's
-  `always()` is kept -- the guard is ANDed onto it, never a replacement
-  (GOV-016). Dropping `always()` would skip the gate the moment a dependency
-  fails, and a skipped required check blocks nothing.
-- **Update the branch before revealing the entry.** A push made with
-  `GITHUB_TOKEN` triggers no workflow; `ready_for_review` does. Reveal first
-  and the entry sits at the front with no run and no way to get one.
-- **Only labelled drafts are promoted.** A draft made by hand is work in
-  progress and is left alone.
-
-The cloud review is deliberately **not** a required check: it is advisory and
-never approves or merges.
 
 ## Mathematical foundations registry
 

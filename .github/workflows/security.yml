@@ -35,7 +35,6 @@ concurrency:
 
 jobs:
   bandit:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Bandit (Python SAST)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -58,7 +57,6 @@ jobs:
         run: bandit -q -r src kg rag_mongo orchestrator common tools review -ll
 
   pip-audit:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: pip-audit (Python CVE scan)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -86,7 +84,6 @@ jobs:
       # installs, so they are what can actually reach a runner.
 
   npm-audit:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: npm audit (frontend CVE scan)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -277,7 +274,6 @@ jobs:
           echo "::warning::npm audit could not reach the registry after 2 attempts -- no CVE scan ran this time. Dependabot still watches /frontend independently."
 
   secrets:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: TruffleHog (secret scan)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -330,7 +326,6 @@ jobs:
   # the moment any dependency fails, and a skipped gate blocks nothing.
   # ---------------------------------------------------------------------
   supply-chain:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Supply-chain posture (SUP-001..SUP-007)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -358,7 +353,7 @@ jobs:
     # Only meaningful on a pull request: the action diffs the base against the
     # head. On push and schedule there is nothing to diff, and a job that
     # cannot run is excused here rather than reported as a pass.
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (github.event_name == 'pull_request') }}
+    if: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -368,7 +363,6 @@ jobs:
           comment-summary-in-pr: on-failure
 
   container:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Container build and scan (SUP-006)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -410,7 +404,7 @@ jobs:
   gate:
     name: Security gate (all jobs green)
     runs-on: ubuntu-latest
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (always()) }}
+    if: ${{ always() }}
     needs: [bandit, pip-audit, npm-audit, secrets, supply-chain, dependency-review, container]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

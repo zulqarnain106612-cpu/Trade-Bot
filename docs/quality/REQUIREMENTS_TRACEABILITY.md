@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 103 |
+| VERIFIED | 96 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **103** |
+| **Total** | **96** |
 
 ## Summary by subsystem
 
@@ -65,10 +65,10 @@ deletion of the thing it points at.
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 10 |
-| Supply chain and artifacts | 8 | 8 |
+| Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 21 | 21 |
+| Governance | 15 | 15 |
 
 ## Outstanding work by phase
 
@@ -877,21 +877,6 @@ Automated dependency PRs run the full quality gate and can never trigger the pro
 - **Verification:**
   - `tests/supply_chain/test_supply_chain_posture.py` (security) — The release workflow triggers only on a version tag and workflow_dispatch; push-on-branch, pull_request and schedule are all detected, including a tag trigger that also accepts branches.
 
-#### `SEC-0002` — The queue controller runs least-privilege and on pinned actions
-
-**VERIFIED** · high · security_regression · source: OPS-2026-09-20
-
-No workflow grants a write scope workflow-wide that only one job needs, and every third-party action in .github/workflows is pinned to a full commit SHA with the version named in a comment; scripts/check_supply_chain.py decides both, and reports pull_request_target only when the workflow checks out the pull request's own head.
-
-- **If violated:** A workflow-wide contents: write is inherited by every job, including ones that only read, so any injection into any of them can push to the repository. A movable action ref lets the action's owner change what runs under that token without a diff here. Both were live in the merged pr-queue controller, which runs on pull_request_target with the base repository's credentials.
-- **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci-failure-notify.yml`, `scripts/check_supply_chain.py`
-- **Depends on:** `SUP-001`, `SUP-002`, `SUP-003`
-- **Verification:**
-  - `tests/test_pr_queue.py` (security) — Asserts the workflow starts read-only and that contents/pull-requests write live on the reconcile job alone, so a job added later inherits nothing.
-  - `tests/supply_chain/test_supply_chain_posture.py` (security) — Covers both directions of the sharpened SUP-003 rule: pull_request_target with a checkout of the pull request head is a finding, by any spelling of the ref, and pull_request_target without one is not.
-
-> Found by merging main into PR-011: the supply-chain gate arrives with this phase and judged workflows that had merged before it existed. The same run flagged pull_request_target itself on pr-queue.yml, which is a false positive -- that workflow checks out the base repository and tests/test_pr_queue.py already asserts it never fetches the entry's code -- so the rule was made precise rather than the workflow changed. A gate that fires on the safe pattern is a gate people learn to wave through. layer: static-analysis
-
 ## Resilience and recovery
 
 #### `RES-001` — Every component failure has a declared, tested fail-safe behaviour
@@ -1253,86 +1238,6 @@ A workflow that gates a pull request must also trigger on merge_group, and its g
 - **Verification:**
   - `tests/test_merge_queue_wiring.py` (unit) — Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement.
 
-#### `GOV-015` — Exactly one pull request is active, and a red one holds the line
-
-**VERIFIED** · high · requirement · source: OPS-2026-09-20
-
-At most one open pull request is non-draft at any time; every other entry is parked as a labelled draft whose jobs do not run. Nothing is promoted while an active entry exists, whatever its checks say, so a failing pull request is finished rather than set aside.
-
-- **If violated:** GitHub's own merge queue dequeues a failing entry and starts the next one, which sets the failure aside and lets a backlog of half-finished pull requests accumulate.
-- **Owned by:** `.github/workflows/pr-queue.yml`
-- **Depends on:** `GOV-014`
-- **Verification:**
-  - `tests/test_pr_queue.py` (unit) — Asserts promotion is short-circuited while an active entry exists, that entries are served oldest first, that a hand-made draft is never promoted, and that the controller cannot race itself into promoting two entries.
-
-#### `GOV-016` — A parked pull request spends no runner time
-
-**VERIFIED** · medium · requirement · source: OPS-2026-09-20
-
-Every job of every workflow that gates a pull request is guarded so it does not run on a draft, and promotion updates the entry's branch before marking it ready for review.
-
-- **If violated:** An unguarded job burns runner minutes on an entry that cannot merge; revealing an entry before updating its branch leaves it at the front of the queue with no run, because a GITHUB_TOKEN push triggers no workflow.
-- **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/workflow-lint.yml`, `.github/workflows/security.yml`
-- **Depends on:** `GOV-015`
-- **Verification:**
-  - `tests/test_pr_queue.py` (unit) — Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it.
-
-#### `REG-0001` — An active pull request with zero check runs is detected and restarted
-
-**VERIFIED** · high · regression · source: OPS-2026-09-20
-
-When the entry at the front of the queue has no pull_request workflow runs for its head SHA, the controller reopens it so the workflows trigger, and says so on the pull request.
-
-- **If violated:** Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming.
-- **Owned by:** `.github/workflows/pr-queue.yml`
-- **Depends on:** `GOV-015`
-- **Verification:**
-  - `tests/test_pr_queue.py` (regression) — Asserts the front entry is checked for having no runs, that only pull_request runs are counted so GitHub's own dynamic runs cannot mask the stall, and that recovery is a reopen rather than a rewrite of the branch.
-
-> No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from "still running". layer: monitoring
-
-#### `REG-0002` — The active queue entry is brought up to date, not only promoted ones
-
-**VERIFIED** · high · regression · source: OPS-2026-09-20
-
-On every pass the controller checks whether the entry at the front of the queue is behind main and updates it if so, rather than relying on promotion, which happens once per entry.
-
-- **If violated:** Observed on PR #248 the moment the queue went live: it was already active, so promotion never ran on it, nothing brought it forward, and the ruleset's up-to-date requirement blocked it indefinitely with green checks and nothing failed.
-- **Owned by:** `.github/workflows/pr-queue.yml`
-- **Depends on:** `REG-0001`
-- **Verification:**
-  - `tests/test_pr_queue.py` (regression) — Asserts the front entry's behind state is checked before the pass reports that it holds the line, and that a failed update warns rather than aborting, since an already-active entry has no promotion to abort.
-
-> The same shape as REG-0001 -- blocked, green, nothing failed, nobody told. layer: monitoring
-
-#### `REG-0003` — The queue advances in one pass instead of waiting for an event it cannot receive
-
-**VERIFIED** · high · regression · source: OPS-2026-09-20
-
-A single controller pass merges the front entry when it is clean and promotes the next one, driven by a heartbeat rather than by push or pull_request events.
-
-- **If violated:** A push made with GITHUB_TOKEN triggers no workflow. The controller arms auto-merge with that token, so the merge it produces wakes nothing and the queue stops advancing. Observed directly: #248 was armed by a human token and its merge triggered a run that promoted #258; #258 was armed by the controller, and its merge triggered nothing.
-- **Owned by:** `.github/workflows/pr-queue.yml`
-- **Depends on:** `REG-0002`
-- **Verification:**
-  - `tests/test_pr_queue.py` (regression) — Asserts the clean front entry is merged in-pass, that merging clears the active slot so promotion below it still runs, and that the heartbeat is frequent enough to be the sole trigger.
-
-> The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring
-
-#### `REG-0004` — The queue is woken by a gating workflow finishing, not by a schedule
-
-**VERIFIED** · high · regression · source: OPS-2026-09-20
-
-The controller triggers on workflow_run completion of every workflow that gates a pull request, and on a pull request being closed, so it is driven by work finishing rather than by a clock.
-
-- **If violated:** GitHub throttles and drops high-frequency schedules. The controller was set to */5 and did not fire once in the following hour while the repository's nightly schedule ran normally, leaving six mergeable entries parked with nothing failed and no signal.
-- **Owned by:** `.github/workflows/pr-queue.yml`
-- **Depends on:** `REG-0003`
-- **Verification:**
-  - `tests/test_pr_queue.py` (regression) — Derives the set of gating workflows from the workflows themselves and fails if the controller does not listen to one of them, so a new gate cannot quietly put the queue back on the clock.
-
-> The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring
-
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1376,4 +1281,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 103 entries.
+Registry version: 1.0.0 — 96 entries.
