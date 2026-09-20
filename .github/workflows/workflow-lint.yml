@@ -14,6 +14,12 @@ name: Workflow lint
 # preinstalled on ubuntu-latest -- the bodies of `run:` steps.
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: [main]
     paths:
@@ -38,6 +44,7 @@ concurrency:
 
 jobs:
   actionlint:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: actionlint (workflow schema)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -89,7 +96,7 @@ jobs:
   gate:
     name: Workflow lint gate (all jobs green)
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (always()) }}
     needs: [actionlint]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
