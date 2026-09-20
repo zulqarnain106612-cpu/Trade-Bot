@@ -107,8 +107,8 @@
         },
         "source": {
           "type": "string",
-          "description": "Section of docs/Quality-Engineering this entry comes from, e.g. 'QE-42'.",
-          "pattern": "^QE-[0-9]{1,2}(,QE-[0-9]{1,2})*$"
+          "description": "Where this entry comes from: a section of docs/Quality-Engineering ('QE-42'), or a dated operator directive ('OPS-2026-09-20') for a requirement the operator imposed directly rather than one derived from that document. The dated form is deliberately not free text -- an entry still has to name a specific, checkable origin.",
+          "pattern": "^(QE-[0-9]{1,2}(,QE-[0-9]{1,2})*|OPS-[0-9]{4}-[0-9]{2}-[0-9]{2})$"
         },
         "owning_modules": {
           "type": "array",

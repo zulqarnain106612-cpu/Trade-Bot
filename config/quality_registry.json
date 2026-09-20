@@ -1707,6 +1707,188 @@
       "owning_modules": ["docs/quality"],
       "planned_in": "PR-012",
       "failure_mode": "A single green percentage is mistaken for readiness."
+    },
+    {
+      "id": "GOV-011",
+      "kind": "requirement",
+      "title": "CI output reaching an agent is bounded at 30 lines per fetch",
+      "statement": "Every command that can page a file, a history or a CI log into an agent's context must carry an explicit bound of at most 30 lines, and a violation returns exactly one configured instruction line and nothing else.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".claude/hooks/pre_tool_use.py", "config/command_policy.json"],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "unit",
+          "note": "Pins the limit at the inclusive boundary -- 30 allowed, 31 refused -- and asserts the refusal is the single line read from policy, so the message and the configuration cannot drift apart."
+        }
+      ],
+      "failure_mode": "An unbounded log fetch exhausts the context window, and the session loses the state it needed in order to fix the failure it was reading about."
+    },
+    {
+      "id": "GOV-012",
+      "kind": "requirement",
+      "title": "Live CI monitoring is refused, not rate-limited",
+      "statement": "Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f, watch -n, inotifywait -m, a while-true poll loop, or the Monitor tool -- is refused for this project regardless of what it is pointed at.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".claude/hooks/pre_tool_use.py", "config/command_policy.json"],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "unit",
+          "note": "Covers each spelling of a live watch and the Monitor tool, and asserts a bounded log fetch is still allowed, so the rule caps streams without blinding the agent to failures."
+        }
+      ],
+      "depends_on": ["GOV-011"],
+      "failure_mode": "A watch with no end emits into context for as long as CI runs, which no per-call line bound can cap."
+    },
+    {
+      "id": "GOV-013",
+      "kind": "requirement",
+      "title": "CI failure is pushed to the pull request, never polled for",
+      "statement": "A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/ci-failure-notify.yml"],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "unit",
+          "note": "Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones."
+        }
+      ],
+      "depends_on": ["GOV-012"],
+      "failure_mode": "Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid."
+    },
+    {
+      "id": "GOV-014",
+      "kind": "requirement",
+      "title": "Every required check also runs in the merge queue",
+      "statement": "A workflow that gates a pull request must also trigger on merge_group, and its gate job must not be fenced off by a pull-request-only condition, so that every check branch protection requires can report on the queue ref.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/workflow-lint.yml", ".github/workflows/security.yml"],
+      "verification": [
+        {
+          "test": "tests/test_merge_queue_wiring.py",
+          "test_type": "unit",
+          "note": "Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement."
+        }
+      ],
+      "depends_on": ["GOV-013"],
+      "failure_mode": "A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed."
+    },
+    {
+      "id": "GOV-015",
+      "kind": "requirement",
+      "title": "Exactly one pull request is active, and a red one holds the line",
+      "statement": "At most one open pull request is non-draft at any time; every other entry is parked as a labelled draft whose jobs do not run. Nothing is promoted while an active entry exists, whatever its checks say, so a failing pull request is finished rather than set aside.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "unit",
+          "note": "Asserts promotion is short-circuited while an active entry exists, that entries are served oldest first, that a hand-made draft is never promoted, and that the controller cannot race itself into promoting two entries."
+        }
+      ],
+      "depends_on": ["GOV-014"],
+      "failure_mode": "GitHub's own merge queue dequeues a failing entry and starts the next one, which sets the failure aside and lets a backlog of half-finished pull requests accumulate."
+    },
+    {
+      "id": "GOV-016",
+      "kind": "requirement",
+      "title": "A parked pull request spends no runner time",
+      "statement": "Every job of every workflow that gates a pull request is guarded so it does not run on a draft, and promotion updates the entry's branch before marking it ready for review.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml", ".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/workflow-lint.yml", ".github/workflows/security.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "unit",
+          "note": "Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it."
+        }
+      ],
+      "depends_on": ["GOV-015"],
+      "failure_mode": "An unguarded job burns runner minutes on an entry that cannot merge; revealing an entry before updating its branch leaves it at the front of the queue with no run, because a GITHUB_TOKEN push triggers no workflow."
+    },
+    {
+      "id": "REG-0001",
+      "kind": "regression",
+      "title": "An active pull request with zero check runs is detected and restarted",
+      "statement": "When the entry at the front of the queue has no pull_request workflow runs for its head SHA, the controller reopens it so the workflows trigger, and says so on the pull request.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the front entry is checked for having no runs, that only pull_request runs are counted so GitHub's own dynamic runs cannot mask the stall, and that recovery is a reopen rather than a rewrite of the branch."
+        }
+      ],
+      "depends_on": ["GOV-015"],
+      "failure_mode": "Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming.",
+      "notes": "No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from \"still running\". layer: monitoring"
+    },
+    {
+      "id": "REG-0002",
+      "kind": "regression",
+      "title": "The active queue entry is brought up to date, not only promoted ones",
+      "statement": "On every pass the controller checks whether the entry at the front of the queue is behind main and updates it if so, rather than relying on promotion, which happens once per entry.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the front entry's behind state is checked before the pass reports that it holds the line, and that a failed update warns rather than aborting, since an already-active entry has no promotion to abort."
+        }
+      ],
+      "depends_on": ["REG-0001"],
+      "failure_mode": "Observed on PR #248 the moment the queue went live: it was already active, so promotion never ran on it, nothing brought it forward, and the ruleset's up-to-date requirement blocked it indefinitely with green checks and nothing failed.",
+      "notes": "The same shape as REG-0001 -- blocked, green, nothing failed, nobody told. layer: monitoring"
+    },
+    {
+      "id": "REG-0003",
+      "kind": "regression",
+      "title": "The queue advances in one pass instead of waiting for an event it cannot receive",
+      "statement": "A single controller pass merges the front entry when it is clean and promotes the next one, driven by a heartbeat rather than by push or pull_request events.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the clean front entry is merged in-pass, that merging clears the active slot so promotion below it still runs, and that the heartbeat is frequent enough to be the sole trigger."
+        }
+      ],
+      "depends_on": ["REG-0002"],
+      "failure_mode": "A push made with GITHUB_TOKEN triggers no workflow. The controller arms auto-merge with that token, so the merge it produces wakes nothing and the queue stops advancing. Observed directly: #248 was armed by a human token and its merge triggered a run that promoted #258; #258 was armed by the controller, and its merge triggered nothing.",
+      "notes": "The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring"
     }
   ]
 }

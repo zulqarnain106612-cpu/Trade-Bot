@@ -1,0 +1,126 @@
+name: CI failure notice
+
+# Why this exists: the alternative to being told about a failure is going and
+# looking for one, and looking means paging CI logs into an agent's context --
+# the exact thing config/command_policy.json refuses. So the run that already
+# knows it failed does the summarising, once, server-side, and leaves the
+# answer where a human or an agent can read it in a handful of lines.
+#
+# It reports only failure. A green run posts nothing, because a notification
+# that fires on success is a notification people learn to ignore.
+
+on:
+  workflow_run:
+    workflows:
+      - "CI"
+      - "CodeQL"
+      - "Workflow lint"
+      - "Claude Cloud Review (RAG + Knowledge Graph retrieval)"
+      - "Security"
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+concurrency:
+  # One notice per PR per workflow; a rerun supersedes rather than stacks.
+  group: ci-failure-notice-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    # `failure` covers a real red check; `cancelled` and `timed_out` are
+    # reported too, because CLAUDE.md treats "not green" as the failure
+    # condition, and a silently cancelled run is the easiest one to miss.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'cancelled' ||
+      github.event.workflow_run.conclusion == 'timed_out'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the failing jobs and steps on the pull request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+
+            // A workflow_run event carries its PRs only for same-repo
+            // branches; for a fork the array is empty, so fall back to a
+            // head-SHA search rather than silently posting nothing.
+            let prNumbers = (run.pull_requests || []).map(pr => pr.number);
+            if (prNumbers.length === 0) {
+              const search = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} is:pr ${run.head_sha}`,
+              });
+              prNumbers = search.data.items.map(item => item.number);
+            }
+            if (prNumbers.length === 0) {
+              core.info(`No pull request for ${run.head_sha}; nothing to notify.`);
+              return;
+            }
+
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              { ...context.repo, run_id: run.id, per_page: 100 },
+            );
+
+            // Only jobs that are actually not green, and only the first
+            // failing step of each: that step name is what identifies the
+            // failure, and everything after it is downstream noise.
+            const bad = jobs.filter(j => j.conclusion && j.conclusion !== 'success' && j.conclusion !== 'skipped');
+            const lines = bad.map(j => {
+              const step = (j.steps || []).find(s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
+              const where = step ? ` -- step \`${step.name}\`` : '';
+              return `- **${j.name}**: ${j.conclusion}${where}`;
+            });
+
+            // Capped on purpose. This comment is read into an agent's context
+            // and must stay inside the same 30-line budget the command policy
+            // enforces everywhere else.
+            const MAX = 20;
+            const shown = lines.slice(0, MAX);
+            if (lines.length > MAX) {
+              shown.push(`- ...and ${lines.length - MAX} more not listed`);
+            }
+
+            const marker = `<!-- ci-failure-notice:${run.name} -->`;
+            const body = [
+              marker,
+              `### ${run.name} — ${run.conclusion}`,
+              '',
+              shown.join('\n') || '_No individual job reported a failure; the run itself did._',
+              '',
+              `[Full run](${run.html_url}) · commit \`${run.head_sha.slice(0, 7)}\``,
+              '',
+              '_Fix the named step, push, and this notice updates itself. ' +
+              'Do not fetch the run log unbounded: read at most 30 lines, ' +
+              'filtered to the failing assertion._',
+            ].join('\n');
+
+            for (const number of prNumbers) {
+              // Update the previous notice for this workflow rather than
+              // appending a new one, so a PR that fails five times carries
+              // one current comment instead of five stale ones.
+              const existing = await github.paginate(
+                github.rest.issues.listComments,
+                { ...context.repo, issue_number: number, per_page: 100 },
+              );
+              const prior = existing.find(c => c.body && c.body.includes(marker));
+              if (prior) {
+                await github.rest.issues.updateComment({
+                  ...context.repo, comment_id: prior.id, body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: number, body,
+                });
+              }
+            }
+
+# No `gate` job here on purpose. The project's gate law covers workflows that
+# run on `pull_request`, where a missing check silently satisfies branch
+# protection. This one runs on `workflow_run` and is never a required check,
+# and its single job is *meant* to skip on a green run -- a gate would turn
+# every successful CI run into a red notifier.

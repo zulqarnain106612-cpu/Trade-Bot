@@ -47,6 +47,9 @@ def load_policy() -> dict:
     return json.loads(POLICY.read_text(encoding="utf-8"))
 
 
+REFUSAL = load_policy()["bounded_output"]["refusal_message"]
+
+
 class TestPolicyFileIntegrity:
     def test_policy_file_is_valid_json(self):
         load_policy()
@@ -69,7 +72,7 @@ class TestPolicyFileIntegrity:
         assert load_policy()["enforcement"] == "block"
 
     def test_per_fetch_limit_matches_the_project_directive(self):
-        assert load_policy()["bounded_output"]["max_declared_lines"] == 5
+        assert load_policy()["bounded_output"]["max_declared_lines"] == 30
 
 
 class TestAllowsCompliantCommands:
@@ -113,7 +116,7 @@ class TestBlocksUnboundedReads:
     def test_denied(self, command):
         decision = decide(command)
         assert decision["permissionDecision"] == "deny"
-        assert "5 lines" in decision["permissionDecisionReason"]
+        assert decision["permissionDecisionReason"] == REFUSAL
 
 
 class TestBlocksOversizedBounds:
@@ -124,18 +127,25 @@ class TestBlocksOversizedBounds:
             "tail -n 50 app.log",
             "sed -n '1,80p' README.md",
             "grep -m 40 needle file.py",
-            "git log -n 30",
             "head -c 500000 blob.bin",
         ],
     )
     def test_denied(self, command):
         decision = decide(command)
         assert decision["permissionDecision"] == "deny"
-        assert "exceeds" in decision["permissionDecisionReason"]
+        assert decision["permissionDecisionReason"] == REFUSAL
 
-    def test_the_reason_names_the_offending_number(self):
+    def test_the_refusal_is_exactly_one_configured_line(self):
+        """
+        A bound violation returns the configured line and nothing else.
+
+        The refusal exists to protect context, so spending several sentences
+        of it explaining the refusal defeats the rule it enforces. The line is
+        read from policy rather than hard-coded here so the two cannot drift.
+        """
         reason = decide("head -100 README.md")["permissionDecisionReason"]
-        assert "100" in reason
+        assert reason == REFUSAL
+        assert "\n" not in reason
 
 
 class TestBlocksDestructiveCommands:
@@ -303,7 +313,10 @@ class TestSettingsWiring:
     def test_hook_is_registered_for_bash(self):
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
         entries = settings["hooks"]["PreToolUse"]
-        assert any(e.get("matcher") == "Bash" for e in entries)
+        # Monitor shares the matcher: it is a live watch with no bounded
+        # form, so it is refused by the same hook rather than a second one.
+        assert any("Bash" in (e.get("matcher") or "") for e in entries)
+        assert any("Monitor" in (e.get("matcher") or "") for e in entries)
 
     def test_registered_command_points_at_the_hook_that_exists(self):
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
@@ -312,3 +325,111 @@ class TestSettingsWiring:
         ]
         assert any("pre_tool_use.py" in c for c in commands)
         assert HOOK.exists()
+
+
+class TestCiObservability:
+    """
+    CI output is capped, and the open-ended form of it is refused outright.
+
+    Two different rules, deliberately: a bulk log fetch has a legitimate
+    bounded form -- the handful of lines that name the failing assertion --
+    so it is capped rather than banned. A live watch has no bounded form at
+    all, because a per-call line limit cannot cap a stream with no end, so it
+    is refused however it is spelled.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "gh run watch 123",
+            "gh pr checks 42 --watch",
+            "tail -f ci.log",
+            "docker logs -f build",
+            "kubectl logs --follow pod",
+            "while true; do gh pr checks 1; sleep 30; done",
+            "watch -n 5 gh pr list",
+            "inotifywait -m /tmp",
+        ],
+    )
+    def test_live_watches_are_refused(self, command):
+        decision = decide(command)
+        assert decision["permissionDecision"] == "deny"
+        assert "live monitoring" in decision["permissionDecisionReason"].lower()
+
+    def test_the_live_refusal_does_not_repeat_itself(self):
+        """
+        A live watch that is also an unbounded read says so once.
+
+        `gh run watch` trips both rules, and the live message already carries
+        the line directive. Appending the bound refusal to it would state the
+        same instruction twice in a message whose whole point is brevity.
+        """
+        reason = decide("gh run watch 123")["permissionDecisionReason"]
+        assert reason.count("only <=30 lines") == 1
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "gh run view --job 1 --log-failed | grep -m 5 error",
+            "gh run view --job 1 --log-failed | grep -m 30 error",
+            "gh run view 1 --log | head -20",
+            "gh run list --limit 10",
+        ],
+    )
+    def test_a_bounded_log_fetch_is_still_allowed(self, command):
+        """The minimum lines that explain a failure must stay reachable."""
+        assert decide(command)["permissionDecision"] == "allow"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "gh run view --job 1 --log-failed",
+            "gh run view 1 --log",
+            "gh run list",
+            "gh run view 1 --log | head -80",
+            "gh run list --limit 200",
+        ],
+    )
+    def test_an_unbounded_log_fetch_is_refused(self, command):
+        decision = decide(command)
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"] == REFUSAL
+
+    @pytest.mark.parametrize(
+        "command",
+        ["gh pr checks 248", "gh pr view 248 --json state", "gh pr merge 248 --squash --auto"],
+    )
+    def test_pr_state_commands_are_untouched(self, command):
+        """
+        The PR's own check summary is one line per check, not a log.
+
+        Capping it would leave no way to learn a PR's state at all, which is
+        the information the log fetch was being used as a proxy for.
+        """
+        assert decide(command)["permissionDecision"] == "allow"
+
+    def test_the_monitor_tool_is_refused_outright(self):
+        decision = decide("", tool="Monitor")
+        assert decision["permissionDecision"] == "deny"
+        assert "live monitoring" in decision["permissionDecisionReason"].lower()
+
+    def test_other_non_bash_tools_are_still_untouched(self):
+        assert decide("", tool="Read")["permissionDecision"] == "allow"
+
+
+class TestThirtyLineBoundary:
+    """The limit is inclusive: 30 passes, 31 does not."""
+
+    @pytest.mark.parametrize(
+        "command",
+        ["head -30 f", "tail -n 30 f", "grep -m 30 x f", "sed -n '1,30p' f", "git log -n 30"],
+    )
+    def test_exactly_thirty_is_allowed(self, command):
+        assert decide(command)["permissionDecision"] == "allow"
+
+    @pytest.mark.parametrize(
+        "command",
+        ["head -31 f", "tail -n 31 f", "grep -m 31 x f", "sed -n '1,31p' f", "git log -n 31"],
+    )
+    def test_thirty_one_is_refused(self, command):
+        assert decide(command)["permissionDecision"] == "deny"
