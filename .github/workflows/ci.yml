@@ -60,16 +60,23 @@ jobs:
           python-version-file: .python-version
 
       - name: Install lint tooling only
-        # Every script this job runs -- generate_math_docs, generate_quality_docs,
-        # qe_gate -- is pure stdlib. The only third-party thing here is ruff.
-        # This step used to install the full runtime requirements plus a CPU
-        # torch wheel in order to run `ruff check`: roughly three minutes of
-        # wall clock on every pull request, buying nothing. The version is read
-        # out of requirements-dev.txt rather than repeated, so CI and a local
-        # `ruff` can never disagree about what counts as a lint error.
+        # This job's scripts are stdlib apart from three tools: ruff, and the
+        # two the quality gate hard-depends on -- jsonschema, which qe_gate
+        # raises GateError without, and PyYAML, which it needs to parse the
+        # workflows. It used to install the full runtime requirements plus a
+        # CPU torch wheel to run `ruff check`: roughly three minutes of wall
+        # clock on every pull request, buying nothing.
+        #
+        # Every version is read out of the requirements files rather than
+        # repeated here, so CI and a local run can never disagree about what
+        # counts as a lint error or a schema violation. REG-0007 derives this
+        # list from what the scripts actually import.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "$(grep -E '^ruff==' requirements-dev.txt)"
+          python -m pip install \
+            "$(grep -E '^ruff==' requirements-dev.txt)" \
+            "$(grep -iE '^jsonschema[><=]' requirements.txt)" \
+            "$(grep -iE '^PyYAML[><=]' requirements.txt)"
 
       - name: Math registry is valid and doc in sync
         run: python3 scripts/generate_math_docs.py --check

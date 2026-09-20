@@ -14,7 +14,9 @@ five minutes nobody attributes to anything.
 
 from __future__ import annotations
 
+import ast
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,14 +55,56 @@ class TestOnlyTheTestsInstallTheProject:
         assert "-r requirements.txt" not in body, job_id
         assert "torch" not in body, job_id
 
+    def test_the_lint_job_installs_everything_its_steps_import(self, spec):
+        """
+        REG-0007. Trimming this job to ruff alone broke it: qe_gate raises
+        GateError when jsonschema is absent and needs PyYAML to parse the
+        workflows, and both arrived with requirements.txt. The local run passed
+        because the developer's interpreter already had them.
+
+        So the rule is derived, not listed: every third-party module the job's
+        own scripts import must be installed by the job. Adding an import to
+        the gate and forgetting the install fails here instead of in CI.
+        """
+        scripts = [
+            PROJECT_ROOT / ".claude/skills/quality-engineering/scripts/qe_gate.py",
+            PROJECT_ROOT / "scripts/generate_math_docs.py",
+            PROJECT_ROOT / "scripts/generate_quality_docs.py",
+            PROJECT_ROOT / "src/quality/registry.py",
+            PROJECT_ROOT / "src/mathcore/registry.py",
+        ]
+        # Import name -> the name it is installed under, where they differ.
+        distribution = {"yaml": "PyYAML"}
+
+        needed: set[str] = set()
+        for script in scripts:
+            for node in ast.walk(ast.parse(script.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    names = [node.module]
+                elif isinstance(node, ast.Import):
+                    names = [a.name for a in node.names]
+                else:
+                    continue
+                for name in names:
+                    top = name.split(".")[0]
+                    if top in sys.stdlib_module_names or top in {"src", "scripts"}:
+                        continue
+                    needed.add(distribution.get(top, top))
+
+        body = _run_bodies(spec["jobs"]["python-lint"])
+        missing = sorted(n for n in needed if n.lower() not in body.lower())
+        assert not missing, f"python-lint imports but never installs: {missing}"
+
     def test_the_lint_job_takes_its_ruff_version_from_the_requirements_file(self, spec):
         """
-        A ruff version repeated in the workflow drifts from the one developers
-        run, and the drift shows up as a lint failure nobody can reproduce.
+        A version repeated in the workflow drifts from the one developers run,
+        and the drift shows up as a failure nobody can reproduce.
         """
         body = _run_bodies(spec["jobs"]["python-lint"])
         assert "requirements-dev.txt" in body
         assert "ruff==" in body
+        # Every pin comes out of a requirements file; none is written inline.
+        assert not re.search(r'"(?!\$\()[A-Za-z][\w.-]*[><=]=?\d', body), body
 
     def test_the_test_job_still_installs_everything(self, spec):
         """The saving is scope, not coverage: the suite gets the full set."""

@@ -2481,6 +2481,30 @@
       "failure_mode": "An install added to a job that does not need it is invisible in a green run, so minutes accumulate on every pull request with nothing attributing them to the change that added them."
     },
     {
+      "id": "REG-0007",
+      "kind": "regression",
+      "title": "A CI job installs every third-party module its own steps import",
+      "statement": "python-lint installs each third-party module reachable from the scripts it runs -- derived from their imports, not from a list kept by hand -- with every version read out of a requirements file rather than repeated inline.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "owning_modules": [
+        ".github/workflows/ci.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_workflow_cost.py",
+          "test_type": "unit",
+          "note": "test_the_lint_job_installs_everything_its_steps_import walks the AST of qe_gate.py, both generate_*_docs.py and both registry modules, keeps the imports that are not stdlib, and asserts the job installs each one. Removing jsonschema from the install line fails it, which is the defect that produced the entry."
+        }
+      ],
+      "depends_on": [
+        "GOV-015"
+      ],
+      "failure_mode": "Trimming the job to ruff alone left qe_gate without jsonschema, which it raises GateError without, and without PyYAML, which it needs to parse the workflows. The local run passed because the developer's interpreter already had both, so the gap appeared only in CI."
+    },
+    {
       "id": "GOV-016",
       "kind": "requirement",
       "title": "A new test is written to run as fast as it can while still deciding its question",

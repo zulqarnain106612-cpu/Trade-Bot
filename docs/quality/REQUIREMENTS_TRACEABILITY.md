@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 101 |
+| VERIFIED | 102 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **101** |
+| **Total** | **102** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 19 | 19 |
+| Governance | 20 | 20 |
 
 ## Outstanding work by phase
 
@@ -1312,6 +1312,18 @@ Every test establishes the state it asserts on. No test reads process-global sta
 
 > Escaped to the test suite, not to a running system: the blend weight the engine used in production was always correct, and what failed was the test's claim to have checked it. Filed as a regression anyway because the rule that a defect gets a permanent test applies to a false green as much as to a bad trade. layer: test-suite
 
+#### `REG-0007` — A CI job installs every third-party module its own steps import
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-21
+
+python-lint installs each third-party module reachable from the scripts it runs -- derived from their imports, not from a list kept by hand -- with every version read out of a requirements file rather than repeated inline.
+
+- **If violated:** Trimming the job to ruff alone left qe_gate without jsonschema, which it raises GateError without, and without PyYAML, which it needs to parse the workflows. The local run passed because the developer's interpreter already had both, so the gap appeared only in CI.
+- **Owned by:** `.github/workflows/ci.yml`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_ci_workflow_cost.py` (unit) — test_the_lint_job_installs_everything_its_steps_import walks the AST of qe_gate.py, both generate_*_docs.py and both registry modules, keeps the imports that are not stdlib, and asserts the job installs each one. Removing jsonschema from the install line fails it, which is the defect that produced the entry.
+
 
 ---
 
@@ -1340,4 +1352,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 101 entries.
+Registry version: 1.0.0 — 102 entries.
