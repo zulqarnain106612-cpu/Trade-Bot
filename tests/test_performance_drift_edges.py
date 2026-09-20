@@ -18,7 +18,12 @@ def _baseline(**overrides) -> PerformanceBaseline:
         train_accuracy=0.65,
         oos_accuracy=0.60,
         train_win_rate=0.55,
-        max_drawdown_pct=10.0,
+        # 0.10, not 10.0. Every threshold and live value in the module is a
+        # FRACTION (_DRIFT_DRAWDOWN_EXPAND_PP = 0.10, reasons formatted with
+        # `:.1%`), so 10.0 meant "1000% drawdown" and the drawdown check
+        # here could never fire -- this fixture was passing while asserting
+        # nothing about drawdown. PerformanceBaseline now refuses it.
+        max_drawdown_pct=0.10,
         trades_in_backtest=500,
         train_sortino=2.0,
         oos_sortino=1.8,

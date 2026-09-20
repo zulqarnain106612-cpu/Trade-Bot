@@ -62,10 +62,10 @@ def _detector():
         PerformanceBaseline(
             train_sharpe=2.0,
             oos_sharpe=1.5,
-            train_accuracy=62.0,
-            oos_accuracy=58.0,
-            train_win_rate=55.0,
-            max_drawdown_pct=8.0,
+            train_accuracy=0.62,
+            oos_accuracy=0.58,
+            train_win_rate=0.55,
+            max_drawdown_pct=0.08,
             trades_in_backtest=400,
         )
     )

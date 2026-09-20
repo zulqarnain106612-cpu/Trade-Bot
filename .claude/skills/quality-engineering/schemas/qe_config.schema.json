@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/zulqarnain106612-cpu/Trade-Bot/.claude/skills/quality-engineering/schemas/qe_config.schema.json",
+  "title": "Quality-engineering skill configuration",
+  "description": "The contract for qe.config.json. A skill that enforces schemas on the repository and ships an unvalidated config of its own is making an argument it does not believe; this is that config's schema, and tests/quality/test_qe_skill.py checks it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config_version", "registry", "change_classes", "gates", "never"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "config_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "description": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free prose, as lines. JSON has no comments and a config nobody can annotate is one nobody can revise safely."
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "schema", "loader", "generated_docs", "id_prefixes", "statuses"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^config/.+\\.json$" },
+        "schema": { "type": "string", "pattern": "^config/.+\\.schema\\.json$" },
+        "loader": { "type": "string", "pattern": "^src/.+\\.py$" },
+        "generated_docs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["doc", "generator", "check_flag"],
+            "properties": {
+              "doc": { "type": "string", "pattern": "^docs/.+\\.md$" },
+              "generator": { "type": "string", "pattern": "^scripts/.+\\.py$" },
+              "check_flag": { "type": "string", "minLength": 2 }
+            }
+          }
+        },
+        "id_prefixes": {
+          "type": "object",
+          "minProperties": 2,
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["requirement", "invariant", "regression", "security_regression"]
+          }
+        },
+        "statuses": {
+          "type": "object",
+          "required": ["verified", "partial", "planned", "accepted_gap"],
+          "additionalProperties": { "type": "string", "minLength": 10 }
+        }
+      }
+    },
+    "change_classes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["matches", "requires", "why"],
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Glob patterns. May be empty for a class recognised by intent rather than by path, such as a defect fix."
+          },
+          "requires": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "why": {
+            "type": "string",
+            "minLength": 30,
+            "description": "The reasoning, not the rule. A requirement whose purpose is unstated gets worked around the first time it is inconvenient."
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "command", "blocking", "why"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "title": { "type": "string", "minLength": 10 },
+          "command": { "type": "string", "minLength": 5 },
+          "blocking": { "type": "boolean" },
+          "why": { "type": "string", "minLength": 30 },
+          "optional_if_missing": {
+            "type": "boolean",
+            "description": "True for a gate whose script arrives in a later phase. A missing script is skipped with a note rather than failing the run, so the skill is usable on a branch that predates it."
+          }
+        }
+      }
+    },
+    "verification_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runs_in", "rationale"],
+      "properties": {
+        "runs_in": { "type": "string", "enum": ["github_actions", "local"] },
+        "rationale": { "type": "array", "items": { "type": "string" } },
+        "local_budget_seconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
+    },
+    "never": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "why"],
+        "properties": {
+          "rule": { "type": "string", "minLength": 15 },
+          "why": { "type": "string", "minLength": 30 }
+        }
+      }
+    }
+  }
+}
