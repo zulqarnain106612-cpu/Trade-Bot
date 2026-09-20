@@ -19,4 +19,4 @@ pytest-split>=0.9,<1.0
 # longer changes results. This branch's earlier note saying xdist was
 # deliberately excluded described the suite before that fix.
 pytest-xdist>=3.6,<4.0
-ruff==0.16.6
+ruff==0.16.8
