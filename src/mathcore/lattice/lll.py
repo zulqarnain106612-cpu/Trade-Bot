@@ -48,7 +48,6 @@ __all__ = [
 # polynomial-time bound is proved for.
 DEFAULT_DELTA = Fraction(3, 4)
 
-Vector = list[Fraction]
 Matrix = list[list[Fraction]]
 
 
