@@ -38,6 +38,11 @@ from .prime_field import (
     as_pseudo_mersenne,
     lagrange_interpolate_at,
 )
+from .shamir import (
+    lagrange_interpolate_at,
+    shamir_reconstruct,
+    shamir_split,
+)
 
 __all__ = [
     "AES_POLY",
