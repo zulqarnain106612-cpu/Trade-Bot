@@ -210,7 +210,6 @@ G2 = (
         ]
     ),
 )
-_B2 = FQ2([4, 4])
 
 
 # ---- curve arithmetic (generic over the coordinate field) ------------------
