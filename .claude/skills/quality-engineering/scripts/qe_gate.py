@@ -67,6 +67,12 @@ class Result:
         return f"[{mark}] {self.gate}{suffix}" + (f": {self.detail}" if self.detail else "")
 
 
+# Mirrors the guard applied in .github/workflows/*.yml; owned by
+# tests/test_pr_queue.py, which asserts every gating job carries it.
+_DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
+_PERMITTED_GATE_CONDITIONS = frozenset({"always()", f"${{{{ {_DRAFT_GUARD} && (always()) }}}}"})
+
+
 def load_config() -> dict[str, Any]:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -279,7 +285,11 @@ def gate_workflow_gates(config: dict[str, Any]) -> Result:
         missing = others - needs
         if missing:
             problems.append(f"{path.name}: gate does not need {sorted(missing)}")
-        if str(gate.get("if", "")).strip() != "always()":
+        # The PR queue ANDs a draft guard onto every job so a parked entry
+        # spends no runner time (GOV-016). That is the one permitted addition,
+        # checked as an exact alternative rather than a substring: a gate
+        # reading `always() && false` still has to be caught.
+        if str(gate.get("if", "")).strip() not in _PERMITTED_GATE_CONDITIONS:
             problems.append(f"{path.name}: gate is missing `if: always()`")
     return Result("workflow-gates", not problems, True, f"{checked} workflow(s)", findings=problems)
 
