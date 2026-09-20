@@ -1842,6 +1842,27 @@
       "depends_on": ["REG-0001"],
       "failure_mode": "Observed on PR #248 the moment the queue went live: it was already active, so promotion never ran on it, nothing brought it forward, and the ruleset's up-to-date requirement blocked it indefinitely with green checks and nothing failed.",
       "notes": "The same shape as REG-0001 -- blocked, green, nothing failed, nobody told. layer: monitoring"
+    },
+    {
+      "id": "REG-0003",
+      "kind": "regression",
+      "title": "The queue advances in one pass instead of waiting for an event it cannot receive",
+      "statement": "A single controller pass merges the front entry when it is clean and promotes the next one, driven by a heartbeat rather than by push or pull_request events.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the clean front entry is merged in-pass, that merging clears the active slot so promotion below it still runs, and that the heartbeat is frequent enough to be the sole trigger."
+        }
+      ],
+      "depends_on": ["REG-0002"],
+      "failure_mode": "A push made with GITHUB_TOKEN triggers no workflow. The controller arms auto-merge with that token, so the merge it produces wakes nothing and the queue stops advancing. Observed directly: #248 was armed by a human token and its merge triggered a run that promoted #258; #258 was armed by the controller, and its merge triggered nothing.",
+      "notes": "The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring"
     }
   ]
 }

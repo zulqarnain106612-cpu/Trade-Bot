@@ -84,7 +84,11 @@ class TestTheRegistryHasAPlaceForDefects:
         # been filed; updating it is how filing one announces itself, rather
         # than a defect appearing by silent append. Each id is listed here on
         # purpose, so a new entry cannot ride in unnoticed on a passing suite.
-        assert {e.id for e in registry.by_kind("regression")} == {"REG-0001", "REG-0002"}
+        assert {e.id for e in registry.by_kind("regression")} == {
+            "REG-0001",
+            "REG-0002",
+            "REG-0003",
+        }
         assert not registry.by_kind("security_regression")
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
@@ -306,7 +310,7 @@ class TestTheMetricsCollector:
         # "unknown" bucket would mean an entry skipped that question, which
         # makes the metric useless: it measures which layer needs work.
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"monitoring": 2}
+        assert metric["value"] == {"monitoring": 3}
 
     def test_it_counts_critical_requirements_with_no_test(self, collector):
         metric = collector.collect()["metrics"]["critical_unverified"]
