@@ -482,9 +482,29 @@ def load_registry(path: Path | None = None, root: Path | None = None) -> Quality
     except json.JSONDecodeError as exc:
         raise RegistryError(f"{target.name} is not valid JSON: {exc}") from exc
 
-    _validate_against_schema(raw)
-    entries = tuple(RegistryEntry.from_dict(e) for e in raw["entries"])
+    # Semantics before schema, which looks backwards and is deliberate.
+    #
+    # The schema now carries the cross-field rules too (a verified entry names
+    # a test, a critical entry is never waived), so an offending file is
+    # refused either way -- that redundancy is the point, because a tool that
+    # reads the registry without importing this module still sees the rules.
+    # What differs is the *message*. The schema says "'waiver' is a required
+    # property"; the check below says a waiver and status 'accepted_gap' go
+    # together, and names the entry. The second is what somebody can act on,
+    # so it is given the chance to speak first.
+    #
+    # Shape errors -- an unknown property, a malformed id -- have no semantic
+    # check to catch them and still surface from the schema below.
+    try:
+        entries = tuple(RegistryEntry.from_dict(e) for e in raw["entries"])
+    except (KeyError, TypeError):
+        # Malformed enough that the dataclasses cannot be built: let the
+        # schema produce the structural diagnosis, which will be better.
+        _validate_against_schema(raw)
+        raise
+
     _check_semantics(raw, entries, base)
+    _validate_against_schema(raw)
 
     return QualityRegistry(
         registry_version=raw["registry_version"],

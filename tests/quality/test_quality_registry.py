@@ -80,6 +80,11 @@ def entry(**overrides) -> dict:
         "status": "planned",
         "source": "QE-5",
         "planned_in": "PR-002",
+        # Required by the schema since it gained the cross-field rules: an
+        # entry nobody can describe the failure of is one nobody can size the
+        # priority of. Every shipped entry already carried one; this fixture
+        # was the only place that did not.
+        "failure_mode": "The thing is not done on some path, and nothing notices.",
     }
     base.update(overrides)
     return {k: v for k, v in base.items() if v is not None}
