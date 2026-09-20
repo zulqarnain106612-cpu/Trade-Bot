@@ -53,6 +53,7 @@ def _make_state():
 
 @pytest.fixture
 def client_state():
+    from src.api import main as api_main
     from src.api.main import app
 
     state = _make_state()
@@ -61,8 +62,24 @@ def client_state():
         patch.dict(os.environ, {"API_SECRET_KEY": _API_KEY, "OPERATOR_SECRET": _OP_SECRET}),
         patch("src.api.auth._get_configured_key", return_value=_API_KEY),
     ):
-        client = TestClient(app, raise_server_exceptions=False)
-        yield client, state
+        # API-008 put require_healthy_security_controls in front of the
+        # mutating endpoints. It reads the process-wide CONTROL_HEALTH
+        # registry, which starts degraded on purpose, so without this every
+        # POST below answers 503.
+        #
+        # Overridden rather than added to the accepted status tuples, which
+        # is the tempting one-character fix and the wrong one: three of these
+        # tests assert that a *wrong operator secret* is rejected with 401 or
+        # 422. A 503 raised before authentication is reached would satisfy
+        # `in (401, 422, 503)` while proving nothing about authentication at
+        # all -- the assertion would still be there and would no longer be a
+        # test.
+        app.dependency_overrides[api_main.require_healthy_security_controls] = lambda: None
+        try:
+            client = TestClient(app, raise_server_exceptions=False)
+            yield client, state
+        finally:
+            app.dependency_overrides.pop(api_main.require_healthy_security_controls, None)
 
 
 # ---------------------------------------------------------------------------

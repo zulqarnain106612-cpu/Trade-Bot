@@ -123,6 +123,13 @@ class TestTheMathcoreDistinction:
     # each is not a custom primitive. Anything not named here fails, so adding
     # a third use is a decision someone makes in this file, in a diff, rather
     # than by writing an import.
+    #
+    # This allowlist replaces an earlier per-module ban that named the
+    # key-handling modules and forbade the import outright. That rule could
+    # not express `api_signer`'s audit use -- a second, from-scratch
+    # verification of an already-produced signature -- so the rule became the
+    # allowlist plus the structural tests below, which cover every module in
+    # the package rather than five of them.
     MATHCORE_USES = {
         "src/security/api_signer.py": (
             "audit_signer() verifies an already-produced signature a second time "
@@ -170,6 +177,36 @@ class TestTheMathcoreDistinction:
         # would be this project checking its own arithmetic against itself.
         source = (SECURITY / "api_signer.py").read_text(encoding="utf-8")
         assert "cryptography" in source or "nacl" in source
+
+    def test_a_module_that_uses_mathcore_says_why(self):
+        # The permission is not unconditional. A security module reaching into
+        # mathcore has to explain itself in the file, because the next reader
+        # needs to be able to tell parameter validation from a hand-rolled
+        # cipher without reading the whole call graph.
+        for path in security_modules():
+            source = path.read_text(encoding="utf-8")
+            if not re.search(r"^\s*from src\.mathcore|^\s*import src\.mathcore", source, re.M):
+                continue
+            # Any docstring in the file, or a comment. Not just the module
+            # docstring: an explanation sitting beside the import, in the
+            # docstring of the function that uses it, is where a reader
+            # tracing the call will actually look.
+            tree = ast.parse(source)
+            docstrings = [
+                ast.get_docstring(node) or ""
+                for node in ast.walk(tree)
+                if isinstance(
+                    node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+                )
+            ]
+            explained = any("mathcore" in doc for doc in docstrings) or re.search(
+                r"#[^\n]*mathcore", source
+            )
+            assert explained, (
+                f"{path.name} imports mathcore with no explanation. Say in a "
+                "docstring or a comment what it is used for, so the next reader "
+                "can tell parameter validation from a hand-rolled primitive."
+            )
 
     def test_the_registry_records_the_pq_posture_where_it_belongs(self):
         # pq_transport is the module that reasons about post-quantum posture;

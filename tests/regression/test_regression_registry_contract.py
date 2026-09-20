@@ -97,7 +97,9 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0004",
             "REG-0005",
         }
-        assert not registry.by_kind("security_regression")
+        # SEC-0002: the queue controller granted contents: write workflow-wide
+        # and ran two actions from a movable ref, under pull_request_target.
+        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0002"}
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -107,7 +109,6 @@ class TestTheRegistryHasAPlaceForDefects:
         for entry in registry.by_kind("regression") + registry.by_kind("security_regression"):
             assert entry.status in {"verified", "partial"}, entry.id
             assert entry.verification, entry.id
-
 
 
 class TestADefectEntryCannotClaimATestItDoesNotHave:
@@ -317,7 +318,7 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"monitoring": 4, "test-suite": 1}
+        assert metric["value"] == {"monitoring": 4, "test-suite": 1, "static-analysis": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

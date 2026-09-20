@@ -69,3 +69,11 @@ sentence-transformers>=6.0.0,<7.0
 torch>=2.3,<3.0
 
 jsonschema>=4.0,<5.0
+
+# Transitive, pinned up for a vulnerability rather than for a feature.
+# msgpack arrives through the ML stack; GHSA-6v7p-g79w-8964 is an
+# out-of-bounds read in Unpacker, fixed in 1.2.1, and the container scan
+# blocks a release on it. Listing a transitive dependency in the direct
+# manifest is the honest way to raise its floor -- the alternative is an
+# ignore file that outlives the reason it was added.
+msgpack>=1.2.1
