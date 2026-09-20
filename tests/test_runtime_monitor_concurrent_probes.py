@@ -15,7 +15,6 @@ count; only the waiting is shared.
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -52,12 +51,15 @@ async def test_probes_do_not_wait_for_each_other() -> None:
     for i in range(5):
         m.register_probe(f"p{i}", slow)
 
-    started = time.monotonic()
     await m._run_all_probes()
-    elapsed = time.monotonic() - started
 
-    assert peak == 5  # all five overlapped
-    assert elapsed < 0.25 * 5  # and nowhere near the sequential cost
+    # Five probes in flight at once is the property, and it is strictly
+    # stronger than "the run was quick": a sequential implementation cannot
+    # reach a peak above 1 however fast the machine is. The wall-clock bound
+    # this replaces is the one the docstring above argues against -- it failed
+    # a correct implementation under `pytest -n 8`, where five 0.05s sleeps
+    # plus scheduling on a contended core exceeded the threshold.
+    assert peak == 5
     assert all(m._results[f"p{i}"].passed for i in range(5))
 
 

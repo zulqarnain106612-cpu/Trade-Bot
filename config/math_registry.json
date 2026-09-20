@@ -190,7 +190,7 @@
         "EIP-4844"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/bls12_381.py",

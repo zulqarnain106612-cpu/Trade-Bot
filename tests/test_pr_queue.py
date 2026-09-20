@@ -176,12 +176,25 @@ class TestItCannotStallSilently:
 
 
 class TestPermissions:
-    def test_it_has_exactly_what_it_needs(self):
+    def test_the_workflow_starts_read_only(self):
+        # Least privilege at the top means a job added later has to ask for
+        # write rather than inherit it. SUP-001 caught this file granting
+        # contents: write workflow-wide with nothing saying why.
         perms = _load(QUEUE)["permissions"]
+        assert perms["contents"] == "read"
+        assert perms["pull-requests"] == "read"
+
+    def test_only_the_job_that_writes_has_write(self):
         # contents: write is required by updateBranch, which pushes a merge
-        # commit onto the entry's branch.
-        assert perms["contents"] == "write"
-        assert perms["pull-requests"] == "write"
+        # commit onto the entry's branch; pull-requests: write parks, promotes,
+        # labels and comments. The gate job does neither and must not carry
+        # either scope -- if it ever does, this is where that shows up.
+        jobs = _load(QUEUE)["jobs"]
+        assert jobs["reconcile"]["permissions"] == {
+            "contents": "write",
+            "pull-requests": "write",
+        }
+        assert "permissions" not in jobs["gate"]
 
     def test_it_never_checks_out_pull_request_code(self):
         """
@@ -326,3 +339,52 @@ class TestTheQueueAdvancesWithoutAnEvent:
         minutes = cron.split()[0]
         assert minutes.startswith("*/")
         assert int(minutes[2:]) <= 5
+
+
+class TestTheQueueIsWokenByWorkFinishing:
+    """
+    Cron is not a heartbeat you can rely on.
+
+    The controller was set to `*/5` and did not fire once in the hour that
+    followed, while the repository's nightly schedule ran normally: GitHub
+    throttles and drops high-frequency schedules. A queue whose only wake-up
+    is a clock that may never tick is a queue that stops, silently, with
+    every entry parked and nothing failed.
+
+    So the queue is driven by the event that actually happens -- a gating
+    workflow finishing. Promote an entry, its CI runs, CI completes, the
+    controller wakes, merges it and promotes the next, whose CI completes and
+    wakes it again. The loop is powered by the work itself.
+    """
+
+    def test_it_wakes_when_a_gating_workflow_finishes(self):
+        triggers = _triggers(_load(QUEUE))
+        assert "workflow_run" in triggers
+        assert triggers["workflow_run"]["types"] == ["completed"]
+
+    def test_it_watches_every_workflow_that_gates_a_pull_request(self):
+        """
+        A gate the queue does not listen to is a gate whose completion never
+        wakes it, which puts the loop back on the clock it cannot trust.
+        """
+        watched = set(_triggers(_load(QUEUE))["workflow_run"]["workflows"])
+        gating = set()
+        for path in WORKFLOWS.glob("*.yml"):
+            if path.name in NOT_A_GATE or path.name in ADVISORY:
+                continue
+            spec = _load(path)
+            if "pull_request" in _triggers(spec):
+                gating.add(spec["name"])
+        assert not (gating - watched), f"not watched: {sorted(gating - watched)}"
+
+    def test_a_human_closing_or_merging_an_entry_also_wakes_it(self):
+        types = _triggers(_load(QUEUE))["pull_request_target"]["types"]
+        assert "closed" in types
+        assert "opened" in types
+
+    def test_cron_survives_only_as_a_backstop(self):
+        """
+        Kept, because an unreliable trigger is still better than none, but the
+        design no longer depends on it.
+        """
+        assert "schedule" in _triggers(_load(QUEUE))

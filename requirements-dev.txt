@@ -7,4 +7,11 @@
 pytest>=9.1.1,<10.0
 pytest-asyncio>=0.23,<2.0
 pytest-cov>=5.0,<8.0
+# Parallel test execution. The suite was held back from this by an
+# order-dependence: parameter_registry is a process-wide singleton and
+# AutoTuningScheduler.start() left risk.ensemble_blend_weight registered for
+# every test that followed it in the same worker. tests/conftest.py now
+# snapshots and restores that registry per test, so worker assignment no
+# longer changes results.
+pytest-xdist>=3.6,<4.0
 ruff==0.16.6
