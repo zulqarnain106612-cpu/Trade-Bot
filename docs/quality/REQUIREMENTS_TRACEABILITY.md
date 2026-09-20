@@ -1337,13 +1337,13 @@ The controller triggers on workflow_run completion of every workflow that gates 
 
 **VERIFIED** · high · regression · source: OPS-2026-09-20
 
-The queue controller promotes under a credential other than the built-in GITHUB_TOKEN, and every workflow that gates a pull request names ready_for_review among its pull_request activity types, so revealing the front entry starts its checks.
+The queue controller promotes under a credential other than the built-in GITHUB_TOKEN, and every workflow that gates a pull request names ready_for_review among its pull_request activity types, so revealing the front entry starts its checks. The stall recovery discounts runs that concluded skipped, so a run produced while the entry was parked cannot make an unverified entry look checked.
 
-- **If violated:** PR #279 was promoted and no run started. Two causes, either sufficient: GitHub raises no workflow run for events produced with GITHUB_TOKEN, and none of the four gating workflows listed ready_for_review, which is not a default activity type. The entry sat ready, mergeable and unverified with ten more parked behind it; the queue was unjammed by pushing an empty commit by hand.
+- **If violated:** PR #279 was promoted and no run started. Two causes, either sufficient: GitHub raises no workflow run for events produced with GITHUB_TOKEN, and none of the four gating workflows listed ready_for_review, which is not a default activity type. The entry sat ready, mergeable and unverified with ten more parked behind it; the queue was unjammed by pushing an empty commit by hand. The workflow's own stall recovery did not fire either: it counted the four skipped runs the head already carried from before promotion, so the entry looked checked.
 - **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/security.yml`, `.github/workflows/workflow-lint.yml`
 - **Depends on:** `REG-0004`
 - **Verification:**
-  - `tests/test_pr_queue.py` (regression) — Derives the gating workflows from the workflows themselves and fails if one takes the default activity types, so a new gate cannot be added without this trigger. Separately asserts the promotion step does not run under the bare GITHUB_TOKEN.
+  - `tests/test_pr_queue.py` (regression) — Derives the gating workflows from the workflows themselves and fails if one takes the default activity types, so a new gate cannot be added without this trigger. Separately asserts the promotion step does not run under the bare GITHUB_TOKEN. Also asserts the stall recovery ignores skipped runs.
 
 > The fifth variant of the same failure as REG-0001..REG-0004: the queue is stopped and nothing says so. This one was documented as working -- the workflow's own comment asserted that ready_for_review triggers a run -- which is why it survived four previous passes over the same file. layer: monitoring
 

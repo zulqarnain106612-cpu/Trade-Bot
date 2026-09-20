@@ -154,7 +154,16 @@ jobs:
               const runs = await github.rest.actions.listWorkflowRunsForRepo({
                 ...context.repo, head_sha: front.head.sha, per_page: 100,
               });
-              const ours = runs.data.workflow_runs.filter(r => r.event === 'pull_request');
+              // A run produced while the entry was parked concluded `skipped`
+              // for every job -- the draft guard saw to that. It is a run,
+              // and it verifies nothing. Counting it is how #279 defeated
+              // this recovery: the head had four skipped runs from before
+              // promotion, so the entry looked checked and the nudge stood
+              // down. In-progress runs carry a null conclusion and still
+              // count, which is what keeps the nudge from firing twice.
+              const ours = runs.data.workflow_runs.filter(
+                r => r.event === 'pull_request' && r.conclusion !== 'skipped'
+              );
               if (ours.length === 0) {
                 core.warning(`#${front.number} has no checks; reopening to trigger them.`);
                 await github.rest.pulls.update({

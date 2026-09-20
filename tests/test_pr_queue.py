@@ -250,6 +250,16 @@ class TestZeroCheckStall:
         """
         assert "r.event === 'pull_request'" in _script()
 
+    def test_a_skipped_run_does_not_count_as_a_check(self):
+        """
+        REG-0006. A run produced while the entry was parked concluded
+        `skipped` for every job, because that is what the draft guard is
+        for. It is a run and it verifies nothing, so counting it makes a
+        stalled entry look checked -- which is exactly how #279 got past
+        this recovery and had to be unjammed by hand.
+        """
+        assert "r.conclusion !== 'skipped'" in _script()
+
     def test_it_says_what_it_did(self):
         assert "no checks had started" in _script()
 
