@@ -36,12 +36,6 @@ from .prime_field import (
     PseudoMersenne,
     Reduction,
     as_pseudo_mersenne,
-    lagrange_interpolate_at,
-)
-from .shamir import (
-    lagrange_interpolate_at,
-    shamir_reconstruct,
-    shamir_split,
 )
 
 __all__ = [
