@@ -467,6 +467,14 @@ def api_client():
 
 
 class TestRiskControlsEndpoints:
+    # POST /risk-controls is gated by API-008's fail-closed check, which this
+    # TestClient harness never satisfies because it does not run `lifespan`.
+    # Without this the POSTs return 503 before reaching the auth and validation
+    # logic these tests are about. See the fixture in tests/conftest.py.
+    @pytest.fixture(autouse=True)
+    def _healthy_controls(self, healthy_security_controls):
+        return healthy_security_controls
+
     def test_get_risk_controls_returns_defaults(self, api_client) -> None:
         client, _storage, _main = api_client
         resp = client.get("/risk-controls")
