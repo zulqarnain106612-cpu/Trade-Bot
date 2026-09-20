@@ -328,3 +328,69 @@ def test_a_rectangular_basis_is_accepted() -> None:
     reduced = lll_reduce(basis)
     assert is_lll_reduced(reduced)
     assert len(reduced) == 2
+
+
+# ---- integer-preserving LLL ------------------------------------------------
+
+from src.mathcore.lattice.lll import integer_lll_reduce  # noqa: E402
+
+
+def test_integer_lll_reduces_the_textbook_basis() -> None:
+    assert is_lll_reduced(integer_lll_reduce(TEXTBOOK_BASIS))
+
+
+@pytest.mark.parametrize("delta", DELTAS)
+def test_integer_lll_output_satisfies_the_predicate(delta: Fraction) -> None:
+    rng = random.Random(f"int-reduced-{delta}")
+    for dimension in (2, 3, 4, 5, 6):
+        for _ in range(5):
+            basis = _random_basis(rng, dimension, 40)
+            assert is_lll_reduced(integer_lll_reduce(basis, delta), delta)
+
+
+def test_integer_lll_preserves_the_lattice_determinant() -> None:
+    rng = random.Random("int-det")
+    for dimension in (2, 3, 4, 5):
+        basis = _random_basis(rng, dimension, 40)
+        assert abs(_determinant(integer_lll_reduce(basis))) == abs(_determinant(basis))
+
+
+def test_integer_and_exact_lll_agree_on_being_reduced() -> None:
+    """
+    They need not return the *same* basis, but each must be reduced and span the
+    same lattice, so they are interchangeable at the contract level -- which is
+    the whole point of keeping the fast one alongside the readable one.
+    """
+    rng = random.Random("agree")
+    for dimension in (2, 3, 4, 5):
+        for _ in range(5):
+            basis = _random_basis(rng, dimension, 40)
+            exact = lll_reduce(basis)
+            integer = integer_lll_reduce(basis)
+            assert is_lll_reduced(exact)
+            assert is_lll_reduced(integer)
+            assert abs(_determinant(exact)) == abs(_determinant(integer))
+
+
+def test_integer_lll_scales_past_the_exact_engine() -> None:
+    """
+    Dimension 15 with 30-bit entries -- comfortably past where the Fraction
+    version bogs down, and the reason ``mathcore.lattice.hnp`` can attack a real
+    256-bit key rather than a toy one.
+    """
+    rng = random.Random("scale")
+    basis = _random_basis(rng, 15, 1 << 30)
+    reduced = integer_lll_reduce(basis)
+    assert is_lll_reduced(reduced)
+    assert abs(_determinant(reduced)) == abs(_determinant(basis))
+
+
+def test_integer_lll_validates_like_the_exact_one() -> None:
+    with pytest.raises(ValueError, match="empty basis"):
+        integer_lll_reduce([])
+    with pytest.raises(ValueError, match="linear combination"):
+        integer_lll_reduce([[1, 2], [2, 4]])
+    with pytest.raises(ValueError, match=r"\(1/4, 1\]"):
+        integer_lll_reduce(TEXTBOOK_BASIS, Fraction(2))
+    with pytest.raises(ValueError, match="cannot be independent"):
+        integer_lll_reduce([[1, 0], [0, 1], [1, 1]])
