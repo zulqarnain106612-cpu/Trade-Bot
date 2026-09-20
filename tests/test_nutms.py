@@ -74,10 +74,9 @@ def test_the_cube_root_derivation_is_not_a_coincidence() -> None:
 
     getcontext().prec = 60
     derived = nutms.sha256_round_constants()
-    # spot three deep in the table against an independent recomputation
-    primes = [311, 313, 317]  # the 64th prime is 311; recompute a few near it
+    # Recompute the first three constants independently: the cube root of the
+    # first three primes, fractional part, scaled to 32 bits.
     for i, p in enumerate((2, 3, 5)):
         root = Decimal(p) ** (Decimal(1) / Decimal(3))
         frac = root - int(root)
         assert derived[i] == int(frac * (Decimal(2) ** 32))
-    del primes
