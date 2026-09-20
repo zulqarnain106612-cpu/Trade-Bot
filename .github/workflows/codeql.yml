@@ -66,6 +66,13 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Set up uv
+        if: matrix.language == 'python'
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+
       - name: Install Python dependencies (if present)
         if: matrix.language == 'python'
         # The CPU torch index first, exactly as ci.yml does it. Without it this
@@ -73,10 +80,11 @@ jobs:
         # CUDA runtime -- on the order of two gigabytes of download for an
         # extractor that never executes a line of it. `|| true` meant that cost
         # was paid silently even when the install ultimately failed.
+        #
+        # Through uv, sharing the cache key the other required checks use.
         run: |
-          python -m pip install --upgrade pip || true
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0" || true
-          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
+          uv pip install --system --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0" || true
+          if [ -f requirements.txt ]; then uv pip install --system -r requirements.txt || true; fi
 
       - name: Install Node dependencies (if needed)
         if: matrix.language == 'javascript-typescript'

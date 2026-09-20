@@ -14,6 +14,7 @@ five minutes nobody attributes to anything.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,10 @@ WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
 
 # Jobs whose steps never import the project, and so must never install it.
 STDLIB_ONLY_JOBS = ("python-lint", "python-coverage-floors", "architecture")
+
+# A line that actually installs the requirements file, as opposed to one that
+# merely names it (pip-audit reads it without installing anything).
+_INSTALLS_REQUIREMENTS = re.compile(r"\bpip install\b[^\n]*-r\s+requirements\.txt")
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +83,37 @@ class TestTheExpensiveInstallIsCached:
         assert uv[0]["with"]["enable-cache"] is True
         assert "requirements.txt" in uv[0]["with"]["cache-dependency-glob"]
         assert _run_bodies(job).count("uv pip install --system") == 2
+
+    def test_a_required_check_never_installs_through_bare_pip(self):
+        """
+        An install inside a workflow that gates the merge is wall clock the
+        pull request waits. Wherever one is genuinely needed -- the test suite,
+        and the review job's retrieval stack -- it goes through uv with its
+        cache enabled, so an unchanged dependency set is unpacked rather than
+        resolved and downloaded again.
+        """
+        for path in (PROJECT_ROOT / ".github" / "workflows").glob("*.yml"):
+            wf = yaml.safe_load(path.read_text(encoding="utf-8"))
+            on = wf.get("on") or wf.get(True) or {}
+            if "pull_request" not in on:
+                continue
+            for job_id, job in (wf.get("jobs") or {}).items():
+                body = _run_bodies(job)
+                # An *install* of the requirements, not merely a mention:
+                # security.yml passes the same file to pip-audit, which
+                # resolves nothing and installs nothing.
+                if not _INSTALLS_REQUIREMENTS.search(body):
+                    continue
+                where = f"{path.name}:{job_id}"
+                assert "uv pip install" in body, where
+                assert not re.search(r"(?<!uv )\bpip install\b[^\n]*-r\s+requirements", body), where
+                cached = [
+                    s
+                    for s in job.get("steps", [])
+                    if "astral-sh/setup-uv" in s.get("uses", "")
+                    and s.get("with", {}).get("enable-cache") is True
+                ]
+                assert cached, where
 
     def test_torch_is_taken_from_the_cpu_index_everywhere_it_is_installed(self):
         """

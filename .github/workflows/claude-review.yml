@@ -34,7 +34,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
       - name: Install retrieval dependencies
         run: |
           # torch is a hard runtime dependency, and PyPI's default torch wheel
@@ -43,8 +47,13 @@ jobs:
           # the disk here ("[Errno 28] No space left on device"). Installing the
           # CPU build first from PyTorch's own index satisfies the requirement,
           # so the pass below reuses it instead of resolving the CUDA one.
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
-          pip install -r requirements.txt
+          #
+          # Through uv rather than pip: this workflow is a required check, so
+          # its install is on the merge path, and the cache above is keyed on
+          # requirements.txt -- an unchanged dependency set is unpacked rather
+          # than resolved and downloaded again.
+          uv pip install --system --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          uv pip install --system -r requirements.txt
       - name: Build retrieval context (vector + full-text + hybrid + graph)
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}

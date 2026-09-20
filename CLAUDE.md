@@ -203,9 +203,11 @@ The shape that fixed it is pinned by `tests/test_ci_workflow_cost.py`:
   `python-coverage-floors` and `architecture` run stdlib-only scripts; each
   installs the single tool it invokes and nothing else. The lint job reads its
   ruff pin out of `requirements-dev.txt` rather than repeating it.
-- **The suite's install goes through `uv`** (`astral-sh/setup-uv`, SHA-pinned)
-  with its cache enabled and keyed on both requirements files. Same pins, same
-  interpreter, a fraction of the time, paid once per shard.
+- **Every required check that installs the requirements goes through `uv`**
+  (`astral-sh/setup-uv`, SHA-pinned) with its cache enabled — `python-tests`,
+  the review job's retrieval stack, and CodeQL's Python extractor. Same pins,
+  same interpreter, a fraction of the time. Bare `pip install -r requirements`
+  in a workflow that gates the merge fails the test.
 - **Every workflow that installs torch names the CPU index first.** PyPI's
   default wheel bundles the CUDA runtime: gigabytes for a CPU runner.
 - **Six shards, and `total` equals the length of `shard`.** pytest-split is
