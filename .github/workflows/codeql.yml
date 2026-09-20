@@ -1,6 +1,12 @@
 name: "CodeQL"
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: ["main"]
   pull_request:
@@ -20,6 +26,7 @@ concurrency:
 
 jobs:
   analyze:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Analyze (language=${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -89,7 +96,7 @@ jobs:
           category: "/language:${{ matrix.language }}"
           # Uploading SARIF on pull_request creates an extra neutral "CodeQL"
           # check run; keep PR checks strictly green-only and upload on push.
-          upload: ${{ github.event_name != 'pull_request' }}
+          upload: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
 
   # ---------------------------------------------------------------------
   # All-green gate.
@@ -106,7 +113,7 @@ jobs:
   gate:
     name: CodeQL gate (all jobs green)
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (always()) }}
     needs: [analyze]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
