@@ -20,6 +20,14 @@ sensitive path. Its warrant is bilinearity, checked against random scalars, and
 non-degeneracy against the group order; the tests additionally pin it to an
 independent implementation.
 
+Points that come from outside are validated where they enter --
+:func:`g1_point`, :func:`g2_point` and :func:`pairing` -- and not again after
+that. Both groups have a cofactor, so being on the curve is only half the
+check: :func:`validate_g1` and :func:`validate_g2` also require prime order
+``r``, without which a caller can be handed a small-subgroup point and made to
+leak a secret scalar modulo its order. The identity is a member of every one of
+these sets and is refused only by :func:`pairing`, identically for G1 and G2.
+
 References: Bowe, *BLS12-381* (2017); the IETF pairing-friendly-curves draft;
 Costello, *Pairings for Beginners*; the algorithm follows the standard tower
 construction used by every pairing library.
@@ -30,6 +38,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 __all__ = [
+    "B1",
+    "B2",
+    "COFACTOR_G1",
+    "COFACTOR_G2",
     "CURVE_ORDER",
     "FIELD_MODULUS",
     "FQ2",
@@ -37,12 +49,32 @@ __all__ = [
     "G1",
     "G2",
     "g1_multiply",
+    "g1_point",
     "g2_multiply",
+    "g2_point",
+    "is_in_subgroup_g1",
+    "is_in_subgroup_g2",
+    "is_on_curve_g1",
+    "is_on_curve_g2",
     "pairing",
+    "validate_g1",
+    "validate_g2",
 ]
 
 FIELD_MODULUS = 0x1A0111EA397FE69A4B1BA7B6434BACD764774B84F38512BF6730D2A0F6B0F6241EABFFFEB153FFFFB9FEFFFFFFFFAAAB
 CURVE_ORDER = 0x73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001
+
+#: ``b`` of the base curve ``E/Fq: y^2 = x^3 + 4``. The twist's ``b`` is
+#: :data:`B2`, defined below because it needs :func:`FQ2`.
+B1 = 4
+
+#: ``#E(Fq) / r`` and ``#E'(Fq2) / r``. Both are far from 1, which is the whole
+#: reason :func:`is_on_curve_g1` is not a sufficient check on its own: the curve
+#: groups are strictly larger than the prime-order groups the pairing is defined
+#: on, and the difference is where a small-subgroup attack lives.
+COFACTOR_G1 = 0x396C8C005555E1568C00AAAB0000AAAB
+COFACTOR_G2 = 0x5D543A95414E7F1091D50792876A202CD91DE4547085ABAA68A205B2E5A7DDFA628F1CB4D9E82EF21537E293A6691AE1616EC6E786F0C70CF1C38E31C7238E5
+
 _ATE_LOOP_COUNT = 15132376222941642752  # |x| for BLS12-381 (x is negative)
 _LOG_ATE_LOOP_COUNT = 62
 
@@ -284,6 +316,152 @@ def g2_multiply(scalar: int):
     return _multiply(G2, scalar % CURVE_ORDER)
 
 
+# ---- point validation ------------------------------------------------------
+
+#: ``b`` of the twist ``E'/Fq2: y^2 = x^3 + 4(1 + u)``.
+B2 = FQ2([4, 4])
+
+
+def _coerce_fq2(value: FQP | Sequence[int]) -> FQP:
+    """An Fp2 coordinate from either an ``FQP`` or a pair of integers."""
+    if isinstance(value, FQP):
+        if value.degree != 2:
+            raise ValueError("an Fp2 coordinate has two coefficients")
+        return value
+    coeffs = list(value)
+    if len(coeffs) != 2:
+        raise ValueError("an Fp2 coordinate has two coefficients")
+    if not all(0 <= c < FIELD_MODULUS for c in coeffs):
+        raise ValueError("Fp2 coefficients must be reduced into [0, p)")
+    return FQ2(coeffs)
+
+
+def is_on_curve_g1(pt) -> bool:
+    """
+    Whether ``pt`` satisfies ``y^2 == x^3 + 4`` over Fq.
+
+    The identity -- ``None`` here -- is on the curve, being the identity of the
+    group the curve defines. That answer is the same for :func:`is_on_curve_g2`,
+    :func:`is_in_subgroup_g1` and :func:`is_in_subgroup_g2`: the identity is a
+    member of every one of these sets, and the one place it is refused is
+    :func:`pairing`, where the value is undefined rather than merely degenerate.
+
+    Coordinates outside ``[0, p)`` are **not** reduced first. An out-of-range
+    coordinate is a malformed point, not an unreduced one, and accepting it here
+    would let two encodings of one point past the checks that call this. Not
+    constant time.
+    """
+    if _is_inf(pt):
+        return True
+    x, y = pt
+    if not (isinstance(x, int) and isinstance(y, int)):
+        return False
+    if not (0 <= x < FIELD_MODULUS and 0 <= y < FIELD_MODULUS):
+        return False
+    return (y * y - x * x * x - B1) % FIELD_MODULUS == 0
+
+
+def is_on_curve_g2(pt) -> bool:
+    """
+    Whether ``pt`` satisfies ``y^2 == x^3 + 4(1 + u)`` over Fq2.
+
+    The twist has its own ``b``; checking a G2 point against the base curve's
+    ``4`` would reject every honest point and is the mistake :data:`B2` exists
+    to prevent. Identity handling is as in :func:`is_on_curve_g1`. Not constant
+    time.
+    """
+    if _is_inf(pt):
+        return True
+    x, y = pt
+    if not (isinstance(x, FQP) and isinstance(y, FQP)):
+        return False
+    if x.degree != 2 or y.degree != 2:
+        return False
+    return (y * y - x * x * x - B2).is_zero()
+
+
+def _has_order_r(pt) -> bool:
+    return _is_inf(_multiply(pt, CURVE_ORDER))
+
+
+def is_in_subgroup_g1(pt) -> bool:
+    """
+    Whether ``pt`` has order dividing ``r`` -- that is, lies in G1 proper.
+
+    On-curve is not enough. BLS12-381's G1 has cofactor :data:`COFACTOR_G1`, so
+    ``E(Fq)`` contains points of small order that satisfy the curve equation
+    perfectly well; feeding one to a scalar multiplication leaks the secret
+    scalar modulo that small order, and a handful of such queries recover it.
+
+    Computed the obvious way, ``r * pt == O``, which is a full scalar
+    multiplication. This module is a correctness reference, so the clear check
+    is the right one; a performance-sensitive implementation would use the
+    endomorphism-based test instead. Not constant time.
+    """
+    return is_on_curve_g1(pt) and _has_order_r(pt)
+
+
+def is_in_subgroup_g2(pt) -> bool:
+    """
+    Whether ``pt`` has order dividing ``r`` -- that is, lies in G2 proper.
+
+    Same reasoning as :func:`is_in_subgroup_g1`, and more urgently: G2's
+    cofactor :data:`COFACTOR_G2` is enormous, so an on-curve twist point drawn
+    at random is essentially never in G2. Not constant time.
+    """
+    return is_on_curve_g2(pt) and _has_order_r(pt)
+
+
+def validate_g1(pt) -> None:
+    """
+    Raise ``ValueError`` unless ``pt`` is a usable G1 element.
+
+    On the curve **and** in the prime-order subgroup. The identity passes both;
+    callers for which the identity is separately meaningless say so themselves,
+    as :func:`pairing` does.
+    """
+    if not is_on_curve_g1(pt):
+        raise ValueError("point is not on the BLS12-381 curve E/Fq")
+    if not _has_order_r(pt):
+        raise ValueError("point is on E/Fq but not in the prime-order subgroup G1")
+
+
+def validate_g2(pt) -> None:
+    """Raise ``ValueError`` unless ``pt`` is a usable G2 element. See :func:`validate_g1`."""
+    if not is_on_curve_g2(pt):
+        raise ValueError("point is not on the BLS12-381 twist E'/Fq2")
+    if not _has_order_r(pt):
+        raise ValueError("point is on E'/Fq2 but not in the prime-order subgroup G2")
+
+
+def g1_point(x: int, y: int):
+    """
+    A validated G1 point from affine coordinates.
+
+    This is the constructor external data goes through: anything parsed from
+    bytes, read from a peer, or lifted out of a config becomes a point *here*,
+    where it is checked once, rather than deep inside the Miller loop where a
+    bad point is indistinguishable from a good one. Raises ``ValueError`` if the
+    coordinates are not a G1 element. The identity is not expressible as a pair
+    of coordinates; it is ``None``.
+    """
+    validate_g1((x, y))
+    return (x, y)
+
+
+def g2_point(x: FQP | Sequence[int], y: FQP | Sequence[int]):
+    """
+    A validated G2 point from affine Fp2 coordinates.
+
+    Coordinates may be ``FQP`` elements or ``(c0, c1)`` integer pairs. The
+    integer form is range-checked rather than reduced, for the reason given in
+    :func:`is_on_curve_g1`. See :func:`g1_point`.
+    """
+    point = (_coerce_fq2(x), _coerce_fq2(y))
+    validate_g2(point)
+    return point
+
+
 # ---- twist and pairing -----------------------------------------------------
 
 _W = FQ12([0, 1] + [0] * 10)
@@ -336,7 +514,7 @@ def _miller_loop(q, p):
     return f ** ((FIELD_MODULUS**12 - 1) // CURVE_ORDER)
 
 
-def pairing(q, p) -> FQP:
+def pairing(q, p, *, validate: bool = True) -> FQP:
     """
     The optimal-ate pairing ``e(q, p)`` with ``q`` in G2 and ``p`` in G1.
 
@@ -344,7 +522,18 @@ def pairing(q, p) -> FQP:
     non-degenerate, which are the two properties every use of a pairing relies
     on and the two the tests check. Rejects the identity in either argument,
     where the pairing is undefined as a useful value. Not constant time.
+
+    Both arguments are validated -- on the right curve, in the right
+    prime-order subgroup -- because this is a boundary: an attacker who can
+    choose a pairing argument and see the result is the classic setting for an
+    invalid-curve or small-subgroup attack. ``validate=False`` skips the checks
+    and is for a caller that has *already* validated the same points, typically
+    in a loop over one fixed key; passing it on attacker-supplied data defeats
+    the point of the parameter existing.
     """
+    if validate:
+        validate_g2(q)
+        validate_g1(p)
     if _is_inf(p) or _is_inf(q):
         raise ValueError("pairing is not defined on the identity element")
     return _miller_loop(_twist(q), _cast_g1(p))

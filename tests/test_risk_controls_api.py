@@ -447,6 +447,18 @@ def api_client():
         api_main.Role.TRADE_AUTHORIZING
     )
     api_main.app.dependency_overrides[api_main.require_ready] = lambda: None
+    # API-008 added require_healthy_security_controls to the mutating
+    # endpoints. It reads the process-wide CONTROL_HEALTH registry, which
+    # starts degraded on purpose -- silence is not health -- so without this
+    # override every POST here answers 503 before authentication is even
+    # reached, and assertions about 401 and 200 test nothing.
+    #
+    # Overridden rather than satisfied by reporting each control healthy:
+    # that would mutate a process-wide registry from a test, which is the
+    # thing tests/api/test_fail_closed_controls.py deliberately refuses to do.
+    # What this suite is about is the risk-control endpoints, not the health
+    # gate; the gate has its own tests.
+    api_main.app.dependency_overrides[api_main.require_healthy_security_controls] = lambda: None
 
     client = TestClient(api_main.app)
     yield client, fake_storage, api_main
@@ -455,6 +467,14 @@ def api_client():
 
 
 class TestRiskControlsEndpoints:
+    # POST /risk-controls is gated by API-008's fail-closed check, which this
+    # TestClient harness never satisfies because it does not run `lifespan`.
+    # Without this the POSTs return 503 before reaching the auth and validation
+    # logic these tests are about. See the fixture in tests/conftest.py.
+    @pytest.fixture(autouse=True)
+    def _healthy_controls(self, healthy_security_controls):
+        return healthy_security_controls
+
     def test_get_risk_controls_returns_defaults(self, api_client) -> None:
         client, _storage, _main = api_client
         resp = client.get("/risk-controls")

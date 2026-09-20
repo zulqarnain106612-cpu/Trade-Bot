@@ -584,7 +584,15 @@ class TestInit:
         cfg = MagicMock(trading_mode=TradingMode.LIVE, starting_capital_usd=50_000.0)
         cfg.risk = MagicMock()
         cfg.order_throttle = OrderThrottleSettings()
-        with patch("src.execution.live.get_settings", return_value=cfg):
+        # The paper-qualification gate (INV-010) is stood down explicitly:
+        # this test is about construction under live mode, not about whether
+        # the deployment has earned live trading. Patching rather than
+        # writing a record keeps the gate's own tests the only place that
+        # decides it.
+        with (
+            patch("src.execution.live.get_settings", return_value=cfg),
+            patch("src.execution.live.assert_qualified_for_live"),
+        ):
             ex = LiveExecutor(storage, fetcher)
         assert ex._starting_capital == 50_000.0
         assert ex._cash == 50_000.0
@@ -600,7 +608,10 @@ class TestInit:
         cfg = MagicMock(trading_mode=TradingMode.LIVE, starting_capital_usd=50_000.0)
         cfg.risk = MagicMock()
         cfg.order_throttle = OrderThrottleSettings()
-        with patch("src.execution.live.get_settings", return_value=cfg):
+        with (
+            patch("src.execution.live.get_settings", return_value=cfg),
+            patch("src.execution.live.assert_qualified_for_live"),
+        ):
             ex = LiveExecutor(storage, fetcher, starting_capital=200_000.0)
         assert ex._starting_capital == 200_000.0
         assert ex._peak_equity == 200_000.0

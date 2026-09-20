@@ -176,12 +176,25 @@ class TestItCannotStallSilently:
 
 
 class TestPermissions:
-    def test_it_has_exactly_what_it_needs(self):
+    def test_the_workflow_starts_read_only(self):
+        # Least privilege at the top means a job added later has to ask for
+        # write rather than inherit it. SUP-001 caught this file granting
+        # contents: write workflow-wide with nothing saying why.
         perms = _load(QUEUE)["permissions"]
+        assert perms["contents"] == "read"
+        assert perms["pull-requests"] == "read"
+
+    def test_only_the_job_that_writes_has_write(self):
         # contents: write is required by updateBranch, which pushes a merge
-        # commit onto the entry's branch.
-        assert perms["contents"] == "write"
-        assert perms["pull-requests"] == "write"
+        # commit onto the entry's branch; pull-requests: write parks, promotes,
+        # labels and comments. The gate job does neither and must not carry
+        # either scope -- if it ever does, this is where that shows up.
+        jobs = _load(QUEUE)["jobs"]
+        assert jobs["reconcile"]["permissions"] == {
+            "contents": "write",
+            "pull-requests": "write",
+        }
+        assert "permissions" not in jobs["gate"]
 
     def test_it_never_checks_out_pull_request_code(self):
         """

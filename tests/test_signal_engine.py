@@ -843,9 +843,32 @@ def _p_ensemble_long(point_estimate: float) -> float:
 
 
 class TestEnsembleBlendPersistence:
-    async def _run(self, e, monkeypatch, blend_weight, predict_direction_return=(1, 0.8)):
+    async def _run(
+        self,
+        e,
+        monkeypatch,
+        blend_weight,
+        predict_direction_return=(1, 0.8),
+        pin_blend_weight=True,
+    ):
+        """Drive one tick with `blend_weight` in force.
+
+        `pin_blend_weight` patches effective_risk_settings out, which is what
+        makes each test here independent. Setting e._cfg alone is not enough:
+        effective_risk_settings() overlays any *registered*
+        risk.ensemble_blend_weight on top of the cfg it is handed, so a test
+        that only sets e._cfg silently inherits whatever the process-wide
+        parameter_registry happens to hold. Pass pin_blend_weight=False to
+        exercise that overlay deliberately -- see
+        test_promoted_registry_weight_overrides_static_cfg.
+        """
         settings = Settings(risk={"ensemble_blend_weight": blend_weight})
         monkeypatch.setattr(e, "_cfg", settings)
+        if pin_blend_weight:
+            monkeypatch.setattr(
+                "src.engine.signal_engine.effective_risk_settings",
+                lambda base=None: RiskSettings(ensemble_blend_weight=blend_weight),
+            )
         filter_pass = {
             "passes": True,
             "scalar": 1.0,
@@ -931,6 +954,43 @@ class TestEnsembleBlendPersistence:
         r = await self._run(e, monkeypatch, blend_weight=0.5)
         assert r.p_long == pytest.approx(0.8)
         assert r.ensemble_point_estimate is None
+
+    @pytest.mark.asyncio
+    async def test_promoted_registry_weight_overrides_static_cfg(self, monkeypatch):
+        """A promoted self-tuned weight beats the static .env-derived value.
+
+        This is the product requirement behind src/tuning/live_overrides.py:
+        effective_risk_settings() overlays a registered
+        risk.ensemble_blend_weight on whatever cfg.risk carries, so a
+        promotion reaches the live signal path without a restart. Every other
+        test in this class patches that seam out so it is not at the mercy of
+        the process-wide registry; this one registers the parameter itself and
+        asserts the overlay is what the engine actually uses.
+        """
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        parameter_registry.register(
+            TunableParameter(
+                name="risk.ensemble_blend_weight",
+                description="test",
+                floor=0.0,
+                ceiling=1.0,
+                current=0.5,
+                eval_strategy="test",
+            )
+        )
+
+        predictor = MagicMock()
+        predictor.predict_row.return_value = _ensemble_prediction(0.2)
+        e = _make_engine(ensemble=predictor)
+        # cfg says 0.0, the registry says 0.5 -- the registry must win, so the
+        # predictor is consulted and p_long is blended at 0.5 rather than left
+        # at the unblended 0.8 that cfg alone would produce.
+        r = await self._run(e, monkeypatch, blend_weight=0.0, pin_blend_weight=False)
+
+        assert r.p_long == pytest.approx(0.5 * 0.8 + 0.5 * _p_ensemble_long(0.2))
+        assert r.ensemble_blend_weight == pytest.approx(0.5)
+        predictor.predict_row.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
