@@ -84,7 +84,7 @@ def test_resolve_approval_success(client_state):
     assert resp.status_code in (200, 401, 404, 422, 503)
 
 
-def test_resolve_approval_bad_operator_secret(client_state):
+def test_resolve_approval_bad_operator_secret(client_state, healthy_security_controls):
     client, _state = client_state
     import uuid
 
@@ -101,7 +101,7 @@ def test_resolve_approval_bad_operator_secret(client_state):
     assert resp.status_code in (401, 422)
 
 
-def test_resolve_approval_not_found(client_state):
+def test_resolve_approval_not_found(client_state, healthy_security_controls):
     client, state = client_state
     state.orchestrator._executor.resolve_approval = AsyncMock(return_value=False)
     import uuid
@@ -115,7 +115,7 @@ def test_resolve_approval_not_found(client_state):
     assert resp.status_code in (200, 404, 422)
 
 
-def test_resolve_approval_invalid_uuid(client_state):
+def test_resolve_approval_invalid_uuid(client_state, healthy_security_controls):
     client, _state = client_state
     resp = client.post(
         "/approvals/not-a-uuid/resolve",
@@ -143,7 +143,7 @@ def test_set_execution_mode_success(client_state):
     assert resp.status_code in (200, 422, 503)
 
 
-def test_set_execution_mode_bad_secret(client_state):
+def test_set_execution_mode_bad_secret(client_state, healthy_security_controls):
     client, _state = client_state
     resp = client.post(
         "/execution-mode",
@@ -185,7 +185,7 @@ def test_post_risk_controls_success(client_state):
     assert resp.status_code in (200, 422, 503)
 
 
-def test_post_risk_controls_bad_secret(client_state):
+def test_post_risk_controls_bad_secret(client_state, healthy_security_controls):
     client, _state = client_state
     resp = client.post(
         "/risk-controls",

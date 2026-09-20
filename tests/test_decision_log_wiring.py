@@ -41,7 +41,9 @@ def _manager(drifted: bool, reason: str = "sharpe below baseline"):
             train_accuracy=0.6,
             oos_accuracy=0.55,
             train_win_rate=0.55,
-            max_drawdown_pct=10.0,
+            # A fraction, not a percentage -- PerformanceBaseline validates the
+            # range and every other field here is already a fraction.
+            max_drawdown_pct=0.10,
             trades_in_backtest=600,
         ),
     )

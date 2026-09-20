@@ -33,7 +33,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -79,11 +79,15 @@ class TestTheRegistryHasAPlaceForDefects:
         assert "never deleted" in registry.kind_definitions["regression"]
         assert "permanent" in registry.kind_definitions["security_regression"]
 
-    def test_no_defect_entry_has_been_filed_yet(self, registry):
-        # An explicit statement of the current state. When the first defect is
-        # filed this test is the one that has to be updated -- deliberately,
-        # so that filing one is a visible event rather than a silent append.
-        assert not registry.by_kind("regression")
+    def test_the_filed_defect_entries_are_named(self, registry):
+        # An explicit statement of the current state. Filing a defect means
+        # updating this test -- deliberately, so that it is a visible event
+        # rather than a silent append.
+        #
+        # REG-0001: an order-dependent test read a process-global registry an
+        # earlier test had written, so it passed while checking the wrong
+        # blend weight.
+        assert [e.id for e in registry.by_kind("regression")] == ["REG-0001"]
         assert not registry.by_kind("security_regression")
 
 
@@ -275,10 +279,24 @@ class TestTheMetricsCollector:
             assert metrics[name]["status"] == "unavailable"
             assert metrics[name]["reason"]
 
-    def test_zero_escaped_defects_is_stated_explicitly(self, collector):
-        # "We have not measured this" and "this is zero" are different
-        # statements, and only one of them is good news.
+    def test_a_filed_defect_is_counted_against_its_layer(self, collector):
+        # REG-0001 is the first filed defect; its notes name the layer that
+        # should have caught it. A defect whose notes omit the marker lands in
+        # "unknown", which is the signal that the entry is underspecified --
+        # so asserting the layer here is asserting the entry is complete.
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
+        assert metric["status"] == "ok"
+        assert metric["value"] == {"test-suite": 1}
+
+    def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
+        # "We have not measured this" and "this is zero" are different
+        # statements, and only one of them is good news. Once a defect is
+        # filed the live registry can no longer reach that branch, so drive it
+        # with a registry that has none rather than dropping the guarantee.
+        monkeypatch.setattr(
+            collector, "load_registry", lambda: SimpleNamespace(by_kind=lambda _kind: ())
+        )
+        metric = collector.escaped_defects()["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert metric["value"] == {}
         assert "explicit zero" in metric["note"]

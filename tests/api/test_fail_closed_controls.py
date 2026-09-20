@@ -49,6 +49,11 @@ class TestSilenceIsNotHealth:
         # that differs between the healthy and unknown case is where a
         # `.get(...)` returning None quietly becomes falsy-and-ignored.
         status = registry.status(SecurityControl.AUDIT_LOGGING)
+        # The status names the control it describes, so a caller holding one
+        # can say which control is down without tracking what it asked for --
+        # the substituted default has to carry that too, or the unknown case
+        # is a different shape after all.
+        assert status.control is SecurityControl.AUDIT_LOGGING
         assert status.healthy is False
         assert status.reason == "never reported"
 
