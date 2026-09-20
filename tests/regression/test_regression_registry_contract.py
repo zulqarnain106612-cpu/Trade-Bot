@@ -79,16 +79,35 @@ class TestTheRegistryHasAPlaceForDefects:
         assert "never deleted" in registry.kind_definitions["regression"]
         assert "permanent" in registry.kind_definitions["security_regression"]
 
-    def test_the_filed_defect_entries_are_named(self, registry):
-        # An explicit statement of the current state. Filing a defect means
-        # updating this test -- deliberately, so that it is a visible event
-        # rather than a silent append.
+    def test_the_filed_defects_are_the_ones_we_know_about(self, registry):
+        # This test is the visible event. It used to assert that no defect had
+        # been filed; updating it is how filing one announces itself, rather
+        # than a defect appearing by silent append. Each id is listed here on
+        # purpose, so a new entry cannot ride in unnoticed on a passing suite.
         #
-        # REG-0001: an order-dependent test read a process-global registry an
+        # REG-0005: an order-dependent test read a process-global registry an
         # earlier test had written, so it passed while checking the wrong
-        # blend weight.
-        assert [e.id for e in registry.by_kind("regression")] == ["REG-0001"]
+        # blend weight. It was filed as REG-0001 on this branch before the
+        # queue defects took that id on main; the entry was renumbered in the
+        # merge rather than dropped.
+        assert {e.id for e in registry.by_kind("regression")} == {
+            "REG-0001",
+            "REG-0002",
+            "REG-0003",
+            "REG-0004",
+            "REG-0005",
+        }
         assert not registry.by_kind("security_regression")
+
+    def test_every_filed_defect_names_a_permanent_test(self, registry):
+        # The rule that separates a regression entry from a bug report: the
+        # test outlives the fix. `verified` already forces the file to exist;
+        # this asserts the entry is not sitting at `planned` with nothing
+        # deciding it.
+        for entry in registry.by_kind("regression") + registry.by_kind("security_regression"):
+            assert entry.status in {"verified", "partial"}, entry.id
+            assert entry.verification, entry.id
+
 
 
 class TestADefectEntryCannotClaimATestItDoesNotHave:
@@ -138,6 +157,10 @@ class TestADefectEntryCannotClaimATestItDoesNotHave:
                 "subsystem": "execution",
                 "status": "verified",
                 "source": "QE-48",
+                # Required by the registry schema since it gained the
+                # cross-field rules: an entry nobody can describe the
+                # failure of is one nobody can size the priority of.
+                "failure_mode": "A retry creates a second position and the book is wrong.",
                 "verification": [
                     {
                         "test": "tests/regression/REG_0001_duplicate_orders.py",
@@ -164,6 +187,10 @@ class TestADefectEntryCannotClaimATestItDoesNotHave:
                 "subsystem": "execution",
                 "status": "verified",
                 "source": "QE-48",
+                # Required by the registry schema since it gained the
+                # cross-field rules: an entry nobody can describe the
+                # failure of is one nobody can size the priority of.
+                "failure_mode": "A retry creates a second position and the book is wrong.",
                 "notes": "layer: property",
                 "verification": [
                     {
@@ -190,6 +217,10 @@ class TestADefectEntryCannotClaimATestItDoesNotHave:
                 "subsystem": "execution",
                 "status": "planned",
                 "source": "QE-48",
+                # Required by the registry schema since it gained the
+                # cross-field rules: an entry nobody can describe the
+                # failure of is one nobody can size the priority of.
+                "failure_mode": "A retry creates a second position and the book is wrong.",
             },
         )
         with pytest.raises(RegistryError, match="planned_in"):
@@ -280,13 +311,13 @@ class TestTheMetricsCollector:
             assert metrics[name]["reason"]
 
     def test_a_filed_defect_is_counted_against_its_layer(self, collector):
-        # REG-0001 is the first filed defect; its notes name the layer that
-        # should have caught it. A defect whose notes omit the marker lands in
-        # "unknown", which is the signal that the entry is underspecified --
-        # so asserting the layer here is asserting the entry is complete.
+        # Every filed defect names the layer that should have caught it. An
+        # "unknown" bucket would mean an entry skipped that question, which
+        # makes the metric useless: it measures which layer needs work.
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
-        assert metric["value"] == {"test-suite": 1}
+        assert "unknown" not in metric["value"]
+        assert metric["value"] == {"monitoring": 4, "test-suite": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

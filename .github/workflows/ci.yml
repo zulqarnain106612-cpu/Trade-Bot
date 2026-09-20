@@ -1,8 +1,18 @@
 name: CI
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: [main]
+  # No `paths-ignore` here. `CI gate (all jobs green)` is a required status
+  # check, and GitHub reads a required check that never reports as *pending*,
+  # not as absent: a docs-only pull request would sit blocked forever with no
+  # failing job to point at. tests/test_apply_repo_ruleset.py asserts this.
   pull_request:
   workflow_dispatch:
 
@@ -18,21 +28,68 @@ concurrency:
   # unnoticed. Keep the saving on branches, let main's runs finish.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_PYTHON_VERSION_WARNING: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
 jobs:
-  python:
-    name: Python (lint + tests)
+  python-lint:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
+    name: Python (lint + governance docs)
     runs-on: ubuntu-latest
-    # The suite takes ~15 minutes. Without a cap a job that wedges on the
-    # TimescaleDB service holds a runner for GitHub's 6-hour default before
-    # anyone finds out, and the PR just looks slow rather than broken.
-    timeout-minutes: 30
+    timeout-minutes: 12
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Math registry is valid and doc in sync
+        run: python3 scripts/generate_math_docs.py --check
+
+      - name: Quality registry is valid and traceability doc in sync
+        run: python3 scripts/generate_quality_docs.py --check
+
+      - name: Quality-engineering gates
+        # The same gates the skill runs before a push, run again here on the
+        # machine that actually decides the pull request. Running them in both
+        # places is deliberate: locally they save a round trip, and here they
+        # are what makes the contract binding rather than advisory. A step on
+        # this job rather than a job of its own, so the gate job's `needs:`
+        # set -- and therefore the required-check surface -- is unchanged.
+        run: python3 .claude/skills/quality-engineering/scripts/qe_gate.py
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+  python-tests:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
+    name: Python tests (shard ${{ matrix.shard }}/${{ matrix.total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total: [3]
 
     services:
-      # Without this, every test in tests/test_timescale_storage.py skips and
-      # the storage backend is green by absence: 92 of pytest's skips were that
-      # one file. The suite creates and drops its own throwaway database per
-      # session, so the service only has to be up and have the extension
-      # available -- the image's initdb installs it.
       timescaledb:
         image: timescale/timescaledb:2.17.2-pg17
         env:
@@ -40,8 +97,6 @@ jobs:
           POSTGRES_PASSWORD: tradebot-local
           POSTGRES_DB: tradebot
         ports:
-          # 5433 on the host matches the suite's default DSN. The host side is
-          # the runner's own network namespace, so nothing else contends for it.
           - 5433:5432
         options: >-
           --health-cmd "pg_isready -U tradebot -d tradebot"
@@ -51,6 +106,13 @@ jobs:
 
     env:
       STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@127.0.0.1:5433/tradebot
+      SHARD_INDEX: ${{ matrix.shard }}
+      SHARD_TOTAL: ${{ matrix.total }}
+      # One data file per shard, suffixed so `coverage combine` in the floors
+      # job picks all three up. A bare `.coverage` from every shard would
+      # collide under `merge-multiple: true` and two thirds of the run would
+      # be silently discarded.
+      COVERAGE_FILE: .coverage.shard-${{ matrix.shard }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,67 +121,102 @@ jobs:
         with:
           python-version-file: .python-version
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # torch is a hard runtime dependency, and PyPI's default torch wheel
-          # bundles the CUDA stack -- the wheel plus its nvidia-* dependencies
-          # are several GB, on runners that have no GPU. That is what exhausted
-          # the disk here ("[Errno 28] No space left on device"). Installing the
-          # CPU build first from PyTorch's own index satisfies the requirement,
-          # so the pass below reuses it instead of resolving the CUDA one.
           pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
           pip install -r requirements.txt -r requirements-dev.txt
+          pip install pytest-split
 
-      - name: Math registry is valid and its document is in sync
-        # The registry is a governance artefact: it must not be able to claim
-        # a module that does not exist, and its generated document must not
-        # drift from it. Both are cheap to check and expensive to discover late.
-        run: python3 scripts/generate_math_docs.py --check
-
-      - name: Quality registry is valid and its traceability document is in sync
-        # Same contract as the math registry, applied to requirements: an entry
-        # may not claim a test that is not on disk, and the generated matrix may
-        # not drift from the data it is generated from. Cheap to check, and the
-        # failure it prevents -- a traceability matrix citing a deleted test --
-        # is the kind that is only noticed during an audit.
-        run: python3 scripts/generate_quality_docs.py --check
-
-      - name: Lint
-        run: ruff check .
-
-      - name: Format check
-        run: ruff format --check .
-
-      - name: Tests
-        # Optional ML extras are not installed here, so suites that need them
-        # are expected to skip rather than fail. The TimescaleDB suite is not
-        # in that category any more -- the service above means it runs.
+      - name: Run tests (sharded)
+        # --cov-fail-under=0 overrides the 99% aggregate in pyproject.toml for
+        # this step only. A shard runs a third of the suite and so measures a
+        # third of the lines -- 55-65% -- which is not a coverage regression,
+        # it is arithmetic. The real 99% gate is enforced once, in
+        # python-coverage-floors, against the combined data.
         #
-        # -n auto --dist load spreads tests across every core. This is only
-        # safe because the suite is order-independent: no test may read state
-        # an earlier one left behind, since --dist load assigns tests to
-        # workers in no particular order. The one violation of that
+        # -n auto --dist load spreads each shard across every core on its
+        # runner, so the two forms of parallelism compose: pytest-split picks
+        # which third of the suite this job runs, xdist spreads that third.
+        # This is only safe because the suite is order-independent: no test may
+        # read state an earlier one left behind, since --dist load assigns
+        # tests to workers in no particular order. The one violation of that
         # (parameter_registry, a process-wide singleton that
         # AutoTuningScheduler.start() wrote to and nobody reset) is now
         # snapshotted and restored per test by an autouse fixture in
-        # tests/conftest.py. A test that only passes in a particular order is
-        # a bug in that test, not a reason to drop these flags.
-        run: pytest -q -n auto --dist load
+        # tests/conftest.py. A test that only passes in a particular order is a
+        # bug in that test, not a reason to drop these flags.
+        run: |
+          pytest -q \
+            --splits "$SHARD_TOTAL" \
+            --group "$SHARD_INDEX" \
+            -n auto --dist load \
+            --cov-fail-under=0
+
+      - name: Upload coverage data
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: .coverage.shard-${{ matrix.shard }}
+          # The data file is dot-prefixed and upload-artifact skips hidden
+          # files by default: without this the upload finds nothing and the
+          # floors job has no data to combine.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  python-coverage-floors:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
+    name: Python coverage floors
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [python-tests]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install minimal deps for coverage check
+        run: |
+          python -m pip install --upgrade pip
+          pip install coverage
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Download coverage shards
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          pattern: coverage-shard-*
+          merge-multiple: true
+
+      # No `|| true` on any of these. A combine or report that fails means the
+      # shards produced no usable data, and swallowing that turns the whole
+      # coverage gate into a job that cannot fail.
+      - name: Combine coverage
+        run: coverage combine
+
+      - name: Repo-wide coverage gate
+        # fail_under = 99 comes from [tool.coverage.report] in pyproject.toml.
+        run: coverage report
 
       - name: Per-file coverage floors
-        # The repo-wide gate is an aggregate: one file can rot from 99% to 40%
-        # and the total barely moves. Reads the .coverage the step above left.
         run: python scripts/check_coverage_floors.py
 
   architecture:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Architecture Governance (crypto-architect)
     runs-on: ubuntu-latest
-    # `outputs: {result: ${{ job.status }}}` used to sit here. No job declared
-    # `needs: architecture`, so nothing ever read it -- and `job` is not one of
-    # the contexts allowed in `jobs.<id>.outputs`, so it resolved to an empty
-    # string anyway. Dead either way.
     timeout-minutes: 10
     permissions:
       contents: read
@@ -133,15 +230,12 @@ jobs:
         with:
           python-version-file: .python-version
 
-      # No dependency install: validate_arch.py is stdlib-only, so this job
-      # reports law violations in seconds and never blocks on the lockfile.
       - name: Crypto Architect law gate
         env:
           ARCH_PYTHON: python
         run: scripts/arch_gate.sh --sarif arch.sarif
 
       - name: Upload SARIF to code scanning
-        # Runs even on gate failure so the annotations land on the PR.
         if: always()
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
@@ -158,9 +252,10 @@ jobs:
           retention-days: 14
 
   frontend:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Frontend (build)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -172,29 +267,17 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit
 
       - name: Build
         working-directory: frontend
         run: npm run build
 
-  # ---------------------------------------------------------------------
-  # All-green gate.
-  #
-  # Branch protection requires checks by name, so a job that never runs --
-  # skipped by an `if:`, or never reached because an earlier job failed --
-  # satisfies a required check by being absent. This job depends on every
-  # other job here and fails unless each one reported success, so "all
-  # green" becomes a single check that cannot be satisfied by absence.
-  #
-  # `if: always()` is load-bearing: without it the gate is itself skipped
-  # the moment any dependency fails, and a skipped gate blocks nothing.
-  # ---------------------------------------------------------------------
   gate:
     name: CI gate (all jobs green)
     runs-on: ubuntu-latest
-    if: always()
-    needs: [python, architecture, frontend]
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (always()) }}
+    needs: [python-lint, python-tests, python-coverage-floors, architecture, frontend]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Assert every job in this workflow succeeded

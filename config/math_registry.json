@@ -77,7 +77,7 @@
         "Ed25519"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -111,7 +111,7 @@
         "TLS P-256"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -155,7 +155,7 @@
         "this project's API request signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/ed25519.py",
@@ -190,7 +190,7 @@
         "EIP-4844"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/bls12_381.py",
@@ -220,7 +220,7 @@
         "NTRU"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -319,7 +319,7 @@
         "polynomial IOPs"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/interpolation.py",
@@ -717,7 +717,7 @@
         "Falcon"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/ntt.py",
@@ -750,7 +750,7 @@
         "bent function construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/walsh_hadamard.py",
@@ -774,7 +774,7 @@
         "Regev's LWE reduction"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -829,7 +829,7 @@
         "timing analysis of signing code"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/fft_spectral.py",
@@ -1109,7 +1109,7 @@
         "Coppersmith attacks on RSA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/lll.py",
@@ -1134,7 +1134,7 @@
         "Minerva and TPM-Fail"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/hnp.py",
@@ -1186,7 +1186,7 @@
         "certificate transparency"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/commitments/merkle.py",
@@ -1219,7 +1219,7 @@
         "ARIA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/constants/nutms.py",
@@ -1246,11 +1246,12 @@
         "Falcon"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
-          "kind": "consumer"
+          "kind": "owner",
+          "note": "smoothing_parameter carries the pi of the discrete Gaussian exp(-pi|x|^2/s^2); the module docstring records it as the structural, non-decorative use this entry names"
         }
       ],
       "risk_if_misused": "Dropping the pi from the Gaussian definition when porting a formula changes the width by a constant factor and silently moves the scheme below its smoothing parameter.",
@@ -1367,7 +1368,7 @@
         "most modern signing libraries"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/security/api_signer.py",

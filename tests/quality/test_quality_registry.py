@@ -15,6 +15,7 @@ be provoked without corrupting the real file.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -80,6 +81,11 @@ def entry(**overrides) -> dict:
         "status": "planned",
         "source": "QE-5",
         "planned_in": "PR-002",
+        # Required by the schema since it gained the cross-field rules: an
+        # entry nobody can describe the failure of is one nobody can size the
+        # priority of. Every shipped entry already carried one; this fixture
+        # was the only place that did not.
+        "failure_mode": "The thing is not done on some path, and nothing notices.",
     }
     base.update(overrides)
     return {k: v for k, v in base.items() if v is not None}
@@ -126,6 +132,10 @@ VERIFIED = {
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
+
+
+# Mirrors the `source` pattern in config/quality_registry.schema.json.
+_OPS_SOURCE = re.compile(r"^OPS-[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 class TestLoading:
@@ -679,8 +689,19 @@ class TestTheRealRegistry:
         today = datetime.now(UTC).date()
         assert not [e.id for e in registry.expired_waivers(today)]
 
-    def test_every_entry_cites_the_source_document(self, registry):
-        assert all(e.source.startswith("QE-") for e in registry)
+    def test_every_entry_cites_a_checkable_origin(self, registry):
+        """
+        An entry names where it came from: a QE section, or a dated directive.
+
+        Most requirements are derived from docs/Quality-Engineering and cite a
+        QE section. A few are imposed directly by the operator and have no QE
+        section to point at; those cite the date they were imposed. What is
+        not allowed either way is free text, so the origin stays checkable.
+        """
+        for entry in registry:
+            assert entry.source.startswith("QE-") or _OPS_SOURCE.match(entry.source), (
+                f"{entry.id} cites an unrecognised source: {entry.source!r}"
+            )
 
     def test_each_declared_subsystem_is_used(self, registry):
         # A vocabulary entry nothing uses is either a gap in the registry or a

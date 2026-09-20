@@ -79,10 +79,14 @@ A `PreToolUse` hook (`.claude/hooks/pre_tool_use.py`, policy in
 `config/command_policy.json`) enforces the same rules on raw Bash calls, so
 these constraints hold in a session that never read this file:
 
-- Unbounded reads are refused. Use `sed -n '1,5p'`, `head -5`, `grep -m 5`,
-  `-n 5`. Then fetch the next five in a separate call.
-- A bound larger than 5 lines is refused. Widening the first fetch is the
+- Unbounded reads are refused. Use `sed -n '1,30p'`, `head -30`, `grep -m 30`,
+  `-n 30`. Then fetch the next thirty in a separate call.
+- A bound larger than 30 lines is refused. Widening the first fetch is the
   specific thing the directive forbids; page instead.
+- On a bound violation exactly one line leaves the hook:
+  `only <=30 lines are allowed,run command for minimum line which can make you
+  understand the failure`. Nothing else is emitted, because a refusal that
+  spends five sentences of context defeats the rule it is enforcing.
 - Destructive commands are refused, with the `shell_exec` path named in the
   refusal.
 - Commands that would print credentials into the transcript are refused.
@@ -91,6 +95,71 @@ The hook shares `classify()` with the runtime, so the two can never disagree.
 It fails **open** on its own misconfiguration and can be relaxed for one
 session with `TB_COMMAND_POLICY=warn|off` -- that override is the rollback
 path, not a way around a refusal you disagree with.
+
+## CI observability: capped logs, no live monitoring
+
+Reading CI is how an agent burns a context window without noticing. The rules
+are permanent and mechanical, not a matter of judgement in the moment:
+
+- **Live monitoring is banned outright.** `gh run watch`, `--watch`, `tail -f`,
+  `docker/kubectl logs -f`, `watch -n`, `inotifywait -m` and `while true`
+  poll loops are refused however they are spelled, and so is the `Monitor`
+  tool. A per-call line bound cannot cap a stream that has no end.
+- **Bulk log and report retrieval is capped, not banned.** `gh run view --log`,
+  `--log-failed`, `gh run list` and `gh api .../logs` are allowed only behind
+  an explicit bound of 30 lines or fewer. Fetch the minimum number of lines
+  that identifies the failure -- filter to the assertion, not to the run.
+- **`gh pr checks` / `gh pr view` are untouched.** A PR's check summary is one
+  line per check, and it is the right way to learn a PR's state.
+
+Do not go looking for failures. `.github/workflows/ci-failure-notify.yml`
+reports them: when a run ends in failure, cancellation or timeout it posts the
+failing jobs and their first failing step as a single, self-updating comment on
+the pull request. A green run posts nothing.
+
+Auto-merge does the rest. Every pull request is set to `--squash --auto`, so
+GitHub merges it the moment its required checks are green, with no session
+running and nobody watching.
+
+## The queue: one pull request at a time, finished before the next
+
+`main` is protected by a ruleset requiring the four gate checks **and** an
+up-to-date branch. Up-to-date is enforced, not waived: a green check means
+green against the main the change will actually land on.
+
+`.github/workflows/pr-queue.yml` is what makes that affordable, and it is
+deliberately **not** GitHub's merge queue. That one dequeues a failing entry
+and starts the next, which sets the failure aside and lets half-finished pull
+requests pile up. This one keeps exactly one pull request active, keeps it
+active while it is red, and starts nothing else until it merges.
+
+How it behaves:
+
+- A new pull request is **parked**: converted to a draft and labelled `queued`.
+  Parked entries run no jobs at all, so they cost nothing.
+- Exactly one entry is active. A red entry stays the active one -- fix it and
+  push; it keeps its place at the front.
+- When it merges, the oldest parked entry is updated from main, marked ready,
+  and armed with auto-merge. Its own run starts from `ready_for_review`.
+- Open the next pull request whenever you like. It joins the line. Nothing
+  waits on you and you wait on nothing.
+
+The rules that keep it from stalling:
+
+- **A workflow that gates a pull request must also trigger on `merge_group`,**
+  so the checks can report if the native queue is ever enabled (GOV-014).
+- **Every job of a gating workflow carries the draft guard**, and the gate's
+  `always()` is kept -- the guard is ANDed onto it, never a replacement
+  (GOV-016). Dropping `always()` would skip the gate the moment a dependency
+  fails, and a skipped required check blocks nothing.
+- **Update the branch before revealing the entry.** A push made with
+  `GITHUB_TOKEN` triggers no workflow; `ready_for_review` does. Reveal first
+  and the entry sits at the front with no run and no way to get one.
+- **Only labelled drafts are promoted.** A draft made by hand is work in
+  progress and is left alone.
+
+The cloud review is deliberately **not** a required check: it is advisory and
+never approves or merges.
 
 ## Mathematical foundations registry
 
@@ -122,6 +191,43 @@ Rules:
 
 Design laws, module contracts and wiring points: `docs/MATH_ARCHITECTURE.md`.
 Build order and exit gates: `docs/MATH_ROADMAP.md`.
+
+## Quality engineering applies to every change
+
+Every change to `src/`, `tests/`, `config/*.json` or `.github/workflows/`
+carries the quality contract with it. It is not a phase, a review step, or
+something to add at the end: the registry entry and the test that decides a
+change land in the same commit as the behaviour, because a test written after
+the code tends to assert what the code does rather than what it should.
+
+Before writing code, three questions: **which requirement does this serve,
+which test decides it, and what goes wrong in production if it is wrong?**
+A change that cannot answer them is not ready to be written.
+
+Before pushing:
+
+```bash
+python3 .claude/skills/quality-engineering/scripts/qe_gate.py
+```
+
+Seconds, reads files only. It checks the registry against its schema, that
+every claimed test exists, that the generated traceability document is in
+sync, that every JSON file validates, and that every pull-request workflow
+ends in a gate needing all its jobs. The full suite runs in GitHub Actions --
+a local pass proves nothing about the gate that merges the change.
+
+The reasoning, the change classes and the worked examples:
+`.claude/skills/quality-engineering/SKILL.md`. The gates, commands and rules
+as data: `.claude/skills/quality-engineering/qe.config.json`. A `PostToolUse`
+hook (`.claude/hooks/quality_gate.py`) applies the mechanical half after every
+edit, so a broken registry or an unpinned workflow surfaces immediately rather
+than in CI twenty minutes later; it fails open and can be silenced for one
+session with `TB_QUALITY_HOOK=off`.
+
+Never widen a gate to make a change pass. If a rule is wrong, argue it in the
+diff and change it deliberately -- a threshold moved in the same commit as the
+change it was blocking, with no argument, is indistinguishable a year later
+from a deadline that was close.
 
 ## Quality and security requirements registry
 

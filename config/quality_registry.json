@@ -1,27 +1,23 @@
 {
   "registry_version": "1.0.0",
-
   "kind_definitions": {
     "requirement": "A property the system must have, stated so that a test can decide it. Id prefix names the area (RISK, EXEC, DATA, MODEL, API, SECR, SUP, RES, REL, GOV).",
     "invariant": "A trading invariant that must hold on every path, at all times. Id prefix INV. These are non-negotiable: an invariant may not be waived, and its verification may not be deleted.",
     "regression": "A defect that reached a running system once. Id prefix REG. Its test outlives the fix and is never deleted because the bug is gone.",
     "security_regression": "A security weakness that was once present or once possible. Id prefix SEC. Its test is permanent, so the weakness cannot silently return."
   },
-
   "status_definitions": {
     "verified": "At least one named test file exists on disk and the entry is considered fully covered. No planned_in.",
     "partial": "Named tests exist and cover part of the statement. planned_in names the PR that finishes it. This is the honest status for a requirement the tree already touches but does not yet pin down.",
     "planned": "No test exists yet. planned_in names the PR that will create one. Naming no test and no PR is not a permitted state.",
     "accepted_gap": "A deliberate, attributed, dated decision not to verify. Requires a waiver. Never available to a critical entry."
   },
-
   "criticality_definitions": {
     "critical": "Violation can lose money, leak a credential, or let unreviewed code reach production. Cannot be waived.",
     "high": "Violation degrades a safety control or hides a failure, without directly moving funds.",
     "medium": "Violation costs correctness or operability but has a bounded blast radius.",
     "low": "Violation is a quality or hygiene concern."
   },
-
   "test_types": {
     "unit": "Does this function work?",
     "component": "Does this subsystem work?",
@@ -45,7 +41,6 @@
     "chaos": "Does it fail safely under disruption?",
     "mutation": "Would the suite notice if the logic were subtly wrong?"
   },
-
   "subsystems": [
     "risk",
     "execution",
@@ -60,7 +55,6 @@
     "release",
     "governance"
   ],
-
   "phases": {
     "PR-001": "Quality/Security Foundation",
     "PR-002": "Risk Invariants + Boundary Tests",
@@ -75,7 +69,6 @@
     "PR-011": "Paper-Trading Qualification",
     "PR-012": "Production/Canary Security Gate"
   },
-
   "entries": [
     {
       "id": "INV-001",
@@ -86,7 +79,10 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-42",
-      "owning_modules": ["src/risk/gates.py", "src/risk/kelly.py"],
+      "owning_modules": [
+        "src/risk/gates.py",
+        "src/risk/kelly.py"
+      ],
       "verification": [
         {
           "test": "tests/trading/invariants/test_inv_001_max_notional.py",
@@ -105,7 +101,9 @@
         }
       ],
       "failure_mode": "A single mis-sized order puts more capital at risk than the risk policy permits.",
-      "depends_on": ["RISK-001"]
+      "depends_on": [
+        "RISK-001"
+      ]
     },
     {
       "id": "INV-002",
@@ -116,7 +114,10 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-42",
-      "owning_modules": ["src/risk/capital_preservation_floor.py", "src/risk/gates.py"],
+      "owning_modules": [
+        "src/risk/capital_preservation_floor.py",
+        "src/risk/gates.py"
+      ],
       "verification": [
         {
           "test": "tests/trading/invariants/test_inv_002_capital_preservation_halt.py",
@@ -140,7 +141,10 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-42,QE-5",
-      "owning_modules": ["src/execution/exchange_contract.py", "src/execution/order_fsm.py"],
+      "owning_modules": [
+        "src/execution/exchange_contract.py",
+        "src/execution/order_fsm.py"
+      ],
       "verification": [
         {
           "test": "tests/contract/test_exchange_order_contract.py",
@@ -152,11 +156,19 @@
           "test_type": "execution",
           "note": "No terminal state can reach FILLED, and PENDING cannot jump past the FILLING confirmation step."
         },
-        { "test": "tests/test_order_fsm_transition_table.py", "test_type": "execution" },
-        { "test": "tests/test_live_executor_fsm.py", "test_type": "execution" }
+        {
+          "test": "tests/test_order_fsm_transition_table.py",
+          "test_type": "execution"
+        },
+        {
+          "test": "tests/test_live_executor_fsm.py",
+          "test_type": "execution"
+        }
       ],
       "failure_mode": "The bot books a fill that never happened, and every downstream position figure is wrong.",
-      "depends_on": ["EXEC-004"]
+      "depends_on": [
+        "EXEC-004"
+      ]
     },
     {
       "id": "INV-004",
@@ -167,7 +179,10 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-42",
-      "owning_modules": ["src/risk/gates.py", "src/strategies/position_sizing.py"],
+      "owning_modules": [
+        "src/risk/gates.py",
+        "src/strategies/position_sizing.py"
+      ],
       "verification": [
         {
           "test": "tests/trading/invariants/test_inv_004_non_finite.py",
@@ -191,14 +206,20 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-42",
-      "owning_modules": ["src/execution/paper.py", "src/risk/gates.py"],
+      "owning_modules": [
+        "src/execution/paper.py",
+        "src/risk/gates.py"
+      ],
       "verification": [
         {
           "test": "tests/trading/invariants/test_inv_005_disabled_mode.py",
           "test_type": "execution",
           "note": "The live gate refuses live until both models validate, the paper executor has no import or attribute reaching a venue, and every non-paper mode is gated by default."
         },
-        { "test": "tests/test_paper_only_timeframe_routing.py", "test_type": "execution" }
+        {
+          "test": "tests/test_paper_only_timeframe_routing.py",
+          "test_type": "execution"
+        }
       ],
       "failure_mode": "The bot trades real money while the operator believes it is in paper mode."
     },
@@ -211,7 +232,9 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-42,QE-26",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": [
+        "src/risk/gates.py"
+      ],
       "verification": [
         {
           "test": "tests/trading/invariants/test_inv_006_risk_engine_failure.py",
@@ -225,7 +248,9 @@
         }
       ],
       "failure_mode": "An exception in the safety layer silently removes the safety layer.",
-      "depends_on": ["GOV-004"]
+      "depends_on": [
+        "GOV-004"
+      ]
     },
     {
       "id": "INV-007",
@@ -236,17 +261,24 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-42,QE-58",
-      "owning_modules": ["src/execution/idempotency.py"],
+      "owning_modules": [
+        "src/execution/idempotency.py"
+      ],
       "verification": [
         {
           "test": "tests/execution/test_idempotency_end_to_end.py",
           "test_type": "execution",
           "note": "Deterministic keys that do not collide across intents, a registry that refuses a replay, and 25 racing reservations that yield exactly one submission."
         },
-        { "test": "tests/test_idempotency.py", "test_type": "execution" }
+        {
+          "test": "tests/test_idempotency.py",
+          "test_type": "execution"
+        }
       ],
       "failure_mode": "A retry doubles the position and the account is twice as exposed as intended.",
-      "depends_on": ["EXEC-001"]
+      "depends_on": [
+        "EXEC-001"
+      ]
     },
     {
       "id": "INV-008",
@@ -257,7 +289,10 @@
       "subsystem": "data",
       "status": "verified",
       "source": "QE-42,QE-80",
-      "owning_modules": ["src/data/quality_gate.py", "src/engine/signal_engine.py"],
+      "owning_modules": [
+        "src/data/quality_gate.py",
+        "src/engine/signal_engine.py"
+      ],
       "verification": [
         {
           "test": "tests/component/test_data_quality_gate.py",
@@ -276,7 +311,9 @@
         }
       ],
       "failure_mode": "The bot trades a price that no longer exists.",
-      "depends_on": ["DATA-002"]
+      "depends_on": [
+        "DATA-002"
+      ]
     },
     {
       "id": "INV-009",
@@ -287,7 +324,10 @@
       "subsystem": "execution",
       "status": "planned",
       "source": "QE-42",
-      "owning_modules": ["src/execution/unified_ledger.py", "src/diagnostics/disaster_recovery.py"],
+      "owning_modules": [
+        "src/execution/unified_ledger.py",
+        "src/diagnostics/disaster_recovery.py"
+      ],
       "planned_in": "PR-010",
       "failure_mode": "The bot restarts believing it is flat while holding a real position, and hedges nothing."
     },
@@ -300,11 +340,12 @@
       "subsystem": "release",
       "status": "planned",
       "source": "QE-42,QE-60",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": [
+        "src/risk/gates.py"
+      ],
       "planned_in": "PR-011",
       "failure_mode": "Untested strategy code reaches real capital."
     },
-
     {
       "id": "RISK-001",
       "kind": "requirement",
@@ -314,7 +355,10 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-5",
-      "owning_modules": ["src/strategies/position_sizing.py", "src/risk/gates.py"],
+      "owning_modules": [
+        "src/strategies/position_sizing.py",
+        "src/risk/gates.py"
+      ],
       "verification": [
         {
           "test": "tests/trading/invariants/test_inv_001_max_notional.py",
@@ -326,8 +370,14 @@
           "test_type": "risk",
           "note": "Just inside, exactly on, and just outside the position-size limit."
         },
-        { "test": "tests/test_position_sizing.py", "test_type": "risk" },
-        { "test": "tests/test_risk_gates.py", "test_type": "risk" }
+        {
+          "test": "tests/test_position_sizing.py",
+          "test_type": "risk"
+        },
+        {
+          "test": "tests/test_risk_gates.py",
+          "test_type": "risk"
+        }
       ],
       "failure_mode": "One oversized position turns a normal drawdown into an account-ending one."
     },
@@ -340,7 +390,9 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-86",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": [
+        "src/risk/gates.py"
+      ],
       "verification": [
         {
           "test": "tests/risk/test_risk_limit_boundaries.py",
@@ -359,7 +411,10 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-50",
-      "owning_modules": ["src/strategies/position_sizing.py", "src/risk/kelly.py"],
+      "owning_modules": [
+        "src/strategies/position_sizing.py",
+        "src/risk/kelly.py"
+      ],
       "verification": [
         {
           "test": "tests/property/test_position_sizing_properties.py",
@@ -400,10 +455,20 @@
       "subsystem": "risk",
       "status": "partial",
       "source": "QE-84",
-      "owning_modules": ["src/tuning/gate.py", "src/tuning/promotion_gauntlet.py", "src/tuning/live_overrides.py"],
+      "owning_modules": [
+        "src/tuning/gate.py",
+        "src/tuning/promotion_gauntlet.py",
+        "src/tuning/live_overrides.py"
+      ],
       "verification": [
-        { "test": "tests/test_tuning_gate.py", "test_type": "verification" },
-        { "test": "tests/test_promotion_gauntlet.py", "test_type": "verification" }
+        {
+          "test": "tests/test_tuning_gate.py",
+          "test_type": "verification"
+        },
+        {
+          "test": "tests/test_promotion_gauntlet.py",
+          "test_type": "verification"
+        }
       ],
       "planned_in": "PR-011",
       "failure_mode": "An optimizer relaxes the very limit that would have stopped its own bad idea."
@@ -417,7 +482,10 @@
       "subsystem": "risk",
       "status": "verified",
       "source": "QE-49",
-      "owning_modules": ["config/mutation_thresholds.json", "scripts/check_mutation_score.py"],
+      "owning_modules": [
+        "config/mutation_thresholds.json",
+        "scripts/check_mutation_score.py"
+      ],
       "verification": [
         {
           "test": "tests/regression/test_regression_registry_contract.py",
@@ -427,7 +495,6 @@
       ],
       "failure_mode": "High line coverage hides a suite that would not notice if a comparison flipped."
     },
-
     {
       "id": "EXEC-001",
       "kind": "requirement",
@@ -437,14 +504,20 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-58",
-      "owning_modules": ["src/execution/idempotency.py", "src/execution/order_manager.py"],
+      "owning_modules": [
+        "src/execution/idempotency.py",
+        "src/execution/order_manager.py"
+      ],
       "verification": [
         {
           "test": "tests/execution/test_idempotency_end_to_end.py",
           "test_type": "execution",
           "note": "The key travels to the venue as a client order id, and only a provably-unsent request releases it -- a timeout keeps it claimed."
         },
-        { "test": "tests/test_idempotency.py", "test_type": "execution" }
+        {
+          "test": "tests/test_idempotency.py",
+          "test_type": "execution"
+        }
       ],
       "failure_mode": "A network retry becomes a second real order."
     },
@@ -457,15 +530,23 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-90",
-      "owning_modules": ["src/execution/order_fsm.py"],
+      "owning_modules": [
+        "src/execution/order_fsm.py"
+      ],
       "verification": [
         {
           "test": "tests/execution/test_order_fsm_totality.py",
           "test_type": "contract",
           "note": "The entire cross product of states and targets, each cell either a permitted transition or a refusal that leaves the state untouched."
         },
-        { "test": "tests/test_order_fsm_transition_table.py", "test_type": "contract" },
-        { "test": "tests/test_order_fsm.py", "test_type": "execution" }
+        {
+          "test": "tests/test_order_fsm_transition_table.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_order_fsm.py",
+          "test_type": "execution"
+        }
       ],
       "failure_mode": "An unhandled exchange event leaves an order in a state nothing knows how to close."
     },
@@ -478,7 +559,10 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-90,QE-51",
-      "owning_modules": ["src/execution/exchange_contract.py", "src/execution/order_manager.py"],
+      "owning_modules": [
+        "src/execution/exchange_contract.py",
+        "src/execution/order_manager.py"
+      ],
       "verification": [
         {
           "test": "tests/contract/test_exchange_order_contract.py",
@@ -497,14 +581,19 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-5",
-      "owning_modules": ["src/execution/exchange_contract.py"],
+      "owning_modules": [
+        "src/execution/exchange_contract.py"
+      ],
       "verification": [
         {
           "test": "tests/contract/test_exchange_order_contract.py",
           "test_type": "contract",
           "note": "An unrecognised status maps to UNKNOWN, and an unknown status carrying an otherwise perfect fill still reconciles rather than booking it."
         },
-        { "test": "tests/test_live_fsm_integration.py", "test_type": "integration" }
+        {
+          "test": "tests/test_live_fsm_integration.py",
+          "test_type": "integration"
+        }
       ],
       "failure_mode": "Position accounting diverges from the exchange without anything reporting an error."
     },
@@ -517,14 +606,29 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-25",
-      "owning_modules": ["src/risk/strategy_kill_switch.py", "src/execution/mode_persistence.py"],
+      "owning_modules": [
+        "src/risk/strategy_kill_switch.py",
+        "src/execution/mode_persistence.py"
+      ],
       "verification": [
-        { "test": "tests/test_strategy_kill_switch.py", "test_type": "component" },
-        { "test": "tests/test_strategy_kill_switch_wiring.py", "test_type": "integration" },
-        { "test": "tests/api/test_kill_switch_durability.py", "test_type": "security",
-          "note": "Durability: the halt is persisted atomically and restored at startup; a missing file means a first start, an unreadable one resolves to the most restrictive mode." },
-        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "api",
-          "note": "The halt as an API control: authenticated, authorized by role, and idempotent when repeated." }
+        {
+          "test": "tests/test_strategy_kill_switch.py",
+          "test_type": "component"
+        },
+        {
+          "test": "tests/test_strategy_kill_switch_wiring.py",
+          "test_type": "integration"
+        },
+        {
+          "test": "tests/api/test_kill_switch_durability.py",
+          "test_type": "security",
+          "note": "Durability: the halt is persisted atomically and restored at startup; a missing file means a first start, an unreadable one resolves to the most restrictive mode."
+        },
+        {
+          "test": "tests/api/test_injection_and_rate_limiting.py",
+          "test_type": "api",
+          "note": "The halt as an API control: authenticated, authorized by role, and idempotent when repeated."
+        }
       ],
       "failure_mode": "The control of last resort is unavailable exactly when it is needed."
     },
@@ -537,15 +641,24 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-81",
-      "owning_modules": ["src/execution/order_fsm.py", "src/execution/post_trade.py"],
+      "owning_modules": [
+        "src/execution/order_fsm.py",
+        "src/execution/post_trade.py"
+      ],
       "verification": [
         {
           "test": "tests/execution/test_venue_precision.py",
           "test_type": "unit",
           "note": "Hand-calculated volume-weighted averages, including the arithmetic mean stated explicitly as the wrong answer, and 200 fills checked against an independent Decimal accumulation."
         },
-        { "test": "tests/test_order_manager_partial_fills.py", "test_type": "unit" },
-        { "test": "tests/test_executor_fee_accounting.py", "test_type": "unit" }
+        {
+          "test": "tests/test_order_manager_partial_fills.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/test_executor_fee_accounting.py",
+          "test_type": "unit"
+        }
       ],
       "failure_mode": "PnL is wrong, so every downstream risk decision is made on false numbers."
     },
@@ -558,7 +671,10 @@
       "subsystem": "execution",
       "status": "verified",
       "source": "QE-49",
-      "owning_modules": ["config/mutation_thresholds.json", ".github/workflows"],
+      "owning_modules": [
+        "config/mutation_thresholds.json",
+        ".github/workflows"
+      ],
       "verification": [
         {
           "test": "tests/regression/test_regression_registry_contract.py",
@@ -568,7 +684,6 @@
       ],
       "failure_mode": "The FSM tests assert shape without asserting behaviour."
     },
-
     {
       "id": "DATA-001",
       "kind": "requirement",
@@ -578,7 +693,10 @@
       "subsystem": "data",
       "status": "verified",
       "source": "QE-80",
-      "owning_modules": ["src/data/quality_gate.py", "src/engine/signal_engine.py"],
+      "owning_modules": [
+        "src/data/quality_gate.py",
+        "src/engine/signal_engine.py"
+      ],
       "verification": [
         {
           "test": "tests/component/test_data_quality_gate.py",
@@ -590,8 +708,14 @@
           "test_type": "signal",
           "note": "Golden case ETHUSDT_15m_case_002: one impossible bar refuses the frame before the feature pipeline is reached."
         },
-        { "test": "tests/engines/test_supply_and_quality.py", "test_type": "component" },
-        { "test": "tests/test_feature_bar_gaps.py", "test_type": "unit" }
+        {
+          "test": "tests/engines/test_supply_and_quality.py",
+          "test_type": "component"
+        },
+        {
+          "test": "tests/test_feature_bar_gaps.py",
+          "test_type": "unit"
+        }
       ],
       "failure_mode": "A corrupt bar becomes a signal, and the signal becomes an order.",
       "notes": "The gate existed and was tested from the day it was written, but no module in src/ ever called it -- so the statement above was false of the running system until PR-003 wired it into SignalEngine.tick."
@@ -605,7 +729,9 @@
       "subsystem": "data",
       "status": "verified",
       "source": "QE-80,QE-42",
-      "owning_modules": ["src/data/quality_gate.py"],
+      "owning_modules": [
+        "src/data/quality_gate.py"
+      ],
       "verification": [
         {
           "test": "tests/component/test_data_quality_gate.py",
@@ -624,7 +750,9 @@
       "subsystem": "data",
       "status": "verified",
       "source": "QE-79",
-      "owning_modules": ["src/data/clock.py"],
+      "owning_modules": [
+        "src/data/clock.py"
+      ],
       "verification": [
         {
           "test": "tests/component/test_clock_policy.py",
@@ -643,15 +771,25 @@
       "subsystem": "data",
       "status": "verified",
       "source": "QE-78",
-      "owning_modules": ["src/execution/unified_ledger.py", "src/risk/kelly.py", "docs/quality"],
+      "owning_modules": [
+        "src/execution/unified_ledger.py",
+        "src/risk/kelly.py",
+        "docs/quality"
+      ],
       "verification": [
         {
           "test": "tests/component/test_money_representation.py",
           "test_type": "component",
           "note": "The declared policy is float64 with Decimal at the exchange-precision boundary; quantisation never rounds up, accumulated drift over a day of fills stays inside 1e-9 relative, and the percent-versus-fraction units are pinned."
         },
-        { "test": "tests/test_percent_vs_fraction_units.py", "test_type": "unit" },
-        { "test": "tests/test_unified_ledger.py", "test_type": "unit" }
+        {
+          "test": "tests/test_percent_vs_fraction_units.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/test_unified_ledger.py",
+          "test_type": "unit"
+        }
       ],
       "failure_mode": "Rounding drift accumulates until the ledger and the exchange disagree.",
       "notes": "The representation is float64, not Decimal, and docs/quality/MONEY_AND_TIME.md argues for that rather than claiming otherwise. It also records the conditions under which the decision should be re-argued."
@@ -665,18 +803,23 @@
       "subsystem": "data",
       "status": "verified",
       "source": "QE-78",
-      "owning_modules": ["src/risk/kelly.py", "src/data/fetcher.py"],
+      "owning_modules": [
+        "src/risk/kelly.py",
+        "src/data/fetcher.py"
+      ],
       "verification": [
         {
           "test": "tests/execution/test_venue_precision.py",
           "test_type": "unit",
           "note": "Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees."
         },
-        { "test": "tests/test_fetcher_symbol_precision.py", "test_type": "unit" }
+        {
+          "test": "tests/test_fetcher_symbol_precision.py",
+          "test_type": "unit"
+        }
       ],
       "failure_mode": "Orders are rejected by the venue at exactly the moment the strategy needs them."
     },
-
     {
       "id": "PORT-001",
       "kind": "requirement",
@@ -686,15 +829,24 @@
       "subsystem": "portfolio",
       "status": "verified",
       "source": "QE-2,QE-42",
-      "owning_modules": ["src/risk/portfolio_correlation.py", "src/risk/portfolio_agreement.py"],
+      "owning_modules": [
+        "src/risk/portfolio_correlation.py",
+        "src/risk/portfolio_agreement.py"
+      ],
       "verification": [
         {
           "test": "tests/portfolio/test_portfolio_limits.py",
           "test_type": "risk",
           "note": "Both scalars asserted on the notional that reaches the sizer rather than on the number the tracker reports, and the small-sample shrinkage pinned as intended behaviour rather than discovered as a surprise."
         },
-        { "test": "tests/test_portfolio_correlation.py", "test_type": "risk" },
-        { "test": "tests/test_portfolio_agreement.py", "test_type": "risk" }
+        {
+          "test": "tests/test_portfolio_correlation.py",
+          "test_type": "risk"
+        },
+        {
+          "test": "tests/test_portfolio_agreement.py",
+          "test_type": "risk"
+        }
       ],
       "failure_mode": "Five uncorrelated-looking positions turn out to be one position in five costumes."
     },
@@ -707,7 +859,10 @@
       "subsystem": "signal",
       "status": "verified",
       "source": "QE-43",
-      "owning_modules": ["src/engine/signal_engine.py", "scripts/generate_signal_fixtures.py"],
+      "owning_modules": [
+        "src/engine/signal_engine.py",
+        "scripts/generate_signal_fixtures.py"
+      ],
       "verification": [
         {
           "test": "tests/signals/test_golden_signals.py",
@@ -727,14 +882,19 @@
       "subsystem": "signal",
       "status": "verified",
       "source": "QE-86",
-      "owning_modules": ["src/features/pipeline.py"],
+      "owning_modules": [
+        "src/features/pipeline.py"
+      ],
       "verification": [
         {
           "test": "tests/features/test_feature_determinism.py",
           "test_type": "property",
           "note": "Same process, different process (two subprocesses with deliberately different PYTHONHASHSEED), and prefix stability when later bars arrive."
         },
-        { "test": "tests/test_features.py", "test_type": "unit" }
+        {
+          "test": "tests/test_features.py",
+          "test_type": "unit"
+        }
       ],
       "failure_mode": "A backtest cannot be reproduced, so a result cannot be trusted."
     },
@@ -747,7 +907,10 @@
       "subsystem": "signal",
       "status": "verified",
       "source": "QE-49",
-      "owning_modules": ["config/mutation_thresholds.json", ".github/workflows"],
+      "owning_modules": [
+        "config/mutation_thresholds.json",
+        ".github/workflows"
+      ],
       "verification": [
         {
           "test": "tests/regression/test_regression_registry_contract.py",
@@ -757,7 +920,6 @@
       ],
       "failure_mode": "Signal tests assert that something was produced, not that it was right."
     },
-
     {
       "id": "MODL-001",
       "kind": "requirement",
@@ -767,7 +929,10 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-44",
-      "owning_modules": ["src/models/provenance.py", "src/models/trainer.py"],
+      "owning_modules": [
+        "src/models/provenance.py",
+        "src/models/trainer.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_model_provenance.py",
@@ -779,7 +944,10 @@
           "test_type": "model",
           "note": "The manifest written by save() carries a complete record, and the legacy {file, sha256} keys still verify."
         },
-        { "test": "tests/test_model_registry.py", "test_type": "model" }
+        {
+          "test": "tests/test_model_registry.py",
+          "test_type": "model"
+        }
       ],
       "failure_mode": "A model in production cannot be traced to the data or code that made it."
     },
@@ -792,7 +960,10 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-45",
-      "owning_modules": ["src/engine/signal_engine.py", "src/risk/gates.py"],
+      "owning_modules": [
+        "src/engine/signal_engine.py",
+        "src/risk/gates.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_model_safety.py",
@@ -811,7 +982,10 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-47",
-      "owning_modules": ["src/models/leakage.py", "src/features/pipeline.py"],
+      "owning_modules": [
+        "src/models/leakage.py",
+        "src/features/pipeline.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_lookahead.py",
@@ -830,15 +1004,24 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-46",
-      "owning_modules": ["src/risk/performance_drift.py", "src/risk/drift_integration.py"],
+      "owning_modules": [
+        "src/risk/performance_drift.py",
+        "src/risk/drift_integration.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_model_drift_demotion.py",
           "test_type": "component",
           "note": "A healthy model is not demoted, too little evidence is not drift, a degraded model halts the live track only, and a detector that cannot run fails closed."
         },
-        { "test": "tests/test_performance_drift.py", "test_type": "component" },
-        { "test": "tests/test_drift_gate_wiring.py", "test_type": "integration" }
+        {
+          "test": "tests/test_performance_drift.py",
+          "test_type": "component"
+        },
+        {
+          "test": "tests/test_drift_gate_wiring.py",
+          "test_type": "integration"
+        }
       ],
       "failure_mode": "The model keeps trading a regime it was never trained on."
     },
@@ -851,7 +1034,9 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-44",
-      "owning_modules": ["src/models/trainer.py"],
+      "owning_modules": [
+        "src/models/trainer.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_model_artifacts.py",
@@ -870,15 +1055,24 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-83",
-      "owning_modules": ["src/upgrade/shadow_deploy.py", "src/tuning/promotion_gauntlet.py"],
+      "owning_modules": [
+        "src/upgrade/shadow_deploy.py",
+        "src/tuning/promotion_gauntlet.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_research_firewall.py",
           "test_type": "verification",
           "note": "The gauntlet is a conjunction with no partial credit, shadow evaluation is a time window a challenger cannot buy its way past, and no tuning or upgrade module imports an executor."
         },
-        { "test": "tests/test_shadow_model_promotion.py", "test_type": "verification" },
-        { "test": "tests/test_upgrade_shadow_deploy.py", "test_type": "verification" }
+        {
+          "test": "tests/test_shadow_model_promotion.py",
+          "test_type": "verification"
+        },
+        {
+          "test": "tests/test_upgrade_shadow_deploy.py",
+          "test_type": "verification"
+        }
       ],
       "failure_mode": "An experiment becomes the production strategy by accident."
     },
@@ -891,7 +1085,9 @@
       "subsystem": "model",
       "status": "verified",
       "source": "QE-90,QE-86",
-      "owning_modules": ["src/models/trainer.py"],
+      "owning_modules": [
+        "src/models/trainer.py"
+      ],
       "verification": [
         {
           "test": "tests/models/test_cpcv_purging.py",
@@ -901,7 +1097,6 @@
       ],
       "failure_mode": "A leaky validation split reports skill the strategy does not have."
     },
-
     {
       "id": "API-001",
       "kind": "requirement",
@@ -911,12 +1106,24 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-19",
-      "owning_modules": ["src/api/access_control.py", "src/api/main.py"],
+      "owning_modules": [
+        "src/api/access_control.py",
+        "src/api/main.py"
+      ],
       "verification": [
-        { "test": "tests/test_api_role_enforcement.py", "test_type": "api" },
-        { "test": "tests/test_access_control.py", "test_type": "security" },
-        { "test": "tests/authorization/test_authorization_matrix.py", "test_type": "security",
-          "note": "Every (role, endpoint) cell asserted, including the anonymous row and the escalation direction." }
+        {
+          "test": "tests/test_api_role_enforcement.py",
+          "test_type": "api"
+        },
+        {
+          "test": "tests/test_access_control.py",
+          "test_type": "security"
+        },
+        {
+          "test": "tests/authorization/test_authorization_matrix.py",
+          "test_type": "security",
+          "note": "Every (role, endpoint) cell asserted, including the anonymous row and the escalation direction."
+        }
       ],
       "failure_mode": "A readonly token places a trade."
     },
@@ -929,10 +1136,16 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-20",
-      "owning_modules": ["src/api/access_control.py", "src/api/object_refs.py"],
+      "owning_modules": [
+        "src/api/access_control.py",
+        "src/api/object_refs.py"
+      ],
       "verification": [
-        { "test": "tests/authorization/test_object_references.py", "test_type": "security",
-          "note": "Identifiers are validated before any lookup, and every negative outcome returns one indistinguishable body." }
+        {
+          "test": "tests/authorization/test_object_references.py",
+          "test_type": "security",
+          "note": "Identifiers are validated before any lookup, and every negative outcome returns one indistinguishable body."
+        }
       ],
       "failure_mode": "One authenticated user reads or cancels another's orders."
     },
@@ -945,10 +1158,16 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-21",
-      "owning_modules": ["src/api/main.py", "src/api/middleware.py"],
+      "owning_modules": [
+        "src/api/main.py",
+        "src/api/middleware.py"
+      ],
       "verification": [
-        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "security",
-          "note": "Injection payloads refused at the parsers, the outbound surface and the header boundary." }
+        {
+          "test": "tests/api/test_injection_and_rate_limiting.py",
+          "test_type": "security",
+          "note": "Injection payloads refused at the parsers, the outbound surface and the header boundary."
+        }
       ],
       "failure_mode": "An attacker reads or rewrites the trading database."
     },
@@ -961,10 +1180,16 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-22",
-      "owning_modules": ["src/intelligence/client.py", "src/api/ssrf.py"],
+      "owning_modules": [
+        "src/intelligence/client.py",
+        "src/api/ssrf.py"
+      ],
       "verification": [
-        { "test": "tests/api/test_ssrf_protection.py", "test_type": "security",
-          "note": "Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client." }
+        {
+          "test": "tests/api/test_ssrf_protection.py",
+          "test_type": "security",
+          "note": "Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client."
+        }
       ],
       "failure_mode": "The bot becomes the attacker's proxy into the private network and the metadata service."
     },
@@ -977,13 +1202,26 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-23",
-      "owning_modules": ["src/api/main.py", "src/data/orderbook_stream.py", "src/api/ws_guard.py"],
+      "owning_modules": [
+        "src/api/main.py",
+        "src/data/orderbook_stream.py",
+        "src/api/ws_guard.py"
+      ],
       "verification": [
-        { "test": "tests/test_ws_auth_query_param.py", "test_type": "security" },
-        { "test": "tests/api/test_websocket_frame_guard.py", "test_type": "security",
-          "note": "Every inbound frame is size-bounded, schema-validated, freshness-checked, rate-limited and replay-checked, in that order, with one guard per connection." },
-        { "test": "tests/authentication/test_api_authentication.py", "test_type": "security",
-          "note": "The upgrade itself is authenticated before any state is touched." }
+        {
+          "test": "tests/test_ws_auth_query_param.py",
+          "test_type": "security"
+        },
+        {
+          "test": "tests/api/test_websocket_frame_guard.py",
+          "test_type": "security",
+          "note": "Every inbound frame is size-bounded, schema-validated, freshness-checked, rate-limited and replay-checked, in that order, with one guard per connection."
+        },
+        {
+          "test": "tests/authentication/test_api_authentication.py",
+          "test_type": "security",
+          "note": "The upgrade itself is authenticated before any state is touched."
+        }
       ],
       "failure_mode": "A single authenticated socket becomes an unauthenticated command channel."
     },
@@ -996,11 +1234,19 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-24",
-      "owning_modules": ["src/api/middleware.py"],
+      "owning_modules": [
+        "src/api/middleware.py"
+      ],
       "verification": [
-        { "test": "tests/test_selftest_rate_limit.py", "test_type": "api" },
-        { "test": "tests/api/test_injection_and_rate_limiting.py", "test_type": "api",
-          "note": "Rate limiting on the authentication, trading and diagnostic endpoints, keyed per client rather than globally." }
+        {
+          "test": "tests/test_selftest_rate_limit.py",
+          "test_type": "api"
+        },
+        {
+          "test": "tests/api/test_injection_and_rate_limiting.py",
+          "test_type": "api",
+          "note": "Rate limiting on the authentication, trading and diagnostic endpoints, keyed per client rather than globally."
+        }
       ],
       "failure_mode": "An attacker with a valid token issues thousands of orders before anything notices."
     },
@@ -1013,10 +1259,16 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-18",
-      "owning_modules": ["src/api/middleware.py", "src/api/security_headers.py"],
+      "owning_modules": [
+        "src/api/middleware.py",
+        "src/api/security_headers.py"
+      ],
       "verification": [
-        { "test": "tests/api/test_security_headers.py", "test_type": "security",
-          "note": "Each declared header is applied, HSTS only over TLS, and the middleware sits outermost so an error response still carries them." }
+        {
+          "test": "tests/api/test_security_headers.py",
+          "test_type": "security",
+          "note": "Each declared header is applied, HSTS only over TLS, and the middleware sits outermost so an error response still carries them."
+        }
       ],
       "failure_mode": "A browser-side weakness that the headers would have closed."
     },
@@ -1029,13 +1281,22 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-55",
-      "owning_modules": ["src/api/auth.py", "src/api/middleware.py", "src/api/fail_closed.py"],
+      "owning_modules": [
+        "src/api/auth.py",
+        "src/api/middleware.py",
+        "src/api/fail_closed.py"
+      ],
       "verification": [
-        { "test": "tests/api/test_fail_closed_controls.py", "test_type": "security",
-          "note": "A control that never reported counts as degraded, any single degradation closes the trading endpoints, and the read-only endpoints stay open by design." }
+        {
+          "test": "tests/api/test_fail_closed_controls.py",
+          "test_type": "security",
+          "note": "A control that never reported counts as degraded, any single degradation closes the trading endpoints, and the read-only endpoints stay open by design."
+        }
       ],
       "failure_mode": "An outage in the auth dependency turns the trade endpoint anonymous.",
-      "depends_on": ["GOV-004"]
+      "depends_on": [
+        "GOV-004"
+      ]
     },
     {
       "id": "API-009",
@@ -1046,15 +1307,22 @@
       "subsystem": "api",
       "status": "verified",
       "source": "QE-18,QE-17",
-      "owning_modules": ["src/api/main.py", "src/api/error_hygiene.py"],
+      "owning_modules": [
+        "src/api/main.py",
+        "src/api/error_hygiene.py"
+      ],
       "verification": [
-        { "test": "tests/api/test_error_hygiene.py", "test_type": "security",
-          "note": "Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive." }
+        {
+          "test": "tests/api/test_error_hygiene.py",
+          "test_type": "security",
+          "note": "Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive."
+        }
       ],
       "failure_mode": "A 500 hands the attacker the next step.",
-      "depends_on": ["SECR-001"]
+      "depends_on": [
+        "SECR-001"
+      ]
     },
-
     {
       "id": "SECR-001",
       "kind": "requirement",
@@ -1064,10 +1332,19 @@
       "subsystem": "security",
       "status": "partial",
       "source": "QE-9,QE-17",
-      "owning_modules": ["src/logging_setup.py", "common/command_schema.py"],
+      "owning_modules": [
+        "src/logging_setup.py",
+        "common/command_schema.py"
+      ],
       "verification": [
-        { "test": "tests/test_logging_setup.py", "test_type": "security" },
-        { "test": "tests/test_command_schema_policy.py", "test_type": "security" }
+        {
+          "test": "tests/test_logging_setup.py",
+          "test_type": "security"
+        },
+        {
+          "test": "tests/test_command_schema_policy.py",
+          "test_type": "security"
+        }
       ],
       "planned_in": "PR-008",
       "failure_mode": "The exchange key is in a log file that gets shipped to a third-party log service."
@@ -1081,9 +1358,14 @@
       "subsystem": "security",
       "status": "partial",
       "source": "QE-12",
-      "owning_modules": ["src/security/constant_time.py"],
+      "owning_modules": [
+        "src/security/constant_time.py"
+      ],
       "verification": [
-        { "test": "tests/test_static_invariants.py", "test_type": "security" }
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
       ],
       "planned_in": "PR-008",
       "failure_mode": "A timing oracle recovers a token one byte at a time."
@@ -1097,7 +1379,9 @@
       "subsystem": "security",
       "status": "planned",
       "source": "QE-11",
-      "owning_modules": ["src/security/credential_vault.py"],
+      "owning_modules": [
+        "src/security/credential_vault.py"
+      ],
       "planned_in": "PR-008",
       "failure_mode": "A procedure nobody has run fails on the day it is needed."
     },
@@ -1110,10 +1394,18 @@
       "subsystem": "security",
       "status": "partial",
       "source": "QE-16",
-      "owning_modules": ["src/diagnostics/audit_trail.py"],
+      "owning_modules": [
+        "src/diagnostics/audit_trail.py"
+      ],
       "verification": [
-        { "test": "tests/test_audit_trail.py", "test_type": "security" },
-        { "test": "tests/test_audit_chain_integrity_endpoint.py", "test_type": "api" }
+        {
+          "test": "tests/test_audit_trail.py",
+          "test_type": "security"
+        },
+        {
+          "test": "tests/test_audit_chain_integrity_endpoint.py",
+          "test_type": "api"
+        }
       ],
       "planned_in": "PR-008",
       "failure_mode": "An attacker who reaches the host edits the record of what they did."
@@ -1127,9 +1419,14 @@
       "subsystem": "security",
       "status": "partial",
       "source": "QE-12",
-      "owning_modules": ["src/security/api_signer.py"],
+      "owning_modules": [
+        "src/security/api_signer.py"
+      ],
       "verification": [
-        { "test": "tests/engines/test_security.py", "test_type": "security" }
+        {
+          "test": "tests/engines/test_security.py",
+          "test_type": "security"
+        }
       ],
       "planned_in": "PR-008",
       "failure_mode": "A captured order request is replayed to double a position."
@@ -1143,7 +1440,9 @@
       "subsystem": "security",
       "status": "planned",
       "source": "QE-14,QE-15",
-      "owning_modules": ["src/intelligence/client.py"],
+      "owning_modules": [
+        "src/intelligence/client.py"
+      ],
       "planned_in": "PR-008",
       "failure_mode": "An on-path attacker rewrites market data or order responses."
     },
@@ -1156,7 +1455,9 @@
       "subsystem": "security",
       "status": "planned",
       "source": "QE-12",
-      "owning_modules": ["src/security/credential_vault.py"],
+      "owning_modules": [
+        "src/security/credential_vault.py"
+      ],
       "planned_in": "PR-008",
       "failure_mode": "A predictable token is guessable."
     },
@@ -1169,9 +1470,14 @@
       "subsystem": "security",
       "status": "partial",
       "source": "QE-8",
-      "owning_modules": ["src/security/pq_transport.py"],
+      "owning_modules": [
+        "src/security/pq_transport.py"
+      ],
       "verification": [
-        { "test": "tests/test_security_pqc_posture.py", "test_type": "security" }
+        {
+          "test": "tests/test_security_pqc_posture.py",
+          "test_type": "security"
+        }
       ],
       "planned_in": "PR-008",
       "failure_mode": "A homemade primitive fails in a way only an attacker notices."
@@ -1185,7 +1491,9 @@
       "subsystem": "security",
       "status": "planned",
       "source": "QE-13",
-      "owning_modules": ["src/security/credential_vault.py"],
+      "owning_modules": [
+        "src/security/credential_vault.py"
+      ],
       "planned_in": "PR-008",
       "failure_mode": "Ciphertext and key are stolen together and the encryption bought nothing."
     },
@@ -1198,11 +1506,12 @@
       "subsystem": "security",
       "status": "planned",
       "source": "QE-10,QE-67",
-      "owning_modules": ["src/security/credential_vault.py"],
+      "owning_modules": [
+        "src/security/credential_vault.py"
+      ],
       "planned_in": "PR-008",
       "failure_mode": "A compromised host becomes a withdrawal, not just a bad trade."
     },
-
     {
       "id": "SUP-001",
       "kind": "requirement",
@@ -1212,7 +1521,9 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-28",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "A compromised action inherits write access to the repository."
     },
@@ -1225,7 +1536,9 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-28",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "A retagged action runs attacker code inside CI with the repository's secrets."
     },
@@ -1238,7 +1551,9 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-29,QE-30",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "A malicious PR prints the exchange key by editing a test."
     },
@@ -1251,7 +1566,9 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-37",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "Nobody can prove what is running in production."
     },
@@ -1264,7 +1581,9 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-27,QE-72",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "A known-exploited dependency sits in production for weeks."
     },
@@ -1277,7 +1596,9 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-36",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "A container escape becomes host root."
     },
@@ -1290,11 +1611,12 @@
       "subsystem": "supply_chain",
       "status": "planned",
       "source": "QE-27",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-009",
       "failure_mode": "A compromised package auto-deploys itself."
     },
-
     {
       "id": "RES-001",
       "kind": "requirement",
@@ -1304,7 +1626,9 @@
       "subsystem": "resilience",
       "status": "planned",
       "source": "QE-26",
-      "owning_modules": ["src/diagnostics/runtime_monitor.py"],
+      "owning_modules": [
+        "src/diagnostics/runtime_monitor.py"
+      ],
       "planned_in": "PR-010",
       "failure_mode": "Fail-open is chosen by default because no one chose anything."
     },
@@ -1317,7 +1641,9 @@
       "subsystem": "resilience",
       "status": "planned",
       "source": "QE-53",
-      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "owning_modules": [
+        "src/diagnostics/disaster_recovery.py"
+      ],
       "planned_in": "PR-010",
       "failure_mode": "A restart loses or doubles a live position."
     },
@@ -1330,9 +1656,14 @@
       "subsystem": "resilience",
       "status": "partial",
       "source": "QE-39",
-      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "owning_modules": [
+        "src/diagnostics/disaster_recovery.py"
+      ],
       "verification": [
-        { "test": "tests/test_disaster_recovery.py", "test_type": "recovery" }
+        {
+          "test": "tests/test_disaster_recovery.py",
+          "test_type": "recovery"
+        }
       ],
       "planned_in": "PR-010",
       "failure_mode": "The backup turns out to be unreadable on the day it is needed."
@@ -1346,7 +1677,9 @@
       "subsystem": "resilience",
       "status": "planned",
       "source": "QE-41",
-      "owning_modules": ["src/diagnostics/disaster_recovery.py"],
+      "owning_modules": [
+        "src/diagnostics/disaster_recovery.py"
+      ],
       "planned_in": "PR-010",
       "failure_mode": "Recovery takes longer than anyone assumed and nobody had a number to check against."
     },
@@ -1359,9 +1692,15 @@
       "subsystem": "resilience",
       "status": "partial",
       "source": "QE-52",
-      "owning_modules": ["src/execution/order_manager.py", "src/execution/idempotency.py"],
+      "owning_modules": [
+        "src/execution/order_manager.py",
+        "src/execution/idempotency.py"
+      ],
       "verification": [
-        { "test": "tests/test_runtime_monitor_concurrent_probes.py", "test_type": "resilience" }
+        {
+          "test": "tests/test_runtime_monitor_concurrent_probes.py",
+          "test_type": "resilience"
+        }
       ],
       "planned_in": "PR-010",
       "failure_mode": "A race doubles a position under exactly the market conditions that caused the race."
@@ -1375,7 +1714,9 @@
       "subsystem": "resilience",
       "status": "planned",
       "source": "QE-54",
-      "owning_modules": ["src/diagnostics/instrumentation.py"],
+      "owning_modules": [
+        "src/diagnostics/instrumentation.py"
+      ],
       "planned_in": "PR-010",
       "failure_mode": "The bot becomes too slow to act on its own signals and nothing says so."
     },
@@ -1388,10 +1729,19 @@
       "subsystem": "resilience",
       "status": "partial",
       "source": "QE-53",
-      "owning_modules": ["src/tuning/stress_simulator.py", "src/tuning/redteam_scheduler.py"],
+      "owning_modules": [
+        "src/tuning/stress_simulator.py",
+        "src/tuning/redteam_scheduler.py"
+      ],
       "verification": [
-        { "test": "tests/test_stress_simulator.py", "test_type": "chaos" },
-        { "test": "tests/test_redteam_scheduler.py", "test_type": "chaos" }
+        {
+          "test": "tests/test_stress_simulator.py",
+          "test_type": "chaos"
+        },
+        {
+          "test": "tests/test_redteam_scheduler.py",
+          "test_type": "chaos"
+        }
       ],
       "planned_in": "PR-010",
       "failure_mode": "\"It did not crash\" is mistaken for \"it stayed correct\"."
@@ -1405,7 +1755,10 @@
       "subsystem": "resilience",
       "status": "verified",
       "source": "QE-51",
-      "owning_modules": ["src/data/quality_gate.py", "src/execution/exchange_contract.py"],
+      "owning_modules": [
+        "src/data/quality_gate.py",
+        "src/execution/exchange_contract.py"
+      ],
       "verification": [
         {
           "test": "tests/fuzz/test_malformed_input_is_safe.py",
@@ -1415,7 +1768,6 @@
       ],
       "failure_mode": "A malformed message leaves the system in a state no test ever described."
     },
-
     {
       "id": "REL-001",
       "kind": "requirement",
@@ -1425,9 +1777,14 @@
       "subsystem": "release",
       "status": "partial",
       "source": "QE-60,QE-62",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": [
+        "src/risk/gates.py"
+      ],
       "verification": [
-        { "test": "tests/test_risk_gate.py", "test_type": "verification" }
+        {
+          "test": "tests/test_risk_gate.py",
+          "test_type": "verification"
+        }
       ],
       "planned_in": "PR-011",
       "failure_mode": "A strategy meets real capital before it has ever met real conditions."
@@ -1441,7 +1798,9 @@
       "subsystem": "release",
       "status": "planned",
       "source": "QE-62,QE-88",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "A merge becomes a deployment with nobody deciding."
     },
@@ -1454,7 +1813,9 @@
       "subsystem": "release",
       "status": "planned",
       "source": "QE-63",
-      "owning_modules": ["src/risk/gates.py"],
+      "owning_modules": [
+        "src/risk/gates.py"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "A regression meets the whole account at once."
     },
@@ -1467,9 +1828,15 @@
       "subsystem": "release",
       "status": "partial",
       "source": "QE-64",
-      "owning_modules": ["src/diagnostics/runtime_monitor.py", "src/risk/strategy_kill_switch.py"],
+      "owning_modules": [
+        "src/diagnostics/runtime_monitor.py",
+        "src/risk/strategy_kill_switch.py"
+      ],
       "verification": [
-        { "test": "tests/test_runtime_monitor_coverage.py", "test_type": "component" }
+        {
+          "test": "tests/test_runtime_monitor_coverage.py",
+          "test_type": "component"
+        }
       ],
       "planned_in": "PR-012",
       "failure_mode": "A human has to notice a problem that a rule could have caught in a second."
@@ -1483,7 +1850,10 @@
       "subsystem": "release",
       "status": "planned",
       "source": "QE-75",
-      "owning_modules": ["src/api/main.py", "src/diagnostics/runtime_monitor.py"],
+      "owning_modules": [
+        "src/api/main.py",
+        "src/diagnostics/runtime_monitor.py"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "The bot starts trading with a component that was never actually up."
     },
@@ -1496,10 +1866,18 @@
       "subsystem": "release",
       "status": "partial",
       "source": "QE-74",
-      "owning_modules": ["src/config.py"],
+      "owning_modules": [
+        "src/config.py"
+      ],
       "verification": [
-        { "test": "tests/test_unenforced_config_knobs.py", "test_type": "verification" },
-        { "test": "tests/test_env_example_documents_required_settings.py", "test_type": "verification" }
+        {
+          "test": "tests/test_unenforced_config_knobs.py",
+          "test_type": "verification"
+        },
+        {
+          "test": "tests/test_env_example_documents_required_settings.py",
+          "test_type": "verification"
+        }
       ],
       "planned_in": "PR-012",
       "failure_mode": "A debugging change made at 2am stays in production for a month."
@@ -1513,7 +1891,9 @@
       "subsystem": "release",
       "status": "planned",
       "source": "QE-66",
-      "owning_modules": ["src/diagnostics/runtime_monitor.py"],
+      "owning_modules": [
+        "src/diagnostics/runtime_monitor.py"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "A credential thief drains the account using perfectly valid credentials."
     },
@@ -1526,11 +1906,12 @@
       "subsystem": "release",
       "status": "planned",
       "source": "QE-61",
-      "owning_modules": [".github/workflows"],
+      "owning_modules": [
+        ".github/workflows"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "The only way out of a bad deploy is forward."
     },
-
     {
       "id": "GOV-001",
       "kind": "requirement",
@@ -1540,7 +1921,10 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-48",
-      "owning_modules": ["config/quality_registry.json", "src/quality/registry.py"],
+      "owning_modules": [
+        "config/quality_registry.json",
+        "src/quality/registry.py"
+      ],
       "verification": [
         {
           "test": "tests/quality/test_quality_registry.py",
@@ -1559,7 +1943,10 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-73",
-      "owning_modules": ["config/quality_registry.json", "src/quality/registry.py"],
+      "owning_modules": [
+        "config/quality_registry.json",
+        "src/quality/registry.py"
+      ],
       "verification": [
         {
           "test": "tests/quality/test_quality_registry.py",
@@ -1578,7 +1965,10 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-49",
-      "owning_modules": [".github/workflows", "scripts/check_mutation_score.py"],
+      "owning_modules": [
+        ".github/workflows",
+        "scripts/check_mutation_score.py"
+      ],
       "verification": [
         {
           "test": "tests/regression/test_regression_registry_contract.py",
@@ -1602,7 +1992,9 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-76",
-      "owning_modules": ["scripts/check_static_invariants.py"],
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
       "verification": [
         {
           "test": "tests/test_static_invariants.py",
@@ -1621,10 +2013,19 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-5",
-      "owning_modules": ["src/quality/registry.py", "scripts/generate_quality_docs.py"],
+      "owning_modules": [
+        "src/quality/registry.py",
+        "scripts/generate_quality_docs.py"
+      ],
       "verification": [
-        { "test": "tests/quality/test_quality_registry.py", "test_type": "verification" },
-        { "test": "tests/quality/test_quality_docs_in_sync.py", "test_type": "verification" }
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "verification"
+        },
+        {
+          "test": "tests/quality/test_quality_docs_in_sync.py",
+          "test_type": "verification"
+        }
       ],
       "failure_mode": "The matrix says a requirement is covered by a test that was deleted last quarter."
     },
@@ -1637,7 +2038,9 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-57,QE-58",
-      "owning_modules": ["docs/quality"],
+      "owning_modules": [
+        "docs/quality"
+      ],
       "verification": [
         {
           "test": "tests/regression/test_regression_registry_contract.py",
@@ -1656,7 +2059,10 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-59",
-      "owning_modules": ["scripts/collect_quality_metrics.py", "docs/quality"],
+      "owning_modules": [
+        "scripts/collect_quality_metrics.py",
+        "docs/quality"
+      ],
       "verification": [
         {
           "test": "tests/regression/test_regression_registry_contract.py",
@@ -1675,10 +2081,19 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-88",
-      "owning_modules": ["scripts/assert_jobs_green.py", "scripts/apply_repo_ruleset.py"],
+      "owning_modules": [
+        "scripts/assert_jobs_green.py",
+        "scripts/apply_repo_ruleset.py"
+      ],
       "verification": [
-        { "test": "tests/test_assert_jobs_green.py", "test_type": "verification" },
-        { "test": "tests/test_apply_repo_ruleset.py", "test_type": "verification" }
+        {
+          "test": "tests/test_assert_jobs_green.py",
+          "test_type": "verification"
+        },
+        {
+          "test": "tests/test_apply_repo_ruleset.py",
+          "test_type": "verification"
+        }
       ],
       "failure_mode": "A required check that never reports satisfies the requirement by being absent."
     },
@@ -1691,7 +2106,9 @@
       "subsystem": "governance",
       "status": "planned",
       "source": "QE-85",
-      "owning_modules": ["docs/quality"],
+      "owning_modules": [
+        "docs/quality"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "Maturity is claimed globally on the strength of the easiest subsystem."
     },
@@ -1704,13 +2121,264 @@
       "subsystem": "governance",
       "status": "planned",
       "source": "QE-87",
-      "owning_modules": ["docs/quality"],
+      "owning_modules": [
+        "docs/quality"
+      ],
       "planned_in": "PR-012",
       "failure_mode": "A single green percentage is mistaken for readiness."
     },
-
+    {
+      "id": "GOV-011",
+      "kind": "requirement",
+      "title": "CI output reaching an agent is bounded at 30 lines per fetch",
+      "statement": "Every command that can page a file, a history or a CI log into an agent's context must carry an explicit bound of at most 30 lines, and a violation returns exactly one configured instruction line and nothing else.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".claude/hooks/pre_tool_use.py",
+        "config/command_policy.json"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "unit",
+          "note": "Pins the limit at the inclusive boundary -- 30 allowed, 31 refused -- and asserts the refusal is the single line read from policy, so the message and the configuration cannot drift apart."
+        }
+      ],
+      "failure_mode": "An unbounded log fetch exhausts the context window, and the session loses the state it needed in order to fix the failure it was reading about."
+    },
+    {
+      "id": "GOV-012",
+      "kind": "requirement",
+      "title": "Live CI monitoring is refused, not rate-limited",
+      "statement": "Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f, watch -n, inotifywait -m, a while-true poll loop, or the Monitor tool -- is refused for this project regardless of what it is pointed at.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".claude/hooks/pre_tool_use.py",
+        "config/command_policy.json"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "unit",
+          "note": "Covers each spelling of a live watch and the Monitor tool, and asserts a bounded log fetch is still allowed, so the rule caps streams without blinding the agent to failures."
+        }
+      ],
+      "depends_on": [
+        "GOV-011"
+      ],
+      "failure_mode": "A watch with no end emits into context for as long as CI runs, which no per-call line bound can cap."
+    },
+    {
+      "id": "GOV-013",
+      "kind": "requirement",
+      "title": "CI failure is pushed to the pull request, never polled for",
+      "statement": "A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "unit",
+          "note": "Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones."
+        }
+      ],
+      "depends_on": [
+        "GOV-012"
+      ],
+      "failure_mode": "Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid."
+    },
+    {
+      "id": "GOV-014",
+      "kind": "requirement",
+      "title": "Every required check also runs in the merge queue",
+      "statement": "A workflow that gates a pull request must also trigger on merge_group, and its gate job must not be fenced off by a pull-request-only condition, so that every check branch protection requires can report on the queue ref.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/workflow-lint.yml",
+        ".github/workflows/security.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_merge_queue_wiring.py",
+          "test_type": "unit",
+          "note": "Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement."
+        }
+      ],
+      "depends_on": [
+        "GOV-013"
+      ],
+      "failure_mode": "A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed."
+    },
+    {
+      "id": "GOV-015",
+      "kind": "requirement",
+      "title": "Exactly one pull request is active, and a red one holds the line",
+      "statement": "At most one open pull request is non-draft at any time; every other entry is parked as a labelled draft whose jobs do not run. Nothing is promoted while an active entry exists, whatever its checks say, so a failing pull request is finished rather than set aside.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/pr-queue.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "unit",
+          "note": "Asserts promotion is short-circuited while an active entry exists, that entries are served oldest first, that a hand-made draft is never promoted, and that the controller cannot race itself into promoting two entries."
+        }
+      ],
+      "depends_on": [
+        "GOV-014"
+      ],
+      "failure_mode": "GitHub's own merge queue dequeues a failing entry and starts the next one, which sets the failure aside and lets a backlog of half-finished pull requests accumulate."
+    },
+    {
+      "id": "GOV-016",
+      "kind": "requirement",
+      "title": "A parked pull request spends no runner time",
+      "statement": "Every job of every workflow that gates a pull request is guarded so it does not run on a draft, and promotion updates the entry's branch before marking it ready for review.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/pr-queue.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/workflow-lint.yml",
+        ".github/workflows/security.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "unit",
+          "note": "Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it."
+        }
+      ],
+      "depends_on": [
+        "GOV-015"
+      ],
+      "failure_mode": "An unguarded job burns runner minutes on an entry that cannot merge; revealing an entry before updating its branch leaves it at the front of the queue with no run, because a GITHUB_TOKEN push triggers no workflow."
+    },
     {
       "id": "REG-0001",
+      "kind": "regression",
+      "title": "An active pull request with zero check runs is detected and restarted",
+      "statement": "When the entry at the front of the queue has no pull_request workflow runs for its head SHA, the controller reopens it so the workflows trigger, and says so on the pull request.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/pr-queue.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the front entry is checked for having no runs, that only pull_request runs are counted so GitHub's own dynamic runs cannot mask the stall, and that recovery is a reopen rather than a rewrite of the branch."
+        }
+      ],
+      "depends_on": [
+        "GOV-015"
+      ],
+      "failure_mode": "Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming.",
+      "notes": "No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from \"still running\". layer: monitoring"
+    },
+    {
+      "id": "REG-0002",
+      "kind": "regression",
+      "title": "The active queue entry is brought up to date, not only promoted ones",
+      "statement": "On every pass the controller checks whether the entry at the front of the queue is behind main and updates it if so, rather than relying on promotion, which happens once per entry.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/pr-queue.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the front entry's behind state is checked before the pass reports that it holds the line, and that a failed update warns rather than aborting, since an already-active entry has no promotion to abort."
+        }
+      ],
+      "depends_on": [
+        "REG-0001"
+      ],
+      "failure_mode": "Observed on PR #248 the moment the queue went live: it was already active, so promotion never ran on it, nothing brought it forward, and the ruleset's up-to-date requirement blocked it indefinitely with green checks and nothing failed.",
+      "notes": "The same shape as REG-0001 -- blocked, green, nothing failed, nobody told. layer: monitoring"
+    },
+    {
+      "id": "REG-0003",
+      "kind": "regression",
+      "title": "The queue advances in one pass instead of waiting for an event it cannot receive",
+      "statement": "A single controller pass merges the front entry when it is clean and promotes the next one, driven by a heartbeat rather than by push or pull_request events.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/pr-queue.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Asserts the clean front entry is merged in-pass, that merging clears the active slot so promotion below it still runs, and that the heartbeat is frequent enough to be the sole trigger."
+        }
+      ],
+      "depends_on": [
+        "REG-0002"
+      ],
+      "failure_mode": "A push made with GITHUB_TOKEN triggers no workflow. The controller arms auto-merge with that token, so the merge it produces wakes nothing and the queue stops advancing. Observed directly: #248 was armed by a human token and its merge triggered a run that promoted #258; #258 was armed by the controller, and its merge triggered nothing.",
+      "notes": "The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring"
+    },
+    {
+      "id": "REG-0004",
+      "kind": "regression",
+      "title": "The queue is woken by a gating workflow finishing, not by a schedule",
+      "statement": "The controller triggers on workflow_run completion of every workflow that gates a pull request, and on a pull request being closed, so it is driven by work finishing rather than by a clock.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        ".github/workflows/pr-queue.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "regression",
+          "note": "Derives the set of gating workflows from the workflows themselves and fails if the controller does not listen to one of them, so a new gate cannot quietly put the queue back on the clock."
+        }
+      ],
+      "depends_on": [
+        "REG-0003"
+      ],
+      "failure_mode": "GitHub throttles and drops high-frequency schedules. The controller was set to */5 and did not fire once in the following hour while the repository's nightly schedule ran normally, leaving six mergeable entries parked with nothing failed and no signal.",
+      "notes": "The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring"
+    },
+    {
+      "id": "REG-0005",
       "kind": "regression",
       "title": "A test's result never depends on which tests ran before it",
       "statement": "Every test establishes the state it asserts on. No test reads process-global state that an earlier test left behind, so a test's result is identical under any execution order and any pytest-xdist worker assignment.",
@@ -1718,7 +2386,11 @@
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-91",
-      "owning_modules": ["tests/conftest.py", "src/tuning/registry.py", "src/tuning/live_overrides.py"],
+      "owning_modules": [
+        "tests/conftest.py",
+        "src/tuning/registry.py",
+        "src/tuning/live_overrides.py"
+      ],
       "verification": [
         {
           "test": "tests/test_signal_engine.py",
@@ -1733,7 +2405,9 @@
       ],
       "failure_mode": "Three ensemble-blend tests passed in file order and failed under pytest-xdist, because AutoTuningScheduler.start() leaves risk.ensemble_blend_weight in a process-global registry and effective_risk_settings() then overlays it on top of the config a later test set. The engine blended at 0.15 while the test had configured 0.0, and the test still reported the code it names as correct.",
       "notes": "Escaped to the test suite, not to a running system: the blend weight the engine used in production was always correct, and what failed was the test's claim to have checked it. Filed as a regression anyway because the rule that a defect gets a permanent test applies to a false green as much as to a bad trade. layer: test-suite",
-      "depends_on": ["GOV-001"]
+      "depends_on": [
+        "GOV-001"
+      ]
     }
   ]
 }
