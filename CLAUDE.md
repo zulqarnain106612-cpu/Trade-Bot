@@ -123,6 +123,43 @@ Rules:
 Design laws, module contracts and wiring points: `docs/MATH_ARCHITECTURE.md`.
 Build order and exit gates: `docs/MATH_ROADMAP.md`.
 
+## Quality engineering applies to every change
+
+Every change to `src/`, `tests/`, `config/*.json` or `.github/workflows/`
+carries the quality contract with it. It is not a phase, a review step, or
+something to add at the end: the registry entry and the test that decides a
+change land in the same commit as the behaviour, because a test written after
+the code tends to assert what the code does rather than what it should.
+
+Before writing code, three questions: **which requirement does this serve,
+which test decides it, and what goes wrong in production if it is wrong?**
+A change that cannot answer them is not ready to be written.
+
+Before pushing:
+
+```bash
+python3 .claude/skills/quality-engineering/scripts/qe_gate.py
+```
+
+Seconds, reads files only. It checks the registry against its schema, that
+every claimed test exists, that the generated traceability document is in
+sync, that every JSON file validates, and that every pull-request workflow
+ends in a gate needing all its jobs. The full suite runs in GitHub Actions --
+a local pass proves nothing about the gate that merges the change.
+
+The reasoning, the change classes and the worked examples:
+`.claude/skills/quality-engineering/SKILL.md`. The gates, commands and rules
+as data: `.claude/skills/quality-engineering/qe.config.json`. A `PostToolUse`
+hook (`.claude/hooks/quality_gate.py`) applies the mechanical half after every
+edit, so a broken registry or an unpinned workflow surfaces immediately rather
+than in CI twenty minutes later; it fails open and can be silenced for one
+session with `TB_QUALITY_HOOK=off`.
+
+Never widen a gate to make a change pass. If a rule is wrong, argue it in the
+diff and change it deliberately -- a threshold moved in the same commit as the
+change it was blocking, with no argument, is indistinguishable a year later
+from a deadline that was close.
+
 ## Quality and security requirements registry
 
 `config/quality_registry.json` is the single source of truth for every
