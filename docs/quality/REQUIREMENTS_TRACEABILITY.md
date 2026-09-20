@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 99 |
+| VERIFIED | 100 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **99** |
+| **Total** | **100** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 18 | 18 |
+| Governance | 19 | 19 |
 
 ## Outstanding work by phase
 
@@ -1274,6 +1274,18 @@ When main moves, exactly one open pull request -- the oldest non-draft one whose
 - **Verification:**
   - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts it fires on a push to main and can be restarted by hand, that two runs cannot pick the same pull request, that it refuses GITHUB_TOKEN and fails before mutating anything when the PAT is absent, that it returns after one update, skips drafts, updates only a `behind` branch, retries an uncomputed mergeability, tolerates a 422 race, and parks or drafts nothing.
 
+#### `GOV-018` — Dependencies between src packages run downward, and the exceptions are a shrinking list
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+Every top-level package in src/ is placed in exactly one layer of config/architecture_layers.json and may import only from its own layer or a lower one; a package in no layer is a failure, each upward edge that already exists is declared with the argument for it, and an inversion that has been fixed must leave the list rather than leaving a slot for the next one.
+
+- **If violated:** A package-level cycle never fails at import time -- it hides behind submodule and deferred imports -- and surfaces instead as two packages that cannot be changed, tested or reasoned about apart.
+- **Owned by:** `config/architecture_layers.json`, `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (unit) — Pins the contract -- every package placed once, every layer and every accepted inversion carrying its argument, endpoints that exist on disk, api outermost -- and drives the rule on synthetic graphs: an upward edge is reported, a downward or same-layer one is not, an accepted one is not, a fixed one must be banked, and an unplaced package fails.
+  - `tests/test_static_invariants.py` (unit) — test_repository_satisfies_every_invariant runs the layering check against the live repository on every push.
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1317,4 +1329,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 99 entries.
+Registry version: 1.0.0 — 100 entries.

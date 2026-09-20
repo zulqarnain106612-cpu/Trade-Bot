@@ -46,6 +46,7 @@ Known limits — read these before trusting a clean run:
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from collections import defaultdict
@@ -154,6 +155,108 @@ def _slices_axis_labels(value: ast.AST) -> bool:
             return _slices_axis_labels(value.args[0])
         return False
     return isinstance(value, ast.Attribute) and value.attr in ("index", "columns")
+
+
+def _package_edges() -> tuple[dict[tuple[str, str], str], set[str]]:
+    """Every src package -> src package import, with one file that makes it."""
+    edges: dict[tuple[str, str], str] = {}
+    packages: set[str] = set()
+    for path in _py_files(SRC):
+        parts = path.relative_to(SRC).parts
+        package = parts[0] if len(parts) > 1 else parts[0][:-3]
+        if package == "__init__":
+            continue
+        packages.add(package)
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if not module.startswith("src."):
+                    continue
+                target = module.split(".")[1]
+                if target != package:
+                    edges.setdefault((package, target), _rel(path))
+    return edges, packages
+
+
+def _layering_problems(
+    contract: dict,
+    edges: dict[tuple[str, str], str],
+    packages: set[str],
+) -> list[str]:
+    """
+    Pure half of check_layering, so the rule can be tested on a graph that is
+    not this repository's.
+    """
+    rank = {
+        pkg: index
+        for index, layer in enumerate(contract["layers"])
+        for pkg in layer["packages"]
+    }
+    accepted = {(e["from"], e["to"]) for e in contract["accepted_upward_edges"]}
+    names = [layer["name"] for layer in contract["layers"]]
+    problems: list[str] = []
+
+    # A package nobody placed is a package nobody decided about. Failing here
+    # is the point: a new top-level package is an architectural decision.
+    for package in sorted(packages - set(rank)):
+        problems.append(
+            f"config/architecture_layers.json: src/{package} is in no layer -- "
+            "place it, or the contract says nothing about it"
+        )
+
+    upward: set[tuple[str, str]] = set()
+    for (source, target), where in sorted(edges.items()):
+        if source not in rank or target not in rank:
+            continue
+        if rank[target] <= rank[source]:
+            continue
+        upward.add((source, target))
+        if (source, target) not in accepted:
+            problems.append(
+                f"{where}: src/{source} imports src/{target}, which is a higher "
+                f"layer ({names[rank[source]]} -> {names[rank[target]]}). Move "
+                "the shared shape down, or add the edge to "
+                "accepted_upward_edges with the argument for it."
+            )
+
+    # The ratchet. An inversion that has been fixed must leave the list, or the
+    # next one to appear finds a slot already paid for.
+    for source, target in sorted(accepted - upward):
+        problems.append(
+            f"config/architecture_layers.json: src/{source} no longer imports "
+            f"src/{target} -- remove the accepted edge and bank the fix"
+        )
+
+    return problems
+
+
+def check_layering() -> list[str]:
+    """
+    Dependencies run downward. A package may import from its own layer or any
+    layer below it, never above.
+
+    check_import_cycles above refuses a *module*-level cycle, because that one
+    fails at import time and is therefore self-reporting. A *package*-level
+    cycle never fails: it hides behind submodule imports and deferred imports,
+    and surfaces instead as two packages that cannot be changed, tested or
+    reasoned about apart. `api` and `engine` import each other today; so do
+    `engine` and `strategies`.
+
+    The layer order and the edges that already run upward are declared in
+    config/architecture_layers.json. That list is a ratchet -- it may shrink
+    and never grow -- so an inversion has to be either fixed or argued for in
+    the diff that adds it, rather than accumulating silently.
+    """
+    contract = json.loads(
+        (REPO / "config" / "architecture_layers.json").read_text("utf-8")
+    )
+    edges, packages = _package_edges()
+    return _layering_problems(contract, edges, packages)
 
 
 def check_positional_column_slices() -> list[str]:
@@ -1416,6 +1519,7 @@ def check_dataclass_attributes_exist() -> list[str]:
 
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),
     ("naive datetimes", check_datetimes_are_timezone_aware),

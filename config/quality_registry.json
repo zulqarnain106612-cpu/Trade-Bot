@@ -2529,6 +2529,34 @@
       "failure_mode": "A branch updated with GITHUB_TOKEN starts no workflow run, so the pull request carries the check runs of its previous head: up to date, green-looking and permanently unmergeable -- the same trap the removed queue's promotion step fell into."
     },
     {
+      "id": "GOV-018",
+      "kind": "requirement",
+      "title": "Dependencies between src packages run downward, and the exceptions are a shrinking list",
+      "statement": "Every top-level package in src/ is placed in exactly one layer of config/architecture_layers.json and may import only from its own layer or a lower one; a package in no layer is a failure, each upward edge that already exists is declared with the argument for it, and an inversion that has been fixed must leave the list rather than leaving a slot for the next one.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "owning_modules": [
+        "config/architecture_layers.json",
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "unit",
+          "note": "Pins the contract -- every package placed once, every layer and every accepted inversion carrying its argument, endpoints that exist on disk, api outermost -- and drives the rule on synthetic graphs: an upward edge is reported, a downward or same-layer one is not, an accepted one is not, a fixed one must be banked, and an unplaced package fails."
+        },
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "unit",
+          "note": "test_repository_satisfies_every_invariant runs the layering check against the live repository on every push."
+        }
+      ],
+      "depends_on": [],
+      "failure_mode": "A package-level cycle never fails at import time -- it hides behind submodule and deferred imports -- and surfaces instead as two packages that cannot be changed, tested or reasoned about apart."
+    },
+    {
       "id": "REG-0005",
       "kind": "regression",
       "title": "A test's result never depends on which tests ran before it",

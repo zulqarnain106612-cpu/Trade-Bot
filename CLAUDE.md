@@ -329,6 +329,39 @@ diff and change it deliberately -- a threshold moved in the same commit as the
 change it was blocking, with no argument, is indistinguishable a year later
 from a deadline that was close.
 
+## Wiring: dependencies run downward (GOV-018)
+
+`config/architecture_layers.json` declares what may import what. Seven layers,
+bottom to top: **foundation** (config, logging_setup, mathcore, quality) ->
+**crypto** (ecc, security) -> **io** (data, diagnostics) -> **analytics**
+(causal, engines, features, fusion, intelligence, models, regime, tuning) ->
+**decision** (execution, risk, strategies) -> **orchestration** (engine, intel,
+upgrade, workers) -> **edge** (api). A package may import from its own layer or
+any layer below it, never above.
+
+`check_layering` in `scripts/check_static_invariants.py` enforces it, and runs
+in the suite on every push like every other invariant there.
+
+Why a second check when `check_import_cycles` exists: that one refuses a
+*module*-level cycle, which is the easy case -- it fails at import time, so it
+reports itself. A **package**-level cycle never fails. It hides behind
+submodule and deferred imports and surfaces instead as two packages that cannot
+be changed, tested or reasoned about apart.
+
+Six upward edges exist today and are declared in `accepted_upward_edges`, each
+with the argument for it. Two of them are real cycles (`api <-> engine`,
+`engine <-> strategies`) and two are domain code importing the HTTP edge
+(`engine -> api`, `intelligence -> api`). The list is a **ratchet**: fixing one
+means deleting its entry, and the check fails if a declared inversion no longer
+exists, so the fix is banked rather than leaving a slot for the next one.
+
+- **Adding a top-level package under `src/` fails the check** until it is
+  placed in a layer. That is deliberate -- where a package sits is an
+  architectural decision, not a default.
+- **Never add to `accepted_upward_edges` to make a violation go away.** Move
+  the shared shape down instead. If the edge is genuinely right, the layer
+  order is wrong, and that is the thing to change.
+
 ## Quality and security requirements registry
 
 `config/quality_registry.json` is the single source of truth for every
