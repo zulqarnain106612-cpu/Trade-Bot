@@ -158,6 +158,36 @@ So:
   human saying the work is not ready.
 - Open as many pull requests as you like. They are independent.
 
+### The "Update branch" button presses itself (GOV-017)
+
+The ruleset requires an up-to-date branch, so every merge leaves every other
+open pull request one commit behind. That button was the last manual step in
+the merge path and the reason a green pull request could sit for hours.
+
+`.github/workflows/pr-auto-update.yml` presses it. On every push to `main` it
+takes the **oldest open non-draft pull request whose `mergeable_state` is
+`behind`**, updates that one, and stops. Not all of them: updating every branch
+at once starts N full runs against a `main` that is about to move again, and
+N-1 of them answer a stale question. The chain sustains itself -- the updated
+pull request goes green, auto-merge merges it, that push fires the workflow
+again, and the next one is updated.
+
+It is **not** the queue coming back. Nothing is parked, drafted or closed, and
+every pull request still runs its own checks whenever it likes.
+
+**It requires `secrets.PR_AUTOUPDATE_TOKEN`** -- a PAT or GitHub App token with
+`repo` scope. Not an option: a push made with `GITHUB_TOKEN` starts no workflow
+run, so a branch updated with it would carry the check runs of its *previous*
+head -- up to date, green-looking and permanently unmergeable. That is the trap
+the removed queue's promotion step fell into. With the secret absent the job
+fails loudly and touches nothing, which is the correct half of the operation to
+perform.
+
+The zero-token alternative is the **merge queue**: every gating workflow already
+declares `merge_group`, so enabling it in branch protection makes GitHub build
+each pull request on top of `main` and run the checks there, and no branch ever
+needs updating. Either is fine; doing neither means clicking.
+
 
 ## CI wall clock is a property with a test (GOV-015)
 

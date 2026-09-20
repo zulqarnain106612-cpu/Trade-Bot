@@ -2505,6 +2505,30 @@
       "failure_mode": "A sleep or a spawn added to one test is imperceptible and is never attributed to the commit that added it, so the suite's cost rises monotonically and the minutes bought back by sharding are given away."
     },
     {
+      "id": "GOV-017",
+      "kind": "requirement",
+      "title": "The last manual step in the merge path presses itself, one pull request at a time",
+      "statement": "When main moves, exactly one open pull request -- the oldest non-draft one whose mergeable_state is `behind` -- is brought up to date, using a token whose pushes start workflow runs; a missing token fails the job rather than leaving a branch up to date with stale checks, nothing is parked, drafted or closed, and the chain continues when that pull request merges.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "owning_modules": [
+        ".github/workflows/pr-auto-update.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pr_auto_update_workflow.py",
+          "test_type": "unit",
+          "note": "Asserts it fires on a push to main and can be restarted by hand, that two runs cannot pick the same pull request, that it refuses GITHUB_TOKEN and fails before mutating anything when the PAT is absent, that it returns after one update, skips drafts, updates only a `behind` branch, retries an uncomputed mergeability, tolerates a 422 race, and parks or drafts nothing."
+        }
+      ],
+      "depends_on": [
+        "GOV-013"
+      ],
+      "failure_mode": "A branch updated with GITHUB_TOKEN starts no workflow run, so the pull request carries the check runs of its previous head: up to date, green-looking and permanently unmergeable -- the same trap the removed queue's promotion step fell into."
+    },
+    {
       "id": "REG-0005",
       "kind": "regression",
       "title": "A test's result never depends on which tests ran before it",

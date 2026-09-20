@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 98 |
+| VERIFIED | 99 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **98** |
+| **Total** | **99** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 17 | 17 |
+| Governance | 18 | 18 |
 
 ## Outstanding work by phase
 
@@ -1262,6 +1262,18 @@ The suite's own running cost is budgeted and the budget only ever falls: the num
 - **Verification:**
   - `tests/test_suite_speed_budget.py` (unit) — Counts sleeps between a scheduler yield and a cancelled-task sentinel and subprocess spawns across every test module, asserts both stay inside their frozen budgets, asserts no single stall exceeds 0.1s, and asserts each budget equals the actual count so slack cannot accumulate.
 
+#### `GOV-017` — The last manual step in the merge path presses itself, one pull request at a time
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+When main moves, exactly one open pull request -- the oldest non-draft one whose mergeable_state is `behind` -- is brought up to date, using a token whose pushes start workflow runs; a missing token fails the job rather than leaving a branch up to date with stale checks, nothing is parked, drafted or closed, and the chain continues when that pull request merges.
+
+- **If violated:** A branch updated with GITHUB_TOKEN starts no workflow run, so the pull request carries the check runs of its previous head: up to date, green-looking and permanently unmergeable -- the same trap the removed queue's promotion step fell into.
+- **Owned by:** `.github/workflows/pr-auto-update.yml`
+- **Depends on:** `GOV-013`
+- **Verification:**
+  - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts it fires on a push to main and can be restarted by hand, that two runs cannot pick the same pull request, that it refuses GITHUB_TOKEN and fails before mutating anything when the PAT is absent, that it returns after one update, skips drafts, updates only a `behind` branch, retries an uncomputed mergeability, tolerates a 422 race, and parks or drafts nothing.
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1305,4 +1317,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 98 entries.
+Registry version: 1.0.0 — 99 entries.
