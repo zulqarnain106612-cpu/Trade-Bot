@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 82 |
-| PARTIAL | 2 |
-| PLANNED | 7 |
+| VERIFIED | 91 |
+| PARTIAL | 0 |
+| PLANNED | 0 |
 | ACCEPTED GAP | 0 |
 | **Total** | **91** |
 
@@ -67,8 +67,8 @@ deletion of the thing it points at.
 | Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 9 | 2 |
-| Governance | 10 | 8 |
+| Release and production | 9 | 9 |
+| Governance | 10 | 10 |
 
 ## Outstanding work by phase
 
@@ -85,7 +85,7 @@ deletion of the thing it points at.
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
 | PR-011 | Paper-Trading Qualification | — |
-| PR-012 | Production/Canary Security Gate | `GOV-009`, `GOV-010`, `REL-002`, `REL-003`, `REL-004`, `REL-005`, `REL-006`, `REL-007`, `REL-008` |
+| PR-012 | Production/Canary Security Gate | — |
 
 ---
 
@@ -998,76 +998,83 @@ Live trading is unlocked only after the declared paper-trading qualification -- 
 
 #### `REL-002` — Production is a protected GitHub environment
 
-**PLANNED → PR-012** · critical · requirement · source: QE-62,QE-88
+**VERIFIED** · critical · requirement · source: QE-62,QE-88
 
 Deployment to production requires environment approval, a trusted branch, a trusted workflow and short-lived credentials; pushing to main is not sufficient.
 
 - **If violated:** A merge becomes a deployment with nobody deciding.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `.github/workflows/deploy.yml`
+- **Verification:**
+  - `tests/production/test_production_gate.py` (security) — Every deploying job names a protected environment, promote uses the stricter one, the workflow is dispatch-only, and its token is read-only by default.
 
 #### `REL-003` — Canary precedes full exposure
 
-**PLANNED → PR-012** · critical · requirement · source: QE-63
+**VERIFIED** · critical · requirement · source: QE-63
 
 A new release trades at a reduced exposure with monitoring before exposure is increased; there is no paper-to-100% path.
 
 - **If violated:** A regression meets the whole account at once.
-- **Owned by:** `src/risk/gates.py`
-- **Verification:** none yet
+- **Owned by:** `src/risk/gates.py`, `.github/workflows/deploy.yml`
+- **Verification:**
+  - `tests/production/test_production_gate.py` (e2e) — Promotion depends on the canary, the canary exposure is bounded at 25 percent, and promotion is skipped during a rollback drill.
 
 #### `REL-004` — Automatic halt triggers are machine-enforced
 
-**PARTIAL → PR-012** · critical · requirement · source: QE-64
+**VERIFIED** · critical · requirement · source: QE-64
 
 Unexpected position, reconciliation failure, data staleness, risk-engine failure, authentication anomaly, abnormal order rate, exchange errors, crash loop, model drift and unexpected configuration change each raise an alert, a safe halt and an audit record.
 
 - **If violated:** A human has to notice a problem that a rule could have caught in a second.
-- **Owned by:** `src/diagnostics/runtime_monitor.py`, `src/risk/strategy_kill_switch.py`
+- **Owned by:** `src/diagnostics/runtime_monitor.py`, `src/risk/strategy_kill_switch.py`, `src/diagnostics/halt_triggers.py`
 - **Verification:**
   - `tests/test_runtime_monitor_coverage.py` (component)
+  - `tests/production/test_halt_triggers.py` (resilience) — Each condition fires alone, a compound incident takes the strictest severity rather than the first match, and a trigger whose state is missing or malformed fires instead of passing.
 
 #### `REL-005` — The production startup self-test blocks live on any failure
 
-**PLANNED → PR-012** · critical · requirement · source: QE-75
+**VERIFIED** · critical · requirement · source: QE-75
 
 Configuration, secrets, TLS, database, exchange authentication, market-data freshness, model load, risk engine, audit, kill switch, reconciliation and qualification are all checked at startup; any failure means LIVE BLOCKED.
 
 - **If violated:** The bot starts trading with a component that was never actually up.
-- **Owned by:** `src/api/main.py`, `src/diagnostics/runtime_monitor.py`
-- **Verification:** none yet
+- **Owned by:** `src/api/main.py`, `src/diagnostics/runtime_monitor.py`, `src/diagnostics/startup_selftest.py`
+- **Verification:**
+  - `tests/production/test_startup_selftest.py` (verification) — Debug left on, a testnet endpoint, a cleartext endpoint, a percentage where a fraction was meant, a missing secret and an unreachable kill switch each block live; an unevaluated check blocks and stays distinct from a failed one.
 
 #### `REL-006` — Configuration drift is detected and DEBUG never reaches production
 
-**PARTIAL → PR-012** · critical · requirement · source: QE-74
+**VERIFIED** · critical · requirement · source: QE-74
 
 Unexpected environment variables, risk limits, exchanges, endpoints, debug mode or authentication configuration are detected against a versioned baseline, and DEBUG=true is refused in production.
 
 - **If violated:** A debugging change made at 2am stays in production for a month.
-- **Owned by:** `src/config.py`
+- **Owned by:** `src/config.py`, `src/diagnostics/startup_selftest.py`
 - **Verification:**
   - `tests/test_unenforced_config_knobs.py` (verification)
   - `tests/test_env_example_documents_required_settings.py` (verification)
+  - `tests/production/test_startup_selftest.py` (verification) — Drift is detected in both directions -- an added key is an unreviewed setting, a removed key is a deleted control -- and debug switching on shows as drift.
 
 #### `REL-007` — A behavioural security layer halts anomalous trading
 
-**PLANNED → PR-012** · critical · requirement · source: QE-66
+**VERIFIED** · critical · requirement · source: QE-66
 
 Order frequency, symbol set, size, direction and time-of-day are profiled, and a sharp deviation raises a security alert and halts trading even when the credentials are valid.
 
 - **If violated:** A credential thief drains the account using perfectly valid credentials.
-- **Owned by:** `src/diagnostics/runtime_monitor.py`
-- **Verification:** none yet
+- **Owned by:** `src/diagnostics/runtime_monitor.py`, `src/diagnostics/behavioural_guard.py`
+- **Verification:**
+  - `tests/production/test_behavioural_guard.py` (security) — Unknown symbol, off-hours activity, bursts, sub-second intervals, outsized orders and long directional runs all halt, while a normal session does not trip the guard. The profile is declared rather than learned.
 
 #### `REL-008` — Rollback is defined and exercised
 
-**PLANNED → PR-012** · high · requirement · source: QE-61
+**VERIFIED** · high · requirement · source: QE-61
 
 The production workflow can return to the previous trusted artifact, and a drill proves it.
 
 - **If violated:** The only way out of a bad deploy is forward.
-- **Owned by:** `.github/workflows`
-- **Verification:** none yet
+- **Owned by:** `.github/workflows`, `.github/workflows/deploy.yml`
+- **Verification:**
+  - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
 ## Governance
 
@@ -1164,23 +1171,25 @@ Direct push, force push, CI bypass, merging a failing PR and unreviewed critical
 
 #### `GOV-009` — The quality maturity target is Level 5 on the trading-critical path
 
-**PLANNED → PR-012** · medium · requirement · source: QE-85
+**VERIFIED** · medium · requirement · source: QE-85
 
 Supply-chain security, artifact provenance, cryptographic controls, continuous threat monitoring, formal traceability, mutation testing, red-team exercise and independent review all apply to the trading-critical path; non-critical utilities may sit lower, explicitly.
 
 - **If violated:** Maturity is claimed globally on the strength of the easiest subsystem.
-- **Owned by:** `docs/quality`
-- **Verification:** none yet
+- **Owned by:** `docs/quality`, `docs/quality/PRODUCTION_READINESS.md`
+- **Verification:**
+  - `tests/production/test_production_gate.py` (verification) — Each claimed Level 5 capability names an artifact that exists on disk: supply chain, provenance, cryptographic controls, threat model, recovery, traceability and the readiness conjunction.
 
 #### `GOV-010` — "Production ready" is a conjunction, not a coverage number
 
-**PLANNED → PR-012** · critical · requirement · source: QE-87
+**VERIFIED** · critical · requirement · source: QE-87
 
 Production readiness requires every mandatory test, every critical security control, no unresolved critical or high defect, risk invariants, model verification, the regression suite, the recovery test, paper qualification, artifact integrity and production approval -- all of them.
 
 - **If violated:** A single green percentage is mistaken for readiness.
-- **Owned by:** `docs/quality`
-- **Verification:** none yet
+- **Owned by:** `docs/quality`, `scripts/check_production_readiness.py`, `docs/quality/PRODUCTION_READINESS.md`
+- **Verification:**
+  - `tests/production/test_production_gate.py` (verification) — Readiness reports blockers rather than a percentage, every critical entry must be verified, a claimed test that is missing is a blocker, and an evaluation that cannot run exits 2 rather than being folded into a failure.
 
 
 ---
