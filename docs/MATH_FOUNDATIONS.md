@@ -513,7 +513,7 @@ Proves a committed vector is close to a low-degree polynomial without a trusted 
 ## Geometry, lattices and graphs
 
 #### LLL and BKZ lattice reduction
-`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: planned
+`lattice-reduction-lll` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 The workhorse of practical lattice attacks. Sets the concrete security of every lattice scheme and, combined with the hidden number problem, recovers ECDSA keys from biased nonces.
 
@@ -523,7 +523,7 @@ The workhorse of practical lattice attacks. Sets the concrete security of every 
 - **References:** Lenstra-Lenstra-Lovasz 1982, Albrecht et al. lattice estimator
 
 #### Hidden number problem and biased-nonce key recovery
-`hidden-number-problem` — **ATTACK SURFACE** · relevance: security · status: planned
+`hidden-number-problem` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 A handful of ECDSA signatures whose nonces share even a few known bits yield the private key by lattice reduction. This is the single most directly relevant attack in this registry for a system that signs.
 
@@ -625,7 +625,7 @@ Derives an unbounded key tree from one seed using HMAC-SHA512 and scalar additio
 - **References:** BIP-32, BIP-44, SLIP-0010
 
 #### RFC 6979 deterministic nonce generation
-`rfc6979-deterministic-nonces` — **LOAD-BEARING** · relevance: security · status: planned
+`rfc6979-deterministic-nonces` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Derives the ECDSA nonce deterministically from the key and message, removing the RNG from the signing path entirely and with it the entire biased-nonce attack class.
 

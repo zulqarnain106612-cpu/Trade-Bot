@@ -1109,7 +1109,7 @@
         "Coppersmith attacks on RSA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/lll.py",
@@ -1134,7 +1134,7 @@
         "Minerva and TPM-Fail"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/hnp.py",
@@ -1368,7 +1368,7 @@
         "most modern signing libraries"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/security/api_signer.py",
