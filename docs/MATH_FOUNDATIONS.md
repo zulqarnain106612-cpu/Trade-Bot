@@ -130,7 +130,7 @@ Makes signature aggregation and constant-size polynomial commitments possible by
 - **References:** IETF draft-irtf-cfrg-pairing-friendly-curves, EIP-4844
 
 #### Lattices and module algebra over polynomial rings
-`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: planned
+`lattices-module-algebra` — **LOAD-BEARING** · relevance: security · status: implemented
 
 The hardness base of the standardised post-quantum schemes: arithmetic in Z_q[x]/(x^n+1) with Learning With Errors as the assumption.
 
@@ -174,7 +174,7 @@ A post-quantum hardness candidate whose flagship instance was broken, which is e
 - **References:** Castryck-Decru 2022
 
 #### Lagrange interpolation over a finite field
-`lagrange-interpolation` — **LOAD-BEARING** · relevance: security · status: planned
+`lagrange-interpolation` — **LOAD-BEARING** · relevance: security · status: implemented
 
 A degree-t polynomial is determined by t+1 points and by no fewer, which is precisely the threshold property behind secret sharing and threshold signing.
 
@@ -349,7 +349,7 @@ The second half of the Baillie-PSW primality test. This is the one place where a
 ## Fourier and harmonic analysis
 
 #### Number-theoretic transform
-`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: planned
+`ntt` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
 
 The FFT carried out over a finite field. It turns polynomial multiplication from quadratic to n log n, which is what makes lattice cryptography and succinct proofs fast enough to deploy.
 
@@ -370,7 +370,7 @@ Defines S-box nonlinearity, correlation immunity and bent functions. It is the m
 - **Owned by:** `src/mathcore/harmonic/walsh_hadamard.py`
 
 #### Poisson summation and the lattice smoothing parameter
-`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: planned
+`poisson-summation-smoothing` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Fourier series on a lattice: it is how the discrete Gaussian is shown to behave like a continuous one above the smoothing parameter, which is the step every lattice security proof depends on.
 
@@ -566,14 +566,14 @@ Constants derived from a published formula so that no backdoor can hide in them.
 - **References:** FIPS 180-4, RFC 7539, Bernstein et al., How to manipulate curve standards
 
 #### Pi where it is structural rather than decorative
-`pi-structural-uses` — **LOAD-BEARING** · relevance: security · status: planned
+`pi-structural-uses` — **LOAD-BEARING** · relevance: security · status: implemented
 
 In the discrete Gaussian exp(-pi|x|^2/s^2) the pi is not cosmetic: it makes the Gaussian self-dual under the Fourier transform, which is the property Poisson summation needs for the smoothing-parameter argument.
 
 - **Used by:** ML-KEM security analysis, ML-DSA, Falcon
 - **Risk if misused:** Dropping the pi from the Gaussian definition when porting a formula changes the width by a constant factor and silently moves the scheme below its smoothing parameter.
 - **Depends on:** `poisson-summation-smoothing`
-- **Consumed by:** `src/mathcore/harmonic/gaussian_lattice.py`
+- **Owned by:** `src/mathcore/harmonic/gaussian_lattice.py`
 
 #### e and the prime number theorem
 `e-prime-density` — **LOAD-BEARING** · status: not_applicable
