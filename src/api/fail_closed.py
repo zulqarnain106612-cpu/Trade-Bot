@@ -57,6 +57,8 @@ UNAVAILABLE_DETAIL: Final[str] = (
 
 @dataclass(frozen=True)
 class ControlStatus:
+    """What one control last reported, and which control that was."""
+
     control: SecurityControl
     healthy: bool
     reason: str

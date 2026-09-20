@@ -209,7 +209,7 @@ def test_attribution_reports_per_strategy_stats(state, client):
 # ---------------------------------------------------------------------------
 
 
-def test_re_enable_unknown_strategy_is_a_404(state, client):
+def test_re_enable_unknown_strategy_is_a_404(state, client, healthy_security_controls):
     manager = MagicMock()
     manager.is_registered.return_value = False
 
@@ -223,7 +223,7 @@ def test_re_enable_unknown_strategy_is_a_404(state, client):
     assert resp.status_code == 404
 
 
-def test_re_enable_reports_the_failed_gauntlet_criteria(state, client):
+def test_re_enable_reports_the_failed_gauntlet_criteria(state, client, healthy_security_controls):
     from src.risk.strategy_kill_switch import GauntletNotPassedError
 
     manager = MagicMock()
@@ -241,7 +241,7 @@ def test_re_enable_reports_the_failed_gauntlet_criteria(state, client):
     assert resp.json()["detail"]["failed_criteria"] == ["sharpe", "trade_count"]
 
 
-def test_re_enable_succeeds_and_records_the_override(state, client):
+def test_re_enable_succeeds_and_records_the_override(state, client, healthy_security_controls):
     manager = MagicMock()
     manager.is_registered.return_value = True
 
