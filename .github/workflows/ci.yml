@@ -56,6 +56,15 @@ jobs:
       - name: Quality registry is valid and traceability doc in sync
         run: python3 scripts/generate_quality_docs.py --check
 
+      - name: Quality-engineering gates
+        # The same gates the skill runs before a push, run again here on the
+        # machine that actually decides the pull request. Running them in both
+        # places is deliberate: locally they save a round trip, and here they
+        # are what makes the contract binding rather than advisory. A step on
+        # this job rather than a job of its own, so the gate job's `needs:`
+        # set -- and therefore the required-check surface -- is unchanged.
+        run: python3 .claude/skills/quality-engineering/scripts/qe_gate.py
+
       - name: Lint
         run: ruff check .
 
