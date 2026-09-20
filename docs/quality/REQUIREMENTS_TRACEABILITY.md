@@ -1225,6 +1225,8 @@ When the entry at the front of the queue has no pull_request workflow runs for i
 - **Verification:**
   - `tests/test_pr_queue.py` (regression) — Asserts the front entry is checked for having no runs, that only pull_request runs are counted so GitHub's own dynamic runs cannot mask the stall, and that recovery is a reopen rather than a rewrite of the branch.
 
+> No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from "still running". layer: monitoring
+
 
 ---
 

@@ -1819,7 +1819,8 @@
         }
       ],
       "depends_on": ["GOV-015"],
-      "failure_mode": "Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming."
+      "failure_mode": "Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming.",
+      "notes": "No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from \"still running\". layer: monitoring"
     }
   ]
 }
