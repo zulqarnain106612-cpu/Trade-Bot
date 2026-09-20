@@ -1740,6 +1740,26 @@
       ],
       "depends_on": ["GOV-012"],
       "failure_mode": "Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid."
+    },
+    {
+      "id": "GOV-014",
+      "kind": "requirement",
+      "title": "Every required check also runs in the merge queue",
+      "statement": "A workflow that gates a pull request must also trigger on merge_group, and its gate job must not be fenced off by a pull-request-only condition, so that every check branch protection requires can report on the queue ref.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/workflow-lint.yml", ".github/workflows/security.yml"],
+      "verification": [
+        {
+          "test": "tests/test_merge_queue_wiring.py",
+          "test_type": "unit",
+          "note": "Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement."
+        }
+      ],
+      "depends_on": ["GOV-013"],
+      "failure_mode": "A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed."
     }
   ]
 }

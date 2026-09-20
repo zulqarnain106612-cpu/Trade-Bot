@@ -121,6 +121,32 @@ Auto-merge does the rest. Every pull request is set to `--squash --auto`, so
 GitHub merges it the moment its required checks are green, with no session
 running and nobody watching.
 
+## Merge queue: build a queue, never a backlog
+
+`main` is protected by a ruleset requiring the four gate checks **and** an
+up-to-date branch. Up-to-date is enforced, not waived: a pull request is tested
+against the main it will actually land on, not the one it was branched from.
+
+The merge queue is what makes that affordable. A pull request set to
+`gh pr merge <n> --squash --auto` joins the queue once its own checks are
+green; the queue tests each entry on a temporary ref of main plus everything
+ahead of it, merges it, and starts the next entry on its own. Nobody updates a
+branch by hand, and nobody waits: open the next pull request while the previous
+one is still queued, and it takes its place in line.
+
+The one rule that keeps this working:
+
+- **A workflow that gates a pull request must also trigger on `merge_group`.**
+  A required check that does not run on the queue ref never reports, so the
+  entry waits for a result that cannot arrive and the queue jams for everything
+  behind it -- silently, because nothing failed.
+  `tests/test_merge_queue_wiring.py` derives the gating set from the workflows
+  themselves and fails if one of them is missing the trigger, so adding a gate
+  cannot quietly reintroduce the jam. Recorded as GOV-014.
+
+The cloud review is deliberately **not** a required check and not a queue
+participant: it is advisory, and advisory things do not block a merge.
+
 ## Mathematical foundations registry
 
 `config/math_registry.json` is the single source of truth for every

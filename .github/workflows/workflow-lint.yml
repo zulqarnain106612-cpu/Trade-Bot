@@ -14,6 +14,12 @@ name: Workflow lint
 # preinstalled on ubuntu-latest -- the bodies of `run:` steps.
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: [main]
     paths:

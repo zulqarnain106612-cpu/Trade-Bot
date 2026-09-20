@@ -1,6 +1,12 @@
 name: "CodeQL"
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: ["main"]
   pull_request:
@@ -89,7 +95,7 @@ jobs:
           category: "/language:${{ matrix.language }}"
           # Uploading SARIF on pull_request creates an extra neutral "CodeQL"
           # check run; keep PR checks strictly green-only and upload on push.
-          upload: ${{ github.event_name != 'pull_request' }}
+          upload: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
 
   # ---------------------------------------------------------------------
   # All-green gate.
