@@ -67,10 +67,11 @@ class Result:
         return f"[{mark}] {self.gate}{suffix}" + (f": {self.detail}" if self.detail else "")
 
 
-# Mirrors the guard applied in .github/workflows/*.yml; owned by
-# tests/test_pr_queue.py, which asserts every gating job carries it.
-_DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
-_PERMITTED_GATE_CONDITIONS = frozenset({"always()", f"${{{{ {_DRAFT_GUARD} && (always()) }}}}"})
+# A gate may only ever be conditioned on always(). The draft guard used to be
+# permitted here too, and that was the hole: a draft skipped the gate job, and
+# GitHub counts a required check whose conclusion is `skipped` as satisfied.
+# PR #292 merged into main with all four gates skipped and its suite never run.
+_PERMITTED_GATE_CONDITIONS = frozenset({"always()", "${{ always() }}"})
 
 
 def load_config() -> dict[str, Any]:
