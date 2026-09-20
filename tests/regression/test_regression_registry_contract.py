@@ -134,6 +134,10 @@ class TestADefectEntryCannotClaimATestItDoesNotHave:
                 "subsystem": "execution",
                 "status": "verified",
                 "source": "QE-48",
+                # Required by the registry schema since it gained the
+                # cross-field rules: an entry nobody can describe the
+                # failure of is one nobody can size the priority of.
+                "failure_mode": "A retry creates a second position and the book is wrong.",
                 "verification": [
                     {
                         "test": "tests/regression/REG_0001_duplicate_orders.py",
@@ -160,6 +164,10 @@ class TestADefectEntryCannotClaimATestItDoesNotHave:
                 "subsystem": "execution",
                 "status": "verified",
                 "source": "QE-48",
+                # Required by the registry schema since it gained the
+                # cross-field rules: an entry nobody can describe the
+                # failure of is one nobody can size the priority of.
+                "failure_mode": "A retry creates a second position and the book is wrong.",
                 "notes": "layer: property",
                 "verification": [
                     {
@@ -186,6 +194,10 @@ class TestADefectEntryCannotClaimATestItDoesNotHave:
                 "subsystem": "execution",
                 "status": "planned",
                 "source": "QE-48",
+                # Required by the registry schema since it gained the
+                # cross-field rules: an entry nobody can describe the
+                # failure of is one nobody can size the priority of.
+                "failure_mode": "A retry creates a second position and the book is wrong.",
             },
         )
         with pytest.raises(RegistryError, match="planned_in"):
