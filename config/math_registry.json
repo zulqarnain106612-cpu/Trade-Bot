@@ -750,7 +750,7 @@
         "bent function construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/walsh_hadamard.py",
@@ -829,7 +829,7 @@
         "timing analysis of signing code"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/fft_spectral.py",

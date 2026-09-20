@@ -239,6 +239,25 @@ def _needs_bound(segment: str, cfg: dict[str, Any]) -> bool:
     return tokens[1] in required.get(head, [])
 
 
+def _live_monitoring(command: str, policy: dict[str, Any]) -> str:
+    """
+    Return the refusal message when a command is a live CI watch, else "".
+
+    A per-call line bound cannot cap a stream that never ends: `gh run watch`,
+    `tail -f` and a `while true` poll loop each emit for as long as CI runs,
+    and every line lands in context. Bulk log retrieval is not banned here --
+    it is capped by bounded_output, so the few lines that explain a failure
+    stay reachable. Only the open-ended form is refused.
+    """
+    cfg = policy.get("ci_observability", {})
+    if not cfg.get("enabled", True):
+        return ""
+    for pattern in cfg.get("live_patterns", []):
+        if re.search(pattern, command, re.IGNORECASE):
+            return str(cfg.get("message", "CI live monitoring is disabled."))
+    return ""
+
+
 def _violations(command: str, policy: dict[str, Any]) -> list[str]:
     """
     Collect every rule this command breaks, most severe first.
@@ -275,10 +294,29 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
                 "has explicitly approved this specific action."
             )
 
-    # 3. Unbounded output -------------------------------------------------
+    # 3. Live CI monitoring -----------------------------------------------
+    # A live watch is refused outright, and the bounded-output rules below are
+    # not consulted: its message already carries the line directive, and
+    # appending the bound refusal to it would say the same thing twice.
+    live = _live_monitoring(command, policy)
+    if live:
+        problems.append(live)
+        return problems
+
+    # 4. Unbounded output -------------------------------------------------
     bounded_cfg = policy.get("bounded_output", {})
     if bounded_cfg.get("enabled", True):
-        limit = int(bounded_cfg.get("max_declared_lines", 5))
+        limit = int(bounded_cfg.get("max_declared_lines", 30))
+        # One line leaves the hook on a bound violation, by configuration.
+        # A longer explanation is itself context spend on a call that was
+        # refused precisely to protect context.
+        refusal = str(
+            bounded_cfg.get(
+                "refusal_message",
+                f"only <={limit} lines are allowed,run command for minimum "
+                "line which can make you understand the failure",
+            )
+        )
         unbounded = set(bounded_cfg.get("unbounded_commands", []))
         exempt = set(bounded_cfg.get("exempt_commands", []))
         # An exempt command is never itself an unbounded reader; the
@@ -307,23 +345,12 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
             if not offender or _is_bounded(cmd, patterns):
                 continue
 
-            problems.append(
-                f"Unbounded read: `{offender}` can emit an entire file, tree or "
-                f"history into context. Project directive is at most {limit} lines "
-                f"per fetch. Use `sed -n '1,{limit}p' FILE`, `head -{limit}`, "
-                f"`grep -m {limit} PATTERN FILE` or `-n {limit}`, then request the "
-                f"next {limit} lines in a separate call."
-            )
+            problems.append(refusal)
             break
 
         oversized = _oversized_bounds(command, bounded_cfg, limit)
         if oversized:
-            problems.append(
-                f"Output bound of {max(oversized)} lines exceeds the {limit}-line "
-                f"per-fetch limit. Lower it to {limit} and page: read lines 1-{limit}, "
-                f"then {limit + 1}-{2 * limit} in a separate call. Widening the first "
-                "fetch is exactly what the directive forbids."
-            )
+            problems.append(refusal)
 
     return problems
 
@@ -350,7 +377,21 @@ def main() -> None:
         _fail_open(f"malformed hook payload: {exc}")
         return
 
-    if event.get("tool_name") != "Bash":
+    tool_name = event.get("tool_name")
+
+    # A banned tool is refused before the policy is even consulted for shape:
+    # Monitor is a live watch by construction, so there is no bounded form of
+    # it to fall back to. Loaded first because this check is not about the
+    # command string, which a non-Bash tool does not have.
+    if tool_name != "Bash":
+        try:
+            ci_cfg = _load_policy().get("ci_observability", {})
+        except Exception:
+            _emit("allow")
+            return
+        banned = set(ci_cfg.get("banned_tools", []))
+        if ci_cfg.get("enabled", True) and tool_name in banned:
+            _emit("deny", str(ci_cfg.get("message", "Live monitoring is disabled.")))
         _emit("allow")
         return
 
@@ -383,7 +424,11 @@ def main() -> None:
         _emit("allow")
         return
 
-    reason = " ".join(problems)
+    deduped: list[str] = []
+    for problem in problems:
+        if problem not in deduped:
+            deduped.append(problem)
+    reason = " ".join(deduped)
     if level == "warn":
         print(f"[pre_tool_use] policy warning: {reason}", file=sys.stderr)
         _emit("allow")

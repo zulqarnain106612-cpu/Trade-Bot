@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: [main]
   # No `paths-ignore` here. `CI gate (all jobs green)` is a required status
@@ -29,6 +35,7 @@ env:
 
 jobs:
   python-lint:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Python (lint + governance docs)
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -72,6 +79,7 @@ jobs:
         run: ruff format --check .
 
   python-tests:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Python tests (shard ${{ matrix.shard }}/${{ matrix.total }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -150,6 +158,7 @@ jobs:
           retention-days: 7
 
   python-coverage-floors:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Python coverage floors
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -192,6 +201,7 @@ jobs:
         run: python scripts/check_coverage_floors.py
 
   architecture:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Architecture Governance (crypto-architect)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -229,6 +239,7 @@ jobs:
           retention-days: 14
 
   frontend:
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: Frontend (build)
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -252,7 +263,7 @@ jobs:
   gate:
     name: CI gate (all jobs green)
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (always()) }}
     needs: [python-lint, python-tests, python-coverage-floors, architecture, frontend]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
