@@ -25,9 +25,16 @@ on:
     types: [opened, reopened]
   push:
     branches: [main]
-  # Events get missed; a queue that stalls silently is the thing being fixed.
+  # The heartbeat, and the only trigger that can be relied on.
+  #
+  # A push made with GITHUB_TOKEN does not trigger workflows. The controller
+  # arms auto-merge with that token, so the merge it produces raises no push
+  # event and this workflow is never woken by the thing it is waiting for.
+  # Observed directly: #248 was armed by a human token, its merge triggered a
+  # run and #258 was promoted; #258 was armed by the controller, and its merge
+  # triggered nothing at all.
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -124,10 +131,49 @@ jobs:
                 return;
               }
 
-              core.info(`#${front.number} holds the line; nothing is promoted.`);
-              core.summary.addRaw(`Active: #${front.number}. Parked: ${parked.length + active.length - 1}.`);
-              await core.summary.write();
-              return;
+              // An active entry can be out of date: it was active before the
+              // queue existed, or main moved under it. Promotion is what
+              // normally updates a branch, and promotion has already happened
+              // for this one, so nothing would ever bring it forward and the
+              // ruleset's up-to-date requirement blocks it indefinitely.
+              const detail = await github.rest.pulls.get({
+                ...context.repo, pull_number: front.number,
+              });
+              if (detail.data.mergeable_state === 'behind') {
+                try {
+                  await github.rest.pulls.updateBranch({
+                    ...context.repo, pull_number: front.number,
+                  });
+                  core.info(`updated #${front.number} from main`);
+                } catch (error) {
+                  core.warning(`#${front.number} could not be updated: ${error.message}`);
+                }
+              }
+
+              // Merge it here rather than waiting to be told it is green.
+              // Auto-merge stays armed as well, but it cannot be depended on
+              // to advance the queue: the merge it performs is attributed to
+              // the token that armed it, and a GITHUB_TOKEN merge wakes
+              // nothing. Doing it in-pass means one run both finishes an
+              // entry and starts the next, with no event in between.
+              if (detail.data.mergeable_state === 'clean') {
+                try {
+                  await github.rest.pulls.merge({
+                    ...context.repo, pull_number: front.number, merge_method: 'squash',
+                  });
+                  core.info(`merged #${front.number}`);
+                  active = [];
+                } catch (error) {
+                  core.warning(`#${front.number} could not be merged: ${error.message}`);
+                }
+              }
+
+              if (active.length > 0) {
+                core.info(`#${front.number} holds the line; nothing is promoted.`);
+                core.summary.addRaw(`Active: #${front.number}. Parked: ${parked.length}.`);
+                await core.summary.write();
+                return;
+              }
             }
 
             const next = parked[0];

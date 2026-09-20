@@ -239,3 +239,90 @@ class TestZeroCheckStall:
 
     def test_it_says_what_it_did(self):
         assert "no checks had started" in _script()
+
+
+class TestTheFrontEntryIsKeptCurrent:
+    """
+    The front entry has already been promoted, so nothing updates it again.
+
+    The ruleset requires an up-to-date branch. Promotion is what normally
+    satisfies that, and promotion happens once. An entry that is active and
+    behind -- because it was active before the queue existed, or because main
+    moved under it -- would sit at the front blocked forever, with green
+    checks and nothing failed. Observed on #248 the moment the queue went
+    live.
+    """
+
+    def test_a_stale_front_entry_is_brought_forward(self):
+        script = _script()
+        assert "mergeable_state === 'behind'" in script
+
+    def test_it_updates_the_front_entry_before_reporting_it_holds_the_line(self):
+        script = _script()
+        assert script.index("mergeable_state === 'behind'") < script.index(
+            "holds the line; nothing is promoted"
+        )
+
+    def test_a_failed_update_does_not_stop_the_pass(self):
+        """
+        Promotion aborts on a failed update because promoting into a conflict
+        wedges the queue. Here the entry is already active, so the pass simply
+        warns and moves on: there is nothing to abort.
+        """
+        script = _script()
+        tail = script[script.index("mergeable_state === 'behind'") :]
+        head = tail[: tail.index("holds the line; nothing is promoted")]
+        assert "core.warning" in head
+
+
+class TestTheQueueAdvancesWithoutAnEvent:
+    """
+    The queue cannot depend on being told that an entry merged.
+
+    A push made with GITHUB_TOKEN does not trigger workflows. The controller
+    arms auto-merge with that token, so the merge it produces raises no push
+    event and never wakes this workflow. It was observed directly: #248 was
+    armed by a human token and its merge triggered a run that promoted #258;
+    #258 was armed by the controller, and its merge triggered nothing, leaving
+    the queue idle until the schedule fired.
+
+    So a single pass both finishes the front entry and starts the next one.
+    """
+
+    def test_a_clean_front_entry_is_merged_in_the_same_pass(self):
+        script = _script()
+        assert "mergeable_state === 'clean'" in script
+        assert "pulls.merge" in script
+
+    def test_merging_clears_the_active_slot_so_the_pass_continues(self):
+        """
+        The promotion below is guarded on there being no active entry, so the
+        merge has to empty that slot or the pass would stop one line later
+        and the next entry would wait for an event that is not coming.
+        """
+        script = _script()
+        merge_at = script.index("pulls.merge")
+        assert "active = []" in script[merge_at : merge_at + 600]
+        assert "if (active.length > 0)" in script
+
+    def test_a_failed_merge_leaves_the_entry_holding_the_line(self):
+        """Not mergeable yet is the normal case, not an error."""
+        script = _script()
+        merge_at = script.index("pulls.merge")
+        assert "core.warning" in script[merge_at : merge_at + 600]
+        assert "holds the line; nothing is promoted" in script
+
+    def test_it_squashes_here_too(self):
+        script = _script()
+        assert "merge_method: 'squash'" in script
+
+    def test_the_heartbeat_is_frequent_enough_to_be_the_only_trigger(self):
+        """
+        With events unreliable, the schedule is not a backstop any more --
+        it is the mechanism. Thirty minutes would mean the queue advances
+        twice an hour.
+        """
+        cron = _triggers(_load(QUEUE))["schedule"][0]["cron"]
+        minutes = cron.split()[0]
+        assert minutes.startswith("*/")
+        assert int(minutes[2:]) <= 5

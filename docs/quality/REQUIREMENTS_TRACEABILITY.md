@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 51 |
+| VERIFIED | 53 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **98** |
+| **Total** | **100** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 17 | 15 |
+| Governance | 19 | 17 |
 
 ## Outstanding work by phase
 
@@ -1227,6 +1227,34 @@ When the entry at the front of the queue has no pull_request workflow runs for i
 
 > No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from "still running". layer: monitoring
 
+#### `REG-0002` — The active queue entry is brought up to date, not only promoted ones
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+On every pass the controller checks whether the entry at the front of the queue is behind main and updates it if so, rather than relying on promotion, which happens once per entry.
+
+- **If violated:** Observed on PR #248 the moment the queue went live: it was already active, so promotion never ran on it, nothing brought it forward, and the ruleset's up-to-date requirement blocked it indefinitely with green checks and nothing failed.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `REG-0001`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Asserts the front entry's behind state is checked before the pass reports that it holds the line, and that a failed update warns rather than aborting, since an already-active entry has no promotion to abort.
+
+> The same shape as REG-0001 -- blocked, green, nothing failed, nobody told. layer: monitoring
+
+#### `REG-0003` — The queue advances in one pass instead of waiting for an event it cannot receive
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+A single controller pass merges the front entry when it is clean and promotes the next one, driven by a heartbeat rather than by push or pull_request events.
+
+- **If violated:** A push made with GITHUB_TOKEN triggers no workflow. The controller arms auto-merge with that token, so the merge it produces wakes nothing and the queue stops advancing. Observed directly: #248 was armed by a human token and its merge triggered a run that promoted #258; #258 was armed by the controller, and its merge triggered nothing.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `REG-0002`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Asserts the clean front entry is merged in-pass, that merging clears the active slot so promotion below it still runs, and that the heartbeat is frequent enough to be the sole trigger.
+
+> The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring
+
 
 ---
 
@@ -1255,4 +1283,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 98 entries.
+Registry version: 1.0.0 — 100 entries.
