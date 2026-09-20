@@ -14,4 +14,4 @@ pytest-cov>=5.0,<8.0
 # snapshots and restores that registry per test, so worker assignment no
 # longer changes results.
 pytest-xdist>=3.6,<4.0
-ruff==0.16.6
+ruff==0.16.8
