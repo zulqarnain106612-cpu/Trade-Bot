@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 47 |
+| VERIFIED | 48 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **94** |
+| **Total** | **95** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 13 | 11 |
+| Governance | 14 | 12 |
 
 ## Outstanding work by phase
 
@@ -1177,6 +1177,18 @@ A run ending in failure, cancellation or timeout posts its failing jobs and thei
 - **Verification:**
   - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones.
 
+#### `GOV-014` — Every required check also runs in the merge queue
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+A workflow that gates a pull request must also trigger on merge_group, and its gate job must not be fenced off by a pull-request-only condition, so that every check branch protection requires can report on the queue ref.
+
+- **If violated:** A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed.
+- **Owned by:** `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/workflow-lint.yml`, `.github/workflows/security.yml`
+- **Depends on:** `GOV-013`
+- **Verification:**
+  - `tests/test_merge_queue_wiring.py` (unit) — Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement.
+
 
 ---
 
@@ -1205,4 +1217,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 94 entries.
+Registry version: 1.0.0 — 95 entries.
