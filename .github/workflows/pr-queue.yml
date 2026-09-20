@@ -21,11 +21,31 @@ name: PR queue
 #     work in progress and is left alone.
 
 on:
-  pull_request_target:
-    types: [opened, reopened]
   push:
     branches: [main]
-  # The heartbeat, and the only trigger that can be relied on.
+  # The trigger that actually fires.
+  #
+  # A queue entry's checks finishing is exactly the moment the queue needs to
+  # act, and it is an event that really happens: the controller promotes an
+  # entry, its CI runs, CI completes, this wakes. Merging then promotes the
+  # next entry, whose CI completes, which wakes this again -- the loop is
+  # driven by real work rather than by a clock.
+  workflow_run:
+    workflows:
+      - "CI"
+      - "CodeQL"
+      - "Workflow lint"
+      - "Security"
+    types: [completed]
+
+  # A human merging or closing an entry frees the queue too.
+  pull_request_target:
+    types: [opened, reopened, closed]
+
+  # Kept as a backstop, not relied on. GitHub throttles and drops
+  # high-frequency schedules: this workflow was set to */5 and did not fire
+  # once in the hour that followed, while the repository's nightly schedule
+  # ran normally. A queue whose only heartbeat is cron is a queue that stops.
   #
   # A push made with GITHUB_TOKEN does not trigger workflows. The controller
   # arms auto-merge with that token, so the merge it produces raises no push
