@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 44 |
+| VERIFIED | 47 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **91** |
+| **Total** | **94** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 10 | 8 |
+| Governance | 13 | 11 |
 
 ## Outstanding work by phase
 
@@ -1142,6 +1142,41 @@ Production readiness requires every mandatory test, every critical security cont
 - **Owned by:** `docs/quality`
 - **Verification:** none yet
 
+#### `GOV-011` — CI output reaching an agent is bounded at 30 lines per fetch
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+Every command that can page a file, a history or a CI log into an agent's context must carry an explicit bound of at most 30 lines, and a violation returns exactly one configured instruction line and nothing else.
+
+- **If violated:** An unbounded log fetch exhausts the context window, and the session loses the state it needed in order to fix the failure it was reading about.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (unit) — Pins the limit at the inclusive boundary -- 30 allowed, 31 refused -- and asserts the refusal is the single line read from policy, so the message and the configuration cannot drift apart.
+
+#### `GOV-012` — Live CI monitoring is refused, not rate-limited
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f, watch -n, inotifywait -m, a while-true poll loop, or the Monitor tool -- is refused for this project regardless of what it is pointed at.
+
+- **If violated:** A watch with no end emits into context for as long as CI runs, which no per-call line bound can cap.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`
+- **Depends on:** `GOV-011`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (unit) — Covers each spelling of a live watch and the Monitor tool, and asserts a bounded log fetch is still allowed, so the rule caps streams without blinding the agent to failures.
+
+#### `GOV-013` — CI failure is pushed to the pull request, never polled for
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-20
+
+A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.
+
+- **If violated:** Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Depends on:** `GOV-012`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones.
+
 
 ---
 
@@ -1170,4 +1205,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 91 entries.
+Registry version: 1.0.0 — 94 entries.

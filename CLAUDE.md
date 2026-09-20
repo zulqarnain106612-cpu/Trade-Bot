@@ -79,10 +79,14 @@ A `PreToolUse` hook (`.claude/hooks/pre_tool_use.py`, policy in
 `config/command_policy.json`) enforces the same rules on raw Bash calls, so
 these constraints hold in a session that never read this file:
 
-- Unbounded reads are refused. Use `sed -n '1,5p'`, `head -5`, `grep -m 5`,
-  `-n 5`. Then fetch the next five in a separate call.
-- A bound larger than 5 lines is refused. Widening the first fetch is the
+- Unbounded reads are refused. Use `sed -n '1,30p'`, `head -30`, `grep -m 30`,
+  `-n 30`. Then fetch the next thirty in a separate call.
+- A bound larger than 30 lines is refused. Widening the first fetch is the
   specific thing the directive forbids; page instead.
+- On a bound violation exactly one line leaves the hook:
+  `only <=30 lines are allowed,run command for minimum line which can make you
+  understand the failure`. Nothing else is emitted, because a refusal that
+  spends five sentences of context defeats the rule it is enforcing.
 - Destructive commands are refused, with the `shell_exec` path named in the
   refusal.
 - Commands that would print credentials into the transcript are refused.
@@ -91,6 +95,31 @@ The hook shares `classify()` with the runtime, so the two can never disagree.
 It fails **open** on its own misconfiguration and can be relaxed for one
 session with `TB_COMMAND_POLICY=warn|off` -- that override is the rollback
 path, not a way around a refusal you disagree with.
+
+## CI observability: capped logs, no live monitoring
+
+Reading CI is how an agent burns a context window without noticing. The rules
+are permanent and mechanical, not a matter of judgement in the moment:
+
+- **Live monitoring is banned outright.** `gh run watch`, `--watch`, `tail -f`,
+  `docker/kubectl logs -f`, `watch -n`, `inotifywait -m` and `while true`
+  poll loops are refused however they are spelled, and so is the `Monitor`
+  tool. A per-call line bound cannot cap a stream that has no end.
+- **Bulk log and report retrieval is capped, not banned.** `gh run view --log`,
+  `--log-failed`, `gh run list` and `gh api .../logs` are allowed only behind
+  an explicit bound of 30 lines or fewer. Fetch the minimum number of lines
+  that identifies the failure -- filter to the assertion, not to the run.
+- **`gh pr checks` / `gh pr view` are untouched.** A PR's check summary is one
+  line per check, and it is the right way to learn a PR's state.
+
+Do not go looking for failures. `.github/workflows/ci-failure-notify.yml`
+reports them: when a run ends in failure, cancellation or timeout it posts the
+failing jobs and their first failing step as a single, self-updating comment on
+the pull request. A green run posts nothing.
+
+Auto-merge does the rest. Every pull request is set to `--squash --auto`, so
+GitHub merges it the moment its required checks are green, with no session
+running and nobody watching.
 
 ## Mathematical foundations registry
 
