@@ -50,7 +50,6 @@ concurrency:
 
 jobs:
   actionlint:
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     name: actionlint (workflow schema)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -102,7 +101,7 @@ jobs:
   gate:
     name: Workflow lint gate (all jobs green)
     runs-on: ubuntu-latest
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.draft) && (always()) }}
+    if: ${{ always() }}
     needs: [actionlint]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
