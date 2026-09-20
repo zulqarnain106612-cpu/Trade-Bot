@@ -2502,7 +2502,8 @@
       "depends_on": [
         "GOV-015"
       ],
-      "failure_mode": "Trimming the job to ruff alone left qe_gate without jsonschema, which it raises GateError without, and without PyYAML, which it needs to parse the workflows. The local run passed because the developer's interpreter already had both, so the gap appeared only in CI."
+      "failure_mode": "Trimming the job to ruff alone left qe_gate without jsonschema, which it raises GateError without, and without PyYAML, which it needs to parse the workflows. The local run passed because the developer's interpreter already had both, so the gap appeared only in CI.",
+      "notes": "Escaped to CI, not to a running system: the gate this broke is what checks the registry, and it broke because the job stopped installing what the gate imports. It passed locally because the developer's interpreter already had jsonschema and PyYAML, so the only environment that could see it was the clean one. Filed because a green local run that is red in CI is a false green, and the rule that a defect gets a permanent test applies to those too. layer: test-suite"
     },
     {
       "id": "GOV-016",
@@ -2581,8 +2582,8 @@
       "failure_mode": "A package-level cycle never fails at import time -- it hides behind submodule and deferred imports -- and surfaces instead as two packages that cannot be changed, tested or reasoned about apart."
     },
     {
-      "id": "INV-011",
-      "kind": "invariant",
+      "id": "SIG-004",
+      "kind": "requirement",
       "title": "The eighteen-engine seam is asserted from both sides, positions included",
       "statement": "Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes one engine class with `async run(self, symbol, data)`; every engine given empty data abstains into a contract-valid EngineOutput rather than raising; EngineOrchestrator registers exactly eighteen engines in the order its positional attribution assumes; every engine has an SLA and every SLA an engine; and a cycle accounts for all eighteen as either an output or a named failure, each output honouring the same contract the producers were held to.",
       "criticality": "high",

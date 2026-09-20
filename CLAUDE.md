@@ -362,7 +362,7 @@ exists, so the fix is banked rather than leaving a slot for the next one.
   the shared shape down instead. If the edge is genuinely right, the layer
   order is wrong, and that is the thing to change.
 
-## Seam contracts: assert a hand-off from both sides (INV-011)
+## Seam contracts: assert a hand-off from both sides (SIG-004)
 
 `src/engines/` is the widest hand-off in the system -- eighteen producers, one
 consumer -- and `EngineOrchestrator.run` attributes the results **by position**:

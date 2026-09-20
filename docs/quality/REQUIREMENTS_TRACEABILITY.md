@@ -369,17 +369,6 @@ Aggregate exposure, cross-strategy correlation and portfolio agreement are evalu
 
 ## Signal and features
 
-#### `INV-011` — The eighteen-engine seam is asserted from both sides, positions included
-
-**VERIFIED** · high · invariant · source: OPS-2026-09-21
-
-Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes one engine class with `async run(self, symbol, data)`; every engine given empty data abstains into a contract-valid EngineOutput rather than raising; EngineOrchestrator registers exactly eighteen engines in the order its positional attribution assumes; every engine has an SLA and every SLA an engine; and a cycle accounts for all eighteen as either an output or a named failure, each output honouring the same contract the producers were held to.
-
-- **If violated:** run() attributes result i to E-{i+1} by position, so reordering the registration list files every output under the wrong engine, applies every SLA to the wrong engine and names the wrong thing in every log line -- silently, with no exception and no failing per-engine test.
-- **Owned by:** `src/engines/orchestrator.py`, `src/engines/schema.py`
-- **Verification:**
-  - `tests/test_engine_seam_contract.py` (integration) — Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists.
-
 #### `SIG-001` — Golden signal fixtures pin end-to-end behaviour
 
 **VERIFIED** · high · requirement · source: QE-43
@@ -415,6 +404,17 @@ Nightly mutation testing of the signal modules kills at least 85% of generated m
 - **Owned by:** `config/mutation_thresholds.json`, `.github/workflows`
 - **Verification:**
   - `tests/regression/test_regression_registry_contract.py` (mutation) — The signal subsystem's 85% floor.
+
+#### `SIG-004` — The eighteen-engine seam is asserted from both sides, positions included
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-21
+
+Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes one engine class with `async run(self, symbol, data)`; every engine given empty data abstains into a contract-valid EngineOutput rather than raising; EngineOrchestrator registers exactly eighteen engines in the order its positional attribution assumes; every engine has an SLA and every SLA an engine; and a cycle accounts for all eighteen as either an output or a named failure, each output honouring the same contract the producers were held to.
+
+- **If violated:** run() attributes result i to E-{i+1} by position, so reordering the registration list files every output under the wrong engine, applies every SLA to the wrong engine and names the wrong thing in every log line -- silently, with no exception and no failing per-engine test.
+- **Owned by:** `src/engines/orchestrator.py`, `src/engines/schema.py`
+- **Verification:**
+  - `tests/test_engine_seam_contract.py` (integration) — Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists.
 
 ## Models and leakage
 
@@ -1323,6 +1323,8 @@ python-lint installs each third-party module reachable from the scripts it runs 
 - **Depends on:** `GOV-015`
 - **Verification:**
   - `tests/test_ci_workflow_cost.py` (unit) — test_the_lint_job_installs_everything_its_steps_import walks the AST of qe_gate.py, both generate_*_docs.py and both registry modules, keeps the imports that are not stdlib, and asserts the job installs each one. Removing jsonschema from the install line fails it, which is the defect that produced the entry.
+
+> Escaped to CI, not to a running system: the gate this broke is what checks the registry, and it broke because the job stopped installing what the gate imports. It passed locally because the developer's interpreter already had jsonschema and PyYAML, so the only environment that could see it was the clean one. Filed because a green local run that is red in CI is a false green, and the rule that a defect gets a permanent test applies to those too. layer: test-suite
 
 
 ---
