@@ -138,10 +138,23 @@ jobs:
         # third of the lines -- 55-65% -- which is not a coverage regression,
         # it is arithmetic. The real 99% gate is enforced once, in
         # python-coverage-floors, against the combined data.
+        #
+        # -n auto --dist load spreads each shard across every core on its
+        # runner, so the two forms of parallelism compose: pytest-split picks
+        # which third of the suite this job runs, xdist spreads that third.
+        # This is only safe because the suite is order-independent: no test may
+        # read state an earlier one left behind, since --dist load assigns
+        # tests to workers in no particular order. The one violation of that
+        # (parameter_registry, a process-wide singleton that
+        # AutoTuningScheduler.start() wrote to and nobody reset) is now
+        # snapshotted and restored per test by an autouse fixture in
+        # tests/conftest.py. A test that only passes in a particular order is a
+        # bug in that test, not a reason to drop these flags.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
+            -n auto --dist load \
             --cov-fail-under=0
 
       - name: Upload coverage data

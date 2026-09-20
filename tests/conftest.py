@@ -249,6 +249,57 @@ def passing_gate_ctx(risk_cfg):
     return _make
 
 
+@pytest.fixture
+def healthy_security_controls():
+    """Declare API-008's security controls up for the duration of a test.
+
+    CONTROL_HEALTH starts degraded and only `lifespan` marks it healthy, so a
+    TestClient harness that never runs lifespan gets 503 from every gated
+    endpoint -- before the auth, validation or routing logic a test is
+    actually about. Request this fixture in those tests.
+
+    Deliberately not autouse: the fail-closed default is the behaviour under
+    test in tests/api/test_fail_closed_controls.py, and a global override
+    would quietly delete that guarantee everywhere. The reset afterwards
+    matters for the same reason -- leaving the process-wide registry healthy
+    would hide a real fail-closed regression in whatever runs next.
+    """
+    from src.api.fail_closed import CONTROL_HEALTH, mark_all_healthy
+
+    mark_all_healthy()
+    yield CONTROL_HEALTH
+    CONTROL_HEALTH.reset()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_parameter_registry():
+    """Snapshot and restore the process-wide self-tuning registry.
+
+    `parameter_registry` is a singleton and nothing in production ever
+    unregisters: AutoTuningScheduler.start() registers at startup and the
+    process exits with those registrations in place. Inside one test process
+    that is a leak -- any test that calls start() (tests/test_residual_gaps_batch2.py
+    does) leaves risk.ensemble_blend_weight registered, and
+    src/tuning/live_overrides.py then overlays it on top of whatever cfg.risk
+    a *later* test passes. The later test still asserts on its own config and
+    silently gets the leaked value instead.
+
+    Sequentially that stayed hidden because the polluting file happened to
+    sort after its victims; under pytest-xdist, which assigns tests to workers
+    in no particular order, it surfaced as three failures in
+    TestEnsembleBlendPersistence. Restoring the registry per test makes the
+    ordering irrelevant.
+    """
+    from src.tuning.registry import parameter_registry
+
+    with parameter_registry._lock:
+        saved = dict(parameter_registry._params)
+    yield
+    with parameter_registry._lock:
+        parameter_registry._params.clear()
+        parameter_registry._params.update(saved)
+
+
 @pytest.fixture(autouse=True)
 def _clear_mongo_client_caches():
     import kg.db

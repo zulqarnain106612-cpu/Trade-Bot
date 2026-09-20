@@ -119,39 +119,64 @@ class TestTheMathcoreDistinction:
     the line is, so neither side drifts into the other.
     """
 
-    # The modules that stand in the path of a live secret. These are the ones
-    # SECR-008 is about: whatever else the package does, the bytes that
-    # protect a key come from an established library.
-    KEY_HANDLING = (
-        "api_signer.py",
-        "at_rest.py",
-        "constant_time.py",
-        "key_lifecycle.py",
-        "randomness.py",
-    )
+    # The two places mathcore may be reached from src/security, and the reason
+    # each is not a custom primitive. Anything not named here fails, so adding
+    # a third use is a decision someone makes in this file, in a diff, rather
+    # than by writing an import.
+    #
+    # This allowlist replaces an earlier per-module ban that named the
+    # key-handling modules and forbade the import outright. That rule could
+    # not express `api_signer`'s audit use -- a second, from-scratch
+    # verification of an already-produced signature -- so the rule became the
+    # allowlist plus the structural tests below, which cover every module in
+    # the package rather than five of them.
+    MATHCORE_USES = {
+        "src/security/api_signer.py": (
+            "audit_signer() verifies an already-produced signature a second time "
+            "under the from-scratch Ed25519, to prove it is canonical and not "
+            "merely acceptable to the signer's own verifier. It produces no "
+            "signature and is on no request path."
+        ),
+        "src/security/pq_transport.py": (
+            "validate_parameters() checks an inert ML-KEM-768 stub's constants "
+            "against FIPS 203. The stub cannot encapsulate, so no ciphertext "
+            "depends on mathcore."
+        ),
+    }
 
-    def test_no_key_handling_module_rolls_its_own_mathematics(self):
-        # An earlier version of this test asserted that *no* security module
-        # imports mathcore, and it was wrong. `pq_transport` validates ML-KEM
-        # parameters through mathcore's NTT, which is analysis of a published
-        # parameter set rather than a primitive standing between an attacker
-        # and a secret -- exactly the use the distinction is meant to permit.
-        #
-        # The rule SECR-008 actually states is narrower and worth keeping: the
-        # modules that touch live key material delegate to a library. So that
-        # is what is asserted, against the list above rather than against the
-        # whole package.
-        offenders = [
+    def test_mathcore_is_not_in_the_security_path(self):
+        # The claim is that no security module performs production cryptography
+        # with this project's own implementations -- not that the name never
+        # appears. Reading mathcore to *check* a vetted library's output is the
+        # opposite of a custom primitive, so the rule is what the import does,
+        # not that it exists. An unlisted importer still fails.
+        importers = {
             p.relative_to(REPO).as_posix()
             for p in security_modules()
-            if p.name in self.KEY_HANDLING
-            and re.search(
+            if re.search(
                 r"^\s*from src\.mathcore|^\s*import src\.mathcore",
                 p.read_text(encoding="utf-8"),
                 re.M,
             )
-        ]
-        assert offenders == []
+        }
+        assert importers <= set(self.MATHCORE_USES), sorted(importers - set(self.MATHCORE_USES))
+
+    def test_every_permitted_mathcore_use_is_function_local(self):
+        # A module-level import makes mathcore part of the module's ordinary
+        # operation. Confining it inside the one function that audits or
+        # validates is what keeps it off the signing path, and is the
+        # structural difference between the permitted uses and the banned one.
+        for module in self.MATHCORE_USES:
+            source = (REPO / module).read_text(encoding="utf-8")
+            top_level = re.findall(r"^(?:from|import) src\.mathcore", source, re.M)
+            assert top_level == [], module
+
+    def test_the_permitted_modules_still_sign_with_the_vetted_library(self):
+        # The allowlist buys a second opinion, never a replacement. If
+        # api_signer ever stopped calling the audited library, the "audit"
+        # would be this project checking its own arithmetic against itself.
+        source = (SECURITY / "api_signer.py").read_text(encoding="utf-8")
+        assert "cryptography" in source or "nacl" in source
 
     def test_a_module_that_uses_mathcore_says_why(self):
         # The permission is not unconditional. A security module reaching into

@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 102 |
+| VERIFIED | 103 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **102** |
+| **Total** | **103** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 8 | 8 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 20 | 20 |
+| Governance | 21 | 21 |
 
 ## Outstanding work by phase
 
@@ -1333,6 +1333,21 @@ The controller triggers on workflow_run completion of every workflow that gates 
 
 > The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring
 
+#### `REG-0005` — A test's result never depends on which tests ran before it
+
+**VERIFIED** · high · regression · source: QE-91
+
+Every test establishes the state it asserts on. No test reads process-global state that an earlier test left behind, so a test's result is identical under any execution order and any pytest-xdist worker assignment.
+
+- **If violated:** Three ensemble-blend tests passed in file order and failed under pytest-xdist, because AutoTuningScheduler.start() leaves risk.ensemble_blend_weight in a process-global registry and effective_risk_settings() then overlays it on top of the config a later test set. The engine blended at 0.15 while the test had configured 0.0, and the test still reported the code it names as correct.
+- **Owned by:** `tests/conftest.py`, `src/tuning/registry.py`, `src/tuning/live_overrides.py`
+- **Depends on:** `GOV-001`
+- **Verification:**
+  - `tests/test_signal_engine.py` (verification) — TestEnsembleBlendPersistence pins its own blend weight rather than inheriting whatever the process-wide parameter_registry holds, and test_promoted_registry_weight_overrides_static_cfg asserts the registry overlay those tests previously depended on by accident.
+  - `tests/test_tuning_live_overrides.py` (unit) — Pins the overlay itself: a registered value wins over the base settings it is handed.
+
+> Escaped to the test suite, not to a running system: the blend weight the engine used in production was always correct, and what failed was the test's claim to have checked it. Filed as a regression anyway because the rule that a defect gets a permanent test applies to a false green as much as to a bad trade. layer: test-suite
+
 
 ---
 
@@ -1361,4 +1376,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 102 entries.
+Registry version: 1.0.0 — 103 entries.
