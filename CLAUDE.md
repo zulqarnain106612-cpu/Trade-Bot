@@ -113,9 +113,22 @@ are permanent and mechanical, not a matter of judgement in the moment:
   line per check, and it is the right way to learn a PR's state.
 
 Do not go looking for failures. `.github/workflows/ci-failure-notify.yml`
-reports them: when a run ends in failure, cancellation or timeout it posts the
-failing jobs and their first failing step as a single, self-updating comment on
-the pull request. A green run posts nothing.
+reports them: every completed run of a pull-request workflow leaves one
+self-updating comment on the pull request naming each job that is **not
+green** -- failure, cancellation, timeout, neutral, action_required, stale, or
+an unexcused skip -- with its first failing step **and the exact failing
+lines**, extracted server-side from the check annotations or, failing that,
+from a filtered and capped read of the job log. A green run posts nothing, and
+a standing red notice is rewritten as recovered once the fix lands.
+
+That comment is the interface. Read the last such comment on the pull request;
+it already contains what a log read would have told you. Only if it genuinely
+does not, fetch at most thirty lines filtered to the failing assertion. Never
+fetch a full run log or report, and never open a live watch.
+
+Waiting for a merge is the same discipline: come back after a plausible
+interval and read the comments. No polling loop, no `gh run watch`, no
+background monitor.
 
 Auto-merge does the rest. Every pull request is set to `--squash --auto`, so
 GitHub merges it the moment its required checks are green, with no session
@@ -144,6 +157,34 @@ So:
 - **Nothing converts a pull request to a draft on your behalf.** A draft is a
   human saying the work is not ready.
 - Open as many pull requests as you like. They are independent.
+
+
+## CI wall clock is a property with a test (GOV-015)
+
+A pull request used to wait ten to twelve minutes on a clean run, and almost
+none of it was testing. Three of the five CI jobs installed the full runtime
+dependency set -- a CPU torch wheel included -- to run `ruff check`, `coverage
+report` and a handful of stdlib-only registry scripts. An install is invisible
+in a green run, which is exactly why it survived.
+
+The shape that fixed it is pinned by `tests/test_ci_workflow_cost.py`:
+
+- **Only `python-tests` installs the project.** `python-lint`,
+  `python-coverage-floors` and `architecture` run stdlib-only scripts; each
+  installs the single tool it invokes and nothing else. The lint job reads its
+  ruff pin out of `requirements-dev.txt` rather than repeating it.
+- **The suite's install goes through `uv`** (`astral-sh/setup-uv`, SHA-pinned)
+  with its cache enabled and keyed on both requirements files. Same pins, same
+  interpreter, a fraction of the time, paid once per shard.
+- **Every workflow that installs torch names the CPU index first.** PyPI's
+  default wheel bundles the CUDA runtime: gigabytes for a CPU runner.
+- **Six shards, and `total` equals the length of `shard`.** pytest-split is
+  told `--splits $SHARD_TOTAL`; a mismatch runs part of the suite twice and
+  part never, which is a coverage hole wearing a green check.
+- **A superseded run on a branch is cancelled.** `main` is exempt.
+
+Adding an install to a job that does not import the project fails that test.
+That is deliberate: the cost is otherwise attributable to nothing.
 
 
 ## Mathematical foundations registry

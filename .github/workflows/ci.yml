@@ -51,16 +51,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
 
-      - name: Install dependencies
+      - name: Install lint tooling only
+        # Every script this job runs -- generate_math_docs, generate_quality_docs,
+        # qe_gate -- is pure stdlib. The only third-party thing here is ruff.
+        # This step used to install the full runtime requirements plus a CPU
+        # torch wheel in order to run `ruff check`: roughly three minutes of
+        # wall clock on every pull request, buying nothing. The version is read
+        # out of requirements-dev.txt rather than repeated, so CI and a local
+        # `ruff` can never disagree about what counts as a lint error.
         run: |
           python -m pip install --upgrade pip
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pip install "$(grep -E '^ruff==' requirements-dev.txt)"
 
       - name: Math registry is valid and doc in sync
         run: python3 scripts/generate_math_docs.py --check
@@ -90,8 +92,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-        total: [3]
+        # Six shards, not three. pytest-split divides by recorded duration, so
+        # doubling the shard count roughly halves test wall clock; the runners
+        # are free and concurrent, the waiting is not. Raise this only with a
+        # matching bump here and nowhere else -- SHARD_TOTAL below is derived.
+        shard: [1, 2, 3, 4, 5, 6]
+        total: [6]
 
     services:
       timescaledb:
@@ -124,17 +130,25 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
             requirements.txt
             requirements-dev.txt
 
       - name: Install dependencies
+        # Same two requirements files, same pins, same interpreter (`--system`),
+        # same CPU torch index pre-pass -- resolved and installed by uv instead
+        # of pip. The difference is the cache: setup-uv's wheel cache is keyed
+        # on the requirements files, so an unchanged dependency set is unpacked
+        # from cache rather than resolved and downloaded again. This is the
+        # single largest cost in the run and it is paid by every shard.
         run: |
-          python -m pip install --upgrade pip
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
-          pip install -r requirements.txt -r requirements-dev.txt
-          pip install pytest-split
+          uv pip install --system --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          uv pip install --system -r requirements.txt -r requirements-dev.txt pytest-split
 
       - name: Run tests (sharded)
         # --cov-fail-under=0 overrides the 99% aggregate in pyproject.toml for
@@ -186,16 +200,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
 
       - name: Install minimal deps for coverage check
+        # `coverage combine`, `coverage report` and check_coverage_floors.py
+        # read data files and pyproject.toml. None of them import the project,
+        # so none of them need the project's runtime dependencies -- this step
+        # installed all of them, torch included, to run two coverage commands.
+        # It sits directly on the critical path after the shards, so the
+        # minutes it wasted were minutes the pull request waited.
         run: |
           python -m pip install --upgrade pip
-          pip install coverage
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pip install "coverage[toml]"
 
       - name: Download coverage shards
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0

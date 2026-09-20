@@ -6,8 +6,19 @@ name: CI failure notice
 # knows it failed does the summarising, once, server-side, and leaves the
 # answer where a human or an agent can read it in a handful of lines.
 #
-# It reports only failure. A green run posts nothing, because a notification
-# that fires on success is a notification people learn to ignore.
+# It reports every outcome that is not green. "Not green" is the whole set:
+# failure, cancelled, timed_out, neutral, action_required, stale -- and a job
+# that reports `skipped`, because a skipped required check satisfies branch
+# protection without having verified anything, which is precisely how #292
+# merged with all four gates unrun.
+#
+# The notice carries the *exact* failing lines, not just the step name. That is
+# the point: an agent reading this comment must never need to fetch the run log
+# to find out what broke.
+#
+# A run that is green everywhere posts nothing new -- but if a red notice from
+# an earlier attempt is still standing on the pull request, it is rewritten to
+# say the workflow has recovered, so no stale red comment survives a fix.
 
 on:
   workflow_run:
@@ -22,6 +33,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
   pull-requests: write
 
 concurrency:
@@ -31,20 +43,28 @@ concurrency:
 
 jobs:
   notify:
-    # `failure` covers a real red check; `cancelled` and `timed_out` are
-    # reported too, because CLAUDE.md treats "not green" as the failure
-    # condition, and a silently cancelled run is the easiest one to miss.
-    if: >-
-      github.event.workflow_run.conclusion == 'failure' ||
-      github.event.workflow_run.conclusion == 'cancelled' ||
-      github.event.workflow_run.conclusion == 'timed_out'
+    # No `if:` on the job. Every completed run is inspected, because the run's
+    # own conclusion does not tell you whether a job inside it was skipped or
+    # neutral -- a run whose jobs all skipped concludes `success`.
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Post the failing jobs and steps on the pull request
+      - name: Post the failing jobs, steps and exact messages on the pull request
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const run = context.payload.workflow_run;
+
+            // Jobs legitimately allowed to skip. This is the union of every
+            // ALLOW_SKIPPED set in .github/workflows, and a test asserts the
+            // two stay equal -- excusing a job in a gate without excusing it
+            // here would bury the notice under noise nobody reads.
+            //   retrieve-context   -- no secrets on a fork pull request
+            //   dependency-review  -- only meaningful on a pull request
+            //   promote, rollback  -- deploy stages chosen per environment
+            const ALLOW_SKIPPED = new Set([
+              'retrieve-context', 'dependency-review', 'promote', 'rollback',
+            ]);
 
             // A workflow_run event carries its PRs only for same-repo
             // branches; for a fork the array is empty, so fall back to a
@@ -66,38 +86,98 @@ jobs:
               { ...context.repo, run_id: run.id, per_page: 100 },
             );
 
-            // Only jobs that are actually not green, and only the first
-            // failing step of each: that step name is what identifies the
-            // failure, and everything after it is downstream noise.
-            const bad = jobs.filter(j => j.conclusion && j.conclusion !== 'success' && j.conclusion !== 'skipped');
-            const lines = bad.map(j => {
-              const step = (j.steps || []).find(s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
-              const where = step ? ` -- step \`${step.name}\`` : '';
-              return `- **${j.name}**: ${j.conclusion}${where}`;
-            });
+            const isBad = (j) => {
+              if (!j.conclusion) return false;
+              if (j.conclusion === 'success') return false;
+              if (j.conclusion === 'skipped') return !ALLOW_SKIPPED.has(j.name);
+              return true;  // failure, cancelled, timed_out, neutral, action_required, stale
+            };
+            const bad = jobs.filter(isBad);
+
+            const marker = `<!-- ci-failure-notice:${run.name} -->`;
+
+            // Pull the exact message out of a failing job. Annotations first --
+            // they are the assertion text GitHub already extracted, and they
+            // cost one cheap call. Only if there are none do we read the job
+            // log, and then only its error-shaped lines, capped hard. Neither
+            // path ever puts a full log anywhere an agent can read it.
+            const MAX_MSG_LINES = 4;
+            const ERROR_RE = /^(E\s+|FAILED |ERROR |assert |.*::.*FAILED|##\[error\]|Error:|error:|\s*raise |AssertionError|\w+Error:)/;
+
+            async function messagesFor(job) {
+              try {
+                const ann = await github.rest.checks.listAnnotations({
+                  ...context.repo, check_run_id: job.id, per_page: 20,
+                });
+                const msgs = ann.data
+                  .filter(a => a.annotation_level !== 'notice')
+                  .map(a => (a.message || a.title || '').split('\n').filter(Boolean)[0])
+                  .filter(Boolean);
+                if (msgs.length) return msgs.slice(0, MAX_MSG_LINES);
+              } catch (e) {
+                core.info(`annotations unavailable for ${job.name}: ${e.message}`);
+              }
+              try {
+                const log = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  ...context.repo, job_id: job.id,
+                });
+                const text = typeof log.data === 'string'
+                  ? log.data
+                  : Buffer.from(log.data).toString('utf8');
+                const hits = text
+                  .split('\n')
+                  .map(l => l.replace(/^\S+\s+/, '').trim())  // strip the timestamp
+                  .filter(l => ERROR_RE.test(l));
+                // The last ones, not the first: a pytest run prints the summary
+                // of what actually failed at the end.
+                return hits.slice(-MAX_MSG_LINES);
+              } catch (e) {
+                core.info(`log unavailable for ${job.name}: ${e.message}`);
+                return [];
+              }
+            }
 
             // Capped on purpose. This comment is read into an agent's context
             // and must stay inside the same 30-line budget the command policy
             // enforces everywhere else.
-            const MAX = 20;
-            const shown = lines.slice(0, MAX);
-            if (lines.length > MAX) {
-              shown.push(`- ...and ${lines.length - MAX} more not listed`);
+            const MAX_JOBS = 4;
+            const lines = [];
+            for (const j of bad.slice(0, MAX_JOBS)) {
+              const step = (j.steps || []).find(
+                s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
+              const where = step ? ` -- step \`${step.name}\`` : '';
+              lines.push(`- **${j.name}**: ${j.conclusion}${where}`);
+              for (const m of await messagesFor(j)) {
+                lines.push(`  - \`${m.slice(0, 220).replace(/`/g, "'")}\``);
+              }
+            }
+            if (bad.length > MAX_JOBS) {
+              lines.push(`- ...and ${bad.length - MAX_JOBS} more not green, not listed`);
             }
 
-            const marker = `<!-- ci-failure-notice:${run.name} -->`;
-            const body = [
-              marker,
-              `### ${run.name} — ${run.conclusion}`,
-              '',
-              shown.join('\n') || '_No individual job reported a failure; the run itself did._',
-              '',
-              `[Full run](${run.html_url}) · commit \`${run.head_sha.slice(0, 7)}\``,
-              '',
-              '_Fix the named step, push, and this notice updates itself. ' +
-              'Do not fetch the run log unbounded: read at most 30 lines, ' +
-              'filtered to the failing assertion._',
-            ].join('\n');
+            const green = bad.length === 0 && run.conclusion === 'success';
+            const body = green
+              ? [
+                  marker,
+                  `### ${run.name} — recovered`,
+                  '',
+                  `Every job is green on commit \`${run.head_sha.slice(0, 7)}\`.`,
+                  '',
+                  `[Full run](${run.html_url})`,
+                ].join('\n')
+              : [
+                  marker,
+                  `### ${run.name} — ${run.conclusion}`,
+                  '',
+                  lines.join('\n') ||
+                    '_No individual job reported a problem; the run itself did._',
+                  '',
+                  `[Full run](${run.html_url}) · commit \`${run.head_sha.slice(0, 7)}\``,
+                  '',
+                  '_The lines above are the failure. Fix the named step and push; ' +
+                  'this notice updates itself. Do not fetch the run log: read at ' +
+                  'most 30 lines, filtered to the failing assertion._',
+                ].join('\n');
 
             for (const number of prNumbers) {
               // Update the previous notice for this workflow rather than
@@ -112,7 +192,10 @@ jobs:
                 await github.rest.issues.updateComment({
                   ...context.repo, comment_id: prior.id, body,
                 });
-              } else {
+              } else if (!green) {
+                // Nothing to supersede and nothing wrong: stay silent. A
+                // notification that fires on success is one people learn to
+                // ignore.
                 await github.rest.issues.createComment({
                   ...context.repo, issue_number: number, body,
                 });
@@ -121,6 +204,4 @@ jobs:
 
 # No `gate` job here on purpose. The project's gate law covers workflows that
 # run on `pull_request`, where a missing check silently satisfies branch
-# protection. This one runs on `workflow_run` and is never a required check,
-# and its single job is *meant* to skip on a green run -- a gate would turn
-# every successful CI run into a red notifier.
+# protection. This one runs on `workflow_run` and is never a required check.

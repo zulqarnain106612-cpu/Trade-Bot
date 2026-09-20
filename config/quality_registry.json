@@ -2408,7 +2408,7 @@
       "id": "GOV-013",
       "kind": "requirement",
       "title": "CI failure is pushed to the pull request, never polled for",
-      "statement": "A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.",
+      "statement": "Every completed run of a pull-request workflow posts a single self-updating comment naming each job that is not green -- failure, cancellation, timeout, neutral, action_required, stale, or an unexcused skip -- together with its first failing step and the exact failing lines, so no agent ever reads a run log; a green run posts nothing, and a standing notice is rewritten as recovered.",
       "criticality": "medium",
       "subsystem": "governance",
       "status": "verified",
@@ -2420,7 +2420,7 @@
         {
           "test": "tests/test_ci_failure_notify_workflow.py",
           "test_type": "unit",
-          "note": "Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones."
+          "note": "Asserts the job carries no `if:` so every completed run is inspected, that the not-green predicate is an inverted allowlist, that its ALLOW_SKIPPED set equals the union of every gate's, that the notice carries extracted failure messages under a hard line cap, and that it updates its prior comment rather than stacking new ones."
         }
       ],
       "depends_on": [
@@ -2454,6 +2454,31 @@
         "GOV-013"
       ],
       "failure_mode": "A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed."
+    },
+    {
+      "id": "GOV-015",
+      "kind": "requirement",
+      "title": "A pull request's wall clock is bounded by its tests, not its installs",
+      "statement": "Only the job that runs the test suite installs the project's runtime dependencies; jobs whose steps are stdlib-only install nothing beyond the one tool they invoke, torch is always taken from the CPU wheel index, the suite's install is cached and keyed on the requirements files, the shard count matches the declared split total, and a superseded run on a branch is cancelled.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "owning_modules": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_workflow_cost.py",
+          "test_type": "unit",
+          "note": "Asserts no stdlib-only job installs requirements.txt or torch, that the lint job reads its ruff pin from requirements-dev.txt, that the test job installs through uv with its cache enabled, that every workflow installing torch names the CPU index, that the shard list and the declared total agree, and that a new push cancels the previous run off main."
+        }
+      ],
+      "depends_on": [
+        "GOV-013"
+      ],
+      "failure_mode": "An install added to a job that does not need it is invisible in a green run, so minutes accumulate on every pull request with nothing attributing them to the change that added them."
     },
     {
       "id": "REG-0005",

@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 96 |
+| VERIFIED | 97 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **96** |
+| **Total** | **97** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 15 | 15 |
+| Governance | 16 | 16 |
 
 ## Outstanding work by phase
 
@@ -1218,13 +1218,13 @@ Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f,
 
 **VERIFIED** · medium · requirement · source: OPS-2026-09-20
 
-A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.
+Every completed run of a pull-request workflow posts a single self-updating comment naming each job that is not green -- failure, cancellation, timeout, neutral, action_required, stale, or an unexcused skip -- together with its first failing step and the exact failing lines, so no agent ever reads a run log; a green run posts nothing, and a standing notice is rewritten as recovered.
 
 - **If violated:** Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid.
 - **Owned by:** `.github/workflows/ci-failure-notify.yml`
 - **Depends on:** `GOV-012`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones.
+  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the job carries no `if:` so every completed run is inspected, that the not-green predicate is an inverted allowlist, that its ALLOW_SKIPPED set equals the union of every gate's, that the notice carries extracted failure messages under a hard line cap, and that it updates its prior comment rather than stacking new ones.
 
 #### `GOV-014` — Every required check also runs in the merge queue
 
@@ -1237,6 +1237,18 @@ A workflow that gates a pull request must also trigger on merge_group, and its g
 - **Depends on:** `GOV-013`
 - **Verification:**
   - `tests/test_merge_queue_wiring.py` (unit) — Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement.
+
+#### `GOV-015` — A pull request's wall clock is bounded by its tests, not its installs
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+Only the job that runs the test suite installs the project's runtime dependencies; jobs whose steps are stdlib-only install nothing beyond the one tool they invoke, torch is always taken from the CPU wheel index, the suite's install is cached and keyed on the requirements files, the shard count matches the declared split total, and a superseded run on a branch is cancelled.
+
+- **If violated:** An install added to a job that does not need it is invisible in a green run, so minutes accumulate on every pull request with nothing attributing them to the change that added them.
+- **Owned by:** `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`
+- **Depends on:** `GOV-013`
+- **Verification:**
+  - `tests/test_ci_workflow_cost.py` (unit) — Asserts no stdlib-only job installs requirements.txt or torch, that the lint job reads its ruff pin from requirements-dev.txt, that the test job installs through uv with its cache enabled, that every workflow installing torch names the CPU index, that the shard list and the declared total agree, and that a new push cancels the previous run off main.
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1281,4 +1293,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 96 entries.
+Registry version: 1.0.0 — 97 entries.
