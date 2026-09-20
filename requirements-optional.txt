@@ -25,7 +25,7 @@ evidently>=0.4,<1.0                # src/diagnostics drift
 
 # --- causal / topological ---------------------------------------------------
 dowhy>=0.14,<1.0                   # src/causal
-giotto-tda>=0.6,<1.0               # src/features (imports as gtda)
+giotto-tda>=0.6.2,<1.0               # src/features (imports as gtda)
 
 # --- market / chain data ----------------------------------------------------
 yfinance>=0.2,<1.0                 # src/data
