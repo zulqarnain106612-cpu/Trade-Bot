@@ -152,9 +152,19 @@ The rules that keep it from stalling:
   `always()` is kept -- the guard is ANDed onto it, never a replacement
   (GOV-016). Dropping `always()` would skip the gate the moment a dependency
   fails, and a skipped required check blocks nothing.
-- **Update the branch before revealing the entry.** A push made with
-  `GITHUB_TOKEN` triggers no workflow; `ready_for_review` does. Reveal first
-  and the entry sits at the front with no run and no way to get one.
+- **Promotion runs under `secrets.GH_TOKEN`, not `GITHUB_TOKEN`.** GitHub
+  raises no workflow run for *any* event produced with the built-in token --
+  a push, and equally a draft being marked ready. Promote with it and the
+  entry sits at the front, ready and mergeable, with no run and no way to get
+  one. A fork's entry is withheld from that token and only parked (SUP-003).
+- **Update the branch before revealing the entry.** The push raises nothing
+  either way, so the run that matters is the one `ready_for_review` starts
+  against the already-updated head.
+- **A workflow that gates a pull request names its `types:` explicitly and
+  includes `ready_for_review`.** It is not one of the defaults, so a gate
+  that takes them cannot see the only event promotion produces. Naming types
+  replaces the defaults rather than extending them -- spell out `opened`,
+  `synchronize` and `reopened` alongside it (REG-0006).
 - **Only labelled drafts are promoted.** A draft made by hand is work in
   progress and is left alone.
 
