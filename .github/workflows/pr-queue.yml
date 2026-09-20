@@ -14,9 +14,11 @@ name: PR queue
 #     it cannot merge, and every gating workflow skips its jobs on a draft, so
 #     a parked entry spends no runner minutes at all.
 #   - Promotion updates the branch from main *first*, then marks the pull
-#     request ready. The order matters: a push made with GITHUB_TOKEN does not
-#     trigger workflows, but `ready_for_review` does, so CI runs against the
-#     already-updated head.
+#     request ready. The order matters: neither call raises a workflow run
+#     when it is made with the built-in GITHUB_TOKEN, so promotion runs under
+#     `secrets.GH_TOKEN`; `ready_for_review` is then a real event and CI runs
+#     against the already-updated head. Without that secret the entry is
+#     promoted but nothing starts it -- see REG-0006.
 #   - Only labelled drafts are promoted. A draft someone made by hand is a
 #     work in progress and is left alone.
 
@@ -83,6 +85,20 @@ jobs:
       - name: Park every extra entry, promote the front one
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
+          # GitHub raises no workflow run for *any* event produced with the
+          # built-in GITHUB_TOKEN -- not just pushes. Promotion done with it
+          # marks the entry ready and starts nothing, so the front of the
+          # queue sits with no run and no way to get one, and somebody has to
+          # push an empty commit by hand. A separate credential is what makes
+          # `ready_for_review` a real event. Falls back to GITHUB_TOKEN so a
+          # repository without the secret still parks correctly; only
+          # promotion is degraded. REG-0006.
+          #
+          # A fork reaches this workflow through pull_request_target, which
+          # runs with the base repository's secrets. Such an entry only ever
+          # needs parking, and GITHUB_TOKEN parks perfectly well, so the
+          # elevated token is withheld from it (SUP-003).
+          github-token: ${{ (!github.event.pull_request.head.repo.fork && secrets.GH_TOKEN) || secrets.GITHUB_TOKEN }}
           script: |
             const LABEL = 'queued';
 
@@ -211,9 +227,10 @@ jobs:
               return;
             }
 
-            // Update first, then reveal. A GITHUB_TOKEN push triggers nothing,
-            // so the run that matters is the one `ready_for_review` starts
-            // against the already-updated head.
+            // Update first, then reveal. The push triggers nothing either
+            // way, so the run that matters is the one `ready_for_review`
+            // starts against the already-updated head -- which only happens
+            // because this step runs under a token that is not GITHUB_TOKEN.
             try {
               await github.rest.pulls.updateBranch({
                 ...context.repo, pull_number: next.number,

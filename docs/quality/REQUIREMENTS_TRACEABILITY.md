@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 102 |
+| VERIFIED | 103 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **102** |
+| **Total** | **103** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 8 | 8 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 20 | 20 |
+| Governance | 21 | 21 |
 
 ## Outstanding work by phase
 
@@ -1333,6 +1333,20 @@ The controller triggers on workflow_run completion of every workflow that gates 
 
 > The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring
 
+#### `REG-0006` — Promotion produces an event a gating workflow can actually see
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+The queue controller promotes under a credential other than the built-in GITHUB_TOKEN, and every workflow that gates a pull request names ready_for_review among its pull_request activity types, so revealing the front entry starts its checks.
+
+- **If violated:** PR #279 was promoted and no run started. Two causes, either sufficient: GitHub raises no workflow run for events produced with GITHUB_TOKEN, and none of the four gating workflows listed ready_for_review, which is not a default activity type. The entry sat ready, mergeable and unverified with ten more parked behind it; the queue was unjammed by pushing an empty commit by hand.
+- **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/security.yml`, `.github/workflows/workflow-lint.yml`
+- **Depends on:** `REG-0004`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Derives the gating workflows from the workflows themselves and fails if one takes the default activity types, so a new gate cannot be added without this trigger. Separately asserts the promotion step does not run under the bare GITHUB_TOKEN.
+
+> The fifth variant of the same failure as REG-0001..REG-0004: the queue is stopped and nothing says so. This one was documented as working -- the workflow's own comment asserted that ready_for_review triggers a run -- which is why it survived four previous passes over the same file. layer: monitoring
+
 
 ---
 
@@ -1361,4 +1375,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 102 entries.
+Registry version: 1.0.0 — 103 entries.

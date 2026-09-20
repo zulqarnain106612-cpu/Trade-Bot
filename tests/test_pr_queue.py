@@ -388,3 +388,66 @@ class TestTheQueueIsWokenByWorkFinishing:
         design no longer depends on it.
         """
         assert "schedule" in _triggers(_load(QUEUE))
+
+
+class TestPromotionActuallyStartsARun:
+    """
+    REG-0006. Promotion had two independent ways to succeed and start
+    nothing, and the symptom of either is the same: the front of the queue
+    is ready, mergeable and green-eligible, with no run against it and no
+    event left that could produce one. Nobody is paged, because nothing
+    failed. The line simply stops until a human pushes an empty commit.
+    """
+
+    @pytest.mark.parametrize("path", gating_workflows(), ids=lambda p: p.name)
+    def test_every_gating_workflow_listens_for_ready_for_review(self, path):
+        # `ready_for_review` is not a default activity type. A workflow that
+        # does not name it cannot see the one event promotion produces, so
+        # the entry is revealed to no audience. Naming any `types:` at all
+        # is what makes this a decision rather than an accident -- which is
+        # why the defaults have to be spelled out alongside it.
+        trigger = _triggers(_load(path))["pull_request"] or {}
+        types = trigger.get("types")
+        assert types is not None, (
+            f"{path.name} takes the default types, which exclude ready_for_review"
+        )
+        assert "ready_for_review" in types, path.name
+        # Naming types replaces the defaults rather than adding to them, so
+        # forgetting one here silently stops CI on ordinary pushes.
+        assert {"opened", "synchronize", "reopened"} <= set(types), path.name
+
+    def test_promotion_does_not_run_under_the_built_in_token(self):
+        # GitHub raises no workflow run for any event produced with
+        # GITHUB_TOKEN. The step may fall back to it so that a fork still
+        # parks, but it must not be the only thing it can use: with the bare
+        # default, `ready_for_review` is not an event anyone receives.
+        steps = _load(QUEUE)["jobs"]["reconcile"]["steps"]
+        tokens = [
+            s.get("with", {}).get("github-token") for s in steps if s.get("with", {}).get("script")
+        ]
+        assert tokens and all(tokens), "the promotion step must name a github-token"
+        for token in tokens:
+            assert token.strip("${} ") != "secrets.GITHUB_TOKEN", token
+            assert "GH_TOKEN" in token, token
+
+    def test_a_fork_never_reaches_the_elevated_token(self):
+        # The queue listens on pull_request_target, which hands a fork's
+        # entry the base repository's secrets. A fork entry only ever needs
+        # parking, and the built-in token parks perfectly well, so the
+        # elevated credential is withheld from it rather than merely being
+        # hard to misuse (SUP-003).
+        steps = _load(QUEUE)["jobs"]["reconcile"]["steps"]
+        tokens = [
+            s.get("with", {}).get("github-token") for s in steps if s.get("with", {}).get("script")
+        ]
+        for token in tokens:
+            assert "!github.event.pull_request.head.repo.fork" in token, token
+            assert "secrets.GITHUB_TOKEN" in token, token
+
+    def test_the_fallback_is_deliberate_and_explained(self):
+        # The fallback degrades promotion rather than parking, and that is a
+        # trade someone chose. If the secret is ever removed the queue still
+        # parks correctly and stalls visibly at the front, which is the
+        # failure this entry is about -- so the reason stays next to it.
+        source = QUEUE.read_text(encoding="utf-8")
+        assert "REG-0006" in source
