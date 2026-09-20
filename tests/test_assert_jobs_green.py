@@ -45,6 +45,7 @@ def run_gate(needs: dict | str, allow_skipped: str | None = None) -> subprocess.
 # tests/test_pr_queue.py, which owns the requirement that it exists.
 _DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
 
+
 class TestPasses:
     def test_all_success_exits_zero(self):
         result = run_gate({"a": {"result": "success"}, "b": {"result": "success"}})

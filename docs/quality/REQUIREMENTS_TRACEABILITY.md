@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 50 |
+| VERIFIED | 51 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **97** |
+| **Total** | **98** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 16 | 14 |
+| Governance | 17 | 15 |
 
 ## Outstanding work by phase
 
@@ -1213,6 +1213,18 @@ Every job of every workflow that gates a pull request is guarded so it does not 
 - **Verification:**
   - `tests/test_pr_queue.py` (unit) — Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it.
 
+#### `REG-0001` — An active pull request with zero check runs is detected and restarted
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+When the entry at the front of the queue has no pull_request workflow runs for its head SHA, the controller reopens it so the workflows trigger, and says so on the pull request.
+
+- **If violated:** Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Asserts the front entry is checked for having no runs, that only pull_request runs are counted so GitHub's own dynamic runs cannot mask the stall, and that recovery is a reopen rather than a rewrite of the branch.
+
 
 ---
 
@@ -1241,4 +1253,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 97 entries.
+Registry version: 1.0.0 — 98 entries.

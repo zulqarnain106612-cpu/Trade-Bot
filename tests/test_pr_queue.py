@@ -63,9 +63,7 @@ class TestParkedEntriesAreFree:
     def test_every_job_skips_on_a_draft(self, path):
         spec = _load(path)
         unguarded = [
-            name
-            for name, job in spec["jobs"].items()
-            if DRAFT_GUARD not in str(job.get("if", ""))
+            name for name, job in spec["jobs"].items() if DRAFT_GUARD not in str(job.get("if", ""))
         ]
         assert not unguarded, (
             f"{path.name}: {unguarded} would run on a parked (draft) pull "
@@ -138,9 +136,7 @@ class TestSerialGuarantee:
         front = script.index("const front = active[0]")
         promote = script.index("markPullRequestReadyForReview")
         between = script[front:promote]
-        assert "return" in between, (
-            "promotion is not short-circuited while an entry is active"
-        )
+        assert "return" in between, "promotion is not short-circuited while an entry is active"
 
     def test_entries_are_served_oldest_first(self):
         assert "a.number - b.number" in _script()
@@ -205,3 +201,41 @@ class TestPermissions:
                 assert "ref" not in with_ and "repository" not in with_, (
                     "pr-queue checks out pull request code under a write token"
                 )
+
+
+class TestZeroCheckStall:
+    """
+    The stall that notifies nobody, because nothing failed.
+
+    Retargeting a pull request's base fires none of opened, synchronize or
+    reopened, so no workflow triggers. The entry sits at the front of the
+    queue with zero check runs: blocked by branch protection, invisible to a
+    failure notice, and waiting on an event that is never coming. It happened
+    on #298. The controller now detects it and reopens the entry, which does
+    fire an event.
+    """
+
+    def test_the_front_entry_is_checked_for_having_no_runs(self):
+        script = _script()
+        assert "listWorkflowRunsForRepo" in script
+        assert "ours.length === 0" in script
+
+    def test_it_reopens_rather_than_pushing_a_commit(self):
+        """
+        Reopening fires `reopened`; an empty commit would also work but
+        rewrites the branch for a problem that is not in the code.
+        """
+        script = _script()
+        assert "state: 'closed'" in script
+        assert "state: 'open'" in script
+
+    def test_it_only_counts_pull_request_runs(self):
+        """
+        GitHub attaches its own dynamic runs (code scanning autofix) to a
+        pull request. Counting those would hide the stall, because the entry
+        would look like it had checks when none of ours had started.
+        """
+        assert "r.event === 'pull_request'" in _script()
+
+    def test_it_says_what_it_did(self):
+        assert "no checks had started" in _script()

@@ -55,6 +55,7 @@ def gating_workflows() -> list[Path]:
 # tests/test_pr_queue.py, which owns the requirement that it exists.
 _DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
 
+
 class TestQueueParticipation:
     def test_there_are_gating_workflows_to_check(self):
         """Guards against the suite passing because it found nothing."""

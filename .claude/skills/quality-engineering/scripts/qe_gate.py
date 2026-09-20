@@ -70,9 +70,8 @@ class Result:
 # Mirrors the guard applied in .github/workflows/*.yml; owned by
 # tests/test_pr_queue.py, which asserts every gating job carries it.
 _DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
-_PERMITTED_GATE_CONDITIONS = frozenset(
-    {"always()", f"${{{{ {_DRAFT_GUARD} && (always()) }}}}"}
-)
+_PERMITTED_GATE_CONDITIONS = frozenset({"always()", f"${{{{ {_DRAFT_GUARD} && (always()) }}}}"})
+
 
 def load_config() -> dict[str, Any]:
     try:

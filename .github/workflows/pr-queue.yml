@@ -93,6 +93,37 @@ jobs:
             }
 
             if (front) {
+              // An active entry with no check runs at all is stalled, not
+              // working. Retargeting a pull request's base fires none of
+              // opened/synchronize/reopened, so no workflow triggers and the
+              // entry sits at the front with zero checks -- blocked, with
+              // nothing failed and nothing to notify. Nudge it back to life
+              // by closing and reopening, which does fire an event.
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                ...context.repo, head_sha: front.head.sha, per_page: 100,
+              });
+              const ours = runs.data.workflow_runs.filter(r => r.event === 'pull_request');
+              if (ours.length === 0) {
+                core.warning(`#${front.number} has no checks; reopening to trigger them.`);
+                await github.rest.pulls.update({
+                  ...context.repo, pull_number: front.number, state: 'closed',
+                });
+                await github.rest.pulls.update({
+                  ...context.repo, pull_number: front.number, state: 'open',
+                });
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: front.number,
+                  body: [
+                    '### Queue: no checks had started on this pull request',
+                    '',
+                    'It was at the front of the queue with zero check runs, which',
+                    'blocks a merge without anything having failed. Reopened to',
+                    'trigger the workflows.',
+                  ].join('\n'),
+                });
+                return;
+              }
+
               core.info(`#${front.number} holds the line; nothing is promoted.`);
               core.summary.addRaw(`Active: #${front.number}. Parked: ${parked.length + active.length - 1}.`);
               await core.summary.write();

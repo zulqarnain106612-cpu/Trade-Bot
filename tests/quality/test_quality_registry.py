@@ -137,6 +137,7 @@ VERIFIED = {
 # Mirrors the `source` pattern in config/quality_registry.schema.json.
 _OPS_SOURCE = re.compile(r"^OPS-[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
+
 class TestLoading:
     def test_a_minimal_registry_loads(self, tree):
         registry = load(tree, [entry()])
