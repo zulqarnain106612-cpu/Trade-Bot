@@ -1,6 +1,6 @@
 {
   "$schema": "https://trade-bot.local/schemas/command-policy/1.0.0.json",
-  "policy_version": "1.0.0",
+  "policy_version": "1.1.0",
   "enforcement": "block",
   "_enforcement_values": [
     "block",
@@ -10,16 +10,17 @@
   "_enforcement_note": "block: refuse the tool call and explain. warn: allow but inject the reason as feedback. off: allow silently. The TB_COMMAND_POLICY env var overrides this value for one session, which is the documented rollback path -- edit this file for a durable change.",
   "bounded_output": {
     "enabled": true,
-    "max_declared_lines": 5,
-    "_note": "Project directive: fetch at most 5 lines per call, then request the next 5. A read command must carry an explicit bound (head -N, tail -N, sed -n 'a,bp', grep -m N, git log -n N, --max-count) with N <= max_declared_lines.",
+    "max_declared_lines": 30,
+    "_note": "Project directive: fetch at most 30 lines per call, then request the next 30. A read command must carry an explicit bound (head -N, tail -N, sed -n 'a,bp', grep -m N, git log -n N, --max-count) with N <= max_declared_lines. When the bound is satisfied the output is returned normally; when it is not, the only thing that leaves the hook is refusal_message.",
     "bounded_flag_patterns": [
-      "\\|\\s*(head|tail)\\s+(-n\\s*)?-?([1-5])\\b",
-      "\\b(head|tail)\\s+(-n\\s*)?-?([1-5])\\b",
-      "\\bsed\\s+-n\\s*['\"]?\\s*[0-9]+\\s*,\\s*[0-9]+\\s*p",
-      "\\bsed\\s+-n\\s*['\"]?\\s*[0-9]+\\s*p",
-      "\\bgrep\\b[^|]*\\s-m\\s*[1-5]\\b",
-      "\\bgrep\\b[^|]*--max-count[= ][1-5]\\b",
-      "\\b(git\\s+log|git\\s+shortlog)\\b[^|]*\\s-n?\\s*[1-5]\\b",
+      "\\|\\s*(head|tail)\\s+(-n\\s*)?-?(?:[1-9]|[12][0-9]|30)\\b",
+      "\\b(head|tail)\\s+(-n\\s*)?-?(?:[1-9]|[12][0-9]|30)\\b",
+      "\\bsed\\s+-n\\s*['\\\"]?\\s*[0-9]+\\s*,\\s*[0-9]+\\s*p",
+      "\\bsed\\s+-n\\s*['\\\"]?\\s*[0-9]+\\s*p",
+      "\\bgrep\\b[^|]*\\s-m\\s*(?:[1-9]|[12][0-9]|30)\\b",
+      "\\bgrep\\b[^|]*--max-count[= ](?:[1-9]|[12][0-9]|30)\\b",
+      "\\b(git\\s+log|git\\s+shortlog)\\b[^|]*\\s-n?\\s*(?:[1-9]|[12][0-9]|30)\\b",
+      "\\b(gh\\s+\\w+)\\b[^|]*\\s(?:-L|--limit)\\s*(?:[1-9]|[12][0-9]|30)\\b",
       "\\bhead\\s+-c\\s+[0-9]+\\b",
       "\\bwc\\b",
       "\\b(ls|find)\\b[^|]*\\|\\s*(head|tail|wc)\\b",
@@ -85,6 +86,12 @@
       ],
       "npm": [
         "ls"
+      ],
+      "gh": [
+        "run",
+        "api",
+        "cache",
+        "workflow"
       ]
     },
     "_subcommand_note": "Commands that are exempt as a whole but have subcommands whose output is unbounded. `git` is exempt so that `git status` and `git add` are not nagged, but `git log` with no -n can page thousands of commits into context.",
@@ -92,7 +99,8 @@
       "\\b(?:head|tail)\\s+(?:-n\\s*)?-?(\\d+)\\b",
       "\\bgrep\\b[^|]*?\\s-m\\s*(\\d+)\\b",
       "\\bgrep\\b[^|]*?--max-count[= ](\\d+)\\b",
-      "\\b(?:git\\s+\\w+|docker\\s+logs|kubectl\\s+logs)\\b[^|]*?\\s(?:-n|--max-count|--tail)[= ]?(\\d+)\\b"
+      "\\b(?:git\\s+\\w+|docker\\s+logs|kubectl\\s+logs)\\b[^|]*?\\s(?:-n|--max-count|--tail)[= ]?(\\d+)\\b",
+      "\\bgh\\s+\\w+\\b[^|]*?\\s(?:-L|--limit)[= ]?(\\d+)\\b"
     ],
     "oversized_range_patterns": [
       "\\bsed\\s+-n\\s*['\\\"]?\\s*(\\d+)\\s*,\\s*(\\d+)\\s*p"
@@ -103,7 +111,9 @@
       "\\b(?:head|tail)\\s+-c\\s*(\\d+)\\b"
     ],
     "_byte_note": "head -c is a legitimate bound for output with no newlines, but a byte bound is still a bound: -c 500000 is unbounded in practice. Compared against max_declared_bytes rather than max_declared_lines.",
-    "_count_note": "grep -c emits a single count line, so it is inherently bounded and must not be treated as an unbounded read just because it follows a reader in the pipeline."
+    "_count_note": "grep -c emits a single count line, so it is inherently bounded and must not be treated as an unbounded read just because it follows a reader in the pipeline.",
+    "refusal_message": "only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
+    "_gh_note": "`gh` is not exempt as a whole, but `gh run view --log`, `gh run list` and `gh api .../logs` page an entire CI run into context. They are allowed only behind an explicit bound; `gh pr view/checks/merge` are untouched."
   },
   "destructive": {
     "enabled": true,
@@ -123,5 +133,25 @@
       "\\baws\\s+configure\\s+get\\b",
       "\\bgh\\s+auth\\s+token\\b"
     ]
+  },
+  "ci_observability": {
+    "enabled": true,
+    "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk log and report retrieval is capped by bounded_output instead: the minimum number of lines that explains the failure is always permitted.",
+    "message": "CI live monitoring is permanently disabled. only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
+    "live_patterns": [
+      "\\bgh\\s+run\\s+watch\\b",
+      "\\bgh\\s+(run|pr)\\b[^|]*--watch\\b",
+      "\\bgh\\s+pr\\s+checks\\b[^|]*--watch\\b",
+      "\\btail\\s+(-[a-zA-Z]*f|--follow)\\b",
+      "\\b(docker|kubectl)\\s+logs\\b[^|]*(-f|--follow)\\b",
+      "\\bwhile\\s+(true|:)\\s*;?\\s*do\\b",
+      "\\buntil\\b[^\\n]*\\bdo\\b[^\\n]*\\b(gh|curl)\\b",
+      "\\bwatch\\s+-n\\b",
+      "\\binotifywait\\b[^|]*-m\\b"
+    ],
+    "banned_tools": [
+      "Monitor"
+    ],
+    "_banned_tools_note": "The Monitor tool is a live watch by construction, so it is refused for this project regardless of what it is pointed at."
   }
 }

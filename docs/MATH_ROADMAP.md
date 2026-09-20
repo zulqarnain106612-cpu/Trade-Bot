@@ -62,8 +62,11 @@ integers over 10^6 random inputs plus every boundary value near the modulus.
 First phase with visible product value: it hardens code that already runs.
 
 **Modules:** `curves/secp256k1.py`, `curves/ed25519.py`.
-**Wiring:** `src/ecc/secp256k1_cluster.py` and `src/ecc/ecdsa_scan.py` route
-point parsing through `is_on_curve` and `decompress`.
+**Wiring:** `src/ecc/ecdsa_scan.py` routes point parsing through
+`parse_point`, which is `decompress` plus the on-curve check. This draft also
+named `src/ecc/secp256k1_cluster.py`; that module clusters UTXOs by address
+heuristics and parses no points, so there is nothing there to route. The
+registry's `elliptic-curves` consumers are the accurate list.
 
 **Registry entries closed:** `elliptic-curves`, `edwards-curves`,
 `cyclic-groups-dlp`.
