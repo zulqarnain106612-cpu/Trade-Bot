@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 54 |
+| VERIFIED | 55 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **101** |
+| **Total** | **102** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 0 |
-| Cryptography and secrets | 10 | 0 |
+| Cryptography and secrets | 11 | 1 |
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
@@ -774,6 +774,19 @@ The documented and verified key posture is trading-only, withdrawal-disabled, IP
 - **Owned by:** `src/security/credential_vault.py`
 - **Verification:** none yet
 
+#### `SEC-0001` — BLS12-381 validates every point that enters from outside
+
+**VERIFIED** · critical · security_regression · source: OPS-2026-09-20
+
+Every BLS12-381 point crossing the module boundary -- g1_point, g2_point and both pairing arguments -- is checked to satisfy its curve equation (y^2 = x^3 + 4 over Fq for G1, y^2 = x^3 + 4(1 + u) over Fq2 for G2) and to have prime order r, and a point failing either check is refused with ValueError rather than multiplied by a scalar.
+
+- **If violated:** Accepting an unvalidated point turns any scalar multiplication into an oracle. An off-curve point lies on a curve the attacker chose for its smooth order, and a point of small order is on the right curve but in the wrong group; either way the result of the multiplication reveals the secret scalar modulo small factors, and a handful of queries recover a signing key outright.
+- **Owned by:** `src/mathcore/curves/bls12_381.py`
+- **Verification:**
+  - `tests/test_bls12_381_point_validation.py` (security) — Rejects both attack shapes: a point off the curve, and a point on the curve whose order divides the cofactor. The small-subgroup points are constructed as r*P from an on-curve point rather than hard-coded, and the cofactors are asserted to be the real ones, so the negative cases are proved to be the thing they claim to test. Also pins the twist coefficient to 4(1 + u) and pins the identity policy, which must match between G1 and G2.
+
+> Found while clearing a CodeQL unused-global finding on PR #262: the flagged constant was _B2 = FQ2([4, 4]), the twist's b coefficient, declared and never wired up -- the on-curve check for G2 had been started and abandoned. The constant was deleted to unblock that pull request and the gap handled here. Subgroup membership is tested as r*P == O, a full scalar multiplication; this module is a correctness reference, and an endomorphism-based check is the optimisation to reach for if it ever sits on a hot path. layer: unit
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1297,4 +1310,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 101 entries.
+Registry version: 1.0.0 — 102 entries.

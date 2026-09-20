@@ -1884,6 +1884,28 @@
       "depends_on": ["REG-0003"],
       "failure_mode": "GitHub throttles and drops high-frequency schedules. The controller was set to */5 and did not fire once in the following hour while the repository's nightly schedule ran normally, leaving six mergeable entries parked with nothing failed and no signal.",
       "notes": "The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring"
+    },
+    {
+      "id": "SEC-0001",
+      "kind": "security_regression",
+      "title": "BLS12-381 validates every point that enters from outside",
+      "statement": "Every BLS12-381 point crossing the module boundary -- g1_point, g2_point and both pairing arguments -- is checked to satisfy its curve equation (y^2 = x^3 + 4 over Fq for G1, y^2 = x^3 + 4(1 + u) over Fq2 for G2) and to have prime order r, and a point failing either check is refused with ValueError rather than multiplied by a scalar.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [
+        "src/mathcore/curves/bls12_381.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_bls12_381_point_validation.py",
+          "test_type": "security",
+          "note": "Rejects both attack shapes: a point off the curve, and a point on the curve whose order divides the cofactor. The small-subgroup points are constructed as r*P from an on-curve point rather than hard-coded, and the cofactors are asserted to be the real ones, so the negative cases are proved to be the thing they claim to test. Also pins the twist coefficient to 4(1 + u) and pins the identity policy, which must match between G1 and G2."
+        }
+      ],
+      "failure_mode": "Accepting an unvalidated point turns any scalar multiplication into an oracle. An off-curve point lies on a curve the attacker chose for its smooth order, and a point of small order is on the right curve but in the wrong group; either way the result of the multiplication reveals the secret scalar modulo small factors, and a handful of queries recover a signing key outright.",
+      "notes": "Found while clearing a CodeQL unused-global finding on PR #262: the flagged constant was _B2 = FQ2([4, 4]), the twist's b coefficient, declared and never wired up -- the on-curve check for G2 had been started and abandoned. The constant was deleted to unblock that pull request and the gap handled here. Subgroup membership is tested as r*P == O, a full scalar multiplication; this module is a correctness reference, and an endomorphism-based check is the optimisation to reach for if it ever sits on a hot path. layer: unit"
     }
   ]
 }
