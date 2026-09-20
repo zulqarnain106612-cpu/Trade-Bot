@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 100 |
+| VERIFIED | 102 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **100** |
+| **Total** | **102** |
 
 ## Summary by subsystem
 
@@ -65,10 +65,10 @@ deletion of the thing it points at.
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 10 |
-| Supply chain and artifacts | 7 | 7 |
+| Supply chain and artifacts | 8 | 8 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 19 | 19 |
+| Governance | 20 | 20 |
 
 ## Outstanding work by phase
 
@@ -877,6 +877,21 @@ Automated dependency PRs run the full quality gate and can never trigger the pro
 - **Verification:**
   - `tests/supply_chain/test_supply_chain_posture.py` (security) — The release workflow triggers only on a version tag and workflow_dispatch; push-on-branch, pull_request and schedule are all detected, including a tag trigger that also accepts branches.
 
+#### `SEC-0002` — The queue controller runs least-privilege and on pinned actions
+
+**VERIFIED** · high · security_regression · source: OPS-2026-09-20
+
+No workflow grants a write scope workflow-wide that only one job needs, and every third-party action in .github/workflows is pinned to a full commit SHA with the version named in a comment; scripts/check_supply_chain.py decides both, and reports pull_request_target only when the workflow checks out the pull request's own head.
+
+- **If violated:** A workflow-wide contents: write is inherited by every job, including ones that only read, so any injection into any of them can push to the repository. A movable action ref lets the action's owner change what runs under that token without a diff here. Both were live in the merged pr-queue controller, which runs on pull_request_target with the base repository's credentials.
+- **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci-failure-notify.yml`, `scripts/check_supply_chain.py`
+- **Depends on:** `SUP-001`, `SUP-002`, `SUP-003`
+- **Verification:**
+  - `tests/test_pr_queue.py` (security) — Asserts the workflow starts read-only and that contents/pull-requests write live on the reconcile job alone, so a job added later inherits nothing.
+  - `tests/supply_chain/test_supply_chain_posture.py` (security) — Covers both directions of the sharpened SUP-003 rule: pull_request_target with a checkout of the pull request head is a finding, by any spelling of the ref, and pull_request_target without one is not.
+
+> Found by merging main into PR-011: the supply-chain gate arrives with this phase and judged workflows that had merged before it existed. The same run flagged pull_request_target itself on pr-queue.yml, which is a false positive -- that workflow checks out the base repository and tests/test_pr_queue.py already asserts it never fetches the entry's code -- so the rule was made precise rather than the workflow changed. A gate that fires on the safe pattern is a gate people learn to wave through. layer: static-analysis
+
 ## Resilience and recovery
 
 #### `RES-001` — Every component failure has a declared, tested fail-safe behaviour
@@ -1304,6 +1319,20 @@ A single controller pass merges the front entry when it is clean and promotes th
 
 > The third variant of the same failure: the queue is stopped and no signal says so. layer: monitoring
 
+#### `REG-0004` — The queue is woken by a gating workflow finishing, not by a schedule
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+The controller triggers on workflow_run completion of every workflow that gates a pull request, and on a pull request being closed, so it is driven by work finishing rather than by a clock.
+
+- **If violated:** GitHub throttles and drops high-frequency schedules. The controller was set to */5 and did not fire once in the following hour while the repository's nightly schedule ran normally, leaving six mergeable entries parked with nothing failed and no signal.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `REG-0003`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Derives the set of gating workflows from the workflows themselves and fails if the controller does not listen to one of them, so a new gate cannot quietly put the queue back on the clock.
+
+> The fourth variant of one failure: the queue is stopped and nothing says so. Each fix removed a dependency on something that does not happen. layer: monitoring
+
 
 ---
 
@@ -1332,4 +1361,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 100 entries.
+Registry version: 1.0.0 — 102 entries.

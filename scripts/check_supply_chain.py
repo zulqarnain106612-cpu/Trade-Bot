@@ -61,6 +61,16 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _USES_RE = re.compile(r"^\s*-?\s*uses:\s*(\S+)")
 _SECRET_RE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 
+# A `ref:` that resolves to the pull request's own head -- the fork's code.
+# `pull_request_target` checks out the *base* repository by default, which is
+# the whole reason the trigger is usable at all; the danger is the workflow
+# that overrides that default and pulls the head in, because it then runs
+# fork-authored code with the base repository's token and secrets.
+_UNTRUSTED_REF_RE = re.compile(
+    r"^\s*ref:\s*.*?(pull_request\.head|head\.sha|head\.ref|github\.head_ref)",
+    re.MULTILINE,
+)
+
 # `secrets.GITHUB_TOKEN` is not a stored credential: it is the per-run token
 # whose power is already bounded by `permissions:`, which SUP-001 checks.
 ALLOWED_FORK_SECRETS = frozenset({"GITHUB_TOKEN"})
@@ -194,13 +204,22 @@ def check_fork_secret_isolation(root: Path = Path()) -> list[Finding]:
         triggers = _triggers(doc)
         if not (triggers & FORK_TRIGGERS):
             continue
-        if "pull_request_target" in triggers:
+        if "pull_request_target" in triggers and _UNTRUSTED_REF_RE.search(text):
+            # Reported only when the fork's head is actually checked out.
+            # Flagging the trigger alone said nothing about whether a
+            # credential was reachable, and the statement SUP-003 makes is
+            # about reachable secrets -- so an accurate check has to look at
+            # what the workflow does with the trigger, not that it has it. A
+            # controller that reads pull request metadata and never fetches
+            # the entry's code (.github/workflows/pr-queue.yml) is the safe
+            # use, and calling it a finding trains people to ignore findings.
             found.append(
                 Finding(
                     "SUP-003",
                     path.name,
-                    "uses pull_request_target: the base repository's secrets are "
-                    "available to a workflow that may check out fork code",
+                    "uses pull_request_target and checks out the pull request's own "
+                    "head: fork-authored code runs with the base repository's token "
+                    "and secrets",
                 )
             )
         used = {m.group(1) for m in _SECRET_RE.finditer(text)} - ALLOWED_FORK_SECRETS

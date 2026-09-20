@@ -88,8 +88,11 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0001",
             "REG-0002",
             "REG-0003",
+            "REG-0004",
         }
-        assert not registry.by_kind("security_regression")
+        # SEC-0002: the queue controller granted contents: write workflow-wide
+        # and ran two actions from a movable ref, under pull_request_target.
+        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0002"}
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -310,7 +313,7 @@ class TestTheMetricsCollector:
         # "unknown" bucket would mean an entry skipped that question, which
         # makes the metric useless: it measures which layer needs work.
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"monitoring": 3}
+        assert metric["value"] == {"monitoring": 4, "static-analysis": 1}
 
     def test_it_counts_critical_requirements_with_no_test(self, collector):
         metric = collector.collect()["metrics"]["critical_unverified"]

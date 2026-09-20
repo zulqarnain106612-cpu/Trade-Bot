@@ -220,9 +220,10 @@ class TestThePinningCheckDetects:
 
 
 class TestTheForkCheckDetects:
-    def test_pull_request_target(self, fake_repo):
-        # The single most dangerous trigger in GitHub Actions: base-repository
-        # secrets plus fork-controlled code.
+    def test_pull_request_target_that_checks_out_the_fork(self, fake_repo):
+        # The single most dangerous combination in GitHub Actions: base-repository
+        # secrets plus fork-controlled code. The trigger alone does not do it --
+        # the `ref:` override is what pulls the fork's code in.
         write_workflow(
             fake_repo,
             "bad.yml",
@@ -235,10 +236,37 @@ class TestTheForkCheckDetects:
               build:
                 runs-on: ubuntu-latest
                 steps:
-                  - run: echo hi
+                  - uses: actions/checkout@v4
+                    with:
+                      ref: ${{ github.event.pull_request.head.sha }}
+                  - run: ./build.sh
             """,
         )
         assert check_fork_secret_isolation(fake_repo)
+
+    def test_pull_request_target_reaching_the_head_by_any_spelling(self, fake_repo):
+        # head.ref and github.head_ref name the same fork-controlled code as
+        # head.sha. A check that only knew one spelling would be trivially
+        # sidestepped by an author who preferred another.
+        for spelling in ("github.head_ref", "github.event.pull_request.head.ref"):
+            write_workflow(
+                fake_repo,
+                "bad.yml",
+                f"""
+                name: Bad
+                on: [pull_request_target]
+                permissions:
+                  contents: read
+                jobs:
+                  build:
+                    runs-on: ubuntu-latest
+                    steps:
+                      - uses: actions/checkout@v4
+                        with:
+                          ref: ${{{{ {spelling} }}}}
+                """,
+            )
+            assert check_fork_secret_isolation(fake_repo), spelling
 
     def test_an_unguarded_secret_on_a_pull_request(self, fake_repo):
         write_workflow(
@@ -305,6 +333,36 @@ class TestTheForkCheckDetects:
 
     def test_both_fork_triggers_are_in_scope(self):
         assert frozenset({"pull_request", "pull_request_target"}) == FORK_TRIGGERS
+
+
+class TestTheForkCheckAccepts:
+    def test_pull_request_target_that_never_fetches_the_fork(self, fake_repo):
+        # The safe and intended use: a controller that reads pull request
+        # metadata and acts through the API, checking out the base repository
+        # only. `.github/workflows/pr-queue.yml` is exactly this.
+        #
+        # SUP-003's statement is about a fork reaching a *secret*. Reporting
+        # the trigger on its own said nothing about that, and a gate that
+        # fires on a safe pattern is a gate people learn to wave through --
+        # which costs more than the check was ever worth.
+        write_workflow(
+            fake_repo,
+            "controller.yml",
+            """
+            name: Controller
+            on: [pull_request_target]
+            permissions:
+              contents: read
+              pull-requests: write
+            jobs:
+              promote:
+                runs-on: ubuntu-latest
+                steps:
+                  - uses: actions/checkout@v4
+                  - run: python3 scripts/promote.py
+            """,
+        )
+        assert check_fork_secret_isolation(fake_repo) == []
 
 
 class TestTheProductionCheckDetects:
