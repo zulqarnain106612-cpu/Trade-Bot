@@ -1,0 +1,207 @@
+"""
+The serial queue's invariants, pinned where they can be checked.
+
+The queue exists because GitHub's own merge queue has the wrong failure
+behaviour: it dequeues a failing entry and starts the next one, which sets the
+failure aside instead of finishing it. This one keeps exactly one pull request
+active, keeps it active while it is red, and starts nothing else until it
+merges.
+
+Two properties carry that guarantee, and both are cheap to break by accident:
+a parked entry must not run CI (or the queue costs as much as no queue), and
+promotion must update the branch before revealing it (or the promoted entry
+never gets a run at all). Both are asserted here.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
+QUEUE = WORKFLOWS / "pr-queue.yml"
+
+ADVISORY = {"claude-review.yml"}
+NOT_A_GATE = {"ci-failure-notify.yml", "pr-queue.yml"}
+
+DRAFT_GUARD = "github.event.pull_request.draft"
+
+
+def _triggers(spec: dict) -> dict:
+    return spec.get("on") or spec.get(True) or {}
+
+
+def _load(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def gating_workflows() -> list[Path]:
+    out = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        if path.name in ADVISORY or path.name in NOT_A_GATE:
+            continue
+        if "pull_request" in _triggers(_load(path)):
+            out.append(path)
+    return out
+
+
+def _script() -> str:
+    steps = _load(QUEUE)["jobs"]["reconcile"]["steps"]
+    return "\n".join(s.get("with", {}).get("script", "") for s in steps)
+
+
+class TestParkedEntriesAreFree:
+    """A parked entry must cost nothing, or the queue is pure overhead."""
+
+    def test_there_are_gating_workflows_to_check(self):
+        assert gating_workflows()
+
+    @pytest.mark.parametrize("path", gating_workflows(), ids=lambda p: p.name)
+    def test_every_job_skips_on_a_draft(self, path):
+        spec = _load(path)
+        unguarded = [
+            name
+            for name, job in spec["jobs"].items()
+            if DRAFT_GUARD not in str(job.get("if", ""))
+        ]
+        assert not unguarded, (
+            f"{path.name}: {unguarded} would run on a parked (draft) pull "
+            "request and spend runner time on an entry that cannot merge."
+        )
+
+    @pytest.mark.parametrize("path", gating_workflows(), ids=lambda p: p.name)
+    def test_the_gate_still_runs_when_a_dependency_fails(self, path):
+        """
+        The draft guard must not cost the gate its `always()`.
+
+        CLAUDE.md is explicit: without `always()` the gate is skipped the
+        moment a dependency fails, and a skipped required check blocks
+        nothing. The guard is ANDed onto it, never a replacement for it.
+        """
+        gate = _load(path)["jobs"].get("gate")
+        if gate is None:
+            pytest.skip(f"{path.name} has no gate job")
+        condition = str(gate["if"])
+        assert "always()" in condition
+        assert DRAFT_GUARD in condition
+
+
+class TestPromotionOrder:
+    def test_the_branch_is_updated_before_the_entry_is_revealed(self):
+        """
+        Update, then reveal -- in that order, for a mechanical reason.
+
+        A push made with GITHUB_TOKEN does not trigger workflows, so updating
+        a branch produces no run. `ready_for_review` does trigger one. Reveal
+        first and the entry sits at the front of the queue with no run and no
+        way to get one: a silent stall at the worst possible position.
+        """
+        script = _script()
+        assert "updateBranch" in script
+        assert "markPullRequestReadyForReview" in script
+        assert script.index("updateBranch") < script.index("markPullRequestReadyForReview")
+
+    def test_a_failed_update_leaves_the_entry_parked_and_says_so(self):
+        """A conflict must be reported, not promoted into."""
+        script = _script()
+        assert "createComment" in script
+        assert "cannot update this branch" in script
+
+    def test_auto_merge_is_armed_on_promotion(self):
+        """
+        Auto-merge cannot be set on a draft, so it is armed at the moment the
+        entry goes active rather than when it was opened.
+        """
+        assert "enablePullRequestAutoMerge" in _script()
+
+    def test_it_squashes(self):
+        assert "SQUASH" in _script()
+
+
+class TestSerialGuarantee:
+    def test_only_one_entry_is_ever_active(self):
+        """Everything after the oldest active entry is parked."""
+        script = _script()
+        assert "active.slice(1)" in script
+        assert "convertPullRequestToDraft" in script
+
+    def test_a_red_entry_holds_the_line(self):
+        """
+        Nothing is promoted while an active entry exists, whatever its checks
+        say. This is the precise behaviour GitHub's merge queue does not have:
+        a failing entry is finished, not set aside.
+        """
+        script = _script()
+        front = script.index("const front = active[0]")
+        promote = script.index("markPullRequestReadyForReview")
+        between = script[front:promote]
+        assert "return" in between, (
+            "promotion is not short-circuited while an entry is active"
+        )
+
+    def test_entries_are_served_oldest_first(self):
+        assert "a.number - b.number" in _script()
+
+    def test_a_hand_made_draft_is_left_alone(self):
+        """
+        Only labelled drafts are queue entries. A draft someone made by hand
+        is work in progress, and promoting it would publish unfinished work.
+        """
+        script = _script()
+        assert "labelled(pr)" in script
+
+    def test_the_controller_cannot_race_itself(self):
+        """Two copies could promote two entries and break the invariant."""
+        queue = _load(QUEUE)
+        assert queue["concurrency"]["group"] == "pr-queue"
+        assert queue["concurrency"]["cancel-in-progress"] is False
+
+
+class TestItCannotStallSilently:
+    def test_a_missed_event_is_recovered_by_a_schedule(self):
+        """
+        Events do get missed, and a queue that stalls quietly is the failure
+        this whole mechanism exists to remove. The schedule is the backstop.
+        """
+        triggers = _triggers(_load(QUEUE))
+        assert "schedule" in triggers
+        assert "workflow_dispatch" in triggers
+
+    def test_it_promotes_on_a_merge(self):
+        triggers = _triggers(_load(QUEUE))
+        assert triggers["push"]["branches"] == ["main"]
+
+    def test_it_parks_new_entries_as_they_arrive(self):
+        triggers = _triggers(_load(QUEUE))
+        assert "opened" in triggers["pull_request_target"]["types"]
+
+
+class TestPermissions:
+    def test_it_has_exactly_what_it_needs(self):
+        perms = _load(QUEUE)["permissions"]
+        # contents: write is required by updateBranch, which pushes a merge
+        # commit onto the entry's branch.
+        assert perms["contents"] == "write"
+        assert perms["pull-requests"] == "write"
+
+    def test_it_never_checks_out_pull_request_code(self):
+        """
+        `pull_request_target` runs with a write token in the base repository's
+        context. Checking out the entry's code under that token is the classic
+        way to hand a fork write access, so this workflow does not do it.
+        """
+        spec = _load(QUEUE)
+        for job in spec["jobs"].values():
+            for step in job.get("steps", []):
+                if "actions/checkout" not in str(step.get("uses", "")):
+                    continue
+                # A bare checkout under `pull_request_target` takes the base
+                # repository, which is safe. Naming a ref is how the entry's
+                # own code gets fetched, and that is what must not happen.
+                with_ = step.get("with") or {}
+                assert "ref" not in with_ and "repository" not in with_, (
+                    "pr-queue checks out pull request code under a write token"
+                )

@@ -1760,6 +1760,46 @@
       ],
       "depends_on": ["GOV-013"],
       "failure_mode": "A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed."
+    },
+    {
+      "id": "GOV-015",
+      "kind": "requirement",
+      "title": "Exactly one pull request is active, and a red one holds the line",
+      "statement": "At most one open pull request is non-draft at any time; every other entry is parked as a labelled draft whose jobs do not run. Nothing is promoted while an active entry exists, whatever its checks say, so a failing pull request is finished rather than set aside.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "unit",
+          "note": "Asserts promotion is short-circuited while an active entry exists, that entries are served oldest first, that a hand-made draft is never promoted, and that the controller cannot race itself into promoting two entries."
+        }
+      ],
+      "depends_on": ["GOV-014"],
+      "failure_mode": "GitHub's own merge queue dequeues a failing entry and starts the next one, which sets the failure aside and lets a backlog of half-finished pull requests accumulate."
+    },
+    {
+      "id": "GOV-016",
+      "kind": "requirement",
+      "title": "A parked pull request spends no runner time",
+      "statement": "Every job of every workflow that gates a pull request is guarded so it does not run on a draft, and promotion updates the entry's branch before marking it ready for review.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-20",
+      "owning_modules": [".github/workflows/pr-queue.yml", ".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/workflow-lint.yml", ".github/workflows/security.yml"],
+      "verification": [
+        {
+          "test": "tests/test_pr_queue.py",
+          "test_type": "unit",
+          "note": "Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it."
+        }
+      ],
+      "depends_on": ["GOV-015"],
+      "failure_mode": "An unguarded job burns runner minutes on an entry that cannot merge; revealing an entry before updating its branch leaves it at the front of the queue with no run, because a GITHUB_TOKEN push triggers no workflow."
     }
   ]
 }

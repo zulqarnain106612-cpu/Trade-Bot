@@ -51,6 +51,10 @@ def gating_workflows() -> list[Path]:
     return out
 
 
+# Mirrors the guard applied in .github/workflows/*.yml; see
+# tests/test_pr_queue.py, which owns the requirement that it exists.
+_DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
+
 class TestQueueParticipation:
     def test_there_are_gating_workflows_to_check(self):
         """Guards against the suite passing because it found nothing."""
@@ -77,7 +81,11 @@ class TestQueueParticipation:
         if gate is None:
             pytest.skip(f"{path.name} has no gate job")
         condition = str(gate.get("if", ""))
-        assert "pull_request" not in condition, (
+        # The queue's draft guard names `pull_request`, but only to exclude
+        # drafts: for any other event the guard is true, so the gate still
+        # runs on a queue ref. Strip it before looking for a real fence.
+        residue = condition.replace(_DRAFT_GUARD, "")
+        assert "pull_request" not in residue, (
             f"{path.name}'s gate is conditioned on pull_request and would be "
             "skipped in the merge queue."
         )

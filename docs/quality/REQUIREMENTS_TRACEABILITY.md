@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 48 |
+| VERIFIED | 50 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **95** |
+| **Total** | **97** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 14 | 12 |
+| Governance | 16 | 14 |
 
 ## Outstanding work by phase
 
@@ -1189,6 +1189,30 @@ A workflow that gates a pull request must also trigger on merge_group, and its g
 - **Verification:**
   - `tests/test_merge_queue_wiring.py` (unit) — Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement.
 
+#### `GOV-015` — Exactly one pull request is active, and a red one holds the line
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+At most one open pull request is non-draft at any time; every other entry is parked as a labelled draft whose jobs do not run. Nothing is promoted while an active entry exists, whatever its checks say, so a failing pull request is finished rather than set aside.
+
+- **If violated:** GitHub's own merge queue dequeues a failing entry and starts the next one, which sets the failure aside and lets a backlog of half-finished pull requests accumulate.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `GOV-014`
+- **Verification:**
+  - `tests/test_pr_queue.py` (unit) — Asserts promotion is short-circuited while an active entry exists, that entries are served oldest first, that a hand-made draft is never promoted, and that the controller cannot race itself into promoting two entries.
+
+#### `GOV-016` — A parked pull request spends no runner time
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-20
+
+Every job of every workflow that gates a pull request is guarded so it does not run on a draft, and promotion updates the entry's branch before marking it ready for review.
+
+- **If violated:** An unguarded job burns runner minutes on an entry that cannot merge; revealing an entry before updating its branch leaves it at the front of the queue with no run, because a GITHUB_TOKEN push triggers no workflow.
+- **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/workflow-lint.yml`, `.github/workflows/security.yml`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_pr_queue.py` (unit) — Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it.
+
 
 ---
 
@@ -1217,4 +1241,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 95 entries.
+Registry version: 1.0.0 — 97 entries.

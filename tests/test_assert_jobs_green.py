@@ -41,6 +41,10 @@ def run_gate(needs: dict | str, allow_skipped: str | None = None) -> subprocess.
     )
 
 
+# Mirrors the guard applied in .github/workflows/*.yml; see
+# tests/test_pr_queue.py, which owns the requirement that it exists.
+_DRAFT_GUARD = "!(github.event_name == 'pull_request' && github.event.pull_request.draft)"
+
 class TestPasses:
     def test_all_success_exits_zero(self):
         result = run_gate({"a": {"result": "success"}, "b": {"result": "success"}})
@@ -193,7 +197,12 @@ class TestEveryPullRequestWorkflowIsGated:
         jobs = spec.get("jobs", {})
         if "gate" not in jobs:
             pytest.skip(f"{path.name} has no gate job")
-        assert jobs["gate"].get("if") == "always()", path.name
+        # The queue's draft guard (tests/test_pr_queue.py) is ANDed onto the
+        # gate so a parked entry spends no runner time. That is the only
+        # permitted addition, and it is checked as an exact alternative
+        # rather than a substring: `always() && false` still has to fail.
+        permitted = {"always()", f"${{{{ {_DRAFT_GUARD} && (always()) }}}}"}
+        assert jobs["gate"].get("if") in permitted, path.name
 
     @pytest.mark.parametrize("path", workflow_files(), ids=lambda p: p.name)
     def test_gate_invokes_the_shared_script(self, path):
