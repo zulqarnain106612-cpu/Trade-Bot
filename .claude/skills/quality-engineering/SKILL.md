@@ -149,6 +149,34 @@ The repository's existing suites are the reference. What they have in common:
 - **An unevaluable check fails.** If a test cannot determine the answer —
   missing fixture, absent data — that is not a pass.
 
+## And written to run fast (GOV-016)
+
+The suite runs on every push, six shards wide, across 349 files. A tenth of a
+second added here is a tenth of a second on every pull request from now on, and
+nobody ever traces it back to the commit that added it. Speed is a property of
+a new test, not an optimisation pass afterwards — and it never comes out of
+what the test asserts.
+
+- **Never sleep to wait.** Drive the clock or await the event the code signals.
+  `asyncio.sleep(0)` is a scheduler yield and is free; everything else stalls.
+- **Never spawn a process to run Python you can import.** `import x; x.main([…])`
+  skips interpreter startup and gives a real traceback.
+- **No network, no real database, no filesystem beyond `tmp_path`.** Fake at
+  the boundary. A test that fails when something else is down is slow *and*
+  flaky.
+- **Scope fixtures as wide as correctness allows.** Anything that parses a
+  file, builds a registry or compiles a schema is `module` or `session` scope.
+- **`parametrize`, not a loop with setup inside it.** Parametrised cases shard
+  and parallelise, and report one failure per problem.
+- **Smallest input that can still fail.** Three rows, not three thousand —
+  unless the size *is* the property under test.
+
+`tests/test_suite_speed_budget.py` ratchets the mechanical half: real sleeps
+and process spawns carry a frozen budget that may only be lowered, and a budget
+with slack left in it fails until it is lowered, so a saving is banked instead
+of being spent on the next test that wants a sleep. Lowering one is always in
+order; raising one is argued in the diff like any other gate.
+
 ## Reference
 
 - `references/workflow.md` — the change classes, what each requires, and

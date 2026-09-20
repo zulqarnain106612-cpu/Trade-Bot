@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 96 |
+| VERIFIED | 102 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **96** |
+| **Total** | **102** |
 
 ## Summary by subsystem
 
@@ -60,7 +60,7 @@ deletion of the thing it points at.
 | Risk | 10 | 10 |
 | Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
-| Signal and features | 3 | 3 |
+| Signal and features | 4 | 4 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 15 | 15 |
+| Governance | 20 | 20 |
 
 ## Outstanding work by phase
 
@@ -404,6 +404,17 @@ Nightly mutation testing of the signal modules kills at least 85% of generated m
 - **Owned by:** `config/mutation_thresholds.json`, `.github/workflows`
 - **Verification:**
   - `tests/regression/test_regression_registry_contract.py` (mutation) — The signal subsystem's 85% floor.
+
+#### `SIG-004` — The eighteen-engine seam is asserted from both sides, positions included
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-21
+
+Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes one engine class with `async run(self, symbol, data)`; every engine given empty data abstains into a contract-valid EngineOutput rather than raising; EngineOrchestrator registers exactly eighteen engines in the order its positional attribution assumes; every engine has an SLA and every SLA an engine; and a cycle accounts for all eighteen as either an output or a named failure, each output honouring the same contract the producers were held to.
+
+- **If violated:** run() attributes result i to E-{i+1} by position, so reordering the registration list files every output under the wrong engine, applies every SLA to the wrong engine and names the wrong thing in every log line -- silently, with no exception and no failing per-engine test.
+- **Owned by:** `src/engines/orchestrator.py`, `src/engines/schema.py`
+- **Verification:**
+  - `tests/test_engine_seam_contract.py` (integration) — Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists.
 
 ## Models and leakage
 
@@ -1218,13 +1229,13 @@ Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f,
 
 **VERIFIED** · medium · requirement · source: OPS-2026-09-20
 
-A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.
+Every completed run of a pull-request workflow posts a single self-updating comment naming each job that is not green -- failure, cancellation, timeout, neutral, action_required, stale, or an unexcused skip -- together with its first failing step and the exact failing lines, so no agent ever reads a run log; a green run posts nothing, and a standing notice is rewritten as recovered.
 
 - **If violated:** Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid.
 - **Owned by:** `.github/workflows/ci-failure-notify.yml`
 - **Depends on:** `GOV-012`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones.
+  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the job carries no `if:` so every completed run is inspected, that the not-green predicate is an inverted allowlist, that its ALLOW_SKIPPED set equals the union of every gate's, that the notice carries extracted failure messages under a hard line cap, and that it updates its prior comment rather than stacking new ones.
 
 #### `GOV-014` — Every required check also runs in the merge queue
 
@@ -1237,6 +1248,54 @@ A workflow that gates a pull request must also trigger on merge_group, and its g
 - **Depends on:** `GOV-013`
 - **Verification:**
   - `tests/test_merge_queue_wiring.py` (unit) — Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement.
+
+#### `GOV-015` — A pull request's wall clock is bounded by its tests, not its installs
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+Only the job that runs the test suite installs the project's runtime dependencies; jobs whose steps are stdlib-only install nothing beyond the one tool they invoke, torch is always taken from the CPU wheel index, the suite's install is cached and keyed on the requirements files, the shard count matches the declared split total, and a superseded run on a branch is cancelled.
+
+- **If violated:** An install added to a job that does not need it is invisible in a green run, so minutes accumulate on every pull request with nothing attributing them to the change that added them.
+- **Owned by:** `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`
+- **Depends on:** `GOV-013`
+- **Verification:**
+  - `tests/test_ci_workflow_cost.py` (unit) — Asserts no stdlib-only job installs requirements.txt or torch, that the lint job reads its ruff pin from requirements-dev.txt, that the test job installs through uv with its cache enabled, that every workflow installing torch names the CPU index, that the shard list and the declared total agree, and that a new push cancels the previous run off main.
+
+#### `GOV-016` — A new test is written to run as fast as it can while still deciding its question
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+The suite's own running cost is budgeted and the budget only ever falls: the number of real wall-clock sleeps and process spawns in tests/ is frozen and may be lowered but never raised, no single stall exceeds 0.1s, and a budget with slack left in it fails until it is lowered so the saving is banked rather than spent.
+
+- **If violated:** A sleep or a spawn added to one test is imperceptible and is never attributed to the commit that added it, so the suite's cost rises monotonically and the minutes bought back by sharding are given away.
+- **Owned by:** `tests/test_suite_speed_budget.py`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_suite_speed_budget.py` (unit) — Counts sleeps between a scheduler yield and a cancelled-task sentinel and subprocess spawns across every test module, asserts both stay inside their frozen budgets, asserts no single stall exceeds 0.1s, and asserts each budget equals the actual count so slack cannot accumulate.
+
+#### `GOV-017` — The last manual step in the merge path presses itself, one pull request at a time
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+When main moves, exactly one open pull request -- the oldest non-draft one whose mergeable_state is `behind` -- is brought up to date, using a token whose pushes start workflow runs; a missing token fails the job rather than leaving a branch up to date with stale checks, nothing is parked, drafted or closed, and the chain continues when that pull request merges.
+
+- **If violated:** A branch updated with GITHUB_TOKEN starts no workflow run, so the pull request carries the check runs of its previous head: up to date, green-looking and permanently unmergeable -- the same trap the removed queue's promotion step fell into.
+- **Owned by:** `.github/workflows/pr-auto-update.yml`
+- **Depends on:** `GOV-013`
+- **Verification:**
+  - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts it fires on a push to main and can be restarted by hand, that two runs cannot pick the same pull request, that it refuses GITHUB_TOKEN and fails before mutating anything when the PAT is absent, that it returns after one update, skips drafts, updates only a `behind` branch, retries an uncomputed mergeability, tolerates a 422 race, and parks or drafts nothing.
+
+#### `GOV-018` — Dependencies between src packages run downward, and the exceptions are a shrinking list
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+Every top-level package in src/ is placed in exactly one layer of config/architecture_layers.json and may import only from its own layer or a lower one; a package in no layer is a failure, each upward edge that already exists is declared with the argument for it, and an inversion that has been fixed must leave the list rather than leaving a slot for the next one.
+
+- **If violated:** A package-level cycle never fails at import time -- it hides behind submodule and deferred imports -- and surfaces instead as two packages that cannot be changed, tested or reasoned about apart.
+- **Owned by:** `config/architecture_layers.json`, `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (unit) — Pins the contract -- every package placed once, every layer and every accepted inversion carrying its argument, endpoints that exist on disk, api outermost -- and drives the rule on synthetic graphs: an upward edge is reported, a downward or same-layer one is not, an accepted one is not, a fixed one must be banked, and an unplaced package fails.
+  - `tests/test_static_invariants.py` (unit) — test_repository_satisfies_every_invariant runs the layering check against the live repository on every push.
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1252,6 +1311,20 @@ Every test establishes the state it asserts on. No test reads process-global sta
   - `tests/test_tuning_live_overrides.py` (unit) — Pins the overlay itself: a registered value wins over the base settings it is handed.
 
 > Escaped to the test suite, not to a running system: the blend weight the engine used in production was always correct, and what failed was the test's claim to have checked it. Filed as a regression anyway because the rule that a defect gets a permanent test applies to a false green as much as to a bad trade. layer: test-suite
+
+#### `REG-0007` — A CI job installs every third-party module its own steps import
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-21
+
+python-lint installs each third-party module reachable from the scripts it runs -- derived from their imports, not from a list kept by hand -- with every version read out of a requirements file rather than repeated inline.
+
+- **If violated:** Trimming the job to ruff alone left qe_gate without jsonschema, which it raises GateError without, and without PyYAML, which it needs to parse the workflows. The local run passed because the developer's interpreter already had both, so the gap appeared only in CI.
+- **Owned by:** `.github/workflows/ci.yml`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_ci_workflow_cost.py` (unit) — test_the_lint_job_installs_everything_its_steps_import walks the AST of qe_gate.py, both generate_*_docs.py and both registry modules, keeps the imports that are not stdlib, and asserts the job installs each one. Removing jsonschema from the install line fails it, which is the defect that produced the entry.
+
+> Escaped to CI, not to a running system: the gate this broke is what checks the registry, and it broke because the job stopped installing what the gate imports. It passed locally because the developer's interpreter already had jsonschema and PyYAML, so the only environment that could see it was the clean one. Filed because a green local run that is red in CI is a false green, and the rule that a defect gets a permanent test applies to those too. layer: test-suite
 
 
 ---
@@ -1281,4 +1354,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 96 entries.
+Registry version: 1.0.0 — 102 entries.

@@ -58,16 +58,25 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
 
-      - name: Install dependencies
+      - name: Install lint tooling only
+        # This job's scripts are stdlib apart from three tools: ruff, and the
+        # two the quality gate hard-depends on -- jsonschema, which qe_gate
+        # raises GateError without, and PyYAML, which it needs to parse the
+        # workflows. It used to install the full runtime requirements plus a
+        # CPU torch wheel to run `ruff check`: roughly three minutes of wall
+        # clock on every pull request, buying nothing.
+        #
+        # Every version is read out of the requirements files rather than
+        # repeated here, so CI and a local run can never disagree about what
+        # counts as a lint error or a schema violation. REG-0007 derives this
+        # list from what the scripts actually import.
         run: |
           python -m pip install --upgrade pip
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pip install \
+            "$(grep -E '^ruff==' requirements-dev.txt)" \
+            "$(grep -iE '^jsonschema[><=]' requirements.txt)" \
+            "$(grep -iE '^PyYAML[><=]' requirements.txt)"
 
       - name: Math registry is valid and doc in sync
         run: python3 scripts/generate_math_docs.py --check
@@ -97,15 +106,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Five, not three. Shard-level parallelism is the only kind this suite
+        # Six, not three. Shard-level parallelism is the only kind this suite
         # currently tolerates (see the xdist note on the test step), and each
         # shard is an independent runner, so the way to use more cores is more
-        # shards. At three the slowest was 553s of test time; at five the same
-        # ~1290s of work lands nearer 260s apiece. The cost is two more runners
-        # each paying ~110s of checkout, setup-python and install, which is
-        # concurrent with the others and so does not show up in wall clock.
-        shard: [1, 2, 3, 4, 5]
-        total: [5]
+        # shards. At three the slowest was 553s of test time; the same ~1290s
+        # of work lands nearer 215s apiece at six. The cost is three more
+        # runners each paying ~110s of checkout, setup and install -- concurrent
+        # with the others, so it does not show up in wall clock, and the uv
+        # cache below is what keeps that per-runner cost from growing with the
+        # shard count. `total` must equal the length of `shard`: pytest-split
+        # is told `--splits $SHARD_TOTAL`, and a mismatch silently runs part of
+        # the suite twice and part never.
+        shard: [1, 2, 3, 4, 5, 6]
+        total: [6]
 
     services:
       timescaledb:
@@ -138,16 +151,25 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
             requirements.txt
             requirements-dev.txt
 
       - name: Install dependencies
+        # Same two requirements files, same pins, same interpreter (`--system`),
+        # same CPU torch index pre-pass -- resolved and installed by uv instead
+        # of pip. The difference is the cache: setup-uv's wheel cache is keyed
+        # on the requirements files, so an unchanged dependency set is unpacked
+        # from cache rather than resolved and downloaded again. This is the
+        # single largest cost in the run and it is paid by every shard.
         run: |
-          python -m pip install --upgrade pip
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
-          pip install -r requirements.txt -r requirements-dev.txt
+          uv pip install --system --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
+          uv pip install --system -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests (sharded)
         # --cov-fail-under=0 overrides the 99% aggregate in pyproject.toml for
