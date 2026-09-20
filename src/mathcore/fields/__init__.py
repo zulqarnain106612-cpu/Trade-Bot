@@ -36,6 +36,7 @@ from .prime_field import (
     PseudoMersenne,
     Reduction,
     as_pseudo_mersenne,
+    lagrange_interpolate_at,
 )
 
 __all__ = [
