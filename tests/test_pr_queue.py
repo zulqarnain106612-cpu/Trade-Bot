@@ -239,3 +239,37 @@ class TestZeroCheckStall:
 
     def test_it_says_what_it_did(self):
         assert "no checks had started" in _script()
+
+
+class TestTheFrontEntryIsKeptCurrent:
+    """
+    The front entry has already been promoted, so nothing updates it again.
+
+    The ruleset requires an up-to-date branch. Promotion is what normally
+    satisfies that, and promotion happens once. An entry that is active and
+    behind -- because it was active before the queue existed, or because main
+    moved under it -- would sit at the front blocked forever, with green
+    checks and nothing failed. Observed on #248 the moment the queue went
+    live.
+    """
+
+    def test_a_stale_front_entry_is_brought_forward(self):
+        script = _script()
+        assert "mergeable_state === 'behind'" in script
+
+    def test_it_updates_the_front_entry_before_reporting_it_holds_the_line(self):
+        script = _script()
+        assert script.index("mergeable_state === 'behind'") < script.index(
+            "holds the line; nothing is promoted"
+        )
+
+    def test_a_failed_update_does_not_stop_the_pass(self):
+        """
+        Promotion aborts on a failed update because promoting into a conflict
+        wedges the queue. Here the entry is already active, so the pass simply
+        warns and moves on: there is nothing to abort.
+        """
+        script = _script()
+        tail = script[script.index("mergeable_state === 'behind'") :]
+        head = tail[: tail.index("holds the line; nothing is promoted")]
+        assert "core.warning" in head

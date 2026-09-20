@@ -124,6 +124,25 @@ jobs:
                 return;
               }
 
+              // An active entry can be out of date: it was active before the
+              // queue existed, or main moved under it. Promotion is what
+              // normally updates a branch, and promotion has already happened
+              // for this one, so nothing would ever bring it forward and the
+              // ruleset's up-to-date requirement blocks it indefinitely.
+              const detail = await github.rest.pulls.get({
+                ...context.repo, pull_number: front.number,
+              });
+              if (detail.data.mergeable_state === 'behind') {
+                try {
+                  await github.rest.pulls.updateBranch({
+                    ...context.repo, pull_number: front.number,
+                  });
+                  core.info(`updated #${front.number} from main`);
+                } catch (error) {
+                  core.warning(`#${front.number} could not be updated: ${error.message}`);
+                }
+              }
+
               core.info(`#${front.number} holds the line; nothing is promoted.`);
               core.summary.addRaw(`Active: #${front.number}. Parked: ${parked.length + active.length - 1}.`);
               await core.summary.write();
