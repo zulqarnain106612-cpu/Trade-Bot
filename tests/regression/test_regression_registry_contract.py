@@ -88,6 +88,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0001",
             "REG-0002",
             "REG-0003",
+            "REG-0004",
         }
         assert not registry.by_kind("security_regression")
 
@@ -310,7 +311,7 @@ class TestTheMetricsCollector:
         # "unknown" bucket would mean an entry skipped that question, which
         # makes the metric useless: it measures which layer needs work.
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"monitoring": 3}
+        assert metric["value"] == {"monitoring": 4}
 
     def test_it_counts_critical_requirements_with_no_test(self, collector):
         metric = collector.collect()["metrics"]["critical_unverified"]
