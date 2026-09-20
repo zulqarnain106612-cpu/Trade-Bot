@@ -96,6 +96,11 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0003",
             "REG-0004",
             "REG-0005",
+            # REG-0006: queue promotion raised no workflow run -- it was done
+            # with GITHUB_TOKEN, and no gating workflow named
+            # ready_for_review among its activity types. The entry sat at the
+            # front ready, mergeable and unverified with nothing failed.
+            "REG-0006",
         }
         # SEC-0002: the queue controller granted contents: write workflow-wide
         # and ran two actions from a movable ref, under pull_request_target.
@@ -318,7 +323,7 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"monitoring": 4, "test-suite": 1, "static-analysis": 1}
+        assert metric["value"] == {"monitoring": 5, "test-suite": 1, "static-analysis": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
