@@ -12,6 +12,30 @@ import pytest
 from src.data.macro_provider import MacroProvider
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _warm_the_parquet_engine(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Import everything to_parquet needs before any patch.dict runs.
+
+    MacroProvider persists with to_parquet, which pulls in pyarrow and pandas'
+    arrow interop lazily. Most tests here wrap that call in
+    patch.dict("sys.modules", {"yfinance": ...}), and patch.dict restores the
+    mapping on exit -- which *removes* every module first imported inside the
+    block. Those modules register pandas' extension types with pyarrow at the C
+    level, and that registration outlives the module object, so re-importing
+    raises "A type extension with name pandas.period already defined". The
+    provider catches it, returns None, and six tests later in the file fail for
+    a reason that has nothing to do with what they assert.
+
+    Doing one real round-trip here means the whole import graph is already in
+    sys.modules before the first patched block, so no block is ever the one
+    that introduced it. Warming a single named module is not enough -- the
+    lazily imported set is an implementation detail of pandas and pyarrow.
+    """
+    path = tmp_path_factory.mktemp("parquet_warmup") / "warmup.parquet"
+    pd.DataFrame({"a": [1.0]}).to_parquet(path)
+    pd.read_parquet(path)
+
+
 def _hist(closes: list[float]) -> pd.DataFrame:
     return pd.DataFrame({"Close": closes})
 

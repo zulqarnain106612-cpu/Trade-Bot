@@ -18,12 +18,68 @@ entrypoint is safe.
 from __future__ import annotations
 
 import logging
+from collections.abc import MutableMapping
+from typing import Any, Final
 
 import structlog
 
+from common.command_schema import redact
 from src.config import Settings, get_settings
 
-__all__ = ["configure_logging"]
+__all__ = ["configure_logging", "redact_event"]
+
+
+# SECR-001 -- the log is the most common place a secret ends up, because
+# logging is what people add when something is going wrong and the fastest way
+# to see a value is to print it. The redaction below is defence in depth: the
+# primary control is never passing the secret to the logger, and a value in a
+# format no pattern describes still gets through. What it does buy is that the
+# three shapes which account for nearly every real incident -- a provider
+# token, a connection URI with its password, and an `X=secret` env line --
+# cannot reach a log shipper even when somebody logs an exception whole.
+#
+# The pattern list is `common/command_schema.py`'s, not a second copy: one
+# list, so a pattern added for shell output protects the log as well.
+_SECRET_KEY_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "authorization",
+        "credential",
+        "operator_secret",
+        "password",
+        "passwd",
+        "private_key",
+        "secret",
+        "seed",
+        "token",
+        "x-api-key",
+    }
+)
+
+_REDACTED: Final[str] = "[REDACTED]"
+
+
+def redact_event(_logger: object, _method: str, event_dict: MutableMapping[str, Any]) -> Any:
+    """
+    structlog processor: redact secrets in every field of an event.
+
+    Two passes, because the two leaks are different. A field *named* like a
+    secret is replaced whole regardless of its value -- the name is the
+    evidence, and a short value is not proof of innocence. Every other string
+    field goes through the shared pattern redactor, which is what catches a
+    token embedded in a rendered exception.
+    """
+    for key in list(event_dict):
+        value = event_dict[key]
+        if key.lower() in _SECRET_KEY_NAMES:
+            event_dict[key] = _REDACTED
+            continue
+        if isinstance(value, str):
+            cleaned, count = redact(value)
+            if count:
+                event_dict[key] = cleaned
+    return event_dict
 
 
 def _renderer(as_json: bool) -> object:
@@ -53,6 +109,11 @@ def configure_logging(settings: Settings | None = None) -> None:
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
+            # After format_exc_info, so a rendered traceback is scanned too:
+            # an exception string is where a connection URI most often
+            # reaches a log. Before the renderer, so the redaction applies
+            # whichever output format is configured.
+            redact_event,
             _renderer(cfg.log_as_json),
         ],
         # log_level is enforced here rather than by the stdlib root logger:

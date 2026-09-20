@@ -1,0 +1,133 @@
+name: Release
+
+# SUP-004 -- a deployable artifact that cannot be traced back to a commit is
+# an artifact nobody can audit after an incident. Every build here carries its
+# version, commit, build time and dependency manifest, and is attested with a
+# signed provenance statement so "this is what production is running" is a
+# claim somebody can verify rather than a note in a wiki.
+#
+# SUP-007 -- the triggers are deliberately narrow. `workflow_dispatch` and a
+# version tag, and nothing else: no push, no schedule, no pull_request. A
+# merged dependency bump must not be able to publish by itself, and the
+# absence of those triggers is what scripts/check_supply_chain.py asserts.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and attest, but publish nothing"
+        type: boolean
+        default: true
+
+# Read by default; the two write scopes live on the job that needs them.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a half-finished publish
+
+jobs:
+  build:
+    name: Build, describe and attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # OIDC: the attestation is signed with a short-lived workload identity
+      # rather than a stored signing key. There is no secret to leak, and the
+      # resulting certificate names this workflow, this repository and this
+      # commit -- which is the part that makes provenance mean anything.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the provenance records describe/tag state
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build cyclonedx-bom
+
+      - name: Build the distribution
+        run: python -m build --outdir dist
+
+      - name: Generate the SBOM
+        # CycloneDX over the pinned runtime manifest -- the same file ci.yml
+        # installs, so the SBOM describes what actually ships rather than
+        # whatever happened to be resolvable on the day.
+        run: cyclonedx-py requirements requirements.txt -o dist/sbom.cdx.json
+
+      - name: Write the provenance record
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/write_provenance.py --out dist/provenance.json
+
+      - name: Attest build provenance
+        # Produces a signed, verifiable statement binding these bytes to this
+        # workflow run. `gh attestation verify` checks it; the verification
+        # step in a deployment is what turns it from decoration into a gate.
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/*"
+
+      - name: Upload the release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  verify:
+    name: Verify the artifact describes itself
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: dist
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      # The check that makes SUP-004 real: a provenance file that is present
+      # but empty, or that names a different commit, fails here rather than
+      # being discovered during an incident.
+      - name: Check the provenance record
+        run: python3 scripts/write_provenance.py --verify dist/provenance.json
+
+      - name: Check the SBOM is non-trivial
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          sbom = json.load(open("dist/sbom.cdx.json"))
+          components = sbom.get("components") or []
+          if len(components) < 10:
+              sys.exit(f"SBOM lists only {len(components)} components; that is not this project")
+          print(f"SBOM lists {len(components)} components")
+          PY
+
+  gate:
+    name: Release gate (all jobs green)
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [build, verify]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/assert_jobs_green.py

@@ -21,11 +21,31 @@ name: PR queue
 #     work in progress and is left alone.
 
 on:
-  pull_request_target:
-    types: [opened, reopened]
   push:
     branches: [main]
-  # The heartbeat, and the only trigger that can be relied on.
+  # The trigger that actually fires.
+  #
+  # A queue entry's checks finishing is exactly the moment the queue needs to
+  # act, and it is an event that really happens: the controller promotes an
+  # entry, its CI runs, CI completes, this wakes. Merging then promotes the
+  # next entry, whose CI completes, which wakes this again -- the loop is
+  # driven by real work rather than by a clock.
+  workflow_run:
+    workflows:
+      - "CI"
+      - "CodeQL"
+      - "Workflow lint"
+      - "Security"
+    types: [completed]
+
+  # A human merging or closing an entry frees the queue too.
+  pull_request_target:
+    types: [opened, reopened, closed]
+
+  # Kept as a backstop, not relied on. GitHub throttles and drops
+  # high-frequency schedules: this workflow was set to */5 and did not fire
+  # once in the hour that followed, while the repository's nightly schedule
+  # ran normally. A queue whose only heartbeat is cron is a queue that stops.
   #
   # A push made with GITHUB_TOKEN does not trigger workflows. The controller
   # arms auto-merge with that token, so the merge it produces raises no push
@@ -37,9 +57,11 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
+# Least privilege at the top, so a job added later starts read-only and has to
+# ask. Only `reconcile` writes anything, and it says what for.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 concurrency:
   # Serial by construction: two copies of this racing could promote two
@@ -49,10 +71,17 @@ concurrency:
 
 jobs:
   reconcile:
+    # `contents: write` is for pulls.updateBranch, which merges the base into
+    # the entry's branch -- a write to the branch, not to this repository's
+    # default branch. `pull-requests: write` parks, promotes, labels and
+    # comments. The gate job below needs neither and does not get them.
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - name: Park every extra entry, promote the front one
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const LABEL = 'queued';
@@ -246,7 +275,7 @@ jobs:
       # Checks out the base repository, which is what `pull_request_target`
       # gives by default. The entry's own code is never fetched under this
       # workflow's write token.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.1.0
       - name: Assert every job in this workflow succeeded
         env:
           NEEDS: ${{ toJSON(needs) }}

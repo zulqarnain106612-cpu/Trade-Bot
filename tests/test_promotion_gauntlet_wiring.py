@@ -32,7 +32,9 @@ def _baseline() -> PerformanceBaseline:
         train_accuracy=0.6,
         oos_accuracy=0.55,
         train_win_rate=0.55,
-        max_drawdown_pct=0.1,
+        # A fraction, not a percentage -- PerformanceBaseline validates the
+        # range and every other field in this helper is already a fraction.
+        max_drawdown_pct=0.10,
         trades_in_backtest=600,
     )
 

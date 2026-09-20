@@ -152,53 +152,22 @@ jobs:
         # it is arithmetic. The real 99% gate is enforced once, in
         # python-coverage-floors, against the combined data.
         #
-        # No pytest-xdist, and that is a measured decision rather than an
-        # omission. Both distributions were tried on this branch:
-        #
-        #   -n auto --dist loadfile   shard 3: 553s -> 652s, *slower*. Whole
-        #                             files pin the dominant file to one worker
-        #                             while the other three idle, after all
-        #                             four have paid the import cost.
-        #   -n auto --dist load       shard 3: failed.
-        #                             tests/test_signal_engine.py's
-        #                             TestEnsembleBlendPersistence reads state
-        #                             an earlier test in its class leaves
-        #                             behind, so splitting the class across
-        #                             workers changes the answer: 0.8299977
-        #                             where the assertion wants 0.8.
-        #
-        # The second is a real latent bug -- a test whose result depends on
-        # what ran before it is not pinned by its own assertions -- but fixing
-        # it belongs in a change about that test, not in a CI-speed one. Until
-        # then the suite is not parallel-safe inside a process, so parallelism
-        # stays at the shard level: every shard is a separate process and the
-        # order within it is exactly what it has always been.
-        #
-        # Reads the committed .test_durations, which is the whole point.
-        # Without it pytest-split says so in the log and falls back to
-        # splitting by test *count*:
-        #
-        #   [pytest-split] No test durations found. Pytest-split will split
-        #   tests evenly when no durations are found.
-        #
-        # Even splitting is why five shards came out 254s / 441s / 269s /
-        # 241s / 626s: shard 5 held about 40% of the runtime while three
-        # finished in four minutes and waited, and the slowest shard is the
-        # wall clock. The measured per-test totals were 54s / 188s / 73s /
-        # 63s / 303s against an even share of 136s.
-        #
-        # Deliberately no --store-durations here. pytest-split's
-        # --durations-path is both the read *and* the write path, so pointing
-        # it at a per-shard file to collect timings would stop it reading the
-        # committed one -- reintroducing the even split this file exists to
-        # replace. Refreshing is a separate, deliberate run: see
-        # `workflow_dispatch` above and the refresh-durations step below.
-        #
-        # --durations=15 keeps the worst offenders visible in the log.
+        # -n auto --dist load spreads each shard across every core on its
+        # runner, so the two forms of parallelism compose: pytest-split picks
+        # which third of the suite this job runs, xdist spreads that third.
+        # This is only safe because the suite is order-independent: no test may
+        # read state an earlier one left behind, since --dist load assigns
+        # tests to workers in no particular order. The one violation of that
+        # (parameter_registry, a process-wide singleton that
+        # AutoTuningScheduler.start() wrote to and nobody reset) is now
+        # snapshotted and restored per test by an autouse fixture in
+        # tests/conftest.py. A test that only passes in a particular order is a
+        # bug in that test, not a reason to drop these flags.
         run: |
           pytest -q \
             --splits "$SHARD_TOTAL" \
             --group "$SHARD_INDEX" \
+            -n auto --dist load \
             --durations=15 \
             --cov-fail-under=0
 
