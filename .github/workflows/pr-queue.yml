@@ -1,0 +1,207 @@
+name: PR queue
+
+# A strictly serial merge pipeline.
+#
+# GitHub's own merge queue was the obvious candidate and is the wrong shape:
+# when an entry fails it is dequeued and the *next* entry starts immediately,
+# so a failing pull request is set aside rather than finished. This queue does
+# the opposite. Exactly one pull request is active at a time; it stays the only
+# active one while it is red; and nothing else runs a single job until it
+# merges.
+#
+# The mechanics:
+#   - A parked pull request is a draft carrying the `queued` label. Draft means
+#     it cannot merge, and every gating workflow skips its jobs on a draft, so
+#     a parked entry spends no runner minutes at all.
+#   - Promotion updates the branch from main *first*, then marks the pull
+#     request ready. The order matters: a push made with GITHUB_TOKEN does not
+#     trigger workflows, but `ready_for_review` does, so CI runs against the
+#     already-updated head.
+#   - Only labelled drafts are promoted. A draft someone made by hand is a
+#     work in progress and is left alone.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  push:
+    branches: [main]
+  # Events get missed; a queue that stalls silently is the thing being fixed.
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # Serial by construction: two copies of this racing could promote two
+  # entries and put two pull requests in flight at once.
+  group: pr-queue
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Park every extra entry, promote the front one
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const LABEL = 'queued';
+
+            const all = await github.paginate(github.rest.pulls.list, {
+              ...context.repo, state: 'open', per_page: 100,
+            });
+            // First opened is first served.
+            all.sort((a, b) => a.number - b.number);
+
+            const labelled = pr => (pr.labels || []).some(l => l.name === LABEL);
+
+            // Active = open, not a draft. A red pull request is still active,
+            // which is the whole point: it holds the line until it is fixed.
+            let active = all.filter(pr => !pr.draft);
+            // Parked = a draft we parked. A hand-made draft has no label and
+            // is not ours to touch.
+            const parked = all.filter(pr => pr.draft && labelled(pr));
+
+            const ensureLabel = async (number) => {
+              await github.rest.issues.addLabels({
+                ...context.repo, issue_number: number, labels: [LABEL],
+              }).catch(e => core.warning(`label ${number}: ${e.message}`));
+            };
+
+            // A pull request is parked through GraphQL; the REST API cannot
+            // convert a ready pull request back to a draft.
+            const park = async (pr) => {
+              await github.graphql(
+                `mutation($id: ID!) {
+                   convertPullRequestToDraft(input: {pullRequestId: $id}) {
+                     pullRequest { number }
+                   }
+                 }`,
+                { id: pr.node_id },
+              );
+              await ensureLabel(pr.number);
+              core.info(`parked #${pr.number}`);
+            };
+
+            // Keep only the oldest active entry; park the rest.
+            const front = active[0];
+            for (const pr of active.slice(1)) {
+              await park(pr);
+            }
+
+            if (front) {
+              // An active entry with no check runs at all is stalled, not
+              // working. Retargeting a pull request's base fires none of
+              // opened/synchronize/reopened, so no workflow triggers and the
+              // entry sits at the front with zero checks -- blocked, with
+              // nothing failed and nothing to notify. Nudge it back to life
+              // by closing and reopening, which does fire an event.
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                ...context.repo, head_sha: front.head.sha, per_page: 100,
+              });
+              const ours = runs.data.workflow_runs.filter(r => r.event === 'pull_request');
+              if (ours.length === 0) {
+                core.warning(`#${front.number} has no checks; reopening to trigger them.`);
+                await github.rest.pulls.update({
+                  ...context.repo, pull_number: front.number, state: 'closed',
+                });
+                await github.rest.pulls.update({
+                  ...context.repo, pull_number: front.number, state: 'open',
+                });
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: front.number,
+                  body: [
+                    '### Queue: no checks had started on this pull request',
+                    '',
+                    'It was at the front of the queue with zero check runs, which',
+                    'blocks a merge without anything having failed. Reopened to',
+                    'trigger the workflows.',
+                  ].join('\n'),
+                });
+                return;
+              }
+
+              core.info(`#${front.number} holds the line; nothing is promoted.`);
+              core.summary.addRaw(`Active: #${front.number}. Parked: ${parked.length + active.length - 1}.`);
+              await core.summary.write();
+              return;
+            }
+
+            const next = parked[0];
+            if (!next) {
+              core.info('Queue is empty.');
+              return;
+            }
+
+            // Update first, then reveal. A GITHUB_TOKEN push triggers nothing,
+            // so the run that matters is the one `ready_for_review` starts
+            // against the already-updated head.
+            try {
+              await github.rest.pulls.updateBranch({
+                ...context.repo, pull_number: next.number,
+              });
+              core.info(`updated #${next.number} from main`);
+            } catch (error) {
+              // A conflict cannot be resolved from here, and promoting into
+              // one would put an unmergeable entry at the front forever.
+              // Say so on the pull request and leave it parked.
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: next.number,
+                body: [
+                  '### Queue: cannot update this branch',
+                  '',
+                  `\`${error.message}\``,
+                  '',
+                  'This is usually a merge conflict with `main`. Resolve it and',
+                  'push; the queue will pick this pull request up on its next pass.',
+                ].join('\n'),
+              });
+              core.warning(`#${next.number} could not be updated: ${error.message}`);
+              return;
+            }
+
+            await github.graphql(
+              `mutation($id: ID!) {
+                 markPullRequestReadyForReview(input: {pullRequestId: $id}) {
+                   pullRequest { number }
+                 }
+               }`,
+              { id: next.node_id },
+            );
+            await github.rest.issues.removeLabel({
+              ...context.repo, issue_number: next.number, name: LABEL,
+            }).catch(() => {});
+
+            // Armed here rather than at open time: auto-merge cannot be set on
+            // a draft, so the entry is armed at the moment it goes active.
+            await github.graphql(
+              `mutation($id: ID!) {
+                 enablePullRequestAutoMerge(
+                   input: {pullRequestId: $id, mergeMethod: SQUASH}
+                 ) { pullRequest { number } }
+               }`,
+              { id: next.node_id },
+            ).catch(e => core.warning(`auto-merge #${next.number}: ${e.message}`));
+
+            core.info(`promoted #${next.number}`);
+            core.summary.addRaw(`Promoted #${next.number}.`);
+            await core.summary.write();
+
+  gate:
+    # The controller obeys the same law it enforces: a broken queue must be
+    # visible as a red check, not as a queue that quietly stopped moving.
+    needs: [reconcile]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # Checks out the base repository, which is what `pull_request_target`
+      # gives by default. The entry's own code is never fetched under this
+      # workflow's write token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/assert_jobs_green.py

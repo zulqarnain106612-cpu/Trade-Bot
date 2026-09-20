@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 44 |
+| VERIFIED | 51 |
 | PARTIAL | 16 |
 | PLANNED | 31 |
 | ACCEPTED GAP | 0 |
-| **Total** | **91** |
+| **Total** | **98** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 0 |
 | Resilience and recovery | 8 | 1 |
 | Release and production | 9 | 0 |
-| Governance | 10 | 8 |
+| Governance | 17 | 15 |
 
 ## Outstanding work by phase
 
@@ -1142,6 +1142,91 @@ Production readiness requires every mandatory test, every critical security cont
 - **Owned by:** `docs/quality`
 - **Verification:** none yet
 
+#### `GOV-011` — CI output reaching an agent is bounded at 30 lines per fetch
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+Every command that can page a file, a history or a CI log into an agent's context must carry an explicit bound of at most 30 lines, and a violation returns exactly one configured instruction line and nothing else.
+
+- **If violated:** An unbounded log fetch exhausts the context window, and the session loses the state it needed in order to fix the failure it was reading about.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (unit) — Pins the limit at the inclusive boundary -- 30 allowed, 31 refused -- and asserts the refusal is the single line read from policy, so the message and the configuration cannot drift apart.
+
+#### `GOV-012` — Live CI monitoring is refused, not rate-limited
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f, watch -n, inotifywait -m, a while-true poll loop, or the Monitor tool -- is refused for this project regardless of what it is pointed at.
+
+- **If violated:** A watch with no end emits into context for as long as CI runs, which no per-call line bound can cap.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`
+- **Depends on:** `GOV-011`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (unit) — Covers each spelling of a live watch and the Monitor tool, and asserts a bounded log fetch is still allowed, so the rule caps streams without blinding the agent to failures.
+
+#### `GOV-013` — CI failure is pushed to the pull request, never polled for
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-20
+
+A run ending in failure, cancellation or timeout posts its failing jobs and their first failing step as a single self-updating comment on the pull request; a green run posts nothing, and no agent goes looking.
+
+- **If violated:** Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Depends on:** `GOV-012`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the workflow fires on all three not-green conclusions and never on success, watches every workflow that gates a pull request, caps the comment body, and updates its prior notice rather than stacking new ones.
+
+#### `GOV-014` — Every required check also runs in the merge queue
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+A workflow that gates a pull request must also trigger on merge_group, and its gate job must not be fenced off by a pull-request-only condition, so that every check branch protection requires can report on the queue ref.
+
+- **If violated:** A required check that does not run on the queue ref never reports, the entry waits for a result that cannot arrive, and the queue jams for every pull request behind it -- silently, because nothing failed.
+- **Owned by:** `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/workflow-lint.yml`, `.github/workflows/security.yml`
+- **Depends on:** `GOV-013`
+- **Verification:**
+  - `tests/test_merge_queue_wiring.py` (unit) — Derives the gating set from the workflows themselves rather than restating it, so a newly added gate cannot quietly skip the merge_group requirement.
+
+#### `GOV-015` — Exactly one pull request is active, and a red one holds the line
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-20
+
+At most one open pull request is non-draft at any time; every other entry is parked as a labelled draft whose jobs do not run. Nothing is promoted while an active entry exists, whatever its checks say, so a failing pull request is finished rather than set aside.
+
+- **If violated:** GitHub's own merge queue dequeues a failing entry and starts the next one, which sets the failure aside and lets a backlog of half-finished pull requests accumulate.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `GOV-014`
+- **Verification:**
+  - `tests/test_pr_queue.py` (unit) — Asserts promotion is short-circuited while an active entry exists, that entries are served oldest first, that a hand-made draft is never promoted, and that the controller cannot race itself into promoting two entries.
+
+#### `GOV-016` — A parked pull request spends no runner time
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-20
+
+Every job of every workflow that gates a pull request is guarded so it does not run on a draft, and promotion updates the entry's branch before marking it ready for review.
+
+- **If violated:** An unguarded job burns runner minutes on an entry that cannot merge; revealing an entry before updating its branch leaves it at the front of the queue with no run, because a GITHUB_TOKEN push triggers no workflow.
+- **Owned by:** `.github/workflows/pr-queue.yml`, `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/workflow-lint.yml`, `.github/workflows/security.yml`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_pr_queue.py` (unit) — Derives the gating set from the workflows, fails on any unguarded job, and asserts the guard is ANDed onto the gate's always() rather than replacing it.
+
+#### `REG-0001` — An active pull request with zero check runs is detected and restarted
+
+**VERIFIED** · high · regression · source: OPS-2026-09-20
+
+When the entry at the front of the queue has no pull_request workflow runs for its head SHA, the controller reopens it so the workflows trigger, and says so on the pull request.
+
+- **If violated:** Observed on PR #298: retargeting a pull request's base fires none of opened, synchronize or reopened, so no workflow ran. The pull request was blocked by branch protection with nothing failed, invisible to the failure notice, waiting on an event that was never coming.
+- **Owned by:** `.github/workflows/pr-queue.yml`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_pr_queue.py` (regression) — Asserts the front entry is checked for having no runs, that only pull_request runs are counted so GitHub's own dynamic runs cannot mask the stall, and that recovery is a reopen rather than a rewrite of the branch.
+
+> No test could have caught this: nothing was wrong with the code. The gap was that nothing watched for a pull request sitting with zero check runs, a state indistinguishable from "still running". layer: monitoring
+
 
 ---
 
@@ -1170,4 +1255,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 91 entries.
+Registry version: 1.0.0 — 98 entries.

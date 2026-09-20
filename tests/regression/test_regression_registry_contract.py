@@ -79,12 +79,22 @@ class TestTheRegistryHasAPlaceForDefects:
         assert "never deleted" in registry.kind_definitions["regression"]
         assert "permanent" in registry.kind_definitions["security_regression"]
 
-    def test_no_defect_entry_has_been_filed_yet(self, registry):
-        # An explicit statement of the current state. When the first defect is
-        # filed this test is the one that has to be updated -- deliberately,
-        # so that filing one is a visible event rather than a silent append.
-        assert not registry.by_kind("regression")
+    def test_the_filed_defects_are_the_ones_we_know_about(self, registry):
+        # This test is the visible event. It used to assert that no defect had
+        # been filed; updating it is how filing one announces itself, rather
+        # than a defect appearing by silent append. Each id is listed here on
+        # purpose, so a new entry cannot ride in unnoticed on a passing suite.
+        assert {e.id for e in registry.by_kind("regression")} == {"REG-0001"}
         assert not registry.by_kind("security_regression")
+
+    def test_every_filed_defect_names_a_permanent_test(self, registry):
+        # The rule that separates a regression entry from a bug report: the
+        # test outlives the fix. `verified` already forces the file to exist;
+        # this asserts the entry is not sitting at `planned` with nothing
+        # deciding it.
+        for entry in registry.by_kind("regression") + registry.by_kind("security_regression"):
+            assert entry.status in {"verified", "partial"}, entry.id
+            assert entry.verification, entry.id
 
 
 class TestADefectEntryCannotClaimATestItDoesNotHave:
@@ -292,8 +302,11 @@ class TestTheMetricsCollector:
         # statements, and only one of them is good news.
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
-        assert metric["value"] == {}
-        assert "explicit zero" in metric["note"]
+        # Every filed defect names the layer that should have caught it. An
+        # "unknown" bucket would mean an entry skipped that question, which
+        # makes the metric useless: it measures which layer needs work.
+        assert "unknown" not in metric["value"]
+        assert metric["value"] == {"monitoring": 1}
 
     def test_it_counts_critical_requirements_with_no_test(self, collector):
         metric = collector.collect()["metrics"]["critical_unverified"]

@@ -361,7 +361,7 @@ The FFT carried out over a finite field. It turns polynomial multiplication from
 - **References:** FIPS 203 Algorithm 9
 
 #### Walsh-Hadamard transform (Fourier analysis on the Boolean cube)
-`walsh-hadamard` — **LOAD-BEARING** · status: planned
+`walsh-hadamard` — **LOAD-BEARING** · status: implemented
 
 Defines S-box nonlinearity, correlation immunity and bent functions. It is the measurement that says whether a substitution box resists linear cryptanalysis.
 
@@ -393,7 +393,7 @@ Period finding by quantum Fourier transform breaks factoring and discrete logari
 - **References:** Shor 1997, NIST IR 8547
 
 #### Spectral analysis of side channels
-`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: planned
+`fft-side-channel` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Power, electromagnetic and timing traces are correlated in the frequency domain; the FFT is what makes differential power analysis tractable over long traces.
 
@@ -543,7 +543,7 @@ Rapid mixing is what makes a random walk in a supersingular isogeny graph, or a 
 - **Depends on:** `isogenies`
 
 #### Merkle trees and DAGs
-`merkle-trees` — **LOAD-BEARING** · relevance: analytics · status: planned
+`merkle-trees` — **LOAD-BEARING** · relevance: analytics · status: implemented
 
 Logarithmic-size membership proofs against a constant-size commitment. Every SPV proof, state root and content-addressed store is one.
 
@@ -556,7 +556,7 @@ Logarithmic-size membership proofs against a constant-size commitment. Every SPV
 ## Constants
 
 #### Nothing-up-my-sleeve constants
-`nutms-constants` — **PROVENANCE ONLY** · relevance: security · status: planned
+`nutms-constants` — **PROVENANCE ONLY** · relevance: security · status: implemented
 
 Constants derived from a published formula so that no backdoor can hide in them. The value is irrelevant; the auditability is the whole point. MD5 uses sines, SHA-1 uses square roots, SHA-256 uses cube roots of small primes, Blowfish uses the digits of pi, BLAKE uses pi, RC5 uses e and the golden ratio, ARIA uses 1/pi.
 
