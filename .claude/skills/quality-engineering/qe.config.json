@@ -1,0 +1,163 @@
+{
+  "$schema": "./schemas/qe_config.schema.json",
+  "config_version": "1.0.0",
+  "description": [
+    "The quality-engineering contract, as data rather than as prose.",
+    "",
+    "SKILL.md explains the reasoning; this file is what the scripts and the",
+    "hook read, so a gate cannot drift from its documentation by one of them",
+    "being edited and the other not. Anything with a command in it is here.",
+    "",
+    "The rule this file exists to make mechanical: a change to production",
+    "behaviour arrives with the registry entry and the test that decides it,",
+    "in the same commit. Not afterwards, because afterwards is a backlog."
+  ],
+  "registry": {
+    "path": "config/quality_registry.json",
+    "schema": "config/quality_registry.schema.json",
+    "loader": "src/quality/registry.py",
+    "generated_docs": [
+      {
+        "doc": "docs/quality/REQUIREMENTS_TRACEABILITY.md",
+        "generator": "scripts/generate_quality_docs.py",
+        "check_flag": "--check"
+      }
+    ],
+    "id_prefixes": {
+      "INV-": "invariant",
+      "REG-": "regression",
+      "SEC-": "security_regression",
+      "*": "requirement"
+    },
+    "statuses": {
+      "verified": "at least one named test, no planned_in",
+      "partial": "at least one named test, plus the planned_in that will finish it",
+      "planned": "no test, and the planned_in that will add one",
+      "accepted_gap": "a waiver with an expiry; never permitted on a critical entry"
+    }
+  },
+  "change_classes": {
+    "production_behaviour": {
+      "matches": ["src/**/*.py"],
+      "requires": [
+        "registry_entry",
+        "test_that_decides_it",
+        "traceability_regenerated"
+      ],
+      "why": "A behaviour change with no registry entry is a behaviour nobody agreed to and nothing decides."
+    },
+    "test_only": {
+      "matches": ["tests/**/*.py"],
+      "requires": ["registry_entry_if_new_requirement"],
+      "why": "A new test that decides a requirement belongs in that requirement's verification list, or the claim and the evidence drift apart."
+    },
+    "workflow": {
+      "matches": [".github/workflows/*.yml"],
+      "requires": ["gate_job_needs_every_job", "actions_sha_pinned", "least_privilege_permissions"],
+      "why": "A job outside the gate's needs is a check that can fail without blocking anything."
+    },
+    "config_schema": {
+      "matches": ["config/*.json"],
+      "requires": ["validates_against_its_schema"],
+      "why": "A config file that parses is not a config file that is correct."
+    },
+    "defect_fix": {
+      "matches": [],
+      "requires": ["reg_entry", "permanent_test"],
+      "why": "Every production defect gets a REG-#### entry and a test that is never deleted because the problem is fixed."
+    },
+    "security_finding": {
+      "matches": [],
+      "requires": ["sec_entry", "permanent_test"],
+      "why": "Every security finding gets a SEC-#### entry and a test that is never deleted because the problem is fixed."
+    }
+  },
+  "gates": [
+    {
+      "id": "registry-schema",
+      "title": "The registry validates against its schema",
+      "command": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py --only registry-schema",
+      "blocking": true,
+      "why": "The schema now carries the cross-field rules (status vs evidence, id prefix vs kind, critical never waived), so a tool that reads the registry without importing the loader still sees them."
+    },
+    {
+      "id": "registry-loader",
+      "title": "Every claimed test exists and the dependency graph is acyclic",
+      "command": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py --only registry-loader",
+      "blocking": true,
+      "why": "What JSON Schema cannot express: a renamed test must turn its claim red rather than silently passing."
+    },
+    {
+      "id": "traceability",
+      "title": "The generated traceability document is in sync",
+      "command": "python3 scripts/generate_quality_docs.py --check",
+      "blocking": true,
+      "why": "A generated document edited by hand is a document that lies about what is verified."
+    },
+    {
+      "id": "json-validity",
+      "title": "Every JSON file in the repository parses, and the schema'd ones validate",
+      "command": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py --only json-validity",
+      "blocking": true,
+      "why": "A malformed config is discovered at startup in production otherwise."
+    },
+    {
+      "id": "workflow-gates",
+      "title": "Every workflow ends in a gate that needs every job",
+      "command": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py --only workflow-gates",
+      "blocking": true,
+      "why": "Branch protection requires checks by name, and a check that never reports satisfies the requirement by being absent."
+    },
+    {
+      "id": "readiness",
+      "title": "Production readiness is a conjunction over the registry",
+      "command": "python3 scripts/check_production_readiness.py",
+      "blocking": false,
+      "why": "Advisory during development: it reports the phases still outstanding rather than blocking work on them.",
+      "optional_if_missing": true
+    },
+    {
+      "id": "supply-chain",
+      "title": "Least privilege, SHA pinning, fork-secret isolation",
+      "command": "python3 scripts/check_supply_chain.py",
+      "blocking": true,
+      "why": "Every failure in this class is a property of configuration and invisible at runtime.",
+      "optional_if_missing": true
+    }
+  ],
+  "verification_environment": {
+    "runs_in": "github_actions",
+    "rationale": [
+      "The full suite is long and the machine that decides a pull request is",
+      "the CI runner, not a laptop. A local pass proves nothing about the gate",
+      "that actually merges the change.",
+      "",
+      "The exception is this skill's own gates: they are seconds, they read",
+      "files rather than running the system, and catching a malformed registry",
+      "before the push is the difference between one round trip and three."
+    ],
+    "local_budget_seconds": 60
+  },
+  "never": [
+    {
+      "rule": "Never mark an entry verified without a test that exists and decides it",
+      "why": "Status is a claim about evidence. Verified with an empty verification array is the single failure this registry exists to prevent."
+    },
+    {
+      "rule": "Never delete a REG- or SEC- test because the problem is fixed",
+      "why": "The test is what stops it coming back. Deleting it converts a permanent guarantee into a historical anecdote."
+    },
+    {
+      "rule": "Never edit a generated document by hand",
+      "why": "docs/quality/REQUIREMENTS_TRACEABILITY.md comes from the registry. Edit the registry and regenerate; CI checks with --check."
+    },
+    {
+      "rule": "Never widen a gate to make a change pass",
+      "why": "If a rule is wrong, argue it in the diff and change the rule deliberately. Loosening a threshold to get green is how a gate becomes decorative."
+    },
+    {
+      "rule": "Never add a workflow job without adding it to that workflow's gate needs",
+      "why": "A job outside needs can fail while the required check stays green."
+    }
+  ]
+}

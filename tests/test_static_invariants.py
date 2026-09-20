@@ -1116,3 +1116,127 @@ def test_non_dataclass_is_not_checked(invariants, fake_tree) -> None:
         "from src.plain import Plain\ndef read():\n    p = Plain()\n    return p.whatever\n",
     )
     assert invariants.check_dataclass_attributes_exist() == []
+
+
+# ---------------------------------------------------------------------------
+# GOV-004: a failed check must not read as an approval
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultAllowOnFailure:
+    """
+    The source document's second dangerous shape:
+
+        except Exception:
+            return True
+
+    `check_no_silent_broad_except` catches the `pass` form. This is worse:
+    `pass` leaves the caller to decide what an absent answer means, while
+    `return True` decides for them -- in the direction that submits the order.
+    """
+
+    def test_a_broad_except_returning_true_is_caught(self, invariants, fake_tree):
+        fake_tree(
+            "src/risk/gate.py",
+            "def check():\n"
+            "    try:\n"
+            "        evaluate()\n"
+            "    except Exception:\n"
+            "        return True\n",
+        )
+        problems = invariants.check_no_default_allow_on_failure()
+        assert problems
+        assert "permitting value" in problems[0]
+
+    def test_a_bare_except_returning_true_is_caught(self, invariants, fake_tree):
+        fake_tree(
+            "src/api/auth.py",
+            "def authorised():\n    try:\n        verify()\n    except:\n        return True\n",
+        )
+        assert invariants.check_no_default_allow_on_failure()
+
+    def test_a_pass_gate_constructor_is_caught(self, invariants, fake_tree):
+        # The same defect wearing this project's own vocabulary.
+        fake_tree(
+            "src/risk/gates.py",
+            "def check():\n"
+            "    try:\n"
+            "        evaluate()\n"
+            "    except Exception:\n"
+            "        return GateResult.pass_gate()\n",
+        )
+        assert invariants.check_no_default_allow_on_failure()
+
+    def test_a_nested_return_is_still_caught(self, invariants, fake_tree):
+        # Wrapping it in an `if` does not make it a different decision.
+        fake_tree(
+            "src/security/vault.py",
+            "def check():\n"
+            "    try:\n"
+            "        verify()\n"
+            "    except Exception:\n"
+            "        if retries:\n"
+            "            return True\n"
+            "        raise\n",
+        )
+        assert invariants.check_no_default_allow_on_failure()
+
+    def test_returning_a_refusal_is_not_flagged(self, invariants, fake_tree):
+        fake_tree(
+            "src/risk/gate.py",
+            "def check():\n"
+            "    try:\n"
+            "        evaluate()\n"
+            "    except Exception:\n"
+            "        return False\n",
+        )
+        assert not invariants.check_no_default_allow_on_failure()
+
+    def test_a_narrow_except_is_control_flow_not_a_finding(self, invariants, fake_tree):
+        # `except KeyError: return True` names an expectation, and the type
+        # documents the intent. Flagging it would bury the real findings.
+        fake_tree(
+            "src/risk/gate.py",
+            "def check():\n"
+            "    try:\n"
+            "        evaluate()\n"
+            "    except KeyError:\n"
+            "        return True\n",
+        )
+        assert not invariants.check_no_default_allow_on_failure()
+
+    def test_logging_and_re_raising_is_not_flagged(self, invariants, fake_tree):
+        fake_tree(
+            "src/risk/gate.py",
+            "def check():\n"
+            "    try:\n"
+            "        evaluate()\n"
+            "    except Exception:\n"
+            "        log.error('boom')\n"
+            "        raise\n",
+        )
+        assert not invariants.check_no_default_allow_on_failure()
+
+    def test_a_module_outside_the_critical_packages_is_not_flagged(self, invariants, fake_tree):
+        # The check is deliberately scoped. A diagnostics helper returning
+        # True on failure is a different, smaller problem, and widening the
+        # scope would produce findings a reviewer cannot act on.
+        fake_tree(
+            "src/diagnostics/helper.py",
+            "def check():\n"
+            "    try:\n"
+            "        evaluate()\n"
+            "    except Exception:\n"
+            "        return True\n",
+        )
+        assert not invariants.check_no_default_allow_on_failure()
+
+    def test_a_bare_return_is_left_to_the_other_check(self, invariants, fake_tree):
+        # `return` with no value is check_no_silent_broad_except's finding.
+        # Reporting it here too would make one defect look like two.
+        fake_tree(
+            "src/risk/gate.py",
+            "def check():\n    try:\n        evaluate()\n    except Exception:\n        return\n",
+        )
+        assert not invariants.check_no_default_allow_on_failure()
+        assert invariants.check_no_silent_broad_except()

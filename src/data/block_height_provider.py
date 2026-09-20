@@ -17,7 +17,6 @@ import asyncio
 import aiohttp
 import structlog
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _HEIGHT_URL = "https://blockchain.info/q/getblockcount"
