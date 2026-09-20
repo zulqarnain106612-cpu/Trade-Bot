@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 97 |
+| VERIFIED | 98 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **97** |
+| **Total** | **98** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 16 | 16 |
+| Governance | 17 | 17 |
 
 ## Outstanding work by phase
 
@@ -1250,6 +1250,18 @@ Only the job that runs the test suite installs the project's runtime dependencie
 - **Verification:**
   - `tests/test_ci_workflow_cost.py` (unit) — Asserts no stdlib-only job installs requirements.txt or torch, that the lint job reads its ruff pin from requirements-dev.txt, that the test job installs through uv with its cache enabled, that every workflow installing torch names the CPU index, that the shard list and the declared total agree, and that a new push cancels the previous run off main.
 
+#### `GOV-016` — A new test is written to run as fast as it can while still deciding its question
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-21
+
+The suite's own running cost is budgeted and the budget only ever falls: the number of real wall-clock sleeps and process spawns in tests/ is frozen and may be lowered but never raised, no single stall exceeds 0.1s, and a budget with slack left in it fails until it is lowered so the saving is banked rather than spent.
+
+- **If violated:** A sleep or a spawn added to one test is imperceptible and is never attributed to the commit that added it, so the suite's cost rises monotonically and the minutes bought back by sharding are given away.
+- **Owned by:** `tests/test_suite_speed_budget.py`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_suite_speed_budget.py` (unit) — Counts sleeps between a scheduler yield and a cancelled-task sentinel and subprocess spawns across every test module, asserts both stay inside their frozen budgets, asserts no single stall exceeds 0.1s, and asserts each budget equals the actual count so slack cannot accumulate.
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1293,4 +1305,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 97 entries.
+Registry version: 1.0.0 — 98 entries.

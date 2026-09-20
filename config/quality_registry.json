@@ -2481,6 +2481,30 @@
       "failure_mode": "An install added to a job that does not need it is invisible in a green run, so minutes accumulate on every pull request with nothing attributing them to the change that added them."
     },
     {
+      "id": "GOV-016",
+      "kind": "requirement",
+      "title": "A new test is written to run as fast as it can while still deciding its question",
+      "statement": "The suite's own running cost is budgeted and the budget only ever falls: the number of real wall-clock sleeps and process spawns in tests/ is frozen and may be lowered but never raised, no single stall exceeds 0.1s, and a budget with slack left in it fails until it is lowered so the saving is banked rather than spent.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "owning_modules": [
+        "tests/test_suite_speed_budget.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_suite_speed_budget.py",
+          "test_type": "unit",
+          "note": "Counts sleeps between a scheduler yield and a cancelled-task sentinel and subprocess spawns across every test module, asserts both stay inside their frozen budgets, asserts no single stall exceeds 0.1s, and asserts each budget equals the actual count so slack cannot accumulate."
+        }
+      ],
+      "depends_on": [
+        "GOV-015"
+      ],
+      "failure_mode": "A sleep or a spawn added to one test is imperceptible and is never attributed to the commit that added it, so the suite's cost rises monotonically and the minutes bought back by sharding are given away."
+    },
+    {
       "id": "REG-0005",
       "kind": "regression",
       "title": "A test's result never depends on which tests ran before it",

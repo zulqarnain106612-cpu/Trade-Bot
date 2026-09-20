@@ -186,6 +186,48 @@ The shape that fixed it is pinned by `tests/test_ci_workflow_cost.py`:
 Adding an install to a job that does not import the project fails that test.
 That is deliberate: the cost is otherwise attributable to nothing.
 
+## New tests are written for speed (GOV-016)
+
+Every test and every check added from now on is written so it runs as fast as
+it can while still deciding what it is there to decide. This is not a licence
+to assert less -- the coverage floor and the quality contract are untouched.
+It is a constraint on *how* the assertion is reached.
+
+The suite is 349 files and runs on every push, six shards wide. A test that
+takes an extra tenth of a second costs that tenth on every pull request
+forever, and nobody ever attributes it to the commit that added it. So:
+
+- **Never sleep to wait for something.** Drive the clock (`monkeypatch` the
+  time source, `freeze` it, advance it), or await the event, condition or
+  future the code actually signals. `asyncio.sleep(0)` as a scheduler yield is
+  free and fine; anything else is a stall.
+- **Never spawn a process to run Python you can import.** `subprocess.run([sys
+  .executable, "scripts/x.py"])` pays interpreter startup and re-imports the
+  world; `import x; x.main([...])` does not, and gives a real traceback.
+- **No network, no real database, no real filesystem beyond `tmp_path`.** Fake
+  the client at its boundary. A test that can fail because something else is
+  down is slow *and* flaky.
+- **Scope fixtures as wide as correctness allows.** Anything that parses a
+  file, builds a registry or compiles a schema is `scope="module"` or
+  `scope="session"`. Function scope for a read-only value re-does the work once
+  per case.
+- **`@pytest.mark.parametrize`, not a loop with setup inside it.** Parametrised
+  cases shard and parallelise; a loop is one case that runs N times in one
+  worker and reports one failure for N problems.
+- **Build the smallest input that can fail.** Three rows, not three thousand;
+  four bits of a key, not 256, unless the size *is* the property.
+- **Read a file once per module, not once per assertion.** Most of these tests
+  are checks over the same handful of YAML and JSON files.
+
+`tests/test_suite_speed_budget.py` holds the mechanical half as a **ratchet**:
+the number of real sleeps and process spawns in the suite has a frozen budget
+that may only be lowered, and the test fails if the budget has slack left in
+it, so a saving is banked rather than spent on the next test that wants a
+sleep. The rest of the list is not machine-checkable and is enforced in review.
+
+Lowering a budget is always in order. Raising one has to be argued in the diff,
+like any other gate.
+
 
 ## Mathematical foundations registry
 
