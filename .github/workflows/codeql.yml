@@ -10,8 +10,13 @@ on:
   push:
     branches: ["main"]
   pull_request:
+    # `ready_for_review` is not one of the default activity types. Without it
+    # the queue reveals a parked entry and no run starts: the promotion is
+    # real, the checks never report, and the entry sits at the front of the
+    # line forever. tests/test_pr_queue.py asserts every gating workflow
+    # lists it (REG-0006).
     branches: ["main"]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     - cron: "27 4 * * 1"
 
