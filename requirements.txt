@@ -76,4 +76,4 @@ jsonschema>=4.0,<5.0
 # blocks a release on it. Listing a transitive dependency in the direct
 # manifest is the honest way to raise its floor -- the alternative is an
 # ignore file that outlives the reason it was added.
-msgpack>=1.2.1
+msgpack>=1.2.2
