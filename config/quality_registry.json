@@ -2557,6 +2557,29 @@
       "failure_mode": "A package-level cycle never fails at import time -- it hides behind submodule and deferred imports -- and surfaces instead as two packages that cannot be changed, tested or reasoned about apart."
     },
     {
+      "id": "INV-011",
+      "kind": "invariant",
+      "title": "The eighteen-engine seam is asserted from both sides, positions included",
+      "statement": "Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes one engine class with `async run(self, symbol, data)`; every engine given empty data abstains into a contract-valid EngineOutput rather than raising; EngineOrchestrator registers exactly eighteen engines in the order its positional attribution assumes; every engine has an SLA and every SLA an engine; and a cycle accounts for all eighteen as either an output or a named failure, each output honouring the same contract the producers were held to.",
+      "criticality": "high",
+      "subsystem": "signal",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "owning_modules": [
+        "src/engines/orchestrator.py",
+        "src/engines/schema.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_engine_seam_contract.py",
+          "test_type": "integration",
+          "note": "Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists."
+        }
+      ],
+      "depends_on": [],
+      "failure_mode": "run() attributes result i to E-{i+1} by position, so reordering the registration list files every output under the wrong engine, applies every SLA to the wrong engine and names the wrong thing in every log line -- silently, with no exception and no failing per-engine test."
+    },
+    {
       "id": "REG-0005",
       "kind": "regression",
       "title": "A test's result never depends on which tests ran before it",

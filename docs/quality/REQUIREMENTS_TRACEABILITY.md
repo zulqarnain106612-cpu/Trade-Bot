@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 100 |
+| VERIFIED | 101 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **100** |
+| **Total** | **101** |
 
 ## Summary by subsystem
 
@@ -60,7 +60,7 @@ deletion of the thing it points at.
 | Risk | 10 | 10 |
 | Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
-| Signal and features | 3 | 3 |
+| Signal and features | 4 | 4 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
@@ -368,6 +368,17 @@ Aggregate exposure, cross-strategy correlation and portfolio agreement are evalu
   - `tests/test_portfolio_agreement.py` (risk)
 
 ## Signal and features
+
+#### `INV-011` — The eighteen-engine seam is asserted from both sides, positions included
+
+**VERIFIED** · high · invariant · source: OPS-2026-09-21
+
+Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes one engine class with `async run(self, symbol, data)`; every engine given empty data abstains into a contract-valid EngineOutput rather than raising; EngineOrchestrator registers exactly eighteen engines in the order its positional attribution assumes; every engine has an SLA and every SLA an engine; and a cycle accounts for all eighteen as either an output or a named failure, each output honouring the same contract the producers were held to.
+
+- **If violated:** run() attributes result i to E-{i+1} by position, so reordering the registration list files every output under the wrong engine, applies every SLA to the wrong engine and names the wrong thing in every log line -- silently, with no exception and no failing per-engine test.
+- **Owned by:** `src/engines/orchestrator.py`, `src/engines/schema.py`
+- **Verification:**
+  - `tests/test_engine_seam_contract.py` (integration) — Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists.
 
 #### `SIG-001` — Golden signal fixtures pin end-to-end behaviour
 
@@ -1329,4 +1340,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 100 entries.
+Registry version: 1.0.0 — 101 entries.

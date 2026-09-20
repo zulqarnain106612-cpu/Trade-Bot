@@ -362,6 +362,40 @@ exists, so the fix is banked rather than leaving a slot for the next one.
   the shared shape down instead. If the edge is genuinely right, the layer
   order is wrong, and that is the thing to change.
 
+## Seam contracts: assert a hand-off from both sides (INV-011)
+
+`src/engines/` is the widest hand-off in the system -- eighteen producers, one
+consumer -- and `EngineOrchestrator.run` attributes the results **by position**:
+
+```python
+zip(self._engines, [f"E-{i:02d}" for i in range(1, 19)], strict=True)
+...
+eid = f"E-{i + 1:02d}"
+```
+
+Nothing in the code says `self._engines[3]` is E-04. Reorder that list and
+every output is filed under the wrong engine, every SLA lands on the wrong
+engine, every log line names the wrong thing -- with no exception raised and
+no per-engine test failing, because each engine is still correct on its own.
+Swapping two entries fails exactly one test in the suite:
+`tests/test_engine_seam_contract.py`. Before it existed, it failed none.
+
+The pattern, for any seam worth defending:
+
+- **Write the contract once, assert it twice** -- at the producer and again
+  where the consumer receives it (`_assert_contract` is called from both). If
+  the two ever drift, the gap is where the assertions differ.
+- **Make an implicit positional agreement explicit.** Wherever one list is
+  consumed against a parallel list of names or ids, pin the pairing.
+- **Degradation is part of the contract.** Every engine given empty data must
+  abstain into a *valid* output; raising would be swallowed by the gather and
+  become a silently missing engine.
+- **Account for everything, once.** A cycle must return all eighteen as either
+  an output or a named failure -- no drops, no duplicates. That is the loss no
+  per-engine test can see.
+- **Smoke-test the composition root.** Constructing `EngineOrchestrator` and
+  running one real cycle is the cheapest proof the pipeline still assembles.
+
 ## Quality and security requirements registry
 
 `config/quality_registry.json` is the single source of truth for every
