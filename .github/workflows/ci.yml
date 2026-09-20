@@ -14,6 +14,12 @@ on:
   # not as absent: a docs-only pull request would sit blocked forever with no
   # failing job to point at. tests/test_apply_repo_ruleset.py asserts this.
   pull_request:
+    # `ready_for_review` is not one of the default activity types. Without it
+    # the queue reveals a parked entry and no run starts: the promotion is
+    # real, the checks never report, and the entry sits at the front of the
+    # line forever. tests/test_pr_queue.py asserts every gating workflow
+    # lists it (REG-0006).
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
