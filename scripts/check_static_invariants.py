@@ -193,9 +193,7 @@ def _layering_problems(
     not this repository's.
     """
     rank = {
-        pkg: index
-        for index, layer in enumerate(contract["layers"])
-        for pkg in layer["packages"]
+        pkg: index for index, layer in enumerate(contract["layers"]) for pkg in layer["packages"]
     }
     accepted = {(e["from"], e["to"]) for e in contract["accepted_upward_edges"]}
     names = [layer["name"] for layer in contract["layers"]]
@@ -252,9 +250,7 @@ def check_layering() -> list[str]:
     and never grow -- so an inversion has to be either fixed or argued for in
     the diff that adds it, rather than accumulating silently.
     """
-    contract = json.loads(
-        (REPO / "config" / "architecture_layers.json").read_text("utf-8")
-    )
+    contract = json.loads((REPO / "config" / "architecture_layers.json").read_text("utf-8"))
     edges, packages = _package_edges()
     return _layering_problems(contract, edges, packages)
 
