@@ -17,7 +17,7 @@ arch>=8.0.0,<9.0                     # crypto-predictor/volatility.py (unguarded
 
 # --- reinforcement learning -------------------------------------------------
 stable-baselines3>=2.9.0,<3.0        # src/engines
-gymnasium>=0.29,<2.0               # src/engines envs
+gymnasium>=1.3.0,<2.0               # src/engines envs
 
 # --- experiment tracking / tuning ------------------------------------------
 mlflow>=3.16.0,<4.0                # src/tuning
