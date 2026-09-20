@@ -1,0 +1,69 @@
+{
+  "_comment": [
+    "RES-006 -- recorded performance baselines. Loaded by",
+    "src/diagnostics/performance_baseline.py and checked by the nightly",
+    "quality workflow.",
+    "",
+    "These are budgets, not measurements of a particular machine. A budget is",
+    "chosen from what the trading loop needs -- a 1m bar leaves 60 seconds for",
+    "everything downstream of it, and the p99 numbers below sum to a small",
+    "fraction of that on purpose, because the interesting failure is the slow",
+    "drift that eats the margin over a release or two.",
+    "",
+    "regression_tolerance is how much worse than baseline a run may be before",
+    "it fails. 0.25 = 25% slower. Tight enough to catch an accidental O(n^2),",
+    "loose enough to survive a noisy shared runner."
+  ],
+  "version": 1,
+  "regression_tolerance": 0.25,
+  "operations": {
+    "feature_generation": {
+      "p50_ms": 18.0,
+      "p95_ms": 45.0,
+      "p99_ms": 90.0,
+      "max_error_rate": 0.0,
+      "max_memory_mb": 512.0,
+      "note": "Runs once per bar per timeframe. The p99 is what matters: a slow tail here delays every decision behind it."
+    },
+    "signal_generation": {
+      "p50_ms": 25.0,
+      "p95_ms": 70.0,
+      "p99_ms": 150.0,
+      "max_error_rate": 0.0,
+      "max_memory_mb": 768.0,
+      "note": "Model inference plus the meta-label pass."
+    },
+    "risk_check": {
+      "p50_ms": 2.0,
+      "p95_ms": 6.0,
+      "p99_ms": 15.0,
+      "max_error_rate": 0.0,
+      "max_memory_mb": 128.0,
+      "note": "Sits between a signal and an order. Anything slow here is latency paid on every trade, and it must never be the reason somebody is tempted to bypass it."
+    },
+    "order_placement": {
+      "p50_ms": 120.0,
+      "p95_ms": 400.0,
+      "p99_ms": 1200.0,
+      "max_error_rate": 0.01,
+      "max_memory_mb": 128.0,
+      "note": "Dominated by the venue round trip, so the budget is generous and the error rate is the informative number. 1% covers ordinary venue flakiness; more than that is a venue problem worth halting for."
+    },
+    "reconciliation": {
+      "p50_ms": 300.0,
+      "p95_ms": 900.0,
+      "p99_ms": 2500.0,
+      "max_error_rate": 0.0,
+      "max_memory_mb": 256.0,
+      "note": "Runs at startup and on a schedule, not in the trading path."
+    },
+    "api_status_endpoint": {
+      "p50_ms": 15.0,
+      "p95_ms": 60.0,
+      "p99_ms": 200.0,
+      "max_error_rate": 0.0,
+      "max_memory_mb": 256.0,
+      "note": "An operator refreshing a dashboard during an incident is the worst time for this to be slow."
+    }
+  }
+}

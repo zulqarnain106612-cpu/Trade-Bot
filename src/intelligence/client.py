@@ -19,6 +19,8 @@ from typing import Any
 
 import structlog
 
+from src.api.ssrf import assert_outbound_url_allowed
+
 log = structlog.get_logger(__name__)
 
 
@@ -473,7 +475,17 @@ class IntelligenceAggregator:
 
     @property
     def _base_url(self) -> str:
-        return self._glassnode_base_url
+        """
+        The configured provider base URL, checked before it is used.
+
+        API-004. This value comes from configuration rather than a request
+        body, which makes an attack harder but not the control unnecessary: a
+        configuration value is exactly what a compromised deployment pipeline
+        rewrites, and pointing it at the cloud metadata service turns a
+        market-data fetch into a credential read. Checked on every use rather
+        than once at startup, because runtime overrides can change it.
+        """
+        return assert_outbound_url_allowed(self._glassnode_base_url)
 
     # -----------------------------------------------------------------------
     # Historical-range fetch methods (GAP-015 step 2)

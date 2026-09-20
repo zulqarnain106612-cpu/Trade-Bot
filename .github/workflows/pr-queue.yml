@@ -57,9 +57,11 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
+# Least privilege at the top, so a job added later starts read-only and has to
+# ask. Only `reconcile` writes anything, and it says what for.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 concurrency:
   # Serial by construction: two copies of this racing could promote two
@@ -69,10 +71,17 @@ concurrency:
 
 jobs:
   reconcile:
+    # `contents: write` is for pulls.updateBranch, which merges the base into
+    # the entry's branch -- a write to the branch, not to this repository's
+    # default branch. `pull-requests: write` parks, promotes, labels and
+    # comments. The gate job below needs neither and does not get them.
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - name: Park every extra entry, promote the front one
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const LABEL = 'queued';
@@ -266,7 +275,7 @@ jobs:
       # Checks out the base repository, which is what `pull_request_target`
       # gives by default. The entry's own code is never fetched under this
       # workflow's write token.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.1.0
       - name: Assert every job in this workflow succeeded
         env:
           NEEDS: ${{ toJSON(needs) }}

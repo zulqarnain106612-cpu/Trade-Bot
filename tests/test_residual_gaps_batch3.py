@@ -62,6 +62,8 @@ def _detector():
         PerformanceBaseline(
             train_sharpe=2.0,
             oos_sharpe=1.5,
+            # Fractions, not percentages -- PerformanceBaseline validates that
+            # each of these lies in [0, 1].
             train_accuracy=0.62,
             oos_accuracy=0.58,
             train_win_rate=0.55,

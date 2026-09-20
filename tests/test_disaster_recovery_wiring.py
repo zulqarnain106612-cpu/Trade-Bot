@@ -36,7 +36,16 @@ def _make_executor(holdings, *, local=None, fetch_raises=False):
     cfg.risk.notional_limit_usd = 100.0
     cfg.order_throttle.rate = 5.0
     cfg.order_throttle.burst = 5
-    with patch("src.execution.live.get_settings", return_value=cfg):
+    # The paper-qualification gate (INV-010) refuses to build a LiveExecutor
+    # without a passing record on disk, which is exactly what it is for. These
+    # tests exercise reconciliation wiring rather than the entry gates, so the
+    # gate is stood down explicitly here -- the patch is the statement that
+    # this fixture represents an already-qualified deployment, and if the gate
+    # is ever removed this line stops resolving and says so.
+    with (
+        patch("src.execution.live.get_settings", return_value=cfg),
+        patch("src.execution.live.assert_qualified_for_live"),
+    ):
         executor = LiveExecutor(storage, fetcher, starting_capital=1000.0)
     if local:
         for position in local:
