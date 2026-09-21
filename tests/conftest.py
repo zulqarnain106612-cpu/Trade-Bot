@@ -20,8 +20,20 @@ from urllib.parse import urlparse
 
 import pytest
 
-_TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
-os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
+# REG-0009: one path per *process*, not per run. Under xdist the controller
+# imports this module first, so the DUCKDB_PATH it sets is inherited by every
+# worker it spawns -- and `setdefault` then finds the variable already present
+# and leaves each worker pointing at the controller's single file. DuckDB takes
+# an exclusive lock, so the first worker to open it wins and the rest die with
+# "Conflicting lock is held". It is invisible without `-n`, which is why it
+# survived until the suite was sharded and parallelised.
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+_TMP_DB_DIR = Path(tempfile.mkdtemp(prefix=f"trade-bot-tests-duckdb-{_XDIST_WORKER or 'main'}-"))
+if _XDIST_WORKER:
+    # A worker always gets its own file, even when the controller exported one.
+    os.environ["DUCKDB_PATH"] = str(_TMP_DB_DIR / "crypto_intel.duckdb")
+else:
+    os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
 
 
 # ---------------------------------------------------------------------------

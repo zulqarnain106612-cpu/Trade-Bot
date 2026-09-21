@@ -2635,6 +2635,48 @@
       "depends_on": [
         "GOV-001"
       ]
+    },
+    {
+      "id": "REG-0008",
+      "kind": "regression",
+      "title": "On-chain features never report a fabricated constant",
+      "statement": "SOPR, NVT and MVRV are either genuinely computed or NaN; no on-chain metric returns a finite value that varies with none of its inputs, and an RPC outage is reported as NaN rather than as a neutral-looking reading.",
+      "criticality": "high",
+      "subsystem": "signal",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "failure_mode": "A constant 1.0 SOPR reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns, so models trained and traded on a fabricated on-chain signal, and a bitcoind outage was indistinguishable from a neutral market.",
+      "owning_modules": [
+        "src/features/onchain.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_onchain_no_fabricated_values.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Escaped to production: the constant reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns. The test suite could not catch it because the test that existed asserted the placeholder (== 1.0) rather than the requirement, so the layer that should have caught it is the review that accepted a return of a bare literal from a metric together with a docstring describing a computation the body never performed. layer: review"
+    },
+    {
+      "id": "REG-0009",
+      "kind": "regression",
+      "title": "Each pytest process owns its own DuckDB file",
+      "statement": "Every pytest process, controller or xdist worker, resolves DUCKDB_PATH to a file only it opens; no two processes in a run share a DuckDB database.",
+      "criticality": "medium",
+      "subsystem": "data",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "failure_mode": "Workers inherit the controller's DUCKDB_PATH, DuckDB takes an exclusive lock, and whichever worker opens the file second dies with 'Conflicting lock is held', failing a shard at random and reading as a flake.",
+      "owning_modules": [
+        "tests/conftest.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_duckdb_path_is_per_worker.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Escaped to the test suite, not to a running system: production reads DUCKDB_PATH from its own environment and never had two processes sharing one file. What broke was the suite's own isolation, and only under -n, so it presented as a flake that moved between shards rather than as a defect. Filed because a red shard nobody can attribute is a false signal in the gate that merges every change. layer: test-suite"
     }
   ]
 }

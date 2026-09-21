@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 102 |
+| VERIFIED | 104 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **102** |
+| **Total** | **104** |
 
 ## Summary by subsystem
 
@@ -60,9 +60,9 @@ deletion of the thing it points at.
 | Risk | 10 | 10 |
 | Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
-| Signal and features | 4 | 4 |
+| Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
-| Data, money and time | 6 | 6 |
+| Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 7 |
@@ -416,6 +416,19 @@ Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes o
 - **Verification:**
   - `tests/test_engine_seam_contract.py` (integration) — Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists.
 
+#### `REG-0008` — On-chain features never report a fabricated constant
+
+**VERIFIED** · high · regression · source: OPS-2026-09-21
+
+SOPR, NVT and MVRV are either genuinely computed or NaN; no on-chain metric returns a finite value that varies with none of its inputs, and an RPC outage is reported as NaN rather than as a neutral-looking reading.
+
+- **If violated:** A constant 1.0 SOPR reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns, so models trained and traded on a fabricated on-chain signal, and a bitcoind outage was indistinguishable from a neutral market.
+- **Owned by:** `src/features/onchain.py`
+- **Verification:**
+  - `tests/test_onchain_no_fabricated_values.py` (regression)
+
+> Escaped to production: the constant reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns. The test suite could not catch it because the test that existed asserted the placeholder (== 1.0) rather than the requirement, so the layer that should have caught it is the review that accepted a return of a bare literal from a metric together with a docstring describing a computation the body never performed. layer: review
+
 ## Models and leakage
 
 #### `MODL-001` — Every model artifact carries full provenance
@@ -581,6 +594,19 @@ Every submitted order conforms to the venue's tick, lot and minimum-notional rul
 - **Verification:**
   - `tests/execution/test_venue_precision.py` (unit) — Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees.
   - `tests/test_fetcher_symbol_precision.py` (unit)
+
+#### `REG-0009` — Each pytest process owns its own DuckDB file
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-21
+
+Every pytest process, controller or xdist worker, resolves DUCKDB_PATH to a file only it opens; no two processes in a run share a DuckDB database.
+
+- **If violated:** Workers inherit the controller's DUCKDB_PATH, DuckDB takes an exclusive lock, and whichever worker opens the file second dies with 'Conflicting lock is held', failing a shard at random and reading as a flake.
+- **Owned by:** `tests/conftest.py`
+- **Verification:**
+  - `tests/test_duckdb_path_is_per_worker.py` (regression)
+
+> Escaped to the test suite, not to a running system: production reads DUCKDB_PATH from its own environment and never had two processes sharing one file. What broke was the suite's own isolation, and only under -n, so it presented as a flake that moved between shards rather than as a defect. Filed because a red shard nobody can attribute is a false signal in the gate that merges every change. layer: test-suite
 
 ## API and WebSocket
 
@@ -1354,4 +1380,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 102 entries.
+Registry version: 1.0.0 — 104 entries.
