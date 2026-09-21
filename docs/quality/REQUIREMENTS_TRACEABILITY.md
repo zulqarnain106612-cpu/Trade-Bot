@@ -427,6 +427,8 @@ SOPR, NVT and MVRV are either genuinely computed or NaN; no on-chain metric retu
 - **Verification:**
   - `tests/test_onchain_no_fabricated_values.py` (regression)
 
+> Escaped to production: the constant reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns. The test suite could not catch it because the test that existed asserted the placeholder (== 1.0) rather than the requirement, so the layer that should have caught it is the review that accepted a return of a bare literal from a metric together with a docstring describing a computation the body never performed. layer: review
+
 ## Models and leakage
 
 #### `MODL-001` — Every model artifact carries full provenance
