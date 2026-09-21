@@ -2635,6 +2635,26 @@
       "depends_on": [
         "GOV-001"
       ]
+    },
+    {
+      "id": "REG-0008",
+      "kind": "regression",
+      "title": "On-chain features never report a fabricated constant",
+      "statement": "SOPR, NVT and MVRV are either genuinely computed or NaN; no on-chain metric returns a finite value that varies with none of its inputs, and an RPC outage is reported as NaN rather than as a neutral-looking reading.",
+      "criticality": "high",
+      "subsystem": "signal",
+      "status": "verified",
+      "source": "OPS-2026-09-21",
+      "failure_mode": "A constant 1.0 SOPR reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns, so models trained and traded on a fabricated on-chain signal, and a bitcoind outage was indistinguishable from a neutral market.",
+      "owning_modules": [
+        "src/features/onchain.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_onchain_no_fabricated_values.py",
+          "test_type": "regression"
+        }
+      ]
     }
   ]
 }

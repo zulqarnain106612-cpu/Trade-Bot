@@ -9,6 +9,7 @@ policy for src.*.
 
 from __future__ import annotations
 
+import math
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -102,7 +103,7 @@ async def test_compute_happy_path():
     extractor = OnChainFeatureExtractor(rpc=rpc)
     feats = await extractor.compute(spot_price_usd=50_000.0, market_cap_usd=1e12)
 
-    assert feats.sopr == 1.0
+    assert math.isnan(feats.sopr)  # REG-0008: unimplemented, never a constant
     assert feats.nvt > 0
     # realised cap = 3 BTC * 50k = 150k -> mvrv = 1e12 / 150k
     assert feats.mvrv == pytest.approx(1e12 / 150_000.0)
@@ -113,7 +114,8 @@ async def test_compute_falls_back_on_rpc_failure():
     rpc.get_blockchain_info = AsyncMock(side_effect=RuntimeError("node down"))
     extractor = OnChainFeatureExtractor(rpc=rpc)
     feats = await extractor.compute(50_000.0, 1e12)
-    assert (feats.sopr, feats.nvt, feats.mvrv) == (1.0, 50.0, 1.0)
+    # REG-0008: an outage reports NaN, not the old plausible 1.0/50.0/1.0.
+    assert all(math.isnan(v) for v in (feats.sopr, feats.nvt, feats.mvrv))
 
 
 async def test_compute_caches_realised_cap():
@@ -130,9 +132,10 @@ async def test_compute_with_zero_tx_volume_does_not_divide_by_zero():
     assert feats.nvt == 1e12  # divided by the 1.0 floor
 
 
-def test_estimate_realised_cap_empty_utxos_uses_midpoint_heuristic():
+def test_estimate_realised_cap_empty_utxos_is_nan():
+    """REG-0008: no UTXOs means nothing to sum, not half the 21M supply at spot."""
     extractor = OnChainFeatureExtractor(rpc=_fake_rpc())
-    assert extractor._estimate_realised_cap([], 100.0) == 100.0 * 21_000_000 * 0.5
+    assert math.isnan(extractor._estimate_realised_cap([], 100.0))
 
 
 def test_estimate_realised_cap_sums_utxo_amounts():
@@ -141,9 +144,10 @@ def test_estimate_realised_cap_sums_utxo_amounts():
     assert extractor._estimate_realised_cap(utxos, 1000.0) == 4000.0
 
 
-def test_approximate_sopr_returns_baseline():
+def test_sopr_is_nan_because_it_is_unimplemented():
+    """REG-0008: SOPR has no input to derive from, so it must not fabricate one."""
     extractor = OnChainFeatureExtractor(rpc=_fake_rpc())
-    assert extractor._approximate_sopr(50_000.0) == 1.0
+    assert math.isnan(extractor._sopr_unimplemented())
 
 
 def test_extractor_builds_default_rpc_client_when_none_given():

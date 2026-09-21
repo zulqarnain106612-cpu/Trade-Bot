@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 102 |
+| VERIFIED | 103 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **102** |
+| **Total** | **103** |
 
 ## Summary by subsystem
 
@@ -60,7 +60,7 @@ deletion of the thing it points at.
 | Risk | 10 | 10 |
 | Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
-| Signal and features | 4 | 4 |
+| Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 6 | 6 |
 | API and WebSocket | 9 | 9 |
@@ -415,6 +415,17 @@ Every eNN_*.py module declares an _ENGINE_ID matching its filename and exposes o
 - **Owned by:** `src/engines/orchestrator.py`, `src/engines/schema.py`
 - **Verification:**
   - `tests/test_engine_seam_contract.py` (integration) — Asserts the contract from the producer side per engine and again where the consumer receives it, pins the list order against the positional attribution in run(), and runs one real cycle to prove no engine is dropped or duplicated. Swapping two entries in the registration list fails only this test -- every other test in the suite still passes, which is why it exists.
+
+#### `REG-0008` — On-chain features never report a fabricated constant
+
+**VERIFIED** · high · regression · source: OPS-2026-09-21
+
+SOPR, NVT and MVRV are either genuinely computed or NaN; no on-chain metric returns a finite value that varies with none of its inputs, and an RPC outage is reported as NaN rather than as a neutral-looking reading.
+
+- **If violated:** A constant 1.0 SOPR reached the live feature dict in src/intel.py and was persisted to intelligence_features_history beside measured columns, so models trained and traded on a fabricated on-chain signal, and a bitcoind outage was indistinguishable from a neutral market.
+- **Owned by:** `src/features/onchain.py`
+- **Verification:**
+  - `tests/test_onchain_no_fabricated_values.py` (regression)
 
 ## Models and leakage
 
@@ -1354,4 +1365,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 102 entries.
+Registry version: 1.0.0 — 103 entries.
