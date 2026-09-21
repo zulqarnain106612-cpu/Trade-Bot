@@ -101,10 +101,15 @@ class TestTheRegistryHasAPlaceForDefects:
         # argument, and that value reached the live feature dict in src/intel.py
         # and the intelligence_features_history table. The test that existed
         # asserted the placeholder, so the suite could not have caught it.
+        # REG-0009: xdist workers inherited the controller's DUCKDB_PATH, so
+        # they all opened one exclusively-locked DuckDB file and whichever
+        # worker arrived second failed. Only visible under -n, so it read as a
+        # flake rather than as the isolation defect it was.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
             "REG-0008",
+            "REG-0009",
         }
         assert {e.id for e in registry.by_kind("security_regression")} == set()
 
@@ -325,7 +330,7 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"test-suite": 2, "review": 1}
+        assert metric["value"] == {"test-suite": 3, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

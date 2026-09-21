@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 103 |
+| VERIFIED | 104 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **103** |
+| **Total** | **104** |
 
 ## Summary by subsystem
 
@@ -62,7 +62,7 @@ deletion of the thing it points at.
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
-| Data, money and time | 6 | 6 |
+| Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 10 | 10 |
 | Supply chain and artifacts | 7 | 7 |
@@ -594,6 +594,19 @@ Every submitted order conforms to the venue's tick, lot and minimum-notional rul
 - **Verification:**
   - `tests/execution/test_venue_precision.py` (unit) — Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees.
   - `tests/test_fetcher_symbol_precision.py` (unit)
+
+#### `REG-0009` — Each pytest process owns its own DuckDB file
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-21
+
+Every pytest process, controller or xdist worker, resolves DUCKDB_PATH to a file only it opens; no two processes in a run share a DuckDB database.
+
+- **If violated:** Workers inherit the controller's DUCKDB_PATH, DuckDB takes an exclusive lock, and whichever worker opens the file second dies with 'Conflicting lock is held', failing a shard at random and reading as a flake.
+- **Owned by:** `tests/conftest.py`
+- **Verification:**
+  - `tests/test_duckdb_path_is_per_worker.py` (regression)
+
+> Escaped to the test suite, not to a running system: production reads DUCKDB_PATH from its own environment and never had two processes sharing one file. What broke was the suite's own isolation, and only under -n, so it presented as a flake that moved between shards rather than as a defect. Filed because a red shard nobody can attribute is a false signal in the gate that merges every change. layer: test-suite
 
 ## API and WebSocket
 
@@ -1367,4 +1380,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 103 entries.
+Registry version: 1.0.0 — 104 entries.
