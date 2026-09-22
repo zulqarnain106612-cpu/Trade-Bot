@@ -75,6 +75,9 @@ class TestOnlyTheTestsInstallTheProject:
         ]
         # Import name -> the name it is installed under, where they differ.
         distribution = {"yaml": "PyYAML"}
+        # A module sitting next to the script is not a distribution; the
+        # script reaches it with a sys.path insert, and pip cannot install it.
+        siblings = {m.stem for script in scripts for m in script.parent.glob("*.py")}
 
         needed: set[str] = set()
         for script in scripts:
@@ -88,6 +91,8 @@ class TestOnlyTheTestsInstallTheProject:
                 for name in names:
                     top = name.split(".")[0]
                     if top in sys.stdlib_module_names or top in {"src", "scripts"}:
+                        continue
+                    if top in siblings:
                         continue
                     needed.add(distribution.get(top, top))
 

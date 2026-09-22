@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 104 |
+| VERIFIED | 106 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **104** |
+| **Total** | **106** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 20 | 20 |
+| Governance | 22 | 22 |
 
 ## Outstanding work by phase
 
@@ -1352,6 +1352,33 @@ python-lint installs each third-party module reachable from the scripts it runs 
 
 > Escaped to CI, not to a running system: the gate this broke is what checks the registry, and it broke because the job stopped installing what the gate imports. It passed locally because the developer's interpreter already had jsonschema and PyYAML, so the only environment that could see it was the clean one. Filed because a green local run that is red in CI is a false green, and the rule that a defect gets a permanent test applies to those too. layer: test-suite
 
+#### `REG-0010` — Registry ids are allocated against every branch, not one work tree
+
+**VERIFIED** · high · regression · source: OPS-2026-09-22
+
+The scaffolder must refuse to hand out a registry id that is already used by an entry on any other branch, and must refuse an explicitly passed id that another branch already holds.
+
+- **If violated:** Two branches open at once are handed the same id; on merge two different requirements share it, or one is renumbered and a depends_on elsewhere silently points at the wrong entry.
+- **Owned by:** `.claude/skills/quality-engineering/scripts/qe_registry_refs.py`
+- **Verification:**
+  - `tests/quality/test_qe_id_allocation.py` (regression)
+
+> Happened three times in one session (SECR-013/014 taken by two branches, then a third). Every collision was caught by hand; no check would have caught any of them.
+
+#### `REG-0011` — The scaffolder validates with the loader the gate runs
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-22
+
+qe_new_requirement.py must report success only for an entry that src.quality.registry.load_registry accepts, not merely one the JSON schema accepts.
+
+- **If violated:** The scaffolder prints [ok] for an entry the gate rejects, moving the failure to CI and making an invalid entry look reviewed on the way past.
+- **Owned by:** `.claude/skills/quality-engineering/scripts/qe_new_requirement.py`
+- **Depends on:** `REG-0010`
+- **Verification:**
+  - `tests/quality/test_qe_id_allocation.py` (regression)
+
+> Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does.
+
 
 ---
 
@@ -1380,4 +1407,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 104 entries.
+Registry version: 1.0.0 — 106 entries.

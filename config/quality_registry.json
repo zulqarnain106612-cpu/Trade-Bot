@@ -2677,6 +2677,51 @@
         }
       ],
       "notes": "Escaped to the test suite, not to a running system: production reads DUCKDB_PATH from its own environment and never had two processes sharing one file. What broke was the suite's own isolation, and only under -n, so it presented as a flake that moved between shards rather than as a defect. Filed because a red shard nobody can attribute is a false signal in the gate that merges every change. layer: test-suite"
+    },
+    {
+      "id": "REG-0010",
+      "kind": "regression",
+      "title": "Registry ids are allocated against every branch, not one work tree",
+      "statement": "The scaffolder must refuse to hand out a registry id that is already used by an entry on any other branch, and must refuse an explicitly passed id that another branch already holds.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Two branches open at once are handed the same id; on merge two different requirements share it, or one is renumbered and a depends_on elsewhere silently points at the wrong entry.",
+      "owning_modules": [
+        ".claude/skills/quality-engineering/scripts/qe_registry_refs.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/quality/test_qe_id_allocation.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Happened three times in one session (SECR-013/014 taken by two branches, then a third). Every collision was caught by hand; no check would have caught any of them."
+    },
+    {
+      "id": "REG-0011",
+      "kind": "regression",
+      "title": "The scaffolder validates with the loader the gate runs",
+      "statement": "qe_new_requirement.py must report success only for an entry that src.quality.registry.load_registry accepts, not merely one the JSON schema accepts.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "The scaffolder prints [ok] for an entry the gate rejects, moving the failure to CI and making an invalid entry look reviewed on the way past.",
+      "owning_modules": [
+        ".claude/skills/quality-engineering/scripts/qe_new_requirement.py"
+      ],
+      "depends_on": [
+        "REG-0010"
+      ],
+      "verification": [
+        {
+          "test": "tests/quality/test_qe_id_allocation.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does."
     }
   ]
 }
