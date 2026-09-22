@@ -47,6 +47,16 @@ try:
 except Exception:  # pragma: no cover - defended below by _fail_open
     classify = None  # type: ignore[assignment]
 
+try:
+    # Shared with shell_exec.run() so the hook and the runtime cannot disagree
+    # about what counts as reading CI data. When the project is not importable
+    # -- a bare session, a detached checkout -- _ci_log_access falls back to
+    # the equivalent patterns in config/command_policy.json, which is why they
+    # are duplicated there rather than only here.
+    from common.command_schema import is_ci_log_access as _shared_is_ci_log_access
+except Exception:  # pragma: no cover - policy-file fallback covers this
+    _shared_is_ci_log_access = None  # type: ignore[assignment]
+
 
 # --------------------------------------------------------------------------
 # Decision plumbing
@@ -258,6 +268,49 @@ def _live_monitoring(command: str, policy: dict[str, Any]) -> str:
     return ""
 
 
+def _ci_log_access(command: str, policy: dict[str, Any]) -> str:
+    """
+    Return the refusal message when a command reads CI run data, else "".
+
+    Distinct from :func:`_live_monitoring`, which refuses only the open-ended
+    forms. This refuses *every* form: a run log, a job record, an annotation,
+    an artifact, a check result, and dispatching a run in order to read what it
+    prints. There is no line bound that makes it allowed, because the objection
+    is not output size -- the pull-request notice already carries the status
+    and the exact failing lines, so fetching is a worse route to the same
+    answer that also costs context.
+
+    The comment allowlist is checked first and wins. Closing the comment
+    channel would leave no way at all to learn why a run failed, and a guard
+    with no remaining route is a guard someone switches off.
+
+    Shares :func:`~common.command_schema.is_ci_log_access` with the runtime
+    where that import is available, so the hook and ``shell_exec.run()`` cannot
+    disagree. The policy file's patterns are the fallback when this hook runs
+    without the project importable, which is the case in a bare session.
+    """
+    cfg = policy.get("ci_log_access", {})
+    if not cfg.get("enabled", True):
+        return ""
+
+    message = str(cfg.get("message", "CI log access is permanently disabled."))
+
+    if _shared_is_ci_log_access is not None:
+        return message if _shared_is_ci_log_access(command) else ""
+
+    # Same three tiers as the shared implementation, in the same order.
+    for pattern in cfg.get("hard_deny_patterns", []):
+        if re.search(pattern, command, re.IGNORECASE):
+            return message
+    for pattern in cfg.get("allowed_patterns", []):
+        if re.search(pattern, command, re.IGNORECASE):
+            return ""
+    for pattern in cfg.get("banned_patterns", []):
+        if re.search(pattern, command, re.IGNORECASE):
+            return message
+    return ""
+
+
 def _violations(command: str, policy: dict[str, Any]) -> list[str]:
     """
     Collect every rule this command breaks, most severe first.
@@ -294,7 +347,19 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
                 "has explicitly approved this specific action."
             )
 
-    # 3. Live CI monitoring -----------------------------------------------
+    # 3. CI run data ------------------------------------------------------
+    # Before live monitoring and before the bounded-output rules, and it
+    # returns immediately: this is not an output-size objection, so appending
+    # a line-bound refusal would suggest a smaller bound would have worked.
+    # Nothing about a CI log, job record, annotation, artifact or check result
+    # is readable from here under any condition; the pull-request notice is
+    # the channel, and it already carries the status and the failing lines.
+    ci_logs = _ci_log_access(command, policy)
+    if ci_logs:
+        problems.append(ci_logs)
+        return problems
+
+    # 4. Live CI monitoring -----------------------------------------------
     # A live watch is refused outright, and the bounded-output rules below are
     # not consulted: its message already carries the line directive, and
     # appending the bound refusal to it would say the same thing twice.
@@ -303,7 +368,7 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
         problems.append(live)
         return problems
 
-    # 4. Unbounded output -------------------------------------------------
+    # 5. Unbounded output -------------------------------------------------
     bounded_cfg = policy.get("bounded_output", {})
     if bounded_cfg.get("enabled", True):
         limit = int(bounded_cfg.get("max_declared_lines", 30))

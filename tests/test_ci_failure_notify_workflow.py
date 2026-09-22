@@ -13,6 +13,7 @@ own prior comment instead of stacking new ones.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -114,16 +115,43 @@ class TestTrigger:
                 f"{job_name} is excused in a gate but not in the failure notice"
             )
 
-    def test_a_green_run_is_silent(self, script):
+    def test_it_waits_for_every_watched_workflow_before_posting(self, script):
         """
-        A notification that fires on success is one people learn to ignore.
+        Replaces `test_a_green_run_is_silent`, deliberately.
 
-        The one exception is a standing red notice from an earlier attempt:
-        that is rewritten to say the workflow recovered, because a stale red
-        comment is worse than no comment.
+        That test protected against notification fatigue -- a notice that fires
+        on success gets ignored -- and it was right while CI logs were still
+        readable with a line bound, because a silent green run left the log as
+        the fallback. `ci_log_access` removed that fallback: this comment is now
+        the only channel, so "all checks green" has to be sayable, and the
+        answer to fatigue is one comment per commit rather than no comment.
+
+        What must hold instead is that the verdict is never posted early. A
+        notice saying "all green" while a workflow is still in flight is worse
+        than fatigue: it is wrong, and it is the only thing anyone can read.
         """
-        assert "else if (!green)" in script
-        assert "recovered" in script
+        assert "status !== 'completed'" in script
+        assert "Not posting yet" in script
+        assert "return;" in script
+
+    def test_the_verdict_covers_every_watched_workflow(self, script, spec):
+        """
+        The consolidation list and the trigger list are one fact.
+
+        Adding a workflow to `on.workflow_run.workflows` without adding it to
+        WATCHED would let the notice declare a complete picture while ignoring
+        that workflow's result -- announcing green on a commit whose new
+        workflow failed.
+        """
+        # PyYAML parses a bare `on:` key as the boolean True.
+        on = spec.get("on") or spec.get(True)
+        triggers = set(on["workflow_run"]["workflows"])
+        watched = set(re.findall(r"^\s*'([^']+)',$", script, re.MULTILINE))
+        assert triggers <= watched, f"not consolidated: {sorted(triggers - watched)}"
+
+    def test_green_is_reported_not_suppressed(self, script):
+        """The only channel must be able to say 'nothing is wrong'."""
+        assert "all checks green" in script
 
 
 class TestPermissions:
@@ -141,15 +169,20 @@ class TestCommentBody:
         budget as every other read: bounded, and bounded by a constant that
         cannot silently grow past the policy limit.
         """
-        assert "const MAX_JOBS = 4" in script
+        assert "const MAX_JOBS = 6" in script
         assert "const MAX_MSG_LINES = 4" in script
         assert "slice(0, MAX_JOBS)" in script
 
-        # Worst case: MAX_JOBS job lines, each followed by MAX_MSG_LINES of
-        # extracted message, plus the heading, link and footer. That has to
-        # stay inside the same 30-line budget the command policy enforces.
-        worst_case = 4 * (1 + 4) + 6
-        assert worst_case <= 30, worst_case
+        # Worst case, with the consolidated shape: MAX_JOBS entries, each a
+        # heading line plus a fenced block of at most MAX_MSG_LINES, plus the
+        # status heading, a blank and the overflow line. MAX_JOBS rose from 4
+        # to 6 because one comment now covers five workflows instead of one --
+        # the budget is per comment, and there is only one comment, so the cap
+        # had to cover the same failures it used to spread across five.
+        worst_case = 6 * (1 + 2 + 4) + 3
+        assert worst_case <= 48, worst_case
+        # No footer: the comment is the status and the errors, nothing else.
+        assert "Do not fetch the run log" not in script
 
         policy = json.loads(
             (PROJECT_ROOT / "config" / "command_policy.json").read_text(encoding="utf-8")
@@ -158,7 +191,12 @@ class TestCommentBody:
 
     def test_it_updates_its_prior_notice_rather_than_stacking(self, script):
         assert "updateComment" in script
-        assert "ci-failure-notice:" in script
+        # One marker for the whole commit, not one per workflow. The old
+        # `ci-failure-notice:${run.name}` marker was per-workflow by design and
+        # produced up to five comments on one PR; the requirement is now a
+        # single consolidated comment, so the marker carries no workflow name.
+        assert "'<!-- ci-notice -->'" in script
+        assert "ci-failure-notice:" not in script
 
     def test_it_names_the_failing_step_not_the_whole_log(self, script):
         """The first failing step identifies the failure; the rest is noise."""
@@ -175,8 +213,25 @@ class TestCommentBody:
         """
         assert "listAnnotations" in script
         assert "downloadJobLogsForWorkflowRun" in script
-        assert "ERROR_RE" in script
         assert "slice(-MAX_MSG_LINES)" in script
+        # Replaces the single ERROR_RE. A prioritised SIGNAL list is needed
+        # because one alternation cannot express "prefer the pytest summary
+        # line over a bare traceback frame", and the flat regex is what let
+        # `Process completed with exit code 1` become the entire notice.
+        assert "const SIGNAL = [" in script
+        assert "const NOISE = [" in script
+
+    def test_the_runners_exit_code_is_not_treated_as_an_error_message(self, script):
+        """
+        The failure this test exists for, observed on PR #313: the notice's
+        only content was `Process completed with exit code 1.` -- which names
+        no assertion, no test and no file. With CI logs now permanently
+        unreadable, a notice that says only that leaves nobody any route to
+        the cause at all.
+        """
+        assert "Process completed with exit code" in script
+        assert "isNoise" in script
+        assert "filter(l => !isNoise(l))" in script
 
     def test_reading_the_log_requires_no_extra_permission_than_declared(self, spec):
         """Annotations are check-run data; the token has to be allowed to read them."""
