@@ -5,14 +5,19 @@ Executes a command declaration dict (validated against COMMAND_EXEC_SCHEMA)
 and returns a bounded result. Raw stdout/stderr NEVER exceeds max_lines before
 being returned to the caller.
 
-don't Work identically in:
-  - Local terminal sessions, always use github cloud action Workflows for review, test, build
-  - Cloud containers (CLAUDE_CODE_REMOTE=false, provisioned by session-start.sh)
+Works identically in:
+  - Local terminal sessions
+  - Cloud containers (CLAUDE_CODE_REMOTE=true, provisioned by session-start.sh)
+
+That is a statement about this module, not a licence to run heavy work locally:
+review, test and build belong in GitHub Actions workflows.
 
 Environment differences handled automatically:
   - filter_mode=jq: graceful error if jq binary absent (common on cloud containers)
   - Timeout: process group killed on SIGKILL after timeout (works in both envs)
-  - jsonschema: stdlib-only fallback if package absent (no hard import failure)
+  - jsonschema: stdlib-only fallback if package absent (no hard import failure).
+    The fallback enforces the same contract, not a reduced one -- see
+    _validate_fallback and SEC-0002.
 
 Usage:
     from common.shell_exec import run
@@ -32,6 +37,7 @@ Usage:
     })
 
     # result["filtered_output"]  — capped, filtered text (only this enters context)
+    # result["purpose"]          — the declared purpose, echoed back
     # result["exit_code"]        — final attempt exit code
     # result["truncated"]        — True if lines were dropped by cap
     # result["attempt_count"]    — how many runs were made
@@ -43,6 +49,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -55,7 +62,9 @@ from typing import Any
 from common.command_schema import (
     CI_LOG_REFUSAL,
     COMMAND_EXEC_SCHEMA,
+    SCHEMA_VERSION,
     build_env,
+    check_schema_version,
     classify,
     is_ci_log_access,
     rank,
@@ -65,6 +74,141 @@ from common.command_schema import (
 # ---------------------------------------------------------------------------
 # Validation — jsonschema preferred, lightweight fallback if absent
 # ---------------------------------------------------------------------------
+
+_JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "object": (dict,),
+    "array": (list,),
+    "string": (str,),
+    "number": (int, float),
+    "integer": (int,),
+    "boolean": (bool,),
+}
+
+
+def _type_matches(value: Any, expected: str) -> bool:
+    """One JSON Schema `type` check, with the two traps Python sets."""
+    if expected == "null":
+        return value is None
+    types = _JSON_TYPES.get(expected)
+    if types is None:  # pragma: no cover - schema authors' typo
+        raise ValueError(f"unknown type in schema: {expected!r}")
+    # bool is a subclass of int, so `True` would satisfy integer/number.
+    if expected in ("integer", "number") and isinstance(value, bool):
+        return False
+    return isinstance(value, types)
+
+
+def _validate_against(value: Any, schema: dict, path: str) -> None:
+    """
+    Validate `value` against the draft-07 subset COMMAND_EXEC_SCHEMA uses.
+
+    Walking the schema rather than restating its rules is the point: this
+    function has no knowledge of `classification`, `max_bytes` or any other
+    field, so adding a constraint to the schema tightens both validation paths
+    at once and neither can drift from the other (SEC-0002). It supports
+    exactly the keywords the schema uses; an unsupported keyword is a loud
+    error, not a silent pass, so extending the schema with something this
+    cannot check fails here instead of going unenforced.
+    """
+    supported = {
+        "$schema",
+        "$id",
+        "title",
+        "description",
+        "default",
+        "readOnly",
+        "type",
+        "enum",
+        "required",
+        "properties",
+        "additionalProperties",
+        "items",
+        "minimum",
+        "maximum",
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "maxProperties",
+    }
+    # `const` and `uniqueItems` are deliberately absent: COMMAND_EXEC_SCHEMA
+    # uses neither, and supporting a keyword no schema exercises is untested
+    # code pretending to be a control. Adding either to the schema raises the
+    # unknown-keyword error above, which is the loud failure that makes the
+    # omission safe.
+    if unknown := set(schema) - supported:
+        raise ValueError(
+            f"{path}: fallback validator cannot check schema keyword(s) "
+            f"{sorted(unknown)}; extend _validate_against rather than leaving "
+            f"the constraint unenforced without jsonschema"
+        )
+
+    if "type" in schema:
+        expected = schema["type"]
+        options = expected if isinstance(expected, list) else [expected]
+        if not any(_type_matches(value, opt) for opt in options):
+            raise ValueError(f"{path}: expected type {expected}, got {type(value).__name__}")
+
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{path}: {value!r} is not one of {schema['enum']}")
+
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            raise ValueError(f"{path}: shorter than minLength {schema['minLength']}")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            raise ValueError(f"{path}: longer than maxLength {schema['maxLength']}")
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            raise ValueError(f"{path}: below minimum {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise ValueError(f"{path}: above maximum {schema['maximum']}")
+
+    if isinstance(value, list):
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            raise ValueError(f"{path}: fewer than minItems {schema['minItems']}")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ValueError(f"{path}: more than maxItems {schema['maxItems']}")
+        if isinstance(schema.get("items"), dict):
+            for i, item in enumerate(value):
+                _validate_against(item, schema["items"], f"{path}[{i}]")
+
+    if isinstance(value, dict):
+        for name in schema.get("required", []):
+            if name not in value:
+                raise ValueError(f"{path}: missing required property {name!r}")
+        if "maxProperties" in schema and len(value) > schema["maxProperties"]:
+            raise ValueError(f"{path}: more than maxProperties {schema['maxProperties']}")
+
+        properties = schema.get("properties", {})
+        extra = schema.get("additionalProperties", True)
+        for key, item in value.items():
+            if key in properties:
+                _validate_against(item, properties[key], f"{path}.{key}")
+            elif extra is False:
+                raise ValueError(f"{path}: additional property {key!r} is not allowed")
+            elif isinstance(extra, dict):
+                _validate_against(item, extra, f"{path}.{key}")
+
+
+def _validate_fallback(declaration: dict) -> None:
+    """
+    Validate a declaration without jsonschema, to the same strictness.
+
+    The 1.1.0 fallback checked `command` and `max_lines` and nothing else, so
+    on a host with no jsonschema the declared `classification`, the
+    `confirm_destructive` type, `additionalProperties: False`, the `timeout_s`
+    bounds and every `output_policy` cap went unchecked. A missing dependency
+    quietly downgraded the controls this module exists to apply, which is the
+    worst shape a security control can fail in (SEC-0002).
+    """
+    if not isinstance(declaration, dict):
+        raise ValueError("declaration must be a dict")
+    try:
+        _validate_against(declaration, COMMAND_EXEC_SCHEMA, "declaration")
+    except ValueError as exc:
+        raise ValueError(f"Invalid command declaration: {exc}") from exc
+
 
 try:
     from jsonschema import ValidationError as _JSValidationError
@@ -78,20 +222,101 @@ try:
 
 except ImportError:
     # jsonschema not installed (e.g. fresh cloud container before pip install).
-    # Perform minimal structural checks so the module still works.
-    def _validate(declaration: dict) -> None:  # type: ignore[misc]
-        if not isinstance(declaration, dict):
-            raise ValueError("declaration must be a dict")
-        if "command" not in declaration or not declaration["command"]:
-            raise ValueError("declaration['command'] is required and must be non-empty")
-        if "output_policy" not in declaration:
-            raise ValueError("declaration['output_policy'] is required")
-        policy = declaration["output_policy"]
-        max_lines = policy.get("max_lines")
-        if max_lines is None:
-            raise ValueError("output_policy['max_lines'] is required")
-        if not isinstance(max_lines, int) or not (1 <= max_lines <= 200):
-            raise ValueError("output_policy['max_lines'] must be integer 1–200")
+    # The fallback enforces the same contract; it is not a reduced one.
+    _validate = _validate_fallback  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# Audit trail
+# ---------------------------------------------------------------------------
+
+AUDIT_LOGGER_NAME = "tradebot.command_audit"
+
+# No handler is attached here: a library that configures logging takes a
+# decision that belongs to the host. With no handler the record is a no-op,
+# which is why the test asserts on the record rather than on a file.
+_audit_log = logging.getLogger(AUDIT_LOGGER_NAME)
+
+
+def _audited_refusal(
+    declaration: dict,
+    declared: str,
+    detected: str,
+    reason: str,
+    purpose: str | None,
+) -> dict[str, Any]:
+    """Build a refusal result and audit it, so no refusal escapes the trail."""
+    # .get, not []: the version gate runs before _validate(), so `command` is
+    # not yet known to be present when a bad version is refused.
+    result = _refused(str(declaration.get("command", "")), declared, reason, purpose)
+    _audit(
+        outcome="refused",
+        declaration=declaration,
+        declared=declared,
+        detected=detected,
+        result=result,
+    )
+    return result
+
+
+def _audit_entry(
+    *,
+    outcome: str,
+    declaration: dict,
+    declared: str,
+    detected: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """The record itself, split out so tests can assert its shape directly."""
+    return {
+        "schema_version": declaration.get("schema_version", SCHEMA_VERSION),
+        "outcome": outcome,
+        "command_sha256": result["command_sha256"],
+        "purpose": declaration.get("purpose"),
+        "classification": declared,
+        "detected_classification": detected,
+        "exit_code": result["exit_code"],
+        "attempt_count": result["attempt_count"],
+        "duration_s": result["duration_s"],
+        "truncated": result["truncated"],
+        "bytes_truncated": result["bytes_truncated"],
+        "timed_out": result["timed_out"],
+        "redactions_applied": result["redactions_applied"],
+        "started_at": result["started_at"],
+        "error": result["error"],
+    }
+
+
+def _audit(
+    *,
+    outcome: str,
+    declaration: dict,
+    declared: str,
+    detected: str,
+    result: dict[str, Any],
+) -> None:
+    """
+    Emit one structured record per run() call, refusals included.
+
+    From 1.1.0 the schema told readers that `purpose` was "logged with the
+    command hash". No log record existed, so the audit trail a reviewer would
+    have relied on to answer "what did the agent run, and why" was not there
+    (SEC-0003). A refused command is the record an incident review most wants:
+    it says an agent attempted something the contract stopped.
+
+    The command string is deliberately absent. This record goes wherever the
+    host sends logs -- a file, an aggregator -- and a command line routinely
+    carries a token or a connection string. command_sha256 identifies it
+    without republishing it.
+    """
+    entry = _audit_entry(
+        outcome=outcome,
+        declaration=declaration,
+        declared=declared,
+        detected=detected,
+        result=result,
+    )
+    _audit_log.info(json.dumps(entry, sort_keys=True))
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +335,12 @@ def _command_hash(command: str) -> str:
     return hashlib.sha256(command.encode("utf-8")).hexdigest()[:16]
 
 
-def _refused(command: str, classification: str, reason: str) -> dict[str, Any]:
+def _refused(
+    command: str,
+    classification: str,
+    reason: str,
+    purpose: str | None = None,
+) -> dict[str, Any]:
     """
     Build the result of a declaration rejected before execution.
 
@@ -121,6 +351,7 @@ def _refused(command: str, classification: str, reason: str) -> dict[str, Any]:
     return {
         "exit_code": -1,
         "filtered_output": "",
+        "purpose": purpose,
         "truncated": False,
         "bytes_truncated": False,
         "timed_out": False,
@@ -345,10 +576,26 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
         ValueError:  declaration fails schema validation or filter_expr is bad.
         RuntimeError: filter_mode=jq but jq not on PATH.
     """
+    # ---- version contract (schema 1.2.0) -------------------------------
+    # Deliberately ahead of _validate(): when the declared version is one this
+    # runtime does not implement, COMMAND_EXEC_SCHEMA is the wrong schema to
+    # judge the declaration by, and a validation error about some field would
+    # describe the symptom rather than the cause. The schema's `enum` keeps
+    # this as defence in depth for callers that validate without run().
+    if not isinstance(declaration, dict):
+        raise ValueError("declaration must be a dict")
+    try:
+        check_schema_version(declaration.get("schema_version"))
+    except ValueError as exc:
+        return _audited_refusal(
+            declaration, "read_only", "read_only", str(exc), declaration.get("purpose")
+        )
+
     _validate(declaration)
 
     cmd: str = declaration["command"]
     policy: dict = declaration["output_policy"]
+    purpose: str | None = declaration.get("purpose")
 
     # ---- effect-class contract (schema 1.1.0) --------------------------
     # A declaration that under-states its effect is a hard error, not a
@@ -367,24 +614,34 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     if is_ci_log_access(cmd):
         return _refused(cmd, declared, CI_LOG_REFUSAL)
     if rank(detected) > rank(declared):
-        return _refused(
-            cmd,
+        return _audited_refusal(
+            declaration,
             declared,
+            detected,
             f"declaration says classification={declared!r} but the command "
             f"matches a {detected!r} pattern. Correct the declaration -- "
             f"do not weaken the check.",
+            purpose,
         )
     if declared == "destructive" and not declaration.get("confirm_destructive", False):
-        return _refused(
-            cmd,
+        return _audited_refusal(
+            declaration,
             declared,
+            detected,
             "destructive command requires confirm_destructive=True and "
             "explicit user authorization.",
+            purpose,
         )
 
     cwd: str | None = declaration.get("cwd")
     if cwd is not None and not os.path.isdir(cwd):
-        return _refused(cmd, declared, f"cwd does not exist or is not a directory: {cwd!r}")
+        return _audited_refusal(
+            declaration,
+            declared,
+            detected,
+            f"cwd does not exist or is not a directory: {cwd!r}",
+            purpose,
+        )
 
     child_env = build_env(declaration.get("env"))
     # Declared timeout wins over the run() kwarg; the kwarg stays the default
@@ -461,9 +718,10 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
         last_error = None
         break
 
-    return {
+    result = {
         "exit_code": exit_code,
         "filtered_output": capped,
+        "purpose": purpose,
         "truncated": truncated,
         "bytes_truncated": bytes_truncated,
         "timed_out": timed_out,
@@ -475,3 +733,11 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
         "started_at": started_at,
         "error": last_error,
     }
+    _audit(
+        outcome="executed",
+        declaration=declaration,
+        declared=declared,
+        detected=detected,
+        result=result,
+    )
+    return result

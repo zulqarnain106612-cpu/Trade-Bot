@@ -18,6 +18,7 @@ from common.command_schema import (
     COMMAND_EXEC_SCHEMA,
     ENV_MINIMAL_BASE,
     SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
     build_env,
     classify,
     rank,
@@ -31,7 +32,17 @@ class TestSchemaIntegrity:
         jsonschema.Draft7Validator.check_schema(COMMAND_EXEC_SCHEMA)
 
     def test_schema_version_is_pinned_in_the_schema_itself(self):
-        assert COMMAND_EXEC_SCHEMA["properties"]["schema_version"]["const"] == SCHEMA_VERSION
+        # Changed in 1.2.0 (SEC-0001). This asserted `const == SCHEMA_VERSION`,
+        # which was the defect rather than the guarantee: a const permits only
+        # the current version, so the field could never say "this declaration
+        # targets an older schema" -- the one thing it exists to say -- and the
+        # version check it documented could never fire. The property worth
+        # pinning is that the field's accepted values are exactly the versions
+        # the runtime implements, and that the $id names the current one.
+        field = COMMAND_EXEC_SCHEMA["properties"]["schema_version"]
+        assert "const" not in field
+        assert set(field["enum"]) == set(SUPPORTED_SCHEMA_VERSIONS)
+        assert field["default"] == SCHEMA_VERSION
         assert SCHEMA_VERSION in COMMAND_EXEC_SCHEMA["$id"]
 
     def test_every_documented_top_level_field_is_declared(self):

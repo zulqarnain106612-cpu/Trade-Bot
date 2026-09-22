@@ -33,6 +33,7 @@ from common.shell_exec import run
 result = run(
     {
         "command": "<exact shell string>",
+        "purpose": "<why, in one line>",  # the audit record's only "why"
         "output_policy": {
             "max_lines": 40,  # REQUIRED. Hard cap. Never > 100.
             "stream": "stdout",  # stdout | stderr | both
@@ -58,6 +59,12 @@ result["exit_code"]  # 0 = success
 result["truncated"]  # True → tighten filter_expr, do NOT raise max_lines
 result["attempt_count"]  # how many runs it took
 ```
+
+Every call also writes one JSON line to the `tradebot.command_audit` logger —
+refusals included — with `command_sha256`, your `purpose`, the declared and
+detected classification and the outcome. The command string is never in it.
+Omit `purpose` and the record says what ran but not why, which is the half an
+incident review actually needs.
 
 Never paste raw subprocess output into conversation.
 

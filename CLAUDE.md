@@ -53,7 +53,7 @@ Hard rules:
 
 ## Command execution is enforced, not advised
 
-`COMMAND_EXEC_SCHEMA` is version **1.1.0** (`common/command_schema.py`). Beyond
+`COMMAND_EXEC_SCHEMA` is version **1.2.0** (`common/command_schema.py`). Beyond
 the output caps above, every declaration may and usually should carry:
 
 - `classification`: `read_only` | `mutating` | `destructive`. **Mandatory in
@@ -71,9 +71,30 @@ the output caps above, every declaration may and usually should carry:
   a bound -- one minified or base64 line can be megabytes.
 - `output_policy.redact`: secret masking, **on by default**. Turn it off only
   when you have established the output cannot contain a credential.
+- `purpose`: one line on why. Optional, but it is the only field that makes the
+  audit trail answer "why" rather than just "what" -- write it.
+- `schema_version`: the version the declaration targets. Omit it and it means
+  the current one. A version outside `SUPPORTED_SCHEMA_VERSIONS` is **refused
+  before the declaration is validated**, because the wrong schema would report
+  the symptom rather than the cause (SEC-0001).
 
-`result` now also carries `bytes_truncated`, `timed_out`, `duration_s`,
-`classification`, `redactions_applied`, `command_sha256` and `started_at`.
+`result` now also carries `purpose`, `bytes_truncated`, `timed_out`,
+`duration_s`, `classification`, `redactions_applied`, `command_sha256` and
+`started_at`.
+
+Two properties of 1.2.0 that exist because 1.1.0 claimed them without having
+them, and which must not be traded away:
+
+- **The `jsonschema`-absent path is not a weaker path.** `_validate_fallback()`
+  walks `COMMAND_EXEC_SCHEMA` itself rather than restating its rules, so a
+  constraint added to the schema binds both paths and neither can drift
+  (SEC-0002). A schema keyword the fallback cannot check is a loud error there,
+  not a silent pass. Never reintroduce a hand-written subset of checks.
+- **Every call leaves one audit record**, refusals included, on the
+  `tradebot.command_audit` logger: `command_sha256`, `purpose`,
+  classification declared and detected, outcome, exit code (SEC-0003). The
+  command string is deliberately never in it -- a command line carries tokens
+  and the record goes wherever the host sends logs.
 
 A `PreToolUse` hook (`.claude/hooks/pre_tool_use.py`, policy in
 `config/command_policy.json`) enforces the same rules on raw Bash calls, so

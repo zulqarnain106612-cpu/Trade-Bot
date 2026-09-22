@@ -134,8 +134,12 @@ class TestValidationFallbackWithoutJsonschema:
             mod.run({"command": "echo hi", "output_policy": {}})
 
     def test_fallback_rejects_out_of_range_max_lines(self):
+        # match= tightened in 1.2.0: it was "1", which the old message happened
+        # to contain and almost any message would. It now names the field and
+        # the violated bound, so a fallback that rejects for an unrelated
+        # reason no longer satisfies this test.
         mod = self._reimport_without_jsonschema()
-        with pytest.raises(ValueError, match="1"):
+        with pytest.raises(ValueError, match="max_lines.*maximum"):
             mod.run({"command": "echo hi", "output_policy": {"max_lines": 500}})
 
 
@@ -363,6 +367,7 @@ class TestRun:
         assert set(result) == {
             "exit_code",
             "filtered_output",
+            "purpose",  # added in 1.2.0 (SEC-0003): was accepted and discarded
             "truncated",
             "bytes_truncated",
             "timed_out",

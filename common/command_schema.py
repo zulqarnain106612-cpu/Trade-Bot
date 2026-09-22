@@ -4,9 +4,14 @@ COMMAND_EXEC_SCHEMA — JSON Schema for structured, output-capped shell command 
 Extends the project's PTC pattern to terminal commands. Aligns with the same
 json_schema pattern used by EXTRACTION_SCHEMA and RESOLUTION_SCHEMA in kg/.
 
-don't Work identically in:
-  - Local terminal sessions, always use github cloud action Workflows for review, test, build
-  - Cloud containers (CLAUDE_CODE_REMOTE=false, provisioned by session-start.sh)
+Works identically in:
+  - Local terminal sessions
+  - Cloud containers (CLAUDE_CODE_REMOTE=true, provisioned by session-start.sh)
+
+Note that "works identically" is a property of this declaration format, not a
+licence to run heavy work locally: review, test and build belong in GitHub
+Actions workflows. What this module guarantees is that the same declaration
+means the same thing in both places.
 
 Companion runtime: common/shell_exec.py
 Skill:            .claude/skills/command-execution/SKILL.md
@@ -16,7 +21,18 @@ from __future__ import annotations
 
 import re
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
+
+# Versions whose semantics shell_exec.run() implements. A declaration naming
+# anything else is refused rather than read under today's meaning: a future
+# version may redefine `classification` or flip the default of
+# `redact.enabled`, and reading such a declaration with current semantics is
+# how a security default silently inverts.
+#
+# 1.0.0 predates the effect-class contract and carries no `schema_version`
+# field at all, so an omitted version is treated as current -- there is nothing
+# in a 1.0.0 declaration that 1.2.0 reads differently.
+SUPPORTED_SCHEMA_VERSIONS: tuple[str, ...] = ("1.0.0", "1.1.0", "1.2.0")
 
 # Environment names always kept when env.inherit is False, so that a command
 # with a scrubbed environment can still resolve binaries and behave
@@ -52,6 +68,33 @@ DESTRUCTIVE_PATTERNS: tuple[str, ...] = (
     r"\bnpm\s+unpublish\b",
     r"\baws\s+s3\s+rm\b",
     r"\baws\s+s3\s+rb\b",
+    # SEC-0004: deletion that carries no `rm -rf`-shaped token. Every form
+    # below irreversibly removes data and classified as read_only until 1.2.0,
+    # so run() executed it with no confirm_destructive and the PreToolUse hook
+    # -- which shares this vocabulary -- waved it through. Each is anchored on
+    # the deleting flag or subcommand, not on the tool name, so `find .` and
+    # `git stash list` stay read_only.
+    r"\bfind\b[^|]*\s-delete\b",
+    r"\bfind\b[^|]*-exec\s+(rm|shred|unlink|truncate)\b",
+    # The deleting tool must sit in xargs' command slot -- after its own
+    # options and nothing else. An unbounded [^|]* here reached across commas
+    # and matched prose that merely mentioned both words in one sentence.
+    r"\bxargs\b(?:\s+-{1,2}[\w-]+(?:=\S+)?)*\s+(?:rm|shred|unlink)\b",
+    # Anchored on command position, not \bunlink\b: the bare word appears in
+    # prose, in `--unlink` flags and in `os.unlink` references, and a pattern
+    # that matches those is a pattern people turn off.
+    r"(?:^|[;&|]\s*|\bsudo\s+)unlink\s",
+    r"\bgit\s+worktree\s+remove\b[^|]*(--force|\s-f\b)",
+    r"\bgit\s+stash\s+(drop|clear)\b",
+    r"\bgit\s+update-ref\b[^|]*\s-d\b",
+    r"\bgit\s+tag\b[^|]*\s-d\b",
+    r"\bgit\s+remote\s+remove\b",
+    r"\bgh\s+(repo|release|secret|cache|run)\s+delete\b",
+    r"\bgh\s+api\b[^|]*(-X|--method)\s+DELETE\b",
+    r"\bdocker\s+network\s+rm\b",
+    r"\bhelm\s+(uninstall|delete)\b",
+    r"\b(dropDatabase|dropCollection|dropIndex|dropIndexes)\b",
+    r"\bDROP\s+VIEW\b",
 )
 
 # Patterns whose match means the command changes state but reversibly.
@@ -151,7 +194,7 @@ REDACTION_PATTERNS: tuple[tuple[str, str], ...] = (
 
 COMMAND_EXEC_SCHEMA: dict = {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://trade-bot.local/schemas/command-execution/1.1.0.json",
+    "$id": f"https://trade-bot.local/schemas/command-execution/{SCHEMA_VERSION}.json",
     "title": "CommandExecution",
     "description": (
         "Structured declaration of a shell command. "
@@ -169,13 +212,18 @@ COMMAND_EXEC_SCHEMA: dict = {
         },
         "schema_version": {
             "type": "string",
-            "const": SCHEMA_VERSION,
+            "enum": list(SUPPORTED_SCHEMA_VERSIONS),
             "default": SCHEMA_VERSION,
             "description": (
                 "Version of COMMAND_EXEC_SCHEMA this declaration targets. "
-                "Omitted declarations are treated as SCHEMA_VERSION. A future "
-                "major bump lets shell_exec.run() reject stale declarations "
-                "instead of silently misreading them."
+                "Omitted declarations are treated as SCHEMA_VERSION. Enforced "
+                "by check_schema_version(), which shell_exec.run() calls "
+                "before reading any other field: a declaration written against "
+                "semantics this runtime does not implement is refused rather "
+                "than reinterpreted under today's meaning. Enumerating the "
+                "supported versions rather than pinning one is deliberate -- a "
+                "single const permits only the value for which the check can "
+                "never fire, which is what shipped in 1.1.0 (SEC-0001)."
             ),
         },
         "purpose": {
@@ -183,9 +231,13 @@ COMMAND_EXEC_SCHEMA: dict = {
             "minLength": 1,
             "maxLength": 200,
             "description": (
-                "Why this command is being run, in one line. Audit trail: it "
-                "is logged with the command hash so a later reader can tell "
-                "intent from effect without re-deriving it from the shell."
+                "Why this command is being run, in one line. Audit trail: "
+                "shell_exec emits it to the 'tradebot.command_audit' logger "
+                "alongside command_sha256, classification and outcome, so a "
+                "later reader can tell intent from effect without re-deriving "
+                "it from the shell. Optional, because 61 existing declarations "
+                "predate the field; absent, the audit record carries null and "
+                "says only what ran, not why."
             ),
         },
         "classification": {
@@ -403,6 +455,7 @@ COMMAND_EXEC_SCHEMA: dict = {
             "properties": {
                 "exit_code": {"type": "integer"},
                 "filtered_output": {"type": "string"},
+                "purpose": {"type": ["string", "null"]},
                 "truncated": {"type": "boolean"},
                 "attempt_count": {"type": "integer"},
                 "bytes_truncated": {"type": "boolean"},
@@ -490,6 +543,32 @@ def is_ci_log_access(command: str) -> bool:
     if any(rx.search(command) for rx in _CI_COMMENT_RE):
         return False
     return any(rx.search(command) for rx in _CI_LOG_RE)
+
+
+def check_schema_version(declared: str | None) -> None:
+    """
+    Refuse a declaration written against semantics this runtime does not implement.
+
+    Raises ValueError unless `declared` is None (pre-1.1.0 declarations carry
+    no such field, and nothing in one is read differently today) or names a
+    version in SUPPORTED_SCHEMA_VERSIONS.
+
+    This is the check the field claimed to provide from 1.1.0 and did not:
+    nothing read it, and `const` had pinned it to the one value for which the
+    check is a no-op. Without it, a declaration authored against a version that
+    redefines `classification` or defaults `redact.enabled` to False is read
+    field-by-field under current meaning -- the failure mode being that a
+    security default inverts with no error anywhere (SEC-0001).
+    """
+    if declared is None:
+        return
+    if declared not in SUPPORTED_SCHEMA_VERSIONS:
+        supported = ", ".join(SUPPORTED_SCHEMA_VERSIONS)
+        raise ValueError(
+            f"unsupported schema_version {declared!r}: this runtime implements "
+            f"{supported}. Refusing rather than reading the declaration under "
+            f"{SCHEMA_VERSION} semantics."
+        )
 
 
 def rank(classification: str) -> int:

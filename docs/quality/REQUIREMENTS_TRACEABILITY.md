@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 127 |
+| VERIFIED | 131 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **127** |
+| **Total** | **131** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 17 | 17 |
+| Cryptography and secrets | 21 | 21 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -985,6 +985,51 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
 
+#### `SEC-0001` — A declaration naming an unimplemented schema_version is refused, not reinterpreted
+
+**VERIFIED** · high · security_regression · source: OPS-2026-09-22
+
+shell_exec.run() refuses a command declaration whose schema_version is outside SUPPORTED_SCHEMA_VERSIONS, and performs that check before validating the declaration against COMMAND_EXEC_SCHEMA.
+
+- **If violated:** A declaration authored against a future schema that redefines classification or defaults redact.enabled to False is read field-by-field under current semantics, so a security default inverts with no error raised anywhere. Shipped in 1.1.0: the field was documented as providing this check, was read by no code, and was pinned with const to the single value for which the check is a no-op.
+- **Owned by:** `common/command_schema.py`
+- **Verification:**
+  - `tests/test_command_declaration_contract.py` (security)
+
+#### `SEC-0002` — A missing jsonschema dependency cannot downgrade the command declaration contract
+
+**VERIFIED** · critical · security_regression · source: OPS-2026-09-22
+
+The validator shell_exec uses when jsonschema is absent refuses exactly the declarations COMMAND_EXEC_SCHEMA refuses, because it is derived from the schema rather than restating its rules.
+
+- **If violated:** On a host without jsonschema installed -- a fresh cloud container before pip install -- the 1.1.0 fallback checked only command and max_lines. The declared classification, the confirm_destructive type, additionalProperties, the timeout_s bounds and every output_policy cap went unchecked, so an agent could run a misdeclared destructive command and return unbounded unredacted output while every declaration still appeared to be validated.
+- **Owned by:** `common/shell_exec.py`
+- **Depends on:** `SEC-0001`
+- **Verification:**
+  - `tests/test_command_declaration_contract.py` (security)
+
+#### `SEC-0003` — Every command run or refused leaves an audit record naming its purpose
+
+**VERIFIED** · high · security_regression · source: OPS-2026-09-22
+
+shell_exec.run() emits exactly one JSON record to the tradebot.command_audit logger per call, carrying command_sha256, purpose, declared and detected classification, outcome and exit code, and never the command string itself.
+
+- **If violated:** COMMAND_EXEC_SCHEMA told readers purpose was logged with the command hash. No logger existed and the field was discarded, so the audit trail a reviewer would rely on to answer what an agent ran and why was absent while being documented as present -- and refusals, the records an incident review most wants, left no trace at all.
+- **Owned by:** `common/shell_exec.py`
+- **Verification:**
+  - `tests/test_command_declaration_contract.py` (security)
+
+#### `SEC-0004` — Deletion that carries no rm-shaped token still classifies as destructive
+
+**VERIFIED** · critical · security_regression · source: OPS-2026-09-22
+
+classify() returns destructive for deletion expressed through the deleting flags and subcommands of find, xargs, unlink, git worktree, git stash, git update-ref and the gh delete subcommands, while their read-only near misses stay read_only. Each pattern is anchored on the deleting flag or command position rather than the tool name, so listing and searching forms of the same tools are unaffected.
+
+- **If violated:** classify() keyed on a token shaped like rm with force or recurse flags, so an agent that removed files through another tool was classified read_only. run() executed it with no confirm_destructive recorded, and the PreToolUse hook -- which shares this vocabulary -- waved the raw Bash call through, meaning the one control standing against irreversible deletion was bypassed by spelling the deletion differently.
+- **Owned by:** `common/command_schema.py`
+- **Verification:**
+  - `tests/test_command_declaration_contract.py` (security)
+
 #### `SEC-0005` — A file holding real credentials is never committable
 
 **VERIFIED** · high · security_regression · source: QE-51
@@ -1673,4 +1718,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 127 entries.
+Registry version: 1.0.0 — 131 entries.

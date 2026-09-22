@@ -96,20 +96,32 @@ flowchart TB
 | 6 | Command policy | `common/shell_exec.py`, `.claude/hooks/pre_tool_use.py` | `config/command_policy.json` (static) | none (deterministic) | Local + cloud |
 | 7 | Math registry | `src/mathcore/registry.py` | `config/math_registry.json` (static) | none (deterministic) | Local + cloud |
 
-## Component 6: command policy (schema 1.1.0)
+## Component 6: command policy (schema 1.2.0)
 
 Two enforcement points over one shared classifier, so they cannot disagree.
 
 **Runtime** — `common/shell_exec.run()` validates a declaration against
 `COMMAND_EXEC_SCHEMA` and refuses to execute when:
 
+- `schema_version` names a version outside `SUPPORTED_SCHEMA_VERSIONS` — checked
+  *before* validation, since the wrong schema would report a symptom;
 - the declared `classification` is weaker than `classify()` detects;
 - `classification="destructive"` without `confirm_destructive=True`;
 - `cwd` does not exist.
 
 It then applies, in order: stream capture with `timeout_s`, `filter_mode`,
 `max_lines`, `max_bytes`, and secret redaction. Destructive declarations are
-forced to a single attempt regardless of `retry_policy`.
+forced to a single attempt regardless of `retry_policy`. Every call — refusals
+included — emits one JSON audit record to the `tradebot.command_audit` logger
+carrying `command_sha256`, `purpose`, the declared and detected classification
+and the outcome, and never the command string itself.
+
+When `jsonschema` is not installed, `_validate_fallback()` walks
+`COMMAND_EXEC_SCHEMA` rather than restating a subset of its rules, so the
+contract is the same on both paths and a constraint cannot be enforced on one
+and not the other. Added in 1.2.0: the 1.1.0 fallback checked `command` and
+`max_lines` only, so a missing dependency silently disabled the effect-class
+guard and every output cap (SEC-0002).
 
 **Session** — `.claude/hooks/pre_tool_use.py` is a `PreToolUse` hook matched to
 `Bash`. It refuses unbounded reads, output bounds above 5 lines, destructive

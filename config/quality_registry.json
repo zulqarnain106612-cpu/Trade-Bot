@@ -3215,6 +3215,89 @@
         }
       ],
       "depends_on": []
+    },
+    {
+      "id": "SEC-0001",
+      "kind": "security_regression",
+      "title": "A declaration naming an unimplemented schema_version is refused, not reinterpreted",
+      "statement": "shell_exec.run() refuses a command declaration whose schema_version is outside SUPPORTED_SCHEMA_VERSIONS, and performs that check before validating the declaration against COMMAND_EXEC_SCHEMA.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "A declaration authored against a future schema that redefines classification or defaults redact.enabled to False is read field-by-field under current semantics, so a security default inverts with no error raised anywhere. Shipped in 1.1.0: the field was documented as providing this check, was read by no code, and was pinned with const to the single value for which the check is a no-op.",
+      "owning_modules": [
+        "common/command_schema.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_command_declaration_contract.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SEC-0002",
+      "kind": "security_regression",
+      "title": "A missing jsonschema dependency cannot downgrade the command declaration contract",
+      "statement": "The validator shell_exec uses when jsonschema is absent refuses exactly the declarations COMMAND_EXEC_SCHEMA refuses, because it is derived from the schema rather than restating its rules.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "On a host without jsonschema installed -- a fresh cloud container before pip install -- the 1.1.0 fallback checked only command and max_lines. The declared classification, the confirm_destructive type, additionalProperties, the timeout_s bounds and every output_policy cap went unchecked, so an agent could run a misdeclared destructive command and return unbounded unredacted output while every declaration still appeared to be validated.",
+      "owning_modules": [
+        "common/shell_exec.py"
+      ],
+      "depends_on": [
+        "SEC-0001"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_command_declaration_contract.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SEC-0003",
+      "kind": "security_regression",
+      "title": "Every command run or refused leaves an audit record naming its purpose",
+      "statement": "shell_exec.run() emits exactly one JSON record to the tradebot.command_audit logger per call, carrying command_sha256, purpose, declared and detected classification, outcome and exit code, and never the command string itself.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "COMMAND_EXEC_SCHEMA told readers purpose was logged with the command hash. No logger existed and the field was discarded, so the audit trail a reviewer would rely on to answer what an agent ran and why was absent while being documented as present -- and refusals, the records an incident review most wants, left no trace at all.",
+      "owning_modules": [
+        "common/shell_exec.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_command_declaration_contract.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SEC-0004",
+      "kind": "security_regression",
+      "title": "Deletion that carries no rm-shaped token still classifies as destructive",
+      "statement": "classify() returns destructive for deletion expressed through the deleting flags and subcommands of find, xargs, unlink, git worktree, git stash, git update-ref and the gh delete subcommands, while their read-only near misses stay read_only. Each pattern is anchored on the deleting flag or command position rather than the tool name, so listing and searching forms of the same tools are unaffected.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "classify() keyed on a token shaped like rm with force or recurse flags, so an agent that removed files through another tool was classified read_only. run() executed it with no confirm_destructive recorded, and the PreToolUse hook -- which shares this vocabulary -- waved the raw Bash call through, meaning the one control standing against irreversible deletion was bypassed by spelling the deletion differently.",
+      "owning_modules": [
+        "common/command_schema.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_command_declaration_contract.py",
+          "test_type": "security"
+        }
+      ]
     }
   ]
 }
