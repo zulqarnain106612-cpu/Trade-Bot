@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 104 |
+| VERIFIED | 106 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **104** |
+| **Total** | **106** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 10 | 10 |
+| Cryptography and secrets | 12 | 12 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -835,6 +835,29 @@ The documented and verified key posture is trading-only, withdrawal-disabled, IP
 - **Verification:**
   - `tests/security/test_exchange_key_posture.py` (security) — A withdrawal-capable or undeclared posture is refused, the shipped declaration is checked, and LiveExecutor asserts it before building any state. The live-venue verification remains a documented human step.
 
+#### `SECR-011` — Deposit-address derivation cannot produce or accept a private key
+
+**VERIFIED** · critical · requirement · source: OPS-2026-09-22
+
+src/mathcore/derivation/bip32.py derives extended public keys only. It refuses hardened indices, refuses an extended private key by name, and exposes no function or dataclass field that could hold private key material -- a property asserted structurally by inspecting every public signature, not only behaviourally.
+
+- **If violated:** Spending authority present in the process that generates deposit addresses. A trading host is internet-facing and runs untrusted market data through itself; an attacker who reads its memory should learn which addresses to watch and nothing that moves funds. The specific BIP-32 trap is that an extended public key plus any one non-hardened child private key yields the parent private key by subtraction, and therefore the whole branch -- so a module that held both at once would hand over the tree.
+- **Owned by:** `src/mathcore/derivation/bip32.py`
+- **Verification:**
+  - `tests/test_bip32.py` (security)
+
+#### `SECR-012` — Derived addresses match what a BIP-32 wallet derives, checked against an independent oracle
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+Watch-only public derivation agrees with private derivation from the published seed for every non-hardened path tested, and each published master xpub the tests rely on is verified to be what its published seed actually derives rather than trusted as transcribed. Base58Check is validated on parse, so a mistyped extended key is refused instead of decoding to a different valid-looking key.
+
+- **If violated:** Deposit addresses that no sender ever pays. A derivation that is self-consistent but disagrees with the standard -- an uncompressed point in the HMAC input, the chain code taken from the wrong half of the digest, a missing reduction mod n -- produces a tree that looks correct in isolation and matches no other wallet. Verifying against a transcribed expected string does not catch it either: one such string was misremembered while writing these tests, which is how the checksum requirement was found.
+- **Owned by:** `src/mathcore/derivation/bip32.py`
+- **Depends on:** `SECR-011`
+- **Verification:**
+  - `tests/test_bip32.py` (verification)
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1380,4 +1403,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 104 entries.
+Registry version: 1.0.0 — 106 entries.
