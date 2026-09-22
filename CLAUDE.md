@@ -96,39 +96,74 @@ It fails **open** on its own misconfiguration and can be relaxed for one
 session with `TB_COMMAND_POLICY=warn|off` -- that override is the rollback
 path, not a way around a refusal you disagree with.
 
-## CI observability: capped logs, no live monitoring
+## CI observability: the notice comment, and nothing else
 
-Reading CI is how an agent burns a context window without noticing. The rules
-are permanent and mechanical, not a matter of judgement in the moment:
+Reading CI is how an agent burns a context window without noticing. The rule is
+permanent, unconditional and mechanical -- not a matter of judgement in the
+moment, and not a line budget:
 
-- **Live monitoring is banned outright.** `gh run watch`, `--watch`, `tail -f`,
-  `docker/kubectl logs -f`, `watch -n`, `inotifywait -m` and `while true`
-  poll loops are refused however they are spelled, and so is the `Monitor`
-  tool. A per-call line bound cannot cap a stream that has no end.
-- **Bulk log and report retrieval is capped, not banned.** `gh run view --log`,
-  `--log-failed`, `gh run list` and `gh api .../logs` are allowed only behind
-  an explicit bound of 30 lines or fewer. Fetch the minimum number of lines
-  that identifies the failure -- filter to the assertion, not to the run.
-- **`gh pr checks` / `gh pr view` are untouched.** A PR's check summary is one
-  line per check, and it is the right way to learn a PR's state.
+- **No CI log, job record, step annotation, artifact, cache entry or check
+  result may be fetched, in any condition.** `gh run view`/`list`/`download`,
+  `gh workflow run`/`view`/`list`, `gh pr checks`, `gh cache`,
+  `gh api .../actions/...`, `gh api .../check-runs`, `gh pr view --json
+  statusCheckRollup`, `curl` to any of those, and `act` are all refused. So is
+  dispatching or re-running a workflow in order to read what it prints: that is
+  the same act with an extra step.
+- **There is no bound that makes it allowed.** This is not an output-size rule,
+  so `| head -5`, `--limit 10` and a `grep` filter do not help. The previous
+  policy said "the minimum number of lines that explains the failure is always
+  permitted", and that judgement -- made by the party that wants the lines --
+  decayed into paging logs a few lines at a time, which is the cost the cap
+  existed to prevent, paid in instalments.
+- **Live monitoring stays banned too**, separately: `tail -f`,
+  `docker/kubectl logs -f`, `watch -n`, `inotifywait -m`, `while true` poll
+  loops, and the `Monitor` tool.
+- **The comment channel stays open, and is checked first.** `gh pr view --json
+  comments`, `gh pr/issue comment`, `gh api .../issues/.../comments`, plus
+  ordinary `gh pr view/list/create/merge`. Closing this would leave no route at
+  all to a failure's cause, and a guard with no route is a guard the next
+  session switches off.
 
-Do not go looking for failures. `.github/workflows/ci-failure-notify.yml`
-reports them: every completed run of a pull-request workflow leaves one
-self-updating comment on the pull request naming each job that is **not
-green** -- failure, cancellation, timeout, neutral, action_required, stale, or
-an unexcused skip -- with its first failing step **and the exact failing
-lines**, extracted server-side from the check annotations or, failing that,
-from a filtered and capped read of the job log. A green run posts nothing, and
-a standing red notice is rewritten as recovered once the fix lands.
+Enforced at both points, sharing one implementation
+(`common.command_schema.is_ci_log_access`): the `PreToolUse` hook on raw Bash
+calls, and `shell_exec.run()` so that routing a command through the sanctioned
+runner is not a way around the hook. The hook falls back to the equivalent
+patterns in `config/command_policy.json` when the project is not importable,
+and `tests/test_ci_log_access.py` asserts the two lists agree.
 
-That comment is the interface. Read the last such comment on the pull request;
-it already contains what a log read would have told you. Only if it genuinely
-does not, fetch at most thirty lines filtered to the failing assertion. Never
-fetch a full run log or report, and never open a live watch.
+### The notice comment is the whole interface
+
+`.github/workflows/ci-failure-notify.yml` is the only channel, so it is
+complete on its own. It waits until **every** watched workflow has finished for
+a commit, then posts or edits **one** comment carrying:
+
+- the status -- `all checks green`, or how many jobs are not green;
+- for each one that is not green: the workflow, the job, the conclusion, the
+  failing step, and **the exact failing lines**, extracted server-side from
+  check annotations or, failing that, from a filtered read of the job log.
+
+Nothing else. No advice, no footer, no link to a log nobody may open. Three
+properties are load-bearing and each has a test:
+
+- **One comment per commit**, not one per workflow and never one per check.
+  The concurrency group is keyed on the head SHA, so the last workflow to
+  finish posts and earlier partial pictures are cancelled.
+- **Never posted early.** A notice claiming "all green" while a workflow is
+  still in flight is worse than no notice, because it is the only thing anyone
+  can read.
+- **The runner's exit code is not an error message.** `Process completed with
+  exit code 1` is filtered as noise; a prioritised signal list prefers the
+  pytest summary line over a bare traceback frame. That string was the entire
+  content of the notice on one failing shard, and it named no test, no file and
+  no assertion.
+
+Read the last such comment on the pull request. It contains what a log read
+would have told you, and if it does not, fix the notice -- do not fetch the
+log.
 
 Waiting for a merge is the same discipline: come back after a plausible
-interval and read the comments. No polling loop, no `gh run watch`, no
-background monitor.
+interval and read the comments. No polling loop, no watch, no background
+monitor.
 
 Auto-merge does the rest. Every pull request is set to `--squash --auto`, so
 GitHub merges it the moment its required checks are green, with no session

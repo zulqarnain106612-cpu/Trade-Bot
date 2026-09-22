@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 106 |
+| VERIFIED | 108 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **106** |
+| **Total** | **108** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 20 | 20 |
+| Governance | 22 | 22 |
 
 ## Outstanding work by phase
 
@@ -1346,6 +1346,32 @@ Every top-level package in src/ is placed in exactly one layer of config/archite
   - `tests/test_architecture_layers.py` (unit) — Pins the contract -- every package placed once, every layer and every accepted inversion carrying its argument, endpoints that exist on disk, api outermost -- and drives the rule on synthetic graphs: an upward edge is reported, a downward or same-layer one is not, an accepted one is not, a fixed one must be banked, and an unplaced package fails.
   - `tests/test_static_invariants.py` (unit) — test_repository_satisfies_every_invariant runs the layering check against the live repository on every push.
 
+#### `GOV-019` — CI run data is unreadable from a session under every condition
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+No CI log, job record, step annotation, artifact, cache entry or check result can be fetched from an agent session, and no output bound, filter or redirect makes it allowed. Dispatching or re-running a workflow to read its output is refused on the same footing. Enforced by common.command_schema.is_ci_log_access at both the PreToolUse hook and shell_exec.run(), with the policy file carrying the same patterns for sessions where the project is not importable.
+
+- **If violated:** Context exhaustion by instalments. The prior policy capped bulk log retrieval instead of banning it -- 'the minimum number of lines that explains the failure is always permitted' -- which put the judgement in the hands of the party that wanted the lines and decayed into paging logs a few lines at a time. A bound cannot fix this because the objection is not output size: the notice comment already carries the status and the exact failing assertion, so a fetch adds nothing and costs a context window.
+- **Owned by:** `common/command_schema.py`
+- **Depends on:** `GOV-011`
+- **Verification:**
+  - `tests/test_ci_log_access.py` (contract)
+  - `tests/test_pre_tool_use_hook.py` (contract)
+
+#### `GOV-020` — One comment per commit carries the status and the exact failing lines
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+The CI notice waits until every watched workflow has completed for a commit, then posts or edits exactly one pull-request comment containing the status and, for each job that is not green, the workflow, job, conclusion, failing step and the exact failing lines extracted server-side. It posts on green as well as on failure, carries nothing beyond status and errors, and filters the runner's own exit-code epilogue out of the error text.
+
+- **If violated:** A contributor or agent with no route to the cause of a red pull request. Since GOV-019 makes CI logs permanently unreadable, this comment is the only channel, so each of its failure modes is total: one comment per workflow means five to read and four chances to read a stale one; posting before every workflow finishes announces green on a commit that failed; and reporting 'Process completed with exit code 1' -- which is what the notice actually said on a failing shard of PR 313 -- names no test, no file and no assertion, leaving nothing to act on at all.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Depends on:** `GOV-019`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (contract)
+  - `tests/test_ci_log_access.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1403,4 +1429,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 106 entries.
+Registry version: 1.0.0 — 108 entries.

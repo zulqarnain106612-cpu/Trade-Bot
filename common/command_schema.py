@@ -69,6 +69,59 @@ MUTATING_PATTERNS: tuple[str, ...] = (
     r"\bkubectl\s+(apply|create|patch|scale)\b",
 )
 
+# CI observability: what an agent may read about a workflow run, and how.
+#
+# The answer is "one pull-request comment, and nothing else". Not a line
+# budget, not a filtered tail -- no CI log, job record, annotation, artifact or
+# check result may be fetched at all, in any condition. A bound could always be
+# raised "just this once", and the run that already knows why it failed is a
+# better summariser than an agent paging its log: the notice workflow extracts
+# the failing assertion server-side and leaves exactly that on the pull
+# request. Fetching is therefore not a cheaper route to the same answer, it is
+# a worse one that also costs context.
+#
+# `gh run rerun` and `gh workflow run` are here too: dispatching a run in order
+# to watch what it prints is the same act with an extra step.
+CI_LOG_PATTERNS: tuple[str, ...] = (
+    r"\bgh\s+run\s+(view|list|download|watch|rerun|cancel|delete)\b",
+    r"\bgh\s+workflow\s+(run|view|list)\b",
+    r"\bgh\s+pr\s+checks\b",
+    r"\bgh\s+cache\s+(list|delete)\b",
+    r"\bgh\s+api\b[^|]*/actions/",
+    r"\bgh\s+api\b[^|]*/check-runs?\b",
+    r"\bgh\s+api\b[^|]*/check-suites?\b",
+    r"\bgh\s+api\b[^|]*/commits/[^/\s]+/(status|check-runs)\b",
+    r"\bgh\s+api\b[^|]*/statuses/",
+    r"\bgh\s+(pr|run)\b[^|]*--json\b[^|]*\b(statusCheckRollup|checkRuns|jobs)\b",
+    r"\bcurl\b[^|]*/actions/(runs|jobs|artifacts|workflows|caches)\b",
+    r"\bcurl\b[^|]*/check-runs?\b",
+    r"\bact\b\s+-",  # nektos/act: runs the workflow locally to read its output
+)
+
+# Forms the comment allowlist must NOT be able to excuse. These live on the
+# same subcommands as the sanctioned comment reads -- `gh pr view --json
+# statusCheckRollup` is one flag away from `gh pr view --json comments` -- so a
+# plain allowlist would wave them through. They are check results, which is CI
+# data whatever verb fetched it.
+CI_HARD_DENY_PATTERNS: tuple[str, ...] = (
+    r"\bgh\s+(pr|run|repo)\b[^|]*--json\b[^|]*\b("
+    r"statusCheckRollup|checkRuns|checkSuites|jobs|workflowRuns"
+    r")\b",
+    r"\bgh\s+pr\s+checks\b",
+)
+
+# Reading and writing pull-request comments, which is the one sanctioned
+# channel. Checked after the hard-deny tier and before CI_LOG_PATTERNS, so a
+# comment fetch is never caught by a broad `gh api` rule: closing this channel
+# would leave no way to learn why a run failed, which turns a guard into a wall
+# and then into a guard somebody disables.
+CI_COMMENT_ALLOW_PATTERNS: tuple[str, ...] = (
+    r"\bgh\s+pr\s+(view|comment)\b",
+    r"\bgh\s+issue\s+(view|comment)\b",
+    r"\bgh\s+api\b[^|]*/issues/(comments|\d+/comments)\b",
+    r"\bgh\s+api\b[^|]*/pulls/\d+/comments\b",
+)
+
 # Secrets that must never reach an LLM context. Each pattern captures the
 # whole secret-bearing token; _redact() replaces the match with a marker that
 # preserves shape (so a reader can tell "a token was here") without value.
@@ -397,6 +450,46 @@ def classify(command: str) -> str:
         if rx.search(command):
             return "mutating"
     return "read_only"
+
+
+_CI_LOG_RE = [re.compile(p, re.IGNORECASE) for p in CI_LOG_PATTERNS]
+_CI_HARD_DENY_RE = [re.compile(p, re.IGNORECASE) for p in CI_HARD_DENY_PATTERNS]
+_CI_COMMENT_RE = [re.compile(p, re.IGNORECASE) for p in CI_COMMENT_ALLOW_PATTERNS]
+
+CI_LOG_REFUSAL = (
+    "CI logs, job records, annotations, artifacts and check results are "
+    "permanently unreadable from here, in every condition -- there is no line "
+    "bound that makes this allowed. The pull-request comment posted by the CI "
+    "failure notice is the only channel: it already carries the status and the "
+    "exact failing lines. Read it with `gh pr view <n> --json comments`."
+)
+
+
+def is_ci_log_access(command: str) -> bool:
+    """
+    Whether ``command`` reads CI run data, rather than a pull-request comment.
+
+    Three tiers, in order, because two of them share a subcommand:
+
+    1. **Hard deny.** ``gh pr view --json statusCheckRollup`` is one flag away
+       from ``gh pr view --json comments``. Check results are CI data whatever
+       verb fetched them, so the allowlist must not be able to excuse this.
+    2. **The comment allowlist**, which wins over the general rules. A broad
+       ``gh api`` rule would otherwise catch the comment fetch too, and a guard
+       that closes the only sanctioned channel leaves an agent with no way at
+       all to learn why a run failed -- at which point someone turns the guard
+       off, which is worse than a narrow one.
+    3. **The general CI patterns.**
+
+    Textual, like :func:`classify`, and an under-approximation for the same
+    reason: a script that shells out to ``gh`` is invisible here. It exists to
+    stop the direct route, not to sandbox a determined caller.
+    """
+    if any(rx.search(command) for rx in _CI_HARD_DENY_RE):
+        return True
+    if any(rx.search(command) for rx in _CI_COMMENT_RE):
+        return False
+    return any(rx.search(command) for rx in _CI_LOG_RE)
 
 
 def rank(classification: str) -> int:
