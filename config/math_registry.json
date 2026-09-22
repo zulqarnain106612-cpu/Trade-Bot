@@ -1334,7 +1334,7 @@
         "exchange deposit address generation"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/derivation/bip32.py",
