@@ -5,8 +5,10 @@ Number-theoretic primitives for :mod:`mathcore`.
 ``primality`` owns Baillie-PSW and the Lucas sequences under it; ``crt`` owns
 the Chinese Remainder Theorem and the fault check RSA-CRT requires;
 ``factorization``, ``continued_fractions`` and ``dlp_bounds`` own the RSA/DLP
-analytics -- factoring, the Wiener attack, and the security-level bounds. The
-registry, not this file list, is the record of what exists.
+analytics -- factoring, the Wiener attack, and the security-level bounds;
+``safe_primes`` owns the Diffie-Hellman parameter and public-value checks that
+close small-subgroup confinement. The registry, not this file list, is the
+record of what exists.
 """
 
 from .continued_fractions import (
@@ -45,9 +47,22 @@ from .residues import (
     legendre_symbol,
     sqrt_mod_prime,
 )
+from .safe_primes import (
+    GroupVerdict,
+    SafePrimeError,
+    is_safe_prime,
+    is_sophie_germain_prime,
+    is_valid_public_value,
+    order_of,
+    smallest_factor_of_p_minus_one,
+    subgroup_order,
+    validate_group,
+)
 
 __all__ = [
     "SMALL_PRIMES",
+    "GroupVerdict",
+    "SafePrimeError",
     "continued_fraction",
     "convergents",
     "crt",
@@ -58,6 +73,13 @@ __all__ = [
     "generic_dlp_security_bits",
     "is_probable_prime",
     "is_quadratic_residue",
+    "is_safe_prime",
+    "is_sophie_germain_prime",
+    "is_valid_public_value",
+    "order_of",
+    "smallest_factor_of_p_minus_one",
+    "subgroup_order",
+    "validate_group",
     "jacobi_symbol",
     "legendre_symbol",
     "lucas_sequence",
