@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 106 |
+| VERIFIED | 110 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **106** |
+| **Total** | **110** |
 
 ## Summary by subsystem
 
@@ -64,11 +64,11 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 10 | 10 |
+| Cryptography and secrets | 12 | 12 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 22 | 22 |
+| Governance | 24 | 24 |
 
 ## Outstanding work by phase
 
@@ -835,6 +835,29 @@ The documented and verified key posture is trading-only, withdrawal-disabled, IP
 - **Verification:**
   - `tests/security/test_exchange_key_posture.py` (security) — A withdrawal-capable or undeclared posture is refused, the shipped declaration is checked, and LiveExecutor asserts it before building any state. The live-venue verification remains a documented human step.
 
+#### `SECR-011` — Deposit-address derivation cannot produce or accept a private key
+
+**VERIFIED** · critical · requirement · source: OPS-2026-09-22
+
+src/mathcore/derivation/bip32.py derives extended public keys only. It refuses hardened indices, refuses an extended private key by name, and exposes no function or dataclass field that could hold private key material -- a property asserted structurally by inspecting every public signature, not only behaviourally.
+
+- **If violated:** Spending authority present in the process that generates deposit addresses. A trading host is internet-facing and runs untrusted market data through itself; an attacker who reads its memory should learn which addresses to watch and nothing that moves funds. The specific BIP-32 trap is that an extended public key plus any one non-hardened child private key yields the parent private key by subtraction, and therefore the whole branch -- so a module that held both at once would hand over the tree.
+- **Owned by:** `src/mathcore/derivation/bip32.py`
+- **Verification:**
+  - `tests/test_bip32.py` (security)
+
+#### `SECR-012` — Derived addresses match what a BIP-32 wallet derives, checked against an independent oracle
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+Watch-only public derivation agrees with private derivation from the published seed for every non-hardened path tested, and each published master xpub the tests rely on is verified to be what its published seed actually derives rather than trusted as transcribed. Base58Check is validated on parse, so a mistyped extended key is refused instead of decoding to a different valid-looking key.
+
+- **If violated:** Deposit addresses that no sender ever pays. A derivation that is self-consistent but disagrees with the standard -- an uncompressed point in the HMAC input, the chain code taken from the wrong half of the digest, a missing reduction mod n -- produces a tree that looks correct in isolation and matches no other wallet. Verifying against a transcribed expected string does not catch it either: one such string was misremembered while writing these tests, which is how the checksum requirement was found.
+- **Owned by:** `src/mathcore/derivation/bip32.py`
+- **Depends on:** `SECR-011`
+- **Verification:**
+  - `tests/test_bip32.py` (verification)
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1323,6 +1346,32 @@ Every top-level package in src/ is placed in exactly one layer of config/archite
   - `tests/test_architecture_layers.py` (unit) — Pins the contract -- every package placed once, every layer and every accepted inversion carrying its argument, endpoints that exist on disk, api outermost -- and drives the rule on synthetic graphs: an upward edge is reported, a downward or same-layer one is not, an accepted one is not, a fixed one must be banked, and an unplaced package fails.
   - `tests/test_static_invariants.py` (unit) — test_repository_satisfies_every_invariant runs the layering check against the live repository on every push.
 
+#### `GOV-019` — CI run data is unreadable from a session under every condition
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+No CI log, job record, step annotation, artifact, cache entry or check result can be fetched from an agent session, and no output bound, filter or redirect makes it allowed. Dispatching or re-running a workflow to read its output is refused on the same footing. Enforced by common.command_schema.is_ci_log_access at both the PreToolUse hook and shell_exec.run(), with the policy file carrying the same patterns for sessions where the project is not importable.
+
+- **If violated:** Context exhaustion by instalments. The prior policy capped bulk log retrieval instead of banning it -- 'the minimum number of lines that explains the failure is always permitted' -- which put the judgement in the hands of the party that wanted the lines and decayed into paging logs a few lines at a time. A bound cannot fix this because the objection is not output size: the notice comment already carries the status and the exact failing assertion, so a fetch adds nothing and costs a context window.
+- **Owned by:** `common/command_schema.py`
+- **Depends on:** `GOV-011`
+- **Verification:**
+  - `tests/test_ci_log_access.py` (contract)
+  - `tests/test_pre_tool_use_hook.py` (contract)
+
+#### `GOV-020` — One comment per commit carries the status and the exact failing lines
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+The CI notice waits until every watched workflow has completed for a commit, then posts or edits exactly one pull-request comment containing the status and, for each job that is not green, the workflow, job, conclusion, failing step and the exact failing lines extracted server-side. It posts on green as well as on failure, carries nothing beyond status and errors, and filters the runner's own exit-code epilogue out of the error text.
+
+- **If violated:** A contributor or agent with no route to the cause of a red pull request. Since GOV-019 makes CI logs permanently unreadable, this comment is the only channel, so each of its failure modes is total: one comment per workflow means five to read and four chances to read a stale one; posting before every workflow finishes announces green on a commit that failed; and reporting 'Process completed with exit code 1' -- which is what the notice actually said on a failing shard of PR 313 -- names no test, no file and no assertion, leaving nothing to act on at all.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Depends on:** `GOV-019`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (contract)
+  - `tests/test_ci_log_access.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1407,4 +1456,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 106 entries.
+Registry version: 1.0.0 — 110 entries.

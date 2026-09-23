@@ -1,6 +1,6 @@
 {
   "$schema": "https://trade-bot.local/schemas/command-policy/1.0.0.json",
-  "policy_version": "1.1.0",
+  "policy_version": "1.2.0",
   "enforcement": "block",
   "_enforcement_values": [
     "block",
@@ -136,7 +136,7 @@
   },
   "ci_observability": {
     "enabled": true,
-    "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk log and report retrieval is capped by bounded_output instead: the minimum number of lines that explains the failure is always permitted.",
+    "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk retrieval is no longer a bounded alternative either: see ci_log_access, which refuses it outright.",
     "message": "CI live monitoring is permanently disabled. only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
     "live_patterns": [
       "\\bgh\\s+run\\s+watch\\b",
@@ -153,5 +153,38 @@
       "Monitor"
     ],
     "_banned_tools_note": "The Monitor tool is a live watch by construction, so it is refused for this project regardless of what it is pointed at."
+  },
+  "ci_log_access": {
+    "enabled": true,
+    "_note": "Permanent and unconditional, in every case. No CI log, job record, step annotation, artifact, cache entry or check result may be fetched, and neither may a run be dispatched or re-run in order to read what it prints. This is not an output-size rule, so no line bound, filter or redaction makes it allowed -- raising a bound is exactly the loophole that made the previous 'minimum number of lines' wording decay into paging logs. The run that already knows why it failed does the summarising: .github/workflows/ci-failure-notify.yml extracts the failing assertion server-side and leaves one comment per commit on the pull request carrying the status and the exact error lines. Fetching is therefore not a cheaper route to the same answer, it is a worse one that also costs context.",
+    "message": "CI logs, job records, annotations, artifacts and check results are permanently unreadable from here, in every condition -- there is no line bound that makes this allowed. The pull-request comment posted by the CI failure notice is the only channel: it already carries the status and the exact failing lines. Read it with `gh pr view <n> --json comments`.",
+    "_hard_deny_note": "Checked BEFORE allowed_patterns and not excusable by them. `gh pr view --json statusCheckRollup` is one flag away from `gh pr view --json comments`; check results are CI data whatever verb fetched them.",
+    "hard_deny_patterns": [
+      "\\bgh\\s+(pr|run|repo)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|checkSuites|jobs|workflowRuns)\\b",
+      "\\bgh\\s+pr\\s+checks\\b"
+    ],
+    "_allowed_note": "The comment channel, checked first and winning over banned_patterns. Closing it would leave no way at all to learn why a run failed, and a guard with no remaining route is a guard someone switches off.",
+    "allowed_patterns": [
+      "\\bgh\\s+pr\\s+(view|comment)\\b",
+      "\\bgh\\s+issue\\s+(view|comment)\\b",
+      "\\bgh\\s+api\\b[^|]*/issues/(comments|\\d+/comments)\\b",
+      "\\bgh\\s+api\\b[^|]*/pulls/\\d+/comments\\b"
+    ],
+    "_banned_note": "Kept in step with CI_LOG_PATTERNS in common/command_schema.py, which is what the hook uses when the project is importable. These are the fallback for a bare session where it is not, so the block holds either way; tests/test_ci_log_access.py asserts the two agree.",
+    "banned_patterns": [
+      "\\bgh\\s+run\\s+(view|list|download|watch|rerun|cancel|delete)\\b",
+      "\\bgh\\s+workflow\\s+(run|view|list)\\b",
+      "\\bgh\\s+pr\\s+checks\\b",
+      "\\bgh\\s+cache\\s+(list|delete)\\b",
+      "\\bgh\\s+api\\b[^|]*/actions/",
+      "\\bgh\\s+api\\b[^|]*/check-runs?\\b",
+      "\\bgh\\s+api\\b[^|]*/check-suites?\\b",
+      "\\bgh\\s+api\\b[^|]*/commits/[^/\\s]+/(status|check-runs)\\b",
+      "\\bgh\\s+api\\b[^|]*/statuses/",
+      "\\bgh\\s+(pr|run)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|jobs)\\b",
+      "\\bcurl\\b[^|]*/actions/(runs|jobs|artifacts|workflows|caches)\\b",
+      "\\bcurl\\b[^|]*/check-runs?\\b",
+      "\\bact\\b\\s+-"
+    ]
   }
 }

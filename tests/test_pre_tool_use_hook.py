@@ -341,70 +341,143 @@ class TestCiObservability:
     @pytest.mark.parametrize(
         "command",
         [
-            "gh run watch 123",
-            "gh pr checks 42 --watch",
             "tail -f ci.log",
             "docker logs -f build",
             "kubectl logs --follow pod",
-            "while true; do gh pr checks 1; sleep 30; done",
-            "watch -n 5 gh pr list",
+            "watch -n 5 ls",
             "inotifywait -m /tmp",
         ],
     )
     def test_live_watches_are_refused(self, command):
+        """
+        The live-monitoring rule, on the things that are only that.
+
+        Its message carries the 30-line directive, which is right for a log
+        that is not CI's -- `tail -f` on a local file has a legitimate bounded
+        form. The gh-based watches moved to the test below, because that
+        directive is now false for them.
+        """
         decision = decide(command)
         assert decision["permissionDecision"] == "deny"
         assert "live monitoring" in decision["permissionDecisionReason"].lower()
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "gh run watch 123",
+            "gh pr checks 42 --watch",
+            "while true; do gh pr checks 1; sleep 30; done",
+        ],
+    )
+    def test_a_ci_watch_is_refused_as_ci_data_not_as_an_unbounded_read(self, command):
+        """
+        A CI watch trips both rules, and the order decides which message the
+        caller reads. It has to be the CI-data one.
+
+        The live-monitoring message ends "only <=30 lines are allowed, run
+        command for minimum line which can make you understand the failure".
+        That is now false advice for anything touching CI: there is no number
+        of lines that is allowed. Telling a caller to retry with a smaller
+        bound sends them round a loop that cannot terminate, so the CI rule is
+        evaluated first and returns immediately.
+        """
+        reason = decide(command)["permissionDecisionReason"]
+        assert decide(command)["permissionDecision"] == "deny"
+        assert "permanently unreadable" in reason.lower()
+        assert "only <=30 lines" not in reason
 
     def test_the_live_refusal_does_not_repeat_itself(self):
         """
         A live watch that is also an unbounded read says so once.
 
-        `gh run watch` trips both rules, and the live message already carries
-        the line directive. Appending the bound refusal to it would state the
-        same instruction twice in a message whose whole point is brevity.
+        The live message already carries the line directive; appending the
+        bound refusal would state the same instruction twice in a message whose
+        whole point is brevity. Uses `tail -f` rather than `gh run watch`,
+        which now returns on the CI rule before reaching either.
         """
-        reason = decide("gh run watch 123")["permissionDecisionReason"]
+        reason = decide("tail -f ci.log")["permissionDecisionReason"]
         assert reason.count("only <=30 lines") == 1
 
+    # Replaces `test_a_bounded_log_fetch_is_still_allowed`, which asserted the
+    # opposite and was right under the old policy: a log fetch had a
+    # legitimate bounded form, so it was capped rather than banned. The
+    # bound was the loophole. "The minimum number of lines that explains the
+    # failure" is a judgement call made by the party that wants the lines, and
+    # it decayed exactly as you would expect -- into paging logs a few lines at
+    # a time. `ci_log_access` replaces the judgement with a rule: the notice
+    # comment carries the status and the exact failing lines, so there is
+    # nothing a log fetch can add, and no bound makes it allowed.
     @pytest.mark.parametrize(
         "command",
         [
+            # Forms the old bounded exemption permitted.
             "gh run view --job 1 --log-failed | grep -m 5 error",
-            "gh run view --job 1 --log-failed | grep -m 30 error",
             "gh run view 1 --log | head -20",
             "gh run list --limit 10",
+            # Forms it already refused.
+            "gh run view 1 --log",
+            "gh run list",
+            # Everything else that is CI run data.
+            "gh run download 7",
+            "gh run rerun 7",
+            "gh workflow run ci.yml",
+            "gh cache list",
+            "gh api repos/o/r/actions/runs/1/jobs",
+            "gh api repos/o/r/commits/abc123/check-runs",
+            "curl -s https://api.github.com/repos/o/r/actions/runs/1/logs",
+            "act -j test",
         ],
     )
-    def test_a_bounded_log_fetch_is_still_allowed(self, command):
-        """The minimum lines that explain a failure must stay reachable."""
-        assert decide(command)["permissionDecision"] == "allow"
+    def test_every_ci_read_is_refused_whatever_the_bound(self, command):
+        decision = decide(command)
+        assert decision["permissionDecision"] == "deny"
+        reason = decision["permissionDecisionReason"].lower()
+        assert "permanently unreadable" in reason
+        # The refusal has to name the remaining route, or it is a dead end and
+        # the next session turns the policy off.
+        assert "comment" in reason
 
     @pytest.mark.parametrize(
         "command",
         [
-            "gh run view --job 1 --log-failed",
-            "gh run view 1 --log",
-            "gh run list",
-            "gh run view 1 --log | head -80",
-            "gh run list --limit 200",
+            "gh pr checks 248",
+            "gh pr view 248 --json statusCheckRollup",
+            "gh pr view 248 --json number,statusCheckRollup",
         ],
     )
-    def test_an_unbounded_log_fetch_is_refused(self, command):
-        decision = decide(command)
-        assert decision["permissionDecision"] == "deny"
-        assert decision["permissionDecisionReason"] == REFUSAL
+    def test_check_results_are_refused_even_on_an_allowed_subcommand(self, command):
+        """
+        The hole a plain allowlist leaves.
+
+        `gh pr view --json statusCheckRollup` is one flag away from
+        `gh pr view --json comments`, and `gh pr checks` was explicitly
+        exempted before as "one line per check, not a log". Both are CI check
+        results, which is the thing that is no longer readable -- so the
+        hard-deny tier is checked before the comment allowlist and cannot be
+        excused by it.
+        """
+        assert decide(command)["permissionDecision"] == "deny"
 
     @pytest.mark.parametrize(
         "command",
-        ["gh pr checks 248", "gh pr view 248 --json state", "gh pr merge 248 --squash --auto"],
+        [
+            "gh pr view 248 --json comments",
+            "gh pr view 248 --json state,title",
+            "gh pr comment 248 --body 'fixed'",
+            "gh api repos/o/r/issues/248/comments --jq '.[-1].body' | head -30",
+            "gh issue view 5",
+            "gh pr merge 248 --squash --auto",
+            "gh pr create --base main --title x --body y",
+        ],
     )
-    def test_pr_state_commands_are_untouched(self, command):
+    def test_the_comment_channel_stays_open(self, command):
         """
-        The PR's own check summary is one line per check, not a log.
+        The one route that must survive.
 
-        Capping it would leave no way to learn a PR's state at all, which is
-        the information the log fetch was being used as a proxy for.
+        With CI logs unreadable, the notice comment is the only way to learn
+        why a run failed. A guard that also closed this would leave no route at
+        all, and a guard with no route is a guard the next session disables --
+        so the allowlist is part of the control, not an exception to it.
         """
         assert decide(command)["permissionDecision"] == "allow"
 

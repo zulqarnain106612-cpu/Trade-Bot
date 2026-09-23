@@ -613,7 +613,7 @@ Two equivalent wirings of a linear feedback shift register. The names honour Fib
 ## Protocol primitives
 
 #### BIP-32 hierarchical deterministic key derivation
-`bip32-hd-derivation` — **LOAD-BEARING** · relevance: security · status: planned
+`bip32-hd-derivation` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Derives an unbounded key tree from one seed using HMAC-SHA512 and scalar addition on the curve. It is how a single backed-up seed controls every address a bot uses.
 

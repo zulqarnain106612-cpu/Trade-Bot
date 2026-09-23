@@ -1586,6 +1586,49 @@
       "failure_mode": "A compromised host becomes a withdrawal, not just a bad trade."
     },
     {
+      "id": "SECR-011",
+      "kind": "requirement",
+      "title": "Deposit-address derivation cannot produce or accept a private key",
+      "statement": "src/mathcore/derivation/bip32.py derives extended public keys only. It refuses hardened indices, refuses an extended private key by name, and exposes no function or dataclass field that could hold private key material -- a property asserted structurally by inspecting every public signature, not only behaviourally.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Spending authority present in the process that generates deposit addresses. A trading host is internet-facing and runs untrusted market data through itself; an attacker who reads its memory should learn which addresses to watch and nothing that moves funds. The specific BIP-32 trap is that an extended public key plus any one non-hardened child private key yields the parent private key by subtraction, and therefore the whole branch -- so a module that held both at once would hand over the tree.",
+      "owning_modules": [
+        "src/mathcore/derivation/bip32.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_bip32.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SECR-012",
+      "kind": "requirement",
+      "title": "Derived addresses match what a BIP-32 wallet derives, checked against an independent oracle",
+      "statement": "Watch-only public derivation agrees with private derivation from the published seed for every non-hardened path tested, and each published master xpub the tests rely on is verified to be what its published seed actually derives rather than trusted as transcribed. Base58Check is validated on parse, so a mistyped extended key is refused instead of decoding to a different valid-looking key.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Deposit addresses that no sender ever pays. A derivation that is self-consistent but disagrees with the standard -- an uncompressed point in the HMAC input, the chain code taken from the wrong half of the digest, a missing reduction mod n -- produces a tree that looks correct in isolation and matches no other wallet. Verifying against a transcribed expected string does not catch it either: one such string was misremembered while writing these tests, which is how the checksum requirement was found.",
+      "owning_modules": [
+        "src/mathcore/derivation/bip32.py"
+      ],
+      "depends_on": [
+        "SECR-011"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_bip32.py",
+          "test_type": "verification"
+        }
+      ]
+    },
+    {
       "id": "SUP-001",
       "kind": "requirement",
       "title": "Every workflow declares least-privilege permissions",
@@ -2580,6 +2623,60 @@
       ],
       "depends_on": [],
       "failure_mode": "A package-level cycle never fails at import time -- it hides behind submodule and deferred imports -- and surfaces instead as two packages that cannot be changed, tested or reasoned about apart."
+    },
+    {
+      "id": "GOV-019",
+      "kind": "requirement",
+      "title": "CI run data is unreadable from a session under every condition",
+      "statement": "No CI log, job record, step annotation, artifact, cache entry or check result can be fetched from an agent session, and no output bound, filter or redirect makes it allowed. Dispatching or re-running a workflow to read its output is refused on the same footing. Enforced by common.command_schema.is_ci_log_access at both the PreToolUse hook and shell_exec.run(), with the policy file carrying the same patterns for sessions where the project is not importable.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Context exhaustion by instalments. The prior policy capped bulk log retrieval instead of banning it -- 'the minimum number of lines that explains the failure is always permitted' -- which put the judgement in the hands of the party that wanted the lines and decayed into paging logs a few lines at a time. A bound cannot fix this because the objection is not output size: the notice comment already carries the status and the exact failing assertion, so a fetch adds nothing and costs a context window.",
+      "owning_modules": [
+        "common/command_schema.py"
+      ],
+      "depends_on": [
+        "GOV-011"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_log_access.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-020",
+      "kind": "requirement",
+      "title": "One comment per commit carries the status and the exact failing lines",
+      "statement": "The CI notice waits until every watched workflow has completed for a commit, then posts or edits exactly one pull-request comment containing the status and, for each job that is not green, the workflow, job, conclusion, failing step and the exact failing lines extracted server-side. It posts on green as well as on failure, carries nothing beyond status and errors, and filters the runner's own exit-code epilogue out of the error text.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "A contributor or agent with no route to the cause of a red pull request. Since GOV-019 makes CI logs permanently unreadable, this comment is the only channel, so each of its failure modes is total: one comment per workflow means five to read and four chances to read a stale one; posting before every workflow finishes announces green on a commit that failed; and reporting 'Process completed with exit code 1' -- which is what the notice actually said on a failing shard of PR 313 -- names no test, no file and no assertion, leaving nothing to act on at all.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "depends_on": [
+        "GOV-019"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_ci_log_access.py",
+          "test_type": "contract"
+        }
+      ]
     },
     {
       "id": "SIG-004",
