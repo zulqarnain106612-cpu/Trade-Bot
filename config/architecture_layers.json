@@ -62,11 +62,6 @@
       "from": "strategies",
       "to": "engine",
       "why": "A strategy reaching back into the thing that runs it. Half of the engine<->strategies package cycle."
-    },
-    {
-      "from": "tuning",
-      "to": "risk",
-      "why": "Tuning reads risk limits to bound its search. The limits are configuration and belong at the foundation."
     }
   ]
 }

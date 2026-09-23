@@ -19,11 +19,32 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Protocol
 
 from src.config import SelfTuningSettings
-from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.store import NoPriorVersionError, VersionedConfigStore
+
+
+class DriftSignal(Protocol):
+    drifted: bool
+    reason: str
+    metric: str
+    live_value: float
+    baseline_value: float
+
+
+class DriftDetector(Protocol):
+    def record_trade_outcome(
+        self,
+        pnl_usd: float,
+        predicted_prob: float,
+        actual_direction: int,
+        current_equity: float,
+        starting_equity: float,
+    ) -> None: ...
+
+    def check_drift(self) -> DriftSignal: ...
 
 
 class WatchdogOutcome(StrEnum):
@@ -36,7 +57,7 @@ class WatchdogOutcome(StrEnum):
 
 @dataclass
 class _ProbationState:
-    detector: PerformanceDriftDetector
+    detector: DriftDetector
     # Monotonic, not a calendar instant. This lives in memory alongside a
     # live PerformanceDriftDetector, so it never survives a restart and is
     # only ever read as an elapsed duration by the rollback check below. On
@@ -60,11 +81,18 @@ class PostPromotionWatchdog:
         self._probations: dict[str, _ProbationState] = {}
         self._locked_until: dict[str, datetime] = {}
 
-    def start_probation(self, param_name: str, baseline: PerformanceBaseline) -> None:
-        """Call immediately after a promotion (TuningEventType.PROMOTED)."""
+    def start_probation(self, param_name: str, detector: DriftDetector) -> None:
+        """
+        Call immediately after a promotion (TuningEventType.PROMOTED).
+
+        The detector is constructed by the caller (in the risk layer) and
+        injected — watchdog lives in the analytics layer and must not import
+        risk-layer machinery. Structural typing via `DriftDetector` keeps the
+        contract explicit while removing the package-level upward edge.
+        """
         with self._lock:
             self._probations[param_name] = _ProbationState(
-                detector=PerformanceDriftDetector(baseline),
+                detector=detector,
                 started_at=time.monotonic(),
             )
 
