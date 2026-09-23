@@ -28,7 +28,7 @@ compose into something exploitable, which is the most dangerous shape a crypto
 library can have, so the boundary is drawn in the module rather than in a
 comment: there is no nonce generation, no nonce aggregation, no challenge
 computation and no partial-signature combination here, and
-``tests/test_threshold.py`` asserts structurally that none appears later.
+the accompanying test module asserts structurally that none appears later.
 
 Secret sharing itself lives in :mod:`src.mathcore.fields.interpolation`, which
 owns ``lagrange-interpolation``. This module does not reimplement it; it
