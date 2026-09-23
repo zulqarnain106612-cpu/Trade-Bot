@@ -28,6 +28,10 @@ testpaths = ["tests"]
 # Tests import as `from src.<pkg> ...`, so the repo root must be importable.
 pythonpath = ["."]
 asyncio_mode = "auto"
+# Pinned rather than left to default: pytest-asyncio deprecates the unset
+# value, and an implicit fixture loop scope is how a fixture ends up
+# holding a loop a later test has already closed.
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --strict-config --cov --cov-branch --cov-report=term-missing --cov-fail-under=99"
 filterwarnings = ["error::DeprecationWarning:src.*"]
 
