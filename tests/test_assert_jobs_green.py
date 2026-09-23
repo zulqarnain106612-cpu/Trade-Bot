@@ -6,6 +6,10 @@ passes when it should not is worse than no gate, because it is trusted. The
 second is the wiring: a gate that silently stops covering a job -- because
 someone added a job and did not add it to `needs:` -- fails open, and nothing
 about the green check would show it.
+
+Decides:
+  - GOV-003 — Mutation testing runs nightly on the critical subsystems
+  - GOV-008 — main is protected and every required check must be green
 """
 
 from __future__ import annotations
