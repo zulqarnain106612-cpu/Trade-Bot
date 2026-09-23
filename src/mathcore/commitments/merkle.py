@@ -22,6 +22,8 @@ not apply.
 
 References: Merkle (1988); RFC 6962 (Certificate Transparency, which
 domain-separates for exactly this reason); Bitcoin CVE-2012-2459.
+
+Registry: merkle-trees (config/math_registry.json).
 """
 
 from __future__ import annotations
