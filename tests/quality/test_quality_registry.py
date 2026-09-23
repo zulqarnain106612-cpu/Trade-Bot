@@ -436,6 +436,37 @@ class TestGraph:
     def test_a_self_cycle_is_refused(self, tree):
         expect_error(tree, [entry(depends_on=["RISK-001"])], "dependency cycle:")
 
+    def test_verified_entry_depending_on_a_planned_entry_is_refused(self, tree):
+        expect_error(
+            tree,
+            [
+                entry(id="RISK-002"),  # planned
+                {**entry(id="RISK-001", depends_on=["RISK-002"]), **VERIFIED},
+            ],
+            "depends on 'RISK-002'",
+        )
+
+    def test_verified_entry_depending_on_an_accepted_gap_is_allowed(self, tree):
+        # accepted_gap is an explicit, dated waiver, so a verified entry may
+        # rest on it without weakening the ratchet -- the same argument the gap
+        # was accepted on carries through to the parent.
+        load(
+            tree,
+            [
+                {
+                    **entry(id="RISK-002"),
+                    "status": "accepted_gap",
+                    "planned_in": None,
+                    "waiver": {
+                        "reason": "explicitly deferred, dated in review",
+                        "granted_on": "2026-01-01",
+                        "granted_by": "reviewer",
+                    },
+                },
+                {**entry(id="RISK-001", depends_on=["RISK-002"]), **VERIFIED},
+            ],
+        )
+
     def test_transitive_dependencies_resolve(self, tree):
         registry = load(
             tree,
