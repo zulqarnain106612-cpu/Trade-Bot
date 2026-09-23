@@ -478,6 +478,24 @@ Static detection of Fibonacci retracement levels, Gann angles, Elliott wave
 labelling and stock-to-flow fits appearing in strategy code. It reports; the
 gate decides. The point is that nobody has to notice by eye during review.
 
+### 3.11 `src/mathcore/quantum/`
+
+The threat model, not the algorithms. Owns the `quantum-grover-search` and
+`quantum-fourier-shor` registry entries. No quantum simulation lives here — a
+simulator would say nothing about a 256-bit curve — only the arithmetic a
+migration plan needs.
+
+**`src/mathcore/quantum/grover.py`** — classifies symmetric-strength primitives
+under Grover's square-root speedup and returns the *effective* security bits, so
+a 128-bit symmetric key is recorded as 64-bit-effective rather than pronounced
+"broken".
+
+**`src/mathcore/quantum/shor.py`** — classifies asymmetric primitives by the
+hard problem Shor breaks (`FACTORING`, `FINITE_FIELD_DLP`, `ELLIPTIC_CURVE_DLP`)
+and implements Mosca's inequality (`X + Y > Z`) so `harvest-now-decrypt-later`
+exposure is a computable answer from three numbers the caller knows and one
+they must assume. The assumed date is a parameter, never a module constant.
+
 ---
 
 ## 4. Wiring points into the existing tree
