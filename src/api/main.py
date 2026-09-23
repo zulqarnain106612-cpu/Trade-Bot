@@ -65,7 +65,7 @@ from src.api.fail_closed import (
     SecurityControlUnavailable,
     mark_all_healthy,
 )
-from src.api.metrics import metrics_output
+from src.diagnostics.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.api.object_refs import (
     NOT_FOUND_DETAIL,
