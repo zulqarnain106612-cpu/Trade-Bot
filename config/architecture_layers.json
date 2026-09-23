@@ -1,39 +1,71 @@
 {
+  "_registry": "GOV-018 (config/quality_registry.json).",
   "_note": "The direction dependencies are allowed to run in src/. A package may import from its own layer or any layer below it, never above. Cycles between packages are the thing this prevents: scripts/check_static_invariants.py already refuses module-level cycles, but a package-level cycle hides behind submodule and deferred imports and shows up instead as two things that cannot be changed or tested apart. Edit this file to change the architecture, not to make a violation go away.",
   "layers": [
     {
       "name": "foundation",
-      "packages": ["config", "logging_setup", "mathcore", "quality"],
+      "packages": [
+        "config",
+        "logging_setup",
+        "mathcore",
+        "quality"
+      ],
       "why": "Settings, logging, the mathematical core and the quality registry. Import nothing from src above themselves; everything is free to import them."
     },
     {
       "name": "crypto",
-      "packages": ["ecc", "security"],
+      "packages": [
+        "ecc",
+        "security"
+      ],
       "why": "Curve arithmetic and key handling, on mathcore alone."
     },
     {
       "name": "io",
-      "packages": ["data", "diagnostics"],
+      "packages": [
+        "data",
+        "diagnostics"
+      ],
       "why": "Market data in, observability out. The only layer that talks to the outside world other than api."
     },
     {
       "name": "analytics",
-      "packages": ["causal", "engines", "features", "fusion", "intelligence", "models", "regime", "tuning"],
+      "packages": [
+        "causal",
+        "engines",
+        "features",
+        "fusion",
+        "intelligence",
+        "models",
+        "regime",
+        "tuning"
+      ],
       "why": "Everything that turns data into a number: features, regimes, models, fusion, tuning."
     },
     {
       "name": "decision",
-      "packages": ["execution", "risk", "strategies"],
+      "packages": [
+        "execution",
+        "risk",
+        "strategies"
+      ],
       "why": "What to do about those numbers, and what not to do. Risk sits beside execution deliberately -- a sizing rule that cannot see the order book is not a risk rule."
     },
     {
       "name": "orchestration",
-      "packages": ["engine", "intel", "upgrade", "workers"],
+      "packages": [
+        "engine",
+        "intel",
+        "upgrade",
+        "workers"
+      ],
       "why": "Assembles the layers below into a running system."
     },
     {
       "name": "edge",
-      "packages": ["api"],
+      "packages": [
+        "api"
+      ],
       "why": "HTTP and websocket surface. Nothing below may import it -- an import of api from a domain package means the domain knows about transport."
     }
   ],
