@@ -4,7 +4,11 @@
   "fingerprints": [
     "LAW10|Wash trade detection|src/execution/order_manager.py",
     "LAW10|Wash trade detection|src/execution/router.py",
+<<<<<<< HEAD
     "LAW12|Non-PFS or export-grade cipher suite reference|src/mathcore/quantum/shor.py",
+=======
+    "LAW12|Non-PFS or export-grade cipher suite reference|src/mathcore/numbertheory/safe_primes.py",
+>>>>>>> origin/main
     "LAW13|Flash crash / market halt handling|src/risk/gate.py",
     "LAW13|Flash crash / market halt handling|src/risk/gates.py",
     "LAW13|Flash crash / market halt handling|src/risk/strategy_kill_switch.py",
