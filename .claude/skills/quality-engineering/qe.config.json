@@ -38,7 +38,9 @@
   },
   "change_classes": {
     "production_behaviour": {
-      "matches": ["src/**/*.py"],
+      "matches": [
+        "src/**/*.py"
+      ],
       "requires": [
         "registry_entry",
         "test_that_decides_it",
@@ -47,28 +49,48 @@
       "why": "A behaviour change with no registry entry is a behaviour nobody agreed to and nothing decides."
     },
     "test_only": {
-      "matches": ["tests/**/*.py"],
-      "requires": ["registry_entry_if_new_requirement"],
+      "matches": [
+        "tests/**/*.py"
+      ],
+      "requires": [
+        "registry_entry_if_new_requirement"
+      ],
       "why": "A new test that decides a requirement belongs in that requirement's verification list, or the claim and the evidence drift apart."
     },
     "workflow": {
-      "matches": [".github/workflows/*.yml"],
-      "requires": ["gate_job_needs_every_job", "actions_sha_pinned", "least_privilege_permissions"],
+      "matches": [
+        ".github/workflows/*.yml"
+      ],
+      "requires": [
+        "gate_job_needs_every_job",
+        "actions_sha_pinned",
+        "least_privilege_permissions"
+      ],
       "why": "A job outside the gate's needs is a check that can fail without blocking anything."
     },
     "config_schema": {
-      "matches": ["config/*.json"],
-      "requires": ["validates_against_its_schema"],
+      "matches": [
+        "config/*.json"
+      ],
+      "requires": [
+        "validates_against_its_schema"
+      ],
       "why": "A config file that parses is not a config file that is correct."
     },
     "defect_fix": {
       "matches": [],
-      "requires": ["reg_entry", "permanent_test"],
+      "requires": [
+        "reg_entry",
+        "permanent_test"
+      ],
       "why": "Every production defect gets a REG-#### entry and a test that is never deleted because the problem is fixed."
     },
     "security_finding": {
       "matches": [],
-      "requires": ["sec_entry", "permanent_test"],
+      "requires": [
+        "sec_entry",
+        "permanent_test"
+      ],
       "why": "Every security finding gets a SEC-#### entry and a test that is never deleted because the problem is fixed."
     }
   },
@@ -86,6 +108,13 @@
       "command": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py --only registry-loader",
       "blocking": true,
       "why": "What JSON Schema cannot express: a renamed test must turn its claim red rather than silently passing."
+    },
+    {
+      "id": "registry-id-collision",
+      "title": "No id allocated on this branch is allocated on another",
+      "command": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py --only registry-id-collision",
+      "blocking": false,
+      "why": "The loader catches a duplicate id only once both entries share one file, which is after the merge that caused it. Reading the registry on every live branch catches it while it is still one branch's mistake. Advisory: a stale unmerged branch can hold an id hostage, and that is a conversation rather than a block."
     },
     {
       "id": "traceability",

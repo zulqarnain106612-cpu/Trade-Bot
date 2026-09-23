@@ -43,6 +43,9 @@ CONFIG_SCHEMA_PATH = SKILL_DIR / "schemas" / "qe_config.schema.json"
 # .claude/skills/quality-engineering/scripts -> repository root
 REPO = SKILL_DIR.parent.parent.parent
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import qe_registry_refs as refs  # noqa: E402
+
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".mypy_cache"}
 
 
@@ -331,9 +334,62 @@ def gate_external(gate_spec: dict[str, Any]) -> Result:
     )
 
 
+def _read_registry_entries(path: Path) -> list[dict[str, Any]]:
+    """The registry's entries, as a seam the collision gate's tests can fake."""
+    return json.loads(path.read_text(encoding="utf-8"))["entries"]
+
+
+def gate_registry_id_collision(config: dict[str, Any]) -> Result:
+    """
+    An id this branch allocates must not already be allocated elsewhere.
+
+    `registry-loader` catches a duplicate id once both entries are in one
+    file -- which is after the merge that created the problem. This catches
+    it while it is still one branch's mistake, by reading the registry as it
+    exists on every branch that is neither merged nor an ancestor of this
+    one. Advisory, because a stale unmerged branch nobody will ever finish
+    can hold an id hostage, and that is a conversation rather than a block.
+    """
+    name = "registry-id-collision"
+    try:
+        entries = _read_registry_entries(REPO / config["registry"]["path"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return Result(name, False, False, f"cannot read the registry: {exc}")
+    bodies = {e["id"]: json.dumps(e, sort_keys=True) for e in entries}
+    mine = set(bodies)
+
+    try:
+        base = refs.merge_base(REPO, "HEAD", "origin/main") or refs.merge_base(REPO, "HEAD", "main")
+        if base is None:
+            return Result(name, True, False, "no main to fork from", skipped=True)
+        at_base = refs.ids_at(REPO, base) or set()
+        added = mine - at_base
+        if not added:
+            return Result(name, True, False, "this branch allocates no new ids")
+        elsewhere = refs.entries_on_refs(
+            REPO, filters=["--no-merged", base, "--no-contains", "HEAD"]
+        )
+    except refs.GitUnavailable as exc:
+        return Result(name, True, False, f"git unavailable: {exc}", skipped=True)
+
+    clashes: dict[str, str] = {}
+    for item in elsewhere:
+        # Same id, same entry, is the same requirement travelling between
+        # branches. Same id, different entry, is two requirements.
+        if item.entry_id in added and item.body != bodies[item.entry_id]:
+            clashes.setdefault(item.entry_id, item.ref)
+    if clashes:
+        findings = [f"{eid} is also allocated on {ref}" for eid, ref in sorted(clashes.items())]
+        return Result(
+            name, False, False, f"{len(clashes)} id(s) allocated twice", findings=findings
+        )
+    return Result(name, True, False, f"{len(added)} new id(s), none allocated elsewhere")
+
+
 BUILTIN = {
     "registry-schema": gate_registry_schema,
     "registry-loader": gate_registry_loader,
+    "registry-id-collision": gate_registry_id_collision,
     "traceability": gate_traceability,
     "json-validity": gate_json_validity,
     "workflow-gates": gate_workflow_gates,

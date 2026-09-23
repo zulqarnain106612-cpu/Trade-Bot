@@ -116,8 +116,24 @@ python3 .claude/skills/quality-engineering/scripts/qe_new_requirement.py \
 ```
 
 The scaffolder builds the entry from the rules — kind from the id prefix,
-`planned_in` or `verification` from the status — and validates before writing,
-so the entry cannot arrive in a shape the schema rejects.
+`planned_in` or `verification` from the status — and validates before writing
+with **the same loader the gate runs**, not just the JSON schema. The schema
+does not know the test-type taxonomy, so schema-only validation once printed
+`[ok  ] added SEC-0001` for an entry `load_registry` then refused (REG-0011).
+
+`--prefix` allocates against **every branch**, not this work tree. The work
+tree sees only what has merged to main, so two branches open at once used to
+be handed the same id — three times in one session, caught by hand every time
+(REG-0010). `--local-only` restores the old behaviour for a tree with no refs
+to read. `git fetch` first if you want branches pushed since your last fetch
+to count; the scan reads the object store and never the network.
+
+`qe_gate.py --only registry-id-collision` is the same check as a gate: it
+reports an id this branch adds that another live branch already holds. It is
+advisory, because a stale branch nobody will finish can hold an id hostage and
+that is a conversation rather than a block. The blocking half is
+`registry-loader`, which refuses a duplicate id once both entries are in one
+file — correct, but only after the merge that created the problem.
 
 ## When a gate fails
 

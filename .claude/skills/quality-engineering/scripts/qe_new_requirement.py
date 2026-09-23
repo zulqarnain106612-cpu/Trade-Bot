@@ -30,8 +30,12 @@ import argparse
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from qe_registry_refs import GitUnavailable, ids_on_refs  # noqa: E402
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 REPO = SKILL_DIR.parent.parent.parent
@@ -54,13 +58,33 @@ def kind_for(entry_id: str) -> str:
     return "requirement"
 
 
-def next_id(registry: dict[str, Any], prefix: str) -> str:
+def taken_ids(registry: dict[str, Any], *, local_only: bool = False) -> dict[str, str]:
+    """
+    Every id that is spoken for: in this working tree, or on any other ref.
+
+    Scanning the working tree alone sees only what has merged to main, so two
+    branches open at once are handed the same next id. That happened three
+    times in one session and was caught by hand every time; nothing failed.
+    """
+    taken = {entry["id"]: "the working tree" for entry in registry["entries"]}
+    if local_only:
+        return taken
+    try:
+        for entry_id, ref in ids_on_refs(REPO).items():
+            taken.setdefault(entry_id, ref)
+    except GitUnavailable as exc:
+        # Fail open: no git is a worse reason to refuse than a stale scan.
+        print(f"[warn] could not read other refs ({exc}); ids may collide", file=sys.stderr)
+    return taken
+
+
+def next_id(taken: dict[str, str], prefix: str) -> str:
     """The next free id for a prefix, so nobody has to scan the file for one."""
     width = 4 if prefix in {"REG-", "SEC-"} else 3
     used = [
-        int(entry["id"][len(prefix) :])
-        for entry in registry["entries"]
-        if entry["id"].startswith(prefix) and entry["id"][len(prefix) :].isdigit()
+        int(entry_id[len(prefix) :])
+        for entry_id in taken
+        if entry_id.startswith(prefix) and entry_id[len(prefix) :].isdigit()
     ]
     return f"{prefix}{max(used, default=0) + 1:0{width}d}"
 
@@ -122,6 +146,37 @@ def validate(registry: dict[str, Any]) -> list[str]:
     return out
 
 
+def validate_with_loader(registry: dict[str, Any]) -> list[str]:
+    """
+    Run the *gate's* loader over the candidate registry, not just the schema.
+
+    The schema does not know the test-type taxonomy, so the scaffolder once
+    printed `[ok  ] added SEC-0001` for an entry `load_registry` then refused
+    (`test_type="governance"` is not a declared type). A scaffolder that
+    declares success for something the gate rejects is worse than no
+    scaffolder: it moves the failure to CI and makes the entry look reviewed.
+    """
+    try:
+        sys.path.insert(0, str(REPO))
+        from src.quality.registry import RegistryError, load_registry
+    except ImportError as exc:
+        print(
+            f"[warn] loader unavailable ({exc}); validated against the schema only", file=sys.stderr
+        )
+        return []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        candidate = Path(tmp) / REGISTRY_PATH.name
+        candidate.write_text(
+            json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        try:
+            load_registry(path=candidate, root=REPO)
+        except RegistryError as exc:
+            return [str(exc)]
+    return []
+
+
 def insert_sorted(registry: dict[str, Any], entry: dict[str, Any]) -> None:
     """
     Keep entries grouped by prefix and ordered by number.
@@ -165,18 +220,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--depends-on", action="append")
     parser.add_argument("--note")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="allocate against this working tree alone, ignoring other branches",
+    )
     args = parser.parse_args(argv)
 
     registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
 
+    taken = taken_ids(registry, local_only=args.local_only)
+
     if not args.id:
         if not args.prefix:
             raise SystemExit("pass --id, or --prefix to allocate the next free one")
-        args.id = next_id(registry, args.prefix)
+        args.id = next_id(taken, args.prefix)
     if not ID_RE.match(args.id):
         raise SystemExit(f"{args.id!r} is not a well-formed registry id")
-    if any(e["id"] == args.id for e in registry["entries"]):
-        raise SystemExit(f"{args.id} already exists")
+    if args.id in taken:
+        raise SystemExit(f"{args.id} already exists on {taken[args.id]}")
     if args.status == "accepted_gap":
         raise SystemExit(
             "an accepted gap needs a waiver with an expiry and an argument for why "
@@ -186,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     entry = build_entry(args)
     insert_sorted(registry, entry)
 
-    problems = validate(registry)
+    problems = validate(registry) or validate_with_loader(registry)
     if problems:
         print("[FAIL] the resulting registry does not validate:")
         for problem in problems[:5]:
