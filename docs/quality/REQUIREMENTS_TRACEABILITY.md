@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 110 |
+| VERIFIED | 112 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **110** |
+| **Total** | **112** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 12 | 12 |
+| Cryptography and secrets | 14 | 14 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -858,6 +858,28 @@ Watch-only public derivation agrees with private derivation from the published s
 - **Verification:**
   - `tests/test_bip32.py` (verification)
 
+#### `SECR-017` — A post-quantum symmetric margin is reported with the caveat that makes it conservative
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+assess_symmetric returns the sequential-depth figure alongside the halved effective strength, so the halving cannot be quoted without the assumption it rests on, and weakest_link answers the suite-level question deterministically. The dataclass fields carrying the caveat are asserted structurally.
+
+- **If violated:** A post-quantum readiness claim that is either alarmist or complacent with no way for a reader to tell which they were given. Reported alone, the halving reads as 'AES-128 is broken', which NIST IR 8547 does not say -- the bound assumes one coherent machine running 2**64 successive error-corrected operations and Grover parallelises badly. The converse failure is the entry's stated risk: migrating asymmetric primitives while leaving 128-bit symmetric keys in place, which is invisible while each primitive is examined alone.
+- **Owned by:** `src/mathcore/quantum/grover.py`
+- **Verification:**
+  - `tests/test_quantum_margins.py` (security)
+
+#### `SECR-018` — Quantum exposure is computed from declared assumptions, never from invented constants
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+is_broken_by_shor classifies by hard problem and treats an unknown scheme name as broken, migration_verdict implements Mosca's X+Y>Z with years_until_capable_machine keyword-only and undefaulted, and the module contains no resource estimate and no module-level year constant. All three absences are asserted by tests rather than described.
+
+- **If violated:** Two ways to produce a confident migration plan resting on nothing. A transcribed logical-qubit or Toffoli-depth figure is model-dependent and uncheckable here -- there is no machine and a simulator says nothing about a 256-bit curve -- which is the fabricated-constant class this repository has shipped three times. A defaulted arrival year is worse: it lets a caller obtain a verdict without ever deciding what they believe, and the assumption then stops being questioned. Separately, an unclassified scheme name silently passing an audit would report a clean suite while a forgotten asymmetric primitive stays deployed.
+- **Owned by:** `src/mathcore/quantum/shor.py`
+- **Verification:**
+  - `tests/test_quantum_margins.py` (security)
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1456,4 +1478,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 110 entries.
+Registry version: 1.0.0 — 112 entries.

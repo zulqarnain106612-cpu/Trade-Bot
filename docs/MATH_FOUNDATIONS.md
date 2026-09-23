@@ -383,13 +383,14 @@ Fourier series on a lattice: it is how the discrete Gaussian is shown to behave 
 > This is where pi does structural rather than decorative work: the discrete Gaussian is defined as exp(-pi|x|^2/s^2) precisely so it is its own Fourier transform.
 
 #### Quantum Fourier transform and Shor's algorithm
-`quantum-fourier-shor` — **ATTACK SURFACE** · relevance: security · status: planned
+`quantum-fourier-shor` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 Period finding by quantum Fourier transform breaks factoring and discrete logarithms alike. The Fourier transform is simultaneously what builds modern cryptography and what would destroy the currently deployed generation of it.
 
 - **Used by:** the entire post-quantum migration rationale
 - **Risk if misused:** Harvest-now-decrypt-later: traffic and on-chain signatures captured today are decryptable once a cryptographically relevant quantum computer exists. Long-lived secrets need migrating before that date, not after.
 - **Depends on:** `ntt`
+- **Owned by:** `src/mathcore/quantum/shor.py`
 - **References:** Shor 1997, NIST IR 8547
 
 #### Spectral analysis of side channels
@@ -682,12 +683,13 @@ Produces a pseudorandom output with a proof that it was computed correctly, whic
 - **References:** RFC 9381
 
 #### Grover's algorithm and symmetric key margins
-`grover-hash-margins` — **ATTACK SURFACE** · relevance: security · status: planned
+`grover-hash-margins` — **ATTACK SURFACE** · relevance: security · status: implemented
 
 A quadratic speedup on unstructured search, which halves the effective strength of symmetric keys and hash preimage resistance and is why AES-256 rather than AES-128 is the post-quantum recommendation.
 
 - **Used by:** post-quantum symmetric parameter selection
 - **Risk if misused:** Migrating asymmetric primitives to post-quantum schemes while leaving 128-bit symmetric keys in place leaves the weakest link untouched.
+- **Owned by:** `src/mathcore/quantum/grover.py`
 - **References:** Grover 1996, NIST IR 8547
 
 #### Protocol magic numbers

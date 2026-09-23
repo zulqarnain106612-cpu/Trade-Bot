@@ -801,8 +801,17 @@
         "the entire post-quantum migration rationale"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
+        {
+          "module": "src/mathcore/quantum/shor.py",
+          "kind": "owner",
+          "note": "assessment only: which families fall, and Mosca X+Y>Z. No resource estimate and no assumed date -- both would be transcribed or invented"
+        },
+        {
+          "module": "tests/test_quantum_margins.py",
+          "kind": "test"
+        },
         {
           "module": "docs/MATH_ROADMAP.md",
           "kind": "doc",
@@ -1506,8 +1515,17 @@
         "post-quantum symmetric parameter selection"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
+        {
+          "module": "src/mathcore/quantum/grover.py",
+          "kind": "owner",
+          "note": "reports the query-count bound and the sequential depth together, so the halving cannot be quoted without the caveat that makes it conservative"
+        },
+        {
+          "module": "tests/test_quantum_margins.py",
+          "kind": "test"
+        },
         {
           "module": "docs/MATH_ROADMAP.md",
           "kind": "doc"
