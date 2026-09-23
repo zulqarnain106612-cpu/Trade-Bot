@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 113 |
+| VERIFIED | 115 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **113** |
+| **Total** | **115** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 14 | 14 |
+| Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -881,6 +881,29 @@ verify_share checks a share against the dealer's commitments and rejects any val
 - **Verification:**
   - `tests/test_threshold.py` (verification)
 
+#### `SECR-015` — A received Diffie-Hellman public value is confined to the prime-order subgroup
+
+**VERIFIED** · critical · requirement · source: OPS-2026-09-22
+
+is_valid_public_value accepts exactly the quadratic residues other than 1 for a safe prime p, rejecting 0, 1, p-1, any value at or above p-1, and every full-order element. Completeness is asserted by enumerating the subgroup by brute force for small safe primes and comparing set equality, not by asserting the implementation against itself.
+
+- **If violated:** Small-subgroup confinement. A peer sends a public value of order 1 or 2 and the shared secret takes one of one or two values, which the attacker simply tries. Validating the parameters does not prevent this -- it proves which subgroups exist, not what arrived on the wire -- and a deployment with a flawless RFC 7919 modulus and no value check is exactly the combination Valenta et al. measured in the field.
+- **Owned by:** `src/mathcore/numbertheory/safe_primes.py`
+- **Verification:**
+  - `tests/test_safe_primes.py` (security)
+
+#### `SECR-016` — A prime modulus whose (p-1)/2 is composite is reported as unsafe, and no named group constant is hardcoded
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports every problem it finds rather than the first. The module ships no RFC 7919 modulus: the caller supplies one and its structure is verified. order_of verifies p is a safe prime before relying on the orders being confined to 1, 2, q and 2q.
+
+- **If violated:** Parameters that pass a naive 'is p prime' check while p-1 remains smooth, which is the precondition a confinement attack needs -- and a caller with no diagnostic distinguishing a composite modulus from a prime that is merely not safe, which have different fixes. Separately, order_of shipped a real instance of the silent-wrong-answer class: it documented a safe-prime assumption without checking it, so for p=13 and y=3 it returned 6, a multiple of the true order 3, shaped exactly like the order.
+- **Owned by:** `src/mathcore/numbertheory/safe_primes.py`
+- **Depends on:** `SECR-015`
+- **Verification:**
+  - `tests/test_safe_primes.py` (validation)
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1490,4 +1513,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 113 entries.
+Registry version: 1.0.0 — 115 entries.
