@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 114 |
+| VERIFIED | 115 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **114** |
+| **Total** | **115** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 24 | 24 |
+| Governance | 25 | 25 |
 
 ## Outstanding work by phase
 
@@ -1184,6 +1184,17 @@ The production workflow can return to the previous trusted artifact, and a drill
 
 ## Governance
 
+#### `INV-014` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · invariant · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-001` — Every production defect yields a permanent regression test
 
 **VERIFIED** · high · requirement · source: QE-48
@@ -1502,4 +1513,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 114 entries.
+Registry version: 1.0.0 — 115 entries.
