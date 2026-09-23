@@ -24,6 +24,8 @@ stop trading -- losing the sentiment feed is not a reason to abandon open
 positions -- but "keep going" without a stated bound is how a bot trades for
 six hours on a frozen order book. Every DEGRADE carries what is lost and how
 long it may last.
+
+Registry: RES-001, RES-007 (config/quality_registry.json).
 """
 
 from __future__ import annotations

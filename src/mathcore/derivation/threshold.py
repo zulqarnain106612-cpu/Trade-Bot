@@ -43,6 +43,8 @@ quality is the entire security of the sharing.
 References: RFC 9591 (FROST); BIP-327 (MuSig2); Feldman, "A practical scheme
 for non-interactive verifiable secret sharing" (1987); Benhamouda et al. and
 Drijvers et al. on ROS / concurrent-session attacks.
+
+Registry: SECR-013, SECR-014 (config/quality_registry.json).
 """
 
 from __future__ import annotations

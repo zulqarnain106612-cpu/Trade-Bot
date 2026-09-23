@@ -10,6 +10,8 @@ don't Work identically in:
 
 Companion runtime: common/shell_exec.py
 Skill:            .claude/skills/command-execution/SKILL.md
+
+Registry: GOV-019, SECR-001 (config/quality_registry.json).
 """
 
 from __future__ import annotations

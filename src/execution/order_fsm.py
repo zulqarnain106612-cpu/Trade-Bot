@@ -21,6 +21,8 @@ State persistence enables:
   - Partial fill aggregation across retries
   - Audit trail and reconciliation
   - Timeout escalation
+
+Registry: EXEC-002, EXEC-006, INV-003 (config/quality_registry.json).
 """
 
 from __future__ import annotations

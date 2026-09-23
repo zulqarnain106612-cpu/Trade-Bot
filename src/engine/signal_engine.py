@@ -19,6 +19,8 @@ Authority:
   - López de Prado (2018) AFML Ch.3-4 signal construction
   - Hamilton (1989) regime gate
   - Kelly (1956) position sizing
+
+Registry: DATA-001, INV-008, MODL-002, SIG-001 (config/quality_registry.json).
 """
 
 from __future__ import annotations
