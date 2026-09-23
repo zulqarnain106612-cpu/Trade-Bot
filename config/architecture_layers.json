@@ -71,11 +71,6 @@
   ],
   "accepted_upward_edges": [
     {
-      "from": "diagnostics",
-      "to": "features",
-      "why": "Diagnostics reaches up into feature code to describe what a feature computed. The description belongs with the feature, not with the reporter."
-    },
-    {
       "from": "engine",
       "to": "api",
       "why": "The orchestrator imports transport types. Half of the api<->engine package cycle."
