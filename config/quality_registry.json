@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-021",
+      "kind": "invariant",
+      "title": "every wiring kind is held to the existence check",
+      "statement": "The math registry loader refuses any wiring pointing at a file that does not exist -- owner, component, consumer, config or doc. Same standard for every pointer; a pointer to a missing file is worse than no pointer.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A rename or deletion silently orphans a consumer/config/doc pointer that the loader used to skip -- so a registry query returns a module name a reader trusts and cannot find, while owner and component pointers stay honest.",
+      "owning_modules": [
+        "src/mathcore/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_math_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
