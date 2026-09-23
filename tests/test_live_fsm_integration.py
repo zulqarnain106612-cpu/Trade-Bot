@@ -6,6 +6,9 @@ with failures: a timeout or an exchange error must reach the caller. An
 order that silently returns instead of raising would be reported as placed
 when it was not, which on this path means a position the book does not know
 about.
+
+Decides:
+  - EXEC-004 — Unknown exchange order status must never be treated as FILLED
 """
 
 from __future__ import annotations

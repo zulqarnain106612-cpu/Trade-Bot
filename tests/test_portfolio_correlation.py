@@ -3,6 +3,9 @@ Tests for src/risk/portfolio_correlation.py
 
 Covers: _EWMSeries, _EWMCov, PortfolioCorrelationTracker, get_portfolio_correlation
 Target: lift coverage from 19% → ≥ 70% on this module
+
+Decides:
+  - PORT-001 — Portfolio-level exposure, correlation and agreement limits are enforced
 """
 
 from __future__ import annotations

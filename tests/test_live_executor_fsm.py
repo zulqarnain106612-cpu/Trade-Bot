@@ -2,6 +2,9 @@
 Integration tests for LiveExecutor with OrderFSM.
 
 Tests that _place_market_order now uses OrderManager with FSM state tracking.
+
+Decides:
+  - INV-003 — Unknown exchange order state cannot become FILLED without reconciliation
 """
 
 import asyncio

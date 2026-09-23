@@ -11,6 +11,9 @@ prevent.
 So the rule is mechanical: whatever is required to merge must also run in the
 queue. These tests derive the required set from the workflows themselves
 rather than restating it, so adding a gate cannot quietly skip this check.
+
+Decides:
+  - GOV-014 — Every required check also runs in the merge queue
 """
 
 from __future__ import annotations

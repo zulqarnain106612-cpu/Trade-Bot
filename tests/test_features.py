@@ -1,4 +1,8 @@
-"""Tests for src/features/pipeline.py — all feature functions and the full pipeline."""
+"""Tests for src/features/pipeline.py — all feature functions and the full pipeline.
+
+Decides:
+  - SIG-002 — Feature computation is deterministic and reproducible
+"""
 
 import numpy as np
 import pandas as pd

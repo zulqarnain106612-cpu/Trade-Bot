@@ -6,6 +6,9 @@ in src/ ever called register_strategy(), and the allocation endpoint
 passed every registered strategy as enabled unconditionally, so a
 strategy the kill switch had disabled for drift still showed a full
 capital allocation.
+
+Decides:
+  - EXEC-005 — The kill switch is authenticated, authorized, audited, idempotent and durable
 """
 
 from __future__ import annotations

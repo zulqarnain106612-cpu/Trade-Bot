@@ -1,4 +1,8 @@
-"""Tests for the v10 capital preservation floor."""
+"""Tests for the v10 capital preservation floor.
+
+Decides:
+  - INV-002 — No new entry while a capital-preservation halt is active
+"""
 
 from __future__ import annotations
 

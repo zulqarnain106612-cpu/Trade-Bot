@@ -1,4 +1,8 @@
-"""Test suite for Performance Drift Detector."""
+"""Test suite for Performance Drift Detector.
+
+Decides:
+  - MODL-004 — Model drift beyond threshold demotes the model
+"""
 
 from src.risk.performance_drift import (
     PerformanceBaseline,

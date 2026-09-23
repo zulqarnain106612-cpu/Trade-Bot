@@ -14,6 +14,9 @@ the FSM already holds, and the increment's price is backed out of the two
 cumulative VWAPs. Taking `average` as the price of the newest piece would
 bias the FSM's VWAP toward the earliest fills and stop it reproducing the
 exchange's own number.
+
+Decides:
+  - EXEC-006 — Partial fills and fees are accounted exactly
 """
 
 from __future__ import annotations

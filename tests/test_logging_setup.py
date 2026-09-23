@@ -9,6 +9,9 @@ gone.
 Each test reconfigures structlog globally, so the fixture restores the
 previous configuration afterwards -- otherwise the format chosen by
 whichever test ran last would leak into the rest of the suite.
+
+Decides:
+  - SECR-001 — Secrets never appear in source, images, logs or workflow YAML
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-"""Tests for the v8 role-based access control primitives."""
+"""Tests for the v8 role-based access control primitives.
+
+Decides:
+  - API-001 — The authorization matrix is executable and every cell is tested
+"""
 
 from __future__ import annotations
 

@@ -11,6 +11,9 @@ size scalar derived from it.
 Gaps are reported, never repaired. Filling them would fabricate prices that
 never traded, and CLAUDE.md is explicit that OHLCV gaps are real rather than
 artifacts. This is the same posture as the existing flat-price check.
+
+Decides:
+  - DATA-001 — Market data failing the quality gate never reaches the signal engine
 """
 
 from __future__ import annotations

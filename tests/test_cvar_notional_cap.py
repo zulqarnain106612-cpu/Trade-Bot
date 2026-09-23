@@ -5,6 +5,9 @@ risk_quantification.py was headed "NOT wired into live signal path, blocked
 on API key provisioning" — but value_at_risk() needs only a returns array,
 so that blocker never applied to it. Kelly sizes from win probability and
 payoff ratio and is blind to tail shape; this is the ceiling that is not.
+
+Decides:
+  - INV-001 — No order exceeds the configured maximum notional
 """
 
 from __future__ import annotations

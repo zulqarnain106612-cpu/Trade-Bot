@@ -1,4 +1,8 @@
-"""Tests for the v8 disaster recovery reconciliation module."""
+"""Tests for the v8 disaster recovery reconciliation module.
+
+Decides:
+  - RES-003 — Backups are encrypted, off-host and restore-tested
+"""
 
 from __future__ import annotations
 

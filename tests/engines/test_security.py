@@ -1,4 +1,8 @@
-"""Tests for Part II security hardening modules."""
+"""Tests for Part II security hardening modules.
+
+Decides:
+  - SECR-005 — Signed requests reject tampering and replay
+"""
 
 import pytest
 

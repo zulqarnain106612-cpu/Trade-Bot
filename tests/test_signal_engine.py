@@ -3,6 +3,9 @@ Test coverage for src/engine/signal_engine.py — Debt-005.
 
 Strategy: mock all external dependencies and drive SignalEngine.tick()
 through every major branch.
+
+Decides:
+  - REG-0005 — A test's result never depends on which tests ran before it
 """
 
 from __future__ import annotations
