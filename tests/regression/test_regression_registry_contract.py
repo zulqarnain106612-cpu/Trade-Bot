@@ -142,6 +142,18 @@ class TestTheRegistryHasAPlaceForDefects:
         # on every tick rather than one. The call site catches Exception and
         # logs at warning by design, and Prometheus gives no feedback into
         # the process, so an empty gauge looked exactly like a quiet market.
+        # SEC-0001..0004: the command-execution declaration contract had four
+        # ways to fail open. Each is filed here so the visible event is this
+        # test being updated, not four security regressions arriving on a
+        # green suite. SEC-0001: schema_version was documented as a version
+        # guard, pinned with const to the value for which the check is a
+        # no-op, and read by no code. SEC-0002: the jsonschema-absent fallback
+        # checked only command and max_lines, so a cloud container without the
+        # dependency enforced almost none of the declaration. SEC-0003: the
+        # schema promised purpose was logged with each command and no logger
+        # existed. SEC-0004: classify() keyed on rm-shaped tokens only, so
+        # deletion through find/xargs/unlink/git worktree/gh delete was
+        # classified read_only.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -155,14 +167,13 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0015",
             "REG-0016",
         }
-        # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
-        # name and nothing else -- so `.env.bak.<timestamp>` from a
-        # backup-before-edit, `.env.local` and `.env.save` were all
-        # committable while holding the same API_SECRET_KEY and
-        # OPERATOR_SECRET. The secret scanners read committed content, and
-        # these files were never committed, so nothing upstream of a commit
-        # could have seen it.
-        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005"}
+        assert {e.id for e in registry.by_kind("security_regression")} == {
+            "SEC-0001",
+            "SEC-0002",
+            "SEC-0003",
+            "SEC-0004",
+            "SEC-0005",
+        }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -390,7 +401,14 @@ class TestTheMetricsCollector:
         # 10 -> 11 with SEC-0005: a bare `.env` pattern left every backup of
         # it committable. Scanners read committed content and these were
         # never committed, so only a suite check could have seen it.
-        assert metric["value"] == {"test-suite": 11, "review": 1}
+                # SEC-0001 and SEC-0003 escaped review; SEC-0002 and SEC-0004 escaped
+        # the test suite. Recount is deliberate: it is the visible event that
+        # a filed defect changes the metric.
+        # SEC-0001's notes use the word "layer:" in prose before the trailing
+        # marker, and the collector split on the FIRST occurrence -- producing a
+        # sentence as a bucket name instead of "review". Fixed to rsplit; this
+        # count is what the four SEC entries were always meant to produce.
+        assert metric["value"] == {"test-suite": 13, "review": 3}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

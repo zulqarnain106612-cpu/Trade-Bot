@@ -996,6 +996,8 @@ shell_exec.run() refuses a command declaration whose schema_version is outside S
 - **Verification:**
   - `tests/test_command_declaration_contract.py` (security)
 
+> Escaped every layer: the field was documented as providing the check, was pinned with const to the one value for which the check is a no-op, and no test asserted the refusal. A reviewer reading the schema saw a version guard; a reader of the runtime saw nothing reading the field. layer: review
+
 #### `SEC-0002` — A missing jsonschema dependency cannot downgrade the command declaration contract
 
 **VERIFIED** · critical · security_regression · source: OPS-2026-09-22
@@ -1008,6 +1010,8 @@ The validator shell_exec uses when jsonschema is absent refuses exactly the decl
 - **Verification:**
   - `tests/test_command_declaration_contract.py` (security)
 
+> Escaped the test suite: the fallback path executed only on hosts without jsonschema, and no test drove it — the developer environment always had jsonschema installed. A fresh cloud container was the one shape of runtime that could see the gap, and the suite never ran there without the dependency present. layer: test-suite
+
 #### `SEC-0003` — Every command run or refused leaves an audit record naming its purpose
 
 **VERIFIED** · high · security_regression · source: OPS-2026-09-22
@@ -1019,6 +1023,8 @@ shell_exec.run() emits exactly one JSON record to the tradebot.command_audit log
 - **Verification:**
   - `tests/test_command_declaration_contract.py` (security)
 
+> Escaped review: the schema described a purpose field that would be logged with the command hash and no logger existed to consume it, so the documentation of the audit trail and its absence coexisted in the same file. A reviewer reading either half saw a coherent story. layer: review
+
 #### `SEC-0004` — Deletion that carries no rm-shaped token still classifies as destructive
 
 **VERIFIED** · critical · security_regression · source: OPS-2026-09-22
@@ -1029,6 +1035,8 @@ classify() returns destructive for deletion expressed through the deleting flags
 - **Owned by:** `common/command_schema.py`
 - **Verification:**
   - `tests/test_command_declaration_contract.py` (security)
+
+> Escaped the test suite: classify() carried patterns for rm-shaped deletion only, and no test drove the alternative spellings (find -delete, xargs rm, unlink, git worktree remove, git stash drop, gh <resource> delete). The hook shared the same vocabulary, so a determined caller could bypass both by choosing the token. layer: test-suite
 
 #### `SEC-0005` — A file holding real credentials is never committable
 

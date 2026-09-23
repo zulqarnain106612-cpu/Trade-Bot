@@ -145,7 +145,7 @@ def escaped_defects() -> dict[str, Any]:
         }
     by_layer: dict[str, int] = {}
     for entry in defects:
-        layer = entry.notes.split("layer:", 1)[-1].strip() if "layer:" in entry.notes else "unknown"
+        layer = entry.notes.rsplit("layer:", 1)[-1].strip() if "layer:" in entry.notes else "unknown"
         by_layer[layer] = by_layer.get(layer, 0) + 1
     return {"escaped_defects_by_layer": {"value": by_layer, "status": "ok"}}
 
