@@ -2722,6 +2722,26 @@
       ]
     },
     {
+      "id": "GOV-024",
+      "kind": "requirement",
+      "title": "intelligence does not import intel",
+      "statement": "src/intelligence/ must not import from src.intel. The adapter takes the concrete CryptoIntelligence via dependency injection, typed as Any at the analytics-layer boundary, so intelligence stays inside its layer.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.intel in src/intelligence/, silently reviving the intelligence->intel package edge.",
+      "owning_modules": [
+        "src/intelligence/intelligence_adapter.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "SIG-004",
       "kind": "requirement",
       "title": "The eighteen-engine seam is asserted from both sides, positions included",
