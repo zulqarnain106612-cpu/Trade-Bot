@@ -1,0 +1,3154 @@
+Absolutely. I would now take this beyond a **testing plan** and turn it into a **quality + security engineering program** for Trade-Bot.
+
+ One correction to my previous answer: the publicly visible repository can tell me a great deal about its structure and documented controls, but it does **not** give me evidence that every runtime path, deployment environment, GitHub setting, secret, server, or production configuration is secure. So the plan below deliberately separates **what can be enforced in the repository** from **what must be verified in the deployment environment**.
+
+ The security baseline I recommend is NIST SSDF + NIST CSF 2.0, with OWASP ASVS for the web/API layer. NIST's SSDF is specifically intended to reduce vulnerabilities and their impact throughout the software lifecycle; CSF 2.0 provides the broader cybersecurity-risk framework; and OWASP ASVS provides application-security verification requirements.  NIST Computer Security Resource Center+2
+
+ # Trade-Bot Maximum Quality Engineering Blueprint
+
+ ## 1\. The objective
+
+ Don't call the goal "zero bugs."
+
+ Define the engineering objective as:
+
+ > **No known critical defect, no unverified security-critical change, no untested trading invariant, no unreviewed production change, and no live deployment unless every mandatory quality/security gate passes.**
+
+ The system becomes:
+
+```
+                    REQUIREMENT
+                         │
+                         ▼
+                 RISK CLASSIFICATION
+                         │
+                         ▼
+                  THREAT MODEL
+                         │
+                         ▼
+                   IMPLEMENTATION
+                         │
+                         ▼
+                 STATIC VERIFICATION
+                         │
+             ┌───────────┴───────────┐
+             ▼                       ▼
+       SECURITY TESTS          QUALITY TESTS
+             │                       │
+             └───────────┬───────────┘
+                         ▼
+                   UNIT TESTS
+                         ▼
+               PROPERTY/FUZZ TESTS
+                         ▼
+             FEATURE/SIGNAL TESTS
+                         ▼
+                 MODEL TESTS
+                         ▼
+                INTEGRATION TESTS
+                         ▼
+                REGRESSION TESTS
+                         ▼
+               SYSTEM/E2E TESTS
+                         ▼
+              TRADING GAUNTLET
+                         ▼
+                   PAPER TRADING
+                         ▼
+                    CANARY
+                         ▼
+                     LIVE
+                         ▼
+                 MONITORING
+                         │
+                         ▼
+                  INCIDENT/DEFECT
+                         │
+                         ▼
+                 ROOT-CAUSE ANALYSIS
+                         │
+                         ▼
+                  NEW REGRESSION TEST
+                         │
+                         └──────► CI
+```
+
+ This is the lifecycle I would implement.
+
+---
+
+ # 2\. The quality architecture
+
+ I recommend organizing the test system conceptually like this:
+
+```
+tests/
+│
+├── unit/
+├── component/
+├── contract/
+├── integration/
+├── api/
+├── e2e/
+│
+├── features/
+├── signals/
+├── models/
+├── regime/
+│
+├── risk/
+├── execution/
+├── portfolio/
+│
+├── regression/
+├── property/
+├── fuzz/
+│
+├── security/
+├── authentication/
+├── authorization/
+├── cryptography/
+├── secrets/
+├── supply_chain/
+│
+├── resilience/
+├── recovery/
+├── chaos/
+│
+├── performance/
+├── load/
+│
+├── backtest/
+├── validation/
+├── paper/
+│
+├── trading/
+│   ├── invariants/
+│   ├── scenarios/
+│   ├── crash_replays/
+│   └── market_regimes/
+│
+└── fixtures/
+    ├── market/
+    ├── exchange/
+    ├── models/
+    ├── api/
+    └── security/
+```
+
+ Don't blindly move your existing tests. First classify them, identify gaps, then reorganize gradually.
+
+---
+
+ # 3\. Every test gets a purpose
+
+ I want a test matrix such as:
+
+ | Test type | Main question |
+| --- | --- |
+| Unit | Does this function work? |
+| Component | Does this subsystem work? |
+| Contract | Does an interface behave as promised? |
+| Integration | Do components work together? |
+| Regression | Did an old bug come back? |
+| Verification | Does implementation satisfy requirements? |
+| Validation | Does the system solve the intended problem? |
+| Property | Does a general invariant always hold? |
+| Fuzz | What happens with unexpected input? |
+| Security | Can an attacker violate security properties? |
+| Model | Is ML inference/training correct? |
+| Signal | Does the strategy generate the intended signal? |
+| Risk | Can unsafe trades pass? |
+| Execution | Does order state remain correct? |
+| E2E | Does the complete system work? |
+| Performance | Is it fast/stable enough? |
+| Resilience | Does it survive failures? |
+| Recovery | Can it restore correct state? |
+| Chaos | Does it fail safely under disruption? |
+
+ That distinction is important because **"test" is not one thing**.
+
+---
+
+ # 4\. Verification vs validation
+
+ I recommend formally adopting both.
+
+ ### Verification
+
+ > Did we build the system correctly?
+
+ Examples:
+
+```
+Risk limit = 5%
+Code actually enforces ≤ 5%
+```
+
+ ### Validation
+
+ > Did we build the correct system?
+
+ Examples:
+
+```
+The trading strategy behaves as intended
+The risk policy matches business requirements
+The live gate actually protects the intended capital constraints
+```
+
+ Your acceptance tests should cover both.
+
+---
+
+ # 5\. Requirement → test traceability
+
+ Create:
+
+```
+docs/quality/REQUIREMENTS_TRACEABILITY.md
+```
+
+ Each critical requirement receives an ID.
+
+ Example:
+
+```
+RISK-001
+Maximum position exposure must not exceed configured ceiling.
+
+Verification:
+tests/risk/test_position_limits.py
+tests/property/test_position_limits.py
+tests/mutation/test_risk_logic.py
+```
+
+ Another:
+
+```
+EXEC-004
+Unknown exchange order status must never be treated as FILLED.
+
+Verification:
+tests/execution/test_unknown_order.py
+tests/recovery/test_reconciliation.py
+tests/regression/REG-0042_unknown_order.py
+```
+
+ This creates an auditable chain:
+
+```
+Requirement
+   ↓
+Implementation
+   ↓
+Test
+   ↓
+CI gate
+   ↓
+Release evidence
+```
+
+---
+
+ # 6\. The security model
+
+ For a trading bot, your threat model should assume:
+
+ > **An attacker who gains control of the application, API credentials, GitHub workflow, cloud account, database, or exchange API can potentially cause financial loss.**
+
+ Therefore, don't only protect the code.
+
+ Protect:
+
+```
+Developer workstation
+        ↓
+GitHub
+        ↓
+CI/CD
+        ↓
+Container/artifact
+        ↓
+Cloud/server
+        ↓
+Database
+        ↓
+Secrets
+        ↓
+Exchange API
+        ↓
+Trading account
+```
+
+ The security boundary must cover all of them.
+
+---
+
+ # 7\. Threat model
+
+ Create:
+
+```
+docs/security/THREAT_MODEL.md
+```
+
+ At minimum model these attackers:
+
+ ### A. Internet attacker
+
+ Attempts:
+
+```
+API exploitation
+credential attacks
+injection
+DoS
+authentication bypass
+authorization bypass
+```
+
+ ### B. Credential thief
+
+ Obtains:
+
+```
+exchange API key
+database password
+JWT/session token
+cloud credential
+GitHub token
+```
+
+ ### C. Malicious dependency
+
+ A compromised Python/npm package attempts:
+
+```
+credential theft
+code execution
+data exfiltration
+CI compromise
+```
+
+ ### D. Compromised developer account
+
+ Attacker gains GitHub account access and attempts:
+
+```
+malicious PR
+workflow modification
+secret extraction
+release modification
+```
+
+ ### E. Supply-chain attacker
+
+ Attempts to compromise:
+
+```
+GitHub Action
+Docker image
+PyPI package
+npm dependency
+base image
+build artifact
+```
+
+ ### F. Exchange/API attacker
+
+ Attempts to manipulate:
+
+```
+order responses
+market data
+authentication
+websocket messages
+```
+
+ ### G. Insider
+
+ Has legitimate access but abuses it.
+
+---
+
+ # 8\. Cryptographic security layer
+
+ This is an area I would add explicitly.
+
+ Create:
+
+```
+src/security/
+├── secrets.py
+├── crypto.py
+├── signing.py
+├── key_rotation.py
+├── secure_compare.py
+└── audit_integrity.py
+```
+
+ But **do not invent your own cryptographic algorithms**.
+
+ Use established, well-reviewed primitives and libraries.
+
+ The principle should be:
+
+```
+Application
+    ↓
+Cryptographic library
+    ↓
+Established algorithm
+```
+
+ not:
+
+```
+Application
+    ↓
+custom crypto implementation
+```
+
+---
+
+ # 9\. Secrets architecture
+
+ Never put exchange credentials in:
+
+```
+source code
+.env committed to Git
+Docker image
+frontend
+logs
+database plaintext
+GitHub workflow YAML
+```
+
+ GitHub Secret Scanning scans Git history for exposed credentials, and GitHub provides push protection to prevent new secret leaks.  GitHub Docs
+
+ Use:
+
+```
+Developer
+    ↓
+local secret store
+
+CI
+    ↓
+GitHub environment secret / OIDC / secret manager
+
+Production
+    ↓
+dedicated secret manager
+```
+
+ For cloud deployments, prefer short-lived OIDC-based authentication over long-lived cloud credentials where possible. GitHub documents OIDC specifically for exchanging short-lived workflow identity for cloud credentials.  GitHub Docs+1
+
+---
+
+ # 10\. Exchange API keys need special treatment
+
+ This is probably the most important security issue in the whole project.
+
+ **Never give the bot an unrestricted exchange API key if the exchange allows you to restrict it.**
+
+ Prefer:
+
+```
+✓ trading permission only if required
+✓ withdrawal disabled
+✓ IP allowlisting where supported
+✓ minimal account permissions
+✓ separate paper/testnet keys
+✓ separate production keys
+✓ separate exchange accounts/subaccounts
+```
+
+ The application should not possess withdrawal capability.
+
+ Even if the server is compromised:
+
+```
+Attacker
+   ↓
+Trade-Bot
+   ↓
+Exchange API
+   ↓
+❌ withdrawal unavailable
+```
+
+ That dramatically limits the blast radius.
+
+---
+
+ # 11\. Key rotation
+
+ Create a formal policy:
+
+```
+Development key
+    ↓
+Test key
+    ↓
+Paper key
+    ↓
+Production key
+```
+
+ Never reuse one key across environments.
+
+ Have procedures for:
+
+```
+normal rotation
+suspected compromise
+developer departure
+server compromise
+exchange incident
+GitHub compromise
+```
+
+ And test the rotation process.
+
+ A security procedure that has never been tested isn't a reliable procedure.
+
+---
+
+ # 12\. Cryptographic testing
+
+ Test:
+
+ ### Randomness
+
+ Verify cryptographic randomness comes from secure OS/library primitives.
+
+ ### Key handling
+
+```
+keys are not logged
+keys are not serialized accidentally
+keys are not included in exceptions
+keys are not exposed through API responses
+```
+
+ ### Authentication
+
+ Test:
+
+```
+wrong key
+expired key
+rotated key
+replayed token
+tampered token
+invalid signature
+```
+
+ ### Signing
+
+ If you use signed requests:
+
+```
+correct signature → accepted
+modified request → rejected
+modified timestamp → rejected
+modified parameters → rejected
+replayed request → rejected where applicable
+```
+
+ ### Constant-time comparison
+
+ Where secret/token comparisons are performed, use appropriate constant-time comparison primitives rather than ordinary string comparison.
+
+---
+
+ # 13\. Encryption at rest
+
+ Sensitive data should be encrypted where appropriate.
+
+ Potential targets:
+
+```
+database backups
+production databases
+model artifacts containing sensitive data
+audit archives
+configuration backups
+secret-manager backups
+```
+
+ But don't make the mistake of thinking:
+
+ > "Everything encrypted = secure."
+
+ If the attacker gets both:
+
+```
+ciphertext
++
+encryption key
+```
+
+ the encryption doesn't help.
+
+ Therefore key management is more important than merely calling encryption.
+
+---
+
+ # 14\. Encryption in transit
+
+ Require:
+
+```
+HTTPS/TLS
+secure WebSocket
+TLS database connection where applicable
+TLS to external providers
+```
+
+ Test that production endpoints don't silently fall back to plaintext.
+
+---
+
+ # 15\. Certificate and TLS testing
+
+ Add automated checks for:
+
+```
+expired certificate
+hostname mismatch
+weak protocol
+invalid certificate chain
+plaintext endpoint
+incorrect redirect
+mixed content
+```
+
+ Do not disable TLS verification merely to make exchange integration tests pass.
+
+---
+
+ # 16\. Audit log integrity
+
+ Your repository already has an audit trail concept.
+
+ Strengthen it.
+
+ Instead of:
+
+```
+timestamp
+event
+```
+
+ consider an append-only integrity model:
+
+```
+event_n
+   +
+hash(event_n)
+   +
+previous_event_hash
+        ↓
+event_n_hash
+```
+
+ Conceptually:
+
+```
+Event 1 → H1
+Event 2 + H1 → H2
+Event 3 + H2 → H3
+Event 4 + H3 → H4
+```
+
+ Then modification of an old event breaks the chain.
+
+ Test:
+
+```
+change event 1
+→ chain verification fails
+
+change event 50
+→ chain verification fails
+
+delete event
+→ chain verification fails
+
+reorder events
+→ chain verification fails
+```
+
+ For high-assurance environments, consider authenticated storage or external immutable/WORM-style archival rather than relying solely on a local hash chain.
+
+---
+
+ # 17\. Prevent log-based secret leakage
+
+ Create tests that deliberately generate errors involving:
+
+```
+API key
+secret
+JWT
+database password
+authorization header
+exchange credentials
+```
+
+ Then assert:
+
+```
+secret NOT present in logs
+```
+
+ This is a very useful security regression test.
+
+---
+
+ # 18\. API security
+
+ Apply OWASP ASVS to your FastAPI layer. ASVS is specifically designed as a verification standard for web application security and its current stable release is 5.0.0.  OWASP Foundation
+
+ Test:
+
+```
+authentication
+authorization
+session handling
+input validation
+output encoding
+injection
+security headers
+error handling
+rate limiting
+logging
+API abuse
+```
+
+---
+
+ # 19\. Authorization matrix
+
+ Make authorization executable.
+
+ Example:
+
+```
+                 anonymous  readonly  trader  operator
+GET status          ❌         ✓         ✓        ✓
+GET positions       ❌         ✓         ✓        ✓
+GET trades          ❌         ✓         ✓        ✓
+POST trade          ❌         ❌        ✓        ✓
+risk modification   ❌         ❌        ❌       ✓
+live enable         ❌         ❌        ❌       ✓
+kill switch         ❌         ❌        ❌       ✓
+```
+
+ Then test every cell.
+
+ This catches privilege-escalation bugs.
+
+---
+
+ # 20\. IDOR testing
+
+ Try:
+
+```
+User A
+   ↓
+resource A
+```
+
+ then manipulate identifiers:
+
+```
+/resource/B
+```
+
+ and verify User A cannot access B.
+
+ This is one of the classic API authorization vulnerabilities.
+
+---
+
+ # 21\. Injection testing
+
+ Test:
+
+```
+SQL injection
+NoSQL injection if applicable
+command injection
+template injection
+path traversal
+header injection
+JSON manipulation
+shell metacharacters
+```
+
+ Especially anywhere user input reaches:
+
+```
+database
+filesystem
+subprocess
+external APIs
+logging
+```
+
+---
+
+ # 22\. SSRF protection
+
+ If your backend accepts URLs or communicates with external providers, investigate SSRF.
+
+ Test attempts against:
+
+```
+localhost
+127.0.0.1
+private IP ranges
+metadata services
+internal hostnames
+```
+
+ The application should not become a network proxy for an attacker.
+
+---
+
+ # 23\. WebSocket security
+
+ Your bot uses WebSockets.
+
+ Test:
+
+```
+unauthenticated connection
+expired authentication
+message tampering
+malformed message
+oversized message
+message flooding
+duplicate message
+out-of-order message
+replay
+disconnect/reconnect
+```
+
+ And critically:
+
+ > A WebSocket message must never be trusted merely because it came through an established connection.
+
+ Validate the payload.
+
+---
+
+ # 24\. Rate limiting
+
+ Protect:
+
+```
+login
+authentication
+trade endpoints
+sensitive mutations
+WebSocket connections
+expensive API endpoints
+```
+
+ Test:
+
+```
+normal request
+burst
+sustained flood
+distributed-looking request patterns
+```
+
+ The objective isn't merely preventing inconvenience.
+
+ For a trading system, an attacker must not be able to cause:
+
+```
+thousands of orders
+massive API calls
+CPU exhaustion
+database exhaustion
+```
+
+---
+
+ # 25\. Kill switch security
+
+ This deserves a dedicated test suite.
+
+ Your kill switch should be:
+
+```
+authenticated
+authorized
+audited
+idempotent
+fast
+independent where possible
+```
+
+ Test:
+
+```
+kill switch activated
+→ new entries blocked
+
+existing position
+→ defined exit behavior
+
+restart
+→ halt state preserved
+
+database unavailable
+→ safe behavior
+
+network failure
+→ safe behavior
+
+duplicate kill command
+→ harmless
+```
+
+---
+
+ # 26\. Fail-safe architecture
+
+ Define explicit policies.
+
+ | Component failure | Recommended behavior |
+| --- | --- |
+| Price feed unavailable | FAIL CLOSED |
+| Risk engine unavailable | FAIL CLOSED |
+| Exchange status unknown | STOP/RECONCILE |
+| Optional analytics unavailable | DEGRADED |
+| Model unavailable | NO TRADE |
+| Audit system unavailable | likely NO LIVE TRADE |
+| Database unavailable | safe halt/recovery |
+| WebSocket unavailable | switch to safe recovery mode |
+
+ Don't make "fail open" the universal rule.
+
+---
+
+ # 27\. Dependency security
+
+ Use:
+
+```
+Dependabot
+dependency review
+pip-audit / equivalent
+npm audit / equivalent
+SBOM
+container scanning
+license review
+pinned dependencies where appropriate
+```
+
+ GitHub can automate dependency updates, while workflow security should prevent dependency updates from automatically becoming unrestricted production deployments.
+
+ GitHub also recommends securing Actions with least privilege and supports artifact attestations and OIDC for supply-chain/deployment security.  GitHub Docs+1
+
+---
+
+ # 28\. GitHub Actions hardening
+
+ This is a **major attack surface**.
+
+ Review every workflow.
+
+ For each workflow:
+
+```
+permissions:
+  contents: read
+```
+
+ Then grant only the permissions actually needed.
+
+ Do not casually use:
+
+```
+permissions: write-all
+```
+
+ or equivalent broad privileges.
+
+ Also:
+
+```
+pin third-party actions
+review action updates
+avoid untrusted PR code accessing secrets
+separate deployment workflows
+use environments
+require approvals
+```
+
+ GitHub specifically warns about workflow security and provides artifact attestations and OIDC as hardening mechanisms.  GitHub Docs
+
+---
+
+ # 29\. Never expose production secrets to ordinary PRs
+
+ Especially important for public repositories.
+
+ The model should be:
+
+```
+Public PR
+   ↓
+tests
+   ↓
+NO production secrets
+```
+
+ Production deployment:
+
+```
+trusted branch
++
+trusted workflow
++
+environment approval
++
+short-lived credentials
+```
+
+ A malicious PR must never be able to print your exchange key simply by modifying a test.
+
+---
+
+ # 30\. Fork attack protection
+
+ For a public repository, explicitly test:
+
+```
+fork PR
+   ↓
+workflow
+   ↓
+Can attacker access secrets?
+```
+
+ Expected:
+
+```
+NO
+```
+
+ This should be part of your security acceptance tests.
+
+---
+
+ # 31\. Deployment separation
+
+ Use separate environments:
+
+```
+development
+    ↓
+CI
+    ↓
+staging
+    ↓
+paper
+    ↓
+production
+```
+
+ And separate credentials.
+
+ Never:
+
+```
+staging → production exchange account
+```
+
+---
+
+ # 32\. Production environment isolation
+
+ Ideally:
+
+```
+Internet
+   │
+   ▼
+Reverse proxy / WAF
+   │
+   ▼
+API
+   │
+   ├── database
+   ├── queue
+   └── internal services
+```
+
+ Do **not** expose:
+
+```
+database
+Redis
+TimescaleDB
+admin interfaces
+internal monitoring
+```
+
+ directly to the Internet.
+
+---
+
+ # 33\. Network segmentation
+
+ For production:
+
+```
+Public subnet
+     │
+     ▼
+API gateway
+     │
+     ▼
+Private application network
+     │
+     ├── database
+     ├── model service
+     └── internal services
+```
+
+ Exchange connectivity should be tightly controlled.
+
+---
+
+ # 34\. Firewall / allowlist
+
+ Default-deny where practical.
+
+ Allow only:
+
+```
+HTTPS
+required exchange endpoints
+database internal traffic
+monitoring
+administrative access through secure channel
+```
+
+ Don't expose random ports because a service happens to listen on them.
+
+---
+
+ # 35\. SSH/admin access
+
+ If you administer the production host:
+
+```
+no password SSH
+no shared accounts
+MFA on administrative identity
+SSH keys
+restricted source IP/VPN where possible
+logging
+minimal privileges
+```
+
+ And don't run the entire trading application as root.
+
+---
+
+ # 36\. Container security
+
+ If you containerize:
+
+```
+non-root user
+read-only filesystem where possible
+minimal base image
+drop Linux capabilities
+no privileged container
+no host networking unless required
+resource limits
+image scanning
+SBOM
+signed/attested image
+```
+
+ Then test those properties in CI.
+
+---
+
+ # 37\. Artifact security
+
+ Your deployment artifact should have:
+
+```
+version
+git commit
+dependency lock
+build timestamp
+SBOM
+hash
+provenance
+signature/attestation
+```
+
+ Then production verifies:
+
+```
+Is this exactly the artifact CI produced?
+```
+
+ rather than:
+
+```
+"Someone copied some files onto the server."
+```
+
+ GitHub's artifact-attestation functionality is designed to establish build provenance for produced software.  GitHub Docs
+
+---
+
+ # 38\. Database security
+
+ Test:
+
+```
+least-privilege DB account
+TLS
+no public exposure
+backup encryption
+restore testing
+migration safety
+SQL injection
+connection limits
+credential rotation
+```
+
+ Separate:
+
+```
+application DB user
+migration user
+administrative DB user
+```
+
+ where practical.
+
+ The application should not need database superuser privileges.
+
+---
+
+ # 39\. Backup security
+
+ You need:
+
+```
+encrypted backups
+off-host backups
+retention policy
+immutable backup option
+restore testing
+backup monitoring
+```
+
+ Most importantly:
+
+ > **A backup that has never successfully been restored is not a proven backup.**
+
+ Schedule restore drills.
+
+---
+
+ # 40\. Disaster recovery
+
+ Test:
+
+```
+server destroyed
+database destroyed
+exchange API unavailable
+GitHub unavailable
+credential compromised
+deployment corrupted
+```
+
+ Recovery should have a documented runbook.
+
+ Create:
+
+```
+docs/operations/DISASTER_RECOVERY.md
+```
+
+---
+
+ # 41\. RTO/RPO
+
+ Define:
+
+```
+RTO = maximum acceptable recovery time
+RPO = maximum acceptable data loss
+```
+
+ For example, choose actual numbers based on your operation—not arbitrary industry values.
+
+ Then test whether you can achieve them.
+
+---
+
+ # 42\. Trading invariants
+
+ Now back to software correctness.
+
+ I would establish a formal invariant suite:
+
+```
+INV-001
+No order exceeds configured maximum notional.
+
+INV-002
+No new entry is allowed while capital-preservation halt is active.
+
+INV-003
+Unknown exchange order state cannot become FILLED without reconciliation.
+
+INV-004
+NaN/Infinity cannot produce an executable order.
+
+INV-005
+A disabled trading mode cannot submit orders.
+
+INV-006
+Risk engine failure cannot result in an executable order.
+
+INV-007
+Duplicate execution requests cannot create unintended duplicate positions.
+
+INV-008
+A stale market-data sample cannot be treated as current without explicit policy.
+
+INV-009
+Position/account state after restart must reconcile with exchange state.
+
+INV-010
+Live mode cannot bypass qualification gates.
+```
+
+ These become **non-negotiable tests**.
+
+---
+
+ # 43\. Signal verification
+
+ Create golden datasets.
+
+ For example:
+
+```
+tests/fixtures/signals/
+    BTCUSDT_15m_case_001.json
+    BTCUSDT_15m_case_002.json
+    ETHUSDT_15m_case_001.json
+```
+
+ Each contains:
+
+```
+market input
+features
+regime
+model outputs
+signal
+risk decision
+expected final action
+```
+
+ Then CI detects behavioral changes.
+
+---
+
+ # 44\. Model verification
+
+ Every model artifact should have:
+
+```
+model ID
+training data hash
+feature schema hash
+code commit
+hyperparameters
+random seed
+library versions
+metrics
+validation methodology
+artifact hash
+```
+
+ Then test:
+
+```
+load
+predict
+serialize
+deserialize
+reproduce
+```
+
+---
+
+ # 45\. Model safety
+
+ A model must never directly decide:
+
+```
+"ignore risk gate"
+```
+
+ The architecture should be:
+
+```
+MODEL
+  ↓
+SIGNAL
+  ↓
+RISK ENGINE
+  ↓
+EXECUTION POLICY
+  ↓
+ORDER
+```
+
+ Never:
+
+```
+MODEL
+  ↓
+ORDER
+```
+
+ The deterministic safety layer should sit outside the model.
+
+---
+
+ # 46\. Model drift
+
+ Monitor:
+
+```
+feature distribution
+prediction distribution
+confidence distribution
+regime distribution
+calibration
+performance
+missingness
+```
+
+ If drift exceeds thresholds:
+
+```
+model
+   ↓
+degraded
+   ↓
+paper/shadow
+   ↓
+revalidation
+```
+
+ rather than automatically trusting the model.
+
+---
+
+ # 47\. Lookahead verification
+
+ This should be a mandatory release gate.
+
+ Take:
+
+```
+Dataset A = data through T
+Dataset B = same data through T + arbitrary future data
+```
+
+ Then:
+
+```
+signal_A(T)
+==
+signal_B(T)
+```
+
+ If not:
+
+```
+❌ LOOKAHEAD DETECTED
+```
+
+ This is one of the highest-value tests for your particular project.
+
+---
+
+ # 48\. Regression engineering
+
+ Every production defect gets:
+
+```
+Issue
+ ↓
+Root cause
+ ↓
+Regression test
+ ↓
+Fix
+ ↓
+CI permanent protection
+```
+
+ Never delete regression tests simply because the bug is fixed.
+
+ Maintain a registry:
+
+```
+REG-0001
+REG-0002
+...
+```
+
+---
+
+ # 49\. Mutation testing
+
+ For the critical subsystems:
+
+```
+risk
+execution
+signals
+position sizing
+order FSM
+```
+
+ run mutation testing nightly.
+
+ Target:
+
+```
+Risk:       ≥ 90%
+Execution:  ≥ 90%
+Signal:     ≥ 85%
+General:    ≥ 80%
+```
+
+ These are engineering targets, not universal standards.
+
+ The important point is:
+
+ > A high coverage number with a poor mutation score is weak evidence.
+
+---
+
+ # 50\. Property-based testing
+
+ Use generated inputs to test invariants:
+
+```
+position_size >= 0
+position_size <= limit
+risk <= ceiling
+probabilities ∈ [0,1]
+invalid inputs never produce executable orders
+```
+
+ Thousands of generated combinations can expose edge cases that hand-written tests miss.
+
+---
+
+ # 51\. Fuzzing
+
+ Fuzz:
+
+```
+API payloads
+market data
+exchange responses
+WebSocket messages
+configuration
+model inputs
+serialized state
+```
+
+ The desired result isn't merely:
+
+```
+"application didn't crash"
+```
+
+ but:
+
+```
+malformed input
+     ↓
+rejected safely
+     ↓
+no corrupted state
+     ↓
+no unauthorized action
+     ↓
+no secret leakage
+     ↓
+audit event
+```
+
+---
+
+ # 52\. Concurrency tests
+
+ Simulate:
+
+```
+signal A
+signal B
+same symbol
+same timestamp
+```
+
+ and:
+
+```
+order request
++
+disconnect
++
+reconnect
++
+duplicate response
+```
+
+ Verify there is no:
+
+```
+double order
+lost order
+corrupted position
+race condition
+```
+
+---
+
+ # 53\. Chaos tests
+
+ Nightly or weekly:
+
+```
+kill database
+kill WebSocket
+delay exchange response
+drop packets
+return 500
+return malformed response
+restart process
+fill order during restart
+```
+
+ Expected outcome:
+
+```
+SAFE STATE
+```
+
+ not merely:
+
+```
+PROCESS DIDN'T CRASH
+```
+
+---
+
+ # 54\. Performance testing
+
+ Set baselines for:
+
+```
+feature generation
+signal generation
+model inference
+risk evaluation
+order processing
+database
+API
+WebSocket
+```
+
+ Store:
+
+```
+p50
+p95
+p99
+error rate
+CPU
+memory
+```
+
+ A PR that makes a critical path dramatically slower should fail or at least trigger review.
+
+---
+
+ # 55\. Security-performance interaction
+
+ Don't let security controls accidentally create a trading vulnerability.
+
+ For example:
+
+```
+authentication service unavailable
+```
+
+ should not result in:
+
+```
+trade endpoint becomes unauthenticated
+```
+
+ Likewise:
+
+```
+logging system overloaded
+```
+
+ shouldn't crash the entire system into an unsafe state.
+
+ Test degraded dependencies.
+
+---
+
+ # 56\. Continuous improvement system
+
+ This is the part you specifically requested.
+
+ Quality engineering should be a **closed feedback loop**:
+
+```
+Production
+    ↓
+Metrics
+    ↓
+Defects
+    ↓
+Incidents
+    ↓
+Root cause
+    ↓
+Corrective action
+    ↓
+New test/control
+    ↓
+CI gate
+    ↓
+Release
+    ↓
+Production
+```
+
+ Every failure should make the system harder to break again.
+
+---
+
+ # 57\. Root-cause analysis
+
+ For every serious defect:
+
+```
+What happened?
+Why wasn't it detected?
+Why did the existing control fail?
+Why did the design permit it?
+What new control prevents recurrence?
+```
+
+ Don't stop at:
+
+ > "Developer made a mistake."
+
+ The engineering question is:
+
+ > **"Why could one mistake reach production?"**
+
+---
+
+ # 58\. Five-whys example
+
+ Suppose duplicate orders occurred.
+
+```
+Why?
+Two execution requests were processed.
+
+Why?
+No idempotency key.
+
+Why?
+Executor assumed requests were serialized.
+
+Why?
+Architecture didn't enforce idempotency.
+
+Why?
+Requirement didn't specify duplicate-request behavior.
+```
+
+ The solution isn't merely:
+
+```
+"be careful"
+```
+
+ It becomes:
+
+```
+idempotency requirement
++
+implementation
++
+unit test
++
+concurrency test
++
+regression test
++
+architecture rule
+```
+
+ That's continuous improvement.
+
+---
+
+ # 59\. Quality metrics dashboard
+
+ Track:
+
+```
+Test pass rate
+Branch coverage
+Mutation score
+Regression count
+Escaped defects
+Critical vulnerabilities
+Dependency vulnerabilities
+Secret incidents
+Mean time to detect
+Mean time to recover
+Deployment failure rate
+Rollback rate
+Recovery-test success
+Model drift
+Signal drift
+Data freshness
+Order reconciliation failures
+```
+
+ The most important quality metric is arguably:
+
+ > **How many defects escaped each verification layer?**
+
+---
+
+ # 60\. Quality gates
+
+ I'd establish:
+
+ ### Gate A — developer
+
+```
+lint
+format
+unit
+type check
+```
+
+ ### Gate B — PR
+
+```
+security
+coverage
+unit
+integration
+architecture
+regression
+```
+
+ ### Gate C — merge
+
+```
+all required checks green
+approved review
+```
+
+ ### Gate D — release
+
+```
+full regression
+model verification
+trading invariants
+security
+E2E
+artifact verification
+```
+
+ ### Gate E — live
+
+```
+paper qualification
+risk qualification
+operational readiness
+manual approval
+canary
+```
+
+---
+
+ # 61\. Proposed GitHub workflow architecture
+
+ Don't create 20 independent workflows immediately.
+
+ Start with:
+
+```
+.github/workflows/
+
+pr-quality.yml
+security.yml
+integration.yml
+regression.yml
+nightly-quality.yml
+release.yml
+production.yml
+```
+
+ ### `pr-quality.yml`
+
+```
+Ruff
+format
+type checking
+unit
+property tests
+coverage
+architecture
+frontend
+```
+
+ ### `security.yml`
+
+```
+CodeQL
+dependency review
+secret scanning
+dependency audit
+workflow security checks
+```
+
+ ### `integration.yml`
+
+```
+database
+API
+exchange mocks
+WebSocket
+storage
+```
+
+ ### `regression.yml`
+
+```
+signal fixtures
+model fixtures
+risk invariants
+historical defects
+backtest consistency
+```
+
+ ### `nightly-quality.yml`
+
+```
+mutation
+fuzz
+chaos
+performance
+large datasets
+full regression
+```
+
+ ### `release.yml`
+
+```
+build
+SBOM
+artifact hash
+attestation
+release verification
+```
+
+ ### `production.yml`
+
+```
+environment approval
+artifact verification
+deployment
+smoke
+health
+rollback
+```
+
+---
+
+ # 62\. Production deployment gate
+
+ I would make production a protected GitHub Environment.
+
+ Conceptually:
+
+```
+main
+ ↓
+release candidate
+ ↓
+CI
+ ↓
+artifact
+ ↓
+security verification
+ ↓
+paper
+ ↓
+production approval
+ ↓
+deploy
+```
+
+ The production environment should not be reachable simply because somebody pushed to `main`.
+
+---
+
+ # 63\. Canary deployment
+
+ Do not go:
+
+```
+paper → 100% capital
+```
+
+ Instead:
+
+```
+paper
+ ↓
+canary
+ ↓
+small exposure
+ ↓
+monitor
+ ↓
+increase
+```
+
+ The exact financial thresholds should be determined from your risk policy.
+
+---
+
+ # 64\. Automatic halt
+
+ Define machine-enforced triggers:
+
+```
+unexpected position
+order reconciliation failure
+data staleness
+risk engine failure
+authentication anomaly
+abnormal order rate
+exchange errors
+runtime crash loop
+model drift
+unexpected configuration change
+```
+
+ Then:
+
+```
+ALERT
++
+SAFE HALT
++
+AUDIT
+```
+
+ where appropriate.
+
+---
+
+ # 65\. External attacker detection
+
+ You asked specifically about hackers trying to steal from the system.
+
+ The defense should be layered:
+
+```
+WAF / reverse proxy
+        ↓
+network firewall
+        ↓
+TLS
+        ↓
+authentication
+        ↓
+authorization
+        ↓
+input validation
+        ↓
+rate limiting
+        ↓
+application security
+        ↓
+database least privilege
+        ↓
+secret isolation
+        ↓
+exchange key restrictions
+        ↓
+audit
+        ↓
+monitoring
+        ↓
+alerting
+        ↓
+kill switch
+```
+
+ No single layer should be trusted.
+
+---
+
+ # 66\. Detect suspicious trading behavior
+
+ This is particularly important.
+
+ Suppose credentials are stolen.
+
+ The attacker might not attack your server at all.
+
+ They might use legitimate credentials to perform:
+
+```
+unusual order frequency
+unusual symbols
+unusual size
+unusual direction
+unusual time
+```
+
+ So add a **behavioral security layer**.
+
+ Example:
+
+```
+Normal:
+5 trades/hour
+
+Observed:
+800 trades/minute
+
+→ SECURITY ALERT
+→ TRADING HALT
+```
+
+ Likewise:
+
+```
+normal symbols:
+BTC / ETH
+
+suddenly:
+unknown illiquid asset
+
+→ HALT
+```
+
+ This is security monitoring specifically adapted to trading.
+
+---
+
+ # 67\. Exchange-side controls are your last line of defense
+
+ Configure the exchange account so that even if Trade-Bot is compromised:
+
+```
+withdrawals disabled
+IP restricted
+permissions minimized
+position limits
+subaccount isolation
+```
+
+ Then the exchange itself becomes a safety boundary.
+
+ This is crucial because **application security alone cannot guarantee protection of trading funds**.
+
+---
+
+ # 68\. Incident response
+
+ Follow a formal lifecycle:
+
+```
+Prepare
+   ↓
+Detect
+   ↓
+Analyze
+   ↓
+Contain
+   ↓
+Eradicate
+   ↓
+Recover
+   ↓
+Learn
+```
+
+ NIST SP 800-61 Rev. 3 is the current NIST incident-response guidance aligned with CSF 2.0.  NIST Computer Security Resource Center
+
+ Create:
+
+```
+docs/security/INCIDENT_RESPONSE.md
+```
+
+---
+
+ # 69\. Credential-compromise runbook
+
+ You should be able to execute this under pressure:
+
+```
+1. Kill trading
+2. Disable exchange API key
+3. Revoke sessions
+4. Revoke cloud credentials
+5. Revoke GitHub tokens if affected
+6. Preserve logs
+7. Preserve forensic evidence
+8. Determine exposure
+9. Rotate secrets
+10. Rebuild from trusted artifact
+11. Verify integrity
+12. Reconcile exchange positions
+13. Restore
+14. Paper test
+15. Resume only after approval
+```
+
+ Write this **before** you need it.
+
+---
+
+ # 70\. GitHub compromise runbook
+
+ If a maintainer's GitHub account is compromised:
+
+```
+revoke sessions/tokens
+rotate credentials
+review repository audit events
+review workflow changes
+review branch protection
+review collaborators
+review deploy keys
+review Actions secrets
+review releases
+review artifacts
+review dependencies
+```
+
+ Then rebuild production from a known-good commit.
+
+---
+
+ # 71\. Supply-chain compromise runbook
+
+ If a dependency is compromised:
+
+```
+identify versions
+↓
+freeze deployments
+↓
+determine affected artifacts
+↓
+revoke/rotate secrets if code executed with them
+↓
+remove dependency
+↓
+rebuild
+↓
+test
+↓
+scan
+↓
+attest
+↓
+redeploy
+```
+
+ This is why **least-privileged CI** is so important.
+
+---
+
+ # 72\. Continuous dependency surveillance
+
+ Don't only scan during deployment.
+
+ Schedule:
+
+```
+daily:
+security alerts
+
+weekly:
+dependency review
+
+monthly:
+full dependency audit
+
+on critical CVE:
+immediate emergency pipeline
+```
+
+---
+
+ # 73\. Security regression tests
+
+ Every security vulnerability discovered should become:
+
+```
+SEC-0001
+SEC-0002
+...
+```
+
+ Example:
+
+```
+SEC-0012
+Unauthenticated user could call sensitive endpoint.
+
+Permanent test:
+tests/security/SEC_0012.py
+```
+
+ Now the vulnerability can never silently return without CI detecting it.
+
+---
+
+ # 74\. Configuration drift detection
+
+ Production configuration should be versioned or otherwise auditable.
+
+ Detect:
+
+```
+unexpected environment variable
+unexpected risk limit
+unexpected exchange
+unexpected endpoint
+unexpected debug mode
+unexpected authentication configuration
+```
+
+ Especially:
+
+```
+DEBUG=true
+```
+
+ must never reach production.
+
+---
+
+ # 75\. Production startup self-test
+
+ Before enabling live trading:
+
+```
+configuration valid
+        ↓
+secrets available
+        ↓
+TLS valid
+        ↓
+database healthy
+        ↓
+exchange authenticated
+        ↓
+market data fresh
+        ↓
+model loaded
+        ↓
+risk engine healthy
+        ↓
+audit healthy
+        ↓
+kill switch healthy
+        ↓
+reconciliation healthy
+        ↓
+qualification valid
+        ↓
+LIVE ALLOWED
+```
+
+ Otherwise:
+
+```
+LIVE BLOCKED
+```
+
+---
+
+ # 76\. No silent degradation
+
+ Avoid this dangerous pattern:
+
+```
+try:
+    risk_check()
+except:
+    pass
+```
+
+ or:
+
+```
+except Exception:
+    return True
+```
+
+ around security/risk logic.
+
+ A swallowed exception in a trading system can become a financial-security vulnerability.
+
+ Create static-analysis rules to flag:
+
+```
+bare except
+broad exception
+pass in critical path
+default-allow security decision
+```
+
+ and manually review every finding.
+
+---
+
+ # 77\. Type safety
+
+ I'd strengthen Python type checking around:
+
+```
+money
+prices
+quantities
+timestamps
+order states
+risk decisions
+optional values
+```
+
+ Ideally, don't allow a raw `float` to represent everything.
+
+ For example conceptually distinguish:
+
+```
+Price
+Quantity
+Notional
+Probability
+Percentage
+Timestamp
+OrderId
+```
+
+ This can prevent entire categories of accidental misuse.
+
+---
+
+ # 78\. Money arithmetic
+
+ This deserves special scrutiny.
+
+ Define exactly where you use:
+
+```
+Decimal
+integer smallest units
+floating point
+```
+
+ and why.
+
+ Test:
+
+```
+rounding
+precision
+fees
+tick size
+lot size
+minimum quantity
+currency conversion
+```
+
+ Never assume floating-point arithmetic behaves like exact decimal money arithmetic.
+
+---
+
+ # 79\. Time correctness
+
+ Trading systems are extremely sensitive to time.
+
+ Test:
+
+```
+UTC
+timezone conversions
+DST
+clock skew
+future timestamps
+old timestamps
+duplicate timestamps
+out-of-order timestamps
+timestamp precision
+exchange timestamp differences
+```
+
+ And ensure the system has a defined clock policy.
+
+---
+
+ # 80\. Data-quality gates
+
+ Before market data reaches the signal engine:
+
+```
+schema valid
+timestamp valid
+monotonic
+not stale
+no impossible OHLC
+no negative volume
+no NaN
+no infinity
+duplicate policy
+gap policy
+```
+
+ If invalid:
+
+```
+NO TRADE
+```
+
+ unless your explicit data-quality policy says otherwise.
+
+---
+
+ # 81\. Backtest integrity
+
+ Your backtester itself needs verification.
+
+ Test:
+
+```
+commission
+slippage
+spread
+partial fill
+latency
+position size
+PnL
+drawdown
+equity
+fees
+funding
+```
+
+ using hand-calculated fixtures.
+
+ Otherwise you could optimize a strategy against a faulty simulator.
+
+---
+
+ # 82\. Backtest/live parity
+
+ Create a canonical dataset:
+
+```
+market data
+   ↓
+backtest engine
+   ↓
+expected result
+```
+
+ and:
+
+```
+same market data
+   ↓
+paper/live simulation engine
+   ↓
+expected result
+```
+
+ Compare:
+
+```
+signals
+orders
+fills
+positions
+PnL
+fees
+```
+
+ within defined tolerances.
+
+---
+
+ # 83\. ML research firewall
+
+ I would introduce a conceptual firewall:
+
+```
+RESEARCH
+   ↓
+candidate model
+   ↓
+validation
+   ↓
+shadow
+   ↓
+paper
+   ↓
+production
+```
+
+ A research notebook should **never directly change production trading parameters**.
+
+---
+
+ # 84\. Self-tuning firewall
+
+ Similarly:
+
+```
+Optimizer
+    ↓
+candidate
+    ↓
+bounds
+    ↓
+offline evaluation
+    ↓
+OOS
+    ↓
+risk tests
+    ↓
+shadow
+    ↓
+paper
+    ↓
+approval
+```
+
+ No optimizer should directly modify live risk controls.
+
+---
+
+ # 85\. Quality maturity levels
+
+ I recommend tracking maturity explicitly.
+
+ ### Level 1 — Basic
+
+```
+unit tests
+lint
+CI
+```
+
+ ### Level 2 — Controlled
+
+```
+integration
+coverage
+branch protection
+security scanning
+```
+
+ ### Level 3 — Verified
+
+```
+regression
+property tests
+risk invariants
+model verification
+E2E
+```
+
+ ### Level 4 — Resilient
+
+```
+fuzz
+chaos
+recovery
+performance
+disaster recovery
+```
+
+ ### Level 5 — High assurance
+
+```
+supply-chain security
+artifact provenance
+cryptographic controls
+continuous threat monitoring
+formal traceability
+mutation testing
+red-team exercises
+independent security review
+```
+
+ Your target should be **Level 5 for the trading-critical path**, while not every UI utility needs Level 5 treatment.
+
+---
+
+ # 86\. The actual repository implementation roadmap
+
+ ## Phase 1 — Baseline
+
+ Create:
+
+```
+docs/quality/
+    QUALITY_POLICY.md
+    QUALITY_BASELINE.md
+    REQUIREMENTS_TRACEABILITY.md
+    TEST_STRATEGY.md
+
+docs/security/
+    THREAT_MODEL.md
+    SECURITY_POLICY.md
+    INCIDENT_RESPONSE.md
+    KEY_MANAGEMENT.md
+```
+
+---
+
+ ## Phase 2 — Critical trading path
+
+ Focus on:
+
+```
+risk
+signal
+position sizing
+execution
+order FSM
+reconciliation
+```
+
+ Build:
+
+```
+invariants
+boundary tests
+property tests
+mutation tests
+regression fixtures
+```
+
+---
+
+ ## Phase 3 — Data/model
+
+ Build:
+
+```
+feature verification
+lookahead detection
+model reproducibility
+CPCV verification
+signal golden tests
+model regression
+```
+
+---
+
+ ## Phase 4 — Application security
+
+ Implement:
+
+```
+authentication tests
+authorization matrix
+rate limiting
+input validation
+SSRF protections
+WebSocket security
+secret protection
+security headers
+```
+
+---
+
+ ## Phase 5 — Cryptographic/security infrastructure
+
+ Implement:
+
+```
+secret-management architecture
+key rotation
+secure signing
+audit integrity
+TLS verification
+artifact integrity
+credential isolation
+```
+
+---
+
+ ## Phase 6 — Supply chain
+
+ Implement:
+
+```
+Dependabot
+dependency review
+SBOM
+artifact attestation
+action pinning
+minimal GitHub permissions
+OIDC
+container scanning
+```
+
+---
+
+ ## Phase 7 — Resilience
+
+ Implement:
+
+```
+failure injection
+crash replay
+database recovery
+exchange recovery
+network failure
+reconciliation
+chaos testing
+```
+
+---
+
+ ## Phase 8 — Release engineering
+
+ Implement:
+
+```
+paper qualification
+release gauntlet
+protected production environment
+canary
+rollback
+automatic safety halt
+```
+
+---
+
+ # 87\. Definition of "production ready"
+
+ I would make this a hard policy:
+
+```
+PRODUCTION READY =
+    all mandatory tests pass
+    AND
+    all critical security controls pass
+    AND
+    no unresolved critical/high defects
+    AND
+    risk invariants pass
+    AND
+    model verification passes
+    AND
+    regression suite passes
+    AND
+    recovery test passes
+    AND
+    paper qualification passes
+    AND
+    artifact integrity verified
+    AND
+    production approval obtained
+```
+
+ Not:
+
+```
+coverage > 90%
+```
+
+---
+
+ # 88\. What GitHub should enforce
+
+ For `main`:
+
+```
+❌ direct push
+❌ force push
+❌ bypass CI
+❌ merge failing PR
+❌ unreviewed critical change
+```
+
+ Require:
+
+```
+✓ PR
+✓ required checks
+✓ review
+✓ security checks
+✓ regression
+✓ branch up to date
+```
+
+ For production:
+
+```
+✓ protected environment
+✓ approved deployment
+✓ trusted artifact
+✓ no production credentials in PR jobs
+```
+
+---
+
+ # 89\. The security boundary I want around your money
+
+ The ultimate architecture should look like this:
+
+```
+                       INTERNET
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ WAF / TLS   │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ API AUTH     │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ AUTHZ/RATE   │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ TRADE BOT    │
+                    └──────┬──────┘
+                           │
+                ┌──────────┴──────────┐
+                ▼                     ▼
+          ┌───────────┐        ┌───────────┐
+          │ RISK      │        │ SIGNAL    │
+          │ ENGINE    │        │ ENGINE    │
+          └─────┬─────┘        └─────┬─────┘
+                │                     │
+                └──────────┬──────────┘
+                           ▼
+                    ┌─────────────┐
+                    │ SAFETY GATE │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ EXECUTION   │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ EXCHANGE    │
+                    └──────┬──────┘
+                           │
+                     RESTRICTED KEY
+                           │
+                     ┌─────▼─────┐
+                     │ NO WITHDRAW│
+                     └───────────┘
+```
+
+ And independently:
+
+```
+                    SECURITY MONITOR
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+          GitHub        Server        Exchange
+             │             │             │
+             └─────────────┼─────────────┘
+                           ▼
+                         ALERT
+                           ▼
+                       KILL SWITCH
+```
+
+---
+
+ # 90\. My final gap check
+
+ Before delivering this plan, I specifically checked for the major categories that are commonly missed in a "testing plan." The plan now includes:
+
+ - Unit testing
+- Component testing
+- Integration testing
+- Contract testing
+- API testing
+- E2E testing
+- Regression testing
+- Verification
+- Validation
+- Acceptance testing
+- Property-based testing
+- Fuzzing
+- Mutation testing
+- Feature testing
+- Signal testing
+- Model testing
+- Model leakage testing
+- Lookahead testing
+- CPCV verification
+- Backtest verification
+- Backtest/live parity
+- Risk invariants
+- Order FSM verification
+- Exchange failure testing
+- Reconciliation
+- Crash recovery
+- Disaster recovery
+- Chaos testing
+- Concurrency testing
+- Performance testing
+- Load testing
+- Data-quality testing
+- Time/clock testing
+- Frontend testing
+- Authentication
+- Authorization
+- IDOR
+- Injection
+- SSRF
+- WebSocket security
+- Rate limiting
+- Secret scanning
+- Credential isolation
+- Key rotation
+- Cryptographic controls
+- TLS
+- Audit-log integrity
+- Encryption at rest/in transit
+- Dependency security
+- SBOM
+- Artifact integrity
+- Artifact provenance/attestation
+- GitHub Actions hardening
+- OIDC
+- Supply-chain security
+- Container security
+- Network segmentation
+- Firewalling
+- Production isolation
+- Backup security
+- Incident response
+- Credential-compromise response
+- Continuous improvement
+- Root-cause analysis
+- Security regression
+- Quality metrics
+- Requirements traceability
+- Protected branches
+- Protected environments
+- Paper qualification
+- Canary deployment
+- Automatic halt
+- Rollback
+- External attacker detection
+- Exchange-side blast-radius reduction
+
+ So the major missing category from the earlier plan—**security engineering around the actual money and credentials**—is now treated as a first-class system rather than an add-on.
+
+ The standards basis is also deliberate: NIST SSDF provides the secure-development foundation, NIST CSF 2.0 provides the broader cybersecurity risk-management structure, NIST SP 800-61 Rev. 3 covers incident response, and OWASP ASVS gives us application-security verification requirements.  NIST Computer Security Resource Center+3
+
+ ## The next implementation step
+
+ I recommend **not trying to implement all of this in one giant PR**. The safest approach is to turn it into a controlled sequence of PRs.
+
+ **PR-001 should be the "Quality & Security Foundation"** and establish the policy, test taxonomy, CI gate architecture, GitHub security configuration checklist, threat model, requirements traceability, and critical trading invariants **without changing trading behavior**.
+
+ Then:
+
+```
+PR-001  Quality/Security Foundation
+   ↓
+PR-002  Risk Invariants + Boundary Tests
+   ↓
+PR-003  Signal/Feature Verification
+   ↓
+PR-004  Model/Leakage Verification
+   ↓
+PR-005  Execution/FSM/Exchange Contracts
+   ↓
+PR-006  Regression + Property Testing
+   ↓
+PR-007  API/WebSocket Security
+   ↓
+PR-008  Cryptographic/Secret Architecture
+   ↓
+PR-009  Supply-Chain + Artifact Security
+   ↓
+PR-010  Recovery/Chaos/Performance
+   ↓
+PR-011  Paper-Trading Qualification
+   ↓
+PR-012  Production/Canary Security Gate
+```
