@@ -1,3 +1,4 @@
+# Registry: SUP-005 (config/quality_registry.json).
 # Regenerated after the config purge (#144).
 #
 # Grouped deliberately: the pre-purge config opened one PR per package, which

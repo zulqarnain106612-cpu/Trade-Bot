@@ -1,3 +1,4 @@
+# Registry: GOV-014 (config/quality_registry.json).
 name: Workflow lint
 
 # Nothing validated the workflow files themselves. They are only parsed when
