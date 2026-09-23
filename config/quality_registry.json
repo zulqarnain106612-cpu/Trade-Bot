@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-020",
+      "kind": "invariant",
+      "title": "verified entry depends on verified or accepted_gap only",
+      "statement": "The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.",
+      "owning_modules": [
+        "src/quality/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
