@@ -2794,7 +2794,7 @@
           "test_type": "regression"
         }
       ],
-      "notes": "Happened three times in one session (SECR-013/014 taken by two branches, then a third). Every collision was caught by hand; no check would have caught any of them."
+      "notes": "Happened three times in one session (SECR-013/014 taken by two branches, then a third). Every collision was caught by hand; no check would have caught any of them. The scaffolder had tests, and they asserted that the entry it produced was schema-valid -- never that the id it chose was free anywhere but here. layer: test-suite"
     },
     {
       "id": "REG-0011",
@@ -2818,7 +2818,7 @@
           "test_type": "regression"
         }
       ],
-      "notes": "Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does."
+      "notes": "Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does. Its tests asserted the scaffolder's output validated against the schema, which is the weaker of the two validators it had to satisfy. layer: test-suite"
     }
   ]
 }

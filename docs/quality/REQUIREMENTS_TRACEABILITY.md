@@ -1412,7 +1412,7 @@ The scaffolder must refuse to hand out a registry id that is already used by an 
 - **Verification:**
   - `tests/quality/test_qe_id_allocation.py` (regression)
 
-> Happened three times in one session (SECR-013/014 taken by two branches, then a third). Every collision was caught by hand; no check would have caught any of them.
+> Happened three times in one session (SECR-013/014 taken by two branches, then a third). Every collision was caught by hand; no check would have caught any of them. The scaffolder had tests, and they asserted that the entry it produced was schema-valid -- never that the id it chose was free anywhere but here. layer: test-suite
 
 #### `REG-0011` — The scaffolder validates with the loader the gate runs
 
@@ -1426,7 +1426,7 @@ qe_new_requirement.py must report success only for an entry that src.quality.reg
 - **Verification:**
   - `tests/quality/test_qe_id_allocation.py` (regression)
 
-> Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does.
+> Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does. Its tests asserted the scaffolder's output validated against the schema, which is the weaker of the two validators it had to satisfy. layer: test-suite
 
 
 ---

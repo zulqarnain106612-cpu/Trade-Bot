@@ -105,11 +105,20 @@ class TestTheRegistryHasAPlaceForDefects:
         # they all opened one exclusively-locked DuckDB file and whichever
         # worker arrived second failed. Only visible under -n, so it read as a
         # flake rather than as the isolation defect it was.
+        # REG-0010: qe_new_requirement.py allocated the next id by scanning the
+        # work tree, which sees only what has merged. Two branches open at once
+        # were handed the same id three times in one session; a human reading
+        # the diff caught every one, and nothing else would have.
+        # REG-0011: the same scaffolder reported success against the JSON
+        # schema while the gate validates with the loader, so it printed
+        # "[ok  ] added SEC-0001" for an entry the loader then refused.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
             "REG-0008",
             "REG-0009",
+            "REG-0010",
+            "REG-0011",
         }
         assert {e.id for e in registry.by_kind("security_regression")} == set()
 
@@ -330,7 +339,7 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"test-suite": 3, "review": 1}
+        assert metric["value"] == {"test-suite": 5, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
