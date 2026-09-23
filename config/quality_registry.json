@@ -1629,6 +1629,49 @@
       ]
     },
     {
+      "id": "SECR-013",
+      "kind": "requirement",
+      "title": "The threshold module supplies sharing primitives and refuses to be a signer",
+      "statement": "src/mathcore/derivation/threshold.py exposes Feldman commitments, group and participant public keys, share verification, Lagrange weights at zero and dispute evidence, and exposes no function for nonce generation, nonce aggregation, challenge computation or partial-signature combination. The absence is asserted by inspecting every public function name, and the module holds no random source -- the caller supplies the polynomial coefficients.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "An ad-hoc threshold Schnorr scheme assembled in-house from correct parts. The Wagner ROS attack forges a signature across many concurrently-opened signing sessions, so the aggregation is broken even though every primitive it is built from verifies in isolation -- which is the most dangerous shape a crypto library can have, because nothing fails a test. The defence is a scheme with a proof of concurrent security (FROST, RFC 9591, or MuSig2), so the pieces are deliberately left unassembled and a test fails if a signing-shaped function appears.",
+      "owning_modules": [
+        "src/mathcore/derivation/threshold.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_threshold.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SECR-014",
+      "kind": "requirement",
+      "title": "A tampered share is rejected and too few shares are refused, not approximated",
+      "statement": "verify_share checks a share against the dealer's commitments and rejects any value that is not the committed polynomial evaluated at that participant's identifier, including a share valid at a different identifier or under a different dealer. Reconstruction refuses fewer shares than the threshold and refuses duplicate identifiers rather than interpolating an under-determined polynomial.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "A custody key that cannot be reconstructed at the moment funds must move, or one reconstructed to the wrong value. A tampered or mis-delivered share surfaces only at reconstruction unless it is verified on receipt; and interpolating fewer than the threshold number of points returns a number indistinguishable from the real secret, so a caller who passes three shares from two distinct holders would sign with a key nobody controls and nothing in the arithmetic could notice.",
+      "owning_modules": [
+        "src/mathcore/derivation/threshold.py"
+      ],
+      "depends_on": [
+        "SECR-013"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_threshold.py",
+          "test_type": "verification"
+        }
+      ]
+    },
+    {
       "id": "SUP-001",
       "kind": "requirement",
       "title": "Every workflow declares least-privilege permissions",

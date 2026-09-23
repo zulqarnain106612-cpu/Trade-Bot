@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 112 |
+| VERIFIED | 114 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **112** |
+| **Total** | **114** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 14 | 14 |
+| Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -858,6 +858,29 @@ Watch-only public derivation agrees with private derivation from the published s
 - **Verification:**
   - `tests/test_bip32.py` (verification)
 
+#### `SECR-013` — The threshold module supplies sharing primitives and refuses to be a signer
+
+**VERIFIED** · critical · requirement · source: OPS-2026-09-22
+
+src/mathcore/derivation/threshold.py exposes Feldman commitments, group and participant public keys, share verification, Lagrange weights at zero and dispute evidence, and exposes no function for nonce generation, nonce aggregation, challenge computation or partial-signature combination. The absence is asserted by inspecting every public function name, and the module holds no random source -- the caller supplies the polynomial coefficients.
+
+- **If violated:** An ad-hoc threshold Schnorr scheme assembled in-house from correct parts. The Wagner ROS attack forges a signature across many concurrently-opened signing sessions, so the aggregation is broken even though every primitive it is built from verifies in isolation -- which is the most dangerous shape a crypto library can have, because nothing fails a test. The defence is a scheme with a proof of concurrent security (FROST, RFC 9591, or MuSig2), so the pieces are deliberately left unassembled and a test fails if a signing-shaped function appears.
+- **Owned by:** `src/mathcore/derivation/threshold.py`
+- **Verification:**
+  - `tests/test_threshold.py` (security)
+
+#### `SECR-014` — A tampered share is rejected and too few shares are refused, not approximated
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+verify_share checks a share against the dealer's commitments and rejects any value that is not the committed polynomial evaluated at that participant's identifier, including a share valid at a different identifier or under a different dealer. Reconstruction refuses fewer shares than the threshold and refuses duplicate identifiers rather than interpolating an under-determined polynomial.
+
+- **If violated:** A custody key that cannot be reconstructed at the moment funds must move, or one reconstructed to the wrong value. A tampered or mis-delivered share surfaces only at reconstruction unless it is verified on receipt; and interpolating fewer than the threshold number of points returns a number indistinguishable from the real secret, so a caller who passes three shares from two distinct holders would sign with a key nobody controls and nothing in the arithmetic could notice.
+- **Owned by:** `src/mathcore/derivation/threshold.py`
+- **Depends on:** `SECR-013`
+- **Verification:**
+  - `tests/test_threshold.py` (verification)
+
 #### `SECR-017` — A post-quantum symmetric margin is reported with the caveat that makes it conservative
 
 **VERIFIED** · high · requirement · source: OPS-2026-09-22
@@ -1478,4 +1501,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 112 entries.
+Registry version: 1.0.0 — 114 entries.

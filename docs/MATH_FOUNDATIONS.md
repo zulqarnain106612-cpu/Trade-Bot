@@ -638,7 +638,7 @@ Derives the ECDSA nonce deterministically from the key and message, removing the
 - **References:** RFC 6979, RFC 8032
 
 #### Threshold signatures and secret sharing
-`threshold-signatures` — **LOAD-BEARING** · relevance: security · status: planned
+`threshold-signatures` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Splits signing authority so that no single machine holds a spendable key, which is the only structural defence against a compromised trading host.
 
@@ -648,6 +648,8 @@ Splits signing authority so that no single machine holds a spendable key, which 
 - **Owned by:** `src/mathcore/derivation/threshold.py`
 - **Consumed by:** `src/ecc/schnorr_taproot.py`
 - **References:** RFC 9591 FROST, MuSig2
+
+> Implements the verifiable-sharing half only: Feldman commitments, the group and participant public keys, share verification, Lagrange weights at zero, and dispute evidence. Deliberately not a signer -- see risk_if_misused. The pieces here are individually correct and compose into an ROS-vulnerable scheme, so the boundary is enforced in the module and asserted by a test rather than described in a comment.
 
 #### Merkle-Damgard and sponge constructions
 `hash-constructions` — **LOAD-BEARING** · relevance: security · status: not_applicable
