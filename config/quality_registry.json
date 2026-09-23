@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-018",
+      "kind": "invariant",
+      "title": "test docstrings name the entries they decide",
+      "statement": "Test modules that decide three or more registry entries name those entries in their module docstring. A future contributor grep'ing for an entry id lands in the test that decides it without a traceability round-trip.",
+      "criticality": "low",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.",
+      "owning_modules": [
+        "tests/quality/test_quality_registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",

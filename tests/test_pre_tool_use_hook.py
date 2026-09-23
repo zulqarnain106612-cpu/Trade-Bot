@@ -5,6 +5,11 @@ The hook is the only thing that makes CLAUDE.md's command rules binding on a
 session that never read CLAUDE.md, so its failure modes matter as much as its
 successes: a false deny stops legitimate work, a false allow defeats the
 control, and a crash must not brick every Bash call in the session.
+
+Decides:
+  - GOV-011 — CI output reaching an agent is bounded at 30 lines per fetch
+  - GOV-012 — live CI monitoring is refused, not rate-limited
+  - GOV-019 — CI run data is unreadable from a session under every condition
 """
 
 from __future__ import annotations
