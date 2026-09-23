@@ -1240,3 +1240,28 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_import_cycles (INV-015)
+# ---------------------------------------------------------------------------
+
+
+def test_two_module_cycle_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "from src.a import back\n")
+    problems = invariants.check_import_cycles()
+    assert any("import cycle" in p and "src.a" in p and "src.b" in p for p in problems)
+
+
+def test_acyclic_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "def go():\n    return 1\n")
+    assert invariants.check_import_cycles() == []
+
+
+def test_deferred_import_does_not_count_as_a_cycle(invariants, fake_tree) -> None:
+    """A cycle needs a *module-level* import; one inside a function cannot fail at import time."""
+    fake_tree("src/a.py", "def go():\n    from src.b import back\n")
+    fake_tree("src/b.py", "from src.a import go\n")
+    assert invariants.check_import_cycles() == []
