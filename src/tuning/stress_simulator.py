@@ -13,6 +13,8 @@ Authority:
   - Domain Prior: validate signals out-of-sample; in-sample metrics alone
     are not sufficient — extended here to "in-sample allocation choices
     are not sufficient without an out-of-crisis stress check"
+
+Registry: RES-007 (config/quality_registry.json).
 """
 
 from __future__ import annotations

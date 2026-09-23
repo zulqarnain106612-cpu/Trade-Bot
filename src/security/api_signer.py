@@ -29,6 +29,8 @@ post_quantum posture (LAW12):
   ML-DSA is not in `cryptography` as of the pinned version, and any
   counterparty verifying these signatures has to accept the new algorithm
   before we can emit it. Revisit when that lands.
+
+Registry: SECR-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

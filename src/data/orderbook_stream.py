@@ -3,6 +3,8 @@ Binance WebSocket orderbook + aggregate trade stream.
 
 Writes parquet snapshots for E-02 (microstructure) and E-16/E-17
 (adversarial / liquidity stress) engines.
+
+Registry: API-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

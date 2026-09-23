@@ -12,6 +12,8 @@ responsibility (e.g. periodic flush to the existing storage backend).
 Authority:
   - Domain Prior: no hidden failures or skipped validation — every risk
     decision must be reconstructable after the fact
+
+Registry: SECR-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations

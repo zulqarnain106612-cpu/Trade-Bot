@@ -14,6 +14,8 @@ existing src/tuning/scheduler.py pattern — calls this module's is_due()).
 Authority:
   - Domain Prior: reproducibility, stability — a red-team cadence must be
     deterministic and auditable, not "whenever someone remembers to run it"
+
+Registry: RES-007 (config/quality_registry.json).
 """
 
 from __future__ import annotations
