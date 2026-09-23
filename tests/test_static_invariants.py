@@ -1240,3 +1240,29 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_layering (INV-017)
+# ---------------------------------------------------------------------------
+#
+# The fake-tree coverage for check_layering lives in
+# tests/test_architecture_layers.py (upward-edge flagging, accepted-edge
+# ratchet, layer placement) because that suite already owns the
+# architecture-layers contract and its fixtures. The shim below is here so
+# a reader looking at this file's per-check pattern is pointed at that
+# coverage rather than concluding no dedicated test exists.
+
+
+def test_check_layering_has_dedicated_coverage_elsewhere() -> None:
+    """
+    Locator test. The negative + positive cases for `check_layering` live in
+    `tests/test_architecture_layers.py`. If they are ever removed from there,
+    this test still passes -- it is not a substitute -- but the accompanying
+    docstring keeps the pointer visible in the file where every other
+    check_* has its per-case tests.
+    """
+    coverage_file = (
+        Path(__file__).resolve().parent / "test_architecture_layers.py"
+    ).read_text(encoding="utf-8")
+    assert "check_layering" in coverage_file or "_layering_problems" in coverage_file
