@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.api.ssrf import (
+from src.security.ssrf import (
     ALLOWED_SCHEMES,
     SSRFError,
     assert_outbound_url_allowed,
@@ -140,7 +140,7 @@ class TestPrivateAndLocalAddresses:
 
     def test_the_real_resolver_returns_addresses_for_a_name_that_exists(self):
         # The success path, which the failure tests below cannot reach.
-        from src.api.ssrf import _resolve
+        from src.security.ssrf import _resolve
 
         addresses = _resolve("localhost")
         assert addresses
@@ -149,13 +149,13 @@ class TestPrivateAndLocalAddresses:
     def test_the_real_resolver_refuses_a_name_that_does_not_exist(self):
         # The one path that needs real DNS. `.invalid` is reserved by RFC
         # 2606 precisely so it can never resolve.
-        from src.api.ssrf import SSRFError, _resolve
+        from src.security.ssrf import SSRFError, _resolve
 
         with pytest.raises(SSRFError, match="does not resolve"):
             _resolve("this-name-cannot-exist.invalid")
 
     def test_the_real_resolver_refuses_an_unencodable_name(self):
-        from src.api.ssrf import SSRFError, _resolve
+        from src.security.ssrf import SSRFError, _resolve
 
         with pytest.raises(SSRFError, match="does not resolve"):
             _resolve("x" * 100 + "\udc80")
@@ -263,7 +263,7 @@ class TestTheGuardIsWired:
     def test_a_poisoned_base_url_is_refused_at_use(self, monkeypatch):
         # The realistic attack on a configuration-driven URL: a compromised
         # deployment pipeline rewrites one environment variable.
-        from src.api import ssrf
+        from src.security import ssrf
 
         monkeypatch.setattr(ssrf, "_resolve", resolves_to("169.254.169.254"))
         with pytest.raises(SSRFError):

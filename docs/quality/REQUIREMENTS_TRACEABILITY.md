@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 126 |
+| VERIFIED | 127 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **126** |
+| **Total** | **127** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 29 | 29 |
+| Governance | 30 | 30 |
 
 ## Outstanding work by phase
 
@@ -691,7 +691,7 @@ SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payl
 Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.
 
 - **If violated:** The bot becomes the attacker's proxy into the private network and the metadata service.
-- **Owned by:** `src/intelligence/client.py`, `src/api/ssrf.py`
+- **Owned by:** `src/intelligence/client.py`, `src/security/ssrf.py`
 - **Verification:**
   - `tests/api/test_ssrf_protection.py` (security) — Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client.
 
@@ -1512,6 +1512,17 @@ The CI notice waits until every watched workflow has completed for a commit, the
   - `tests/test_ci_failure_notify_workflow.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
+#### `GOV-023` — intelligence stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/intelligence/ must not import from src.api. The SSRF address-space guard used by the intelligence client is stdlib-only network policy and lives in src/security/ssrf.py, below both analytics and edge.
+
+- **If violated:** A future edit reintroduces an import of src.api.* in src/intelligence/, silently reviving the intelligence->api package edge.
+- **Owned by:** `src/security/ssrf.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-024` — intelligence does not import intel
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1662,4 +1673,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 126 entries.
+Registry version: 1.0.0 — 127 entries.

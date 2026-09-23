@@ -1200,7 +1200,7 @@
       "source": "QE-22",
       "owning_modules": [
         "src/intelligence/client.py",
-        "src/api/ssrf.py"
+        "src/security/ssrf.py"
       ],
       "verification": [
         {
@@ -3194,6 +3194,26 @@
         }
       ],
       "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
+    },
+    {
+      "id": "GOV-023",
+      "kind": "requirement",
+      "title": "intelligence stays within its layer",
+      "statement": "src/intelligence/ must not import from src.api. The SSRF address-space guard used by the intelligence client is stdlib-only network policy and lives in src/security/ssrf.py, below both analytics and edge.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.api.* in src/intelligence/, silently reviving the intelligence->api package edge.",
+      "owning_modules": [
+        "src/security/ssrf.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
     }
   ]
 }
