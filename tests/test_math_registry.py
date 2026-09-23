@@ -343,6 +343,33 @@ class TestSemanticChecksInIsolation:
         with pytest.raises(RegistryError, match="component modules but no owner"):
             self.check([entry])
 
+    def test_implemented_entry_depending_on_a_planned_entry_is_rejected(self):
+        planned = self.entry(id="planned-dep", status="planned")
+        implemented = self.entry(
+            id="claims-it",
+            status="implemented",
+            depends_on=["planned-dep"],
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/test_math_registry.py", "kind": "test"},
+            ],
+        )
+        with pytest.raises(RegistryError, match="depends on 'planned-dep'"):
+            self.check([planned, implemented])
+
+    def test_implemented_entry_depending_on_a_not_applicable_entry_passes(self):
+        na = self.entry(id="na-dep", status="not_applicable")
+        implemented = self.entry(
+            id="claims-it",
+            status="implemented",
+            depends_on=["na-dep"],
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/test_math_registry.py", "kind": "test"},
+            ],
+        )
+        self.check([na, implemented])
+
 
 class TestQueryApi:
     def test_get_returns_the_entry(self, registry):

@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 114 |
+| VERIFIED | 115 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **114** |
+| **Total** | **115** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 24 | 24 |
+| Governance | 25 | 25 |
 
 ## Outstanding work by phase
 
@@ -1184,6 +1184,17 @@ The production workflow can return to the previous trusted artifact, and a drill
 
 ## Governance
 
+#### `INV-019` — math implementations rest on implementations
+
+**VERIFIED** · medium · invariant · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' whose depends_on names an entry that is not itself 'implemented' or 'not_applicable'. A claim resting on planned or rejected dependencies has nothing under it.
+
+- **If violated:** An implemented entry that depends on a still-planned primitive claims to work without the mathematics it needs. The traceability document then reports a load-bearing entry as ready while its foundation is not; a reader following depends_on lands on an entry with no owner.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
 #### `GOV-001` — Every production defect yields a permanent regression test
 
 **VERIFIED** · high · requirement · source: QE-48
@@ -1502,4 +1513,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 114 entries.
+Registry version: 1.0.0 — 115 entries.

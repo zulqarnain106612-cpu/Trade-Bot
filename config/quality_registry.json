@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-019",
+      "kind": "invariant",
+      "title": "math implementations rest on implementations",
+      "statement": "The math registry loader refuses an entry with status='implemented' whose depends_on names an entry that is not itself 'implemented' or 'not_applicable'. A claim resting on planned or rejected dependencies has nothing under it.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "An implemented entry that depends on a still-planned primitive claims to work without the mathematics it needs. The traceability document then reports a load-bearing entry as ready while its foundation is not; a reader following depends_on lands on an entry with no owner.",
+      "owning_modules": [
+        "src/mathcore/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_math_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",

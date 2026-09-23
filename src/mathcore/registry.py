@@ -329,6 +329,22 @@ def _check_semantics(registry_raw: dict[str, Any], entries: Iterable[RegistryEnt
                 f"If it is being used, it must pass the validation gate first."
             )
 
+    by_id = {e.id: e for e in entries}
+    for entry in entries:
+        if entry.status != "implemented":
+            continue
+        for dep_id in entry.depends_on:
+            dep = by_id.get(dep_id)
+            if dep is None:
+                continue  # dangling deps are caught above.
+            if dep.status not in {"implemented", "not_applicable"}:
+                raise RegistryError(
+                    f"entry {entry.id!r} is marked implemented but depends on {dep_id!r} "
+                    f"whose status is {dep.status!r}. An implementation resting on a "
+                    f"dependency that is not itself implemented (or explicitly "
+                    f"not_applicable) is a claim the tree cannot support."
+                )
+
 
 def _check_acyclic(entries: list[RegistryEntry]) -> None:
     """Depth-first cycle detection over depends_on, reporting the actual cycle."""
