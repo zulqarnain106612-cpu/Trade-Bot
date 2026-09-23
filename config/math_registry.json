@@ -394,11 +394,16 @@
         "TLS ffdhe groups"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
-          "module": "src/mathcore/numbertheory/primality.py",
-          "kind": "consumer"
+          "module": "src/mathcore/numbertheory/safe_primes.py",
+          "kind": "owner",
+          "note": "parameter and public-value checks only; no key agreement and no random source"
+        },
+        {
+          "module": "tests/test_safe_primes.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Unvalidated DH parameters allow a small-subgroup confinement attack in which the shared secret takes one of a handful of values.",
@@ -407,7 +412,8 @@
       ],
       "references": [
         "RFC 7919"
-      ]
+      ],
+      "notes": "Verifies a caller-supplied modulus rather than shipping RFC 7919's named group constants: a 2048-bit constant copied into a file is how this project has shipped a fabricated constant three times, and checking the structure is strictly stronger than trusting the transcription. is_valid_public_value is the half that actually stops the attack -- correct parameters do not prevent a peer from sending an element of order 2. The first draft listed primality.py as a consumer; the dependency runs the other way -- safe_primes imports is_probable_prime -- so that wiring point was a false claim about who is on the hook if primality changes, and is corrected here rather than carried forward."
     },
     {
       "id": "pseudo-mersenne-primes",

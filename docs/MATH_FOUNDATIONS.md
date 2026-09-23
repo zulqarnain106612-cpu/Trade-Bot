@@ -206,15 +206,17 @@ RSA security is the difficulty of recovering p and q from n = pq. Still present 
 - **References:** RFC 8017, Heninger et al. 2012, Mining Your Ps and Qs
 
 #### Safe primes and prime-order subgroups
-`safe-primes-dh` — **LOAD-BEARING** · relevance: security · status: planned
+`safe-primes-dh` — **LOAD-BEARING** · relevance: security · status: implemented
 
 Choosing p = 2q+1 with q prime removes the small subgroups that would otherwise let an attacker confine a shared secret to a tiny set of values.
 
 - **Used by:** finite-field Diffie-Hellman, DSA, TLS ffdhe groups
 - **Risk if misused:** Unvalidated DH parameters allow a small-subgroup confinement attack in which the shared secret takes one of a handful of values.
 - **Depends on:** `cyclic-groups-dlp`
-- **Consumed by:** `src/mathcore/numbertheory/primality.py`
+- **Owned by:** `src/mathcore/numbertheory/safe_primes.py`
 - **References:** RFC 7919
+
+> Verifies a caller-supplied modulus rather than shipping RFC 7919's named group constants: a 2048-bit constant copied into a file is how this project has shipped a fabricated constant three times, and checking the structure is strictly stronger than trusting the transcription. is_valid_public_value is the half that actually stops the attack -- correct parameters do not prevent a peer from sending an element of order 2. The first draft listed primality.py as a consumer; the dependency runs the other way -- safe_primes imports is_probable_prime -- so that wiring point was a false claim about who is on the hook if primality changes, and is corrected here rather than carried forward.
 
 #### Pseudo-Mersenne and Solinas field primes
 `pseudo-mersenne-primes` — **PERFORMANCE-CRITICAL** · relevance: security · status: implemented
