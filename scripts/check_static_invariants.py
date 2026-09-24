@@ -1513,8 +1513,26 @@ def check_dataclass_attributes_exist() -> list[str]:
     return problems
 
 
+def check_no_bare_except() -> list[str]:
+    """
+    A bare ``except:`` catches ``KeyboardInterrupt`` and ``SystemExit`` too,
+    which turns Ctrl+C and ``sys.exit()`` into swallowed exceptions in a
+    long-running trading process. Every handler names what it means to
+    catch; ``except Exception:`` is the widest permitted.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: bare except -- name the exception"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("bare except", check_no_bare_except),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),

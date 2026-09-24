@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-025",
+      "kind": "invariant",
+      "title": "no bare except in src",
+      "statement": "The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
