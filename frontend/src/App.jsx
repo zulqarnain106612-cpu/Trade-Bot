@@ -14,6 +14,9 @@ import {
   HealthPanel, DriftPanel, AuditPanel, ReconcilePanel,
   ModelMetricsPanel, LedgerPanel, RecoveryPanel,
 } from './components/panels/MonitoringPanel';
+import {
+  ModelTrainingPanel, BackfillPanel, CapitalFloorPanel,
+} from './components/panels/OperationsPanel';
 import { fmt, pnlColor } from './utils/format';
 
 const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
@@ -37,6 +40,9 @@ const ALL_PANELS = [
   { id: 'model', label: 'Model Metrics', icon: '🤖' },
   { id: 'ledger', label: 'Ledger', icon: '📒' },
   { id: 'recovery', label: 'Recovery', icon: '🔧' },
+  { id: 'training', label: 'Model Training', icon: '🏋' },
+  { id: 'backfill', label: 'Backfill', icon: '📥' },
+  { id: 'capitalfloor', label: 'Capital Floor', icon: '🚨' },
 ];
 
 function getInitialVisibility() {
@@ -70,6 +76,9 @@ export default function App() {
   const missedTrades = usePolling('/missed-trades?limit=30', 30000, (b) => b?.missed_trades ?? []);
   const approvals = usePolling('/approvals', 10000, (b) => b?.approvals ?? []);
   const riskControls = usePolling('/risk-controls', 10000, (b) => b?.risk_controls ?? null);
+  // Polled here only for the backfill timeframe options; ModelTrainingPanel
+  // polls the same endpoint for its own display.
+  const modelsStatus = usePolling('/models/status', 30000);
 
   useEffect(() => {
     try { localStorage.setItem('panel-visibility', JSON.stringify(visibility)); } catch {}
@@ -106,6 +115,25 @@ export default function App() {
   const handleApprovalResolve = async (id, approved) => {
     await action(`/approvals/${encodeURIComponent(id)}/resolve`, 'POST', { approved });
   };
+
+  const handleRetrain = async (timeframe) =>
+    action('/models/retrain', 'POST', { timeframe });
+
+  // Backfill takes no operator secret server-side, but it still goes
+  // through `action` so a 4xx surfaces the same way every other control
+  // does instead of failing silently.
+  const handleBackfill = async (timeframe, lookback_days) =>
+    action('/backfill', 'POST', { timeframe, lookback_days });
+
+  const handleFloorReAuthorize = async (timeframe, reason) => {
+    const res = await action('/capital-floor/re-authorize', 'POST', { timeframe, reason });
+    return Boolean(res);
+  };
+
+  // Derived from the server's own active timeframes rather than a hardcoded
+  // list — Settings.active_timeframes is configurable, so any constant here
+  // would be wrong for some deployment.
+  const activeTimeframes = Object.keys(modelsStatus?.timeframes ?? {});
 
   const equity = tick?.equity_usd ?? status?.equity_usd;
   const dailyPnl = tick?.daily_pnl_usd ?? status?.daily_pnl_usd;
@@ -271,6 +299,27 @@ export default function App() {
             <Panel title="Recovery" icon="🔧" defaultWidth={440} defaultHeight={250}
               accentColor="var(--c-red)" onToggleVisible={() => togglePanel('recovery')}>
               <RecoveryPanel action={action} />
+            </Panel>
+          )}
+
+          {visibility.training && (
+            <Panel title="Model Training" icon="🏋" defaultWidth={440} defaultHeight={320}
+              accentColor="var(--c-claude)" onToggleVisible={() => togglePanel('training')}>
+              <ModelTrainingPanel onRetrain={handleRetrain} />
+            </Panel>
+          )}
+
+          {visibility.backfill && (
+            <Panel title="Backfill" icon="📥" defaultWidth={420} defaultHeight={200}
+              accentColor="var(--c-green)" onToggleVisible={() => togglePanel('backfill')}>
+              <BackfillPanel onBackfill={handleBackfill} timeframes={activeTimeframes} />
+            </Panel>
+          )}
+
+          {visibility.capitalfloor && (
+            <Panel title="Capital Floor" icon="🚨" defaultWidth={460} defaultHeight={300}
+              accentColor="var(--c-red)" onToggleVisible={() => togglePanel('capitalfloor')}>
+              <CapitalFloorPanel onReAuthorize={handleFloorReAuthorize} />
             </Panel>
           )}
         </div>

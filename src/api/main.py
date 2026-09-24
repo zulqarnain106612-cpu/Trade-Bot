@@ -548,6 +548,58 @@ class SelfTuningPauseRequest(BaseModel):
         return _validate_operator(v)
 
 
+class RetrainRequest(BaseModel):
+    """
+    Operator-triggered model retrain for one timeframe.
+
+    Operator-secret gated: a retrain replaces the artifact the live signal
+    path loads, so it is a change to what trades, not a read.
+    """
+
+    timeframe: str = Field(..., min_length=1, max_length=16)
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(..., min_length=1)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class BackfillRequest(BaseModel):
+    """
+    Operator-triggered historical bar fetch.
+
+    Not operator-secret gated: backfill only appends bars to storage and
+    cannot open, close or resize a position. It is rate-limited instead,
+    because it does spend exchange API quota.
+    """
+
+    timeframe: str = Field(..., min_length=1, max_length=16)
+    lookback_days: int = Field(default=180, ge=1, le=1825)
+
+
+class CapitalFloorReAuthorizeRequest(BaseModel):
+    """
+    Clear a capital-preservation halt.
+
+    The floor halts permanently and never auto-clears (unlike the daily
+    drawdown halt), so this is the only path back to trading. Gated on the
+    operator secret and requires a written reason — the reason lands in the
+    audit trail, which is the record of why trading resumed.
+    """
+
+    timeframe: str = Field(..., min_length=1, max_length=16)
+    reason: str = Field(..., min_length=8, max_length=500)
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(..., min_length=1)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
 class RecoveryAcknowledgeRequest(BaseModel):
     """
     v8 -- clear the startup-reconciliation block on the live executor.
@@ -1844,6 +1896,193 @@ async def recovery_acknowledge(
     )
     log.warning("api.recovery_acknowledged", operator=body.operator, cleared=cleared)
     return {"cleared": cleared, "blocked": False, "operator": body.operator}
+
+
+def _parse_timeframe_or_400(value: str) -> Timeframe:
+    """Shared validation for the operator endpoints that take a timeframe."""
+    try:
+        return Timeframe(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe {value!r}. Must be one of: "
+            f"{sorted(tf.value for tf in Timeframe)}",
+        ) from exc
+
+
+@app.get(
+    "/models/status",
+    tags=["models"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def models_status() -> dict[str, Any]:
+    """
+    Per-timeframe training state plus on-disk artifact counts.
+
+    The artifact count is the same filename heuristic
+    scripts/check_model_artifacts.py uses; it says an artifact exists, not
+    that it loads or passes the live gate.
+    """
+    orchestrator = require_orchestrator()
+    cfg = get_settings()
+    model_dir = cfg.storage.model_dir
+
+    status = orchestrator.retrain_status()
+    for tf_value, entry in status.items():
+        if model_dir.is_dir():
+            entry["artifact_count"] = sum(
+                1 for p in model_dir.rglob(f"*{tf_value}*") if p.is_file()
+            )
+        else:
+            entry["artifact_count"] = 0
+
+    return {"model_dir": str(model_dir), "timeframes": status}
+
+
+@app.post(
+    "/models/retrain",
+    tags=["models"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        400: {"description": "Invalid timeframe"},
+        401: {"description": "Invalid operator secret"},
+        409: {"description": "A retrain is already running for that timeframe"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def trigger_retrain(body: RetrainRequest, request: Request) -> dict[str, Any]:
+    """Start an out-of-band retrain. 409 when one is already in flight."""
+    _state.check_endpoint_rate_limit(
+        "trigger_retrain", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "trigger_retrain")
+
+    tf = _parse_timeframe_or_400(body.timeframe)
+    orchestrator = require_orchestrator()
+    outcome = orchestrator.request_retrain(tf)
+
+    if outcome == "already_running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"A retrain is already running for timeframe={tf.value}.",
+        )
+
+    await _state.storage.insert_audit_event(
+        event_type="manual_retrain_started",
+        operator=body.operator,
+        details={"timeframe": tf.value},
+    )
+    log.info("api.manual_retrain_started", timeframe=tf.value, operator=body.operator)
+    return {"status": outcome, "timeframe": tf.value, "operator": body.operator}
+
+
+@app.post(
+    "/backfill",
+    tags=["data"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        400: {"description": "Invalid timeframe"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def trigger_backfill(body: BackfillRequest, request: Request) -> dict[str, Any]:
+    """
+    Fetch historical bars for one timeframe and report how many were written.
+
+    Awaited, not backgrounded: the bar count is the only useful answer, and
+    reporting "started" would leave the dashboard unable to tell a
+    successful fetch from a silent exchange error.
+    """
+    _state.check_endpoint_rate_limit(
+        "trigger_backfill", request.client.host if request.client else ""
+    )
+    tf = _parse_timeframe_or_400(body.timeframe)
+    orchestrator = require_orchestrator()
+
+    written = await orchestrator.request_backfill(tf, body.lookback_days)
+    log.info("api.manual_backfill_done", timeframe=tf.value, bars_written=written)
+    return {
+        "timeframe": tf.value,
+        "lookback_days": body.lookback_days,
+        "bars_written": written,
+    }
+
+
+@app.get(
+    "/capital-floor",
+    tags=["risk"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def capital_floor() -> dict[str, Any]:
+    """Capital-preservation halt state for every timeframe."""
+    orchestrator = require_orchestrator()
+    return {"floors": orchestrator.capital_floor_status()}
+
+
+@app.post(
+    "/capital-floor/re-authorize",
+    tags=["risk"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        400: {"description": "Invalid timeframe"},
+        401: {"description": "Invalid operator secret"},
+        404: {"description": "No engine or floor for that timeframe"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def capital_floor_re_authorize(
+    body: CapitalFloorReAuthorizeRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Resume trading after a capital-preservation halt.
+
+    This is the deliberate out-of-band step the floor's design requires:
+    nothing in the system can decide on its own that the cause of a 30%
+    drawdown has been understood.
+    """
+    _state.check_endpoint_rate_limit(
+        "capital_floor_re_authorize", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(
+        body.operator_secret, body.operator, "capital_floor_re_authorize"
+    )
+
+    tf = _parse_timeframe_or_400(body.timeframe)
+    orchestrator = require_orchestrator()
+    at_ms = int(time.time() * 1000)
+
+    cleared = orchestrator.re_authorize_capital_floor(
+        timeframe=tf.value,
+        authorized_by=body.operator,
+        reason=body.reason,
+        at_ms=at_ms,
+    )
+    if not cleared:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No capital-preservation floor for timeframe={tf.value}.",
+        )
+
+    await _state.storage.insert_audit_event(
+        event_type="capital_floor_re_authorized",
+        operator=body.operator,
+        details={"timeframe": tf.value, "reason": body.reason, "at_ms": at_ms},
+    )
+    log.warning(
+        "api.capital_floor_re_authorized",
+        timeframe=tf.value,
+        operator=body.operator,
+    )
+    return {"re_authorized": True, "timeframe": tf.value, "operator": body.operator}
 
 
 @app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])
