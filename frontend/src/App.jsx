@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useWebSocket, usePolling, useOperatorAction, apiFetch } from './hooks/useApi';
+import { ControlHubPanel } from './components/panels/ControlHubPanel';
 import { Panel } from './components/Panel';
 import { ModeSwitcher, StatCard } from './components/Controls';
 import { EquityChart, DrawdownChart } from './components/panels/EquityChart';
@@ -20,6 +21,7 @@ const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
 const REGIME_NAME = { 0: 'RANGING', 1: 'TRENDING', 2: 'VOLATILE' };
 
 const ALL_PANELS = [
+  { id: 'controlhub', label: 'Control Hub', icon: '🎚' },
   { id: 'equity', label: 'Equity Curve', icon: '📈' },
   { id: 'drawdown', label: 'Drawdown', icon: '📉' },
   { id: 'positions', label: 'Positions', icon: '💼' },
@@ -142,6 +144,13 @@ export default function App() {
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
+          {visibility.controlhub && (
+            <Panel title="Control Hub" icon="🎚" defaultWidth={620} defaultHeight={420}
+              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('controlhub')}>
+              <ControlHubPanel operatorAction={action} refreshToken={tick} />
+            </Panel>
+          )}
+
           {visibility.equity && (
             <Panel title="Equity Curve" icon="📈" defaultWidth={580} defaultHeight={260}
               accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('equity')}>
