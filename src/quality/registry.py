@@ -327,6 +327,7 @@ def _check_vocabularies(raw: dict[str, Any], entries: list[RegistryEntry]) -> No
                 )
 
     known_types = set(raw["test_types"])
+    used_types: set[str] = set()
     for entry in entries:
         for ver in entry.verification:
             if ver.test_type not in known_types:
@@ -334,6 +335,14 @@ def _check_vocabularies(raw: dict[str, Any], entries: list[RegistryEntry]) -> No
                     f"entry {entry.id!r} verifies with test_type={ver.test_type!r}, which is "
                     f"not in the declared test taxonomy"
                 )
+            used_types.add(ver.test_type)
+    unused = sorted(known_types - used_types)
+    if unused:
+        raise RegistryError(
+            f"test_types declared but unused by any entry: {', '.join(unused)}. "
+            f"A vocabulary term with no user is dead vocabulary -- delete it or "
+            f"give it its first entry, do not leave it in the taxonomy."
+        )
 
 
 def _check_identity(entries: list[RegistryEntry]) -> None:

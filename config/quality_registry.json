@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-022",
+      "kind": "invariant",
+      "title": "declared taxonomy has a user",
+      "statement": "The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.",
+      "criticality": "low",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.",
+      "owning_modules": [
+        "src/quality/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
