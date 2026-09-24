@@ -1240,3 +1240,31 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_no_weak_hash (INV-030)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("algo", ["md5", "sha1"])
+def test_bare_weak_hash_is_flagged(invariants, fake_tree, algo) -> None:
+    fake_tree("src/mod.py", f"import hashlib\ndef go(b):\n    return hashlib.{algo}(b).hexdigest()\n")
+    problems = invariants.check_no_weak_hash()
+    assert any(f"hashlib.{algo}()" in p for p in problems)
+
+
+def test_usedforsecurity_false_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import hashlib\ndef go(b):\n    return hashlib.md5(b, usedforsecurity=False).hexdigest()\n",
+    )
+    assert invariants.check_no_weak_hash() == []
+
+
+def test_sha256_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import hashlib\ndef go(b):\n    return hashlib.sha256(b).hexdigest()\n",
+    )
+    assert invariants.check_no_weak_hash() == []

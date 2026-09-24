@@ -1513,8 +1513,43 @@ def check_dataclass_attributes_exist() -> list[str]:
     return problems
 
 
+def check_no_weak_hash() -> list[str]:
+    """
+    MD5 and SHA-1 fail collision resistance in the field. Every hash in this
+    codebase is either a security primitive or an integrity check where a
+    forged collision is the attack -- SHA-256 or better is the floor.
+    ``hashlib.md5(..., usedforsecurity=False)`` remains available for the one
+    place a legacy non-security id is unavoidable, but the argumentless call
+    is refused everywhere in ``src/``.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"md5", "sha1"}
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "hashlib"
+            ):
+                continue
+            marked_non_security = any(
+                kw.arg == "usedforsecurity"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is False
+                for kw in node.keywords
+            )
+            if marked_non_security:
+                continue
+            problems.append(
+                f"{_rel(path)}:{node.lineno}: hashlib.{node.func.attr}() -- use sha256 or pass usedforsecurity=False"
+            )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("weak hash", check_no_weak_hash),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),
