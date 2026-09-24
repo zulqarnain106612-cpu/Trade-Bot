@@ -57,6 +57,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
+from src.api.control_surface import build_control_surface
 from src.api.error_hygiene import install_error_handlers
 from src.api.fail_closed import (
     CONTROL_HEALTH,
@@ -2618,3 +2619,17 @@ async def reconnect_venue(
     status = orchestrator._fetcher.venue_status()[venue]
     log.info("api.venue_reconnect", venue=venue, available=reconnected)
     return {"venue": venue, "reconnected": reconnected, **status}
+
+
+@app.get("/controls", dependencies=[Depends(api_key_header)])
+async def control_surface() -> dict[str, Any]:
+    """
+    Every control the operator has, each labelled with the tier it belongs to.
+
+    The dashboard renders from this rather than from its own idea of what is
+    adjustable, so a control it offers is one the backend will actually honour.
+    Protected entries (hard risk limits, credentials) are present and read-only
+    with the reason: an operator needs to see that a position-size cap exists
+    and that it is not movable from here, which is not the same as hiding it.
+    """
+    return await build_control_surface(SetRiskControlsRequest)
