@@ -34,7 +34,6 @@ import structlog
 
 if TYPE_CHECKING:
     from src.data.storage import Storage
-    from src.intel import CryptoIntelligence
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -59,7 +58,10 @@ class IntelligenceAdapter:
     rows and join them into the training FeatureMatrix automatically.
     """
 
-    def __init__(self, intelligence: CryptoIntelligence, storage: Storage) -> None:
+    def __init__(self, intelligence: Any, storage: Storage) -> None:
+        # `intelligence` is a `src.intel.CryptoIntelligence`; typed as Any here
+        # to keep the analytics layer from importing back up into orchestration
+        # (GOV-024). The caller wires the concrete type in.
         self._intel = intelligence
         self._storage = storage
 
