@@ -230,6 +230,28 @@ class TestVocabularies:
             "not in the declared test taxonomy",
         )
 
+    def test_a_taxonomy_term_no_entry_uses_is_refused(self, tree):
+        """
+        A vocabulary term with no user is dead vocabulary. The taxonomy is
+        checked in both directions: an entry cannot invent a test_type that
+        the taxonomy has not declared (asserted above), and the taxonomy
+        cannot declare a test_type that no entry uses.
+        """
+        expect_error(
+            tree,
+            [
+                {
+                    **entry(id="RISK-001"),
+                    **VERIFIED,
+                }
+            ],
+            "test_types declared but unused",
+            test_types={
+                "risk": "Can an unsafe trade pass?",
+                "orphaned": "A term nobody uses.",
+            },
+        )
+
 
 # ---------------------------------------------------------------------------
 # The status contract
