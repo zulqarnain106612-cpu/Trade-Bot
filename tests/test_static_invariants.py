@@ -1240,3 +1240,22 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_no_bare_except (INV-025)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_except_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go():\n    try:\n        do()\n    except:\n        return\n")
+    problems = invariants.check_no_bare_except()
+    assert any("bare except" in p for p in problems)
+
+
+def test_named_except_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go():\n    try:\n        do()\n    except Exception:\n        return\n",
+    )
+    assert invariants.check_no_bare_except() == []
