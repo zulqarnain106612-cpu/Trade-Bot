@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePolling } from '../../hooks/useApi';
 
 const box = {
@@ -103,10 +103,22 @@ export function ModelTrainingPanel({ onRetrain }) {
  * rather than just "started".
  */
 export function BackfillPanel({ onBackfill, timeframes }) {
-  const [tf, setTf] = useState(timeframes?.[0] || '');
+  const [tf, setTf] = useState('');
   const [days, setDays] = useState(180);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+
+  // The timeframe list arrives from /models/status after first paint, so
+  // initialising this from useState alone left `tf` empty forever: the
+  // browser auto-displays the first <option> when a controlled select's
+  // value is "", which made the control look ready while the button
+  // stayed disabled on `!tf`. Re-sync whenever the current choice is not
+  // in the list — on arrival, and if the server's timeframes change.
+  useEffect(() => {
+    if (timeframes?.length && !timeframes.includes(tf)) {
+      setTf(timeframes[0]);
+    }
+  }, [timeframes, tf]);
 
   const run = async () => {
     setBusy(true);
