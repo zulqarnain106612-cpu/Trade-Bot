@@ -59,12 +59,17 @@ export default function App() {
   const onTick = useCallback((msg) => setTick(msg), []);
   const wsConnected = useWebSocket(onTick);
 
+  // Every list endpoint returns its rows under a named key
+  // (src/api/main.py), while the panels below take plain arrays — so each
+  // poll unwraps its key via usePolling's `transform`. Without this the
+  // panels get the envelope object, `.length` is undefined, and they render
+  // their empty-state placeholder forever with no error shown.
   const status = usePolling('/status', 5000);
-  const equityCurve = usePolling('/equity-curve?limit=200', 30000);
-  const trades = usePolling('/trades?limit=50', 15000);
-  const missedTrades = usePolling('/missed-trades?limit=30', 30000);
-  const approvals = usePolling('/approvals/pending', 10000);
-  const riskControls = usePolling('/risk-controls', 10000);
+  const equityCurve = usePolling('/equity?limit=200', 30000, (b) => b?.curve ?? []);
+  const trades = usePolling('/trades?limit=50', 15000, (b) => b?.trades ?? []);
+  const missedTrades = usePolling('/missed-trades?limit=30', 30000, (b) => b?.missed_trades ?? []);
+  const approvals = usePolling('/approvals', 10000, (b) => b?.approvals ?? []);
+  const riskControls = usePolling('/risk-controls', 10000, (b) => b?.risk_controls ?? null);
 
   useEffect(() => {
     try { localStorage.setItem('panel-visibility', JSON.stringify(visibility)); } catch {}
@@ -90,8 +95,12 @@ export default function App() {
     action('/execution-mode', 'POST', { mode });
   };
 
-  const handleRiskUpdate = async (field, value) => {
-    await action('/risk-controls', 'POST', { [field]: value });
+  // RiskControlsPanel calls onUpdate({ field: value }) with a single patch
+  // object, not (field, value). Taking two args here made `field` the whole
+  // object and `value` undefined, producing a body of
+  // {"[object Object]": undefined} that the endpoint rejected.
+  const handleRiskUpdate = async (patch) => {
+    await action('/risk-controls', 'POST', patch);
   };
 
   const handleApprovalResolve = async (id, approved) => {
