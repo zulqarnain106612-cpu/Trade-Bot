@@ -1158,9 +1158,85 @@ def _base_settings() -> Settings:
 # object or the whole next one: a name lookup is atomic, so there is no window
 # in which one is half-applied. Reads stay lock-free; only writes take the
 # lock, and writes are rare.
-_override_lock: threading.Lock = threading.Lock()
-_overrides: dict[str, Any] = {}
-_effective_settings: Settings | None = None
+class _LiveSettings:
+    """
+    Owner of the live configuration: the base, the overrides, and the object
+    get_settings() hands out.
+
+    State lives on an instance rather than in module globals, matching
+    RuntimeConfig below -- the codebase already has exactly one home for
+    process-wide mutable runtime state and this is not a second one. The
+    architecture validator flags `global` for the same reason (LAW2), and it
+    is right that a second pattern would be worse even though the swap itself
+    is safe.
+
+    Safe how: the effective object is rebuilt off the read path, and `current`
+    is a single attribute read of an immutable model. A reader sees the whole
+    previous object or the whole next one, never a mix. Writes serialise on
+    the lock; reads take nothing.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._overrides: dict[str, Any] = {}
+        self._effective: Settings | None = None
+
+    def current(self) -> Settings:
+        effective = self._effective
+        return effective if effective is not None else _base_settings()
+
+    def names(self) -> frozenset[str]:
+        return frozenset(self._overrides)
+
+    def _rebuild(self) -> Settings:
+        """
+        Apply every override onto a fresh dump of the base and re-validate.
+
+        Re-validating rather than model_copy(update=...) is deliberate: copy
+        does not run validators, so it would accept a negative
+        kelly_multiplier or an out-of-range percentage and leave the breakage
+        to be discovered by the risk engine at the worst possible moment.
+        """
+        data = _base_settings().model_dump()
+        for dotted, value in self._overrides.items():
+            target = data
+            *parents, leaf = dotted.split(".")
+            for part in parents:
+                target = target[part]
+            target[leaf] = value
+        return Settings.model_validate(data)
+
+    def set(self, dotted: str, value: Any) -> Settings:
+        resolve_setting_path(dotted)
+        with self._lock:
+            previous = self._overrides.get(dotted, _UNSET)
+            self._overrides[dotted] = value
+            try:
+                rebuilt = self._rebuild()
+            except Exception:
+                # Leave the live configuration exactly as it was: a rejected
+                # value must not remove the one that was working.
+                if previous is _UNSET:
+                    self._overrides.pop(dotted, None)
+                else:
+                    self._overrides[dotted] = previous
+                raise
+            self._effective = rebuilt
+            return rebuilt
+
+    def clear(self, dotted: str) -> Settings:
+        with self._lock:
+            self._overrides.pop(dotted, None)
+            self._effective = self._rebuild() if self._overrides else None
+            return self.current()
+
+    def reset(self) -> None:
+        with self._lock:
+            self._overrides.clear()
+            self._effective = None
+
+
+_live_settings = _LiveSettings()
 
 
 def get_settings() -> Settings:
@@ -1170,32 +1246,12 @@ def get_settings() -> Settings:
     One attribute read on the hot path. The object is immutable; changing a
     setting replaces it wholesale rather than mutating it in place.
     """
-    effective = _effective_settings
-    return effective if effective is not None else _base_settings()
-
-
-def _rebuild_effective() -> Settings:
-    """
-    Apply every override onto a fresh dump of the base and re-validate.
-
-    Re-validating rather than model_copy(update=...) is deliberate: copy does
-    not run validators, so it would accept a negative kelly_multiplier or an
-    out-of-range percentage and leave the breakage to be discovered by the
-    risk engine at the worst possible moment.
-    """
-    data = _base_settings().model_dump()
-    for dotted, value in _overrides.items():
-        target = data
-        *parents, leaf = dotted.split(".")
-        for part in parents:
-            target = target[part]
-        target[leaf] = value
-    return Settings.model_validate(data)
+    return _live_settings.current()
 
 
 def settings_override_names() -> frozenset[str]:
     """Dotted paths that currently differ from the environment."""
-    return frozenset(_overrides)
+    return _live_settings.names()
 
 
 def resolve_setting_path(dotted: str) -> None:
@@ -1234,41 +1290,17 @@ def set_setting_override(dotted: str, value: Any) -> Settings:
     pydantic's ValidationError for a value the field's own validators refuse --
     the same validators the environment would have been held to.
     """
-    resolve_setting_path(dotted)
-    global _effective_settings
-    with _override_lock:
-        previous = _overrides.get(dotted, _UNSET)
-        _overrides[dotted] = value
-        try:
-            rebuilt = _rebuild_effective()
-        except Exception:
-            # Leave the live configuration exactly as it was: a rejected value
-            # must not remove the one that was working.
-            if previous is _UNSET:
-                _overrides.pop(dotted, None)
-            else:
-                _overrides[dotted] = previous
-            raise
-        _effective_settings = rebuilt
-        return rebuilt
+    return _live_settings.set(dotted, value)
 
 
 def clear_setting_override(dotted: str) -> Settings:
     """Hand one setting back to the environment, effective immediately."""
-    global _effective_settings
-    with _override_lock:
-        _overrides.pop(dotted, None)
-        rebuilt = _rebuild_effective() if _overrides else None
-        _effective_settings = rebuilt
-        return rebuilt if rebuilt is not None else _base_settings()
+    return _live_settings.clear(dotted)
 
 
 def invalidate_settings_cache() -> None:
     """Clear cached settings and every override — for test isolation only."""
-    global _effective_settings
-    with _override_lock:
-        _overrides.clear()
-        _effective_settings = None
+    _live_settings.reset()
     _base_settings.cache_clear()
 
 
