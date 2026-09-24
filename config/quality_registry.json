@@ -2930,6 +2930,29 @@
       "notes": "scripts/timescaledb.sh was referenced from six call sites -- README.md three times, src/config.py, src/data/storage.py and the skip message in tests/test_timescale_storage.py -- and did not exist; removed by the config purge (#144) without the references going with it. The test guards the general form (a named scripts/ path that is absent) as well as this one file, and pins the script to ci.yml's service block so the local and CI databases cannot drift apart silently. layer: test-suite"
     },
     {
+      "id": "REG-0014",
+      "kind": "regression",
+      "title": "One unreachable venue degrades the fetcher, it does not stop the bot",
+      "statement": "MarketDataFetcher.initialize() must open each venue independently, record an unavailable venue with the reason it gave, and raise only when no venue came up; an unavailable venue's accessor must name that reason, and reconnect() must restore a venue in place without a process restart.",
+      "criticality": "high",
+      "subsystem": "data",
+      "status": "verified",
+      "source": "OPS-2026-09-24",
+      "failure_mode": "A single venue refusing -- an outage, a rate limit, or a jurisdictional 451 -- aborts startup for the whole process, stopping strategies that trade only the other venue and requiring a restart to recover once the venue returns.",
+      "owning_modules": [
+        "src/data/fetcher.py",
+        "src/api/main.py"
+      ],
+      "depends_on": [],
+      "verification": [
+        {
+          "test": "tests/test_fetcher_venue_degradation.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Observed against Binance answering HTTP 451 'Service unavailable from a restricted location' on both mainnet and testnet from an affected network, which made the backend unstartable however healthy OKX and everything else was. initialize() built both venues and loaded their markets in one unisolated sequence. GET /venues and POST /venues/{venue}/reconnect expose the state and the recovery so neither needs a restart. layer: test-suite"
+    },
+    {
       "id": "SECR-015",
       "kind": "requirement",
       "title": "A received Diffie-Hellman public value is confined to the prime-order subgroup",
