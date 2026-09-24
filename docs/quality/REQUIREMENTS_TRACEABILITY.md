@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 116 |
+| VERIFIED | 117 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **116** |
+| **Total** | **117** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 26 | 26 |
+| Governance | 27 | 27 |
 
 ## Outstanding work by phase
 
@@ -1499,6 +1499,19 @@ The Dockerfile must resolve torch from the CPU wheel index before it installs re
 
 > GOV-015 pinned the CPU index for every workflow that installs torch, and its test globs .github/workflows. The Dockerfile installs '-r requirements.txt' and never names torch, so it was outside both the rule's wording and its test while being the largest torch install in the repository. Observed on PR #353, whose diff was a single shell script. layer: test-suite
 
+#### `REG-0013` — A script named by the repository exists, and matches the CI service it mirrors
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-24
+
+Every scripts/ path named in the README, in src/ comments or in a test's skip message must exist on disk, and scripts/timescaledb.sh must declare the same image, credentials, database and published port as the timescaledb service in ci.yml and the STORAGE_TIMESCALE_DSN default.
+
+- **If violated:** The 92 tests in tests/test_timescale_storage.py self-skip and instruct the reader to run a script that is not in the repository, so the TimescaleDB backend reports green by absence and no local run can contradict it.
+- **Owned by:** `scripts/timescaledb.sh`
+- **Verification:**
+  - `tests/test_timescaledb_script.py` (regression)
+
+> scripts/timescaledb.sh was referenced from six call sites -- README.md three times, src/config.py, src/data/storage.py and the skip message in tests/test_timescale_storage.py -- and did not exist; removed by the config purge (#144) without the references going with it. The test guards the general form (a named scripts/ path that is absent) as well as this one file, and pins the script to ci.yml's service block so the local and CI databases cannot drift apart silently. layer: test-suite
+
 
 ---
 
@@ -1527,4 +1540,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 116 entries.
+Registry version: 1.0.0 — 117 entries.
