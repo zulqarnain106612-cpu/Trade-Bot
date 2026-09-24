@@ -2971,6 +2971,46 @@
           "test_type": "validation"
         }
       ]
+    },
+    {
+      "id": "SECR-017",
+      "kind": "requirement",
+      "title": "A post-quantum symmetric margin is reported with the caveat that makes it conservative",
+      "statement": "assess_symmetric returns the sequential-depth figure alongside the halved effective strength, so the halving cannot be quoted without the assumption it rests on, and weakest_link answers the suite-level question deterministically. The dataclass fields carrying the caveat are asserted structurally.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "A post-quantum readiness claim that is either alarmist or complacent with no way for a reader to tell which they were given. Reported alone, the halving reads as 'AES-128 is broken', which NIST IR 8547 does not say -- the bound assumes one coherent machine running 2**64 successive error-corrected operations and Grover parallelises badly. The converse failure is the entry's stated risk: migrating asymmetric primitives while leaving 128-bit symmetric keys in place, which is invisible while each primitive is examined alone.",
+      "owning_modules": [
+        "src/mathcore/quantum/grover.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_quantum_margins.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SECR-018",
+      "kind": "requirement",
+      "title": "Quantum exposure is computed from declared assumptions, never from invented constants",
+      "statement": "is_broken_by_shor classifies by hard problem and treats an unknown scheme name as broken, migration_verdict implements Mosca's X+Y>Z with years_until_capable_machine keyword-only and undefaulted, and the module contains no resource estimate and no module-level year constant. All three absences are asserted by tests rather than described.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Two ways to produce a confident migration plan resting on nothing. A transcribed logical-qubit or Toffoli-depth figure is model-dependent and uncheckable here -- there is no machine and a simulator says nothing about a 256-bit curve -- which is the fabricated-constant class this repository has shipped three times. A defaulted arrival year is worse: it lets a caller obtain a verdict without ever deciding what they believe, and the assumption then stops being questioned. Separately, an unclassified scheme name silently passing an audit would report a clean suite while a forgotten asymmetric primitive stays deployed.",
+      "owning_modules": [
+        "src/mathcore/quantum/shor.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_quantum_margins.py",
+          "test_type": "security"
+        }
+      ]
     }
   ]
 }
