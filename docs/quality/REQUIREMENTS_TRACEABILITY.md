@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 115 |
+| VERIFIED | 116 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **115** |
+| **Total** | **116** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 25 | 25 |
+| Governance | 26 | 26 |
 
 ## Outstanding work by phase
 
@@ -1184,6 +1184,17 @@ The production workflow can return to the previous trusted artifact, and a drill
 
 ## Governance
 
+#### `INV-031` — text open names encoding
+
+**VERIFIED** · medium · invariant · source: QE-52
+
+The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.
+
+- **If violated:** A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-001` — Every production defect yields a permanent regression test
 
 **VERIFIED** · high · requirement · source: QE-48
@@ -1513,4 +1524,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 115 entries.
+Registry version: 1.0.0 — 116 entries.

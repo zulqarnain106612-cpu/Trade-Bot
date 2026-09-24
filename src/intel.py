@@ -161,7 +161,7 @@ class CryptoIntelligence:
 
     def _load_config(self, path: Path) -> dict:
         try:
-            with open(path) as fh:
+            with open(path, encoding="utf-8") as fh:
                 return yaml.safe_load(fh) or {}
         except FileNotFoundError:
             log.warning("config_not_found", path=str(path))
