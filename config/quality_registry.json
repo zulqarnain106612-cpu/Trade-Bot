@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-026",
+      "kind": "invariant",
+      "title": "no assert in src",
+      "statement": "The static-invariants gate refuses assert statements anywhere in src/. assert is stripped by python -O, so any production check written as an assert becomes a silent no-op in optimised runs. Every production check is 'if not x: raise'.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A production check written as an assert. Under python -O the assert vanishes, the invariant it defended is unenforced, and no test signals the loss because the behaviour under -O differs from the behaviour the test observed.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
