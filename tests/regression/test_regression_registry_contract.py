@@ -112,6 +112,12 @@ class TestTheRegistryHasAPlaceForDefects:
         # REG-0011: the same scaffolder reported success against the JSON
         # schema while the gate validates with the loader, so it printed
         # "[ok  ] added SEC-0001" for an entry the loader then refused.
+        # REG-0012: GOV-015 pinned the CPU torch index for every workflow that
+        # installs torch, and its test globs .github/workflows. The Dockerfile
+        # installs "-r requirements.txt" and never names torch, so the largest
+        # torch install in the repository sat outside both the rule's wording
+        # and its test until the container job died on "No space left on
+        # device".
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -119,6 +125,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0009",
             "REG-0010",
             "REG-0011",
+            "REG-0012",
         }
         assert {e.id for e in registry.by_kind("security_regression")} == set()
 
@@ -339,7 +346,7 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"test-suite": 5, "review": 1}
+        assert metric["value"] == {"test-suite": 6, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
