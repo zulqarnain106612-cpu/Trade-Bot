@@ -340,6 +340,11 @@ class MarketDataFetcher:
         self._sem_init_guard: threading.Lock = threading.Lock()
         self._gap_fill_sem: asyncio.Semaphore | None = None
 
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _settings_pinned: Settings | None = None
+
     @property
     def _settings(self) -> Settings:
         """
@@ -351,7 +356,20 @@ class MarketDataFetcher:
         a restart realigned them. A property leaves all 1 existing reads
         untouched while making each of them current.
         """
-        return get_settings()
+        return self._settings_pinned if self._settings_pinned is not None else get_settings()
+
+    @_settings.setter
+    def _settings(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._settings_pinned = value
 
     def _get_sem(self) -> asyncio.Semaphore:
         """Return (lazily-created) asyncio.Semaphore — thread-safe one-time init."""

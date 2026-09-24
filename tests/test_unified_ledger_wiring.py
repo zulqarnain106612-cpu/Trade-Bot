@@ -39,7 +39,13 @@ def _make_orch(symbol: str = "BTC/USDT"):
         cfg.starting_capital_usd = 1000.0
         cfg.storage.model_dir = "/tmp/models"
         mock_cfg.return_value = cfg
-        return Orchestrator(MagicMock(), MagicMock())
+        orch = Orchestrator(MagicMock(), MagicMock())
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
+        return orch
 
 
 @pytest.fixture

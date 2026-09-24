@@ -319,6 +319,11 @@ class Orchestrator:
     # Startup — bootstrap all subsystems
     # ------------------------------------------------------------------
 
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _cfg_pinned: Settings | None = None
+
     @property
     def _cfg(self) -> Settings:
         """
@@ -330,7 +335,20 @@ class Orchestrator:
         a restart realigned them. A property leaves all 31 existing reads
         untouched while making each of them current.
         """
-        return get_settings()
+        return self._cfg_pinned if self._cfg_pinned is not None else get_settings()
+
+    @_cfg.setter
+    def _cfg(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._cfg_pinned = value
 
     async def startup(self) -> None:
         """
