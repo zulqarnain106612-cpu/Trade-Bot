@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 115 |
+| VERIFIED | 116 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **115** |
+| **Total** | **116** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 16 | 16 |
+| Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -717,6 +717,17 @@ No error path returns a credential, token, stack trace or internal hostname to a
   - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
 
 ## Cryptography and secrets
+
+#### `INV-029` — no shell=True in src
+
+**VERIFIED** · critical · invariant · source: QE-52
+
+The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
+
+- **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
@@ -1513,4 +1524,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 115 entries.
+Registry version: 1.0.0 — 116 entries.
