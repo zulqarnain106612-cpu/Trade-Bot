@@ -2014,6 +2014,43 @@ async def trigger_backfill(body: BackfillRequest, request: Request) -> dict[str,
     }
 
 
+@app.get("/horizons", tags=["intelligence"], dependencies=[Depends(api_key_header)])
+async def horizons() -> dict[str, Any]:
+    """
+    The crypto-intel-v6 horizon term structure (config/horizons.yaml).
+
+    Deliberately NOT gated on require_ready or on the intel engine being
+    running. The declared horizons are a real fact about the deployment
+    even when INTEL_ENABLED is false, and answering 404 there would make
+    "intelligence is switched off" indistinguishable from "this build has
+    no horizons" in the dashboard.
+
+    When the engine is off, `enabled` is false and every entry carries a
+    null `last_prediction`; the labels, models and schedules still come
+    from the config file.
+    """
+    adapter = _state.intel_adapter
+    intel = getattr(adapter, "_intel", None) if adapter is not None else None
+
+    if intel is None:
+        # Report the term structure from config alone — no engine needed.
+        from src.intel import sorted_horizon_entries
+
+        return {
+            "enabled": False,
+            "symbol": None,
+            "last_update_ts": None,
+            "horizons": sorted_horizon_entries(),
+        }
+
+    return {
+        "enabled": True,
+        "symbol": intel.last_horizon_symbol,
+        "last_update_ts": intel.last_horizon_ts,
+        "horizons": intel.horizon_status(),
+    }
+
+
 @app.get(
     "/capital-floor",
     tags=["risk"],

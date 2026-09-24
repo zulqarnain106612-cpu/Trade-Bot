@@ -17,6 +17,7 @@ import {
 import {
   ModelTrainingPanel, BackfillPanel, CapitalFloorPanel,
 } from './components/panels/OperationsPanel';
+import { HorizonsPanel } from './components/panels/HorizonsPanel';
 import { fmt, pnlColor } from './utils/format';
 
 const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
@@ -43,6 +44,7 @@ const ALL_PANELS = [
   { id: 'training', label: 'Model Training', icon: '🏋' },
   { id: 'backfill', label: 'Backfill', icon: '📥' },
   { id: 'capitalfloor', label: 'Capital Floor', icon: '🚨' },
+  { id: 'horizons', label: 'Horizons', icon: '🕰' },
 ];
 
 function getInitialVisibility() {
@@ -320,6 +322,13 @@ export default function App() {
             <Panel title="Capital Floor" icon="🚨" defaultWidth={460} defaultHeight={300}
               accentColor="var(--c-red)" onToggleVisible={() => togglePanel('capitalfloor')}>
               <CapitalFloorPanel onReAuthorize={handleFloorReAuthorize} />
+            </Panel>
+          )}
+
+          {visibility.horizons && (
+            <Panel title="Horizons" icon="🕰" defaultWidth={640} defaultHeight={340}
+              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('horizons')}>
+              <HorizonsPanel />
             </Panel>
           )}
         </div>
