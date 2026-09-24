@@ -2,6 +2,12 @@ __pycache__/
 *.pyc
 .venv/
 .env
+# Vite reads .env.local / .env.<mode>.local for local overrides, and the
+# dashboard's VITE_API_KEY lives there. A bare `.env` pattern does not
+# match those names, so they need their own entries or a dev API key ends
+# up committed.
+.env.local
+.env.*.local
 .coverage
 htmlcov/
 data/
