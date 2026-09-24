@@ -22,10 +22,40 @@ if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv
 fi
 .venv/bin/python -m pip install --upgrade --quiet pip
+# The CPU torch index first, for the same reason ci.yml does it (GOV-015):
+# PyPI's default torch wheel bundles the CUDA runtime, which is gigabytes of
+# download and ~5 GB on disk that a container with no GPU never executes.
+# Resolving torch from the CPU index before the requirements pass means the
+# range pin in requirements.txt is already satisfied when pip reaches it.
+.venv/bin/python -m pip install --quiet \
+  --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0"
 # requirements.txt is the source of truth for runtime deps; requirements-dev.txt
 # pins ruff/pytest. requirements-optional.txt is deliberately NOT installed --
 # the heavy ML extras are imported lazily and their suites self-skip, matching CI.
 .venv/bin/python -m pip install --quiet -r requirements.txt -r requirements-dev.txt
+
+# Outbound HTTPS in a cloud container is re-terminated by an agent proxy whose
+# CA is injected into the system trust store and the standard CA environment
+# variables. Neither reaches a library that pins certifi's bundle explicitly,
+# and this project has three that do: ccxt (base/exchange.py defaults cafile to
+# certifi.where()) and rag_mongo/db.py + kg/db.py, which pass
+# tlsCAFile=certifi.where() so pymongo can verify Atlas. Without this append
+# every one of them fails with CERTIFICATE_VERIFY_FAILED against a host the
+# network policy actually allows. Container-local and idempotent: .venv is
+# gitignored and the marker keeps a re-run from duplicating the block.
+if [ -r /root/.ccr/ca-bundle.crt ]; then
+  .venv/bin/python - <<'PYCA'
+import pathlib
+import certifi
+
+bundle = pathlib.Path(certifi.where())
+marker = "# --- agent proxy CA (container-local, appended by session-start) ---"
+current = bundle.read_text()
+if marker not in current:
+    ca = pathlib.Path("/root/.ccr/ca-bundle.crt").read_text()
+    bundle.write_text(current.rstrip() + "\n\n" + marker + "\n" + ca)
+PYCA
+fi
 
 echo "==> Installing frontend dependencies"
 # `npm install` rather than `npm ci` so a warm container cache is reused.
