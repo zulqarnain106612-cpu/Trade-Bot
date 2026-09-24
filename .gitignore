@@ -3,6 +3,12 @@ __pycache__/
 .venv/
 .env
 .coverage
+# coverage.py's parallel mode, which the suite runs in under xdist, writes
+# one data file per worker suffixed with host and pid (.coverage.vm.pid740.*),
+# and CI writes .coverage.shard-N. Bare `.coverage` matches none of them, so a
+# local `pytest -n auto` left a pile of untracked files behind that look like
+# repository content in `git status`.
+.coverage.*
 htmlcov/
 # Anchored to the repository root. Unanchored, `data/` matched `src/data/`
 # too -- which silently kept src/data/clock.py out of the repository while it
