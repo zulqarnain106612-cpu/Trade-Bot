@@ -197,6 +197,43 @@ class AppState:
         async with self._ws_lock:
             self._ws_clients.discard(ws)
 
+    async def broadcast(self, payload: dict[str, Any]) -> int:
+        """
+        Push one message to every connected dashboard. Returns how many got it.
+
+        Each connection otherwise pushes its own heartbeat, so a control moved
+        between ticks is invisible until the next one -- long enough for an
+        operator to move a slider, see nothing, and move it again. This is the
+        out-of-band path for that.
+
+        A send is never allowed to fail the caller: this runs after a write has
+        already been applied, and a dashboard that has gone away is not a
+        reason to report the write as failed. Failures drop the client instead,
+        which is what the heartbeat's own error path does.
+
+        The set is snapshotted under the lock before sending. Iterating it
+        directly would mutate-during-iteration the moment a send fails and the
+        client is discarded.
+        """
+        async with self._ws_lock:
+            clients = list(self._ws_clients)
+
+        message = json.dumps(payload)
+        delivered = 0
+        dead: list[WebSocket] = []
+        for client in clients:
+            try:
+                await client.send_text(message)
+                delivered += 1
+            except Exception:
+                dead.append(client)
+
+        for client in dead:
+            await self.remove_ws_client(client)
+        if dead:
+            log.info("api.ws_broadcast_dropped", dropped=len(dead), delivered=delivered)
+        return delivered
+
     def check_endpoint_rate_limit(self, endpoint: str, client_ip: str = "") -> None:
         """
         Raise HTTP 429 if endpoint has been called too many times per minute.
@@ -2675,4 +2712,7 @@ async def set_control(name: str, body: SetControlRequest, request: Request) -> d
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
     log.info("api.control_set", control=name, value=applied["value"])
+    # Out of band, so a second dashboard -- or the same one, mid-drag -- sees
+    # the new value now rather than at the next heartbeat.
+    await _state.broadcast({"type": "control_changed", **applied})
     return {"applied": True, **applied}

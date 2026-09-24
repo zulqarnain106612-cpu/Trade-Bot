@@ -215,3 +215,97 @@ class TestSetControlCarriesTheSecondFactor:
             "name": "risk_controls.stop_loss_pct",
             "value": 3.5,
         }
+
+
+class TestAControlChangeIsPushedOutOfBand:
+    """
+    Each connection pushes its own heartbeat, so a control moved between ticks
+    is invisible until the next one -- long enough for an operator to move a
+    slider, see nothing happen, and move it again. The write broadcasts.
+    """
+
+    class _FakeWS:
+        def __init__(self, fails: bool = False) -> None:
+            self.sent: list[str] = []
+            self._fails = fails
+
+        async def send_text(self, message: str) -> None:
+            if self._fails:
+                raise RuntimeError("client went away")
+            self.sent.append(message)
+
+    async def test_the_new_value_reaches_every_client(self):
+        from src.api import main as api_main
+
+        first, second = self._FakeWS(), self._FakeWS()
+        for client in (first, second):
+            api_main._state._ws_clients.add(client)
+        try:
+            delivered = await api_main._state.broadcast({"type": "control_changed", "value": 3.5})
+        finally:
+            for client in (first, second):
+                api_main._state._ws_clients.discard(client)
+
+        assert delivered == 2
+        assert "control_changed" in first.sent[0]
+        assert "control_changed" in second.sent[0]
+
+    async def test_a_dead_client_is_dropped_and_does_not_stop_the_others(self):
+        """
+        The broadcast runs *after* the write has been applied, so a dashboard
+        that has gone away must not make the write look failed, and must not
+        deprive the live clients of the message.
+        """
+        from src.api import main as api_main
+
+        dead, alive = self._FakeWS(fails=True), self._FakeWS()
+        for client in (dead, alive):
+            api_main._state._ws_clients.add(client)
+        try:
+            delivered = await api_main._state.broadcast({"type": "control_changed"})
+
+            assert delivered == 1
+            assert alive.sent, "a dead peer must not cost a live client its message"
+            assert dead not in api_main._state.ws_clients
+        finally:
+            for client in (dead, alive):
+                api_main._state._ws_clients.discard(client)
+
+    async def test_no_clients_is_not_an_error(self):
+        from src.api import main as api_main
+
+        assert await api_main._state.broadcast({"type": "control_changed"}) == 0
+
+    def test_a_successful_write_broadcasts(self, api_client):
+        from src.api import main as api_main
+
+        listener = self._FakeWS()
+        api_main._state._ws_clients.add(listener)
+        try:
+            response = api_client.post(
+                "/controls/risk_controls.stop_loss_pct",
+                json={"value": 2.5, "operator": "alice", "operator_secret": _TEST_SECRET},
+            )
+        finally:
+            api_main._state._ws_clients.discard(listener)
+
+        assert response.status_code == 200
+        assert len(listener.sent) == 1
+        assert "risk_controls.stop_loss_pct" in listener.sent[0]
+
+    def test_a_rejected_write_broadcasts_nothing(self, api_client):
+        """A 403 changed no state, so announcing a change would be a lie."""
+        from src.api import main as api_main
+
+        listener = self._FakeWS()
+        api_main._state._ws_clients.add(listener)
+        try:
+            response = api_client.post(
+                "/controls/risk.kelly_multiplier",
+                json={"value": 2.0, "operator": "alice", "operator_secret": _TEST_SECRET},
+            )
+        finally:
+            api_main._state._ws_clients.discard(listener)
+
+        assert response.status_code == 403
+        assert listener.sent == []

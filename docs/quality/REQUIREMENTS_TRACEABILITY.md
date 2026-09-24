@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 120 |
+| VERIFIED | 121 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **120** |
+| **Total** | **121** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 11 | 11 |
+| API and WebSocket | 12 | 12 |
 | Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -756,6 +756,20 @@ POST /controls/{name} must route each write to the setter that already owns the 
   - `tests/test_venue_api.py` (api)
 
 > The router threads operator and operator_secret into the risk-control model rather than faking them: both are required fields, so validating with a placeholder would exercise a different model than the real endpoint does -- the exact bypass this entry forbids -- and the operator's name belongs on the write anyway. execution_mode is checked against _OPERATOR_SETTABLE before EXCLUDED_PARAMS, because it is in both and refusing it would break the one runtime switch the system documents. layer: review
+
+#### `GOV-027` — A control change is pushed, not waited for
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-24
+
+A successful write through POST /controls/{name} must broadcast a control_changed frame to every connected websocket client; a rejected write must broadcast nothing; and a client that fails to receive must be dropped without failing the write or depriving the remaining clients.
+
+- **If violated:** A control moved between heartbeats is invisible until the next one, so an operator moves a slider, sees nothing change, and moves it again -- or a second dashboard shows a stale value while acting on it.
+- **Owned by:** `src/api/main.py`, `frontend/src/hooks/useApi.js`
+- **Depends on:** `GOV-026`
+- **Verification:**
+  - `tests/test_venue_api.py` (api)
+
+> The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
 ## Cryptography and secrets
 
@@ -1581,4 +1595,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 120 entries.
+Registry version: 1.0.0 — 121 entries.

@@ -59,7 +59,13 @@ export default function App() {
   const { operatorId, setOperatorId, operatorSecret, setOperatorSecret, action } = useOperatorAction();
 
   const onTick = useCallback((msg) => setTick(msg), []);
-  const wsConnected = useWebSocket(onTick);
+  // A control_changed frame carries no tick fields, so it advances its own
+  // counter rather than being pushed through setTick; the hub re-reads on it.
+  const [controlVersion, setControlVersion] = useState(0);
+  const onEvent = useCallback((msg) => {
+    if (msg.type === 'control_changed') setControlVersion((v) => v + 1);
+  }, []);
+  const wsConnected = useWebSocket(onTick, onEvent);
 
   const status = usePolling('/status', 5000);
   const equityCurve = usePolling('/equity-curve?limit=200', 30000);
@@ -147,7 +153,7 @@ export default function App() {
           {visibility.controlhub && (
             <Panel title="Control Hub" icon="🎚" defaultWidth={620} defaultHeight={420}
               accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('controlhub')}>
-              <ControlHubPanel operatorAction={action} refreshToken={tick} />
+              <ControlHubPanel operatorAction={action} refreshToken={controlVersion} />
             </Panel>
           )}
 

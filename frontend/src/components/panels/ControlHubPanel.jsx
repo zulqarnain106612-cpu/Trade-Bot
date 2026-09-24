@@ -129,8 +129,11 @@ export function ControlHubPanel({ operatorAction, refreshToken }) {
     }
   }, []);
 
-  // refreshToken advances on every websocket tick, so the hub re-reads the
-  // surface the bot actually has rather than trusting what it last wrote.
+  // refreshToken advances on every websocket message, so the hub re-reads the
+  // surface the bot actually has rather than trusting what it last wrote. A
+  // control_changed frame is pushed out of band the moment any client writes,
+  // so a value moved in another tab -- or by the autotuner -- lands here
+  // without waiting for the next heartbeat.
   useEffect(() => {
     load();
   }, [load, refreshToken]);
