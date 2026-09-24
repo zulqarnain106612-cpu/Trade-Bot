@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 119 |
+| VERIFIED | 120 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **119** |
+| **Total** | **120** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 10 | 10 |
+| API and WebSocket | 11 | 11 |
 | Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -741,6 +741,21 @@ GET /controls must label every control with the tier it belongs to -- live, stat
   - `tests/test_control_surface.py` (contract)
 
 > The bounds rule is not hypothetical: the first draft of control_surface.py hardcoded fractions (0.001-0.50) while SetRiskControlsRequest validates percentages (0.1-50.0), so a live stop_loss_pct of 2.0 would have been reported as below its own minimum. The model is injected into build_control_surface() rather than imported, which both removes the second source of truth and keeps control_surface from importing the router that imports it. 8 live controls, 16 protected, at time of writing. layer: review
+
+#### `GOV-026` — One write endpoint, and not a second way in
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-24
+
+POST /controls/{name} must route each write to the setter that already owns the control -- a risk control through the same Pydantic model POST /risk-controls validates against, a tunable through ParameterRegistry bounds -- must refuse any registry.EXCLUDED_PARAMS entry that has no operator setter with 403, and must carry the same operator_secret second factor as the endpoints it routes to.
+
+- **If violated:** A unified endpoint becomes a bypass: a value the dedicated endpoint would have rejected is written through the general one, so a bound that exists in the model is not a bound that holds in production.
+- **Owned by:** `src/api/control_surface.py`, `src/api/main.py`
+- **Depends on:** `GOV-025`
+- **Verification:**
+  - `tests/test_control_write.py` (contract)
+  - `tests/test_venue_api.py` (api)
+
+> The router threads operator and operator_secret into the risk-control model rather than faking them: both are required fields, so validating with a placeholder would exercise a different model than the real endpoint does -- the exact bypass this entry forbids -- and the operator's name belongs on the write anyway. execution_mode is checked against _OPERATOR_SETTABLE before EXCLUDED_PARAMS, because it is in both and refusing it would break the one runtime switch the system documents. layer: review
 
 ## Cryptography and secrets
 
@@ -1566,4 +1581,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 119 entries.
+Registry version: 1.0.0 — 120 entries.

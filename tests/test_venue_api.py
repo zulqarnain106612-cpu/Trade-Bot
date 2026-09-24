@@ -150,3 +150,68 @@ class TestReconnectCarriesTheSecondFactor:
         assert response.status_code == 200
         assert response.json()["reconnected"] is False
         assert response.json()["available"] is False
+
+
+class TestSetControlCarriesTheSecondFactor:
+    """
+    POST /controls/{name} moves live trading parameters, so it is gated like
+    /execution-mode and /risk-controls. The endpoint's job beyond that is to
+    translate a ControlWriteError into the status it carries.
+    """
+
+    def test_a_wrong_operator_secret_is_rejected(self, api_client):
+        response = api_client.post(
+            "/controls/execution_mode",
+            json={"value": "manual", "operator": "alice", "operator_secret": _WRONG_SECRET},
+        )
+
+        assert response.status_code == 401
+
+    def test_an_unconfigured_operator_secret_is_503(self, api_client):
+        os.environ["OPERATOR_SECRET"] = ""
+        try:
+            response = api_client.post(
+                "/controls/execution_mode",
+                json={"value": "manual", "operator": "alice", "operator_secret": _TEST_SECRET},
+            )
+        finally:
+            os.environ["OPERATOR_SECRET"] = _TEST_SECRET
+
+        assert response.status_code == 503
+
+    def test_a_protected_parameter_is_403(self, api_client):
+        response = api_client.post(
+            "/controls/risk.kelly_multiplier",
+            json={"value": 2.0, "operator": "alice", "operator_secret": _TEST_SECRET},
+        )
+
+        assert response.status_code == 403
+
+    def test_an_unknown_control_is_404(self, api_client):
+        response = api_client.post(
+            "/controls/nope",
+            json={"value": 1, "operator": "alice", "operator_secret": _TEST_SECRET},
+        )
+
+        assert response.status_code == 404
+
+    def test_an_out_of_range_value_is_422(self, api_client):
+        response = api_client.post(
+            "/controls/risk_controls.stop_loss_pct",
+            json={"value": 999.0, "operator": "alice", "operator_secret": _TEST_SECRET},
+        )
+
+        assert response.status_code == 422
+
+    def test_a_valid_write_applies_and_says_so(self, api_client):
+        response = api_client.post(
+            "/controls/risk_controls.stop_loss_pct",
+            json={"value": 3.5, "operator": "alice", "operator_secret": _TEST_SECRET},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "applied": True,
+            "name": "risk_controls.stop_loss_pct",
+            "value": 3.5,
+        }
