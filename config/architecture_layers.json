@@ -85,11 +85,6 @@
       "why": "An analytics package importing the HTTP edge. The most inverted of the six: whatever it needs from api is a shape that belongs lower down."
     },
     {
-      "from": "intelligence",
-      "to": "intel",
-      "why": "Two packages one letter apart, pointing at each other through the orchestration layer. The names are the first problem."
-    },
-    {
       "from": "strategies",
       "to": "engine",
       "why": "A strategy reaching back into the thing that runs it. Half of the engine<->strategies package cycle."
