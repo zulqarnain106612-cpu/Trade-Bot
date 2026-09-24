@@ -1240,3 +1240,25 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_yaml_uses_safe_load (INV-028)
+# ---------------------------------------------------------------------------
+
+
+def test_yaml_load_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.load(text)\n",
+    )
+    problems = invariants.check_yaml_uses_safe_load()
+    assert any("yaml.load()" in p for p in problems)
+
+
+def test_yaml_safe_load_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.safe_load(text)\n",
+    )
+    assert invariants.check_yaml_uses_safe_load() == []

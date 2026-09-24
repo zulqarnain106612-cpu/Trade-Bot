@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 115 |
+| VERIFIED | 116 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **115** |
+| **Total** | **116** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 7 | 7 |
 | Data, money and time | 7 | 7 |
 | API and WebSocket | 9 | 9 |
-| Cryptography and secrets | 16 | 16 |
+| Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -717,6 +717,17 @@ No error path returns a credential, token, stack trace or internal hostname to a
   - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
 
 ## Cryptography and secrets
+
+#### `INV-028` — yaml uses safe_load
+
+**VERIFIED** · critical · invariant · source: QE-52
+
+The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.
+
+- **If violated:** A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
@@ -1513,4 +1524,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 115 entries.
+Registry version: 1.0.0 — 116 entries.

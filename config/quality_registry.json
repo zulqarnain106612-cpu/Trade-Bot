@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-028",
+      "kind": "invariant",
+      "title": "yaml uses safe_load",
+      "statement": "The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",

@@ -1513,8 +1513,31 @@ def check_dataclass_attributes_exist() -> list[str]:
     return problems
 
 
+def check_yaml_uses_safe_load() -> list[str]:
+    """
+    ``yaml.load`` without a loader argument accepts YAML tags that construct
+    arbitrary Python objects -- the shape of ``!!python/object/apply:os.system``.
+    ``yaml.safe_load`` is the only entry point that refuses those tags.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "load"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "yaml"
+            ):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: yaml.load() -- use yaml.safe_load()"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("yaml.load", check_yaml_uses_safe_load),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),
