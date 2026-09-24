@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 118 |
+| VERIFIED | 119 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **118** |
+| **Total** | **119** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 9 | 9 |
+| API and WebSocket | 10 | 10 |
 | Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -728,6 +728,19 @@ No error path returns a credential, token, stack trace or internal hostname to a
 - **Depends on:** `SECR-001`
 - **Verification:**
   - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
+
+#### `GOV-025` — The control surface never misrepresents what it controls
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-24
+
+GET /controls must label every control with the tier it belongs to -- live, static, or protected -- must derive a live control's bounds from the same Pydantic model the write endpoint validates against rather than declaring them a second time, must list every registry.EXCLUDED_PARAMS entry as read-only with the reason it cannot be tuned, and must never carry an exchange credential's value.
+
+- **If violated:** The dashboard offers a control the backend will not honour. An operator who believes a slider moved a position-size cap or a drawdown halt, and is wrong, sizes real positions against a limit they think they changed.
+- **Owned by:** `src/api/control_surface.py`, `src/api/main.py`
+- **Verification:**
+  - `tests/test_control_surface.py` (contract)
+
+> The bounds rule is not hypothetical: the first draft of control_surface.py hardcoded fractions (0.001-0.50) while SetRiskControlsRequest validates percentages (0.1-50.0), so a live stop_loss_pct of 2.0 would have been reported as below its own minimum. The model is injected into build_control_surface() rather than imported, which both removes the second source of truth and keeps control_surface from importing the router that imports it. 8 live controls, 16 protected, at time of writing. layer: review
 
 ## Cryptography and secrets
 
@@ -1553,4 +1566,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 118 entries.
+Registry version: 1.0.0 — 119 entries.

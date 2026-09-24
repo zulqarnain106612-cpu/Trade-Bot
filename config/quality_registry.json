@@ -2742,6 +2742,29 @@
       ]
     },
     {
+      "id": "GOV-025",
+      "kind": "requirement",
+      "title": "The control surface never misrepresents what it controls",
+      "statement": "GET /controls must label every control with the tier it belongs to -- live, static, or protected -- must derive a live control's bounds from the same Pydantic model the write endpoint validates against rather than declaring them a second time, must list every registry.EXCLUDED_PARAMS entry as read-only with the reason it cannot be tuned, and must never carry an exchange credential's value.",
+      "criticality": "high",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-24",
+      "failure_mode": "The dashboard offers a control the backend will not honour. An operator who believes a slider moved a position-size cap or a drawdown halt, and is wrong, sizes real positions against a limit they think they changed.",
+      "owning_modules": [
+        "src/api/control_surface.py",
+        "src/api/main.py"
+      ],
+      "depends_on": [],
+      "verification": [
+        {
+          "test": "tests/test_control_surface.py",
+          "test_type": "contract"
+        }
+      ],
+      "notes": "The bounds rule is not hypothetical: the first draft of control_surface.py hardcoded fractions (0.001-0.50) while SetRiskControlsRequest validates percentages (0.1-50.0), so a live stop_loss_pct of 2.0 would have been reported as below its own minimum. The model is injected into build_control_surface() rather than imported, which both removes the second source of truth and keeps control_surface from importing the router that imports it. 8 live controls, 16 protected, at time of writing. layer: review"
+    },
+    {
       "id": "SIG-004",
       "kind": "requirement",
       "title": "The eighteen-engine seam is asserted from both sides, positions included",
