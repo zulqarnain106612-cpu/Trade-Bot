@@ -2555,3 +2555,66 @@ async def risk_size_check(body: SizeCheckRequest, request: Request) -> dict[str,
         "allowed": allowed,
         "reject_reason": reject_reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# Venue connectivity (REG-0014)
+#
+# A venue can now be down while the bot runs, so its state has to be readable
+# and its recovery has to be reachable without a restart. These two endpoints
+# are that control surface: what is up, and bring one back.
+# ---------------------------------------------------------------------------
+
+
+class VenueReconnectRequest(BaseModel):
+    """Second factor for reconnecting a venue, as for every other control."""
+
+    operator_secret: str
+
+
+@app.get("/venues", dependencies=[Depends(api_key_header)])
+async def venues_status() -> dict[str, Any]:
+    """
+    Per-venue availability and, for a venue that is down, what it said.
+
+    The reason is the point: an operator has to tell a transient network fault
+    from a 451 eligibility block, because only one of those is worth retrying.
+    """
+    orchestrator = require_orchestrator()
+    status = orchestrator._fetcher.venue_status()
+    return {
+        "venues": status,
+        "available": sorted(v for v, s in status.items() if s["available"]),
+        "degraded": any(not s["available"] for s in status.values()),
+    }
+
+
+@app.post("/venues/{venue}/reconnect", dependencies=[Depends(api_key_header)])
+async def reconnect_venue(
+    venue: str,
+    body: VenueReconnectRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Re-open one venue in place. Returns its state after the attempt."""
+    _state.check_endpoint_rate_limit(
+        "reconnect_venue", request.client.host if request.client else ""
+    )
+    # SEC-007: same second-factor pattern as /execution-mode. Reconnecting is a
+    # state change on the trading path -- it can put a venue back in service --
+    # so the API key alone is not enough.
+    expected = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="OPERATOR_SECRET is not configured.")
+    if not hmac.compare_digest(body.operator_secret.encode("utf-8"), expected.encode("utf-8")):
+        log.warning("api.reconnect_venue_bad_operator_secret", venue=venue)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+
+    orchestrator = require_orchestrator()
+    try:
+        reconnected = await orchestrator._fetcher.reconnect(venue)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    status = orchestrator._fetcher.venue_status()[venue]
+    log.info("api.venue_reconnect", venue=venue, available=reconnected)
+    return {"venue": venue, "reconnected": reconnected, **status}

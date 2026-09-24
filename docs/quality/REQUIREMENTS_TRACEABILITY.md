@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 117 |
+| VERIFIED | 118 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **117** |
+| **Total** | **118** |
 
 ## Summary by subsystem
 
@@ -62,7 +62,7 @@ deletion of the thing it points at.
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
-| Data, money and time | 7 | 7 |
+| Data, money and time | 8 | 8 |
 | API and WebSocket | 9 | 9 |
 | Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
@@ -607,6 +607,19 @@ Every pytest process, controller or xdist worker, resolves DUCKDB_PATH to a file
   - `tests/test_duckdb_path_is_per_worker.py` (regression)
 
 > Escaped to the test suite, not to a running system: production reads DUCKDB_PATH from its own environment and never had two processes sharing one file. What broke was the suite's own isolation, and only under -n, so it presented as a flake that moved between shards rather than as a defect. Filed because a red shard nobody can attribute is a false signal in the gate that merges every change. layer: test-suite
+
+#### `REG-0014` — One unreachable venue degrades the fetcher, it does not stop the bot
+
+**VERIFIED** · high · regression · source: OPS-2026-09-24
+
+MarketDataFetcher.initialize() must open each venue independently, record an unavailable venue with the reason it gave, and raise only when no venue came up; an unavailable venue's accessor must name that reason, and reconnect() must restore a venue in place without a process restart.
+
+- **If violated:** A single venue refusing -- an outage, a rate limit, or a jurisdictional 451 -- aborts startup for the whole process, stopping strategies that trade only the other venue and requiring a restart to recover once the venue returns.
+- **Owned by:** `src/data/fetcher.py`, `src/api/main.py`
+- **Verification:**
+  - `tests/test_fetcher_venue_degradation.py` (regression)
+
+> Observed against Binance answering HTTP 451 'Service unavailable from a restricted location' on both mainnet and testnet from an affected network, which made the backend unstartable however healthy OKX and everything else was. initialize() built both venues and loaded their markets in one unisolated sequence. GET /venues and POST /venues/{venue}/reconnect expose the state and the recovery so neither needs a restart. layer: test-suite
 
 ## API and WebSocket
 
@@ -1540,4 +1553,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 117 entries.
+Registry version: 1.0.0 — 118 entries.
