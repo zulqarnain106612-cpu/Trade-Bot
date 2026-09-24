@@ -1240,3 +1240,27 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_no_subprocess_shell_true (INV-029)
+# ---------------------------------------------------------------------------
+
+
+def test_shell_true_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\ndef go(cmd):\n    subprocess.run(cmd, shell=True)\n",
+    )
+    problems = invariants.check_no_subprocess_shell_true()
+    assert any("shell=True" in p for p in problems)
+
+
+def test_shell_false_and_default_pass(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\n"
+        "def a(argv):\n    subprocess.run(argv, shell=False)\n"
+        "def b(argv):\n    subprocess.run(argv)\n",
+    )
+    assert invariants.check_no_subprocess_shell_true() == []
