@@ -1513,8 +1513,26 @@ def check_dataclass_attributes_exist() -> list[str]:
     return problems
 
 
+def check_no_assert_in_src() -> list[str]:
+    """
+    ``assert`` disappears under ``python -O``. A production check spelled as
+    an assert becomes a silent no-op in optimised runs, so the invariant it
+    was defending goes with it. Every production check is an ``if x: raise``.
+    Tests are free to assert; only ``src/`` is guarded.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Assert):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: assert in src/ -- use 'if not x: raise'"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("assert in src", check_no_assert_in_src),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),
