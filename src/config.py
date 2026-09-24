@@ -15,7 +15,7 @@ import threading
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -1123,21 +1123,153 @@ EXCHANGE_OKX: Final[str] = "okx"
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    """
-    Return the singleton Settings instance.
+# Distinguishes "no override was set" from "an override whose value is None",
+# so a rejected write restores the exact previous state rather than guessing.
+_UNSET: object = object()
 
-    lru_cache(maxsize=1) ensures pydantic-settings reads .env exactly once,
-    preventing repeated I/O and guaranteeing a single source of truth.
-    Call invalidate_settings_cache() in tests to reset between cases.
+
+@lru_cache(maxsize=1)
+def _base_settings() -> Settings:
+    """
+    The settings as the environment defines them, read exactly once.
+
+    lru_cache(maxsize=1) ensures pydantic-settings reads .env a single time,
+    preventing repeated I/O and guaranteeing one source of truth for the
+    values an operator has *not* overridden at runtime.
     """
     return Settings()
 
 
+# --- live overrides --------------------------------------------------------
+#
+# An operator changing a setting must take effect on the next read, with no
+# restart. 79 of the 80 reads in src/ call get_settings() at use time rather
+# than capturing it, so making this function return live values is what makes
+# the configuration live -- not touching 188 fields one at a time.
+#
+# What this must not do is clear the cache. VUL-028: invalidate_settings_cache()
+# in a request path re-instantiates every setting from the environment, so
+# concurrent readers during the clear window observe a half-built object --
+# exchange keys and risk thresholds included. That is the bug this design
+# exists to avoid, not a cost to trade against.
+#
+# Instead the effective object is rebuilt once, off the read path, and the
+# module-level reference is swapped. A reader either sees the whole previous
+# object or the whole next one: a name lookup is atomic, so there is no window
+# in which one is half-applied. Reads stay lock-free; only writes take the
+# lock, and writes are rare.
+_override_lock: threading.Lock = threading.Lock()
+_overrides: dict[str, Any] = {}
+_effective_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """
+    The settings in force right now, including any live operator overrides.
+
+    One attribute read on the hot path. The object is immutable; changing a
+    setting replaces it wholesale rather than mutating it in place.
+    """
+    effective = _effective_settings
+    return effective if effective is not None else _base_settings()
+
+
+def _rebuild_effective() -> Settings:
+    """
+    Apply every override onto a fresh dump of the base and re-validate.
+
+    Re-validating rather than model_copy(update=...) is deliberate: copy does
+    not run validators, so it would accept a negative kelly_multiplier or an
+    out-of-range percentage and leave the breakage to be discovered by the
+    risk engine at the worst possible moment.
+    """
+    data = _base_settings().model_dump()
+    for dotted, value in _overrides.items():
+        target = data
+        *parents, leaf = dotted.split(".")
+        for part in parents:
+            target = target[part]
+        target[leaf] = value
+    return Settings.model_validate(data)
+
+
+def settings_override_names() -> frozenset[str]:
+    """Dotted paths that currently differ from the environment."""
+    return frozenset(_overrides)
+
+
+def resolve_setting_path(dotted: str) -> None:
+    """
+    Raise KeyError unless `dotted` names a real field on the settings tree.
+
+    Checked before the value is applied so an operator typo is refused by
+    name rather than silently creating a setting nothing reads.
+    """
+    model: Any = Settings
+    parts = dotted.split(".")
+    for index, part in enumerate(parts):
+        fields = getattr(model, "model_fields", None)
+        if fields is None or part not in fields:
+            raise KeyError(dotted)
+        annotation = fields[part].annotation
+        nested = isinstance(annotation, type) and hasattr(annotation, "model_fields")
+        if index < len(parts) - 1:
+            if not nested:
+                raise KeyError(dotted)
+            model = annotation
+        elif nested:
+            # A branch, not a leaf. Allowing it would let one write replace a
+            # whole settings section -- every risk limit at once, from a single
+            # field's worth of intent -- and the failure would surface as a
+            # validation error about a dict rather than as "that is not a
+            # setting". Leaves only.
+            raise KeyError(dotted)
+
+
+def set_setting_override(dotted: str, value: Any) -> Settings:
+    """
+    Put one setting under operator control and make it effective immediately.
+
+    Returns the settings now in force. Raises KeyError for an unknown path and
+    pydantic's ValidationError for a value the field's own validators refuse --
+    the same validators the environment would have been held to.
+    """
+    resolve_setting_path(dotted)
+    global _effective_settings
+    with _override_lock:
+        previous = _overrides.get(dotted, _UNSET)
+        _overrides[dotted] = value
+        try:
+            rebuilt = _rebuild_effective()
+        except Exception:
+            # Leave the live configuration exactly as it was: a rejected value
+            # must not remove the one that was working.
+            if previous is _UNSET:
+                _overrides.pop(dotted, None)
+            else:
+                _overrides[dotted] = previous
+            raise
+        _effective_settings = rebuilt
+        return rebuilt
+
+
+def clear_setting_override(dotted: str) -> Settings:
+    """Hand one setting back to the environment, effective immediately."""
+    global _effective_settings
+    with _override_lock:
+        _overrides.pop(dotted, None)
+        rebuilt = _rebuild_effective() if _overrides else None
+        _effective_settings = rebuilt
+        return rebuilt if rebuilt is not None else _base_settings()
+
+
 def invalidate_settings_cache() -> None:
-    """Clear cached settings — intended for test isolation only."""
-    get_settings.cache_clear()
+    """Clear cached settings and every override — for test isolation only."""
+    global _effective_settings
+    with _override_lock:
+        _overrides.clear()
+        _effective_settings = None
+    _base_settings.cache_clear()
 
 
 # ---------------------------------------------------------------------------

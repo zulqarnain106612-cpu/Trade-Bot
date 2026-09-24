@@ -2819,6 +2819,42 @@
       "notes": "The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review"
     },
     {
+      "id": "GOV-028",
+      "kind": "requirement",
+      "title": "A setting the operator changes takes effect without a restart",
+      "statement": "get_settings() must return the configuration in force including live operator overrides; an override must be validated by the field's own validators before it applies, must leave the previous value in force if refused, must be refused by name if the path is not a settings leaf, and must never expose a reader to a partially-rebuilt settings tree. No object may capture settings at construction.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-24",
+      "failure_mode": "Every configuration value is fixed for the life of the process, so an operator reacting to live market conditions must restart the bot -- flattening positions and losing in-flight state -- to change a window length or a risk limit.",
+      "owning_modules": [
+        "src/config.py",
+        "src/api/control_surface.py",
+        "src/engine/signal_engine.py",
+        "src/engine/orchestrator.py",
+        "src/data/fetcher.py"
+      ],
+      "depends_on": [
+        "GOV-026"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_live_settings.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_control_surface.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_control_write.py",
+          "test_type": "contract"
+        }
+      ],
+      "notes": "79 of the 80 get_settings() calls in src/ already read at use time, so the fix was the function, not 188 fields. The cache is never cleared: VUL-028 showed that invalidating it in a request path re-instantiates every setting from the environment and exposes concurrent readers to a half-built object. The effective settings are rebuilt off the read path and the module reference is swapped, so a reader sees the whole previous object or the whole next one. Re-validation rather than model_copy(update=) is deliberate: copy runs no validators and would accept a negative kelly_multiplier. EXCLUDED_PARAMS is unchanged and still bars the autotuner from risk limits; it never described what the operator may do, and reading it that way had locked the owner out of their own position caps. Credentials remain permanently unexposed and unsettable; api.host/port/reload and the storage connection fields are reported requires_restart rather than falsely live. layer: review"
+    },
+    {
       "id": "SIG-004",
       "kind": "requirement",
       "title": "The eighteen-engine seam is asserted from both sides, positions included",

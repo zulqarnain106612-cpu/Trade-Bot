@@ -18,16 +18,12 @@ from __future__ import annotations
 import pytest
 
 from src.api.control_surface import (
-    _OPERATOR_SETTABLE,
+    _CREDENTIAL_MARKERS,
     Control,
     _bounds_from_model,
     build_control_surface,
-    protected_controls,
 )
 from src.api.main import SetRiskControlsRequest
-from src.tuning.registry import EXCLUDED_PARAMS
-
-_CREDENTIAL_MARKERS = ("api_key", "api_secret", "passphrase")
 
 
 @pytest.fixture(scope="module")
@@ -119,53 +115,101 @@ class TestNoControlAppearsTwice:
         assert rows[0]["live"] is True
         assert rows[0]["protected"] is False
 
-    def test_a_parameter_with_no_setter_stays_protected(self):
+    async def test_trading_mode_is_the_operators_to_set(self, surface_fields):
         """
-        trading_mode is excluded from tuning and nothing exposes a setter for
-        it, so protected is the truthful tier -- the fix for execution_mode
-        must not quietly promote every excluded parameter.
+        It was listed protected because it is in EXCLUDED_PARAMS. That list
+        keeps the *autotuner* away from it, which is right -- nothing should
+        self-tune its way from paper into live. The owner switching their own
+        bot is a different act, and it is theirs to make, behind the operator
+        secret like every other write.
         """
-        names = {c.name for c in protected_controls()}
-        assert "trading_mode" in names
-        assert "execution_mode" not in names
-
-
-class TestProtectedParametersAreShownButNeverOffered:
-    def test_every_excluded_parameter_without_a_setter_is_present(self):
-        """
-        Present, not hidden: an operator needs to see that a drawdown halt
-        exists. Absent, they cannot tell it from a setting nobody implemented.
-        """
-        names = {c.name for c in protected_controls()}
-        assert names == set(EXCLUDED_PARAMS) - _OPERATOR_SETTABLE
-
-    def test_none_of_them_is_offered_as_a_control(self):
-        for control in protected_controls():
-            assert control.kind == "readonly"
-            assert control.protected is True
-            assert control.live is False
-
-    def test_each_one_says_why(self):
-        for control in protected_controls():
-            assert control.reason, control.name
-
-    @pytest.mark.parametrize(
-        "name", sorted(n for n in EXCLUDED_PARAMS if any(m in n for m in _CREDENTIAL_MARKERS))
-    )
-    def test_a_credential_is_named_but_never_valued(self, name):
-        """
-        The point of listing a credential is to say it is not tunable.
-        Printing it to say so would defeat the exercise.
-        """
-        control = next(c for c in protected_controls() if c.name == name)
-        assert control.value is None
-        assert "credential" in control.reason
-
-    async def test_no_credential_value_reaches_the_payload(self, surface_fields):
         surface = await build_control_surface(surface_fields)
-        for control in surface["controls"]:
-            if any(marker in control["name"] for marker in _CREDENTIAL_MARKERS):
-                assert control["value"] is None
+        row = next(c for c in surface["controls"] if c["name"] == "trading_mode")
+
+        assert row["live"] is True
+        assert row["protected"] is False
+        assert row["kind"] == "select"
+
+
+class TestCredentialsAreTheOnlyThingNeverShown:
+    """
+    The protected tier used to hold every EXCLUDED_PARAMS entry, because that
+    list was read as "what may never be changed at runtime". It answers what
+    the *autotuner* may move. Risk limits are now the operator's to set, and
+    the only permanent exclusion is a credential: it is not shown, not
+    settable, and would otherwise be broadcast to every dashboard on the next
+    control_changed frame.
+    """
+
+    async def test_a_credential_is_present_by_name_but_never_valued(self, surface_fields):
+        surface = await build_control_surface(surface_fields)
+        credentials = [
+            c for c in surface["controls"] if any(m in c["name"] for m in _CREDENTIAL_MARKERS)
+        ]
+
+        assert credentials, "the surface hides credentials entirely rather than naming them"
+        for control in credentials:
+            assert control["value"] is None
+            assert control["protected"] is True
+            assert control["live"] is False
+            assert "credential" in control["reason"]
+
+    async def test_a_risk_limit_is_no_longer_protected(self, surface_fields):
+        surface = await build_control_surface(surface_fields)
+        row = next(c for c in surface["controls"] if c["name"] == "risk.max_position_size_pct")
+
+        assert row["protected"] is False
+        assert row["live"] is True
+
+    async def test_a_startup_bound_field_is_marked_rather_than_claimed_live(self, surface_fields):
+        surface = await build_control_surface(surface_fields)
+        row = next(c for c in surface["controls"] if c["name"] == "api.port")
+
+        assert row["live"] is False
+        assert row["requires_restart"] is True
+        assert "startup" in row["reason"]
+
+
+class TestTheWidgetComesFromTheType:
+    @pytest.mark.parametrize(
+        ("name", "kind"),
+        [
+            ("binance.testnet", "toggle"),
+            ("features.atr_window", "number"),
+            ("binance.base_url", "text"),
+        ],
+    )
+    async def test_the_kind_matches_the_field(self, surface_fields, name, kind):
+        """
+        Derived from the annotation, not from the name: a field called
+        *_enabled that is an int is still a number, and the hub must not offer
+        a toggle for it.
+        """
+        surface = await build_control_surface(surface_fields)
+        row = next(c for c in surface["controls"] if c["name"] == name)
+
+        assert row["kind"] == kind
+
+    async def test_the_whole_configuration_is_present(self, surface_fields):
+        """
+        The point of the tier. 9 controls out of 188 fields was the gap; this
+        asserts the surface covers the settings tree rather than a corner.
+        """
+        from src.config import Settings
+
+        def leaves(model, prefix=""):
+            for fname, info in model.model_fields.items():
+                ann = info.annotation
+                if isinstance(ann, type) and hasattr(ann, "model_fields"):
+                    yield from leaves(ann, f"{prefix}{fname}.")
+                else:
+                    yield f"{prefix}{fname}"
+
+        surface = await build_control_surface(surface_fields)
+        names = {c["name"] for c in surface["controls"]}
+        missing = {leaf for leaf in leaves(Settings)} - names - {"execution_mode"}
+
+        assert not missing, f"settings absent from the control surface: {sorted(missing)[:8]}"
 
 
 class TestTheRowShape:

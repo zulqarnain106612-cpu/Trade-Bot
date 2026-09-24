@@ -34,6 +34,7 @@ from src.config import (
     TIMEFRAME_SECONDS,
     BinanceSettings,
     OKXSettings,
+    Settings,
     Timeframe,
     get_settings,
 )
@@ -328,7 +329,6 @@ class MarketDataFetcher:
 
     def __init__(self, storage: AnyStorageBackend) -> None:
         self._storage = storage
-        self._settings = get_settings()
         self._binance: ccxt.binance | None = None
         self._okx: ccxt.okx | None = None
         # Why each unavailable venue is unavailable, kept for venue_status().
@@ -339,6 +339,19 @@ class MarketDataFetcher:
         # Use double-checked locking with a threading.Lock sentinel for one-time creation.
         self._sem_init_guard: threading.Lock = threading.Lock()
         self._gap_fill_sem: asyncio.Semaphore | None = None
+
+    @property
+    def _settings(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 1 existing reads
+        untouched while making each of them current.
+        """
+        return get_settings()
 
     def _get_sem(self) -> asyncio.Semaphore:
         """Return (lazily-created) asyncio.Semaphore — thread-safe one-time init."""

@@ -37,7 +37,7 @@ import structlog
 from xgboost import XGBClassifier
 
 from src.api.metrics import regime_ensemble_failure_total
-from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
+from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Settings, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.quality_gate import DataQualityGate, FreshnessBudget
 from src.data.storage import AnyStorageBackend, ModelMetricsRecord
@@ -307,7 +307,6 @@ class SignalEngine:
         # with. Bounded: only recent bars can still have an unresolved barrier,
         # so anything older is dead weight.
         self._p_long_by_bar: OrderedDict[int, float] = OrderedDict()
-        self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         # v4 regime ensemble (observability only — never gates trades, see
         # tick()): a per-engine BOCPD instance must persist its run-length
@@ -345,6 +344,19 @@ class SignalEngine:
     # ------------------------------------------------------------------
     # Atomic model swap — called by orchestrator after retraining (fix #14)
     # ------------------------------------------------------------------
+
+    @property
+    def _cfg(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 14 existing reads
+        untouched while making each of them current.
+        """
+        return get_settings()
 
     async def swap_models(
         self,

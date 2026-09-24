@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 121 |
+| VERIFIED | 122 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **121** |
+| **Total** | **122** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 27 | 27 |
+| Governance | 28 | 28 |
 
 ## Outstanding work by phase
 
@@ -1484,6 +1484,22 @@ src/intelligence/ must not import from src.intel. The adapter takes the concrete
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
 
+#### `GOV-028` — A setting the operator changes takes effect without a restart
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-24
+
+get_settings() must return the configuration in force including live operator overrides; an override must be validated by the field's own validators before it applies, must leave the previous value in force if refused, must be refused by name if the path is not a settings leaf, and must never expose a reader to a partially-rebuilt settings tree. No object may capture settings at construction.
+
+- **If violated:** Every configuration value is fixed for the life of the process, so an operator reacting to live market conditions must restart the bot -- flattening positions and losing in-flight state -- to change a window length or a risk limit.
+- **Owned by:** `src/config.py`, `src/api/control_surface.py`, `src/engine/signal_engine.py`, `src/engine/orchestrator.py`, `src/data/fetcher.py`
+- **Depends on:** `GOV-026`
+- **Verification:**
+  - `tests/test_live_settings.py` (contract)
+  - `tests/test_control_surface.py` (contract)
+  - `tests/test_control_write.py` (contract)
+
+> 79 of the 80 get_settings() calls in src/ already read at use time, so the fix was the function, not 188 fields. The cache is never cleared: VUL-028 showed that invalidating it in a request path re-instantiates every setting from the environment and exposes concurrent readers to a half-built object. The effective settings are rebuilt off the read path and the module reference is swapped, so a reader sees the whole previous object or the whole next one. Re-validation rather than model_copy(update=) is deliberate: copy runs no validators and would accept a negative kelly_multiplier. EXCLUDED_PARAMS is unchanged and still bars the autotuner from risk limits; it never described what the operator may do, and reading it that way had locked the owner out of their own position caps. Credentials remain permanently unexposed and unsettable; api.host/port/reload and the storage connection fields are reported requires_restart rather than falsely live. layer: review
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1595,4 +1611,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 121 entries.
+Registry version: 1.0.0 — 122 entries.

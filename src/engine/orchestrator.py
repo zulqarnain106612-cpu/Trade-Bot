@@ -35,6 +35,7 @@ from src.config import (
     EXCHANGE_BINANCE,
     EXCHANGE_OKX,
     TIMEFRAME_SECONDS,
+    Settings,
     Timeframe,
     TradingMode,
     get_settings,
@@ -232,7 +233,6 @@ class Orchestrator:
     ) -> None:
         self._storage = storage
         self._fetcher = fetcher
-        self._cfg = get_settings()
         self._symbol = self._cfg.primary_symbol
         self._timeframes = self._cfg.active_timeframes
         self._primary_tf = self._cfg.primary_timeframe
@@ -318,6 +318,19 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
     # ------------------------------------------------------------------
+
+    @property
+    def _cfg(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 31 existing reads
+        untouched while making each of them current.
+        """
+        return get_settings()
 
     async def startup(self) -> None:
         """
