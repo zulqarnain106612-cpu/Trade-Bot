@@ -57,7 +57,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
-from src.api.control_surface import build_control_surface
+from src.api.control_surface import ControlWriteError, apply_control, build_control_surface
 from src.api.error_hygiene import install_error_handlers
 from src.api.fail_closed import (
     CONTROL_HEALTH,
@@ -196,6 +196,43 @@ class AppState:
         """Remove a WS client from the tracked set."""
         async with self._ws_lock:
             self._ws_clients.discard(ws)
+
+    async def broadcast(self, payload: dict[str, Any]) -> int:
+        """
+        Push one message to every connected dashboard. Returns how many got it.
+
+        Each connection otherwise pushes its own heartbeat, so a control moved
+        between ticks is invisible until the next one -- long enough for an
+        operator to move a slider, see nothing, and move it again. This is the
+        out-of-band path for that.
+
+        A send is never allowed to fail the caller: this runs after a write has
+        already been applied, and a dashboard that has gone away is not a
+        reason to report the write as failed. Failures drop the client instead,
+        which is what the heartbeat's own error path does.
+
+        The set is snapshotted under the lock before sending. Iterating it
+        directly would mutate-during-iteration the moment a send fails and the
+        client is discarded.
+        """
+        async with self._ws_lock:
+            clients = list(self._ws_clients)
+
+        message = json.dumps(payload)
+        delivered = 0
+        dead: list[WebSocket] = []
+        for client in clients:
+            try:
+                await client.send_text(message)
+                delivered += 1
+            except Exception:
+                dead.append(client)
+
+        for client in dead:
+            await self.remove_ws_client(client)
+        if dead:
+            log.info("api.ws_broadcast_dropped", dropped=len(dead), delivered=delivered)
+        return delivered
 
     def check_endpoint_rate_limit(self, endpoint: str, client_ip: str = "") -> None:
         """
@@ -2633,3 +2670,49 @@ async def control_surface() -> dict[str, Any]:
     and that it is not movable from here, which is not the same as hiding it.
     """
     return await build_control_surface(SetRiskControlsRequest)
+
+
+class SetControlRequest(BaseModel):
+    """One control, one value, plus the second factor."""
+
+    value: Any
+    operator: str
+    operator_secret: str
+
+
+@app.post("/controls/{name}", dependencies=[Depends(api_key_header)])
+async def set_control(name: str, body: SetControlRequest, request: Request) -> dict[str, Any]:
+    """
+    Set one live control, routed to the setter that already owns it.
+
+    One entry point for the dashboard, not a second way in: a risk control is
+    still validated by SetRiskControlsRequest and a tunable still by its
+    registry bounds, so this endpoint cannot write anything the dedicated
+    endpoints would have refused. A protected parameter is refused outright.
+    """
+    _state.check_endpoint_rate_limit("set_control", request.client.host if request.client else "")
+    # SEC-007: same second factor as /execution-mode and /risk-controls. This
+    # moves live trading parameters, so the API key alone is not enough.
+    expected = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="OPERATOR_SECRET is not configured.")
+    if not hmac.compare_digest(body.operator_secret.encode("utf-8"), expected.encode("utf-8")):
+        log.warning("api.set_control_bad_operator_secret", control=name)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+
+    try:
+        applied = await apply_control(
+            name,
+            body.value,
+            SetRiskControlsRequest,
+            operator=body.operator,
+            operator_secret=body.operator_secret,
+        )
+    except ControlWriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    log.info("api.control_set", control=name, value=applied["value"])
+    # Out of band, so a second dashboard -- or the same one, mid-drag -- sees
+    # the new value now rather than at the next heartbeat.
+    await _state.broadcast({"type": "control_changed", **applied})
+    return {"applied": True, **applied}

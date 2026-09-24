@@ -2765,6 +2765,60 @@
       "notes": "The bounds rule is not hypothetical: the first draft of control_surface.py hardcoded fractions (0.001-0.50) while SetRiskControlsRequest validates percentages (0.1-50.0), so a live stop_loss_pct of 2.0 would have been reported as below its own minimum. The model is injected into build_control_surface() rather than imported, which both removes the second source of truth and keeps control_surface from importing the router that imports it. 8 live controls, 16 protected, at time of writing. layer: review"
     },
     {
+      "id": "GOV-026",
+      "kind": "requirement",
+      "title": "One write endpoint, and not a second way in",
+      "statement": "POST /controls/{name} must route each write to the setter that already owns the control -- a risk control through the same Pydantic model POST /risk-controls validates against, a tunable through ParameterRegistry bounds -- must refuse any registry.EXCLUDED_PARAMS entry that has no operator setter with 403, and must carry the same operator_secret second factor as the endpoints it routes to.",
+      "criticality": "high",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-24",
+      "failure_mode": "A unified endpoint becomes a bypass: a value the dedicated endpoint would have rejected is written through the general one, so a bound that exists in the model is not a bound that holds in production.",
+      "owning_modules": [
+        "src/api/control_surface.py",
+        "src/api/main.py"
+      ],
+      "depends_on": [
+        "GOV-025"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_control_write.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_venue_api.py",
+          "test_type": "api"
+        }
+      ],
+      "notes": "The router threads operator and operator_secret into the risk-control model rather than faking them: both are required fields, so validating with a placeholder would exercise a different model than the real endpoint does -- the exact bypass this entry forbids -- and the operator's name belongs on the write anyway. execution_mode is checked against _OPERATOR_SETTABLE before EXCLUDED_PARAMS, because it is in both and refusing it would break the one runtime switch the system documents. layer: review"
+    },
+    {
+      "id": "GOV-027",
+      "kind": "requirement",
+      "title": "A control change is pushed, not waited for",
+      "statement": "A successful write through POST /controls/{name} must broadcast a control_changed frame to every connected websocket client; a rejected write must broadcast nothing; and a client that fails to receive must be dropped without failing the write or depriving the remaining clients.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-24",
+      "failure_mode": "A control moved between heartbeats is invisible until the next one, so an operator moves a slider, sees nothing change, and moves it again -- or a second dashboard shows a stale value while acting on it.",
+      "owning_modules": [
+        "src/api/main.py",
+        "frontend/src/hooks/useApi.js"
+      ],
+      "depends_on": [
+        "GOV-026"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_venue_api.py",
+          "test_type": "api"
+        }
+      ],
+      "notes": "The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review"
+    },
+    {
       "id": "SIG-004",
       "kind": "requirement",
       "title": "The eighteen-engine seam is asserted from both sides, positions included",

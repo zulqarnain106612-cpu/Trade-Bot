@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 119 |
+| VERIFIED | 121 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **119** |
+| **Total** | **121** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 7 | 7 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 10 | 10 |
+| API and WebSocket | 12 | 12 |
 | Cryptography and secrets | 16 | 16 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -741,6 +741,35 @@ GET /controls must label every control with the tier it belongs to -- live, stat
   - `tests/test_control_surface.py` (contract)
 
 > The bounds rule is not hypothetical: the first draft of control_surface.py hardcoded fractions (0.001-0.50) while SetRiskControlsRequest validates percentages (0.1-50.0), so a live stop_loss_pct of 2.0 would have been reported as below its own minimum. The model is injected into build_control_surface() rather than imported, which both removes the second source of truth and keeps control_surface from importing the router that imports it. 8 live controls, 16 protected, at time of writing. layer: review
+
+#### `GOV-026` — One write endpoint, and not a second way in
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-24
+
+POST /controls/{name} must route each write to the setter that already owns the control -- a risk control through the same Pydantic model POST /risk-controls validates against, a tunable through ParameterRegistry bounds -- must refuse any registry.EXCLUDED_PARAMS entry that has no operator setter with 403, and must carry the same operator_secret second factor as the endpoints it routes to.
+
+- **If violated:** A unified endpoint becomes a bypass: a value the dedicated endpoint would have rejected is written through the general one, so a bound that exists in the model is not a bound that holds in production.
+- **Owned by:** `src/api/control_surface.py`, `src/api/main.py`
+- **Depends on:** `GOV-025`
+- **Verification:**
+  - `tests/test_control_write.py` (contract)
+  - `tests/test_venue_api.py` (api)
+
+> The router threads operator and operator_secret into the risk-control model rather than faking them: both are required fields, so validating with a placeholder would exercise a different model than the real endpoint does -- the exact bypass this entry forbids -- and the operator's name belongs on the write anyway. execution_mode is checked against _OPERATOR_SETTABLE before EXCLUDED_PARAMS, because it is in both and refusing it would break the one runtime switch the system documents. layer: review
+
+#### `GOV-027` — A control change is pushed, not waited for
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-24
+
+A successful write through POST /controls/{name} must broadcast a control_changed frame to every connected websocket client; a rejected write must broadcast nothing; and a client that fails to receive must be dropped without failing the write or depriving the remaining clients.
+
+- **If violated:** A control moved between heartbeats is invisible until the next one, so an operator moves a slider, sees nothing change, and moves it again -- or a second dashboard shows a stale value while acting on it.
+- **Owned by:** `src/api/main.py`, `frontend/src/hooks/useApi.js`
+- **Depends on:** `GOV-026`
+- **Verification:**
+  - `tests/test_venue_api.py` (api)
+
+> The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
 ## Cryptography and secrets
 
@@ -1566,4 +1595,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 119 entries.
+Registry version: 1.0.0 — 121 entries.
