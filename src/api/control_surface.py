@@ -171,6 +171,17 @@ def tunable_controls() -> list[Control]:
     ]
 
 
+# EXCLUDED_PARAMS answers "what may the autotuner move", which is not the same
+# question as "what may an operator move", and conflating the two was a bug:
+# execution_mode is excluded from self-tuning *and* deliberately operator-
+# switchable through POST /execution-mode, so it was emitted twice -- once live,
+# once protected -- by a surface whose entire purpose is not to misrepresent
+# what it controls. Anything listed here is excluded from tuning but keeps its
+# own gated operator path. trading_mode is deliberately absent: nothing exposes
+# a setter for it, so protected is the truthful tier.
+_OPERATOR_SETTABLE: frozenset[str] = frozenset({"execution_mode"})
+
+
 def protected_controls() -> list[Control]:
     """
     The hard risk limits and credentials, shown read-only with the reason.
@@ -180,7 +191,7 @@ def protected_controls() -> list[Control]:
     """
     controls: list[Control] = []
     settings = get_settings()
-    for name in sorted(EXCLUDED_PARAMS):
+    for name in sorted(EXCLUDED_PARAMS - _OPERATOR_SETTABLE):
         is_credential = "api_key" in name or "api_secret" in name or "passphrase" in name
         value: Any = None
         if not is_credential:

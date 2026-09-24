@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from src.api.control_surface import (
+    _OPERATOR_SETTABLE,
     Control,
     _bounds_from_model,
     build_control_surface,
@@ -95,14 +96,48 @@ class TestTheTiersAreHonest:
         assert surface["counts"]["protected"] == sum(1 for c in controls if c["protected"])
 
 
+class TestNoControlAppearsTwice:
+    async def test_a_control_has_exactly_one_tier(self, surface_fields):
+        """
+        The bug this caught: EXCLUDED_PARAMS answers "what may the autotuner
+        move", not "what may an operator move". execution_mode is excluded from
+        self-tuning *and* deliberately operator-switchable, so it was emitted
+        twice -- once live, once protected -- by the very surface whose job is
+        not to misrepresent what it controls. A duplicate name is that class of
+        bug whatever causes it, so the assertion is on the names.
+        """
+        surface = await build_control_surface(surface_fields)
+        names = [c["name"] for c in surface["controls"]]
+
+        assert len(names) == len(set(names)), "a control is listed under two tiers"
+
+    async def test_execution_mode_is_live_and_not_protected(self, surface_fields):
+        surface = await build_control_surface(surface_fields)
+        rows = [c for c in surface["controls"] if c["name"] == "execution_mode"]
+
+        assert len(rows) == 1
+        assert rows[0]["live"] is True
+        assert rows[0]["protected"] is False
+
+    def test_a_parameter_with_no_setter_stays_protected(self):
+        """
+        trading_mode is excluded from tuning and nothing exposes a setter for
+        it, so protected is the truthful tier -- the fix for execution_mode
+        must not quietly promote every excluded parameter.
+        """
+        names = {c.name for c in protected_controls()}
+        assert "trading_mode" in names
+        assert "execution_mode" not in names
+
+
 class TestProtectedParametersAreShownButNeverOffered:
-    def test_every_excluded_parameter_is_present(self):
+    def test_every_excluded_parameter_without_a_setter_is_present(self):
         """
         Present, not hidden: an operator needs to see that a drawdown halt
         exists. Absent, they cannot tell it from a setting nobody implemented.
         """
         names = {c.name for c in protected_controls()}
-        assert names == set(EXCLUDED_PARAMS)
+        assert names == set(EXCLUDED_PARAMS) - _OPERATOR_SETTABLE
 
     def test_none_of_them_is_offered_as_a_control(self):
         for control in protected_controls():
