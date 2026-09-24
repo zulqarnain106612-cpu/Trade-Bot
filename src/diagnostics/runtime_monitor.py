@@ -324,7 +324,7 @@ class RuntimeMonitor:
     def _rss_mb() -> float:
         """Read process RSS from /proc/self/status (Linux). Returns 0.0 on failure."""
         try:
-            with open("/proc/self/status") as f:
+            with open("/proc/self/status", encoding="utf-8") as f:
                 for line in f:
                     if line.startswith("VmRSS:"):
                         return float(line.split()[1]) / 1024.0
