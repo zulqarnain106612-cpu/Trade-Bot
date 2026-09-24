@@ -179,10 +179,15 @@ class TestSetControlCarriesTheSecondFactor:
 
         assert response.status_code == 503
 
-    def test_a_protected_parameter_is_403(self, api_client):
+    def test_a_credential_is_403(self, api_client):
+        """
+        A risk limit is the operator's to set; a credential never is. This was
+        parametrised on risk.kelly_multiplier until EXCLUDED_PARAMS was
+        understood to bar the autotuner rather than the owner.
+        """
         response = api_client.post(
-            "/controls/risk.kelly_multiplier",
-            json={"value": 2.0, "operator": "alice", "operator_secret": _TEST_SECRET},
+            "/controls/binance.api_key",
+            json={"value": "sk-x", "operator": "alice", "operator_secret": _TEST_SECRET},
         )
 
         assert response.status_code == 403
@@ -301,8 +306,8 @@ class TestAControlChangeIsPushedOutOfBand:
         api_main._state._ws_clients.add(listener)
         try:
             response = api_client.post(
-                "/controls/risk.kelly_multiplier",
-                json={"value": 2.0, "operator": "alice", "operator_secret": _TEST_SECRET},
+                "/controls/binance.api_key",
+                json={"value": "sk-x", "operator": "alice", "operator_secret": _TEST_SECRET},
             )
         finally:
             api_main._state._ws_clients.discard(listener)

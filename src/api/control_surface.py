@@ -5,18 +5,26 @@ looks changeable.
 The dashboard needs one honest answer to "what can I control right now". There
 are three tiers and conflating them is the failure worth preventing:
 
-  live      -- a write takes effect on the next read, no restart. RuntimeConfig
-               holds these (execution mode, the exit controls) and the tuning
-               registry holds the promoted overrides that live_overrides.py
-               overlays onto settings at use time.
-  static    -- a real setting that is read once, at construction. Showing it is
-               useful; offering a control for it is a lie, because the write
-               would appear to succeed and change nothing until a restart.
-  protected -- registry.EXCLUDED_PARAMS. Hard risk limits (Kelly sizing,
-               drawdown halts, position and notional caps) and exchange
-               credentials, which can never be tuned at runtime by design --
-               TunableParameter refuses to register them at all. These are
-               surfaced as read-only *with the reason*, never as a control.
+  live      -- a write takes effect on the next read, no restart. Almost every
+               setting, because get_settings() now returns live overrides and
+               nearly all reads in src/ call it at use time (GOV-028), plus
+               RuntimeConfig's own controls (execution mode, the exit controls)
+               and the promoted tuning overrides.
+  restart   -- the value really does change, but the system does not: uvicorn
+               is already bound to api.port and the storage connection is
+               already open. Reported as requires_restart rather than live,
+               because a write that appears to succeed and changes nothing is
+               the failure this module exists to prevent.
+  protected -- credentials, and only credentials. Not shown and not settable:
+               an endpoint that accepts one is a place to plant one, and the
+               value would ride the next control_changed broadcast to every
+               connected dashboard.
+
+registry.EXCLUDED_PARAMS is deliberately *not* a tier here. It says what the
+autotuner may move, and reading it as what the operator may move had locked
+the owner out of their own position caps -- a cap is excluded from self-tuning
+precisely so that a human decides it. The tuner is still barred: TunableParameter
+refuses to register any of them.
 
 A control surface that misrepresents any of this is worse than none: an
 operator who believes a slider moved a position-size cap, and is wrong, is in a
