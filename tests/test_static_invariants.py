@@ -1240,3 +1240,24 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_no_eval_or_exec (INV-027)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("call", ["eval", "exec"])
+def test_eval_or_exec_in_src_is_flagged(invariants, fake_tree, call) -> None:
+    fake_tree("src/mod.py", f"def go(payload):\n    return {call}(payload)\n")
+    problems = invariants.check_no_eval_or_exec()
+    assert any(f"{call}() in src/" in p for p in problems)
+
+
+def test_getattr_is_not_flagged(invariants, fake_tree) -> None:
+    """getattr, __import__ and friends are not the code-from-string primitives."""
+    fake_tree(
+        "src/mod.py",
+        "def go(name, obj):\n    return getattr(obj, name)\n",
+    )
+    assert invariants.check_no_eval_or_exec() == []
