@@ -217,3 +217,51 @@ class TestTheDefensivePaths:
 
         assert _resolve_dotted(get_settings(), "risk.no_such_field") is None
         assert _resolve_dotted(get_settings(), "nope.nope.nope") is None
+
+
+class TestARegisteredTunableIsRenderedCorrectly:
+    """
+    The registry is empty at rest, so every assertion above ran without a
+    single tuning row. That is how `param.low` / `param.high` -- names
+    TunableParameter does not have; it has floor and ceiling -- reached a
+    reviewed commit: the code path was never executed. GET /controls would
+    have raised AttributeError the moment the self-tuning scheduler
+    registered anything, which is to say the first time it mattered.
+    """
+
+    @pytest.fixture
+    def a_registered_param(self):
+        from src.tuning.registry import TunableParameter, parameter_registry
+
+        param = TunableParameter(
+            name="risk.ensemble_blend_weight",
+            description="blend weight between ensemble members",
+            floor=0.0,
+            ceiling=1.0,
+            current=0.5,
+            eval_strategy="cpcv_oos_sharpe",
+        )
+        parameter_registry.register(param)
+        yield param
+        parameter_registry.unregister(param.name)
+
+    def test_a_tunable_renders_with_its_registry_bounds(self, a_registered_param):
+        from src.api.control_surface import tunable_controls
+
+        rows = [c for c in tunable_controls() if c.name == a_registered_param.name]
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.kind == "slider"
+        assert row.live is True
+        assert row.value == a_registered_param.current
+        assert row.minimum == a_registered_param.floor
+        assert row.maximum == a_registered_param.ceiling
+
+    async def test_it_reaches_the_payload_and_sits_inside_its_bounds(
+        self, surface_fields, a_registered_param
+    ):
+        surface = await build_control_surface(surface_fields)
+        row = next(c for c in surface["controls"] if c["name"] == a_registered_param.name)
+
+        assert row["min"] <= row["value"] <= row["max"]

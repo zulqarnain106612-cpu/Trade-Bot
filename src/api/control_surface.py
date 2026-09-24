@@ -164,8 +164,8 @@ def tunable_controls() -> list[Control]:
             kind="slider",
             value=param.current,
             live=True,
-            minimum=param.low,
-            maximum=param.high,
+            minimum=param.floor,
+            maximum=param.ceiling,
         )
         for param in parameter_registry.list_all()
     ]
