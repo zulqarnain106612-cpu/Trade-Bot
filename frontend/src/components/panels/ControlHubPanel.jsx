@@ -16,10 +16,13 @@ const GROUP_TITLES = {
   execution: 'Execution',
   risk_controls: 'Exit controls',
   tuning: 'Self-tuning parameters',
-  protected: 'Hard limits — not adjustable at runtime',
+  protected: 'Credentials — never shown, never settable',
 };
 
-const GROUP_ORDER = ['execution', 'risk_controls', 'tuning', 'protected'];
+// The tiers with dedicated setters lead; the rest are configuration sections
+// discovered from the payload, so a new settings class appears here without a
+// frontend change. protected sorts last: it is reference, not control.
+const LEADING_GROUPS = ['execution', 'risk_controls', 'tuning'];
 
 function ProtectedRow({ control }) {
   return (
@@ -54,6 +57,39 @@ function LiveControl({ control, onWrite, pending }) {
       <Toggle
         checked={Boolean(control.value)}
         disabled={disabled}
+        label={control.name}
+        onChange={(v) => onWrite(control.name, v)}
+      />
+    );
+  }
+
+  if (control.kind === 'text') {
+    return (
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 10, color: 'var(--c-faint)' }}>{control.name}</span>
+        <input
+          type="text"
+          defaultValue={control.value === null ? '' : String(control.value)}
+          disabled={disabled}
+          // Committed on blur or Enter, not per keystroke: each write is an
+          // operator-gated request that re-validates the whole settings tree,
+          // and firing one per character would be both noisy and racy.
+          onBlur={(e) => onWrite(control.name, e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          style={{ fontSize: 11, padding: '2px 4px' }}
+        />
+      </label>
+    );
+  }
+
+  if (control.kind === 'number') {
+    return (
+      <NumberInput
+        value={control.value}
+        min={control.min ?? undefined}
+        max={control.max ?? undefined}
         label={control.name}
         onChange={(v) => onWrite(control.name, v)}
       />
@@ -114,6 +150,8 @@ export function ControlHubPanel({ operatorAction, refreshToken }) {
   const [surface, setSurface] = useState(null);
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(null);
+  const [filter, setFilter] = useState('');
+  const [collapsed, setCollapsed] = useState(() => new Set());
 
   const load = useCallback(async () => {
     try {
@@ -165,23 +203,58 @@ export function ControlHubPanel({ operatorAction, refreshToken }) {
     );
   }
 
-  const groups = GROUP_ORDER.map((group) => [
-    group,
-    surface.controls.filter((c) => c.group === group),
-  ]).filter(([, controls]) => controls.length > 0);
+  const needle = filter.trim().toLowerCase();
+  const visible = needle
+    ? surface.controls.filter((c) => c.name.toLowerCase().includes(needle))
+    : surface.controls;
+
+  const present = [...new Set(visible.map((c) => c.group))];
+  const ordered = [
+    ...LEADING_GROUPS.filter((g) => present.includes(g)),
+    ...present.filter((g) => !LEADING_GROUPS.includes(g) && g !== 'protected').sort(),
+    ...(present.includes('protected') ? ['protected'] : []),
+  ];
+  const groups = ordered.map((group) => [group, visible.filter((c) => c.group === group)]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ fontSize: 10, color: 'var(--c-faint)' }}>
-        {surface.counts.live} adjustable · {surface.counts.protected} locked
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input
+          type="search"
+          value={filter}
+          placeholder="filter controls…"
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ fontSize: 11, padding: '3px 6px', flex: 1 }}
+        />
+        <span style={{ fontSize: 10, color: 'var(--c-faint)', whiteSpace: 'nowrap' }}>
+          {surface.counts.live} adjustable · {surface.counts.protected} locked
+        </span>
       </div>
 
       {groups.map(([group, controls]) => (
         <section key={group}>
-          <h3 style={{ fontSize: 11, margin: '0 0 6px', color: 'var(--c-faint)' }}>
-            {GROUP_TITLES[group] || group}
+          <h3
+            onClick={() =>
+              setCollapsed((prev) => {
+                const next = new Set(prev);
+                if (next.has(group)) next.delete(group);
+                else next.add(group);
+                return next;
+              })
+            }
+            style={{
+              fontSize: 11,
+              margin: '0 0 6px',
+              color: 'var(--c-faint)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            {collapsed.has(group) ? '▸' : '▾'} {GROUP_TITLES[group] || group}{' '}
+            <span style={{ opacity: 0.6 }}>({controls.length})</span>
           </h3>
           <div
+            hidden={collapsed.has(group)}
             style={{
               display: group === 'protected' ? 'block' : 'grid',
               gridTemplateColumns: group === 'protected' ? undefined : '1fr 1fr',

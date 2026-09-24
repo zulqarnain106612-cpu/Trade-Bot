@@ -60,15 +60,81 @@ class TestTheLivePathsWrite:
 
 
 class TestItCannotBecomeABypass:
-    @pytest.mark.parametrize(
-        "name",
-        ["risk.kelly_multiplier", "risk.max_position_size_pct", "trading_mode", "binance.api_key"],
-    )
-    async def test_a_protected_parameter_is_refused(self, name):
+    @pytest.mark.parametrize("name", ["binance.api_key", "binance.api_secret", "okx.passphrase"])
+    async def test_a_credential_is_never_settable(self, name):
+        """
+        The real never. An endpoint that accepts a credential is a place to
+        plant one, and the value would then be broadcast to every connected
+        dashboard on the next control_changed frame.
+        """
         with pytest.raises(ControlWriteError) as exc_info:
-            await _apply(name, 1.0)
+            await _apply(name, "sk-whatever")
 
         assert exc_info.value.status == 403
+
+    @pytest.mark.parametrize("name", ["api.host", "api.port", "storage.db_path"])
+    async def test_a_startup_bound_setting_is_refused_rather_than_faked(self, name):
+        """
+        The override would take -- get_settings() really would return the new
+        value -- but uvicorn is already listening and the database is already
+        open, so the system would not change. Reporting that as applied is the
+        lie this whole surface exists to prevent.
+        """
+        with pytest.raises(ControlWriteError) as exc_info:
+            await _apply(name, "127.0.0.2")
+
+        assert exc_info.value.status == 409
+
+    @pytest.mark.parametrize(
+        "name, value",
+        [
+            ("risk.kelly_multiplier", 0.6),
+            ("risk.max_position_size_pct", 3.0),
+            ("risk.daily_drawdown_halt_pct", 1.5),
+        ],
+    )
+    async def test_the_operator_may_move_their_own_risk_limits(self, name, value):
+        """
+        EXCLUDED_PARAMS bars the *autotuner*, not the owner. A position cap is
+        excluded from self-tuning precisely so that a human decides it -- not
+        so that nobody can. Refusing the operator here was reading that list as
+        the answer to a question it does not ask.
+        """
+        from src.config import get_settings, invalidate_settings_cache
+
+        try:
+            applied = await _apply(name, value)
+            assert applied["value"] == value
+
+            target = get_settings()
+            *parents, leaf = name.split(".")
+            for part in parents:
+                target = getattr(target, part)
+            assert getattr(target, leaf) == value
+        finally:
+            invalidate_settings_cache()
+
+    @pytest.mark.parametrize(
+        "name",
+        ["risk.kelly_multiplier", "risk.max_position_size_pct", "risk.daily_drawdown_halt_pct"],
+    )
+    def test_the_autotuner_is_still_barred_from_them(self, name):
+        """
+        The half that must not have moved. Opening the operator path must not
+        have opened the tuner's: TunableParameter still refuses to exist for
+        any excluded parameter, so no amount of self-tuning can reach one.
+        """
+        from src.tuning.registry import ExcludedParameterError, TunableParameter
+
+        with pytest.raises(ExcludedParameterError):
+            TunableParameter(
+                name=name,
+                description="attempted by the tuner",
+                floor=0.0,
+                ceiling=1.0,
+                current=0.5,
+                eval_strategy="cpcv_oos_sharpe",
+            )
 
     async def test_execution_mode_is_not_refused_as_protected(self):
         """

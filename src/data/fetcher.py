@@ -34,6 +34,7 @@ from src.config import (
     TIMEFRAME_SECONDS,
     BinanceSettings,
     OKXSettings,
+    Settings,
     Timeframe,
     get_settings,
 )
@@ -328,7 +329,6 @@ class MarketDataFetcher:
 
     def __init__(self, storage: AnyStorageBackend) -> None:
         self._storage = storage
-        self._settings = get_settings()
         self._binance: ccxt.binance | None = None
         self._okx: ccxt.okx | None = None
         # Why each unavailable venue is unavailable, kept for venue_status().
@@ -339,6 +339,37 @@ class MarketDataFetcher:
         # Use double-checked locking with a threading.Lock sentinel for one-time creation.
         self._sem_init_guard: threading.Lock = threading.Lock()
         self._gap_fill_sem: asyncio.Semaphore | None = None
+
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _settings_pinned: Settings | None = None
+
+    @property
+    def _settings(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 1 existing reads
+        untouched while making each of them current.
+        """
+        return self._settings_pinned if self._settings_pinned is not None else get_settings()
+
+    @_settings.setter
+    def _settings(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._settings_pinned = value
 
     def _get_sem(self) -> asyncio.Semaphore:
         """Return (lazily-created) asyncio.Semaphore — thread-safe one-time init."""

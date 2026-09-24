@@ -35,6 +35,7 @@ from src.config import (
     EXCHANGE_BINANCE,
     EXCHANGE_OKX,
     TIMEFRAME_SECONDS,
+    Settings,
     Timeframe,
     TradingMode,
     get_settings,
@@ -232,7 +233,6 @@ class Orchestrator:
     ) -> None:
         self._storage = storage
         self._fetcher = fetcher
-        self._cfg = get_settings()
         self._symbol = self._cfg.primary_symbol
         self._timeframes = self._cfg.active_timeframes
         self._primary_tf = self._cfg.primary_timeframe
@@ -318,6 +318,37 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
     # ------------------------------------------------------------------
+
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _cfg_pinned: Settings | None = None
+
+    @property
+    def _cfg(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 31 existing reads
+        untouched while making each of them current.
+        """
+        return self._cfg_pinned if self._cfg_pinned is not None else get_settings()
+
+    @_cfg.setter
+    def _cfg(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._cfg_pinned = value
 
     async def startup(self) -> None:
         """

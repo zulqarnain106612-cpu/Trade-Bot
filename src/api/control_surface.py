@@ -5,18 +5,26 @@ looks changeable.
 The dashboard needs one honest answer to "what can I control right now". There
 are three tiers and conflating them is the failure worth preventing:
 
-  live      -- a write takes effect on the next read, no restart. RuntimeConfig
-               holds these (execution mode, the exit controls) and the tuning
-               registry holds the promoted overrides that live_overrides.py
-               overlays onto settings at use time.
-  static    -- a real setting that is read once, at construction. Showing it is
-               useful; offering a control for it is a lie, because the write
-               would appear to succeed and change nothing until a restart.
-  protected -- registry.EXCLUDED_PARAMS. Hard risk limits (Kelly sizing,
-               drawdown halts, position and notional caps) and exchange
-               credentials, which can never be tuned at runtime by design --
-               TunableParameter refuses to register them at all. These are
-               surfaced as read-only *with the reason*, never as a control.
+  live      -- a write takes effect on the next read, no restart. Almost every
+               setting, because get_settings() now returns live overrides and
+               nearly all reads in src/ call it at use time (GOV-028), plus
+               RuntimeConfig's own controls (execution mode, the exit controls)
+               and the promoted tuning overrides.
+  restart   -- the value really does change, but the system does not: uvicorn
+               is already bound to api.port and the storage connection is
+               already open. Reported as requires_restart rather than live,
+               because a write that appears to succeed and changes nothing is
+               the failure this module exists to prevent.
+  protected -- credentials, and only credentials. Not shown and not settable:
+               an endpoint that accepts one is a place to plant one, and the
+               value would ride the next control_changed broadcast to every
+               connected dashboard.
+
+registry.EXCLUDED_PARAMS is deliberately *not* a tier here. It says what the
+autotuner may move, and reading it as what the operator may move had locked
+the owner out of their own position caps -- a cap is excluded from self-tuning
+precisely so that a human decides it. The tuner is still barred: TunableParameter
+refuses to register any of them.
 
 A control surface that misrepresents any of this is worse than none: an
 operator who believes a slider moved a position-size cap, and is wrong, is in a
@@ -28,12 +36,19 @@ than something the frontend infers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from src.config import ExecutionMode, get_settings, runtime_config
-from src.tuning.registry import EXCLUDED_PARAMS, parameter_registry
+from src.config import (
+    ExecutionMode,
+    get_settings,
+    runtime_config,
+    set_setting_override,
+    settings_override_names,
+)
+from src.tuning.registry import parameter_registry
 
 ControlKind = Literal["toggle", "slider", "select", "readonly"]
 
@@ -171,50 +186,6 @@ def tunable_controls() -> list[Control]:
     ]
 
 
-# EXCLUDED_PARAMS answers "what may the autotuner move", which is not the same
-# question as "what may an operator move", and conflating the two was a bug:
-# execution_mode is excluded from self-tuning *and* deliberately operator-
-# switchable through POST /execution-mode, so it was emitted twice -- once live,
-# once protected -- by a surface whose entire purpose is not to misrepresent
-# what it controls. Anything listed here is excluded from tuning but keeps its
-# own gated operator path. trading_mode is deliberately absent: nothing exposes
-# a setter for it, so protected is the truthful tier.
-_OPERATOR_SETTABLE: frozenset[str] = frozenset({"execution_mode"})
-
-
-def protected_controls() -> list[Control]:
-    """
-    The hard risk limits and credentials, shown read-only with the reason.
-
-    Credentials are named but never valued: the point of listing them is to
-    say "this is not tunable", and printing a key to say so would defeat it.
-    """
-    controls: list[Control] = []
-    settings = get_settings()
-    for name in sorted(EXCLUDED_PARAMS - _OPERATOR_SETTABLE):
-        is_credential = "api_key" in name or "api_secret" in name or "passphrase" in name
-        value: Any = None
-        if not is_credential:
-            value = _resolve_dotted(settings, name)
-        controls.append(
-            Control(
-                name=name,
-                group="protected",
-                kind="readonly",
-                value=value,
-                live=False,
-                protected=True,
-                reason=(
-                    "exchange credential -- never exposed"
-                    if is_credential
-                    else "hard risk limit -- never tunable at runtime "
-                    "(docs/SELF_TUNING_DESIGN.md §3)"
-                ),
-            )
-        )
-    return controls
-
-
 def _resolve_dotted(settings: Any, dotted: str) -> Any:
     """Read 'risk.kelly_multiplier' off the settings tree, or None."""
     current = settings
@@ -225,12 +196,136 @@ def _resolve_dotted(settings: Any, dotted: str) -> Any:
     return current if isinstance(current, (int, float, str, bool)) else None
 
 
+# ---------------------------------------------------------------------------
+# The settings tier: every configuration leaf, live.
+# ---------------------------------------------------------------------------
+
+# Bound or opened once, at startup, and not consulted again. An override does
+# change the value a later read returns, so the write is real -- but uvicorn is
+# already listening on the old port and the storage connection is already open,
+# so the *system* does not change until a restart. Reporting these as live
+# would be the exact lie this module exists to prevent.
+_STARTUP_ONLY: frozenset[str] = frozenset(
+    {
+        "api.host",
+        "api.port",
+        "api.reload",
+        "storage.backend",
+        "storage.db_path",
+        "storage.timescale_dsn",
+    }
+)
+
+# Never rendered with a value and never writable here. A credential does not
+# belong in a payload that is broadcast to every connected dashboard, and an
+# endpoint that accepts one is a place to plant one.
+_CREDENTIAL_MARKERS: tuple[str, ...] = ("api_key", "api_secret", "passphrase", "secret_key")
+
+# Already surfaced by a dedicated tier with its own setter and semantics;
+# listing them twice is the duplicate-row bug this module already fixed once.
+_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"execution_mode"})
+
+
+def _is_credential(dotted: str) -> bool:
+    return any(marker in dotted for marker in _CREDENTIAL_MARKERS)
+
+
+def _field_bounds(info: Any) -> tuple[float | None, float | None]:
+    low = high = None
+    for meta in info.metadata:
+        low = getattr(meta, "ge", low if low is not None else None) or low
+        high = getattr(meta, "le", high if high is not None else None) or high
+    return low, high
+
+
+def _kind_for(annotation: Any, low: float | None, high: float | None) -> tuple[ControlKind, tuple]:
+    """Pick the widget from the field's own type, not from its name."""
+    options: tuple = ()
+    if annotation is bool:
+        return "toggle", options
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return "select", tuple(str(member.value) for member in annotation)
+    if annotation in (int, float):
+        # A slider needs both ends; one-sided or unbounded numerics get a
+        # number field rather than an invented range.
+        return ("slider" if low is not None and high is not None else "number"), options
+    return "text", options
+
+
+def _settings_leaves(model: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    leaves: list[tuple[str, Any]] = []
+    for name, info in model.model_fields.items():
+        annotation = info.annotation
+        if isinstance(annotation, type) and hasattr(annotation, "model_fields"):
+            leaves.extend(_settings_leaves(annotation, f"{prefix}{name}."))
+        else:
+            leaves.append((f"{prefix}{name}", info))
+    return leaves
+
+
+def settings_controls() -> list[Control]:
+    """
+    Every configuration leaf, with the tier it actually belongs to.
+
+    This is what makes the hub cover the configuration rather than a corner of
+    it: get_settings() returns live values, and all but a handful of reads in
+    src/ go through it at use time, so a write here reaches the running system.
+    """
+    settings = get_settings()
+    overridden = settings_override_names()
+    controls: list[Control] = []
+
+    for dotted, info in _settings_leaves(type(settings)):
+        if dotted in _HANDLED_ELSEWHERE:
+            continue
+
+        group = dotted.split(".")[0] if "." in dotted else "general"
+
+        if _is_credential(dotted):
+            controls.append(
+                Control(
+                    name=dotted,
+                    group="protected",
+                    kind="readonly",
+                    value=None,
+                    live=False,
+                    protected=True,
+                    reason="credential -- never shown and never set from here",
+                )
+            )
+            continue
+
+        value = _resolve_dotted(settings, dotted)
+        low, high = _field_bounds(info)
+        startup_only = dotted in _STARTUP_ONLY
+        kind, options = _kind_for(info.annotation, low, high)
+        controls.append(
+            Control(
+                name=dotted,
+                group=group,
+                kind="readonly" if startup_only else kind,
+                value=value,
+                live=not startup_only,
+                requires_restart=startup_only,
+                reason=(
+                    "bound at startup -- the value changes, the running server does not"
+                    if startup_only
+                    else ("overridden at runtime" if dotted in overridden else None)
+                ),
+                minimum=low,
+                maximum=high,
+                options=options,
+            )
+        )
+    return controls
+
+
 async def build_control_surface(risk_validator: type[BaseModel]) -> dict[str, Any]:
     """Every control the operator has, in one payload, tier-labelled."""
     controls = [await execution_mode_control()]
     controls.extend(await risk_controls(risk_validator))
     controls.extend(tunable_controls())
-    controls.extend(protected_controls())
+    controls.extend(settings_controls())
 
     return {
         "controls": [c.as_dict() for c in controls],
@@ -269,15 +364,24 @@ async def apply_control(
     that wrote to RuntimeConfig directly would be a way around both, which is
     the opposite of what one entry point is for.
     """
-    # _OPERATOR_SETTABLE first: EXCLUDED_PARAMS is about the autotuner, and
-    # execution_mode sits in both -- excluded from tuning, deliberately
-    # operator-switchable. Checking exclusion first would have refused the one
-    # runtime switch the system documents.
-    if name in EXCLUDED_PARAMS and name not in _OPERATOR_SETTABLE:
+    # EXCLUDED_PARAMS answers what the *autotuner* may move. It does not
+    # answer what the operator may move, and conflating the two locked the
+    # owner out of their own risk limits: a position cap is excluded from
+    # self-tuning precisely so that a human decides it, not so that nobody
+    # can. ParameterRegistry still refuses to register any of them, so the
+    # tuner remains barred; this path is the human with the second factor.
+    #
+    # Credentials are the real never. They are not shown and not settable:
+    # an endpoint that accepts one is a place to plant one.
+    if _is_credential(name):
         raise ControlWriteError(
-            403,
-            f"{name} is protected and can never be set at runtime "
-            "(hard risk limit or credential; docs/SELF_TUNING_DESIGN.md §3).",
+            403, f"{name} is a credential and is never settable through this API."
+        )
+    if name in _STARTUP_ONLY:
+        raise ControlWriteError(
+            409,
+            f"{name} is bound at startup; setting it here would change the value "
+            "without changing the running server.",
         )
 
     if name == "execution_mode":
@@ -293,7 +397,7 @@ async def apply_control(
     if parameter_registry.is_registered(name):
         return _apply_tunable(name, value)
 
-    raise ControlWriteError(404, f"unknown control: {name}")
+    return _apply_setting(name, value)
 
 
 async def _apply_execution_mode(value: Any) -> dict[str, Any]:
@@ -354,6 +458,25 @@ def _apply_tunable(name: str, value: Any) -> dict[str, Any]:
         )
     updated = parameter_registry.update_current(name, numeric)
     return {"name": name, "value": updated.current}
+
+
+def _apply_setting(name: str, value: Any) -> dict[str, Any]:
+    """
+    Write one configuration leaf through the live-override layer.
+
+    set_setting_override re-validates the whole settings tree, so a value this
+    accepts is one the environment could have supplied -- the field's own
+    validators decide, exactly as at startup. A rejected value leaves the
+    previous one in force.
+    """
+    try:
+        updated = set_setting_override(name, value)
+    except KeyError as exc:
+        raise ControlWriteError(404, f"unknown control: {name}") from exc
+    except ValidationError as exc:
+        leaf = name.split(".")[-1]
+        raise ControlWriteError(422, _first_validation_message(exc, leaf)) from exc
+    return {"name": name, "value": _resolve_dotted(updated, name)}
 
 
 def _first_validation_message(exc: ValidationError, field_name: str) -> str:
