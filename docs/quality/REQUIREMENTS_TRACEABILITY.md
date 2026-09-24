@@ -1429,6 +1429,17 @@ The CI notice waits until every watched workflow has completed for a commit, the
   - `tests/test_ci_failure_notify_workflow.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
+#### `GOV-024` — intelligence does not import intel
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/intelligence/ must not import from src.intel. The adapter takes the concrete CryptoIntelligence via dependency injection, typed as Any at the analytics-layer boundary, so intelligence stays inside its layer.
+
+- **If violated:** A future edit reintroduces an import of src.intel in src/intelligence/, silently reviving the intelligence->intel package edge.
+- **Owned by:** `src/intelligence/intelligence_adapter.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
