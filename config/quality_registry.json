@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-030",
+      "kind": "invariant",
+      "title": "no bare md5 or sha1 in src",
+      "statement": "The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
