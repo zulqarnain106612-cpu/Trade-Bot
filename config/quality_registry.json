@@ -2884,6 +2884,30 @@
       "notes": "Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does. Its tests asserted the scaffolder's output validated against the schema, which is the weaker of the two validators it had to satisfy. layer: test-suite"
     },
     {
+      "id": "REG-0012",
+      "kind": "regression",
+      "title": "The container image takes torch from the CPU wheel index",
+      "statement": "The Dockerfile must resolve torch from the CPU wheel index before it installs requirements.txt, so the image never pulls the CUDA-bundling wheel into a build layer.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-09-24",
+      "failure_mode": "The container build job exhausts the runner's disk and dies on 'No space left on device' before the image is scanned, so the Security gate is red for a reason unrelated to the diff under review.",
+      "owning_modules": [
+        "Dockerfile"
+      ],
+      "depends_on": [
+        "GOV-015"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_workflow_cost.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "GOV-015 pinned the CPU index for every workflow that installs torch, and its test globs .github/workflows. The Dockerfile installs '-r requirements.txt' and never names torch, so it was outside both the rule's wording and its test while being the largest torch install in the repository. Observed on PR #353, whose diff was a single shell script. layer: test-suite"
+    },
+    {
       "id": "SECR-015",
       "kind": "requirement",
       "title": "A received Diffie-Hellman public value is confined to the prime-order subgroup",

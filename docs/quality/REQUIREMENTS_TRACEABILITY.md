@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 115 |
+| VERIFIED | 116 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **115** |
+| **Total** | **116** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 25 | 25 |
+| Governance | 26 | 26 |
 
 ## Outstanding work by phase
 
@@ -1485,6 +1485,20 @@ qe_new_requirement.py must report success only for an entry that src.quality.reg
 
 > Observed as '[ok  ] added SEC-0001' for an entry whose test_type was 'governance', which the schema does not constrain and the loader does. Its tests asserted the scaffolder's output validated against the schema, which is the weaker of the two validators it had to satisfy. layer: test-suite
 
+#### `REG-0012` — The container image takes torch from the CPU wheel index
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-24
+
+The Dockerfile must resolve torch from the CPU wheel index before it installs requirements.txt, so the image never pulls the CUDA-bundling wheel into a build layer.
+
+- **If violated:** The container build job exhausts the runner's disk and dies on 'No space left on device' before the image is scanned, so the Security gate is red for a reason unrelated to the diff under review.
+- **Owned by:** `Dockerfile`
+- **Depends on:** `GOV-015`
+- **Verification:**
+  - `tests/test_ci_workflow_cost.py` (regression)
+
+> GOV-015 pinned the CPU index for every workflow that installs torch, and its test globs .github/workflows. The Dockerfile installs '-r requirements.txt' and never names torch, so it was outside both the rule's wording and its test while being the largest torch install in the repository. Observed on PR #353, whose diff was a single shell script. layer: test-suite
+
 
 ---
 
@@ -1513,4 +1527,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 115 entries.
+Registry version: 1.0.0 — 116 entries.
