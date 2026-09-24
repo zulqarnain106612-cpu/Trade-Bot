@@ -23,6 +23,34 @@ export function apiFetch(path, opts = {}) {
   });
 }
 
+/**
+ * POST that surfaces failures without requiring the operator secret.
+ *
+ * useOperatorAction refuses to send anything until a secret is entered,
+ * which is correct for the endpoints that verify one — but wrong for
+ * endpoints gated only by API-key role, where it would demand a
+ * credential the server never checks. Returns the parsed body, or null
+ * after alerting.
+ */
+export async function postJson(path, body) {
+  try {
+    const res = await apiFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`Request failed: ${err.detail || res.status}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    alert(`Request failed: ${e.message || 'network error'}`);
+    return null;
+  }
+}
+
 export function useWebSocket(onTick) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);

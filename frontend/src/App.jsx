@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useWebSocket, usePolling, useOperatorAction, apiFetch } from './hooks/useApi';
+import { useWebSocket, usePolling, useOperatorAction, apiFetch, postJson } from './hooks/useApi';
 import { Panel } from './components/Panel';
 import { ModeSwitcher, StatCard } from './components/Controls';
 import { EquityChart, DrawdownChart } from './components/panels/EquityChart';
@@ -119,11 +119,11 @@ export default function App() {
   const handleRetrain = async (timeframe) =>
     action('/models/retrain', 'POST', { timeframe });
 
-  // Backfill takes no operator secret server-side, but it still goes
-  // through `action` so a 4xx surfaces the same way every other control
-  // does instead of failing silently.
+  // Not `action`: /backfill is gated by API-key role, not the operator
+  // secret, so demanding a secret here would block the call on a
+  // credential the server never verifies.
   const handleBackfill = async (timeframe, lookback_days) =>
-    action('/backfill', 'POST', { timeframe, lookback_days });
+    postJson('/backfill', { timeframe, lookback_days });
 
   const handleFloorReAuthorize = async (timeframe, reason) => {
     const res = await action('/capital-floor/re-authorize', 'POST', { timeframe, reason });
