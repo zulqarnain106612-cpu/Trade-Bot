@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 127 |
+| VERIFIED | 131 |
 | PARTIAL | 0 |
-| PLANNED | 0 |
+| PLANNED | 1 |
 | ACCEPTED GAP | 0 |
-| **Total** | **127** |
+| **Total** | **132** |
 
 ## Summary by subsystem
 
@@ -63,8 +63,8 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 17 | 17 |
+| API and WebSocket | 16 | 15 |
+| Cryptography and secrets | 18 | 18 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -80,7 +80,7 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | — |
+| PR-007 | API/WebSocket Security | `REG-0017` |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
@@ -649,6 +649,37 @@ MarketDataFetcher.initialize() must open each venue independently, record an una
 
 ## API and WebSocket
 
+#### `INV-032` — GUI backpressure never reaches the trading loop
+
+**VERIFIED** · critical · invariant · source: OPS-2026-09-25
+
+Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.
+
+- **If violated:** A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.
+- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`, `src/risk/capital_preservation_floor.py`, `src/execution/order_fsm.py`, `src/risk/strategy_kill_switch.py`, `src/diagnostics/signal_debugger.py`, `src/diagnostics/runtime_monitor.py`, `src/tuning/audit.py`, `src/intelligence/onchain/base.py`
+- **Verification:**
+  - `tests/test_event_bus.py` (resilience)
+  - `tests/test_ws_broadcaster.py` (api) — The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market.
+  - `tests/test_event_bus_producers.py` (risk) — The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path.
+  - `tests/test_orderbook_stream_publish.py` (resilience) — The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed.
+  - `tests/test_event_bus_producers_remaining.py` (risk) — The producers that had no push path at all: the capital-preservation floor publishes once when it trips and again when a human re-authorizes (never on the repeated halted marks that follow), the order FSM publishes after the state is committed and not at all on a rejected transition, and the NaN/inf guard that keeps a corrupt mark out of the backstop still raises.
+  - `tests/test_ws_subscriptions.py` (api) — Topic filtering selects recipients without reintroducing per-client serialization -- every subscriber still receives the identical string -- and an untopiced heartbeat still reaches a client subscribed to nothing, because it is the resync anchor.
+  - `tests/test_event_bus_producers_observability.py` (contract) — The four diagnostic producers. Feature drift and the model-degradation verdict publish on transition and stay silent while the state holds -- including the recovery transition, which is the only thing that says an incident is over; the runtime monitor publishes every completed cycle instead, because 'still ok' and 'died while saying ok' are otherwise the same frame; a tuning promotion reaches the audit file before it reaches the bus; and a provider's circuit breaker attributes every state change to the provider that owns it.
+
+> Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events.
+
+#### `INV-033` — Every declared bus topic has a producer
+
+**VERIFIED** · high · invariant · source: OPS-2026-09-25
+
+Every topic in src.eventbus.TOPICS is published by at least one module in src/, and no module publishes a topic the bus does not declare.
+
+- **If violated:** A topic is declared, the websocket accepts a subscription to it, and nothing ever publishes it. The panel hydrates once from its REST endpoint on mount and then never updates again -- no error, no log line, no dropped-frame counter, and a dashboard that is confidently wrong for as long as the process runs. The inverse fails just as quietly: publish() answers an unknown topic by counting and logging rather than raising, deliberately, so that a typo in a risk gate cannot take the gate down -- which means a misspelled topic is invisible at runtime.
+- **Owned by:** `src/eventbus/bus.py`, `src/diagnostics/signal_debugger.py`, `src/diagnostics/runtime_monitor.py`, `src/tuning/audit.py`, `src/intelligence/onchain/base.py`
+- **Depends on:** `INV-032`
+- **Verification:**
+  - `tests/test_event_bus_producers_observability.py` (contract)
+
 #### `API-001` — The authorization matrix is executable and every cell is tested
 
 **VERIFIED** · critical · requirement · source: QE-19
@@ -755,6 +786,18 @@ No error path returns a credential, token, stack trace or internal hostname to a
 - **Verification:**
   - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
 
+#### `API-010` — Websocket publish lag is measured per topic
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-25
+
+Every event fanned out to websocket clients records the interval from eventbus.publish() to the completion of the send, labelled by topic, in tradebot_ws_publish_lag_seconds -- measured on the monotonic clock, and never able to raise into the fan-out loop.
+
+- **If violated:** The transport is claimed to be realtime with nothing measuring it. A wedged fan-out task, a socket write blocking behind one asleep laptop, and a healthy sub-second push path are indistinguishable from outside the process, and the dashboard renders "connected" through all three. Measuring it on wall clock instead fails differently and worse: an NTP correction between the publish and the send reports a negative or hour-long lag, so the one metric an operator would consult during an incident is the one the incident corrupts.
+- **Owned by:** `src/diagnostics/metrics.py`, `src/api/main.py`, `src/eventbus/bus.py`
+- **Depends on:** `INV-032`
+- **Verification:**
+  - `tests/test_ws_publish_lag_metric.py` (api)
+
 #### `GOV-025` — The control surface never misrepresents what it controls
 
 **VERIFIED** · high · requirement · source: OPS-2026-09-24
@@ -796,6 +839,16 @@ A successful write through POST /controls/{name} must broadcast a control_change
   - `tests/test_venue_api.py` (api)
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
+
+#### `REG-0017` — A hook that takes a callback calls the latest one, not the first render's
+
+**PLANNED → PR-007** · medium · regression · source: OPS-2026-09-25
+
+usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
+
+- **If violated:** usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Verification:** none yet
 
 ## Cryptography and secrets
 
@@ -984,6 +1037,19 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Depends on:** `SECR-015`
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
+
+#### `SECR-019` — A read-only websocket key never receives the approval queue
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-25
+
+A websocket authenticated with the read-only API key is never sent an approval-topic frame, whether by default subscription or by explicitly requesting it; the request is refused and the topic is not granted.
+
+- **If violated:** verify_ws_key returns a Role and its own docstring says that Role is what callers must consult before honouring anything a client sends over the socket, but websocket_endpoint discarded it. Once topic subscriptions exist, a read-only key could subscribe to 'approval' and receive every pending trade -- symbol, direction, notional -- awaiting an operator decision. A read-only credential is issued so something can watch without acting; streaming it the queue of decisions being made is a disclosure that credential was never meant to carry.
+- **Owned by:** `src/api/main.py`, `src/api/auth.py`
+- **Verification:**
+  - `tests/test_ws_subscriptions.py` (security)
+
+> Asserts both halves: permitted_topics excludes approval for READ_ONLY, a published approval frame does not reach a read-only socket, and an explicit subscribe to it is refused without being granted.
 
 #### `SEC-0005` — A file holding real credentials is never committable
 
@@ -1673,4 +1739,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 127 entries.
+Registry version: 1.0.0 — 132 entries.

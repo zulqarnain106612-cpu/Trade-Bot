@@ -1,0 +1,36 @@
+[Unit]
+Description=Trade-Bot headless trading loop (opt-in — see RUNBOOK)
+Documentation=file:/opt/tradebot/docs/ops/RUNBOOK.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+# Enforce mutual exclusion with the API service: whichever one is
+# enabled owns the loop. Do not enable both.
+Conflicts=tradebot-api.service
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot
+EnvironmentFile=/etc/tradebot/tradebot.env
+ExecStart=/opt/tradebot/venv/bin/python -m src.workers
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/tradebot/data /opt/tradebot/logs /opt/tradebot/models/artifacts
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

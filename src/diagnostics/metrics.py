@@ -25,10 +25,12 @@ Metrics exposed:
   tradebot_equity_usd            Gauge   current portfolio equity in USD
   tradebot_open_positions        Gauge   number of currently open positions
   tradebot_tick_duration_seconds Histogram orchestrator tick wall-clock time
+  tradebot_ws_publish_lag_seconds Histogram publish()-to-socket lag (label: topic)
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from prometheus_client import (
@@ -118,6 +120,23 @@ tick_duration_seconds = Histogram(
     registry=_REGISTRY,
 )
 
+# The number the whole realtime effort is judged by. A dashboard that says
+# "connected" while its data is four seconds old is the failure this measures:
+# without it, "realtime" is a claim about the code rather than an observation
+# of the running system.
+#
+# Buckets start at 1ms because the target is sub-second and a histogram whose
+# first bucket is 50ms cannot tell a healthy push path from a starved one --
+# everything lands in bucket one and the metric agrees with itself forever.
+ws_publish_lag_seconds = Histogram(
+    "tradebot_ws_publish_lag_seconds",
+    "Seconds from a producer calling eventbus.publish() to the frame being "
+    "written to every subscribed websocket client",
+    labelnames=["topic"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+    registry=_REGISTRY,
+)
+
 
 # ── Public update API ─────────────────────────────────────────────────────────
 
@@ -185,6 +204,34 @@ def update_metrics(snapshot: dict[str, Any]) -> None:
         structlog.get_logger(__name__).warning(
             "metrics.update_failed", snapshot_keys=list(snapshot.keys())
         )
+
+
+def observe_ws_publish_lag(topic: str, produced_mono_ns: int) -> None:
+    """
+    Record how long one event took to get from its producer to the sockets.
+
+    ``produced_mono_ns`` is the event's ``mono_ns``, stamped by
+    ``eventbus.publish``. Monotonic and not the wall-clock ``ts_ms`` the frame
+    carries: this is a duration, and a duration measured across a clock that
+    can step backwards reports a negative or absurd lag exactly when an
+    operator is trying to tell a starved transport from a corrected clock.
+
+    Call this *after* the send completes. The interval then covers the whole
+    server-side path -- the event's wait in the subscriber buffer, the single
+    serialization, and the writes to every client -- rather than just the bus
+    hop, and it is the write to a starved socket this exists to catch.
+
+    Never raises, for the same reason ``update_metrics`` does not: this is
+    called from the fan-out loop, and a metrics bug must not be able to stop
+    the dashboard's only push path.
+    """
+    try:
+        lag_s = (time.monotonic_ns() - produced_mono_ns) / 1_000_000_000
+        ws_publish_lag_seconds.labels(topic=topic).observe(lag_s)
+    except Exception:
+        import structlog
+
+        structlog.get_logger(__name__).warning("metrics.ws_lag_failed", topic=topic)
 
 
 def metrics_output() -> tuple[bytes, str]:

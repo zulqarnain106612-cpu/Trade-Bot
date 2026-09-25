@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useWebSocket, usePolling, useOperatorAction, apiFetch } from './hooks/useApi';
+import { useWebSocket, useStream, usePolling, useOperatorAction, apiFetch, postJson } from './hooks/useApi';
 import { ControlHubPanel } from './components/panels/ControlHubPanel';
 import { Panel } from './components/Panel';
 import { ModeSwitcher, StatCard } from './components/Controls';
@@ -15,6 +15,10 @@ import {
   HealthPanel, DriftPanel, AuditPanel, ReconcilePanel,
   ModelMetricsPanel, LedgerPanel, RecoveryPanel,
 } from './components/panels/MonitoringPanel';
+import {
+  ModelTrainingPanel, BackfillPanel, CapitalFloorPanel,
+} from './components/panels/OperationsPanel';
+import { HorizonsPanel } from './components/panels/HorizonsPanel';
 import { fmt, pnlColor } from './utils/format';
 
 const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
@@ -39,6 +43,10 @@ const ALL_PANELS = [
   { id: 'model', label: 'Model Metrics', icon: '🤖' },
   { id: 'ledger', label: 'Ledger', icon: '📒' },
   { id: 'recovery', label: 'Recovery', icon: '🔧' },
+  { id: 'training', label: 'Model Training', icon: '🏋' },
+  { id: 'backfill', label: 'Backfill', icon: '📥' },
+  { id: 'capitalfloor', label: 'Capital Floor', icon: '🚨' },
+  { id: 'horizons', label: 'Horizons', icon: '🕰' },
 ];
 
 function getInitialVisibility() {
@@ -65,14 +73,44 @@ export default function App() {
   const onEvent = useCallback((msg) => {
     if (msg.type === 'control_changed') setControlVersion((v) => v + 1);
   }, []);
-  const wsConnected = useWebSocket(onTick, onEvent);
+  const { connected: wsConnected, lagMs } = useWebSocket(onTick, onEvent);
 
+  // Every list endpoint returns its rows under a named key
+  // (src/api/main.py), while the panels below take plain arrays — so each
+  // poll unwraps its key via usePolling's `transform`. Without this the
+  // panels get the envelope object, `.length` is undefined, and they render
+  // their empty-state placeholder forever with no error shown.
   const status = usePolling('/status', 5000);
-  const equityCurve = usePolling('/equity-curve?limit=200', 30000);
-  const trades = usePolling('/trades?limit=50', 15000);
-  const missedTrades = usePolling('/missed-trades?limit=30', 30000);
-  const approvals = usePolling('/approvals/pending', 10000);
-  const riskControls = usePolling('/risk-controls', 10000);
+  const equityCurve = usePolling('/equity?limit=200', 30000, (b) => b?.curve ?? []);
+  // A closed position is a new trade row, so the close event is the trigger
+  // to re-read rather than a 15s timer. Re-fetching on the event keeps the
+  // row exactly as the server renders it -- the event payload is not the
+  // trade record and should not be reshaped into one here.
+  const trades = useStream('position', '/trades?limit=50', {
+    transform: (b) => b?.trades ?? [],
+    refetch: true,
+  });
+  const missedTrades = usePolling('/missed-trades?limit=30', 30000, (b) => b?.missed_trades ?? []);
+  // Streamed, not polled. An approval is the one event with a human waiting
+  // on the other end, and it used to take up to a 10s poll before the
+  // operator could even see that a decision was being asked for. The `apply`
+  // folds each event into the list rather than replacing it, because an
+  // approval event describes one request, not the queue.
+  const approvals = useStream('approval', '/approvals', {
+    transform: (b) => b?.approvals ?? [],
+    apply: (prev, ev) => {
+      const list = prev ?? [];
+      if (ev.action === 'resolved') {
+        return list.filter((a) => a.request_id !== ev.request_id);
+      }
+      if (list.some((a) => a.request_id === ev.request_id)) return list;
+      return [...list, ev];
+    },
+  });
+  const riskControls = usePolling('/risk-controls', 10000, (b) => b?.risk_controls ?? null);
+  // Polled here only for the backfill timeframe options; ModelTrainingPanel
+  // polls the same endpoint for its own display.
+  const modelsStatus = usePolling('/models/status', 30000);
 
   useEffect(() => {
     try { localStorage.setItem('panel-visibility', JSON.stringify(visibility)); } catch {}
@@ -98,13 +136,36 @@ export default function App() {
     action('/execution-mode', 'POST', { mode });
   };
 
-  const handleRiskUpdate = async (field, value) => {
-    await action('/risk-controls', 'POST', { [field]: value });
+  // RiskControlsPanel calls onUpdate({ field: value }) with a single patch
+  // object, not (field, value). Taking two args here made `field` the whole
+  // object and `value` undefined, producing a body of
+  // {"[object Object]": undefined} that the endpoint rejected.
+  const handleRiskUpdate = async (patch) => {
+    await action('/risk-controls', 'POST', patch);
   };
 
   const handleApprovalResolve = async (id, approved) => {
     await action(`/approvals/${encodeURIComponent(id)}/resolve`, 'POST', { approved });
   };
+
+  const handleRetrain = async (timeframe) =>
+    action('/models/retrain', 'POST', { timeframe });
+
+  // Not `action`: /backfill is gated by API-key role, not the operator
+  // secret, so demanding a secret here would block the call on a
+  // credential the server never verifies.
+  const handleBackfill = async (timeframe, lookback_days) =>
+    postJson('/backfill', { timeframe, lookback_days });
+
+  const handleFloorReAuthorize = async (timeframe, reason) => {
+    const res = await action('/capital-floor/re-authorize', 'POST', { timeframe, reason });
+    return Boolean(res);
+  };
+
+  // Derived from the server's own active timeframes rather than a hardcoded
+  // list — Settings.active_timeframes is configurable, so any constant here
+  // would be wrong for some deployment.
+  const activeTimeframes = Object.keys(modelsStatus?.timeframes ?? {});
 
   const equity = tick?.equity_usd ?? status?.equity_usd;
   const dailyPnl = tick?.daily_pnl_usd ?? status?.daily_pnl_usd;
@@ -118,6 +179,7 @@ export default function App() {
     <div style={{ minHeight: '100vh', background: 'var(--c-bg)', color: 'var(--c-text)', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
       <Header
         wsConnected={wsConnected}
+        lagMs={lagMs}
         executionMode={executionMode}
         onModeSwitch={handleModeSwitch}
         operatorId={operatorId}
@@ -279,6 +341,34 @@ export default function App() {
               <RecoveryPanel action={action} />
             </Panel>
           )}
+
+          {visibility.training && (
+            <Panel title="Model Training" icon="🏋" defaultWidth={440} defaultHeight={320}
+              accentColor="var(--c-claude)" onToggleVisible={() => togglePanel('training')}>
+              <ModelTrainingPanel onRetrain={handleRetrain} />
+            </Panel>
+          )}
+
+          {visibility.backfill && (
+            <Panel title="Backfill" icon="📥" defaultWidth={420} defaultHeight={200}
+              accentColor="var(--c-green)" onToggleVisible={() => togglePanel('backfill')}>
+              <BackfillPanel onBackfill={handleBackfill} timeframes={activeTimeframes} />
+            </Panel>
+          )}
+
+          {visibility.capitalfloor && (
+            <Panel title="Capital Floor" icon="🚨" defaultWidth={460} defaultHeight={300}
+              accentColor="var(--c-red)" onToggleVisible={() => togglePanel('capitalfloor')}>
+              <CapitalFloorPanel onReAuthorize={handleFloorReAuthorize} />
+            </Panel>
+          )}
+
+          {visibility.horizons && (
+            <Panel title="Horizons" icon="🕰" defaultWidth={640} defaultHeight={340}
+              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('horizons')}>
+              <HorizonsPanel />
+            </Panel>
+          )}
         </div>
       </div>
     </div>
@@ -286,7 +376,7 @@ export default function App() {
 }
 
 function Header({
-  wsConnected, executionMode, onModeSwitch,
+  wsConnected, lagMs, executionMode, onModeSwitch,
   operatorId, setOperatorId, operatorSecret, setOperatorSecret,
   showPanelManager, setShowPanelManager,
 }) {
@@ -311,6 +401,21 @@ function Header({
           }} />
           {wsConnected ? 'LIVE' : 'DISCONNECTED'}
         </span>
+        {/* A green dot only says the socket is open. It stays green while a
+            starved stream shows minute-old numbers, which is the failure this
+            transport work exists to remove -- so the dot carries the measured
+            producer-to-browser lag beside it. */}
+        {wsConnected && lagMs !== null && (
+          <span
+            title="Producer-to-browser lag, measured from the timestamp the producer stamped"
+            style={{
+              fontSize: 10,
+              color: lagMs > 5000 ? 'var(--c-red)' : lagMs > 1500 ? 'var(--c-yellow)' : 'var(--c-muted)',
+            }}
+          >
+            {lagMs < 1000 ? `${lagMs}ms` : `${(lagMs / 1000).toFixed(1)}s`}
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

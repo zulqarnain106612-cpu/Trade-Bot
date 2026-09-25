@@ -12,6 +12,14 @@ bot tried, when, and why a decision went the way it did.
 This module intentionally does not interpret or act on events -- it is a
 write-append, read-only-after-write log. Decision logic lives in the
 proposer/evaluator/gate (Phase 2).
+
+One addition to that law, made deliberately: ``record()`` also publishes the
+entry on the ``selftuning`` bus topic. It still does not interpret and it
+still cannot refuse -- publishing is fire-and-forget by construction
+(INV-032) -- but it is the only funnel every tuning event passes through.
+The alternative was a publish at every call site in ``runner.py``,
+``watchdog.py`` and the operator endpoints, which duplicates the contract
+and silently omits whichever event type is added next.
 """
 
 from __future__ import annotations
@@ -23,6 +31,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+from src.eventbus import get_event_bus
 
 
 class TuningEventType(StrEnum):
@@ -92,6 +102,27 @@ class TuningAuditLog:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with self._path.open("a", encoding="utf-8") as f:
                 f.write(entry.to_json() + "\n")
+
+        # Published after the write, outside the lock. After, because an event
+        # the dashboard has seen but the audit log has not is a discrepancy an
+        # incident review cannot explain. Outside, because publish() must not
+        # be reachable while this holds a lock a concurrent recorder wants --
+        # the bus is non-blocking, and keeping it that way means never giving
+        # it a lock to be slow behind.
+        #
+        # A promotion or a rollback changes what the live system does with
+        # real capital. Learning about it from a 15s poll is how an operator
+        # ends up reading a parameter value that the bot had already moved on
+        # from.
+        get_event_bus().publish(
+            "selftuning",
+            {
+                "param_name": entry.param_name,
+                "event_type": entry.event_type.value,
+                "timestamp": entry.timestamp,
+                "details": entry.details,
+            },
+        )
         return entry
 
     def read_all(self) -> list[TuningAuditEntry]:

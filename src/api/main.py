@@ -80,8 +80,9 @@ from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_back
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
-from src.diagnostics.metrics import metrics_output
+from src.diagnostics.metrics import metrics_output, observe_ws_publish_lag
 from src.engine.orchestrator import Orchestrator
+from src.eventbus import TOPICS, Subscription, get_event_bus
 from src.execution.base import AbstractExecutor
 from src.execution.mode_persistence import load_execution_mode, save_execution_mode
 from src.execution.unified_ledger import get_unified_ledger
@@ -146,12 +147,20 @@ def _validate_operator(v: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Topics a read-only key never receives. See AppState.permitted_topics.
+_OPERATOR_ONLY_TOPICS: frozenset[str] = frozenset({"approval"})
+
+
 class AppState:
     storage: AnyStorageBackend
     orchestrator: Orchestrator | None
     intel_adapter: Any | None  # IntelligenceAdapter (crypto-intel-v6); None when disabled
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
+    # Bumped only on a breaking change to the frame shape, so a dashboard
+    # served from a stale cache can refuse to misread a newer server rather
+    # than silently rendering fields that have moved.
+    _WS_PROTOCOL_VERSION: int = 1
     _MODE_CHANGE_LIMIT: int = 3
     _MODE_CHANGE_WINDOW_S: float = 3600.0
     _ENDPOINT_LIMIT: int = 60
@@ -172,6 +181,22 @@ class AppState:
             maxlen=self._MODE_CHANGE_LIMIT
         )
         self._endpoint_hits: dict[str, collections.deque[float]] = {}
+        # What each connection has asked for, and what its key entitles it to.
+        # Keyed by socket because the subscription is a property of the
+        # connection, not of the client's identity: the same key may hold two
+        # tabs open showing different panels.
+        self._ws_topics: dict[WebSocket, frozenset[str]] = {}
+        self._ws_roles: dict[WebSocket, Role] = {}
+        # Frame sequence, server-wide rather than per connection.
+        #
+        # Per-connection numbering was the obvious first instinct and it is
+        # wrong here: it forces a distinct payload per client, which is
+        # exactly the O(clients) serialization this broadcaster exists to
+        # delete. One counter for the whole stream keeps a single json.dumps
+        # serving every client, and a client still detects loss the same way
+        # -- by watching for a gap in the numbers it receives. It just cannot
+        # assume its first frame is number one.
+        self._seq = 0
 
     @property
     def ws_clients(self) -> set[WebSocket]:
@@ -196,27 +221,81 @@ class AppState:
         """Remove a WS client from the tracked set."""
         async with self._ws_lock:
             self._ws_clients.discard(ws)
+            self._ws_topics.pop(ws, None)
+            self._ws_roles.pop(ws, None)
 
-    async def broadcast(self, payload: dict[str, Any]) -> int:
+    async def set_ws_topics(self, ws: WebSocket, topics: frozenset[str]) -> None:
+        """Record what this connection wants, already filtered by role."""
+        async with self._ws_lock:
+            self._ws_topics[ws] = topics
+
+    def permitted_topics(self, role: Role) -> frozenset[str]:
+        """
+        Topics a key of this role may receive.
+
+        SEC: an approval frame carries a pending trade -- symbol, direction,
+        size -- awaiting an operator decision. A read-only key is issued so
+        something can watch the system without being able to act on it, and
+        handing it the queue of decisions being made is neither read-only in
+        spirit nor needed by anything a read-only client legitimately renders.
+        """
+        if role == Role.READ_ONLY:
+            return TOPICS - _OPERATOR_ONLY_TOPICS
+        return TOPICS
+
+    async def broadcast(self, payload: dict[str, Any], topic: str | None = None) -> int:
         """
         Push one message to every connected dashboard. Returns how many got it.
 
-        Each connection otherwise pushes its own heartbeat, so a control moved
-        between ticks is invisible until the next one -- long enough for an
-        operator to move a slider, see nothing, and move it again. This is the
-        out-of-band path for that.
+        The single write path for all three producers -- the shared heartbeat,
+        the event fan-out, and out-of-band control writes. Serializing once
+        here and sending the same string to every client is the whole reason
+        the per-connection loops went away: that version did one storage read
+        and one json.dumps per client per beat to produce identical bytes.
 
-        A send is never allowed to fail the caller: this runs after a write has
-        already been applied, and a dashboard that has gone away is not a
-        reason to report the write as failed. Failures drop the client instead,
-        which is what the heartbeat's own error path does.
+        A send is never allowed to fail the caller: an operator write has
+        already been applied by the time this runs, and a dashboard that has
+        gone away is not a reason to report the write as failed. Failures drop
+        the client instead.
+
+        This awaits each client in turn, so it must never be called from a
+        producer on the trading path -- that would put a slow socket in front
+        of an order, which is exactly what src/eventbus exists to prevent.
+        Producers publish to the bus; only the fan-out task calls this.
 
         The set is snapshotted under the lock before sending. Iterating it
         directly would mutate-during-iteration the moment a send fails and the
         client is discarded.
         """
         async with self._ws_lock:
-            clients = list(self._ws_clients)
+            if topic is None:
+                clients = list(self._ws_clients)
+            else:
+                # Filtered by recipient, still serialized once below. Doing it
+                # the other way -- a payload per client -- is exactly the
+                # O(clients) work the per-connection loops were deleted for,
+                # and it would come straight back the moment subscriptions
+                # existed. A hidden panel costs zero bytes; it does not cost
+                # an extra json.dumps.
+                clients = [
+                    ws for ws in self._ws_clients if topic in self._ws_topics.get(ws, frozenset())
+                ]
+
+        # Envelope, stamped once for everybody. Additive: every field the
+        # existing dashboard reads is still at the top level, so a client that
+        # predates the envelope keeps working while PR 4 is written.
+        #
+        # ts_ms is only defaulted here. When a frame carries a producer's own
+        # timestamp it arrives already set, and overwriting it would report
+        # zero lag no matter how starved the transport was -- which is the one
+        # measurement this is for.
+        self._seq += 1
+        payload = {
+            "v": self._WS_PROTOCOL_VERSION,
+            "seq": self._seq,
+            "ts_ms": int(time.time() * 1000),
+            **payload,
+        }
 
         message = json.dumps(payload)
         delivered = 0
@@ -388,6 +467,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
+        # The two push paths, owned here rather than by a connection so that
+        # their cost is paid once for the server instead of once per client.
+        # The subscription is taken before the task starts: subscribing inside
+        # the task would drop every event published between task creation and
+        # its first scheduling slice.
+        ws_subscription = get_event_bus().subscribe(TOPICS)
+        ws_tasks = [
+            asyncio.create_task(_heartbeat_loop(), name="ws_heartbeat"),
+            asyncio.create_task(_event_fanout_loop(ws_subscription), name="ws_fanout"),
+        ]
+
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
         # is the master kill switch — see src/config.py). When an operator
         # turns it on, this is the "explicit startup step" bootstrap.py's
@@ -405,6 +495,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
         yield
+
+        # Close the subscription before cancelling, so the fan-out loop's
+        # `async for` ends on its own rather than being torn out of an await.
+        ws_subscription.close()
+        for task in ws_tasks:
+            task.cancel()
+        await asyncio.gather(*ws_tasks, return_exceptions=True)
 
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
@@ -635,6 +732,58 @@ class SelfTuningPauseRequest(BaseModel):
         min_length=1,
         description="Must match OPERATOR_SECRET env var to authorise pause/resume",
     )
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class RetrainRequest(BaseModel):
+    """
+    Operator-triggered model retrain for one timeframe.
+
+    Operator-secret gated: a retrain replaces the artifact the live signal
+    path loads, so it is a change to what trades, not a read.
+    """
+
+    timeframe: str = Field(..., min_length=1, max_length=16)
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(..., min_length=1)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+class BackfillRequest(BaseModel):
+    """
+    Operator-triggered historical bar fetch.
+
+    Not operator-secret gated: backfill only appends bars to storage and
+    cannot open, close or resize a position. It is rate-limited instead,
+    because it does spend exchange API quota.
+    """
+
+    timeframe: str = Field(..., min_length=1, max_length=16)
+    lookback_days: int = Field(default=180, ge=1, le=1825)
+
+
+class CapitalFloorReAuthorizeRequest(BaseModel):
+    """
+    Clear a capital-preservation halt.
+
+    The floor halts permanently and never auto-clears (unlike the daily
+    drawdown halt), so this is the only path back to trading. Gated on the
+    operator secret and requires a written reason — the reason lands in the
+    audit trail, which is the record of why trading resumed.
+    """
+
+    timeframe: str = Field(..., min_length=1, max_length=16)
+    reason: str = Field(..., min_length=8, max_length=500)
+    operator: str = Field(..., min_length=1, max_length=64)
+    operator_secret: str = Field(..., min_length=1)
 
     @field_validator("operator")
     @classmethod
@@ -1420,17 +1569,145 @@ async def self_tuning_rollback(
 # ---------------------------------------------------------------------------
 
 
+async def _build_tick_snapshot() -> dict[str, Any] | None:
+    """
+    The full status snapshot, built **once** per heartbeat for all clients.
+
+    This used to run per connection, inside each client's own loop. With
+    _MAX_WS_CLIENTS at 50 that was 50 storage reads and 50 json.dumps calls
+    per heartbeat to produce 50 copies of identical bytes -- work that grew
+    with the number of people watching, which is precisely backwards for a
+    dashboard whose whole job is to be watchable.
+
+    Returns None while the server is still starting, which the caller treats
+    as "skip this beat" rather than an error.
+    """
+    if _state.orchestrator is None:
+        return None
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    if executor is None:
+        return None
+
+    cfg = get_settings()
+    bus = get_event_bus()
+
+    payload: dict[str, Any] = {
+        "type": "tick",
+        "topic": "tick",
+        "equity_usd": round(executor.equity_usd, 2),
+        "cash_usd": round(executor.cash_usd, 2),
+        # Use lock-safe variants to prevent RuntimeError from dict mutation
+        # during concurrent position open/close (VUL-035)
+        "positions": await executor.open_positions_safe(),
+        "pending_approvals": await executor.pending_approvals_safe(),
+        "trading_mode": cfg.trading_mode.value,
+        "execution_mode": (await runtime_config.get_execution_mode()).value,
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+        # A starved client has to be visible rather than inferred. Without
+        # this the dashboard looks identical whether the bus is keeping up or
+        # quietly discarding the oldest half of every burst.
+        "dropped": bus.total_dropped,
+    }
+
+    snap = await _state.storage.latest_regime(cfg.primary_symbol, cfg.primary_timeframe.value)
+    if snap is not None:
+        payload["regime"] = {
+            "state": snap.regime_state,
+            "name": ["ranging", "trending", "volatile"][snap.regime_state],
+            "prob_ranging": round(snap.prob_ranging, 4),
+            "prob_trending": round(snap.prob_trending, 4),
+            "prob_volatile": round(snap.prob_volatile, 4),
+        }
+    return payload
+
+
+async def _heartbeat_loop() -> None:
+    """
+    One timer for the whole server, not one per client.
+
+    The heartbeat survives the move to an event bus, but its job has changed.
+    It is no longer the transport -- events arrive on their own -- it is the
+    resync anchor and the liveness signal: a full snapshot a reconnecting
+    client can align to, and proof to an idle dashboard that the socket is
+    alive rather than merely quiet.
+    """
+    while True:
+        try:
+            # Re-read per beat rather than once at startup. The per-connection
+            # loops this replaced picked the value up whenever a client
+            # reconnected; hoisting it out of the loop would quietly make the
+            # heartbeat the one setting a restart is required to change.
+            await asyncio.sleep(get_settings().api.ws_heartbeat_s)
+            if not _state.ws_clients:
+                continue  # Nobody is watching; do not pay for the snapshot.
+            payload = await _build_tick_snapshot()
+            if payload is not None:
+                await _state.broadcast(payload)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover - loop must outlive a bad beat
+            log.error("api.ws_heartbeat_error", error=str(exc), exc_info=True)
+
+
+async def _event_fanout_loop(subscription: Subscription) -> None:
+    """
+    Drain the event bus and push each event the moment it arrives.
+
+    This is the half that actually removes the latency floor. The heartbeat
+    can only ever be as fast as its period; this is bounded by how quickly the
+    producer calls publish().
+
+    Nothing here can reach back into the producer: the subscription's buffer
+    drops its own oldest events when this loop falls behind, so a slow or
+    wedged websocket costs frames on this socket and nothing else.
+    """
+    async for event in subscription:
+        try:
+            if not _state.ws_clients:
+                continue
+            await _state.broadcast(
+                {
+                    "type": "event",
+                    "topic": event.topic,
+                    # The producer's clock, deliberately. Re-stamping here
+                    # would measure the age of this line of code.
+                    "ts_ms": event.ts_ms,
+                    "data": event.data,
+                },
+                topic=event.topic,
+            )
+            # After the send, not before: the interval that matters includes
+            # the writes, because broadcast() awaits each client in turn and a
+            # single slow peer is exactly the starvation worth alerting on.
+            # mono_ns, not the ts_ms above -- the frame needs a wall clock the
+            # browser can compare against, the histogram needs a duration.
+            observe_ws_publish_lag(event.topic, event.mono_ns)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover
+            log.error("api.ws_fanout_error", topic=event.topic, error=str(exc))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     """
     Live WebSocket feed — requires X-Api-Key header on upgrade.
 
-    Pushes a status snapshot every ws_heartbeat_s seconds.
+    The connection no longer owns a timer. It registers itself, sends one
+    snapshot so the panels are populated immediately rather than after a
+    heartbeat of blankness, and then does nothing but read: the shared
+    _heartbeat_loop and _event_fanout_loop push to every client.
+
     Max concurrent clients: _MAX_WS_CLIENTS (default 50, set on AppState).
     """
     # C-02: Auth before any state mutation — prevents slot leak if auth raises
     # after add_ws_client succeeds but before accept().
-    await verify_ws_key(ws)
+    #
+    # The Role is kept, not discarded. verify_ws_key's own docstring says it
+    # is "what callers must consult before honouring anything a client sends
+    # back over the socket", and until there was an inbound command there was
+    # nothing to consult it for. Now there is.
+    role = await verify_ws_key(ws)
 
     # Capacity check — only after auth passes
     added = await _state.add_ws_client(ws)
@@ -1440,9 +1717,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         return
 
     await ws.accept()
-    cfg = get_settings()
-    heartbeat = cfg.api.ws_heartbeat_s
-    log.info("api.ws_connected", client=str(ws.client))
+    # Subscribed to everything the key permits until the client narrows it.
+    # Defaulting to nothing would mean a dashboard that never sends a
+    # subscribe -- including the one shipped before this existed -- goes
+    # silent on upgrade, which is a worse failure than sending too much.
+    _state._ws_roles[ws] = role
+    await _state.set_ws_topics(ws, _state.permitted_topics(role))
+    log.info("api.ws_connected", client=str(ws.client), role=role.value)
 
     # API-005: the socket is push-only, so anything arriving on it is
     # unsolicited. Reading it is not optional -- an unread receive buffer is
@@ -1452,41 +1733,23 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     reader = asyncio.create_task(_guarded_ws_reader(ws))
 
     try:
-        while True:
-            await asyncio.sleep(heartbeat)
+        # Cold start. Without this a client that connects just after a beat
+        # renders empty panels for most of a heartbeat, which reads as a
+        # broken dashboard rather than a young one.
+        snapshot = await _build_tick_snapshot()
+        if snapshot is not None:
+            await ws.send_text(json.dumps(snapshot))
 
-            if _state.orchestrator is None:
-                continue  # Server still starting — skip tick, retry next heartbeat
-            executor = cast(AbstractExecutor, _state.orchestrator._executor)
-            if executor is None:
-                continue
-
-            payload: dict[str, Any] = {
-                "type": "tick",
-                "equity_usd": round(executor.equity_usd, 2),
-                "cash_usd": round(executor.cash_usd, 2),
-                # Use lock-safe variants to prevent RuntimeError from dict mutation
-                # during concurrent position open/close (VUL-035)
-                "positions": await executor.open_positions_safe(),
-                "pending_approvals": await executor.pending_approvals_safe(),
-                "trading_mode": get_settings().trading_mode.value,
-                "execution_mode": (await runtime_config.get_execution_mode()).value,
-                "timestamp": datetime.now(tz=UTC).isoformat(),
-            }
-
-            snap = await _state.storage.latest_regime(
-                cfg.primary_symbol, cfg.primary_timeframe.value
-            )
-            if snap is not None:
-                payload["regime"] = {
-                    "state": snap.regime_state,
-                    "name": ["ranging", "trending", "volatile"][snap.regime_state],
-                    "prob_ranging": round(snap.prob_ranging, 4),
-                    "prob_trending": round(snap.prob_trending, 4),
-                    "prob_volatile": round(snap.prob_volatile, 4),
-                }
-
-            await ws.send_text(json.dumps(payload))
+        # Nothing else to do on this task. The shared loops do the pushing;
+        # this simply parks until the peer goes away, which is what keeps the
+        # connection (and its guard) alive.
+        #
+        # The reader absorbs WebSocketDisconnect itself and returns, so a
+        # normal hangup arrives here as an ordinary completion rather than the
+        # exception below -- which is why the disconnect is logged on this
+        # path and not only in the handler.
+        await reader
+        log.info("api.ws_disconnected", client=str(ws.client))
 
     except WebSocketDisconnect:
         log.info("api.ws_disconnected", client=str(ws.client))
@@ -1496,6 +1759,72 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         reader.cancel()
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
+
+
+async def _handle_ws_command(ws: WebSocket, raw: str) -> None:
+    """
+    Honour `{"op": "subscribe", "topics": [...]}`; ignore anything else.
+
+    Runs only on frames that have already passed WSFrameGuard, so this is
+    parsing a payload the transport has vouched for -- not validating an
+    untrusted one from scratch.
+
+    An unknown topic is refused explicitly rather than dropped. Silently
+    accepting one produces a panel that renders nothing with no error
+    anywhere, which is the failure mode hardest to diagnose from the outside;
+    the client gets told which names it got wrong.
+
+    A topic the connection's key is not entitled to is *also* refused rather
+    than quietly filtered, for the same reason -- but the entitlement itself
+    is enforced by intersecting with permitted_topics below, so a client that
+    lies about its role still receives nothing extra.
+    """
+    try:
+        msg = json.loads(raw)
+    except (ValueError, TypeError):
+        return
+    if not isinstance(msg, dict) or msg.get("op") != "subscribe":
+        return
+
+    requested = msg.get("topics")
+    if not isinstance(requested, list) or not all(isinstance(t, str) for t in requested):
+        await _send_ws_error(ws, "topics must be a list of strings")
+        return
+
+    wanted = frozenset(requested)
+    unknown = wanted - TOPICS
+    if unknown:
+        await _send_ws_error(ws, f"unknown topic(s): {', '.join(sorted(unknown))}")
+        return
+
+    role = _state._ws_roles.get(ws, Role.READ_ONLY)
+    permitted = _state.permitted_topics(role)
+    refused = wanted - permitted
+    granted = wanted & permitted
+
+    await _state.set_ws_topics(ws, granted)
+    if refused:
+        log.warning(
+            "api.ws_subscribe_refused",
+            role=role.value,
+            refused=sorted(refused),
+        )
+        await _send_ws_error(ws, f"not permitted for this key: {', '.join(sorted(refused))}")
+    log.info("api.ws_subscribed", topics=sorted(granted))
+
+
+async def _send_ws_error(ws: WebSocket, detail: str) -> None:
+    """
+    Tell the client its subscription was wrong, without closing the socket.
+
+    Deliberately different from the frame guard's close-on-violation: a
+    malformed subscribe is a client bug, not a prober, and dropping the
+    connection would take the working panels down with the broken one.
+    """
+    try:
+        await ws.send_text(json.dumps({"type": "error", "op": "subscribe", "detail": detail}))
+    except Exception:  # pragma: no cover - peer already gone
+        log.info("api.ws_error_send_failed")
 
 
 async def _guarded_ws_reader(ws: WebSocket) -> None:
@@ -1521,10 +1850,9 @@ async def _guarded_ws_reader(ws: WebSocket) -> None:
                 log.warning("api.ws_frame_rejected", reason=exc.reason, code=exc.close_code)
                 await ws.close(code=exc.close_code)
                 return
-            # No inbound command exists yet. A frame that passes every check
-            # is still not actionable, and silently ignoring it is correct
-            # until a handler is deliberately added above.
-            log.info("api.ws_frame_accepted_no_handler")
+            # The one inbound command this endpoint honours. Everything else
+            # that survives the guard is still not actionable and is ignored.
+            await _handle_ws_command(ws, raw)
     except (WebSocketDisconnect, asyncio.CancelledError):
         return
     except Exception as exc:  # pragma: no cover - transport-level failures
@@ -1998,6 +2326,228 @@ async def recovery_acknowledge(
     )
     log.warning("api.recovery_acknowledged", operator=body.operator, cleared=cleared)
     return {"cleared": cleared, "blocked": False, "operator": body.operator}
+
+
+def _parse_timeframe_or_400(value: str) -> Timeframe:
+    """Shared validation for the operator endpoints that take a timeframe."""
+    try:
+        return Timeframe(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe {value!r}. Must be one of: "
+            f"{sorted(tf.value for tf in Timeframe)}",
+        ) from exc
+
+
+@app.get(
+    "/models/status",
+    tags=["models"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def models_status() -> dict[str, Any]:
+    """
+    Per-timeframe training state plus on-disk artifact counts.
+
+    The artifact count is the same filename heuristic
+    scripts/check_model_artifacts.py uses; it says an artifact exists, not
+    that it loads or passes the live gate.
+    """
+    orchestrator = require_orchestrator()
+    cfg = get_settings()
+    model_dir = cfg.storage.model_dir
+
+    status = orchestrator.retrain_status()
+    for tf_value, entry in status.items():
+        if model_dir.is_dir():
+            entry["artifact_count"] = sum(
+                1 for p in model_dir.rglob(f"*{tf_value}*") if p.is_file()
+            )
+        else:
+            entry["artifact_count"] = 0
+
+    return {"model_dir": str(model_dir), "timeframes": status}
+
+
+@app.post(
+    "/models/retrain",
+    tags=["models"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        400: {"description": "Invalid timeframe"},
+        401: {"description": "Invalid operator secret"},
+        409: {"description": "A retrain is already running for that timeframe"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def trigger_retrain(body: RetrainRequest, request: Request) -> dict[str, Any]:
+    """Start an out-of-band retrain. 409 when one is already in flight."""
+    _state.check_endpoint_rate_limit(
+        "trigger_retrain", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "trigger_retrain")
+
+    tf = _parse_timeframe_or_400(body.timeframe)
+    orchestrator = require_orchestrator()
+    outcome = orchestrator.request_retrain(tf)
+
+    if outcome == "already_running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"A retrain is already running for timeframe={tf.value}.",
+        )
+
+    await _state.storage.insert_audit_event(
+        event_type="manual_retrain_started",
+        operator=body.operator,
+        details={"timeframe": tf.value},
+    )
+    log.info("api.manual_retrain_started", timeframe=tf.value, operator=body.operator)
+    return {"status": outcome, "timeframe": tf.value, "operator": body.operator}
+
+
+@app.post(
+    "/backfill",
+    tags=["data"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        400: {"description": "Invalid timeframe"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def trigger_backfill(body: BackfillRequest, request: Request) -> dict[str, Any]:
+    """
+    Fetch historical bars for one timeframe and report how many were written.
+
+    Awaited, not backgrounded: the bar count is the only useful answer, and
+    reporting "started" would leave the dashboard unable to tell a
+    successful fetch from a silent exchange error.
+    """
+    _state.check_endpoint_rate_limit(
+        "trigger_backfill", request.client.host if request.client else ""
+    )
+    tf = _parse_timeframe_or_400(body.timeframe)
+    orchestrator = require_orchestrator()
+
+    written = await orchestrator.request_backfill(tf, body.lookback_days)
+    log.info("api.manual_backfill_done", timeframe=tf.value, bars_written=written)
+    return {
+        "timeframe": tf.value,
+        "lookback_days": body.lookback_days,
+        "bars_written": written,
+    }
+
+
+@app.get("/horizons", tags=["intelligence"], dependencies=[Depends(api_key_header)])
+async def horizons() -> dict[str, Any]:
+    """
+    The crypto-intel-v6 horizon term structure (config/horizons.yaml).
+
+    Deliberately NOT gated on require_ready or on the intel engine being
+    running. The declared horizons are a real fact about the deployment
+    even when INTEL_ENABLED is false, and answering 404 there would make
+    "intelligence is switched off" indistinguishable from "this build has
+    no horizons" in the dashboard.
+
+    When the engine is off, `enabled` is false and every entry carries a
+    null `last_prediction`; the labels, models and schedules still come
+    from the config file.
+    """
+    adapter = _state.intel_adapter
+    intel = getattr(adapter, "_intel", None) if adapter is not None else None
+
+    if intel is None:
+        # Report the term structure from config alone — no engine needed.
+        from src.intel import sorted_horizon_entries
+
+        return {
+            "enabled": False,
+            "symbol": None,
+            "last_update_ts": None,
+            "horizons": sorted_horizon_entries(),
+        }
+
+    return {
+        "enabled": True,
+        "symbol": intel.last_horizon_symbol,
+        "last_update_ts": intel.last_horizon_ts,
+        "horizons": intel.horizon_status(),
+    }
+
+
+@app.get(
+    "/capital-floor",
+    tags=["risk"],
+    dependencies=[Depends(api_key_header), Depends(require_ready)],
+)
+async def capital_floor() -> dict[str, Any]:
+    """Capital-preservation halt state for every timeframe."""
+    orchestrator = require_orchestrator()
+    return {"floors": orchestrator.capital_floor_status()}
+
+
+@app.post(
+    "/capital-floor/re-authorize",
+    tags=["risk"],
+    dependencies=[
+        Depends(requires(Permission.CHANGE_EXECUTION_MODE)),
+        Depends(require_ready),
+    ],
+    responses={
+        400: {"description": "Invalid timeframe"},
+        401: {"description": "Invalid operator secret"},
+        404: {"description": "No engine or floor for that timeframe"},
+        429: {"description": "Rate limit exceeded"},
+    },
+)
+async def capital_floor_re_authorize(
+    body: CapitalFloorReAuthorizeRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Resume trading after a capital-preservation halt.
+
+    This is the deliberate out-of-band step the floor's design requires:
+    nothing in the system can decide on its own that the cause of a 30%
+    drawdown has been understood.
+    """
+    _state.check_endpoint_rate_limit(
+        "capital_floor_re_authorize", request.client.host if request.client else ""
+    )
+    _verify_operator_secret(body.operator_secret, body.operator, "capital_floor_re_authorize")
+
+    tf = _parse_timeframe_or_400(body.timeframe)
+    orchestrator = require_orchestrator()
+    at_ms = int(time.time() * 1000)
+
+    cleared = orchestrator.re_authorize_capital_floor(
+        timeframe=tf.value,
+        authorized_by=body.operator,
+        reason=body.reason,
+        at_ms=at_ms,
+    )
+    if not cleared:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No capital-preservation floor for timeframe={tf.value}.",
+        )
+
+    await _state.storage.insert_audit_event(
+        event_type="capital_floor_re_authorized",
+        operator=body.operator,
+        details={"timeframe": tf.value, "reason": body.reason, "at_ms": at_ms},
+    )
+    log.warning(
+        "api.capital_floor_re_authorized",
+        timeframe=tf.value,
+        operator=body.operator,
+    )
+    return {"re_authorized": True, "timeframe": tf.value, "operator": body.operator}
 
 
 @app.get("/strategies/attribution", tags=["monitoring"], dependencies=[Depends(api_key_header)])
