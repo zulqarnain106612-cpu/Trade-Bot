@@ -1,10 +1,10 @@
-"""Tests for src/api/metrics.py — TASK-007 Prometheus endpoint."""
+"""Tests for src/diagnostics/metrics.py — TASK-007 Prometheus endpoint."""
 
 from __future__ import annotations
 
 import pytest
 
-from src.api.metrics import (
+from src.diagnostics.metrics import (
     equity_usd,
     kelly_fraction,
     metrics_output,
@@ -80,7 +80,7 @@ class TestUpdateMetrics:
         assert parsed.get('tradebot_regime_prob{state="volatile"}') == pytest.approx(0.1)
 
     def test_gate_counters_increment(self):
-        from src.api.metrics import gate_block_total, gate_pass_total
+        from src.diagnostics.metrics import gate_block_total, gate_pass_total
 
         before_pass = gate_pass_total.labels(gate_name="drawdown")._value.get()
         before_block = gate_block_total.labels(gate_name="regime")._value.get()
@@ -89,7 +89,7 @@ class TestUpdateMetrics:
         assert gate_block_total.labels(gate_name="regime")._value.get() == before_block + 1
 
     def test_tick_duration_observed(self):
-        from src.api.metrics import tick_duration_seconds
+        from src.diagnostics.metrics import tick_duration_seconds
 
         before = tick_duration_seconds._sum.get()
         update_metrics({"tick_duration_seconds": 0.42})
