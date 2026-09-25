@@ -31,6 +31,7 @@ from src.diagnostics.decision_log_writer import (
     StructuralChangeRecord,
     append_to_decision_log,
 )
+from src.eventbus import get_event_bus
 from src.risk.performance_drift import (
     DriftDetected,
     PerformanceBaseline,
@@ -195,6 +196,19 @@ class StrategyKillSwitchManager:
                 justification=drift.reason,
                 evidence={
                     "strategy_id": strategy_id,
+                    "metric": drift.metric,
+                    "disabled_at_ms": now_ms,
+                },
+            )
+            # Same ordering rule as the decision-log write above, and for the
+            # same reason: capital has already been pulled from this strategy
+            # by the time anyone is told about it.
+            get_event_bus().publish(
+                "killswitch",
+                {
+                    "strategy_id": strategy_id,
+                    "enabled": False,
+                    "reason": drift.reason,
                     "metric": drift.metric,
                     "disabled_at_ms": now_ms,
                 },

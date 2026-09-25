@@ -147,6 +147,10 @@ def _validate_operator(v: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Topics a read-only key never receives. See AppState.permitted_topics.
+_OPERATOR_ONLY_TOPICS: frozenset[str] = frozenset({"approval"})
+
+
 class AppState:
     storage: AnyStorageBackend
     orchestrator: Orchestrator | None
@@ -177,6 +181,12 @@ class AppState:
             maxlen=self._MODE_CHANGE_LIMIT
         )
         self._endpoint_hits: dict[str, collections.deque[float]] = {}
+        # What each connection has asked for, and what its key entitles it to.
+        # Keyed by socket because the subscription is a property of the
+        # connection, not of the client's identity: the same key may hold two
+        # tabs open showing different panels.
+        self._ws_topics: dict[WebSocket, frozenset[str]] = {}
+        self._ws_roles: dict[WebSocket, Role] = {}
         # Frame sequence, server-wide rather than per connection.
         #
         # Per-connection numbering was the obvious first instinct and it is
@@ -211,8 +221,29 @@ class AppState:
         """Remove a WS client from the tracked set."""
         async with self._ws_lock:
             self._ws_clients.discard(ws)
+            self._ws_topics.pop(ws, None)
+            self._ws_roles.pop(ws, None)
 
-    async def broadcast(self, payload: dict[str, Any]) -> int:
+    async def set_ws_topics(self, ws: WebSocket, topics: frozenset[str]) -> None:
+        """Record what this connection wants, already filtered by role."""
+        async with self._ws_lock:
+            self._ws_topics[ws] = topics
+
+    def permitted_topics(self, role: Role) -> frozenset[str]:
+        """
+        Topics a key of this role may receive.
+
+        SEC: an approval frame carries a pending trade -- symbol, direction,
+        size -- awaiting an operator decision. A read-only key is issued so
+        something can watch the system without being able to act on it, and
+        handing it the queue of decisions being made is neither read-only in
+        spirit nor needed by anything a read-only client legitimately renders.
+        """
+        if role == Role.READ_ONLY:
+            return TOPICS - _OPERATOR_ONLY_TOPICS
+        return TOPICS
+
+    async def broadcast(self, payload: dict[str, Any], topic: str | None = None) -> int:
         """
         Push one message to every connected dashboard. Returns how many got it.
 
@@ -237,7 +268,18 @@ class AppState:
         client is discarded.
         """
         async with self._ws_lock:
-            clients = list(self._ws_clients)
+            if topic is None:
+                clients = list(self._ws_clients)
+            else:
+                # Filtered by recipient, still serialized once below. Doing it
+                # the other way -- a payload per client -- is exactly the
+                # O(clients) work the per-connection loops were deleted for,
+                # and it would come straight back the moment subscriptions
+                # existed. A hidden panel costs zero bytes; it does not cost
+                # an extra json.dumps.
+                clients = [
+                    ws for ws in self._ws_clients if topic in self._ws_topics.get(ws, frozenset())
+                ]
 
         # Envelope, stamped once for everybody. Additive: every field the
         # existing dashboard reads is still at the top level, so a client that
@@ -1631,7 +1673,8 @@ async def _event_fanout_loop(subscription: Subscription) -> None:
                     # would measure the age of this line of code.
                     "ts_ms": event.ts_ms,
                     "data": event.data,
-                }
+                },
+                topic=event.topic,
             )
         except asyncio.CancelledError:
             raise
@@ -1653,7 +1696,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     """
     # C-02: Auth before any state mutation — prevents slot leak if auth raises
     # after add_ws_client succeeds but before accept().
-    await verify_ws_key(ws)
+    #
+    # The Role is kept, not discarded. verify_ws_key's own docstring says it
+    # is "what callers must consult before honouring anything a client sends
+    # back over the socket", and until there was an inbound command there was
+    # nothing to consult it for. Now there is.
+    role = await verify_ws_key(ws)
 
     # Capacity check — only after auth passes
     added = await _state.add_ws_client(ws)
@@ -1663,7 +1711,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         return
 
     await ws.accept()
-    log.info("api.ws_connected", client=str(ws.client))
+    # Subscribed to everything the key permits until the client narrows it.
+    # Defaulting to nothing would mean a dashboard that never sends a
+    # subscribe -- including the one shipped before this existed -- goes
+    # silent on upgrade, which is a worse failure than sending too much.
+    _state._ws_roles[ws] = role
+    await _state.set_ws_topics(ws, _state.permitted_topics(role))
+    log.info("api.ws_connected", client=str(ws.client), role=role.value)
 
     # API-005: the socket is push-only, so anything arriving on it is
     # unsolicited. Reading it is not optional -- an unread receive buffer is
@@ -1701,6 +1755,72 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         await _state.remove_ws_client(ws)
 
 
+async def _handle_ws_command(ws: WebSocket, raw: str) -> None:
+    """
+    Honour `{"op": "subscribe", "topics": [...]}`; ignore anything else.
+
+    Runs only on frames that have already passed WSFrameGuard, so this is
+    parsing a payload the transport has vouched for -- not validating an
+    untrusted one from scratch.
+
+    An unknown topic is refused explicitly rather than dropped. Silently
+    accepting one produces a panel that renders nothing with no error
+    anywhere, which is the failure mode hardest to diagnose from the outside;
+    the client gets told which names it got wrong.
+
+    A topic the connection's key is not entitled to is *also* refused rather
+    than quietly filtered, for the same reason -- but the entitlement itself
+    is enforced by intersecting with permitted_topics below, so a client that
+    lies about its role still receives nothing extra.
+    """
+    try:
+        msg = json.loads(raw)
+    except (ValueError, TypeError):
+        return
+    if not isinstance(msg, dict) or msg.get("op") != "subscribe":
+        return
+
+    requested = msg.get("topics")
+    if not isinstance(requested, list) or not all(isinstance(t, str) for t in requested):
+        await _send_ws_error(ws, "topics must be a list of strings")
+        return
+
+    wanted = frozenset(requested)
+    unknown = wanted - TOPICS
+    if unknown:
+        await _send_ws_error(ws, f"unknown topic(s): {', '.join(sorted(unknown))}")
+        return
+
+    role = _state._ws_roles.get(ws, Role.READ_ONLY)
+    permitted = _state.permitted_topics(role)
+    refused = wanted - permitted
+    granted = wanted & permitted
+
+    await _state.set_ws_topics(ws, granted)
+    if refused:
+        log.warning(
+            "api.ws_subscribe_refused",
+            role=role.value,
+            refused=sorted(refused),
+        )
+        await _send_ws_error(ws, f"not permitted for this key: {', '.join(sorted(refused))}")
+    log.info("api.ws_subscribed", topics=sorted(granted))
+
+
+async def _send_ws_error(ws: WebSocket, detail: str) -> None:
+    """
+    Tell the client its subscription was wrong, without closing the socket.
+
+    Deliberately different from the frame guard's close-on-violation: a
+    malformed subscribe is a client bug, not a prober, and dropping the
+    connection would take the working panels down with the broken one.
+    """
+    try:
+        await ws.send_text(json.dumps({"type": "error", "op": "subscribe", "detail": detail}))
+    except Exception:  # pragma: no cover - peer already gone
+        log.info("api.ws_error_send_failed")
+
+
 async def _guarded_ws_reader(ws: WebSocket) -> None:
     """
     Drain and validate inbound frames for one connection (API-005).
@@ -1724,10 +1844,9 @@ async def _guarded_ws_reader(ws: WebSocket) -> None:
                 log.warning("api.ws_frame_rejected", reason=exc.reason, code=exc.close_code)
                 await ws.close(code=exc.close_code)
                 return
-            # No inbound command exists yet. A frame that passes every check
-            # is still not actionable, and silently ignoring it is correct
-            # until a handler is deliberately added above.
-            log.info("api.ws_frame_accepted_no_handler")
+            # The one inbound command this endpoint honours. Everything else
+            # that survives the guard is still not actionable and is ignored.
+            await _handle_ws_command(ws, raw)
     except (WebSocketDisconnect, asyncio.CancelledError):
         return
     except Exception as exc:  # pragma: no cover - transport-level failures

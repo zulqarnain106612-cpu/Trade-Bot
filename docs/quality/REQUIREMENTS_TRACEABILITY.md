@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 128 |
+| VERIFIED | 129 |
 | PARTIAL | 0 |
 | PLANNED | 1 |
 | ACCEPTED GAP | 0 |
-| **Total** | **129** |
+| **Total** | **130** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 14 | 13 |
-| Cryptography and secrets | 17 | 17 |
+| Cryptography and secrets | 18 | 18 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -656,12 +656,14 @@ MarketDataFetcher.initialize() must open each venue independently, record an una
 Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.
 
 - **If violated:** A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.
-- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`
+- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`, `src/risk/capital_preservation_floor.py`, `src/execution/order_fsm.py`, `src/risk/strategy_kill_switch.py`
 - **Verification:**
   - `tests/test_event_bus.py` (resilience)
   - `tests/test_ws_broadcaster.py` (api) — The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market.
   - `tests/test_event_bus_producers.py` (risk) — The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path.
   - `tests/test_orderbook_stream_publish.py` (resilience) — The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed.
+  - `tests/test_event_bus_producers_remaining.py` (risk) — The producers that had no push path at all: the capital-preservation floor publishes once when it trips and again when a human re-authorizes (never on the repeated halted marks that follow), the order FSM publishes after the state is committed and not at all on a rejected transition, and the NaN/inf guard that keeps a corrupt mark out of the backstop still raises.
+  - `tests/test_ws_subscriptions.py` (api) — Topic filtering selects recipients without reintroducing per-client serialization -- every subscriber still receives the identical string -- and an untopiced heartbeat still reaches a client subscribed to nothing, because it is the resync anchor.
 
 > Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events.
 
@@ -1010,6 +1012,19 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Depends on:** `SECR-015`
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
+
+#### `SECR-019` — A read-only websocket key never receives the approval queue
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-25
+
+A websocket authenticated with the read-only API key is never sent an approval-topic frame, whether by default subscription or by explicitly requesting it; the request is refused and the topic is not granted.
+
+- **If violated:** verify_ws_key returns a Role and its own docstring says that Role is what callers must consult before honouring anything a client sends over the socket, but websocket_endpoint discarded it. Once topic subscriptions exist, a read-only key could subscribe to 'approval' and receive every pending trade -- symbol, direction, notional -- awaiting an operator decision. A read-only credential is issued so something can watch without acting; streaming it the queue of decisions being made is a disclosure that credential was never meant to carry.
+- **Owned by:** `src/api/main.py`, `src/api/auth.py`
+- **Verification:**
+  - `tests/test_ws_subscriptions.py` (security)
+
+> Asserts both halves: permitted_topics excludes approval for READ_ONLY, a published approval frame does not reach a read-only socket, and an explicit subscribe to it is refused without being granted.
 
 #### `SEC-0005` — A file holding real credentials is never committable
 
@@ -1699,4 +1714,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 129 entries.
+Registry version: 1.0.0 — 130 entries.

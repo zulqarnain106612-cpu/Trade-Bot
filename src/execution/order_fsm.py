@@ -34,6 +34,8 @@ from typing import Any, Final
 
 import structlog
 
+from src.eventbus import get_event_bus
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
@@ -242,8 +244,27 @@ class OrderFSM:
             self._transition_to_failed(context)
 
         # Update status and timestamps
+        previous = self._state.status
         self._state.status = next_status
         self._state.last_updated_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+
+        # Published after the state is committed, never before: a subscriber
+        # that saw FILLED while the FSM still read FILLING would be reporting
+        # a fill the system has not yet made.
+        get_event_bus().publish(
+            "order",
+            {
+                "order_id": self._state.order_id,
+                "symbol": self._state.symbol,
+                "side": self._state.side,
+                "from": previous.value,
+                "to": next_status.value,
+                "quantity": self._state.quantity,
+                "filled_qty": self._state.filled_qty,
+                "average_fill_price": self._state.average_fill_price,
+                "terminal": self._state.is_terminal(),
+            },
+        )
 
     def add_partial_fill(self, qty: float, price: float) -> None:
         """
