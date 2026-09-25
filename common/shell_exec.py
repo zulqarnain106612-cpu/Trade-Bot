@@ -53,9 +53,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from common.command_schema import (
+    CI_LOG_REFUSAL,
     COMMAND_EXEC_SCHEMA,
     build_env,
     classify,
+    is_ci_log_access,
     rank,
     redact,
 )
@@ -354,6 +356,16 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     # shell string, is what a reviewer and the PreToolUse hook read.
     declared: str = declaration.get("classification", "read_only")
     detected: str = classify(cmd)
+
+    # ---- CI observability contract -------------------------------------
+    # Ahead of every output control, because this is not an output-size
+    # question. No line bound, filter or redaction makes reading a CI log
+    # allowed: the pull-request notice is the only channel, and it already
+    # carries the failing lines. Refused here as well as in the PreToolUse
+    # hook so that routing a command through this module -- the sanctioned way
+    # to run anything -- is not a way around the hook.
+    if is_ci_log_access(cmd):
+        return _refused(cmd, declared, CI_LOG_REFUSAL)
     if rank(detected) > rank(declared):
         return _refused(
             cmd,

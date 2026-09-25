@@ -1,0 +1,63 @@
+{
+  "case_id": "BTCUSDT_15m_case_003",
+  "data_quality": {
+    "checks_run": [
+      "schema",
+      "finite",
+      "timestamp_valid",
+      "monotonic",
+      "duplicates",
+      "ohlc_consistent",
+      "volume_non_negative",
+      "fresh",
+      "gaps",
+      "extreme_return",
+      "zero_volume_run"
+    ],
+    "passed": true,
+    "reason": ""
+  },
+  "description": "A choppy, directionless market with a model that has no edge. The gates pass and the signal is flat: 'no trade' arrived at by having nothing to say, not by being blocked.",
+  "expected_action": "no_trade_flat_signal",
+  "features": {
+    "atr_momentum": 1.347662,
+    "frac_diff": 3811.739019,
+    "garch_vol_forecast": 0.003526,
+    "ofi": 0.000959,
+    "realized_vol_ratio": 0.373909,
+    "rolling_sharpe": -1.627155,
+    "volume_zscore": 0.899323,
+    "vwap_dev_zscore": 1.126832
+  },
+  "market": {
+    "bar_count": 320,
+    "first_close": 50272.4979,
+    "first_ts_ms": 1799712000000,
+    "last_close": 49239.1121,
+    "last_ts_ms": 1799999100000,
+    "now_ms": 1800000000000,
+    "symbol": "BTC/USDT",
+    "timeframe_s": 900
+  },
+  "model": {
+    "p_long": 0.5
+  },
+  "regime": {
+    "state": 0
+  },
+  "risk": {
+    "passed": true,
+    "reason": "all gates passed",
+    "size_scalar": 1.0,
+    "status": "pass"
+  },
+  "signal": {
+    "direction": 0,
+    "expected_edge_bps": 0.0
+  },
+  "tags": [
+    "clean",
+    "ranging",
+    "flat"
+  ]
+}

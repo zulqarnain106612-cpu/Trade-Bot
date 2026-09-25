@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useWebSocket, usePolling, useOperatorAction, apiFetch, postJson } from './hooks/useApi';
+import { ControlHubPanel } from './components/panels/ControlHubPanel';
 import { Panel } from './components/Panel';
 import { ModeSwitcher, StatCard } from './components/Controls';
 import { EquityChart, DrawdownChart } from './components/panels/EquityChart';
@@ -24,6 +25,7 @@ const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
 const REGIME_NAME = { 0: 'RANGING', 1: 'TRENDING', 2: 'VOLATILE' };
 
 const ALL_PANELS = [
+  { id: 'controlhub', label: 'Control Hub', icon: '🎚' },
   { id: 'equity', label: 'Equity Curve', icon: '📈' },
   { id: 'drawdown', label: 'Drawdown', icon: '📉' },
   { id: 'positions', label: 'Positions', icon: '💼' },
@@ -65,7 +67,13 @@ export default function App() {
   const { operatorId, setOperatorId, operatorSecret, setOperatorSecret, action } = useOperatorAction();
 
   const onTick = useCallback((msg) => setTick(msg), []);
-  const wsConnected = useWebSocket(onTick);
+  // A control_changed frame carries no tick fields, so it advances its own
+  // counter rather than being pushed through setTick; the hub re-reads on it.
+  const [controlVersion, setControlVersion] = useState(0);
+  const onEvent = useCallback((msg) => {
+    if (msg.type === 'control_changed') setControlVersion((v) => v + 1);
+  }, []);
+  const wsConnected = useWebSocket(onTick, onEvent);
 
   // Every list endpoint returns its rows under a named key
   // (src/api/main.py), while the panels below take plain arrays — so each
@@ -181,6 +189,13 @@ export default function App() {
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
+          {visibility.controlhub && (
+            <Panel title="Control Hub" icon="🎚" defaultWidth={620} defaultHeight={420}
+              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('controlhub')}>
+              <ControlHubPanel operatorAction={action} refreshToken={controlVersion} />
+            </Panel>
+          )}
+
           {visibility.equity && (
             <Panel title="Equity Curve" icon="📈" defaultWidth={580} defaultHeight={260}
               accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('equity')}>

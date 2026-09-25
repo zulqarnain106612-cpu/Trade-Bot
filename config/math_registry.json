@@ -77,7 +77,7 @@
         "Ed25519"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -111,7 +111,7 @@
         "TLS P-256"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/secp256k1.py",
@@ -155,7 +155,7 @@
         "this project's API request signing"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/ed25519.py",
@@ -190,7 +190,7 @@
         "EIP-4844"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/curves/bls12_381.py",
@@ -220,7 +220,7 @@
         "NTRU"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -252,7 +252,7 @@
         "MDS matrix construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/mds.py",
@@ -319,7 +319,7 @@
         "polynomial IOPs"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/interpolation.py",
@@ -394,11 +394,16 @@
         "TLS ffdhe groups"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
-          "module": "src/mathcore/numbertheory/primality.py",
-          "kind": "consumer"
+          "module": "src/mathcore/numbertheory/safe_primes.py",
+          "kind": "owner",
+          "note": "parameter and public-value checks only; no key agreement and no random source"
+        },
+        {
+          "module": "tests/test_safe_primes.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Unvalidated DH parameters allow a small-subgroup confinement attack in which the shared secret takes one of a handful of values.",
@@ -407,7 +412,8 @@
       ],
       "references": [
         "RFC 7919"
-      ]
+      ],
+      "notes": "Verifies a caller-supplied modulus rather than shipping RFC 7919's named group constants: a 2048-bit constant copied into a file is how this project has shipped a fabricated constant three times, and checking the structure is strictly stronger than trusting the transcription. is_valid_public_value is the half that actually stops the attack -- correct parameters do not prevent a peer from sending an element of order 2. The first draft listed primality.py as a consumer; the dependency runs the other way -- safe_primes imports is_probable_prime -- so that wiring point was a false claim about who is on the hook if primality changes, and is corrected here rather than carried forward."
     },
     {
       "id": "pseudo-mersenne-primes",
@@ -717,7 +723,7 @@
         "Falcon"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/fields/ntt.py",
@@ -750,7 +756,7 @@
         "bent function construction"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/walsh_hadamard.py",
@@ -774,7 +780,7 @@
         "Regev's LWE reduction"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
@@ -829,7 +835,7 @@
         "timing analysis of signing code"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/fft_spectral.py",
@@ -874,7 +880,7 @@
         "Merkle tree security"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/birthday.py",
@@ -898,7 +904,7 @@
         "NIST SP 800-90B health tests"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/entropy.py",
@@ -922,7 +928,7 @@
         "every Nakamoto-style chain"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/confirmations.py",
@@ -950,7 +956,7 @@
         "exchange deposit-crediting policy"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/confirmations.py",
@@ -980,7 +986,7 @@
         "data availability sampling"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/committee.py",
@@ -1002,7 +1008,7 @@
         "chain reorganisation risk assessment"
       ],
       "repo_relevance": "strategy",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/probability/reorg.py",
@@ -1026,7 +1032,7 @@
         "FRI low-degree testing"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/reed_solomon.py",
@@ -1068,7 +1074,7 @@
         "Rescue"
       ],
       "repo_relevance": "none",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/coding/mds.py",
@@ -1109,7 +1115,7 @@
         "Coppersmith attacks on RSA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/lll.py",
@@ -1134,7 +1140,7 @@
         "Minerva and TPM-Fail"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/lattice/hnp.py",
@@ -1186,7 +1192,7 @@
         "certificate transparency"
       ],
       "repo_relevance": "analytics",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/commitments/merkle.py",
@@ -1219,7 +1225,7 @@
         "ARIA"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/constants/nutms.py",
@@ -1246,11 +1252,12 @@
         "Falcon"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
-          "kind": "consumer"
+          "kind": "owner",
+          "note": "smoothing_parameter carries the pi of the discrete Gaussian exp(-pi|x|^2/s^2); the module docstring records it as the structural, non-decorative use this entry names"
         }
       ],
       "risk_if_misused": "Dropping the pi from the Gaussian definition when porting a formula changes the width by a constant factor and silently moves the scheme below its smoothing parameter.",
@@ -1333,7 +1340,7 @@
         "exchange deposit address generation"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/derivation/bip32.py",
@@ -1367,7 +1374,7 @@
         "most modern signing libraries"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/security/api_signer.py",
@@ -1401,7 +1408,7 @@
         "institutional MPC custody"
       ],
       "repo_relevance": "security",
-      "status": "planned",
+      "status": "implemented",
       "wiring": [
         {
           "module": "src/mathcore/derivation/threshold.py",
@@ -1421,7 +1428,8 @@
       "references": [
         "RFC 9591 FROST",
         "MuSig2"
-      ]
+      ],
+      "notes": "Implements the verifiable-sharing half only: Feldman commitments, the group and participant public keys, share verification, Lagrange weights at zero, and dispute evidence. Deliberately not a signer -- see risk_if_misused. The pieces here are individually correct and compose into an ROS-vulnerable scheme, so the boundary is enforced in the module and asserted by a test rather than described in a comment."
     },
     {
       "id": "hash-constructions",

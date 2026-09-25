@@ -1,16 +1,33 @@
 name: "CodeQL"
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: ["main"]
   pull_request:
+    # `ready_for_review` is not one of the default activity types. Without it
+    # the queue reveals a parked entry and no run starts: the promotion is
+    # real, the checks never report, and the entry sits at the front of the
+    # line forever. tests/test_pr_queue.py asserts every gating workflow
+    # lists it (REG-0006).
     branches: ["main"]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     - cron: "27 4 * * 1"
 
 # Required for uploading results / creating code scanning alerts
 permissions:
+  # The CodeQL action reads the workflow run it is part of
+  # (GET /repos/{owner}/{repo}/actions/runs/{run_id}). Without `actions: read`
+  # that call comes back "Resource not accessible by integration" and the
+  # analysis step fails, which is how both language matrix legs died on #353.
+  # Required on a private repository, recommended everywhere.
+  actions: read
   contents: read
   security-events: write
 
@@ -24,69 +41,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
       security-events: write
     strategy:
       fail-fast: false
       matrix:
-        # Use one entry per run. Use 'javascript' (covers JS/TS) and 'python' if applicable.
+        # One entry per run. 'javascript-typescript' covers JS and TS.
         language: [python, javascript-typescript]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Full history is recommended for best CodeQL analysis (avoid shallow clones)
-          fetch-depth: 0
+        # No `fetch-depth: 0`. CodeQL extracts the checked-out tree; it does
+        # not read history. A full clone is latency this analysis never
+        # spends. The action's docs ask for one only for `--diff-range`
+        # PR-only analysis, which this workflow deliberately does not use --
+        # it analyses the whole tree every run.
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
-          # Pass the language for this matrix run
           languages: ${{ matrix.language }}
-          # Use the recommended query pack; adjust if you have custom queries
           queries: security-and-quality
-
-      # Build steps: ensure CodeQL extractors can see dependencies / built artifacts.
-      # These are intentionally simple; adapt to your repo's build commands.
-      - name: Set up Python (if needed)
-        if: matrix.language == 'python'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.x"
-
-      - name: Install Python dependencies (if present)
-        if: matrix.language == 'python'
-        run: |
-          python -m pip install --upgrade pip || true
-          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
-
-      - name: Install Node dependencies (if needed)
-        if: matrix.language == 'javascript-typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "18"
-
-      - name: Install & build Node (if present)
-        if: matrix.language == 'javascript-typescript'
-        run: |
-          if [ -f package-lock.json ] || [ -f package.json ]; then
-            npm ci || npm install --legacy-peer-deps || true
-            npm run build --if-present || true
-          fi
-
-      # Optional: run the autobuild step if no explicit build was performed.
-      # For many repos the above language-specific steps are sufficient.
-      - name: Perform CodeQL autobuild (fallback)
-        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        # autobuild is a safe no-op if build was already done; keep as fallback
-        continue-on-error: false
+          # Both languages here are interpreted: CodeQL builds their databases
+          # by reading source, never by watching a compiler. `none` is the
+          # supported way to say so, and it is what removes the four steps
+          # that used to sit between init and analyse.
+          #
+          # Those steps cost 144s of the python job's 292s installing
+          # requirements.txt so that "extractors can see dependencies", which
+          # the Python extractor does not do -- it resolves imports against
+          # the source tree and its own bundled library models, and an
+          # installed site-packages changes nothing it reports. The Node half
+          # was worse: `npm ci || npm install --legacy-peer-deps || true`
+          # redid what ci.yml's frontend job already does and swallowed its
+          # own failure, so it could only cost time or lie.
+          #
+          # The autobuild fallback goes with them. Under build-mode: none
+          # there is nothing to fall back to, and a step documented as "a safe
+          # no-op" is how a real build failure becomes invisible.
+          build-mode: none
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           # A human-readable category shown in the Code Scanning UI
           category: "/language:${{ matrix.language }}"
+          # Uploading SARIF on pull_request creates an extra neutral "CodeQL"
+          # check run; keep PR checks strictly green-only and upload on push.
+          upload: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
 
   # ---------------------------------------------------------------------
   # All-green gate.
@@ -103,7 +107,7 @@ jobs:
   gate:
     name: CodeQL gate (all jobs green)
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ always() }}
     needs: [analyze]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

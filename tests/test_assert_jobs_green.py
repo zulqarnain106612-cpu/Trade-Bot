@@ -41,6 +41,10 @@ def run_gate(needs: dict | str, allow_skipped: str | None = None) -> subprocess.
     )
 
 
+# Mirrors the guard applied in .github/workflows/*.yml; see
+# tests/test_pr_queue.py, which owns the requirement that it exists.
+
+
 class TestPasses:
     def test_all_success_exits_zero(self):
         result = run_gate({"a": {"result": "success"}, "b": {"result": "success"}})
@@ -193,7 +197,15 @@ class TestEveryPullRequestWorkflowIsGated:
         jobs = spec.get("jobs", {})
         if "gate" not in jobs:
             pytest.skip(f"{path.name} has no gate job")
-        assert jobs["gate"].get("if") == "always()", path.name
+        # `always()` is the only condition a gate may carry, checked as an
+        # exact alternative rather than a substring: `always() && false` still
+        # has to fail. The pull-request queue used to AND a draft guard onto
+        # this, and that was the hole -- a draft skipped the gate job, and
+        # GitHub counts a required check whose conclusion is `skipped` as
+        # satisfied. #292 merged with all four gates skipped and its suite
+        # never run. Nothing may condition a gate again.
+        permitted = {"always()", "${{ always() }}"}
+        assert jobs["gate"].get("if") in permitted, path.name
 
     @pytest.mark.parametrize("path", workflow_files(), ids=lambda p: p.name)
     def test_gate_invokes_the_shared_script(self, path):

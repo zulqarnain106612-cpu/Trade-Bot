@@ -30,11 +30,11 @@ from typing import Any, cast
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
 
-from src.api.metrics import update_metrics
 from src.config import (
     EXCHANGE_BINANCE,
     EXCHANGE_OKX,
     TIMEFRAME_SECONDS,
+    Settings,
     Timeframe,
     TradingMode,
     get_settings,
@@ -49,6 +49,7 @@ from src.data.storage import (
     ModelMetricsRecord,
     RegimeSnapshotRecord,
 )
+from src.diagnostics.metrics import update_metrics
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,
@@ -120,6 +121,40 @@ def _blend_audit(result: SignalResult) -> BlendAudit | None:
         blend_weight=result.ensemble_blend_weight,
     )
 
+
+def _metrics_payload(result: Any, executor: Any) -> dict[str, float | int]:
+    """
+    Build the Prometheus snapshot for one tick.
+
+    Extracted from `_tick_traced` so the payload can be tested directly. It
+    was inline, and the whole dict is evaluated before `update_metrics()` is
+    reached -- so one bad member did not cost one metric, it cost every
+    metric on every tick, for as long as nobody read the warning.
+
+    `open_positions` is a **method** on AbstractExecutor, not a property;
+    `equity_usd` beside it is a property. Calling one and not the other is
+    the mistake this function exists to keep in one place (REG-0016).
+    """
+    regime = result.regime
+    kelly = result.kelly_result
+    return {
+        "signal_score": float(result.p_long - (1.0 - result.p_long)),
+        "regime_state": regime.state if regime else 0,
+        "prob_ranging": regime.prob_ranging if regime else 0.0,
+        "prob_trending": regime.prob_trending if regime else 0.0,
+        "prob_volatile": regime.prob_volatile if regime else 0.0,
+        "kelly_fraction": kelly.adjusted_fraction if kelly else 0.0,
+        "equity_usd": executor.equity_usd if executor else 0.0,
+        "open_positions": len(executor.open_positions()) if executor else 0,
+    }
+
+
+#: REG-0015: wall-clock ceiling for one ensemble fit or save. train_ensemble()
+#: fits five models (ARIMA/XGBoost/LSTM/GP/TreeEnsemble) inside the FastAPI
+#: lifespan, so an unbounded one holds port 8000 closed indefinitely with no
+#: health endpoint to ask. Generous enough that a slow-but-healthy fit on a
+#: cold box still completes; see docs/quality/REQUIREMENTS_TRACEABILITY.md.
+ENSEMBLE_TRAIN_TIMEOUT_S: float = 600.0
 
 # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
 _RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
@@ -232,7 +267,6 @@ class Orchestrator:
     ) -> None:
         self._storage = storage
         self._fetcher = fetcher
-        self._cfg = get_settings()
         self._symbol = self._cfg.primary_symbol
         self._timeframes = self._cfg.active_timeframes
         self._primary_tf = self._cfg.primary_timeframe
@@ -292,6 +326,19 @@ class Orchestrator:
         # Isolated from the default pool so training never starves async I/O tasks.
         self._train_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="training")
 
+        # REG-0015: the ensemble fit gets its OWN single-thread executor.
+        # A wedged fit cannot be cancelled -- Python cannot kill a running
+        # thread -- so submitting it to _train_executor would leave the pool
+        # every later timeframe depends on permanently occupied. Isolating it
+        # means a hang costs one ensemble, not the whole startup.
+        self._ensemble_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ensemble")
+        #: Set once an ensemble fit has overrun. The worker thread is still
+        #: alive and holds the only slot, so nothing may be queued behind it.
+        self._ensemble_executor_poisoned: bool = False
+        #: Instance attribute rather than the module constant directly, so a
+        #: test can shorten it without patching global state.
+        self._ensemble_timeout_s: float = ENSEMBLE_TRAIN_TIMEOUT_S
+
         self._running: bool = False
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
         self._last_tick_ts: dict[str, float] = {tf.value: 0.0 for tf in self._timeframes}
@@ -318,6 +365,37 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
     # ------------------------------------------------------------------
+
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _cfg_pinned: Settings | None = None
+
+    @property
+    def _cfg(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 31 existing reads
+        untouched while making each of them current.
+        """
+        return self._cfg_pinned if self._cfg_pinned is not None else get_settings()
+
+    @_cfg.setter
+    def _cfg(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._cfg_pinned = value
 
     async def startup(self) -> None:
         """
@@ -624,6 +702,12 @@ class Orchestrator:
         self._persist_online_trainers()
         # Shut down training thread pool cleanly — wait for any in-flight training job
         self._train_executor.shutdown(wait=True)
+        # REG-0015: never wait on a poisoned ensemble pool. Its worker is by
+        # definition a thread that did not return inside the timeout, so
+        # wait=True would trade a hung startup for a hung shutdown.
+        self._ensemble_executor.shutdown(
+            wait=not self._ensemble_executor_poisoned, cancel_futures=True
+        )
         self._log.info("orchestrator.shutdown_complete")
 
     def _persist_online_trainers(self) -> None:
@@ -989,20 +1073,7 @@ class Orchestrator:
         # TASK-007: push metrics snapshot to Prometheus gauges/counters
         try:
             _executor = getattr(self, "_executor", None)
-            update_metrics(
-                {
-                    "signal_score": float(result.p_long - (1.0 - result.p_long)),
-                    "regime_state": result.regime.state if result.regime else 0,
-                    "prob_ranging": result.regime.prob_ranging if result.regime else 0.0,
-                    "prob_trending": result.regime.prob_trending if result.regime else 0.0,
-                    "prob_volatile": result.regime.prob_volatile if result.regime else 0.0,
-                    "kelly_fraction": result.kelly_result.adjusted_fraction
-                    if result.kelly_result
-                    else 0.0,
-                    "equity_usd": _executor.equity_usd if _executor else 0.0,
-                    "open_positions": len(_executor.open_positions) if _executor else 0,
-                }
-            )
+            update_metrics(_metrics_payload(result, _executor))
         except Exception as exc:
             # Metric failure must never affect the trade path -- but a silent
             # `pass` here would hide a real bug (e.g. a typo'd attribute)
@@ -1523,19 +1594,45 @@ class Orchestrator:
             # meta models -- which just trained and saved successfully above -- from
             # being hot-swapped in below.
             ensemble = None
-            try:
-                ensemble = await loop.run_in_executor(
-                    self._train_executor, trainer.train_ensemble, fm
+            if self._ensemble_executor_poisoned:
+                # A previous timeframe's fit overran and still owns the only
+                # worker. Submitting here would block until that thread exits,
+                # which it may never do.
+                self._log.warning(
+                    "orchestrator.ensemble_skipped_poisoned_executor", timeframe=tf.value
                 )
-                await loop.run_in_executor(
-                    self._train_executor,
-                    trainer.save_ensemble,
-                    ensemble,
-                    self._cfg.storage.model_dir,
-                )
-            except Exception as exc:
-                self._log.error("orchestrator.ensemble_train_failed", error=str(exc), exc_info=True)
-                ensemble = None
+            else:
+                try:
+                    ensemble = await asyncio.wait_for(
+                        loop.run_in_executor(self._ensemble_executor, trainer.train_ensemble, fm),
+                        timeout=self._ensemble_timeout_s,
+                    )
+                    await asyncio.wait_for(
+                        loop.run_in_executor(
+                            self._ensemble_executor,
+                            trainer.save_ensemble,
+                            ensemble,
+                            self._cfg.storage.model_dir,
+                        ),
+                        timeout=self._ensemble_timeout_s,
+                    )
+                # REG-0015: must precede `except Exception`. A hang is not an
+                # exception, so the old handler could never catch it and
+                # startup blocked forever with port 8000 closed. TimeoutError
+                # subclasses OSError, so ordering here is load-bearing.
+                except TimeoutError:
+                    self._ensemble_executor_poisoned = True
+                    self._log.error(
+                        "orchestrator.ensemble_train_timeout",
+                        timeframe=tf.value,
+                        timeout_s=self._ensemble_timeout_s,
+                    )
+                    ensemble = None
+                except Exception as exc:
+                    self._log.error(
+                        "orchestrator.ensemble_train_failed", error=str(exc), exc_info=True
+                    )
+                    ensemble = None
 
             metrics_records = (
                 dir_result.to_metrics_record("direction", tf.value, version),

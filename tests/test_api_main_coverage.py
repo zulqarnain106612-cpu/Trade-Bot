@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from src.api.object_refs import not_found_response
 from src.config import StrategyPortfolioSettings
 
 # We need a valid API key for the tests
@@ -1157,7 +1158,10 @@ def test_order_status_state_none(mock_state):
         headers={"x-api-key": _API_KEY},
     )
     assert resp.status_code == 200
-    assert "not found" in resp.json()["error"]
+    # API-002: one body for every negative outcome. The message used to say
+    # *why* the order was missing (aged out, predates startup, never placed),
+    # which is the distinction an enumerator wants.
+    assert resp.json() == not_found_response()
 
 
 def test_order_status_exception_returns_generic_error(mock_state):

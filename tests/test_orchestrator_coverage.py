@@ -153,6 +153,11 @@ class TestOrchestratorInit:
             cfg.starting_capital_usd = 1000.0
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         assert orch._symbol == "BTC/USDT"
         assert orch._running is False
         assert orch._executor is None
@@ -172,6 +177,11 @@ class TestOrchestratorInit:
             cfg.starting_capital_usd = 500.0
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         assert isinstance(orch._stop_event, asyncio.Event)
         assert not orch._stop_event.is_set()
 
@@ -198,6 +208,11 @@ def _make_orch(storage=None, fetcher=None):
         cfg.storage.model_dir = "/tmp/models"
         mock_cfg.return_value = cfg
         orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
     return orch
 
 
@@ -671,6 +686,11 @@ class TestOrchestratorTrainModels:
             cfg.storage.model_dir = "/tmp/models"
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         return orch
 
     @pytest.mark.asyncio
@@ -763,6 +783,11 @@ class TestSleepUntilNextBar:
             cfg.storage.model_dir = "/tmp/models"
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         return orch
 
     @pytest.mark.asyncio
@@ -799,6 +824,11 @@ class TestMidnightResetLoop:
             cfg.storage.model_dir = "/tmp/models"
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         return orch
 
     @pytest.mark.asyncio
@@ -895,6 +925,11 @@ class TestPositionMonitorLoop:
             cfg.risk.position_monitor_interval_s = 5
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         return orch
 
     @pytest.mark.asyncio
@@ -1044,6 +1079,11 @@ class TestTickCorrelationFallback:
             cfg.storage.model_dir = "/tmp/models"
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         return orch
 
     def _make_orch_live(self):
@@ -1065,6 +1105,11 @@ class TestTickCorrelationFallback:
             cfg.storage.model_dir = "/tmp/models"
             mock_cfg.return_value = cfg
             orch = Orchestrator(storage, fetcher)
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
         return orch
 
     @pytest.mark.asyncio

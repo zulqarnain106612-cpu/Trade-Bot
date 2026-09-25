@@ -18,6 +18,7 @@ Authority sources:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 import threading
 from collections.abc import Awaitable, Callable
@@ -33,11 +34,11 @@ from src.config import (
     TIMEFRAME_SECONDS,
     BinanceSettings,
     OKXSettings,
+    Settings,
     Timeframe,
     get_settings,
 )
 from src.data.storage import AnyStorageBackend, BarRecord
-
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -225,6 +226,12 @@ def _jittered(delay: float) -> float:
     return delay / 2.0 + random.random() * (delay / 2.0)
 
 
+# A venue's failure reason is surfaced through the API, so it is bounded here
+# rather than wherever it is rendered: ccxt embeds the exchange's whole JSON
+# error body in the message, and Binance's 451 alone runs to several lines.
+_VENUE_ERROR_MAX_CHARS = 300
+
+
 async def _with_retry(
     coro_factory: Callable[[], Awaitable[_T]],
     label: str,
@@ -322,15 +329,47 @@ class MarketDataFetcher:
 
     def __init__(self, storage: AnyStorageBackend) -> None:
         self._storage = storage
-        self._settings = get_settings()
         self._binance: ccxt.binance | None = None
         self._okx: ccxt.okx | None = None
+        # Why each unavailable venue is unavailable, kept for venue_status().
+        self._venue_errors: dict[str, str] = {}
         self._log = log.bind(component="fetcher")
         # VF-012: asyncio.Semaphore() at __init__ time raises DeprecationWarning
         # on Python 3.10+ when no event loop is running (same pattern as VF-004/VF-011).
         # Use double-checked locking with a threading.Lock sentinel for one-time creation.
         self._sem_init_guard: threading.Lock = threading.Lock()
         self._gap_fill_sem: asyncio.Semaphore | None = None
+
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _settings_pinned: Settings | None = None
+
+    @property
+    def _settings(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 1 existing reads
+        untouched while making each of them current.
+        """
+        return self._settings_pinned if self._settings_pinned is not None else get_settings()
+
+    @_settings.setter
+    def _settings(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._settings_pinned = value
 
     def _get_sem(self) -> asyncio.Semaphore:
         """Return (lazily-created) asyncio.Semaphore — thread-safe one-time init."""
@@ -345,24 +384,123 @@ class MarketDataFetcher:
             return self._gap_fill_sem
 
     async def initialize(self) -> None:
-        """Build ccxt exchange instances and load markets."""
+        """
+        Build ccxt exchange instances and load markets, one venue at a time.
+
+        REG-0014. A venue that cannot load its markets is recorded unavailable
+        and the other venue still comes up. Previously both were loaded in one
+        sequence with no isolation, so anything that made a single venue
+        unreachable -- an outage, a rate limit, or a jurisdictional block
+        answering 451 -- aborted startup entirely and took the whole bot down
+        with it, including the strategies that only needed the other venue.
+
+        Only a total loss raises: a fetcher with no venue at all has nothing to
+        fetch, and failing loudly there is right. Anything less degrades, and
+        ``reconnect()`` brings a venue back without a restart.
+        """
+        self._venue_errors.clear()
+
+        await self._open_venue(EXCHANGE_BINANCE)
+        await self._open_venue(EXCHANGE_OKX)
+
+        if self._binance is None and self._okx is None:
+            reasons = "; ".join(f"{v}: {e}" for v, e in sorted(self._venue_errors.items()))
+            raise RuntimeError(f"no exchange venue could be initialized -- {reasons}")
+
+        if self._venue_errors:
+            self._log.warning(
+                "fetcher.degraded",
+                unavailable=sorted(self._venue_errors),
+                available=sorted(self.available_venues()),
+            )
+
+    async def _open_venue(self, venue: str) -> bool:
+        """
+        Build one venue and load its markets. True when it came up.
+
+        A venue whose markets did not load is closed and left as None rather
+        than kept as a built-but-unloaded client: every accessor already
+        rejects None with a clear error, while an exchange with no markets
+        fails later, further away, and less legibly.
+        """
         cfg = self._settings
-        binance = _build_binance(cfg.binance)
-        self._binance = binance
-        okx = _build_okx(cfg.okx)
-        self._okx = okx
+        exchange: ccxt.binance | ccxt.okx
+        if venue == EXCHANGE_BINANCE:
+            exchange = _build_binance(cfg.binance)
+            testnet = cfg.binance.testnet
+        else:
+            exchange = _build_okx(cfg.okx)
+            testnet = cfg.okx.testnet
 
-        await _with_retry(
-            lambda: binance.load_markets(),
-            label="binance.load_markets",
-        )
-        self._log.info("fetcher.binance_ready", testnet=cfg.binance.testnet)
+        try:
+            await _with_retry(lambda: exchange.load_markets(), label=f"{venue}.load_markets")
+        except Exception as exc:
+            # Deliberately broad: every ccxt failure mode is a venue that did
+            # not come up, and the point of this method is that none of them
+            # reaches the caller. The reason is kept for the operator.
+            self._venue_errors[venue] = f"{type(exc).__name__}: {exc}"[:_VENUE_ERROR_MAX_CHARS]
+            with contextlib.suppress(Exception):
+                await exchange.close()
+            self._set_venue(venue, None)
+            self._log.warning("fetcher.venue_unavailable", venue=venue, error=str(exc)[:200])
+            return False
 
-        await _with_retry(
-            lambda: okx.load_markets(),
-            label="okx.load_markets",
-        )
-        self._log.info("fetcher.okx_ready", testnet=cfg.okx.testnet)
+        self._set_venue(venue, exchange)
+        self._venue_errors.pop(venue, None)
+        self._log.info(f"fetcher.{venue}_ready", testnet=testnet)
+        return True
+
+    def _set_venue(self, venue: str, exchange: Any) -> None:
+        if venue == EXCHANGE_BINANCE:
+            self._binance = exchange
+        else:
+            self._okx = exchange
+
+    def available_venues(self) -> set[str]:
+        """The venues that loaded their markets and are usable right now."""
+        live = set()
+        if self._binance is not None:
+            live.add(EXCHANGE_BINANCE)
+        if self._okx is not None:
+            live.add(EXCHANGE_OKX)
+        return live
+
+    def venue_status(self) -> dict[str, dict[str, Any]]:
+        """
+        Per-venue readiness, for the operator and the control surface.
+
+        The error string is what the venue actually said, truncated: an
+        operator looking at a dead venue needs to tell a network problem from
+        a 451 eligibility block, and "unavailable" does not distinguish them.
+        """
+        live = self.available_venues()
+        return {
+            venue: {
+                "available": venue in live,
+                "error": self._venue_errors.get(venue),
+            }
+            for venue in (EXCHANGE_BINANCE, EXCHANGE_OKX)
+        }
+
+    async def reconnect(self, venue: str) -> bool:
+        """
+        Re-open one venue in place, without restarting the process.
+
+        This is what makes an outage recoverable while the bot runs: the venue
+        that failed at startup, or dropped afterwards, is retried on demand and
+        becomes usable the moment it answers. Reconnecting a live venue closes
+        the existing client first so the old one is not leaked.
+        """
+        if venue not in (EXCHANGE_BINANCE, EXCHANGE_OKX):
+            raise ValueError(f"unknown venue: {venue}")
+
+        existing = self._binance if venue == EXCHANGE_BINANCE else self._okx
+        if existing is not None:
+            with contextlib.suppress(Exception):
+                await existing.close()
+            self._set_venue(venue, None)
+
+        return await self._open_venue(venue)
 
     async def close(self) -> None:
         """Close both exchange connections cleanly."""
@@ -372,9 +510,26 @@ class MarketDataFetcher:
             await self._okx.close()
         self._log.info("fetcher.closed")
 
+    def _unavailable_message(self, venue: str) -> str:
+        """
+        Why this venue cannot be used, distinguishing the two cases.
+
+        "not initialized" was the only answer before, which was wrong half the
+        time: since a venue may now be down while the fetcher is up, the caller
+        needs to know whether nobody called initialize() or whether the venue
+        itself refused, and what it said.
+        """
+        reason = self._venue_errors.get(venue)
+        if reason is None:
+            return (
+                f"{venue} unavailable: MarketDataFetcher not initialized. "
+                "Call await fetcher.initialize() first."
+            )
+        return f"{venue} unavailable: {reason}. Call await fetcher.reconnect('{venue}') to retry."
+
     def _require_binance(self) -> ccxt.binance:
         if self._binance is None:
-            raise RuntimeError("MarketDataFetcher not initialized")
+            raise RuntimeError(self._unavailable_message(EXCHANGE_BINANCE))
         return self._binance
 
     def get_order_exchange(self) -> ccxt.binance:
@@ -386,15 +541,12 @@ class MarketDataFetcher:
         over when the exchange is available (VUL-029).
         """
         if self._binance is None:
-            raise RuntimeError(
-                "MarketDataFetcher not initialized. "
-                "Call await fetcher.initialize() before placing orders."
-            )
+            raise RuntimeError(self._unavailable_message(EXCHANGE_BINANCE))
         return self._binance
 
     def _require_okx(self) -> ccxt.okx:
         if self._okx is None:
-            raise RuntimeError("MarketDataFetcher not initialized")
+            raise RuntimeError(self._unavailable_message(EXCHANGE_OKX))
         return self._okx
 
     # ------------------------------------------------------------------

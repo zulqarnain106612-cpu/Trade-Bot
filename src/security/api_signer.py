@@ -35,6 +35,10 @@ from __future__ import annotations
 
 import base64
 import os
+import time
+from collections import OrderedDict
+from dataclasses import dataclass
+from typing import Any, Final
 
 
 class ApiSigner:
@@ -87,3 +91,187 @@ class ApiSigner:
             return True
         except (InvalidSignature, ValueError):
             return False
+
+
+# ---------------------------------------------------------------------------
+# SECR-005 -- freshness and replay
+# ---------------------------------------------------------------------------
+
+# A valid signature stays valid forever, which is the whole problem: an
+# attacker who captures one signed "close all positions" can send it again
+# tomorrow and it verifies. Signing proves authorship, never recency, so the
+# timestamp is inside the signed payload (it already is, see sign_request) and
+# these two checks are what make it mean anything.
+
+MAX_TIMESTAMP_SKEW_S: Final[int] = 30
+
+# Bounded, because the cache is filled by whoever is talking to us. Sized
+# generously against the skew window: at any moment only signatures from the
+# last MAX_TIMESTAMP_SKEW_S seconds can still verify, so a cache that holds
+# more than one such window can never forget a signature that is still live.
+_SEEN_CACHE_SIZE: Final[int] = 4096
+
+
+class ReplayError(RuntimeError):
+    """A signed request that is stale, post-dated, or already used."""
+
+
+class ReplayWindow:
+    """
+    Remembers recently-accepted signatures and rejects a second use.
+
+    One instance per verifying process. The signature is the replay key
+    rather than a separate nonce: it is unique per (timestamp, method, path,
+    body) already, so a client needs nothing new and there is no field an
+    implementation can forget to send.
+    """
+
+    def __init__(self, now: Any = time.time) -> None:
+        self._now = now
+        self._seen: OrderedDict[str, float] = OrderedDict()
+
+    def check(self, signature_hex: str, timestamp: int) -> None:
+        """Raise `ReplayError` unless this signature is fresh and unused."""
+        now = float(self._now())
+        skew = now - float(timestamp)
+        if skew > MAX_TIMESTAMP_SKEW_S:
+            raise ReplayError("request timestamp is too old")
+        if -skew > MAX_TIMESTAMP_SKEW_S:
+            # Post-dated requests are refused too: accepting one would let an
+            # attacker mint a signature that stays replayable for as long as
+            # they cared to post-date it.
+            raise ReplayError("request timestamp is in the future")
+        if signature_hex in self._seen:
+            raise ReplayError("signature has already been used")
+        self._seen[signature_hex] = now
+        self._prune(now)
+
+    def _prune(self, now: float) -> None:
+        while self._seen and now - next(iter(self._seen.values())) > MAX_TIMESTAMP_SKEW_S:
+            self._seen.popitem(last=False)
+        while len(self._seen) > _SEEN_CACHE_SIZE:
+            self._seen.popitem(last=False)
+
+
+def verify_fresh_request(
+    signer: ApiSigner,
+    window: ReplayWindow,
+    method: str,
+    path: str,
+    body: str,
+    timestamp: int,
+    signature_hex: str,
+) -> None:
+    """
+    Full verification: authorship, then freshness, then single-use.
+
+    Raises `ReplayError`. Signature first, so that an unauthenticated caller
+    cannot fill the replay cache by sending garbage -- the cheap check is the
+    one an attacker controls the volume of.
+    """
+    if not signer.verify(method, path, body, timestamp, signature_hex):
+        raise ReplayError("signature does not verify")
+    window.check(signature_hex, timestamp)
+
+
+@dataclass(frozen=True)
+class SignerAudit:
+    """
+    The result of auditing an :class:`ApiSigner`.
+
+    ``clean`` is the single bit a caller should gate on: it is ``True`` only
+    when every check passed and ``findings`` is empty. The individual booleans
+    and the ``findings`` list are there so a non-clean result says *what* is
+    wrong, because "signer failed audit" with no detail is not actionable.
+    """
+
+    algorithm: str
+    deterministic: bool
+    round_trip_ok: bool
+    independent_verify_cofactorless: bool
+    independent_verify_cofactored: bool
+    tamper_rejected: bool
+    findings: tuple[str, ...]
+
+    @property
+    def clean(self) -> bool:
+        return (
+            self.deterministic
+            and self.round_trip_ok
+            and self.independent_verify_cofactorless
+            and self.independent_verify_cofactored
+            and self.tamper_rejected
+            and not self.findings
+        )
+
+
+def audit_signer(signer: ApiSigner) -> SignerAudit:
+    """
+    Check that ``signer`` has the properties that make it safe to sign with.
+
+    This is the defensive companion to :mod:`src.mathcore.lattice.hnp`: that
+    module recovers a key from a signer with a biased nonce, and this one
+    confirms the production signer has no nonce to bias. It checks, using only
+    the signer's public interface -- never its private key:
+
+    * **Determinism.** The same request signed twice must give an identical
+      signature. Ed25519's nonce is derived from the key and message (RFC
+      6979-equivalent), so a difference here would mean a randomised nonce and
+      the entire biased-nonce attack surface reopening.
+    * **Round trip.** The signer's own ``verify`` must accept its signature.
+    * **Independent verification.** The signature must also verify under this
+      project's from-scratch Ed25519 (:mod:`src.mathcore.curves.ed25519`),
+      under *both* cofactor conventions -- proof the output is a real,
+      canonical Ed25519 signature and not merely something the signer's own
+      verifier is willing to accept.
+    * **Tamper rejection.** A signature with one flipped byte must be refused.
+
+    Returns a :class:`SignerAudit`; ``.clean`` is ``True`` only if every check
+    passed. The audit signs a fixed synthetic request, so it has no side
+    effects and reveals nothing secret.
+    """
+    from src.mathcore.curves import ed25519
+
+    method, path, body, timestamp = "POST", "/v1/audit", '{"probe":true}', 1_700_000_000
+    payload = f"{timestamp}{method}{path}{body}".encode()
+
+    findings: list[str] = []
+
+    first = signer.sign_request(method, path, body, timestamp)
+    second = signer.sign_request(method, path, body, timestamp)
+    deterministic = first == second
+    if not deterministic:
+        findings.append(
+            "signatures differ across two signings of the same request: the "
+            "nonce is randomised, which reopens the biased-nonce attack surface"
+        )
+
+    round_trip_ok = signer.verify(method, path, body, timestamp, first)
+    if not round_trip_ok:
+        findings.append("the signer's own verify rejected its own signature")
+
+    public_key = base64.b64decode(signer.public_key_b64())
+    signature = bytes.fromhex(first)
+    independent_cofactorless = ed25519.verify(public_key, payload, signature, cofactored=False)
+    independent_cofactored = ed25519.verify(public_key, payload, signature, cofactored=True)
+    if not (independent_cofactorless and independent_cofactored):
+        findings.append(
+            "the signature did not verify under the independent Ed25519 "
+            "implementation; the signer may be emitting a non-canonical form"
+        )
+
+    tampered = bytearray(signature)
+    tampered[0] ^= 1
+    tamper_rejected = not signer.verify(method, path, body, timestamp, bytes(tampered).hex())
+    if not tamper_rejected:
+        findings.append("a signature with a flipped byte was accepted")
+
+    return SignerAudit(
+        algorithm="Ed25519",
+        deterministic=deterministic,
+        round_trip_ok=round_trip_ok,
+        independent_verify_cofactorless=independent_cofactorless,
+        independent_verify_cofactored=independent_cofactored,
+        tamper_rejected=tamper_rejected,
+        findings=tuple(findings),
+    )

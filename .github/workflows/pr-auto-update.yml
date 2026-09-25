@@ -1,0 +1,289 @@
+name: PR auto-update
+
+# `main` is protected by a ruleset that requires an up-to-date branch, so every
+# merge leaves every other open pull request one commit behind and waiting for
+# somebody to click "Update branch". That click is the only manual step left in
+# the merge path, and it is the reason a pull request that is otherwise green
+# sits for hours.
+#
+# This does the click. It is not a queue: nothing is parked, nothing is drafted,
+# every pull request keeps running its own checks whenever it likes. All that
+# happens here is that when main moves, exactly one pull request -- the oldest
+# open one that is actually behind -- is brought up to date.
+#
+# One, not all. Updating every branch at once would start N full CI runs for a
+# main that is about to move again when the next one merges, and N-1 of those
+# runs would be answering a stale question. The chain continues on its own:
+# the updated pull request goes green, auto-merge merges it, that push to main
+# fires this workflow again, and the next one is updated.
+
+on:
+  push:
+    branches: [main]
+  # For the case where the chain stalls -- a merge that happened while this
+  # workflow was disabled, say -- and somebody wants to restart it by hand.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # Serial by construction. Two of these running together would both pick "the
+  # oldest behind pull request" and both update it.
+  group: pr-auto-update
+  cancel-in-progress: false
+
+jobs:
+  update-next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      # Empty whenever this job updated something. One pull request is touched
+      # per merge, and an update is the cheaper of the two ways to touch one.
+      resolve_pr: ${{ steps.pick.outputs.resolve_pr }}
+      resolve_ref: ${{ steps.pick.outputs.resolve_ref }}
+    steps:
+      - name: Bring the next out-of-date pull request up to date
+        id: pick
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          # NOT the default GITHUB_TOKEN. Updating a branch pushes a merge
+          # commit to the pull request's head, and a push made with
+          # GITHUB_TOKEN does not start a workflow run. The pull request would
+          # come up to date and then sit with the check runs of its *previous*
+          # head -- up to date, green-looking, and unmergeable forever. This is
+          # the same trap the old queue's promotion step fell into.
+          #
+          # So a PAT (or GitHub App token) with `repo` scope is required. If
+          # the secret is absent the job fails loudly rather than performing
+          # the half of the operation that makes things worse.
+          github-token: ${{ secrets.PR_AUTOUPDATE_TOKEN }}
+          script: |
+            if (!process.env.HAS_TOKEN) {
+              core.setFailed(
+                'PR_AUTOUPDATE_TOKEN is not set. A branch update pushed with ' +
+                'GITHUB_TOKEN starts no workflow run, which would leave the ' +
+                'pull request up to date with stale checks and permanently ' +
+                'unmergeable. Add a PAT with repo scope as PR_AUTOUPDATE_TOKEN, ' +
+                'or enable the merge queue instead -- every gating workflow ' +
+                'already declares merge_group.');
+              return;
+            }
+
+            // Oldest first: "the next one" means the one that has been waiting
+            // longest, not whichever the API happens to return first.
+            const prs = await github.paginate(github.rest.pulls.list, {
+              ...context.repo,
+              state: 'open',
+              base: context.payload.repository?.default_branch || 'main',
+              sort: 'created',
+              direction: 'asc',
+              per_page: 100,
+            });
+
+            // `mergeable_state` is computed asynchronously; a PR listed right
+            // after a push often reports `unknown` on the first read. Ask
+            // again rather than mistaking "not computed yet" for "up to date".
+            async function state(number) {
+              for (let attempt = 0; attempt < 3; attempt++) {
+                const { data } = await github.rest.pulls.get({
+                  ...context.repo, pull_number: number,
+                });
+                if (data.mergeable_state !== 'unknown') return data;
+                await new Promise(r => setTimeout(r, 3000));
+              }
+              return null;
+            }
+
+            // The oldest conflicted pull request on a branch in this
+            // repository. Recorded while scanning and handed to `resolve-next`
+            // only if nothing needed a plain update. A fork's head cannot be
+            // pushed to from here, so it is never a candidate.
+            let dirtyNumber = '';
+            let dirtyRef = '';
+
+            for (const pr of prs) {
+              if (pr.draft) continue;              // a human said not yet
+              const data = await state(pr.number);
+              if (!data) {
+                core.info(`#${pr.number}: mergeability still unknown, skipping`);
+                continue;
+              }
+              // `behind` is the only state *this job* can fix, because
+              // updateBranch is an API call and a conflict is not. `blocked`
+              // and `unstable` mean the checks have something to say, not that
+              // the branch is stale. `dirty` is a real conflict: it goes to
+              // `resolve-next`, which resolves it only if every conflicted
+              // path is generated, and otherwise leaves it for a person.
+              if (data.mergeable_state !== 'behind') {
+                if (data.mergeable_state === 'dirty' && !dirtyNumber
+                    && data.head.repo
+                    && data.head.repo.full_name === `${context.repo.owner}/${context.repo.repo}`) {
+                  dirtyNumber = String(pr.number);
+                  dirtyRef = data.head.ref;
+                }
+                core.info(`#${pr.number}: ${data.mergeable_state}, nothing to update`);
+                continue;
+              }
+
+              try {
+                await github.rest.pulls.updateBranch({
+                  ...context.repo, pull_number: pr.number,
+                });
+                core.notice(`Updated #${pr.number} onto ${context.payload.repository.default_branch}.`);
+              } catch (e) {
+                // 422 means GitHub decided it was not behind after all, which
+                // is a race with another merge, not a failure worth going red
+                // over -- the next push to main picks it up.
+                if (e.status === 422) {
+                  core.info(`#${pr.number}: no longer behind (${e.message})`);
+                  continue;
+                }
+                throw e;
+              }
+              // Exactly one per merge. The next one is this pull request's
+              // problem, once it merges and fires this workflow again.
+              return;
+            }
+
+            core.info('No open pull request is behind.');
+            if (dirtyNumber) {
+              core.info(`#${dirtyNumber} is conflicted; handing it to resolve-next.`);
+            } else {
+              core.info('Nothing to do.');
+            }
+            core.setOutput('resolve_pr', dirtyNumber);
+            core.setOutput('resolve_ref', dirtyRef);
+        env:
+          HAS_TOKEN: ${{ secrets.PR_AUTOUPDATE_TOKEN != '' && '1' || '' }}
+
+  # Resolving a merge conflict is a person's job, and this does not pretend
+  # otherwise. It resolves exactly one shape of conflict: the one where every
+  # conflicted path is a **generated** file, so a script produces the correct
+  # answer and no judgement is being exercised. Anything else is left alone.
+  #
+  # That shape is not a corner case here. `docs/quality/REQUIREMENTS_TRACEABILITY.md`
+  # is generated from `config/quality_registry.json`, and every pull request
+  # that adds a registry entry regenerates the whole file -- so any two of them
+  # conflict, always, no matter how unrelated the entries are. Before this job
+  # existed that made a registry entry cost a manual rebase per pull request
+  # ahead of it in the queue.
+  #
+  # The dangerous file is the one that does *not* conflict. Git merges the
+  # registry JSON cleanly and can still produce a document that the loader
+  # refuses -- two branches allocating the same id is the common way, since the
+  # scaffolder allocates against `main` and cannot see open branches. Nothing
+  # here inspects the JSON directly: the generator loads the registry through
+  # `src/quality/registry.py`, which validates strictly and rejects duplicate
+  # ids, so a bad auto-merge fails this job instead of reaching `main`.
+  resolve-next:
+    needs: update-next
+    if: needs.update-next.outputs.resolve_pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.update-next.outputs.resolve_ref }}
+          # The whole history: a merge needs the merge base, and a shallow
+          # checkout does not have it.
+          fetch-depth: 0
+          # Same PAT, for the same reason as the job above -- a push made with
+          # GITHUB_TOKEN starts no workflow run, so the pull request would end
+          # up resolved, green-looking against its previous head, and
+          # unmergeable.
+          token: ${{ secrets.PR_AUTOUPDATE_TOKEN }}
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      # No `pip install`. Both generators and the gate are stdlib-only, and a
+      # job that does not import the project does not install it (GOV-015).
+
+      - name: Merge main, regenerate what is generated, push
+        env:
+          PR: ${{ needs.update-next.outputs.resolve_pr }}
+          HEAD_REF: ${{ needs.update-next.outputs.resolve_ref }}
+        run: |
+          set -euo pipefail
+
+          git config user.name 'pr-auto-update[bot]'
+          git config user.email 'pr-auto-update[bot]@users.noreply.github.com'
+          git fetch --no-tags origin main
+
+          before="$(git rev-parse HEAD)"
+
+          if git merge --no-edit origin/main; then
+            # GitHub said `dirty`, git disagrees. Mergeability is computed
+            # asynchronously and can be stale. A clean merge is still worth
+            # pushing; an empty one is worth nothing.
+            if [ "${before}" = "$(git rev-parse HEAD)" ]; then
+              echo "::notice::#${PR} was already up to date. Nothing pushed."
+              exit 0
+            fi
+            echo "::notice::#${PR} merged cleanly after all."
+          else
+            conflicted="$(git diff --name-only --diff-filter=U)"
+            echo "#${PR} conflicted paths:"
+            echo "${conflicted}"
+
+            # Every conflicted path must be generated, and must be one this job
+            # knows how to regenerate. One unknown path and the whole merge is
+            # abandoned: resolving the generated half of a conflict and leaving
+            # the rest produces a branch that is neither merged nor clean, and
+            # hides the real conflict behind a commit that looks like progress.
+            while IFS= read -r path; do
+              [ -n "${path}" ] || continue
+              case "${path}" in
+                docs/quality/REQUIREMENTS_TRACEABILITY.md|docs/MATH_FOUNDATIONS.md) ;;
+                *)
+                  git merge --abort
+                  echo "::notice::#${PR} conflicts in ${path}, which is not generated. Leaving it for a person."
+                  exit 0
+                  ;;
+              esac
+            done <<< "${conflicted}"
+
+            # Regenerate from the merged registries, which is the point: the
+            # correct content of a generated file is whatever its generator
+            # says from the merged inputs, never either side of the conflict.
+            while IFS= read -r path; do
+              [ -n "${path}" ] || continue
+              case "${path}" in
+                docs/quality/REQUIREMENTS_TRACEABILITY.md)
+                  python3 scripts/generate_quality_docs.py ;;
+                docs/MATH_FOUNDATIONS.md)
+                  python3 scripts/generate_math_docs.py ;;
+              esac
+              git add -- "${path}"
+            done <<< "${conflicted}"
+
+            if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+              echo "::error::#${PR} still has unmerged paths after regeneration."
+              exit 1
+            fi
+
+            git commit --no-edit
+          fi
+
+          # The gate, on both paths, before any push. A conflict is not the
+          # only way a merge goes wrong here -- `config/quality_registry.json`
+          # merges *cleanly* and can still produce a document the loader
+          # refuses, two branches allocating the same id being the usual way,
+          # since the scaffolder allocates against `main` and cannot see open
+          # branches. The gate loads both registries through their strict
+          # loaders, which is what catches that; a clean merge that skipped the
+          # gate would put it on the head branch and then on main.
+          if ! python3 .claude/skills/quality-engineering/scripts/qe_gate.py; then
+            echo "::error::#${PR} merged with main but the quality gate refuses the result. A bad registry auto-merge is the usual cause, and duplicate ids the usual form of it. Nothing pushed."
+            exit 1
+          fi
+
+          git push origin "HEAD:${HEAD_REF}"
+          echo "::notice::#${PR} brought up to date with main and pushed."
+
+# No `gate` job. The gate law covers workflows that run on `pull_request`,
+# where a missing required check silently satisfies branch protection. This one
+# runs on `push` to main and is never a required check.

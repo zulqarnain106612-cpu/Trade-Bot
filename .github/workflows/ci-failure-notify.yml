@@ -1,0 +1,289 @@
+name: CI failure notice
+
+# Why this exists: CI logs, job records, annotations, artifacts and check
+# results are permanently unreadable from an agent session -- see
+# `ci_log_access` in config/command_policy.json, enforced by the PreToolUse
+# hook and by shell_exec.run(). This workflow is the *only* channel through
+# which a failure reaches anyone, so it has to be complete on its own.
+#
+# Three rules follow from being the only channel, and all three are load-bearing:
+#
+#   1. ONE comment per commit. Not one per workflow, not one per check. Five
+#      workflows reporting separately is five comments to read and four chances
+#      to read a stale one; the notice waits until every workflow for the
+#      commit has finished and then posts a single consolidated status.
+#
+#   2. Status and exact errors, nothing else. No advice, no instructions, no
+#      "consider checking" prose. The comment is read into an agent's context,
+#      and every line that is not the status or the failing assertion is spend
+#      with no information in it.
+#
+#   3. The EXACT failing lines, not the step name and not the runner's exit
+#      code. "Process completed with exit code 1" is what the previous version
+#      surfaced, and it says nothing -- so exit-code noise is filtered out and
+#      the real assertion text is preferred, from annotations first and the job
+#      log second. The log is read here, server-side, where it costs nothing:
+#      that is precisely what makes fetching it from a session unnecessary.
+#
+# It reports every outcome that is not green. "Not green" is the whole set:
+# failure, cancelled, timed_out, neutral, action_required, stale -- and a job
+# that reports `skipped`, because a skipped required check satisfies branch
+# protection without having verified anything, which is how #292 merged with
+# all four gates unrun.
+
+on:
+  workflow_run:
+    workflows:
+      - "CI"
+      - "CodeQL"
+      - "Workflow lint"
+      - "Claude Cloud Review (RAG + Knowledge Graph retrieval)"
+      - "Security"
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: write
+
+concurrency:
+  # Keyed on the COMMIT, not the run: every workflow finishing for one commit
+  # funnels into the same concurrency group, so the last one to finish is the
+  # one that posts and the earlier partial pictures are cancelled rather than
+  # racing each other to rewrite the same comment.
+  group: ci-notice-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    # No `if:` on the job. Every completed run is inspected, because a run's
+    # own conclusion does not say whether a job inside it skipped or came back
+    # neutral -- a run whose jobs all skipped concludes `success`.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Post one consolidated status comment for this commit
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const trigger = context.payload.workflow_run;
+            const headSha = trigger.head_sha;
+
+            // Workflows that must have reported before a verdict is posted.
+            // Kept identical to the `on.workflow_run.workflows` list above;
+            // tests/test_ci_failure_notify_workflow.py asserts they match, so
+            // adding a workflow to one without the other cannot make the
+            // notice announce "all green" while a workflow is still running.
+            const WATCHED = [
+              'CI',
+              'CodeQL',
+              'Workflow lint',
+              'Claude Cloud Review (RAG + Knowledge Graph retrieval)',
+              'Security',
+            ];
+
+            // Jobs legitimately allowed to skip: the union of every
+            // ALLOW_SKIPPED set in .github/workflows, with a test asserting
+            // the two stay equal. Excusing a job in a gate without excusing it
+            // here would bury the notice under noise nobody reads.
+            const ALLOW_SKIPPED = new Set([
+              'retrieve-context', 'dependency-review', 'promote', 'rollback',
+            ]);
+
+            // ---- which pull request -------------------------------------
+            // A workflow_run event carries its PRs only for same-repo
+            // branches; for a fork the array is empty, so fall back to a
+            // head-SHA search rather than silently posting nothing.
+            let prNumbers = (trigger.pull_requests || []).map(pr => pr.number);
+            if (prNumbers.length === 0) {
+              const search = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} is:pr ${headSha}`,
+              });
+              prNumbers = search.data.items.map(item => item.number);
+            }
+            if (prNumbers.length === 0) {
+              core.info(`No pull request for ${headSha}; nothing to notify.`);
+              return;
+            }
+
+            // ---- every run for this commit ------------------------------
+            const allRuns = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { ...context.repo, head_sha: headSha, per_page: 100 },
+            );
+
+            // Latest attempt per workflow name, so a re-run supersedes rather
+            // than both being counted.
+            const latest = new Map();
+            for (const r of allRuns) {
+              if (!WATCHED.includes(r.name)) continue;
+              const prior = latest.get(r.name);
+              if (!prior || r.run_number > prior.run_number ||
+                  (r.run_number === prior.run_number && r.run_attempt > prior.run_attempt)) {
+                latest.set(r.name, r);
+              }
+            }
+
+            // Rule 1: stay silent until the picture is complete. A workflow
+            // that has not started at all for this commit is not pending --
+            // path filters mean some never run -- so only in-flight ones hold
+            // the notice back.
+            const pending = [...latest.values()].filter(r => r.status !== 'completed');
+            if (pending.length > 0) {
+              core.info(`Still running: ${pending.map(r => r.name).join(', ')}. Not posting yet.`);
+              return;
+            }
+            if (latest.size === 0) {
+              core.info('No watched runs completed for this commit.');
+              return;
+            }
+
+            // ---- collect what is not green ------------------------------
+            const isBad = (j) => {
+              if (!j.conclusion) return true;   // completed run, job with no verdict
+              if (j.conclusion === 'success') return false;
+              if (j.conclusion === 'skipped') return !ALLOW_SKIPPED.has(j.name);
+              return true;  // failure, cancelled, timed_out, neutral, action_required, stale
+            };
+
+            // Rule 3: the runner's own epilogue is not an error message.
+            // "Process completed with exit code 1" was the entire content of
+            // the previous notice on a failing test shard, which is why these
+            // are dropped before anything is chosen.
+            const NOISE = [
+              /^Process completed with exit code \d+\.?$/i,
+              /^The (job|operation) was canceled/i,
+              /^Error: Process completed/i,
+              /^##\[error\]Process completed with exit code/i,
+            ];
+            const isNoise = (line) => NOISE.some(re => re.test(line));
+
+            // Lines that carry a real failure. Ordered most-specific first so
+            // a pytest summary line beats a bare traceback frame.
+            const SIGNAL = [
+              /^FAILED\s+\S+/,                      // pytest short summary
+              /^ERROR\s+\S+/,                       // pytest collection error
+              /^E\s{2,}\S/,                         // pytest assertion detail
+              /^\s*\w*(Error|Exception):\s*\S/,     // raised exception
+              /^AssertionError\b/,
+              /^\s*assert\s+\S/,
+              /^\[FAIL\]/,                          // this project's own gates
+              /^##\[error\]/,
+              /^Error:\s*\S/,
+              /^error(\[\w+\])?:\s*\S/,             // ruff / cargo style
+            ];
+
+            const MAX_MSG_LINES = 4;
+
+            async function messagesFor(job) {
+              // Annotations first: GitHub already extracted the assertion
+              // text, and it is one cheap call.
+              try {
+                const ann = await github.rest.checks.listAnnotations({
+                  ...context.repo, check_run_id: job.id, per_page: 20,
+                });
+                const msgs = ann.data
+                  .filter(a => a.annotation_level !== 'notice')
+                  .map(a => (a.message || a.title || '').split('\n').map(s => s.trim()).filter(Boolean)[0])
+                  .filter(Boolean)
+                  .filter(l => !isNoise(l));
+                if (msgs.length) return msgs.slice(0, MAX_MSG_LINES);
+              } catch (e) {
+                core.info(`annotations unavailable for ${job.name}: ${e.message}`);
+              }
+              // Then the job log, read here and never republished whole.
+              try {
+                const log = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  ...context.repo, job_id: job.id,
+                });
+                const text = typeof log.data === 'string'
+                  ? log.data
+                  : Buffer.from(log.data).toString('utf8');
+                const lines = text
+                  .split('\n')
+                  .map(l => l.replace(/^\S*\d{2}:\d{2}:\d{2}\.?\d*Z?\s*/, '').trim())
+                  .filter(Boolean)
+                  .filter(l => !isNoise(l));
+                for (const re of SIGNAL) {
+                  const hits = lines.filter(l => re.test(l));
+                  // The last ones: pytest prints what actually failed at the end.
+                  if (hits.length) return hits.slice(-MAX_MSG_LINES);
+                }
+                return [];
+              } catch (e) {
+                core.info(`log unavailable for ${job.name}: ${e.message}`);
+                return [];
+              }
+            }
+
+            const MAX_JOBS = 6;
+            const failing = [];
+            for (const run of latest.values()) {
+              const jobs = await github.paginate(
+                github.rest.actions.listJobsForWorkflowRun,
+                { ...context.repo, run_id: run.id, per_page: 100 },
+              );
+              for (const j of jobs.filter(isBad)) {
+                failing.push({ workflow: run.name, job: j });
+              }
+            }
+
+            // ---- build the comment: status, then exact errors -----------
+            const marker = '<!-- ci-notice -->';
+            const short = headSha.slice(0, 7);
+            const body = [];
+            body.push(marker);
+
+            if (failing.length === 0) {
+              body.push(`### CI \`${short}\` — all checks green`);
+            } else {
+              body.push(`### CI \`${short}\` — ${failing.length} not green`);
+              body.push('');
+              for (const { workflow, job } of failing.slice(0, MAX_JOBS)) {
+                const step = (job.steps || []).find(
+                  s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
+                const where = step ? ` · \`${step.name}\`` : '';
+                body.push(`**${workflow} / ${job.name}** — ${job.conclusion || 'no verdict'}${where}`);
+                const msgs = await messagesFor(job);
+                if (msgs.length) {
+                  body.push('```');
+                  for (const m of msgs) body.push(m.slice(0, 300));
+                  body.push('```');
+                }
+              }
+              if (failing.length > MAX_JOBS) {
+                body.push(`_and ${failing.length - MAX_JOBS} more not green_`);
+              }
+            }
+            // Rule 2 ends the comment here. No footer, no advice, no links to
+            // a log nobody is allowed to open.
+            const text = body.join('\n');
+
+            for (const number of prNumbers) {
+              // One comment, edited in place. A PR that fails five times
+              // carries one current comment, not five stale ones.
+              const existing = await github.paginate(
+                github.rest.issues.listComments,
+                { ...context.repo, issue_number: number, per_page: 100 },
+              );
+              const prior = existing.find(c => c.body && c.body.includes(marker));
+              if (prior) {
+                if (prior.body.trim() !== text.trim()) {
+                  await github.rest.issues.updateComment({
+                    ...context.repo, comment_id: prior.id, body: text,
+                  });
+                }
+              } else {
+                // Posted on green too, not only on failure: this comment is
+                // the only channel, so "nothing here" has to be sayable. It
+                // is one comment either way.
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: number, body: text,
+                });
+              }
+            }
+
+# No `gate` job here on purpose. The project's gate law covers workflows that
+# run on `pull_request`, where a missing check silently satisfies branch
+# protection. This one runs on `workflow_run` and is never a required check.

@@ -1,0 +1,45 @@
+{
+  "case_id": "ETHUSDT_15m_case_003",
+  "data_quality": {
+    "checks_run": [
+      "schema",
+      "finite",
+      "timestamp_valid",
+      "monotonic",
+      "duplicates",
+      "ohlc_consistent",
+      "volume_non_negative",
+      "fresh"
+    ],
+    "passed": false,
+    "reason": "ohlcv_stale: 4500s old, budget ohlcv_900s_x3=2700s"
+  },
+  "description": "A well-formed frame that stopped updating an hour ago. Stale data must not be treated as current (INV-008), so the frame is refused even though every value in it is valid.",
+  "expected_action": "no_trade_data_quality",
+  "features": null,
+  "market": {
+    "bar_count": 320,
+    "first_close": 49783.4492,
+    "first_ts_ms": 1799708400000,
+    "last_close": 40761.0241,
+    "last_ts_ms": 1799995500000,
+    "now_ms": 1800000000000,
+    "symbol": "ETH/USDT",
+    "timeframe_s": 900
+  },
+  "model": {
+    "p_long": 0.29
+  },
+  "regime": {
+    "state": 1
+  },
+  "risk": null,
+  "signal": {
+    "direction": -1,
+    "expected_edge_bps": 38.0
+  },
+  "tags": [
+    "stale",
+    "data-quality"
+  ]
+}

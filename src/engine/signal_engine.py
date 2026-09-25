@@ -36,12 +36,13 @@ import pandas as pd
 import structlog
 from xgboost import XGBClassifier
 
-from src.api.metrics import regime_ensemble_failure_total
-from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Timeframe, get_settings
+from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Settings, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
+from src.data.quality_gate import DataQualityGate, FreshnessBudget
 from src.data.storage import AnyStorageBackend, ModelMetricsRecord
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.decision_log_writer import StructuralChangeRecord, append_to_decision_log
+from src.diagnostics.metrics import regime_ensemble_failure_total
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (
@@ -275,6 +276,10 @@ class SignalEngine:
         self._direction_model = direction_model
         self._meta_model = meta_model
         self._trainer = trainer
+        # DATA-001: one gate instance per engine. Stateless, so sharing one
+        # would work too, but a per-engine instance keeps a future
+        # per-symbol budget a one-line change rather than a refactor.
+        self._quality_gate = DataQualityGate()
         # Diversified prediction ensemble (ARIMA/XGBoost/LSTM/GP/TreeEnsemble),
         # trained by ModelTrainer.train_ensemble() alongside direction/meta.
         # None until the orchestrator's first retrain cycle produces one --
@@ -302,7 +307,6 @@ class SignalEngine:
         # with. Bounded: only recent bars can still have an unresolved barrier,
         # so anything older is dead weight.
         self._p_long_by_bar: OrderedDict[int, float] = OrderedDict()
-        self._cfg = get_settings()
         self._model_lock = asyncio.Lock()  # protects model hot-swap (fix #14)
         # v4 regime ensemble (observability only — never gates trades, see
         # tick()): a per-engine BOCPD instance must persist its run-length
@@ -340,6 +344,37 @@ class SignalEngine:
     # ------------------------------------------------------------------
     # Atomic model swap — called by orchestrator after retraining (fix #14)
     # ------------------------------------------------------------------
+
+    # Class-level default so the pin exists before any __init__ runs and
+    # no constructor has to know about it. Instances read live until one
+    # is assigned.
+    _cfg_pinned: Settings | None = None
+
+    @property
+    def _cfg(self) -> Settings:
+        """
+        The settings in force now, not the ones present at construction.
+
+        Captured in __init__ this was the one place a live override could not
+        reach: every other read in src/ calls get_settings() at use time, so a
+        value the operator changed took effect everywhere except here, and only
+        a restart realigned them. A property leaves all 14 existing reads
+        untouched while making each of them current.
+        """
+        return self._cfg_pinned if self._cfg_pinned is not None else get_settings()
+
+    @_cfg.setter
+    def _cfg(self, value: Settings) -> None:
+        """
+        Pin this instance to one Settings object, overriding the live read.
+
+        Injection is how the suite hands an engine a fake configuration, and
+        turning the attribute into a read-only property broke 64 tests that
+        assign here. A pinned instance is deliberately not live: the caller
+        asked for that exact object. Nothing in src/ assigns it, so the
+        running bot stays live.
+        """
+        self._cfg_pinned = value
 
     async def swap_models(
         self,
@@ -656,6 +691,27 @@ class SignalEngine:
         last_bar_ts_ms = int(bars.index[-1])
         if now_ms - last_bar_ts_ms < tf_ms:
             return self._skip("last_bar_not_yet_closed")
+
+        # DATA-001 / INV-008: the data-quality gate, wired.
+        #
+        # DataQualityGate has existed since the CAT-1 providers work and was
+        # covered by its own tests, but no module in src/ ever called it --
+        # the checks ran in the test suite and nowhere else, so "market data
+        # failing the quality gate never reaches the signal engine" was not
+        # true of the running system. This is the call that makes it true.
+        #
+        # The budget is derived from the timeframe rather than taken from the
+        # five-minute realtime default: the newest *closed* bar on a 15-minute
+        # timeframe is always at least fifteen minutes old, so the default
+        # would reject every well-formed frame. Three bars, not two, because
+        # the closed-bar check above has already let one full interval elapse.
+        _quality = self._quality_gate.check_bars(
+            bars,
+            budget=FreshnessBudget.for_timeframe(tf_ms / 1000.0, bars=3.0),
+        )
+        if not _quality.passed:
+            self._log.warning("signal.data_quality_reject", reason=_quality.reason)
+            return self._skip(f"data_quality:{_quality.reason}")
 
         # Resolve the previous tick's prediction now that a new bar has
         # closed — realized direction is the move between the last two

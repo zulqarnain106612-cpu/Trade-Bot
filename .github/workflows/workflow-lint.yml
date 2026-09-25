@@ -14,6 +14,12 @@ name: Workflow lint
 # preinstalled on ubuntu-latest -- the bodies of `run:` steps.
 
 on:
+  # The merge queue builds a temporary ref containing this pull request on top
+  # of main and every entry queued ahead of it, and runs the required checks
+  # against that. Without this trigger those checks never report on the queue
+  # ref, the entry waits for a result that cannot arrive, and the queue jams
+  # permanently -- which is worse than having no queue at all.
+  merge_group:
   push:
     branches: [main]
     paths:
@@ -27,6 +33,12 @@ on:
   # The gate is required unconditionally, so it must run unconditionally.
   # The `push` trigger above keeps its filter: nothing requires it there.
   pull_request:
+    # `ready_for_review` is not one of the default activity types. Without it
+    # the queue reveals a parked entry and no run starts: the promotion is
+    # real, the checks never report, and the entry sits at the front of the
+    # line forever. tests/test_pr_queue.py asserts every gating workflow
+    # lists it (REG-0006).
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -42,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install actionlint
         # Same rule as the TruffleHog step in security.yml: the version pin
@@ -89,7 +101,7 @@ jobs:
   gate:
     name: Workflow lint gate (all jobs green)
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ always() }}
     needs: [actionlint]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

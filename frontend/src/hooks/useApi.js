@@ -51,7 +51,7 @@ export async function postJson(path, body) {
   }
 }
 
-export function useWebSocket(onTick) {
+export function useWebSocket(onTick, onEvent) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
 
@@ -64,7 +64,12 @@ export function useWebSocket(onTick) {
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
+          // Ticks and events are kept apart deliberately. Panels read fields
+          // off the tick (equity_usd, positions); handing them an out-of-band
+          // frame that has none would blank the dashboard on every control
+          // change.
           if (msg.type === 'tick') onTick(msg);
+          else if (onEvent) onEvent(msg);
         } catch (_) {}
       };
       ws.onerror = () => setConnected(false);
@@ -75,7 +80,7 @@ export function useWebSocket(onTick) {
     }
     connect();
     return () => wsRef.current?.close();
-  }, [onTick]);
+  }, [onTick, onEvent]);
 
   return connected;
 }

@@ -20,8 +20,52 @@ from urllib.parse import urlparse
 
 import pytest
 
-_TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="trade-bot-tests-duckdb-"))
-os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
+# REG-0009: one path per *process*, not per run. Under xdist the controller
+# imports this module first, so the DUCKDB_PATH it sets is inherited by every
+# worker it spawns -- and `setdefault` then finds the variable already present
+# and leaves each worker pointing at the controller's single file. DuckDB takes
+# an exclusive lock, so the first worker to open it wins and the rest die with
+# "Conflicting lock is held". It is invisible without `-n`, which is why it
+# survived until the suite was sharded and parallelised.
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+_TMP_DB_DIR = Path(tempfile.mkdtemp(prefix=f"trade-bot-tests-duckdb-{_XDIST_WORKER or 'main'}-"))
+if _XDIST_WORKER:
+    # A worker always gets its own file, even when the controller exported one.
+    os.environ["DUCKDB_PATH"] = str(_TMP_DB_DIR / "crypto_intel.duckdb")
+else:
+    os.environ.setdefault("DUCKDB_PATH", str(_TMP_DB_DIR / "crypto_intel.duckdb"))
+
+
+# ---------------------------------------------------------------------------
+# pandas' Arrow extension types must be registered before any sys.modules patch.
+# ---------------------------------------------------------------------------
+#
+# `unittest.mock.patch.dict("sys.modules", ...)` -- which several tests use to
+# inject a fake `yfinance` -- restores sys.modules *wholesale* on exit, so any
+# module first imported inside the block is evicted. pandas registers its
+# `pandas.period` Arrow extension type lazily, on the first `to_parquet()`
+# call, and remembers that it did so in a module-level flag. If that first call
+# happens inside such a block, the module is dropped, re-imported later with
+# the flag reset, and the second registration raises
+# `pyarrow.lib.ArrowKeyError: A type extension with name pandas.period already
+# defined` -- taking out whichever test happened to run next.
+#
+# Whether that ever happened depended purely on collection order, so it was
+# invisible until the suite was split into shards and the parquet tests landed
+# in a shard where nothing had warmed the import. Doing one throwaway write
+# here, at import time, makes the order irrelevant.
+def _warm_parquet_extension_types() -> None:
+    import io
+
+    try:
+        import pandas as _pd
+
+        _pd.DataFrame([{"warmup": 1}]).to_parquet(io.BytesIO(), index=False)
+    except Exception:  # pragma: no cover - no parquet engine installed
+        pass
+
+
+_warm_parquet_extension_types()
 
 
 def settings_double():
@@ -152,6 +196,120 @@ _socket.create_connection = _deny_create_connection
 # the same stub string -- so without this, the second test to run gets the
 # first test's mock back and never calls its own. Clearing around each test
 # keeps them independent of collection order.
+
+
+# ---------------------------------------------------------------------------
+# Risk-gate fixtures, shared by tests/risk, tests/portfolio, tests/property and
+# tests/trading/invariants.
+# ---------------------------------------------------------------------------
+#
+# Every one of those suites needs the same two things: a RiskSettings with
+# known values rather than whatever the environment supplies, and a
+# RiskGateContext that passes every gate so a test can make exactly one thing
+# wrong and attribute the result to it. Defining them once here keeps the four
+# suites from drifting into four subtly different definitions of "otherwise
+# fine".
+
+
+@pytest.fixture
+def risk_cfg():
+    """RiskSettings at the documented defaults, independent of the environment.
+
+    `_env_file=None` matters: BaseSettings would otherwise read a developer's
+    `.env`, and a boundary test comparing against `max_position_size_pct`
+    would then be asserting against that machine's configuration.
+    """
+    from src.config import RiskSettings
+
+    return RiskSettings(_env_file=None)
+
+
+@pytest.fixture
+def passing_gate_ctx(risk_cfg):
+    """Factory for a RiskGateContext that passes every gate.
+
+    Call it with keyword overrides to break exactly one input:
+
+        ctx = passing_gate_ctx(notional_usd=1e9)
+    """
+    from src.config import TradingMode
+    from src.risk.gates import RiskGateContext
+
+    def _make(**overrides):
+        base = {
+            "daily_pnl_usd": 0.0,
+            "starting_equity_usd": 100_000.0,
+            "consecutive_loss_count": 0,
+            "regime_state": 1,  # trending; 2 is the volatile halt
+            "notional_usd": 1_000.0,  # 1% of capital, under the 5% ceiling
+            "capital_usd": 100_000.0,
+            "trading_mode": TradingMode.PAPER,
+            "direction_gate_pass": True,
+            "meta_gate_pass": True,
+            "paper_trading_days": 365,
+            "expected_edge_bps": 50.0,
+            "slippage_estimate": None,
+            "drift_detector": None,
+            "exchange_stress_score": None,
+            "whale_buy_sell_ratio": None,
+            "capital_preservation_halted": False,
+        }
+        base.update(overrides)
+        return RiskGateContext(**base)
+
+    _make.cfg = risk_cfg
+    return _make
+
+
+@pytest.fixture
+def healthy_security_controls():
+    """Declare API-008's security controls up for the duration of a test.
+
+    CONTROL_HEALTH starts degraded and only `lifespan` marks it healthy, so a
+    TestClient harness that never runs lifespan gets 503 from every gated
+    endpoint -- before the auth, validation or routing logic a test is
+    actually about. Request this fixture in those tests.
+
+    Deliberately not autouse: the fail-closed default is the behaviour under
+    test in tests/api/test_fail_closed_controls.py, and a global override
+    would quietly delete that guarantee everywhere. The reset afterwards
+    matters for the same reason -- leaving the process-wide registry healthy
+    would hide a real fail-closed regression in whatever runs next.
+    """
+    from src.api.fail_closed import CONTROL_HEALTH, mark_all_healthy
+
+    mark_all_healthy()
+    yield CONTROL_HEALTH
+    CONTROL_HEALTH.reset()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_parameter_registry():
+    """Snapshot and restore the process-wide self-tuning registry.
+
+    `parameter_registry` is a singleton and nothing in production ever
+    unregisters: AutoTuningScheduler.start() registers at startup and the
+    process exits with those registrations in place. Inside one test process
+    that is a leak -- any test that calls start() (tests/test_residual_gaps_batch2.py
+    does) leaves risk.ensemble_blend_weight registered, and
+    src/tuning/live_overrides.py then overlays it on top of whatever cfg.risk
+    a *later* test passes. The later test still asserts on its own config and
+    silently gets the leaked value instead.
+
+    Sequentially that stayed hidden because the polluting file happened to
+    sort after its victims; under pytest-xdist, which assigns tests to workers
+    in no particular order, it surfaced as three failures in
+    TestEnsembleBlendPersistence. Restoring the registry per test makes the
+    ordering irrelevant.
+    """
+    from src.tuning.registry import parameter_registry
+
+    with parameter_registry._lock:
+        saved = dict(parameter_registry._params)
+    yield
+    with parameter_registry._lock:
+        parameter_registry._params.clear()
+        parameter_registry._params.update(saved)
 
 
 @pytest.fixture(autouse=True)

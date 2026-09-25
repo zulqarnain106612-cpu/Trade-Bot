@@ -46,6 +46,7 @@ Known limits — read these before trusting a clean run:
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from collections import defaultdict
@@ -61,6 +62,12 @@ _POSITIONAL_SLICE_ALLOWED = {
     ("src/models/trainer.py", "predict_direction"),
     ("src/models/trainer.py", "predict_meta"),
     ("src/tuning/backtest_harness.py", "_predict_direction_batch"),
+    # detect_future_poisoning replaces "the last N bars" with an absurd
+    # future. N is a count of bars by construction -- the caller says how
+    # much future to poison -- so taking them positionally is the operation,
+    # not a shortcut for selecting them by label. There is no name to select
+    # by: the index is an integer millisecond timestamp.
+    ("src/models/leakage.py", "detect_future_poisoning"),
 }
 
 
@@ -148,6 +155,104 @@ def _slices_axis_labels(value: ast.AST) -> bool:
             return _slices_axis_labels(value.args[0])
         return False
     return isinstance(value, ast.Attribute) and value.attr in ("index", "columns")
+
+
+def _package_edges() -> tuple[dict[tuple[str, str], str], set[str]]:
+    """Every src package -> src package import, with one file that makes it."""
+    edges: dict[tuple[str, str], str] = {}
+    packages: set[str] = set()
+    for path in _py_files(SRC):
+        parts = path.relative_to(SRC).parts
+        package = parts[0] if len(parts) > 1 else parts[0][:-3]
+        if package == "__init__":
+            continue
+        packages.add(package)
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if not module.startswith("src."):
+                    continue
+                target = module.split(".")[1]
+                if target != package:
+                    edges.setdefault((package, target), _rel(path))
+    return edges, packages
+
+
+def _layering_problems(
+    contract: dict,
+    edges: dict[tuple[str, str], str],
+    packages: set[str],
+) -> list[str]:
+    """
+    Pure half of check_layering, so the rule can be tested on a graph that is
+    not this repository's.
+    """
+    rank = {
+        pkg: index for index, layer in enumerate(contract["layers"]) for pkg in layer["packages"]
+    }
+    accepted = {(e["from"], e["to"]) for e in contract["accepted_upward_edges"]}
+    names = [layer["name"] for layer in contract["layers"]]
+    problems: list[str] = []
+
+    # A package nobody placed is a package nobody decided about. Failing here
+    # is the point: a new top-level package is an architectural decision.
+    for package in sorted(packages - set(rank)):
+        problems.append(
+            f"config/architecture_layers.json: src/{package} is in no layer -- "
+            "place it, or the contract says nothing about it"
+        )
+
+    upward: set[tuple[str, str]] = set()
+    for (source, target), where in sorted(edges.items()):
+        if source not in rank or target not in rank:
+            continue
+        if rank[target] <= rank[source]:
+            continue
+        upward.add((source, target))
+        if (source, target) not in accepted:
+            problems.append(
+                f"{where}: src/{source} imports src/{target}, which is a higher "
+                f"layer ({names[rank[source]]} -> {names[rank[target]]}). Move "
+                "the shared shape down, or add the edge to "
+                "accepted_upward_edges with the argument for it."
+            )
+
+    # The ratchet. An inversion that has been fixed must leave the list, or the
+    # next one to appear finds a slot already paid for.
+    for source, target in sorted(accepted - upward):
+        problems.append(
+            f"config/architecture_layers.json: src/{source} no longer imports "
+            f"src/{target} -- remove the accepted edge and bank the fix"
+        )
+
+    return problems
+
+
+def check_layering() -> list[str]:
+    """
+    Dependencies run downward. A package may import from its own layer or any
+    layer below it, never above.
+
+    check_import_cycles above refuses a *module*-level cycle, because that one
+    fails at import time and is therefore self-reporting. A *package*-level
+    cycle never fails: it hides behind submodule imports and deferred imports,
+    and surfaces instead as two packages that cannot be changed, tested or
+    reasoned about apart. `api` and `engine` import each other today; so do
+    `engine` and `strategies`.
+
+    The layer order and the edges that already run upward are declared in
+    config/architecture_layers.json. That list is a ratchet -- it may shrink
+    and never grow -- so an inversion has to be either fixed or argued for in
+    the diff that adds it, rather than accumulating silently.
+    """
+    contract = json.loads((REPO / "config" / "architecture_layers.json").read_text("utf-8"))
+    edges, packages = _package_edges()
+    return _layering_problems(contract, edges, packages)
 
 
 def check_positional_column_slices() -> list[str]:
@@ -494,14 +599,38 @@ def check_keyword_arguments_match_signatures() -> list[str]:
     become ``greeks_caps=`` cost a full CI round on 2026-08-01.
 
     Resolution is by bare name, not by import, so anything ambiguous across
-    modules is skipped rather than guessed.
+    modules is skipped rather than guessed. A name the calling module defines
+    itself is one of those ambiguities and is skipped too: the signature table
+    is built from ``src/`` only, while call sites are read from ``src/`` *and*
+    ``tests/``, so without this a test helper shadows nothing and every call to
+    it is checked against an unrelated function that happens to share its name.
+
+    That is not hypothetical. Four test modules define a local ``_result(...)``
+    helper, and ``src/diagnostics/startup_selftest.py`` defines
+    ``_result(name, ok, detail)``. Every one of those test calls was reported
+    as passing a parameter that does not exist -- 16 violations, none of them
+    real, against code where the local definition is the one Python binds.
     """
     accepted = _keyword_only_safe_signatures()
     problems: list[str] = []
     for root in (SRC, REPO / "tests"):
         for path in _py_files(root):
-            for node in ast.walk(_parse(path)):
+            tree = _parse(path)
+            # Module-level bindings shadow the table for this file.
+            local = {
+                stmt.name
+                for stmt in tree.body
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            }
+            for node in ast.walk(tree):
                 if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                if node.func.id in local:
+                    # The calling module binds this name itself, so that is
+                    # what Python calls -- whatever the table says about a
+                    # same-named function somewhere else. The cross-module
+                    # calls this check exists for are unaffected: a module
+                    # that calls a name it does not define is not in `local`.
                     continue
                 allowed = accepted.get(node.func.id)
                 if not allowed:  # unknown target, or **kwargs, or no named params
@@ -767,6 +896,82 @@ def check_no_silent_broad_except() -> list[str]:
                     f"{_rel(path)}:{node.lineno} {name} with no handling — "
                     "log it, or narrow the exception type to say what was expected"
                 )
+    return problems
+
+
+#: Packages where an exception must never resolve to "allowed". A swallowed
+#: failure in a trading system is a financial-security vulnerability; a
+#: swallowed failure that then *returns permission* is the specific shape of
+#: it that costs money.
+_DEFAULT_ALLOW_PACKAGES: tuple[str, ...] = ("risk", "api", "security", "execution")
+
+#: Values that mean "permitted" when returned from a handler in one of those
+#: packages. `None` is absent on purpose: a bare return is already caught by
+#: check_no_silent_broad_except, and conflating the two would make one
+#: finding report as the other.
+_ALLOW_CONSTANTS: tuple[object, ...] = (True,)
+
+
+def check_no_default_allow_on_failure() -> list[str]:
+    """
+    GOV-004. An exception handler in a risk, API, security or execution module
+    that resolves to "allowed".
+
+    The source document's example:
+
+        try:
+            risk_check()
+        except:
+            pass
+
+        except Exception:
+            return True
+
+    The first shape is `check_no_silent_broad_except`'s. This is the second,
+    and it is worse: `pass` leaves the caller to decide what an absent answer
+    means, while `return True` decides for them -- in the direction that
+    submits the order.
+
+    What counts as "allowed" here is deliberately narrow: a literal `True`, or
+    a call to a constructor whose name says it passed (`pass_gate`, `allow`,
+    `permit`). Guessing more widely would produce findings a reviewer cannot
+    act on, and this check's value is that every finding is real.
+
+    Not flagged: a handler that logs and re-raises, one that returns a
+    refusal, or one that narrows the exception type to say what it expected.
+    A narrow `except` is control flow and the type documents the intent.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        if not any(part in _DEFAULT_ALLOW_PACKAGES for part in path.parts):
+            continue
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            caught = node.type
+            is_broad = caught is None or (
+                isinstance(caught, ast.Name) and caught.id in ("Exception", "BaseException")
+            )
+            if not is_broad:
+                continue
+            for stmt in ast.walk(node):
+                if not isinstance(stmt, ast.Return) or stmt.value is None:
+                    continue
+                returned = stmt.value
+                allows = isinstance(returned, ast.Constant) and any(
+                    returned.value is const for const in _ALLOW_CONSTANTS
+                )
+                if isinstance(returned, ast.Call):
+                    name = returned.func
+                    attr = getattr(name, "attr", None) or getattr(name, "id", "")
+                    allows = allows or attr in ("pass_gate", "allow", "permit")
+                if allows:
+                    problems.append(
+                        f"{_rel(path)}:{stmt.lineno} broad except returns a permitting "
+                        "value -- a failed check must not read as an approval. Return "
+                        "the refusal, or narrow the exception type to say what was "
+                        "expected."
+                    )
     return problems
 
 
@@ -1310,6 +1515,7 @@ def check_dataclass_attributes_exist() -> list[str]:
 
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),
     ("naive datetimes", check_datetimes_are_timezone_aware),
@@ -1318,6 +1524,7 @@ CHECKS = (
     ("docstrings citing missing modules", check_docstrings_do_not_cite_missing_modules),
     ("unauthenticated routes", check_every_route_is_authenticated),
     ("silent broad except", check_no_silent_broad_except),
+    ("default-allow on failure", check_no_default_allow_on_failure),
     ("unread dataclass fields", check_dataclass_fields_are_read),
     ("uncalled protocol methods", check_protocol_methods_are_called),
     ("positional column slices", check_positional_column_slices),
