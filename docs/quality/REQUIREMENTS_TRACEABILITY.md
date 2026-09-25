@@ -1278,6 +1278,17 @@ The production workflow can return to the previous trusted artifact, and a drill
 
 ## Governance
 
+#### `INV-014` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · invariant · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-001` — Every production defect yields a permanent regression test
 
 **VERIFIED** · high · requirement · source: QE-48
