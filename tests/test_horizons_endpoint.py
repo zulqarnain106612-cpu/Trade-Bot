@@ -30,7 +30,16 @@ def test_config_declares_ten_horizons():
 def test_entries_are_ordered_shortest_term_first():
     entries = sorted_horizon_entries()
     assert [e["label"] for e in entries] == [
-        "30s", "2m", "5m", "15m", "1h", "4h", "1D", "3D", "1W", "1M",
+        "30s",
+        "2m",
+        "5m",
+        "15m",
+        "1h",
+        "4h",
+        "1D",
+        "3D",
+        "1W",
+        "1M",
     ]
     # Ordering is by the horizon's declared id, and must be strictly
     # increasing — the panel plots them in this order as a term structure.
