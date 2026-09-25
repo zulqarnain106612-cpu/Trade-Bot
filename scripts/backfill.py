@@ -47,9 +47,7 @@ def _parse_timeframes(raw: str) -> list[Timeframe]:
         if not token:
             continue
         if token not in _VALID_TFS:
-            raise SystemExit(
-                f"unknown timeframe {token!r}; valid: {sorted(_VALID_TFS)}"
-            )
+            raise SystemExit(f"unknown timeframe {token!r}; valid: {sorted(_VALID_TFS)}")
         out.append(_VALID_TFS[token])
     if not out:
         raise SystemExit("--timeframes must list at least one value")
