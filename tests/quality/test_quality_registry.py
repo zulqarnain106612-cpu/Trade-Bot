@@ -10,6 +10,11 @@ owns.
 
 The fixtures build small registries on a temporary tree so the failure cases can
 be provoked without corrupting the real file.
+
+Decides:
+  - GOV-001 — every production defect yields a permanent regression test
+  - GOV-002 — every security finding yields a permanent SEC-#### test
+  - GOV-005 — requirement-to-test traceability is machine-checked
 """
 
 from __future__ import annotations
