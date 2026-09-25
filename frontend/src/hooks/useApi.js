@@ -75,6 +75,22 @@ function _emit(topic, payload) {
 // state rather than resuming blind.
 const _resyncListeners = new Set();
 
+// The live socket, so a panel mounting after the connection is already open
+// can widen the subscription without waiting for a reconnect.
+let _liveSocket = null;
+
+function _sendSubscribe(ws) {
+  // The set falls out of which panels are mounted -- a hidden panel has no
+  // useStream, so its topic is not in the map and the server sends nothing
+  // for it. Panel visibility is already persisted in localStorage, so the
+  // subscription follows the operator's own layout for free.
+  const topics = [..._topicListeners.keys()];
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    ws.send(JSON.stringify({ op: 'subscribe', topics }));
+  } catch (_) {}
+}
+
 export function useWebSocket(onTick, onEvent) {
   const [connected, setConnected] = useState(false);
   const [lagMs, setLagMs] = useState(null);
@@ -109,6 +125,7 @@ export function useWebSocket(onTick, onEvent) {
       const ws = new WebSocket(wsUrl);
       socket = ws;
       wsRef.current = ws;
+      _liveSocket = ws;
 
       ws.onopen = () => {
         setConnected(true);
@@ -117,6 +134,7 @@ export function useWebSocket(onTick, onEvent) {
         // drops into a 250ms hot loop.
         const wasReconnect = attempt > 0;
         attempt = 0;
+        _sendSubscribe(ws);
         if (wasReconnect) {
           for (const listener of [..._resyncListeners]) {
             try { listener(); } catch (_) {}
@@ -231,9 +249,14 @@ export function useStream(topic, hydratePath, options = {}) {
       setData((prev) => (applyRef.current ? applyRef.current(prev, payload) : payload));
     }
 
-    if (!_topicListeners.has(topic)) _topicListeners.set(topic, new Set());
+    const isNewTopic = !_topicListeners.has(topic);
+    if (isNewTopic) _topicListeners.set(topic, new Set());
     _topicListeners.get(topic).add(onEventPayload);
     _resyncListeners.add(hydrate);
+
+    // A panel unhidden after connect would otherwise receive nothing until
+    // the next reconnect, which on a healthy server is never.
+    if (isNewTopic) _sendSubscribe(_liveSocket);
 
     hydrate();
 
