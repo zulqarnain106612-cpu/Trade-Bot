@@ -1240,3 +1240,52 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_every_gate_status_is_reachable (INV-016)
+# ---------------------------------------------------------------------------
+
+
+_GATES_TEMPLATE = """
+class GateStatus:
+    PASS = "pass"
+    HALT_DRIFT = "halt_drift"
+    HALT_DRAWDOWN = "halt_drawdown"
+
+
+def check_drawdown(state):
+    if state.dd > 0.1:
+        return GateStatus.HALT_DRAWDOWN
+    return GateStatus.PASS
+
+
+{extra}
+
+def evaluate_all_gates(state):
+    return [
+        check_drawdown(state),
+        {extra_call}
+    ]
+"""
+
+
+def test_gate_status_member_no_check_emits_is_flagged(invariants, fake_tree) -> None:
+    # HALT_DRIFT is declared but no called check function emits it.
+    fake_tree("src/risk/gates.py", _GATES_TEMPLATE.format(extra="", extra_call=""))
+    problems = invariants.check_every_gate_status_is_reachable()
+    assert any("HALT_DRIFT" in p and "can never be emitted" in p for p in problems)
+
+
+def test_gate_status_member_reached_via_called_check_passes(invariants, fake_tree) -> None:
+    extra = (
+        "def check_drift(state):\n"
+        "    if state.drift > 0.5:\n"
+        "        return GateStatus.HALT_DRIFT\n"
+        "    return GateStatus.PASS\n"
+    )
+    fake_tree(
+        "src/risk/gates.py",
+        _GATES_TEMPLATE.format(extra=extra, extra_call="check_drift(state),"),
+    )
+    assert invariants.check_every_gate_status_is_reachable() == []
