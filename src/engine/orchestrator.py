@@ -41,6 +41,7 @@ from src.config import (
     runtime_config,
 )
 from src.data.fetcher import MarketDataFetcher
+from src.data.orderbook_stream import OrderbookStream
 from src.data.provider_cache import get_provider_cache
 from src.data.storage import (
     AnyStorageBackend,
@@ -362,6 +363,10 @@ class Orchestrator:
         # Crypto-Box 18-engine ensemble — activated only when CRYPTO_BOX=true.
         # Silently disabled otherwise, so the existing pipeline is unaffected.
         self._crypto_box = CryptoBoxSignalAdapter()
+        # Owned by _orderbook_stream_loop; None until that task constructs it,
+        # and read by _price_preview_loop and the position monitor, both of
+        # which must tolerate its absence.
+        self._orderbook_stream: OrderbookStream | None = None
 
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
@@ -608,6 +613,16 @@ class Orchestrator:
         # Crypto-Box background data provider loops (no-op when CRYPTO_BOX!=true)
         if self._crypto_box.enabled:
             tasks.extend(self._crypto_box_provider_tasks())
+
+        # The sub-second price path. src/data/orderbook_stream.py is a working
+        # Binance depth + aggTrade client that, until now, nothing in src/
+        # imported -- the one genuine sub-second price source in the tree fed
+        # nothing, while mark-to-market waited on a 5s REST poll.
+        if self._cfg.binance.orderbook_stream_enabled:
+            tasks.append(
+                asyncio.create_task(self._orderbook_stream_loop(), name="orderbook_stream")
+            )
+            tasks.append(asyncio.create_task(self._price_preview_loop(), name="price_preview"))
 
         # Wait until stop event
         await self._stop_event.wait()
@@ -1827,15 +1842,35 @@ class Orchestrator:
                 if not any_open:
                     continue
 
-                try:
-                    price = await self._fetcher.fetch_ticker_price(self._symbol)
-                except Exception as exc:
-                    self._log.warning(
-                        "orchestrator.position_monitor_price_fetch_failed",
-                        error=str(exc),
-                        exc_info=True,
-                    )
-                    continue
+                # Prefer the streamed mid over a REST round-trip. This changes
+                # the price *source*, not the cadence: the loop still marks
+                # once per position_monitor_interval_s, so `_peak_equity`, the
+                # drawdown tracker and each position's `peak_unrealized_pct`
+                # are sampled exactly as often as before. Marking more often
+                # would sample more extremes and move the drawdown gate and
+                # the trailing stop, which is a change to trading behaviour
+                # and not something a latency fix is allowed to smuggle in.
+                #
+                # latest_mid() returns None when the stream is stale or
+                # absent, so the REST path remains the fallback rather than
+                # being replaced.
+                price = 0.0
+                stream = self._orderbook_stream
+                if stream is not None:
+                    streamed = stream.latest_mid()
+                    if streamed is not None:
+                        price = streamed
+
+                if price <= 0.0:
+                    try:
+                        price = await self._fetcher.fetch_ticker_price(self._symbol)
+                    except Exception as exc:
+                        self._log.warning(
+                            "orchestrator.position_monitor_price_fetch_failed",
+                            error=str(exc),
+                            exc_info=True,
+                        )
+                        continue
                 if price <= 0.0:
                     continue
 
@@ -1848,6 +1883,74 @@ class Orchestrator:
                     "orchestrator.position_monitor_loop_error", error=str(exc), exc_info=True
                 )
                 await asyncio.sleep(5)
+
+    async def _orderbook_stream_loop(self) -> None:
+        """
+        Own the Binance depth/aggTrade stream for the primary symbol.
+
+        The stream publishes `price` and `book` itself, coalesced to 250ms --
+        the raw feed is 100ms, which is faster than any display needs and
+        faster than it is safe to fan out to fifty clients.
+
+        Restarted rather than abandoned on failure: a dropped socket must not
+        silently end the price feed for the rest of the process's life, and
+        `start()` already gathers its two inner streams with
+        return_exceptions, so it returns instead of raising when they die.
+        """
+        self._orderbook_stream = OrderbookStream(
+            symbol=self._symbol.replace("/", "").replace("-", "").lower(),
+            data_root=self._cfg.storage.db_path.parent,
+        )
+        while self._running:
+            try:
+                await self._orderbook_stream.start()
+            except asyncio.CancelledError:
+                self._orderbook_stream.stop()
+                raise
+            except Exception as exc:
+                self._log.warning("orchestrator.orderbook_stream_error", error=str(exc))
+            # 30s, not 5: on a host with no outbound network this never
+            # succeeds, and a 5s retry turns that into a warning every five
+            # seconds forever in the log an operator has to read.
+            if self._running:
+                await asyncio.sleep(30.0)
+
+    async def _price_preview_loop(self) -> None:
+        """
+        Publish what equity reads at the streamed price, changing nothing.
+
+        This is the display half of the sub-second path, and it is separate
+        from `_position_monitor_loop` on purpose. The monitor calls
+        `mark_to_market`, which advances `_peak_equity`, the drawdown tracker
+        and each position's `peak_unrealized_pct` -- inputs to
+        `check_daily_drawdown` and to the trailing stop. Running that at the
+        stream's cadence would sample twenty times as many extremes and move
+        live risk thresholds, so the exit path keeps its own unchanged
+        cadence and this loop only reads.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(1.0)
+                stream = self._orderbook_stream
+                if stream is None:
+                    continue
+                mid = stream.latest_mid()
+                if mid is None:
+                    continue  # Stale or absent: the 5s REST path still holds.
+                for executor in self._all_executors():
+                    preview = getattr(executor, "preview_marked_equity", None)
+                    if preview is None:
+                        continue
+                    snapshot = await preview({self._symbol: mid})
+                    if snapshot is not None:
+                        get_event_bus().publish(
+                            "equity",
+                            {**snapshot, "mark_price": mid, "authoritative": False},
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._log.warning("orchestrator.price_preview_error", error=str(exc))
 
     def _register_kill_switches(self, baseline: PerformanceBaseline) -> None:
         """

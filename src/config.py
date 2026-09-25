@@ -77,6 +77,16 @@ class BinanceSettings(BaseSettings):
         description="WebSocket base URL",
     )
     rate_limit_per_minute: int = Field(default=1200, ge=1)
+    orderbook_stream_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run the Binance depth/aggTrade websocket stream for the primary symbol. "
+            "Public market data only -- no key is sent and it ignores the testnet flag, "
+            "because testnet order books are synthetic and useless as a price source. "
+            "Set false on a host with no outbound network, or to fall back to the 5s "
+            "REST poll for mark-to-market."
+        ),
+    )
 
     @model_validator(mode="after")
     def resolve_urls(self) -> BinanceSettings:

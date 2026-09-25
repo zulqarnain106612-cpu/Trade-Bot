@@ -117,6 +117,22 @@ class PaperPosition:
                 self.peak_unrealized_pct = pct
         return self.unrealized_pnl
 
+    def unrealized_at(self, price: float) -> float:
+        """
+        Unrealized PnL at ``price``, computed without touching this position.
+
+        The read-only twin of ``mark``, and the reason it exists: ``mark``
+        advances ``peak_unrealized_pct``, which the trailing stop reads. A
+        sub-second price feed samples far more extremes than a 5s poll, so
+        refreshing a dashboard through ``mark`` would raise the recorded peak
+        and move a live exit threshold against highs the exit logic itself
+        has never evaluated. Showing a number must not be able to change when
+        a position closes.
+        """
+        if self.direction == 1:
+            return (price - self.entry_price) * self.quantity
+        return (self.entry_price - price) * self.quantity
+
 
 # ---------------------------------------------------------------------------
 # Approval request — used in RESTRICTED and MANUAL modes
@@ -645,6 +661,38 @@ class PaperExecutor(AbstractExecutor):
             },
         )
         return total_unrealized
+
+    async def preview_marked_equity(self, prices: dict[str, float]) -> dict[str, float] | None:
+        """
+        What equity *would* read at ``prices``, changing nothing.
+
+        This is the display path for the sub-second price stream. It
+        deliberately does not call ``mark_to_market``: that mutates
+        ``_peak_equity`` and the drawdown tracker, whose
+        ``drawdown_from_peak_pct`` and ``daily_pnl_usd`` feed
+        ``check_daily_drawdown``. Marking at 4Hz instead of 0.2Hz samples
+        twenty times as many extremes, so the recorded peak climbs, measured
+        drawdown widens, and a risk gate starts tripping on spikes it has
+        never previously seen. Making the dashboard faster must not make the
+        system trade differently.
+
+        Returns None when flat, so the caller can skip publishing entirely.
+        """
+        async with self._lock:
+            if not self._positions:
+                return None
+            unrealized = 0.0
+            for pos in self._positions.values():
+                price = prices.get(pos.symbol)
+                unrealized += (
+                    pos.unrealized_at(price) if price and price > 0.0 else (pos.unrealized_pnl)
+                )
+            cash = self._cash
+        return {
+            "equity_usd": round(cash + unrealized, 2),
+            "cash_usd": round(cash, 2),
+            "unrealized_pnl_usd": round(unrealized, 2),
+        }
 
     # ------------------------------------------------------------------
     # Approval queue — used by API to resolve RESTRICTED/MANUAL requests
