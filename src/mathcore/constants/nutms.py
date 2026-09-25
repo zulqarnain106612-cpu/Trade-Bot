@@ -24,6 +24,8 @@ deterministic, so constant-time does not apply.
 
 References: FIPS 180-4 (SHA-1, SHA-256); RFC 1321 (MD5); Schneier's Blowfish
 paper; Wheeler & Needham, *TEA* (1994); RFC 2104.
+
+Registry: nutms-constants (config/math_registry.json).
 """
 
 from __future__ import annotations
