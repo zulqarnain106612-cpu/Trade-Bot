@@ -35,6 +35,7 @@ Environment variables and defaults are documented in `.env.example`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 
 import structlog
@@ -68,13 +69,11 @@ async def _run() -> None:
 
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
+            # Signal handlers are not supported on this platform (e.g.
+            # Windows). Fall back to letting KeyboardInterrupt propagate
+            # from asyncio.run().
+            with contextlib.suppress(NotImplementedError):
                 loop.add_signal_handler(sig, _handle_signal, sig.name)
-            except NotImplementedError:
-                # Signal handlers are not supported on this platform (e.g.
-                # Windows). Fall back to letting KeyboardInterrupt propagate
-                # from asyncio.run().
-                pass
 
         try:
             await orchestrator.startup()
@@ -111,12 +110,12 @@ async def _run() -> None:
             orchestrator.stop()
             try:
                 await asyncio.wait_for(orch_task, timeout=10.0)
-            except (TimeoutError, asyncio.TimeoutError):
+            except TimeoutError:
                 orch_task.cancel()
-                try:
+                # Nothing raised here is actionable: the task is already being
+                # abandoned, and the shutdown below must run regardless.
+                with contextlib.suppress(BaseException):
                     await orch_task
-                except (BaseException,):
-                    pass
             await orchestrator.shutdown()
             await storage.close()
             log.info("worker.shutdown_complete")
@@ -125,13 +124,11 @@ async def _run() -> None:
 def main() -> None:
     settings = get_settings()
     configure_logging(settings)
-    try:
+    # asyncio.run() re-raises KeyboardInterrupt after cancelling the
+    # coroutine — the finally block above has already run cleanup by
+    # then. Nothing more to do; exit 0.
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_run())
-    except KeyboardInterrupt:
-        # asyncio.run() re-raises KeyboardInterrupt after cancelling the
-        # coroutine — the finally block above has already run cleanup by
-        # then. Nothing more to do; exit 0.
-        pass
 
 
 if __name__ == "__main__":
