@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.config import RiskSettings, TradingMode
+from src.config import TradingMode
 from src.eventbus import EventBus, get_event_bus
 from src.risk.gates import RiskGateContext, evaluate_all_gates
 
@@ -99,26 +99,31 @@ class TestGateBlocksArePublished:
 
 
 class TestPublishingCannotBreakTheGate:
-    def test_a_gate_still_returns_when_the_bus_raises(self, monkeypatch) -> None:
+    def test_a_broken_subscriber_does_not_reach_the_gate(self, monkeypatch) -> None:
         """
-        The load-bearing guarantee, at the seam that matters most. If the bus
-        can throw into evaluate_all_gates, a dashboard fault becomes a failed
-        risk evaluation on the order path.
+        The load-bearing guarantee, at the seam that matters most: a consumer
+        that has gone wrong must not turn a risk evaluation on the order path
+        into a failed one.
+
+        The failure is injected *inside* a real EventBus -- a subscriber whose
+        delivery raises -- rather than by swapping the bus for one that
+        throws. Swapping it would bypass publish()'s own guard and prove
+        nothing about the production path, which is precisely that guard.
         """
+        real = EventBus()
+        broken = real.subscribe(["gate"])
 
-        class _ExplodingBus:
-            def publish(self, *_args, **_kwargs):
-                raise RuntimeError("bus is on fire")
+        def _explode(_event):
+            raise RuntimeError("subscriber is on fire")
 
-        monkeypatch.setattr("src.risk.gates.get_event_bus", _ExplodingBus)
+        monkeypatch.setattr(broken, "_offer", _explode)
+        monkeypatch.setattr("src.risk.gates.get_event_bus", lambda: real)
 
-        # The gate itself must be unaffected -- and this is the honest version
-        # of the assertion: publish() swallows its own errors, so a raising
-        # *bus object* is caught by EventBus.publish in production. Here the
-        # replacement bypasses that guard entirely, which is strictly harsher
-        # than reality, and the gate must still not propagate it.
-        with pytest.raises(RuntimeError):
-            evaluate_all_gates(_ctx(capital_preservation_halted=True))
+        result = evaluate_all_gates(_ctx(capital_preservation_halted=True))
+
+        # The gate reached its verdict regardless.
+        assert not result.passed
+        assert result.reason
 
     def test_the_real_bus_swallows_a_bad_payload(self) -> None:
         """
