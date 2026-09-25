@@ -1683,7 +1683,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         # Nothing else to do on this task. The shared loops do the pushing;
         # this simply parks until the peer goes away, which is what keeps the
         # connection (and its guard) alive.
+        #
+        # The reader absorbs WebSocketDisconnect itself and returns, so a
+        # normal hangup arrives here as an ordinary completion rather than the
+        # exception below -- which is why the disconnect is logged on this
+        # path and not only in the handler.
         await reader
+        log.info("api.ws_disconnected", client=str(ws.client))
 
     except WebSocketDisconnect:
         log.info("api.ws_disconnected", client=str(ws.client))
