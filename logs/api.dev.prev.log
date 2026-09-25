@@ -1,0 +1,295 @@
+INFO:     Started server process [51091]
+INFO:     Waiting for application startup.
+2026-09-25T06:36:18.523069Z [info     ] cors.validated                 allow_credentials=True origins=['http://localhost:5173']
+2026-09-25T06:36:18.523432Z [info     ] strategy_registered            strategy_id=signal_engine_v1
+2026-09-25T06:36:18.523615Z [info     ] strategy_bootstrap.complete    registered=['signal_engine_v1'] registry_size=1 total_capital_ceiling=1.0
+2026-09-25T06:36:18.526272Z [info     ] storage.initialized            component=storage db=data/trade_bot.db schema_version=8
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/structlog/_base.py:173: UserWarning: Remove `format_exc_info` from your processor chain if you want pretty exceptions.
+  event_dict = proc(self._logger, method_name, event_dict)
+2026-09-25T06:36:29.701764Z [warning  ] fetch.retry                    attempt=1 backoff_s=1.0 delay_s=0.886 error='binance GET https://fapi.binance.com/fapi/v1/exchangeInfo' label=binance.load_markets
+Traceback (most recent call last):
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 858, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 812, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 657, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1242, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1589, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/connector.py", line 1316, in _wrap_create_connection
+    return await self._loop.create_connection(*args, **kwargs, sock=sock)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 2088, in create_connection
+  File "uvloop/loop.pyx", line 2083, in uvloop.loop.Loop.create_connection
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 241, in fetch
+    async with session_method(yarl.URL(url, encoded=True),
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 1693, in __aenter__
+    self._resp: _RetType_co = await self._coro
+                              ^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/client.py", line 701, in _request
+    with timer:
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/aiohttp/helpers.py", line 759, in __exit__
+    raise asyncio.TimeoutError from exc_val
+TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/src/data/fetcher.py", line 250, in _with_retry
+    return await coro_factory()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 372, in load_markets
+    raise e
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 364, in load_markets
+    result = await self.markets_loading
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 331, in load_markets_helper
+    markets = await self.fetch_markets(params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/binance.py", line 3438, in fetch_markets
+    results = await asyncio.gather(*promisesRaw)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/binance.py", line 12503, in request
+    response = await self.fetch2(path, api, method, params, headers, body, config)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 1029, in fetch2
+    raise e
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 1012, in fetch2
+    response = await self.fetch(request['url'], request['method'], request['headers'], request['body'])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/ccxt/async_support/base/exchange.py", line 280, in fetch
+    raise RequestTimeout(details) from e
+ccxt.base.errors.RequestTimeout: binance GET https://fapi.binance.com/fapi/v1/exchangeInfo
+2026-09-25T06:36:32.847294Z [info     ] fetcher.binance_ready          component=fetcher testnet=True
+2026-09-25T06:36:34.488943Z [info     ] fetcher.okx_ready              component=fetcher testnet=True
+2026-09-25T06:36:34.489379Z [info     ] orchestrator.startup           component=orchestrator symbol=BTC/USDT trading_mode=paper
+2026-09-25T06:36:34.489587Z [info     ] orchestrator.symbol_precision_loaded amount_precision=1e-05 component=orchestrator min_amount=1e-05 min_cost=5.0 symbol=BTC/USDT
+2026-09-25T06:36:34.490259Z [info     ] paper.initialized_from_storage cash_usd=1000.0 component=paper_executor equity_usd=1000.0
+2026-09-25T06:36:34.490513Z [info     ] runtime_monitor.started        interval_s=30.0
+2026-09-25T06:36:39.968833Z [info     ] features.triple_barrier_composition mean_holding_bars=4.56 profit_target=255 stop_loss=480 time_exit=3 time_exit_fraction=0.0041 total=738
+2026-09-25T06:36:39.980055Z [info     ] pipeline.complete              dropped=199 label_long=np.int64(214) label_short=np.int64(384) n_input=800 n_output=598
+2026-09-25T06:36:39.983823Z [info     ] signal_debugger.selftest_passed rows=598
+2026-09-25T06:36:39.984147Z [info     ] orchestrator.selftest_passed   component=orchestrator rows=598 symbol=BTC/USDT
+2026-09-25T06:36:39.984782Z [info     ] fetcher.bootstrap_start        component=fetcher lookback_days=90 symbol=BTC/USDT timeframe=1m
+2026-09-25T06:36:39.989752Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49911.3 timeframe=1m
+2026-09-25T06:36:39.990107Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49911.3 timeframe=15m
+2026-09-25T06:36:39.990442Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49911.3 timeframe=4h
+2026-09-25T06:36:39.990930Z [warning  ] health_probe.memory_warning    rss_mb=720.4
+2026-09-25T06:37:09.993608Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49941.3 timeframe=1m
+2026-09-25T06:37:09.993921Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49941.3 timeframe=15m
+2026-09-25T06:37:09.994136Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49941.3 timeframe=4h
+2026-09-25T06:37:09.994475Z [warning  ] health_probe.memory_warning    rss_mb=724.3
+2026-09-25T06:37:39.998210Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49971.3 timeframe=1m
+2026-09-25T06:37:39.999042Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49971.3 timeframe=15m
+2026-09-25T06:37:39.999344Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=49971.3 timeframe=4h
+2026-09-25T06:37:39.999720Z [warning  ] health_probe.memory_warning    rss_mb=725.9
+2026-09-25T06:38:02.225029Z [info     ] fetcher.bootstrap_done         component=fetcher symbol=BTC/USDT timeframe=1m total_written=58
+2026-09-25T06:38:02.225737Z [info     ] fetcher.bootstrap_start        component=fetcher lookback_days=90 symbol=BTC/USDT timeframe=15m
+2026-09-25T06:38:07.212927Z [info     ] fetcher.bootstrap_done         component=fetcher symbol=BTC/USDT timeframe=15m total_written=4
+2026-09-25T06:38:07.213653Z [info     ] fetcher.bootstrap_start        component=fetcher lookback_days=90 symbol=BTC/USDT timeframe=4h
+2026-09-25T06:38:07.496239Z [info     ] fetcher.bootstrap_done         component=fetcher symbol=BTC/USDT timeframe=4h total_written=0
+2026-09-25T06:38:07.496897Z [info     ] orchestrator.training_start    component=orchestrator symbol=BTC/USDT timeframe=1m
+2026-09-25T06:38:10.009106Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50001.3 timeframe=1m
+2026-09-25T06:38:10.017946Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50001.3 timeframe=15m
+2026-09-25T06:38:10.023532Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50001.3 timeframe=4h
+2026-09-25T06:38:10.024058Z [warning  ] health_probe.memory_warning    rss_mb=728.0
+2026-09-25T06:38:36.846504Z [info     ] features.triple_barrier_composition mean_holding_bars=5.33 profit_target=703 stop_loss=1231 time_exit=4 time_exit_fraction=0.0021 total=1938
+2026-09-25T06:38:36.868246Z [info     ] pipeline.complete              dropped=199 label_long=np.int64(660) label_short=np.int64(1137) n_input=2000 n_output=1797
+2026-09-25T06:38:36.881636Z [info     ] orchestrator.intelligence_attached component=orchestrator intelligence_columns=19 rows_with_intelligence=48 symbol=BTC/USDT timeframe=1m
+2026-09-25T06:38:40.032958Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50031.4 timeframe=1m
+2026-09-25T06:38:40.033580Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50031.4 timeframe=15m
+2026-09-25T06:38:40.033858Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50031.4 timeframe=4h
+2026-09-25T06:38:40.034631Z [warning  ] health_probe.memory_warning    rss_mb=732.6
+2026-09-25T06:38:42.683688Z [info     ] hmm.fitted                     component=regime_detector converged=True elapsed_s=5.772 n_iter=38 n_rows=1797 state_map={2: 0, 0: 1, 1: 2} symbol=BTC/USDT timeframe=1m train_hash=79826af0e4558456
+2026-09-25T06:38:42.691566Z [info     ] hmm.saved                      component=regime_detector path=models/artifacts/hmm_BTC_USDT_1m.joblib symbol=BTC/USDT timeframe=1m train_hash=79826af0e4558456
+2026-09-25T06:38:42.698670Z [warning  ] get_active_feature_columns_excluded excluded=[('intelligence_exchange_netflow_7d_zscore', '0.0%'), ('intelligence_whale_buy_sell_ratio', '0.0%'), ('intelligence_exchange_reserve_ratio', '0.0%'), ('intelligence_miner_netflow_signal', '0.0%'), ('intelligence_staking_unlock_risk', '0.0%'), ('intelligence_entity_exchange_imbalance', '0.0%'), ('intelligence_binance_funding_rate_pct', '0.0%'), ('intelligence_liquidation_pressure_24h_zscore', '0.0%'), ('intelligence_futures_oi_change_pct', '0.0%'), ('intelligence_liquidation_cascade_risk_usd', '0.0%'), ('intelligence_btc_dominance_regime', '0.0%'), ('intelligence_stablecoin_reserve_ratio', '0.0%'), ('intelligence_network_activity_score', '0.0%'), ('intelligence_exchange_stress_score', '0.0%'), ('intelligence_cross_exchange_basis_spread_bps', '0.0%'), ('intelligence_defi_tvl_7d_change_pct', '0.0%'), ('intelligence_mvrv_z_score', '0.0%'), ('intelligence_sopr', '0.0%')] threshold=60%
+2026-09-25T06:38:42.701246Z [info     ] get_active_feature_columns     base=8 intelligence=0 mode=8-feature total=8
+2026-09-25T06:38:42.703072Z [info     ] trainer.direction.start        component=trainer feature_mode=8 n_features=8 n_long=660 n_samples=1797 n_short=1137 symbol=BTC/USDT timeframe=1m
+2026-09-25T06:39:10.041749Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50061.4 timeframe=1m
+2026-09-25T06:39:10.042210Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50061.4 timeframe=15m
+2026-09-25T06:39:10.042515Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50061.4 timeframe=4h
+2026-09-25T06:39:10.042956Z [warning  ] health_probe.memory_warning    rss_mb=739.1
+2026-09-25T06:39:40.050183Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50091.4 timeframe=1m
+2026-09-25T06:39:40.050588Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50091.4 timeframe=15m
+2026-09-25T06:39:40.050872Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50091.4 timeframe=4h
+2026-09-25T06:39:40.053536Z [warning  ] health_probe.memory_warning    rss_mb=739.2
+2026-09-25T06:39:54.309467Z [info     ] trainer.live_gate              component=trainer max_drawdown=9.4618 n_trades=16173 oos_sharpe=np.float64(-0.0721) passes=False symbol=BTC/USDT threshold_dd=15.0 threshold_sharpe=1.5 threshold_trades=500 timeframe=1m
+2026-09-25T06:39:54.339288Z [info     ] trainer.direction.done         accuracy=0.561 component=trainer elapsed_s=69.34 f1=0.1575 live_gate_pass=False max_drawdown=9.4618 oos_sharpe=np.float64(-0.0721) symbol=BTC/USDT timeframe=1m
+2026-09-25T06:39:54.413649Z [info     ] signal_debugger.training_metrics_updated accuracy=0.561 f1=0.1575
+2026-09-25T06:39:54.414576Z [warning  ] get_active_feature_columns_excluded excluded=[('intelligence_exchange_netflow_7d_zscore', '0.0%'), ('intelligence_whale_buy_sell_ratio', '0.0%'), ('intelligence_exchange_reserve_ratio', '0.0%'), ('intelligence_miner_netflow_signal', '0.0%'), ('intelligence_staking_unlock_risk', '0.0%'), ('intelligence_entity_exchange_imbalance', '0.0%'), ('intelligence_binance_funding_rate_pct', '0.0%'), ('intelligence_liquidation_pressure_24h_zscore', '0.0%'), ('intelligence_futures_oi_change_pct', '0.0%'), ('intelligence_liquidation_cascade_risk_usd', '0.0%'), ('intelligence_btc_dominance_regime', '0.0%'), ('intelligence_stablecoin_reserve_ratio', '0.0%'), ('intelligence_network_activity_score', '0.0%'), ('intelligence_exchange_stress_score', '0.0%'), ('intelligence_cross_exchange_basis_spread_bps', '0.0%'), ('intelligence_defi_tvl_7d_change_pct', '0.0%'), ('intelligence_mvrv_z_score', '0.0%'), ('intelligence_sopr', '0.0%')] threshold=60%
+2026-09-25T06:39:54.415351Z [info     ] get_active_feature_columns     base=8 intelligence=0 mode=8-feature total=8
+2026-09-25T06:39:54.452240Z [info     ] trainer.meta.start             component=trainer n_bet=660 n_samples=1797 n_skip=1137 symbol=BTC/USDT timeframe=1m
+2026-09-25T06:40:10.056890Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50121.4 timeframe=1m
+2026-09-25T06:40:10.057356Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50121.4 timeframe=15m
+2026-09-25T06:40:10.057690Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50121.4 timeframe=4h
+2026-09-25T06:40:10.060365Z [warning  ] health_probe.memory_warning    rss_mb=740.3
+2026-09-25T06:40:40.064125Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50151.4 timeframe=1m
+2026-09-25T06:40:40.064614Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50151.4 timeframe=15m
+2026-09-25T06:40:40.064914Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50151.4 timeframe=4h
+2026-09-25T06:40:40.065423Z [warning  ] health_probe.memory_warning    rss_mb=740.3
+2026-09-25T06:41:02.919975Z [info     ] trainer.live_gate              component=trainer max_drawdown=9.4618 n_trades=16173 oos_sharpe=np.float64(-0.0721) passes=False symbol=BTC/USDT threshold_dd=15.0 threshold_sharpe=1.5 threshold_trades=500 timeframe=1m
+2026-09-25T06:41:02.938377Z [info     ] trainer.meta.done              accuracy=0.561 component=trainer elapsed_s=68.19 f1=0.1575 live_gate_pass=False max_drawdown=9.4618 oos_sharpe=np.float64(-0.0721) symbol=BTC/USDT timeframe=1m
+2026-09-25T06:41:02.948025Z [info     ] trainer.saved                  component=trainer direction=models/artifacts/xgb_direction_BTC_USDT_1m.joblib meta=models/artifacts/xgb_meta_BTC_USDT_1m.joblib symbol=BTC/USDT timeframe=1m version=2026-09-25T06:38:42.692079+00:00
+2026-09-25T06:41:02.948687Z [warning  ] get_active_feature_columns_excluded excluded=[('intelligence_exchange_netflow_7d_zscore', '0.0%'), ('intelligence_whale_buy_sell_ratio', '0.0%'), ('intelligence_exchange_reserve_ratio', '0.0%'), ('intelligence_miner_netflow_signal', '0.0%'), ('intelligence_staking_unlock_risk', '0.0%'), ('intelligence_entity_exchange_imbalance', '0.0%'), ('intelligence_binance_funding_rate_pct', '0.0%'), ('intelligence_liquidation_pressure_24h_zscore', '0.0%'), ('intelligence_futures_oi_change_pct', '0.0%'), ('intelligence_liquidation_cascade_risk_usd', '0.0%'), ('intelligence_btc_dominance_regime', '0.0%'), ('intelligence_stablecoin_reserve_ratio', '0.0%'), ('intelligence_network_activity_score', '0.0%'), ('intelligence_exchange_stress_score', '0.0%'), ('intelligence_cross_exchange_basis_spread_bps', '0.0%'), ('intelligence_defi_tvl_7d_change_pct', '0.0%'), ('intelligence_mvrv_z_score', '0.0%'), ('intelligence_sopr', '0.0%')] threshold=60%
+2026-09-25T06:41:02.948902Z [info     ] get_active_feature_columns     base=8 intelligence=0 mode=8-feature total=8
+2026-09-25T06:41:02.949902Z [info     ] trainer.ensemble.start         component=trainer n_features=8 n_samples=1797 symbol=BTC/USDT timeframe=1m
+2026-09-25T06:41:02.950222Z [warning  ] ensemble_weights_cold_start_fallback n_models=5 reason='no model has finite RMSE yet; using equal weights'
+2026-09-25T06:41:02.950405Z [info     ] ensemble_fitting               num_models=5
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/statespace/mlemodel.py:737: ConvergenceWarning: Maximum Likelihood optimization failed to converge. Check mle_retvals
+  mlefit = super().fit(
+2026-09-25T06:41:04.040704Z [info     ] arima_fitted                   metrics={'rmse': np.float64(0.0005667168337282018), 'model_type': 'ARIMA'}
+2026-09-25T06:41:04.217428Z [info     ] xgboost_fitted                 metrics={'rmse': np.float64(0.0003251561853172158), 'model_type': 'XGBoost'}
+2026-09-25T06:41:10.073815Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50181.4 timeframe=1m
+2026-09-25T06:41:10.074447Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50181.4 timeframe=15m
+2026-09-25T06:41:10.074825Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50181.4 timeframe=4h
+2026-09-25T06:41:10.075521Z [warning  ] health_probe.memory_warning    rss_mb=846.3
+2026-09-25T06:41:29.561082Z [info     ] lstm_fitted                    metrics={'rmse': 0.0006030336927579982, 'model_type': 'LSTM(torch)'}
+2026-09-25T06:41:40.079624Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50211.4 timeframe=1m
+2026-09-25T06:41:40.080048Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50211.4 timeframe=15m
+2026-09-25T06:41:40.080377Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50211.4 timeframe=4h
+2026-09-25T06:41:40.080845Z [warning  ] health_probe.memory_warning    rss_mb=863.7
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/sklearn/gaussian_process/kernels.py:455: ConvergenceWarning: The optimal value found for dimension 0 of parameter k1__k1__constant_value is close to the specified upper bound 100000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+2026-09-25T06:41:49.047120Z [info     ] gp_fitted                      metrics={'rmse': 0.0002699525672900149, 'model_type': 'GaussianProcess'}
+2026-09-25T06:41:54.950059Z [info     ] tree_ensemble_fitted           metrics={'rmse': 0.00033524249304326987, 'model_type': 'TreeEnsemble(GBM+bootstrap)'}
+2026-09-25T06:41:54.950441Z [info     ] trainer.ensemble.done          component=trainer symbol=BTC/USDT timeframe=1m weights={'arima': np.float64(0.1971895294655641), 'xgboost': np.float64(0.20180284763166556), 'lstm': np.float64(0.19651412801431303), 'gp': np.float64(0.2028875894787644), 'tree_ensemble': np.float64(0.2016059054096928)}
+2026-09-25T06:41:55.289441Z [info     ] ensemble.saved                 path=models/artifacts/ensemble_BTC_USDT_1m.joblib
+2026-09-25T06:41:55.295578Z [info     ] model_metrics.inserted         component=storage db=data/trade_bot.db live_gate_pass=False model=direction timeframe=1m version=2026-09-25T06:38:42.692079+00:00
+2026-09-25T06:41:55.299584Z [info     ] model_metrics.inserted         component=storage db=data/trade_bot.db live_gate_pass=False model=meta_label timeframe=1m version=2026-09-25T06:38:42.692079+00:00
+2026-09-25T06:41:55.299981Z [info     ] orchestrator.training_complete component=orchestrator dir_live_gate=False meta_live_gate=False oos_sharpe_dir=np.float64(-0.0721) oos_sharpe_meta=np.float64(-0.0721) symbol=BTC/USDT timeframe=1m
+2026-09-25T06:41:55.302566Z [info     ] orchestrator.training_start    component=orchestrator symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:10.096031Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50241.4 timeframe=1m
+2026-09-25T06:42:10.096481Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50241.4 timeframe=15m
+2026-09-25T06:42:10.096815Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50241.4 timeframe=4h
+2026-09-25T06:42:10.105572Z [warning  ] health_probe.memory_warning    rss_mb=867.6
+2026-09-25T06:42:20.505917Z [info     ] features.triple_barrier_composition mean_holding_bars=8.76 profit_target=736 stop_loss=1155 time_exit=47 time_exit_fraction=0.0243 total=1938
+2026-09-25T06:42:20.518911Z [info     ] pipeline.complete              dropped=199 label_long=np.int64(651) label_short=np.int64(1103) n_input=2000 n_output=1754
+2026-09-25T06:42:20.534800Z [info     ] orchestrator.intelligence_attached component=orchestrator intelligence_columns=19 rows_with_intelligence=3 symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:27.705731Z [info     ] hmm.fitted                     component=regime_detector converged=True elapsed_s=7.156 n_iter=44 n_rows=1754 state_map={0: 0, 2: 1, 1: 2} symbol=BTC/USDT timeframe=15m train_hash=d9e5ca4107cd9b5a
+2026-09-25T06:42:27.715733Z [info     ] hmm.saved                      component=regime_detector path=models/artifacts/hmm_BTC_USDT_15m.joblib symbol=BTC/USDT timeframe=15m train_hash=d9e5ca4107cd9b5a
+2026-09-25T06:42:27.717935Z [warning  ] get_active_feature_columns_excluded excluded=[('intelligence_exchange_netflow_7d_zscore', '0.0%'), ('intelligence_whale_buy_sell_ratio', '0.0%'), ('intelligence_exchange_reserve_ratio', '0.0%'), ('intelligence_miner_netflow_signal', '0.0%'), ('intelligence_staking_unlock_risk', '0.0%'), ('intelligence_entity_exchange_imbalance', '0.0%'), ('intelligence_binance_funding_rate_pct', '0.0%'), ('intelligence_liquidation_pressure_24h_zscore', '0.0%'), ('intelligence_futures_oi_change_pct', '0.0%'), ('intelligence_liquidation_cascade_risk_usd', '0.0%'), ('intelligence_btc_dominance_regime', '0.0%'), ('intelligence_stablecoin_reserve_ratio', '0.0%'), ('intelligence_network_activity_score', '0.0%'), ('intelligence_exchange_stress_score', '0.0%'), ('intelligence_cross_exchange_basis_spread_bps', '0.0%'), ('intelligence_defi_tvl_7d_change_pct', '0.0%'), ('intelligence_mvrv_z_score', '0.0%'), ('intelligence_sopr', '0.0%')] threshold=60%
+2026-09-25T06:42:27.718335Z [info     ] get_active_feature_columns     base=8 intelligence=0 mode=8-feature total=8
+2026-09-25T06:42:27.722230Z [info     ] trainer.direction.start        component=trainer feature_mode=8 n_features=8 n_long=651 n_samples=1754 n_short=1103 symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:33.137395Z [info     ] trainer.live_gate              component=trainer max_drawdown=13.7663 n_trades=15786 oos_sharpe=np.float64(2.2649) passes=True symbol=BTC/USDT threshold_dd=15.0 threshold_sharpe=1.5 threshold_trades=500 timeframe=15m
+2026-09-25T06:42:33.153985Z [info     ] trainer.direction.done         accuracy=0.3712 component=trainer elapsed_s=5.34 f1=0.5358 live_gate_pass=True max_drawdown=13.7663 oos_sharpe=np.float64(2.2649) symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:33.192901Z [info     ] signal_debugger.training_metrics_updated accuracy=0.3712 f1=0.5358
+2026-09-25T06:42:33.193704Z [warning  ] get_active_feature_columns_excluded excluded=[('intelligence_exchange_netflow_7d_zscore', '0.0%'), ('intelligence_whale_buy_sell_ratio', '0.0%'), ('intelligence_exchange_reserve_ratio', '0.0%'), ('intelligence_miner_netflow_signal', '0.0%'), ('intelligence_staking_unlock_risk', '0.0%'), ('intelligence_entity_exchange_imbalance', '0.0%'), ('intelligence_binance_funding_rate_pct', '0.0%'), ('intelligence_liquidation_pressure_24h_zscore', '0.0%'), ('intelligence_futures_oi_change_pct', '0.0%'), ('intelligence_liquidation_cascade_risk_usd', '0.0%'), ('intelligence_btc_dominance_regime', '0.0%'), ('intelligence_stablecoin_reserve_ratio', '0.0%'), ('intelligence_network_activity_score', '0.0%'), ('intelligence_exchange_stress_score', '0.0%'), ('intelligence_cross_exchange_basis_spread_bps', '0.0%'), ('intelligence_defi_tvl_7d_change_pct', '0.0%'), ('intelligence_mvrv_z_score', '0.0%'), ('intelligence_sopr', '0.0%')] threshold=60%
+2026-09-25T06:42:33.194057Z [info     ] get_active_feature_columns     base=8 intelligence=0 mode=8-feature total=8
+2026-09-25T06:42:33.200618Z [info     ] trainer.meta.start             component=trainer n_bet=651 n_samples=1754 n_skip=1103 symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:36.501345Z [info     ] trainer.live_gate              component=trainer max_drawdown=13.7663 n_trades=15786 oos_sharpe=np.float64(2.2649) passes=True symbol=BTC/USDT threshold_dd=15.0 threshold_sharpe=1.5 threshold_trades=500 timeframe=15m
+2026-09-25T06:42:36.525449Z [info     ] trainer.meta.done              accuracy=0.3712 component=trainer elapsed_s=3.23 f1=0.5358 live_gate_pass=True max_drawdown=13.7663 oos_sharpe=np.float64(2.2649) symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:36.536843Z [info     ] trainer.saved                  component=trainer direction=models/artifacts/xgb_direction_BTC_USDT_15m.joblib meta=models/artifacts/xgb_meta_BTC_USDT_15m.joblib symbol=BTC/USDT timeframe=15m version=2026-09-25T06:42:27.717434+00:00
+2026-09-25T06:42:36.537649Z [warning  ] get_active_feature_columns_excluded excluded=[('intelligence_exchange_netflow_7d_zscore', '0.0%'), ('intelligence_whale_buy_sell_ratio', '0.0%'), ('intelligence_exchange_reserve_ratio', '0.0%'), ('intelligence_miner_netflow_signal', '0.0%'), ('intelligence_staking_unlock_risk', '0.0%'), ('intelligence_entity_exchange_imbalance', '0.0%'), ('intelligence_binance_funding_rate_pct', '0.0%'), ('intelligence_liquidation_pressure_24h_zscore', '0.0%'), ('intelligence_futures_oi_change_pct', '0.0%'), ('intelligence_liquidation_cascade_risk_usd', '0.0%'), ('intelligence_btc_dominance_regime', '0.0%'), ('intelligence_stablecoin_reserve_ratio', '0.0%'), ('intelligence_network_activity_score', '0.0%'), ('intelligence_exchange_stress_score', '0.0%'), ('intelligence_cross_exchange_basis_spread_bps', '0.0%'), ('intelligence_defi_tvl_7d_change_pct', '0.0%'), ('intelligence_mvrv_z_score', '0.0%'), ('intelligence_sopr', '0.0%')] threshold=60%
+2026-09-25T06:42:36.538027Z [info     ] get_active_feature_columns     base=8 intelligence=0 mode=8-feature total=8
+2026-09-25T06:42:36.539110Z [info     ] trainer.ensemble.start         component=trainer n_features=8 n_samples=1754 symbol=BTC/USDT timeframe=15m
+2026-09-25T06:42:36.539440Z [warning  ] ensemble_weights_cold_start_fallback n_models=5 reason='no model has finite RMSE yet; using equal weights'
+2026-09-25T06:42:36.539636Z [info     ] ensemble_fitting               num_models=5
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+2026-09-25T06:42:38.923990Z [info     ] arima_fitted                   metrics={'rmse': np.float64(0.0019235147752447088), 'model_type': 'ARIMA'}
+2026-09-25T06:42:39.305235Z [info     ] xgboost_fitted                 metrics={'rmse': np.float64(0.0008552851998226383), 'model_type': 'XGBoost'}
+2026-09-25T06:42:40.108830Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50271.4 timeframe=1m
+2026-09-25T06:42:40.109264Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50271.4 timeframe=15m
+2026-09-25T06:42:40.109575Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50271.4 timeframe=4h
+2026-09-25T06:42:40.110033Z [warning  ] health_probe.memory_warning    rss_mb=868.2
+2026-09-25T06:42:58.585526Z [info     ] lstm_fitted                    metrics={'rmse': 0.002294512806872622, 'model_type': 'LSTM(torch)'}
+2026-09-25T06:43:10.120522Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50301.5 timeframe=1m
+2026-09-25T06:43:10.120989Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50301.5 timeframe=15m
+2026-09-25T06:43:10.121437Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50301.5 timeframe=4h
+2026-09-25T06:43:10.121932Z [warning  ] health_probe.memory_warning    rss_mb=868.2
+2026-09-25T06:43:28.558314Z [info     ] gp_fitted                      metrics={'rmse': 0.0017631722003486486, 'model_type': 'GaussianProcess'}
+2026-09-25T06:43:33.094721Z [info     ] tree_ensemble_fitted           metrics={'rmse': 0.0012369586158747416, 'model_type': 'TreeEnsemble(GBM+bootstrap)'}
+2026-09-25T06:43:33.095062Z [info     ] trainer.ensemble.done          component=trainer symbol=BTC/USDT timeframe=15m weights={'arima': np.float64(0.1944405769202644), 'xgboost': np.float64(0.21357477478839137), 'lstm': np.float64(0.18857315684114676), 'gp': np.float64(0.1970909761694352), 'tree_ensemble': np.float64(0.20632051528076228)}
+2026-09-25T06:43:33.457970Z [info     ] ensemble.saved                 path=models/artifacts/ensemble_BTC_USDT_15m.joblib
+2026-09-25T06:43:33.463477Z [info     ] model_metrics.inserted         component=storage db=data/trade_bot.db live_gate_pass=True model=direction timeframe=15m version=2026-09-25T06:42:27.717434+00:00
+2026-09-25T06:43:33.467452Z [info     ] model_metrics.inserted         component=storage db=data/trade_bot.db live_gate_pass=True model=meta_label timeframe=15m version=2026-09-25T06:42:27.717434+00:00
+2026-09-25T06:43:33.467928Z [info     ] orchestrator.training_complete component=orchestrator dir_live_gate=True meta_live_gate=True oos_sharpe_dir=np.float64(2.2649) oos_sharpe_meta=np.float64(2.2649) symbol=BTC/USDT timeframe=15m
+2026-09-25T06:43:33.471917Z [info     ] orchestrator.training_start    component=orchestrator symbol=BTC/USDT timeframe=4h
+2026-09-25T06:43:37.278573Z [info     ] features.triple_barrier_composition mean_holding_bars=7.43 profit_target=189 stop_loss=285 time_exit=8 time_exit_fraction=0.0166 total=482
+2026-09-25T06:43:37.288509Z [info     ] pipeline.complete              dropped=199 label_long=np.int64(132) label_short=np.int64(205) n_input=544 n_output=337
+2026-09-25T06:43:38.472061Z [info     ] hmm.fitted                     component=regime_detector converged=True elapsed_s=1.176 n_iter=15 n_rows=337 state_map={1: 0, 0: 1, 2: 2} symbol=BTC/USDT timeframe=4h train_hash=35d1237405b8c169
+2026-09-25T06:43:38.476675Z [info     ] hmm.saved                      component=regime_detector path=models/artifacts/hmm_BTC_USDT_4h.joblib symbol=BTC/USDT timeframe=4h train_hash=35d1237405b8c169
+2026-09-25T06:43:38.477769Z [info     ] get_active_feature_columns     mode=base-feature reason='no intelligence coverage data'
+2026-09-25T06:43:38.479487Z [info     ] trainer.direction.start        component=trainer feature_mode=8 n_features=8 n_long=132 n_samples=337 n_short=205 symbol=BTC/USDT timeframe=4h
+2026-09-25T06:43:40.125683Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50331.5 timeframe=1m
+2026-09-25T06:43:40.126090Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50331.5 timeframe=15m
+2026-09-25T06:43:40.126573Z [critical ] health_probe.tick_stall        action=check_exchange_connection_and_orchestrator stale_s=50331.5 timeframe=4h
+2026-09-25T06:43:40.127229Z [warning  ] health_probe.memory_warning    rss_mb=868.6
+2026-09-25T06:43:41.678999Z [info     ] trainer.live_gate              component=trainer max_drawdown=36.7117 n_trades=3033 oos_sharpe=np.float64(3.5426) passes=False symbol=BTC/USDT threshold_dd=15.0 threshold_sharpe=1.5 threshold_trades=500 timeframe=4h
+2026-09-25T06:43:41.695554Z [info     ] trainer.direction.done         accuracy=0.3912 component=trainer elapsed_s=3.14 f1=0.4898 live_gate_pass=False max_drawdown=36.7117 oos_sharpe=np.float64(3.5426) symbol=BTC/USDT timeframe=4h
+2026-09-25T06:43:41.708997Z [info     ] signal_debugger.training_metrics_updated accuracy=0.3912 f1=0.4898
+2026-09-25T06:43:41.709724Z [info     ] get_active_feature_columns     mode=base-feature reason='no intelligence coverage data'
+2026-09-25T06:43:41.715603Z [info     ] trainer.meta.start             component=trainer n_bet=132 n_samples=337 n_skip=205 symbol=BTC/USDT timeframe=4h
+2026-09-25T06:43:44.735326Z [info     ] trainer.live_gate              component=trainer max_drawdown=36.7117 n_trades=3033 oos_sharpe=np.float64(3.5426) passes=False symbol=BTC/USDT threshold_dd=15.0 threshold_sharpe=1.5 threshold_trades=500 timeframe=4h
+2026-09-25T06:43:44.751112Z [info     ] trainer.meta.done              accuracy=0.3912 component=trainer elapsed_s=2.95 f1=0.4898 live_gate_pass=False max_drawdown=36.7117 oos_sharpe=np.float64(3.5426) symbol=BTC/USDT timeframe=4h
+2026-09-25T06:43:44.765489Z [info     ] trainer.saved                  component=trainer direction=models/artifacts/xgb_direction_BTC_USDT_4h.joblib meta=models/artifacts/xgb_meta_BTC_USDT_4h.joblib symbol=BTC/USDT timeframe=4h version=2026-09-25T06:43:38.477452+00:00
+2026-09-25T06:43:44.766356Z [info     ] get_active_feature_columns     mode=base-feature reason='no intelligence coverage data'
+2026-09-25T06:43:44.767656Z [info     ] trainer.ensemble.start         component=trainer n_features=8 n_samples=337 symbol=BTC/USDT timeframe=4h
+2026-09-25T06:43:44.767985Z [warning  ] ensemble_weights_cold_start_fallback n_models=5 reason='no model has finite RMSE yet; using equal weights'
+2026-09-25T06:43:44.768211Z [info     ] ensemble_fitting               num_models=5
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+/home/arch752/Projects/Crypt-Wall/Trade-Bot.git/.venv/lib/python3.11/site-packages/statsmodels/tsa/base/tsa_model.py:480: ValueWarning: An unsupported index was provided. As a result, forecasts cannot be generated. To use the model for forecasting, use on the supported classes of index.
+  self._init_dates(dates, freq)
+2026-09-25T06:43:45.420138Z [info     ] arima_fitted                   metrics={'rmse': np.float64(0.007697242940887281), 'model_type': 'ARIMA'}
+2026-09-25T06:43:45.809725Z [info     ] xgboost_fitted                 metrics={'rmse': np.float64(0.0009490988621986563), 'model_type': 'XGBoost'}
+2026-09-25T06:43:49.066107Z [info     ] lstm_fitted                    metrics={'rmse': 0.0077906290371113195, 'model_type': 'LSTM(torch)'}
+2026-09-25T06:44:00.218448Z [info     ] gp_fitted                      metrics={'rmse': 0.0050801862876531404, 'model_type': 'GaussianProcess'}
+2026-09-25T06:44:01.714698Z [info     ] tree_ensemble_fitted           metrics={'rmse': 0.0030085853813442086, 'model_type': 'TreeEnsemble(GBM+bootstrap)'}
+2026-09-25T06:44:01.714971Z [info     ] trainer.ensemble.done          component=trainer symbol=BTC/USDT timeframe=4h weights={'arima': np.float64(0.16273284228924328), 'xgboost': np.float64(0.2630282802904133), 'lstm': np.float64(0.1618786293866453), 'gp': np.float64(0.19097394352560237), 'tree_ensemble': np.float64(0.22138630450809588)}
+2026-09-25T06:44:01.923999Z [info     ] ensemble.saved                 path=models/artifacts/ensemble_BTC_USDT_4h.joblib
+2026-09-25T06:44:01.930422Z [info     ] model_metrics.inserted         component=storage db=data/trade_bot.db live_gate_pass=False model=direction timeframe=4h version=2026-09-25T06:43:38.477452+00:00
+2026-09-25T06:44:01.935323Z [info     ] model_metrics.inserted         component=storage db=data/trade_bot.db live_gate_pass=False model=meta_label timeframe=4h version=2026-09-25T06:43:38.477452+00:00
+2026-09-25T06:44:01.936127Z [info     ] orchestrator.training_complete component=orchestrator dir_live_gate=False meta_live_gate=False oos_sharpe_dir=np.float64(3.5426) oos_sharpe_meta=np.float64(3.5426) symbol=BTC/USDT timeframe=4h
+2026-09-25T06:44:01.939557Z [info     ] orchestrator.drift_detector_initialized baseline_accuracy=0.58 baseline_sharpe=1.5 component=orchestrator symbol=BTC/USDT
+2026-09-25T06:44:01.940204Z [info     ] strategy_kill_switch.registered strategy_id=signal_engine_v1
+2026-09-25T06:44:02.282334Z [warning  ] ensemble_weights_cold_start_fallback n_models=5 reason='no model has finite RMSE yet; using equal weights'
+2026-09-25T06:44:02.283947Z [info     ] online_trainer.loaded_direction component=online_trainer samples=12
+2026-09-25T06:44:02.285209Z [info     ] online_trainer.loaded_meta     component=online_trainer samples=17
+2026-09-25T06:44:02.640478Z [warning  ] ensemble_weights_cold_start_fallback n_models=5 reason='no model has finite RMSE yet; using equal weights'
+2026-09-25T06:44:02.642147Z [info     ] online_trainer.loaded_direction component=online_trainer samples=3
+2026-09-25T06:44:02.643421Z [info     ] online_trainer.loaded_meta     component=online_trainer samples=1
+2026-09-25T06:44:02.966833Z [warning  ] ensemble_weights_cold_start_fallback n_models=5 reason='no model has finite RMSE yet; using equal weights'
+2026-09-25T06:44:02.967680Z [info     ] online_trainer.loaded_direction component=online_trainer samples=0
+2026-09-25T06:44:02.968188Z [info     ] online_trainer.loaded_meta     component=online_trainer samples=0
+2026-09-25T06:44:02.968408Z [info     ] orchestrator.startup_complete  component=orchestrator engines=['1m', '15m', '4h'] symbol=BTC/USDT
+2026-09-25T06:44:02.968794Z [info     ] api.startup_complete           trading_mode=paper
+2026-09-25T06:44:02.968998Z [info     ] orchestrator.run_start         component=orchestrator symbol=BTC/USDT
+INFO:     Application startup complete.
+2026-09-25T06:44:02.969536Z [info     ] orchestrator.tf_loop_start     component=orchestrator symbol=BTC/USDT timeframe=1m
+2026-09-25T06:44:02.969761Z [info     ] orchestrator.tf_loop_start     component=orchestrator symbol=BTC/USDT timeframe=15m
+2026-09-25T06:44:02.969982Z [info     ] orchestrator.tf_loop_start     component=orchestrator symbol=BTC/USDT timeframe=4h
+ERROR:    [Errno 98] error while attempting to bind on address ('127.0.0.1', 8000): address already in use
+INFO:     Waiting for application shutdown.
+2026-09-25T06:44:02.970769Z [info     ] orchestrator.run_stopped       component=orchestrator symbol=BTC/USDT
+2026-09-25T06:44:02.974578Z [info     ] paper.shutdown                 component=paper_executor open_positions=0
+2026-09-25T06:44:02.974944Z [info     ] runtime_monitor.stopped
+2026-09-25T06:44:02.983448Z [info     ] orchestrator.shutdown_complete component=orchestrator symbol=BTC/USDT
+2026-09-25T06:44:02.995312Z [info     ] storage.closed                 component=storage db=data/trade_bot.db
+2026-09-25T06:44:02.995606Z [info     ] api.shutdown_complete
+2026-09-25T06:44:03.497054Z [info     ] fetcher.closed                 component=fetcher
+INFO:     Application shutdown complete.
