@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 125 |
+| VERIFIED | 126 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **125** |
+| **Total** | **126** |
 
 ## Summary by subsystem
 
@@ -996,7 +996,7 @@ Every filename that carries the same secrets as .env -- .env itself and its back
 - **Verification:**
   - `tests/security/test_gitignore_secret_files.py` (security)
 
-> Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked.
+> Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite
 
 ## Supply chain and artifacts
 
@@ -1662,4 +1662,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 125 entries.
+Registry version: 1.0.0 — 126 entries.

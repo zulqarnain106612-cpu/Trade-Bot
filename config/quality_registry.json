@@ -3193,7 +3193,7 @@
           "test_type": "security"
         }
       ],
-      "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked."
+      "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
     }
   ]
 }
