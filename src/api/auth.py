@@ -14,6 +14,8 @@ Setting the optional API_READONLY_KEY introduces a second, separate key
 that authenticates successfully but resolves to Role.READ_ONLY, so
 permission-gated endpoints reject it. Adding a key can therefore only ever
 remove authority from a caller, never grant it.
+
+Registry: API-008 (config/quality_registry.json).
 """
 
 from __future__ import annotations

@@ -23,6 +23,8 @@ correlation_adjusted_notional() (already implemented in position_sizing.py).
 Reference: López de Prado (2018) AFML Ch.16 — portfolio construction via
 HRP and correlation-adjusted sizing.  Carver (2019) Systematic Trading
 Ch.11 — correlation-adjusted position sizing.
+
+Registry: PORT-001 (config/quality_registry.json).
 """
 
 from __future__ import annotations

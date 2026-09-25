@@ -1,5 +1,7 @@
 """
 Shared output schema for all 18 Crypto-Box engines.
+
+Registry: SIG-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations

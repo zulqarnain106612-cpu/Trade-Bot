@@ -21,6 +21,8 @@ Equity tracking:
 Authority:
   - Chan (2013) Algorithmic Trading Ch.2 — paper trading methodology
   - López de Prado (2018) AFML Ch.10 — execution cost modelling
+
+Registry: INV-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

@@ -17,6 +17,8 @@ in order:
 
 Anything that fails any check is rejected with a human-readable reason,
 which the caller is expected to write to TuningAuditLog.
+
+Registry: RISK-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations
