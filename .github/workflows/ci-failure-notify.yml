@@ -1,3 +1,4 @@
+# Registry: GOV-013, GOV-020 (config/quality_registry.json).
 name: CI failure notice
 
 # Why this exists: CI logs, job records, annotations, artifacts and check
