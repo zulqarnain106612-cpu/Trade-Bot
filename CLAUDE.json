@@ -1,0 +1,698 @@
+{
+  "name": "Repository Engineering Directives",
+  "source": "CLAUDE.md",
+  "note": "Machine-readable encoding of CLAUDE.md. Every section of CLAUDE.md maps to a block here; each block records its claude_md section so drift between the two is detectable. CLAUDE.md remains the prose authority; where CLAUDE.md prose disagrees with a repository-enforced registry, precedence rank 4 outranks rank 6 and the registry wins.",
+  "purpose": "Autonomous, evidence-based, production-grade repository engineering without compromising correctness, security, quality, architecture, testing, CI, or existing user changes.",
+  "scope": {
+    "claude_md": "1",
+    "covers": [
+      "source code, tests, configuration, dependencies, builds/runtime",
+      "CI/CD, architecture, security, mathematics, registries",
+      "documentation, scripts, tooling, repository structure",
+      "production/operational behavior",
+      "trading behavior"
+    ],
+    "trading_behavior": [
+      "signals",
+      "risk",
+      "execution",
+      "positions",
+      "orders",
+      "balances",
+      "market data",
+      "retries",
+      "concurrency",
+      "exchange/API interactions"
+    ],
+    "applies": "Every task, unless a higher-priority instruction explicitly changes scope.",
+    "autonomy": "Claude may autonomously inspect, analyze, modify, test, validate, refactor, and audit anything required to correctly implement the user's objective.",
+    "unrelated_changes": {
+      "rule": "Do not make unrelated changes.",
+      "forbidden": [
+        "speculative features",
+        "unrelated refactors",
+        "dependency upgrades",
+        "configuration/API changes",
+        "documentation rewrites",
+        "architectural changes",
+        "unrelated trading/risk behavior changes"
+      ]
+    },
+    "broader_change": "Permitted only when the existing implementation cannot satisfy the requirement correctly without it."
+  },
+  "precedence": {
+    "claude_md": "2",
+    "order": [
+      "system/platform/safety constraints",
+      "explicit user requirements and desired outcome",
+      "project directives",
+      "repository-enforced constraints",
+      "existing implementation/conventions",
+      "documentation/comments/history/blame",
+      "general engineering knowledge",
+      "model assumptions"
+    ],
+    "repository_enforced_constraints": [
+      "architecture",
+      "quality/security/math rules",
+      "tests",
+      "CI gates",
+      "schemas",
+      "generated-source rules",
+      "dependency constraints",
+      "contracts"
+    ],
+    "desired_outcome": "The user's desired outcome is authoritative. The user's description of the repository's current state is not authoritative until verified.",
+    "conflict_resolution": "IDENTIFY CONFLICT -> APPLY PRECEDENCE -> PRESERVE COMPATIBLE CONSTRAINTS -> IMPLEMENT",
+    "unresolved": "Ask one precise question only when a materially correctness-critical issue remains unresolved after investigation."
+  },
+  "authority": {
+    "claude_md": "2",
+    "user": {
+      "owns": "WHAT",
+      "scope": [
+        "objectives",
+        "desired outcomes",
+        "product requirements",
+        "explicit constraints",
+        "irreversible business decisions",
+        "required authorization"
+      ]
+    },
+    "engineer": {
+      "owns": "HOW",
+      "scope": [
+        "implementation",
+        "algorithms",
+        "architecture",
+        "dependencies",
+        "refactoring",
+        "error handling",
+        "testing",
+        "validation",
+        "technical trade-offs"
+      ]
+    },
+    "rule": "Verify the user's stated current implementation before relying on it; treat it as a hypothesis until verified. Resolve conflicts by precedence and ask only when a material unresolved decision blocks correctness.",
+    "ordinary_alternatives": "Never ask the user to choose between ordinary technical alternatives. Resolve them through repository evidence and engineering analysis."
+  },
+  "method": {
+    "claude_md": "3-6",
+    "required_model": "CURRENT STATE -> DESIRED STATE -> GAP -> ROOT CAUSE -> SOLUTION -> VALIDATION",
+    "workflow": [
+      "DISCOVER",
+      "TRACE",
+      "CLASSIFY",
+      "COMPARE",
+      "DECIDE",
+      "IMPLEMENT",
+      "TEST",
+      "AUDIT",
+      "REPORT"
+    ],
+    "principle": "Never decide from the request alone. Establish repository truth first, determine the correct solution, implement it, and verify it.",
+    "initial_state": {
+      "claude_md": "3",
+      "rule": "Inspect the actual repository without modifying it before making implementation decisions.",
+      "inspect": [
+        "branch, HEAD, status, staged/unstaged/untracked changes",
+        "relevant commits/history/blame",
+        "source layout, modules/packages, entry/composition roots",
+        "configuration, manifests, lockfiles, scripts",
+        "tests, generated files, CI/CD, docs, hooks, registries",
+        "architecture, quality, security, mathematical rules",
+        "language/runtime/framework/package manager",
+        "dependency versions, build/test/lint/type-check systems",
+        "databases/storage, external APIs, execution environment"
+      ],
+      "never_invent": "Never invent repository facts, dependencies, versions, APIs, frameworks, or architecture.",
+      "integrity": "Preserve existing user work; never reset, revert, stash, overwrite, delete, or discard it unless explicitly required."
+    },
+    "existing_functionality": {
+      "claude_md": "3",
+      "rule": "Before creating anything, search for equivalent or related work.",
+      "search": [
+        "implementations, functions, classes, services, interfaces, types",
+        "endpoints/configuration/schema usage",
+        "callers/consumers",
+        "tests, mocks, fixtures",
+        "documentation and registry entries",
+        "quality/security requirements"
+      ],
+      "reuse": "Reuse existing correct functionality where appropriate.",
+      "duplication": "Do not duplicate behavior without evidence."
+    },
+    "behavioral_tracing": {
+      "claude_md": "3",
+      "chain": "ENTRY -> CALLER -> FUNCTION/SERVICE -> DEPENDENCIES -> STATE/DATA -> EXTERNAL SYSTEM -> OUTPUT -> ERROR HANDLING -> TESTS",
+      "rule": "Do not infer behavior from filenames, naming, or assumptions."
+    },
+    "evidence": {
+      "claude_md": "4",
+      "priority": [
+        "current source",
+        "current tests",
+        "current config",
+        "manifests/lockfiles",
+        "build/CI",
+        "history",
+        "docs",
+        "user task",
+        "general knowledge",
+        "model assumptions"
+      ],
+      "classification": {
+        "FACT": "directly verified",
+        "INFERENCE": "derived from verified facts",
+        "UNKNOWN": "not established",
+        "ASSUMPTION": "unverified belief"
+      },
+      "assumptions_before_implementation": 0,
+      "resolution": [
+        "repository evidence",
+        "tests",
+        "configuration",
+        "history",
+        "technical investigation"
+      ],
+      "task_description": "Treat statements about the current implementation in the task description as hypotheses until verified."
+    },
+    "problem": {
+      "claude_md": "5",
+      "procedure": [
+        "Establish current behavior/state",
+        "Establish the actual requirement",
+        "Establish the gap",
+        "Identify the root cause or missing capability",
+        "Identify constraints and affected boundaries",
+        "Generate viable solutions proportional to complexity/risk",
+        "Compare them",
+        "Select the strongest evidence-supported solution",
+        "Implement and validate"
+      ],
+      "rule": "Solve the actual problem rather than merely the requested mechanism.",
+      "solution_space": [
+        "reuse or extend an existing mechanism",
+        "change abstractions or boundaries",
+        "alter algorithms/data models/execution flow",
+        "use configuration",
+        "introduce a dependency/API when justified"
+      ]
+    },
+    "decision": {
+      "claude_md": "5",
+      "rule": "For non-trivial decisions consider viable candidates proportional to complexity/risk and select autonomously.",
+      "compare": [
+        "correctness",
+        "requirement coverage",
+        "architecture",
+        "conventions",
+        "regression risk",
+        "security",
+        "failure handling",
+        "state consistency",
+        "concurrency",
+        "performance",
+        "complexity",
+        "maintainability",
+        "testability",
+        "compatibility",
+        "dependency impact",
+        "operational impact",
+        "migration cost",
+        "extensibility",
+        "observability",
+        "rollback safety"
+      ],
+      "minimal_change": "Prefer the smallest necessary change to an existing correct mechanism over duplication, new abstractions, unnecessary dependencies, unrelated refactors, renames, reorganization, or speculative improvements.",
+      "minimal_change_limit": "Minimal change is not a goal when it would produce an incorrect or architecturally unsound solution.",
+      "ownership": "Claude must make ordinary engineering decisions autonomously.",
+      "do_not_ask": [
+        "Which approach do you prefer?",
+        "Should I use A or B?",
+        "Should I modify X or Y?",
+        "Should I proceed?"
+      ],
+      "record": [
+        "Problem",
+        "Current state",
+        "Candidates",
+        "Comparison",
+        "Selected solution",
+        "Decision basis",
+        "Rejected alternatives"
+      ],
+      "record_reporting": "Maintain the decision record internally; mention it in the final report only when useful.",
+      "questions": {
+        "rule": "Ask only when repository evidence cannot resolve a materially correctness-critical issue.",
+        "triggers": [
+          "contradictory explicit requirements",
+          "genuinely unspecified business behavior",
+          "irreversible business/product choice",
+          "unavailable required access/credentials",
+          "externally incompatible requirements",
+          "required authorization",
+          "legal/safety/compliance/contractual decisions",
+          "materially ambiguous desired outcome"
+        ],
+        "before_asking": [
+          "source",
+          "config",
+          "tests",
+          "docs",
+          "history",
+          "patterns",
+          "technical alternatives"
+        ],
+        "non_blocking_uncertainty": "If uncertainty does not affect correctness, choose the safest appropriate solution and continue.",
+        "no_repeats": "Never repeat a question already answered unless new evidence creates a genuine conflict."
+      },
+      "reassessment": {
+        "chain": "STOP -> RE-INSPECT -> RE-ESTABLISH STATE -> RECOMPARE -> RESELECT -> CONTINUE",
+        "rule": "If new evidence invalidates a fact, assumption, or the selected approach, restart the chain and continue.",
+        "no_sunk_cost": "Never defend an implementation merely because work has already started."
+      }
+    },
+    "hard_stops": {
+      "claude_md": "6",
+      "meaning": "A hard stop means investigate first; it does not automatically mean ask the user.",
+      "triggers": [
+        "code contradicts the task",
+        "requested functionality already appears to exist",
+        "conflicting requirements",
+        "materially different interpretations",
+        "uncertain architecture",
+        "uncertain dependency/API behavior",
+        "tests contradict the proposed behavior",
+        "user changes may be overwritten",
+        "destructive/security/trading/live-execution behavior may change",
+        "required evidence is unavailable"
+      ]
+    },
+    "exit_criteria": {
+      "claude_md": "6",
+      "required": [
+        "current state verified",
+        "requirement verified",
+        "gap verified",
+        "root cause verified",
+        "solution selected",
+        "implementation aligned",
+        "tests executed",
+        "final diff audited"
+      ],
+      "insufficient": "Passing tests alone is insufficient if the wrong behavior was implemented."
+    }
+  },
+  "programmatic_tool_calling": {
+    "claude_md": "7",
+    "first_choice": "Always use the desktop-commander MCP server and its tools first; fall back to the rules below only if that fails.",
+    "skill": ".claude/skills/programmatic-tool-calling/SKILL.md",
+    "rules": [
+      "one script under scripts/",
+      "import only orchestratable=True functions from tools/registry.py via registry.namespace()",
+      "execute once through bash",
+      "return the script's printed digest rather than raw tool output",
+      "never mark destructive/rate-limited/side-effecting tools orchestratable=True"
+    ],
+    "research": {
+      "command": "orchestrator_cli.py \"<task>\"",
+      "use_for": "independent research/lookup subtasks followed by synthesis",
+      "docs": "docs/ORCHESTRATOR.md"
+    },
+    "knowledge_graph": {
+      "command": "kg_cli.py ingest <file> -> kg_cli.py query",
+      "use_for": "multi-document fact chains",
+      "docs": "docs/KNOWLEDGE_GRAPH.md"
+    }
+  },
+  "command_execution": {
+    "claude_md": "8",
+    "skill": ".claude/skills/command-execution/SKILL.md",
+    "rule": "Every shell command must be declared as COMMAND_EXEC_SCHEMA and run via common/shell_exec.run().",
+    "limits": {
+      "max_lines": "Mandatory; default 50; never >100 without explicit justification.",
+      "timeout_s": "1-900",
+      "max_bytes": "output_policy.max_bytes is mandatory; line limits alone are insufficient",
+      "redaction": "on by default",
+      "cwd": "validated",
+      "env": "inherit/allowlist/overrides; prefer allowlists to prevent secret exposure"
+    },
+    "filtering": "Use grep/tail/regex/fields; jq only if jq is installed, otherwise use fields/regex. If output is truncated, refine the filter; never increase max_lines merely to expose more output.",
+    "classification": {
+      "values": [
+        "read_only",
+        "mutating",
+        "destructive"
+      ],
+      "rule": "Runtime rejects a classification weaker than the classify() result.",
+      "destructive": "Requires confirm_destructive.",
+      "retry": "Never retry destructive commands."
+    },
+    "result_fields": [
+      "bytes_truncated",
+      "timed_out",
+      "duration_s",
+      "classification",
+      "redactions_applied",
+      "command_sha256",
+      "started_at"
+    ],
+    "pre_tool_hook": {
+      "path": ".claude/hooks/pre_tool_use.py",
+      "policy": "config/command_policy.json",
+      "scope": "Enforces the same policy for raw Bash.",
+      "rules": [
+        "unbounded reads refused",
+        "first reads limited to <=30 lines and must be paged",
+        "bounds >30 refused",
+        "destructive commands refused",
+        "credential disclosure refused"
+      ],
+      "shared_classifier": "The hook shares classify() with runtime enforcement and falls back to config/command_policy.json when necessary.",
+      "failure": "fails open on misconfiguration",
+      "session_override": "TB_COMMAND_POLICY=warn|off"
+    }
+  },
+  "ci_observability": {
+    "claude_md": "9",
+    "rule": "Never fetch CI logs, job records, step annotations, artifacts, caches, check results, or equivalent output.",
+    "forbidden": [
+      "gh run view/list/download",
+      "gh workflow run/view/list",
+      "gh pr checks",
+      "gh cache",
+      "gh api actions/check-runs",
+      "gh pr view --json statusCheckRollup",
+      "curl to those CI endpoints",
+      "act",
+      "workflow dispatch/re-run solely for inspection",
+      "tail -f",
+      "docker/kubectl logs -f",
+      "watch",
+      "inotifywait -m",
+      "polling loops",
+      "Monitor"
+    ],
+    "bound_exception": "No output bound makes CI log access permissible.",
+    "notice_channel": {
+      "workflow": ".github/workflows/ci-failure-notify.yml",
+      "only_channel": true,
+      "behavior": [
+        "wait until all watched workflows for the commit finish",
+        "post/edit exactly one comment keyed by head SHA",
+        "report all checks green, or the number of non-green jobs",
+        "for each non-green workflow/job report conclusion, failing step, and exact failing lines",
+        "no advice/footer/log link"
+      ],
+      "properties": [
+        "one comment per commit",
+        "never report before all watched workflows finish",
+        "filter meaningless runner exit-code noise",
+        "prefer meaningful summaries over bare traceback frames"
+      ],
+      "green_before_push": {
+        "rule": "First verify that every check passed individually. If any check failed, was skipped, or was neutral, fix its root cause and re-run only the fixed checks.",
+        "confidence": "Before pushing the final resolved PR, hold 100% confidence that it passes every check on a single push and merges cleanly."
+      },
+      "insufficient": "Read the latest notice comment; if it is insufficient, fix the notice workflow instead of fetching logs.",
+      "merge_wait": "Return after a plausible interval and read comments; never poll, watch, or monitor."
+    }
+  },
+  "pull_requests": {
+    "claude_md": "10",
+    "main": "Protected by four gate checks and an up-to-date branch requirement.",
+    "merge": "Merge only when every required check is green; neutral/skipped/cancelled/failed are not green.",
+    "merge_command": "gh pr merge --squash --auto",
+    "model": "Open independent PRs; no queue, parking, serialization, or automatic draft conversion. PRs are never parked, drafted, or closed.",
+    "removed": {
+      "workflow": ".github/workflows/pr-queue.yml",
+      "draft_guard": true,
+      "reason": "Skipped required checks could satisfy protection; PR #292 merged with four gates skipped and the test suite never ran."
+    },
+    "gate": {
+      "condition": "always() only; no draft guard or alternative condition",
+      "checks": [
+        "tests/test_assert_jobs_green.py",
+        "qe_gate.py"
+      ]
+    },
+    "auto_update": {
+      "governance": "GOV-017",
+      "workflow": ".github/workflows/pr-auto-update.yml",
+      "trigger": "every push to main",
+      "behavior": "Select the oldest open non-draft PR with mergeable_state=behind, update that one, then stop.",
+      "rationale": "Updating every PR simultaneously creates redundant runs against a moving main.",
+      "chain": "update oldest -> checks -> auto-merge -> main push -> update next",
+      "not_a_queue": true,
+      "secret": "secrets.PR_AUTOUPDATE_TOKEN",
+      "authorization": "PAT or GitHub App token with repo scope",
+      "missing_secret": "Fail loudly and modify nothing.",
+      "token_constraint": "A GITHUB_TOKEN push does not trigger the required workflow chain and can leave stale check runs attached to the updated branch."
+    },
+    "alternative": "GitHub merge queue; gating workflows already declare merge_group."
+  },
+  "ci_cost": {
+    "claude_md": "11",
+    "governance": "GOV-015",
+    "baseline": "Clean PR runs previously took about 10-12 minutes, with substantial non-test install cost.",
+    "test": "tests/test_ci_workflow_cost.py",
+    "rules": [
+      "only python-tests installs the project",
+      "python-lint, python-coverage-floors and architecture install only the single tool they execute",
+      "lint reads the ruff pin from requirements-dev.txt",
+      "required dependency installs use uv via SHA-pinned astral-sh/setup-uv with cache",
+      "bare pip install -r requirements in a gating workflow fails",
+      "torch workflows put the CPU index first",
+      "six shards; total equals len(shard)",
+      "superseded branch runs are cancelled; main is exempt",
+      "adding an install to a job that does not import the project fails"
+    ]
+  },
+  "test_speed": {
+    "claude_md": "12",
+    "governance": "GOV-016",
+    "rule": "New tests must minimize execution cost without reducing correctness, assertion strength, coverage, or quality requirements.",
+    "rules": [
+      "never sleep for synchronization; drive clocks or await actual events",
+      "asyncio.sleep(0) is allowed only as a scheduler yield",
+      "do not spawn Python subprocesses when direct imports/calls are possible",
+      "no network, real database, or real filesystem outside tmp_path; fake clients at boundaries",
+      "scope expensive read-only fixtures as widely as correctness permits",
+      "prefer pytest.mark.parametrize over setup-heavy loops",
+      "use the smallest input that proves the property",
+      "read shared files once per module where possible"
+    ],
+    "budget": "tests/test_suite_speed_budget.py is a ratchet: real sleeps and process spawns may only decrease. Lowering is always valid; increasing requires explicit justification in the diff."
+  },
+  "mathematics": {
+    "claude_md": "13",
+    "registry": "config/math_registry.json",
+    "authority": "Sole source of truth for every mathematical object the project relies on or explicitly rejects.",
+    "verdicts": [
+      "load_bearing",
+      "performance_critical",
+      "attack_surface",
+      "provenance_only",
+      "folklore"
+    ],
+    "loader": "src/mathcore/registry.py with strict validation",
+    "rules": [
+      "implemented entries require an existing owner module",
+      "folklore can never be implemented",
+      "one owner per concept",
+      "multi-implementation concepts use a package owner plus module components",
+      "components receive the same existence validation",
+      "implemented_by() includes components; owned_by() does not",
+      "depends_on must resolve and remain acyclic"
+    ],
+    "docs": {
+      "foundations": "docs/MATH_FOUNDATIONS.md is generated; update the registry then run python3 scripts/generate_math_docs.py. CI runs generation with --check.",
+      "architecture": "docs/MATH_ARCHITECTURE.md",
+      "roadmap": "docs/MATH_ROADMAP.md"
+    }
+  },
+  "quality_engineering": {
+    "claude_md": "14",
+    "scope": "Every change to src/, tests/, config/*.json, or .github/workflows/ carries the quality contract.",
+    "before_edit": [
+      "Which requirement does this serve?",
+      "Which test decides it?",
+      "What happens in production if it is wrong?"
+    ],
+    "atomicity": "The registry entry and the deciding test land in the same commit as the behavior.",
+    "gate": "python3 .claude/skills/quality-engineering/scripts/qe_gate.py before pushing",
+    "gate_checks": [
+      "registry/schema consistency",
+      "claimed test existence",
+      "generated traceability",
+      "JSON validity",
+      "PR workflow gate structure"
+    ],
+    "ci": "The full suite still runs in GitHub Actions; local success does not prove merge-gate success.",
+    "references": [
+      ".claude/skills/quality-engineering/SKILL.md",
+      ".claude/skills/quality-engineering/qe.config.json",
+      ".claude/hooks/quality_gate.py"
+    ],
+    "hook": ".claude/hooks/quality_gate.py applies mechanical checks after edits, fails open, and can be disabled for one session with TB_QUALITY_HOOK=off.",
+    "integrity": "Never weaken a gate merely to pass. If a rule is wrong, change it deliberately and justify the change in the same diff."
+  },
+  "architecture": {
+    "claude_md": "15",
+    "governance": "GOV-018",
+    "registry": "config/architecture_layers.json",
+    "authority": "config/architecture_layers.json defines the layers and the accepted upward edges; it outranks CLAUDE.md prose by precedence rank 4 over rank 6.",
+    "layers": {
+      "foundation": [
+        "config",
+        "logging_setup",
+        "mathcore",
+        "quality"
+      ],
+      "crypto": [
+        "ecc",
+        "security"
+      ],
+      "io": [
+        "data",
+        "diagnostics"
+      ],
+      "analytics": [
+        "causal",
+        "engines",
+        "features",
+        "fusion",
+        "intelligence",
+        "models",
+        "regime",
+        "tuning"
+      ],
+      "decision": [
+        "execution",
+        "risk",
+        "strategies"
+      ],
+      "orchestration": [
+        "engine",
+        "intel",
+        "upgrade",
+        "workers"
+      ],
+      "edge": [
+        "api"
+      ]
+    },
+    "rule": "Packages may import their own layer or lower layers, never higher layers.",
+    "checks": [
+      "scripts/check_static_invariants.py:check_layering",
+      "scripts/check_static_invariants.py:check_import_cycles"
+    ],
+    "cycles": "Module-level and package-level cycles are both prohibited; package-level cycles can hide behind deferred/submodule imports.",
+    "accepted_upward_edges": {
+      "kind": "ratchet",
+      "count": "Derived from config/architecture_layers.json; never hard-code it. CLAUDE.md section 15 still says six, which is stale prose: the ratchet has since come down.",
+      "rule": "Remove an entry when the inversion is fixed; never add an entry merely to suppress a new violation; if an inversion is genuinely valid, change the architecture/layer model instead.",
+      "current_documented_edges": [
+        "diagnostics -> features",
+        "intelligence -> api",
+        "strategies -> engine",
+        "tuning -> risk"
+      ]
+    },
+    "new_package": "Every new top-level src/ package must be assigned a layer before it can pass validation."
+  },
+  "seam_contracts": {
+    "claude_md": "16",
+    "id": "SIG-004",
+    "rule": "Important producer/consumer boundaries must explicitly protect their hand-off contracts.",
+    "engine_seam": {
+      "location": "src/engines/",
+      "shape": "18 producers, one consumer",
+      "consumer": "EngineOrchestrator.run",
+      "mapping": "zip(self._engines, [E-01...E-18], strict=True) with eid f'E-{i+1}'",
+      "risk": "Reordering the engine list silently misattributes results, SLAs, and logs."
+    },
+    "pattern": [
+      "define the contract once",
+      "assert it at both producer and consumer with _assert_contract",
+      "make positional pairings explicit",
+      "define degradation behavior",
+      "account for every item exactly once",
+      "smoke-test the composition root"
+    ],
+    "engine_rules": [
+      "empty input must yield a valid abstention",
+      "gather-swallowed errors still obey the degradation contract",
+      "every cycle returns all 18 engines as output or named failure",
+      "tests/test_engine_seam_contract.py must detect reordering"
+    ]
+  },
+  "quality_security_registry": {
+    "claude_md": "17",
+    "registry": "config/quality_registry.json",
+    "reader": "src/quality/registry.py",
+    "authority": "Sole source of truth for requirements, trading invariants, regressions, security regressions, and their deciding tests.",
+    "status": [
+      "verified/partial entries must reference existing tests",
+      "planned entries must reference no test and must specify the PR phase that will add one",
+      "critical cannot be accepted_gap; first establish that it is not critical"
+    ],
+    "identifiers": {
+      "INV-": "invariant",
+      "REG-": "regression",
+      "SEC-": "security regression",
+      "other": "requirement",
+      "rule": "Prefix and kind must agree."
+    },
+    "dependencies": "depends_on must resolve and remain acyclic",
+    "traceability": "docs/quality/REQUIREMENTS_TRACEABILITY.md is generated; update the registry then run python3 scripts/generate_quality_docs.py. CI runs --check.",
+    "permanent_records": [
+      "Every production defect gets a permanent REG-#### entry and test.",
+      "Every security finding gets a permanent SEC-#### entry and test.",
+      "Such tests are never removed merely because the defect or finding was fixed."
+    ],
+    "references": [
+      "docs/quality/QUALITY_POLICY.md",
+      "docs/quality/TEST_STRATEGY.md",
+      "docs/quality/CI_GATE_ARCHITECTURE.md",
+      "docs/quality/IMPLEMENTATION_PLAN.md",
+      "docs/security/"
+    ]
+  },
+  "required_checks": {
+    "claude_md": "18",
+    "rule": "A PR merges only when every required check is green.",
+    "gate_job": {
+      "needs": "every other job in that workflow",
+      "condition": "if: always()",
+      "runs": "scripts/assert_jobs_green.py",
+      "success": "only when every result is success",
+      "malformed_input": "exits 2"
+    },
+    "exact_set": "Every new job must be added to the gate's needs; tests/test_assert_jobs_green.py requires exact set equality.",
+    "always": "Never remove if: always().",
+    "allowed_skips": {
+      "rule": "No skips allowed except the documented exception.",
+      "exception": "retrieve-context on fork PRs, declared as ALLOW_SKIPPED in .github/workflows/claude-review.yml."
+    },
+    "branch_protection": "Require the gate checks by name, not individual jobs; missing or skipped jobs can otherwise create a protection hole.",
+    "docs": "docs/REQUIRED_CHECKS.md"
+  },
+  "cloud_review": {
+    "claude_md": "19",
+    "component": "Component 5",
+    "workflow": ".github/workflows/claude-review.yml",
+    "behavior": "Automatically reviews every PR using MongoDB Atlas RAG and knowledge-graph retrieval through review/retrieval.py, including vector, full-text, hybrid, and graph retrieval.",
+    "authority": "Advisory only; never approves or merges.",
+    "docs": "docs/CLOUD_REVIEW.md contains setup and the one-time GitHub App/secret requirements."
+  },
+  "final_audit": [
+    "No unrelated changes",
+    "user changes intact",
+    "architecture/quality/security/registry/generated-doc rules satisfied",
+    "applicable tests and gates executed",
+    "final diff/regression audit completed",
+    "report outcome, validation, and material residual uncertainty"
+  ]
+}
