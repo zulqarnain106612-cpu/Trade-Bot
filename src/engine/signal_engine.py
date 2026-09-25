@@ -728,7 +728,12 @@ class SignalEngine:
         )
         if len(bars) >= 2:
             _actual_direction = 1 if bars["close"].iloc[-1] > bars["close"].iloc[-2] else 0
-            get_degradation_tracker(_tf_key).resolve_last(_actual_direction)
+            _tracker = get_degradation_tracker(_tf_key)
+            _tracker.resolve_last(_actual_direction)
+            # Resolving an outcome is the only thing that can move live
+            # accuracy, so a verdict flip can only happen here. Published on
+            # the flip, not on the numbers -- see publish_if_changed().
+            _tracker.publish_if_changed()
 
         # 3-5. Build feature matrix once — reused for inference vec AND regime history.
         # SCAN2-007: prior code called build_feature_matrix + build_inference_features
@@ -851,6 +856,11 @@ class SignalEngine:
         _drift_mon = get_drift_monitor()
         for feat_name, feat_val in vec.items():
             _drift_mon.push(str(feat_name), float(feat_val))
+        # The buffers just changed, so this is the only moment the drifted set
+        # can have changed. Publishing here rather than from a timer is what
+        # makes the panel event-time: a 30s poll of /debug/drift re-ran the KS
+        # test twice per bar to be told the same thing both times.
+        _drift_mon.publish_if_changed()
 
         # Regime history DataFrame — full feature matrix (>=50 rows required)
         history_df: pd.DataFrame | None = None

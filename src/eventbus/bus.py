@@ -112,11 +112,21 @@ class Event:
     difference between this and the browser's clock is the end-to-end lag,
     and a timestamp applied at send time would report zero lag no matter how
     badly the transport was starved.
+
+    ``mono_ns`` is the same instant on the monotonic clock, and it exists
+    because the two consumers need different things. The browser can only
+    compare against an epoch timestamp, so the frame has to carry wall clock.
+    The server-side lag histogram is a *duration*, and a duration taken from
+    wall clock is wrong the one time it matters: an NTP correction landing
+    between the publish and the send makes the measurement negative or
+    enormous, which is indistinguishable from the starvation the metric is
+    watching for. Never serialized -- it is meaningless outside this process.
     """
 
     topic: str
     data: Mapping[str, Any]
     ts_ms: int
+    mono_ns: int = field(default_factory=time.monotonic_ns)
 
 
 @dataclass(eq=False)

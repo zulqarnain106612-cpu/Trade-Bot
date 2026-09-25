@@ -80,7 +80,7 @@ from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_back
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
-from src.diagnostics.metrics import metrics_output
+from src.diagnostics.metrics import metrics_output, observe_ws_publish_lag
 from src.engine.orchestrator import Orchestrator
 from src.eventbus import TOPICS, Subscription, get_event_bus
 from src.execution.base import AbstractExecutor
@@ -1676,6 +1676,12 @@ async def _event_fanout_loop(subscription: Subscription) -> None:
                 },
                 topic=event.topic,
             )
+            # After the send, not before: the interval that matters includes
+            # the writes, because broadcast() awaits each client in turn and a
+            # single slow peer is exactly the starvation worth alerting on.
+            # mono_ns, not the ts_ms above -- the frame needs a wall clock the
+            # browser can compare against, the histogram needs a duration.
+            observe_ws_publish_lag(event.topic, event.mono_ns)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover

@@ -31,6 +31,8 @@ from typing import Any, Final
 import numpy as np
 import structlog
 
+from src.eventbus import get_event_bus
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 # KS drift threshold — if D-statistic exceeds this, feature may have drifted
@@ -82,6 +84,11 @@ class FeatureDriftMonitor:
         self._window = window
         self._buffers: dict[str, deque[float]] = {}
         self._baselines: dict[str, dict[str, float]] = {}  # mean, std, p5, p95
+        # The drifted set as last published, so publish_if_changed() can tell a
+        # transition from a repeat. Starts empty rather than None: a first tick
+        # with nothing drifted is genuinely "no change", and announcing an
+        # empty set on startup would train an operator to ignore the topic.
+        self._published_drifted: frozenset[str] = frozenset()
 
     def set_baseline(self, feature: str, values: list[float]) -> None:
         """
@@ -112,11 +119,78 @@ class FeatureDriftMonitor:
 
     def check_all(self) -> list[FeatureDriftRecord]:
         """
+        Run the drift test and log a warning for every drifted feature.
+
+        The reporting entry point: /debug/drift calls this, and an operator
+        reading the logs expects one line per drifted feature per request.
+        Callers on the tick path want ``_evaluate`` instead -- see there for
+        why the logging is not simply moved down into it.
+        """
+        results = self._evaluate()
+        for rec in results:
+            if rec.drifted:
+                log.warning(
+                    "signal_debugger.feature_drift",
+                    feature=rec.feature,
+                    ks=rec.ks_statistic,
+                    train_mean=rec.train_mean,
+                    live_mean=rec.live_mean,
+                    action="consider_retraining (AFML Ch.11)",
+                )
+        return results
+
+    def publish_if_changed(self) -> None:
+        """
+        Publish ``drift`` when the set of drifted features changes.
+
+        Called from the tick path, which is why it uses ``_evaluate`` and not
+        ``check_all``: a drifted feature stays drifted for as long as its
+        500-bar window says so, and calling the logging variant every bar
+        would reprint the same warning once a minute forever until somebody
+        turned the logger down and stopped seeing the real ones too.
+
+        Transition-only, unlike ``health``. The drifted set is a state that
+        changes on the order of hours, the panel hydrates from /debug/drift on
+        mount, and an unchanged 40-feature payload every bar is bytes bought
+        with nothing.
+        """
+        records = self._evaluate()
+        drifted = frozenset(rec.feature for rec in records if rec.drifted)
+        if drifted == self._published_drifted:
+            return
+        self._published_drifted = drifted
+        get_event_bus().publish(
+            "drift",
+            {
+                "kind": "feature_drift",
+                "drifted_features": sorted(drifted),
+                "feature_drift": [
+                    {
+                        "feature": rec.feature,
+                        "ks_statistic": rec.ks_statistic,
+                        "drifted": rec.drifted,
+                        "train_mean": rec.train_mean,
+                        "live_mean": rec.live_mean,
+                        "train_std": rec.train_std,
+                        "live_std": rec.live_std,
+                    }
+                    for rec in records
+                ],
+            },
+        )
+
+    def _evaluate(self) -> list[FeatureDriftRecord]:
+        """
         Run empirical KS drift test on every feature with a baseline.
 
         KS D-statistic: max |F_live(x) - F_train(x)| approximated by comparing
         live quantiles vs training quantiles.  Full scipy not required — we use
         the mean/std shift as a proxy, consistent with how AFML Ch.11 detects drift.
+
+        Pure: no logging, no publishing, no state change. Both callers above
+        need the same arithmetic and disagree about the side effects, and a
+        second copy of a drift test is a second thing to keep in step with
+        whatever the baseline means.
         """
         results: list[FeatureDriftRecord] = []
         for feat, baseline in self._baselines.items():
@@ -145,15 +219,6 @@ class FeatureDriftMonitor:
                 live_std=round(live_std, 6),
             )
             results.append(rec)
-            if drifted:
-                log.warning(
-                    "signal_debugger.feature_drift",
-                    feature=feat,
-                    ks=round(ks_approx, 4),
-                    train_mean=round(train_mean, 4),
-                    live_mean=round(live_mean, 4),
-                    action="consider_retraining (AFML Ch.11)",
-                )
 
         return results
 
@@ -188,6 +253,10 @@ class ModelDegradationTracker:
         self._train_f1: float | None = None
         self._total_count: int = 0
         self._correct_count: int = 0
+        # (degraded, retrain_recommended, tighten_meta_label_threshold) as last
+        # published. All-False matches a healthy cold start, so the first tick
+        # of a healthy process publishes nothing.
+        self._published_verdict: tuple[bool, bool, bool] = (False, False, False)
         self._resolved_count: int = 0
 
     def set_training_metrics(self, accuracy: float, f1: float) -> None:
@@ -310,7 +379,51 @@ class ModelDegradationTracker:
     def check_degradation(self) -> dict[str, Any]:
         """
         Compare live accuracy to training accuracy and rolling Sharpe.
-        Returns degradation report dict.
+        Returns degradation report dict, and logs when it says degraded.
+        """
+        report = self._report()
+        if report["degraded"]:
+            log.warning(
+                "signal_debugger.model_degradation",
+                train_accuracy=report["train_accuracy"],
+                live_accuracy=report["live_accuracy"],
+                rolling_sharpe=report["rolling_sharpe"],
+                rolling_sortino=report["rolling_sortino"],
+                drop=report["drop"],
+                action="retrain_recommended (AFML Ch.11)",
+            )
+        return report
+
+    def publish_if_changed(self) -> None:
+        """
+        Publish ``drift`` when the degradation verdict flips.
+
+        The verdict, not the numbers. ``live_accuracy`` moves every time a
+        prediction resolves, so publishing on any change to the report is a
+        push per tick carrying a fourth decimal place nobody reads. What an
+        operator needs to be told the instant it happens is that the model
+        crossed into degraded -- or came back out, which is the half that
+        never gets alerted on and is exactly what says whether an incident is
+        over.
+        """
+        report = self._report()
+        verdict = (
+            bool(report["degraded"]),
+            bool(report["retrain_recommended"]),
+            bool(report["tighten_meta_label_threshold"]),
+        )
+        if verdict == self._published_verdict:
+            return
+        self._published_verdict = verdict
+        get_event_bus().publish("drift", {"kind": "model_degradation", **report})
+
+    def _report(self) -> dict[str, Any]:
+        """
+        Build the degradation report. Pure -- no logging, no publishing.
+
+        Split out for the same reason as ``FeatureDriftMonitor._evaluate``:
+        the tick path needs the verdict every bar and must not reprint the
+        warning every bar to get it.
         """
         live_acc = self.live_accuracy()
         rolling_sharpe = self.rolling_sharpe()
@@ -349,18 +462,6 @@ class ModelDegradationTracker:
             report["retrain_recommended"] = (
                 accuracy_degraded or sharpe_degraded or sortino_degraded or accuracy_below_floor
             )
-            if report["degraded"]:
-                log.warning(
-                    "signal_debugger.model_degradation",
-                    train_accuracy=round(self._train_accuracy, 4),
-                    live_accuracy=round(live_acc, 4),
-                    rolling_sharpe=round(rolling_sharpe, 4) if rolling_sharpe is not None else None,
-                    rolling_sortino=round(rolling_sortino, 4)
-                    if rolling_sortino is not None
-                    else None,
-                    drop=round(drop, 4),
-                    action="retrain_recommended (AFML Ch.11)",
-                )
         return report
 
 

@@ -379,7 +379,11 @@
         "src/data/orderbook_stream.py",
         "src/risk/capital_preservation_floor.py",
         "src/execution/order_fsm.py",
-        "src/risk/strategy_kill_switch.py"
+        "src/risk/strategy_kill_switch.py",
+        "src/diagnostics/signal_debugger.py",
+        "src/diagnostics/runtime_monitor.py",
+        "src/tuning/audit.py",
+        "src/intelligence/onchain/base.py"
       ],
       "verification": [
         {
@@ -410,9 +414,41 @@
           "test": "tests/test_ws_subscriptions.py",
           "test_type": "api",
           "note": "Topic filtering selects recipients without reintroducing per-client serialization -- every subscriber still receives the identical string -- and an untopiced heartbeat still reaches a client subscribed to nothing, because it is the resync anchor."
+        },
+        {
+          "test": "tests/test_event_bus_producers_observability.py",
+          "test_type": "contract",
+          "note": "The four diagnostic producers. Feature drift and the model-degradation verdict publish on transition and stay silent while the state holds -- including the recovery transition, which is the only thing that says an incident is over; the runtime monitor publishes every completed cycle instead, because 'still ok' and 'died while saying ok' are otherwise the same frame; a tuning promotion reaches the audit file before it reaches the bus; and a provider's circuit breaker attributes every state change to the provider that owns it."
         }
       ],
       "notes": "Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events."
+    },
+    {
+      "id": "INV-033",
+      "kind": "invariant",
+      "title": "Every declared bus topic has a producer",
+      "statement": "Every topic in src.eventbus.TOPICS is published by at least one module in src/, and no module publishes a topic the bus does not declare.",
+      "criticality": "high",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-25",
+      "failure_mode": "A topic is declared, the websocket accepts a subscription to it, and nothing ever publishes it. The panel hydrates once from its REST endpoint on mount and then never updates again -- no error, no log line, no dropped-frame counter, and a dashboard that is confidently wrong for as long as the process runs. The inverse fails just as quietly: publish() answers an unknown topic by counting and logging rather than raising, deliberately, so that a typo in a risk gate cannot take the gate down -- which means a misspelled topic is invisible at runtime.",
+      "owning_modules": [
+        "src/eventbus/bus.py",
+        "src/diagnostics/signal_debugger.py",
+        "src/diagnostics/runtime_monitor.py",
+        "src/tuning/audit.py",
+        "src/intelligence/onchain/base.py"
+      ],
+      "depends_on": [
+        "INV-032"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_event_bus_producers_observability.py",
+          "test_type": "contract"
+        }
+      ]
     },
     {
       "id": "RISK-001",
@@ -1393,6 +1429,31 @@
       "failure_mode": "A 500 hands the attacker the next step.",
       "depends_on": [
         "SECR-001"
+      ]
+    },
+    {
+      "id": "API-010",
+      "kind": "requirement",
+      "title": "Websocket publish lag is measured per topic",
+      "statement": "Every event fanned out to websocket clients records the interval from eventbus.publish() to the completion of the send, labelled by topic, in tradebot_ws_publish_lag_seconds -- measured on the monotonic clock, and never able to raise into the fan-out loop.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-25",
+      "failure_mode": "The transport is claimed to be realtime with nothing measuring it. A wedged fan-out task, a socket write blocking behind one asleep laptop, and a healthy sub-second push path are indistinguishable from outside the process, and the dashboard renders \"connected\" through all three. Measuring it on wall clock instead fails differently and worse: an NTP correction between the publish and the send reports a negative or hour-long lag, so the one metric an operator would consult during an incident is the one the incident corrupts.",
+      "owning_modules": [
+        "src/diagnostics/metrics.py",
+        "src/api/main.py",
+        "src/eventbus/bus.py"
+      ],
+      "depends_on": [
+        "INV-032"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ws_publish_lag_metric.py",
+          "test_type": "api"
+        }
       ]
     },
     {
