@@ -127,6 +127,14 @@ class TestTheRegistryHasAPlaceForDefects:
         # sequence, so Binance answering 451 from a restricted location aborted
         # startup entirely and stopped OKX strategies that never touched
         # Binance -- and recovery meant restarting the process.
+        # REG-0015: the same shape as REG-0014 one layer further in. The
+        # ensemble fit was submitted to the shared single-worker training
+        # executor with no timeout, guarded only by `except Exception` --
+        # which cannot catch a hang. A wedged fit held the FastAPI lifespan
+        # open forever, so port 8000 never opened and the health endpoint,
+        # living behind that same lifespan, could not be asked. Nothing in
+        # the suite bounded a training call, so only a hang in the wild
+        # would have shown it.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -137,6 +145,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0012",
             "REG-0013",
             "REG-0014",
+            "REG-0015",
         }
         assert {e.id for e in registry.by_kind("security_regression")} == set()
 
@@ -357,7 +366,10 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"test-suite": 8, "review": 1}
+        # 8 -> 9 with REG-0015: an unbounded ensemble fit inside the startup
+        # lifespan. The suite bounded no training call, so nothing but a hang
+        # in the wild could have surfaced it -- test-suite, not review.
+        assert metric["value"] == {"test-suite": 9, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
