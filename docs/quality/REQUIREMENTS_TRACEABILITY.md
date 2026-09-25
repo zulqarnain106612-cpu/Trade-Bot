@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 126 |
+| VERIFIED | 127 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **126** |
+| **Total** | **127** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 29 | 29 |
+| Governance | 30 | 30 |
 
 ## Outstanding work by phase
 
@@ -1551,6 +1551,17 @@ When no open pull request is behind, the oldest conflicted non-draft pull reques
 - **Verification:**
   - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate.
 
+#### `GOV-031` — strategies does not import engine
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.
+
+- **If violated:** A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.
+- **Owned by:** `src/strategies/signal_engine_adapter.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1662,4 +1673,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 126 entries.
+Registry version: 1.0.0 — 127 entries.

@@ -16,7 +16,7 @@ from src.strategies.registry import Signal
 
 # `SignalResult` originates in src/engine/signal_engine.py (orchestration
 # layer). This adapter lives in the decision layer and must not import
-# upward (GOV-026): the concrete type is passed in by the caller and read
+# upward (GOV-031): the concrete type is passed in by the caller and read
 # structurally (tradeable, direction, p_bet, gate_result), typed here as
 # `Any` at the layer boundary.
 
