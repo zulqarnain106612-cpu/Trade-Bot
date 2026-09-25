@@ -3222,7 +3222,7 @@
       "owning_modules": [
         "frontend/src/hooks/useApi.js"
       ],
-      "planned_in": "PR-004"
+      "planned_in": "PR-007"
     },
     {
       "id": "SEC-0005",

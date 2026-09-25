@@ -77,10 +77,10 @@ deletion of the thing it points at.
 | PR-001 | Quality/Security Foundation | — |
 | PR-002 | Risk Invariants + Boundary Tests | — |
 | PR-003 | Signal/Feature Verification | — |
-| PR-004 | Model/Leakage Verification | `REG-0017` |
+| PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | — |
+| PR-007 | API/WebSocket Security | `REG-0017` |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
@@ -814,7 +814,7 @@ A successful write through POST /controls/{name} must broadcast a control_change
 
 #### `REG-0017` — A hook that takes a callback calls the latest one, not the first render's
 
-**PLANNED → PR-004** · medium · regression · source: OPS-2026-09-25
+**PLANNED → PR-007** · medium · regression · source: OPS-2026-09-25
 
 usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
 
