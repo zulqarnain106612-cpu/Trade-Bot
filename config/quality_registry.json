@@ -3108,7 +3108,7 @@
           "test_type": "regression"
         }
       ],
-      "notes": "Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown."
+      "notes": "Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown. layer: test-suite"
     },
     {
       "id": "SECR-015",

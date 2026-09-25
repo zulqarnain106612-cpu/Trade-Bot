@@ -525,7 +525,7 @@ Orchestrator._train_models() bounds every ensemble fit and save with a finite ti
 - **Verification:**
   - `tests/test_ensemble_train_timeout.py` (regression)
 
-> Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown.
+> Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown. layer: test-suite
 
 ## Data, money and time
 
