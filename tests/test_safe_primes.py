@@ -22,6 +22,10 @@ No named group's modulus is hardcoded here or in the module. The safe primes
 used are small enough to verify by hand or by brute force in the test itself,
 which is the only kind of constant worth writing down: `test_the_corpus_is_
 what_it_claims` re-derives every one of them from its definition.
+
+Decides:
+  - SECR-015 — A received Diffie-Hellman public value is confined to the prime-order subgroup
+  - SECR-016 — A prime modulus whose (p-1)/2 is composite is reported as unsafe, and no named g
 """
 
 from __future__ import annotations

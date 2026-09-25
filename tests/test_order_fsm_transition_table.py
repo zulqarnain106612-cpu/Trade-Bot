@@ -6,6 +6,10 @@ states. Final stops rebinding the name; it does nothing about mutating the
 dict behind it, so any caller could have legalised an illegal transition
 for every OrderFSM in the process — including a terminal state gaining an
 exit.
+
+Decides:
+  - INV-003 — Unknown exchange order state cannot become FILLED without reconciliation
+  - EXEC-002 — The order state machine is total and its transitions are legal
 """
 
 from __future__ import annotations

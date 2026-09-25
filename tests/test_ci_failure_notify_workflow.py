@@ -8,6 +8,10 @@ notice trustworthy -- it fires on every not-green conclusion including an
 unexcused skip, carries the exact failing lines rather than only a step name,
 stays inside the same line budget the command policy enforces, and replaces its
 own prior comment instead of stacking new ones.
+
+Decides:
+  - GOV-013 — CI failure is pushed to the pull request, never polled for
+  - GOV-020 — One comment per commit carries the status and the exact failing lines
 """
 
 from __future__ import annotations
