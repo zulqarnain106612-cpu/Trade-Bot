@@ -16,8 +16,8 @@ from src.diagnostics.signal_debugger import (
     get_degradation_tracker,
     get_drift_monitor,
     get_label_shift_detector,
-    run_pipeline_selftest,
 )
+from src.features.selftest import run_pipeline_selftest
 
 # ---------------------------------------------------------------------------
 # FeatureDriftRecord
@@ -439,7 +439,7 @@ def test_get_label_shift_detector_singleton():
 def test_run_pipeline_selftest_failure_path():
     """Force build_feature_matrix to raise so the except branch is covered."""
     with patch(
-        "src.features.pipeline.build_feature_matrix",
+        "src.features.selftest.build_feature_matrix",
         side_effect=RuntimeError("synthetic failure"),
     ):
         result = run_pipeline_selftest()
