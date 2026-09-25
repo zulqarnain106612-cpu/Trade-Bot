@@ -3152,6 +3152,27 @@
           "test_type": "validation"
         }
       ]
+    },
+    {
+      "id": "REG-0016",
+      "kind": "regression",
+      "title": "A single bad member silently voided every Prometheus metric",
+      "statement": "Orchestrator._metrics_payload() builds a complete metrics snapshot for every tick, calling open_positions() as the method it is and reading equity_usd as the property it is, so no member of the payload can abort construction of the rest.",
+      "criticality": "medium",
+      "subsystem": "model",
+      "status": "verified",
+      "source": "QE-54",
+      "failure_mode": "The snapshot was an inline dict literal calling len(_executor.open_positions) on a bound method, raising TypeError. Python evaluates the dict in full before update_metrics() is reached, so the failure cost all eight gauges on every tick of every timeframe, not one. The call site catches Exception and logs at warning by design, and Prometheus gives no feedback into the process, so an empty gauge was indistinguishable from a quiet market.",
+      "owning_modules": [
+        "src/engine/orchestrator.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/regression/test_metrics_payload.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Pins payload completeness with and without an executor, the method-vs-property fact the bug turned on, and the original TypeError as a negative case. layer: test-suite"
     }
   ]
 }
