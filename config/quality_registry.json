@@ -3194,6 +3194,27 @@
         }
       ],
       "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
+    },
+    {
+      "id": "GOV-030",
+      "kind": "requirement",
+      "title": "engine does not import api",
+      "statement": "src/engine/ must not import from src.api. The Prometheus metrics module is observability -- it moved to src/diagnostics/metrics.py (io layer), and both the api HTTP handler and engine internals import it downward.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.api.* in src/engine/, silently reviving the engine->api package edge.",
+      "owning_modules": [
+        "src/diagnostics/metrics.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
     }
   ]
 }
