@@ -361,6 +361,33 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "INV-032",
+      "kind": "invariant",
+      "title": "GUI backpressure never reaches the trading loop",
+      "statement": "Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-25",
+      "failure_mode": "A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.",
+      "owning_modules": [
+        "src/eventbus/bus.py",
+        "src/api/main.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_event_bus.py",
+          "test_type": "resilience"
+        },
+        {
+          "test": "tests/test_ws_broadcaster.py",
+          "test_type": "api",
+          "note": "The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market."
+        }
+      ],
+      "notes": "Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events."
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",

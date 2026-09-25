@@ -82,6 +82,7 @@ from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.diagnostics.metrics import metrics_output
 from src.engine.orchestrator import Orchestrator
+from src.eventbus import TOPICS, Subscription, get_event_bus
 from src.execution.base import AbstractExecutor
 from src.execution.mode_persistence import load_execution_mode, save_execution_mode
 from src.execution.unified_ledger import get_unified_ledger
@@ -152,6 +153,10 @@ class AppState:
     intel_adapter: Any | None  # IntelligenceAdapter (crypto-intel-v6); None when disabled
     ready: bool  # True only after orchestrator.startup() completes
     _MAX_WS_CLIENTS: int = 50
+    # Bumped only on a breaking change to the frame shape, so a dashboard
+    # served from a stale cache can refuse to misread a newer server rather
+    # than silently rendering fields that have moved.
+    _WS_PROTOCOL_VERSION: int = 1
     _MODE_CHANGE_LIMIT: int = 3
     _MODE_CHANGE_WINDOW_S: float = 3600.0
     _ENDPOINT_LIMIT: int = 60
@@ -172,6 +177,16 @@ class AppState:
             maxlen=self._MODE_CHANGE_LIMIT
         )
         self._endpoint_hits: dict[str, collections.deque[float]] = {}
+        # Frame sequence, server-wide rather than per connection.
+        #
+        # Per-connection numbering was the obvious first instinct and it is
+        # wrong here: it forces a distinct payload per client, which is
+        # exactly the O(clients) serialization this broadcaster exists to
+        # delete. One counter for the whole stream keeps a single json.dumps
+        # serving every client, and a client still detects loss the same way
+        # -- by watching for a gap in the numbers it receives. It just cannot
+        # assume its first frame is number one.
+        self._seq = 0
 
     @property
     def ws_clients(self) -> set[WebSocket]:
@@ -201,15 +216,21 @@ class AppState:
         """
         Push one message to every connected dashboard. Returns how many got it.
 
-        Each connection otherwise pushes its own heartbeat, so a control moved
-        between ticks is invisible until the next one -- long enough for an
-        operator to move a slider, see nothing, and move it again. This is the
-        out-of-band path for that.
+        The single write path for all three producers -- the shared heartbeat,
+        the event fan-out, and out-of-band control writes. Serializing once
+        here and sending the same string to every client is the whole reason
+        the per-connection loops went away: that version did one storage read
+        and one json.dumps per client per beat to produce identical bytes.
 
-        A send is never allowed to fail the caller: this runs after a write has
-        already been applied, and a dashboard that has gone away is not a
-        reason to report the write as failed. Failures drop the client instead,
-        which is what the heartbeat's own error path does.
+        A send is never allowed to fail the caller: an operator write has
+        already been applied by the time this runs, and a dashboard that has
+        gone away is not a reason to report the write as failed. Failures drop
+        the client instead.
+
+        This awaits each client in turn, so it must never be called from a
+        producer on the trading path -- that would put a slow socket in front
+        of an order, which is exactly what src/eventbus exists to prevent.
+        Producers publish to the bus; only the fan-out task calls this.
 
         The set is snapshotted under the lock before sending. Iterating it
         directly would mutate-during-iteration the moment a send fails and the
@@ -217,6 +238,22 @@ class AppState:
         """
         async with self._ws_lock:
             clients = list(self._ws_clients)
+
+        # Envelope, stamped once for everybody. Additive: every field the
+        # existing dashboard reads is still at the top level, so a client that
+        # predates the envelope keeps working while PR 4 is written.
+        #
+        # ts_ms is only defaulted here. When a frame carries a producer's own
+        # timestamp it arrives already set, and overwriting it would report
+        # zero lag no matter how starved the transport was -- which is the one
+        # measurement this is for.
+        self._seq += 1
+        payload = {
+            "v": self._WS_PROTOCOL_VERSION,
+            "seq": self._seq,
+            "ts_ms": int(time.time() * 1000),
+            **payload,
+        }
 
         message = json.dumps(payload)
         delivered = 0
@@ -388,6 +425,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
+        # The two push paths, owned here rather than by a connection so that
+        # their cost is paid once for the server instead of once per client.
+        # The subscription is taken before the task starts: subscribing inside
+        # the task would drop every event published between task creation and
+        # its first scheduling slice.
+        ws_subscription = get_event_bus().subscribe(TOPICS)
+        ws_tasks = [
+            asyncio.create_task(_heartbeat_loop(), name="ws_heartbeat"),
+            asyncio.create_task(_event_fanout_loop(ws_subscription), name="ws_fanout"),
+        ]
+
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
         # is the master kill switch — see src/config.py). When an operator
         # turns it on, this is the "explicit startup step" bootstrap.py's
@@ -405,6 +453,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
         yield
+
+        # Close the subscription before cancelling, so the fan-out loop's
+        # `async for` ends on its own rather than being torn out of an await.
+        ws_subscription.close()
+        for task in ws_tasks:
+            task.cancel()
+        await asyncio.gather(*ws_tasks, return_exceptions=True)
 
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
@@ -1472,12 +1527,128 @@ async def self_tuning_rollback(
 # ---------------------------------------------------------------------------
 
 
+async def _build_tick_snapshot() -> dict[str, Any] | None:
+    """
+    The full status snapshot, built **once** per heartbeat for all clients.
+
+    This used to run per connection, inside each client's own loop. With
+    _MAX_WS_CLIENTS at 50 that was 50 storage reads and 50 json.dumps calls
+    per heartbeat to produce 50 copies of identical bytes -- work that grew
+    with the number of people watching, which is precisely backwards for a
+    dashboard whose whole job is to be watchable.
+
+    Returns None while the server is still starting, which the caller treats
+    as "skip this beat" rather than an error.
+    """
+    if _state.orchestrator is None:
+        return None
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    if executor is None:
+        return None
+
+    cfg = get_settings()
+    bus = get_event_bus()
+
+    payload: dict[str, Any] = {
+        "type": "tick",
+        "topic": "tick",
+        "equity_usd": round(executor.equity_usd, 2),
+        "cash_usd": round(executor.cash_usd, 2),
+        # Use lock-safe variants to prevent RuntimeError from dict mutation
+        # during concurrent position open/close (VUL-035)
+        "positions": await executor.open_positions_safe(),
+        "pending_approvals": await executor.pending_approvals_safe(),
+        "trading_mode": cfg.trading_mode.value,
+        "execution_mode": (await runtime_config.get_execution_mode()).value,
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+        # A starved client has to be visible rather than inferred. Without
+        # this the dashboard looks identical whether the bus is keeping up or
+        # quietly discarding the oldest half of every burst.
+        "dropped": bus.total_dropped,
+    }
+
+    snap = await _state.storage.latest_regime(cfg.primary_symbol, cfg.primary_timeframe.value)
+    if snap is not None:
+        payload["regime"] = {
+            "state": snap.regime_state,
+            "name": ["ranging", "trending", "volatile"][snap.regime_state],
+            "prob_ranging": round(snap.prob_ranging, 4),
+            "prob_trending": round(snap.prob_trending, 4),
+            "prob_volatile": round(snap.prob_volatile, 4),
+        }
+    return payload
+
+
+async def _heartbeat_loop() -> None:
+    """
+    One timer for the whole server, not one per client.
+
+    The heartbeat survives the move to an event bus, but its job has changed.
+    It is no longer the transport -- events arrive on their own -- it is the
+    resync anchor and the liveness signal: a full snapshot a reconnecting
+    client can align to, and proof to an idle dashboard that the socket is
+    alive rather than merely quiet.
+    """
+    while True:
+        try:
+            # Re-read per beat rather than once at startup. The per-connection
+            # loops this replaced picked the value up whenever a client
+            # reconnected; hoisting it out of the loop would quietly make the
+            # heartbeat the one setting a restart is required to change.
+            await asyncio.sleep(get_settings().api.ws_heartbeat_s)
+            if not _state.ws_clients:
+                continue  # Nobody is watching; do not pay for the snapshot.
+            payload = await _build_tick_snapshot()
+            if payload is not None:
+                await _state.broadcast(payload)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover - loop must outlive a bad beat
+            log.error("api.ws_heartbeat_error", error=str(exc), exc_info=True)
+
+
+async def _event_fanout_loop(subscription: Subscription) -> None:
+    """
+    Drain the event bus and push each event the moment it arrives.
+
+    This is the half that actually removes the latency floor. The heartbeat
+    can only ever be as fast as its period; this is bounded by how quickly the
+    producer calls publish().
+
+    Nothing here can reach back into the producer: the subscription's buffer
+    drops its own oldest events when this loop falls behind, so a slow or
+    wedged websocket costs frames on this socket and nothing else.
+    """
+    async for event in subscription:
+        try:
+            if not _state.ws_clients:
+                continue
+            await _state.broadcast(
+                {
+                    "type": "event",
+                    "topic": event.topic,
+                    # The producer's clock, deliberately. Re-stamping here
+                    # would measure the age of this line of code.
+                    "ts_ms": event.ts_ms,
+                    "data": event.data,
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover
+            log.error("api.ws_fanout_error", topic=event.topic, error=str(exc))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     """
     Live WebSocket feed — requires X-Api-Key header on upgrade.
 
-    Pushes a status snapshot every ws_heartbeat_s seconds.
+    The connection no longer owns a timer. It registers itself, sends one
+    snapshot so the panels are populated immediately rather than after a
+    heartbeat of blankness, and then does nothing but read: the shared
+    _heartbeat_loop and _event_fanout_loop push to every client.
+
     Max concurrent clients: _MAX_WS_CLIENTS (default 50, set on AppState).
     """
     # C-02: Auth before any state mutation — prevents slot leak if auth raises
@@ -1492,8 +1663,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         return
 
     await ws.accept()
-    cfg = get_settings()
-    heartbeat = cfg.api.ws_heartbeat_s
     log.info("api.ws_connected", client=str(ws.client))
 
     # API-005: the socket is push-only, so anything arriving on it is
@@ -1504,41 +1673,17 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     reader = asyncio.create_task(_guarded_ws_reader(ws))
 
     try:
-        while True:
-            await asyncio.sleep(heartbeat)
+        # Cold start. Without this a client that connects just after a beat
+        # renders empty panels for most of a heartbeat, which reads as a
+        # broken dashboard rather than a young one.
+        snapshot = await _build_tick_snapshot()
+        if snapshot is not None:
+            await ws.send_text(json.dumps(snapshot))
 
-            if _state.orchestrator is None:
-                continue  # Server still starting — skip tick, retry next heartbeat
-            executor = cast(AbstractExecutor, _state.orchestrator._executor)
-            if executor is None:
-                continue
-
-            payload: dict[str, Any] = {
-                "type": "tick",
-                "equity_usd": round(executor.equity_usd, 2),
-                "cash_usd": round(executor.cash_usd, 2),
-                # Use lock-safe variants to prevent RuntimeError from dict mutation
-                # during concurrent position open/close (VUL-035)
-                "positions": await executor.open_positions_safe(),
-                "pending_approvals": await executor.pending_approvals_safe(),
-                "trading_mode": get_settings().trading_mode.value,
-                "execution_mode": (await runtime_config.get_execution_mode()).value,
-                "timestamp": datetime.now(tz=UTC).isoformat(),
-            }
-
-            snap = await _state.storage.latest_regime(
-                cfg.primary_symbol, cfg.primary_timeframe.value
-            )
-            if snap is not None:
-                payload["regime"] = {
-                    "state": snap.regime_state,
-                    "name": ["ranging", "trending", "volatile"][snap.regime_state],
-                    "prob_ranging": round(snap.prob_ranging, 4),
-                    "prob_trending": round(snap.prob_trending, 4),
-                    "prob_volatile": round(snap.prob_volatile, 4),
-                }
-
-            await ws.send_text(json.dumps(payload))
+        # Nothing else to do on this task. The shared loops do the pushing;
+        # this simply parks until the peer goes away, which is what keeps the
+        # connection (and its guard) alive.
+        await reader
 
     except WebSocketDisconnect:
         log.info("api.ws_disconnected", client=str(ws.client))
@@ -2243,9 +2388,7 @@ async def capital_floor_re_authorize(
     _state.check_endpoint_rate_limit(
         "capital_floor_re_authorize", request.client.host if request.client else ""
     )
-    _verify_operator_secret(
-        body.operator_secret, body.operator, "capital_floor_re_authorize"
-    )
+    _verify_operator_secret(body.operator_secret, body.operator, "capital_floor_re_authorize")
 
     tf = _parse_timeframe_or_400(body.timeframe)
     orchestrator = require_orchestrator()
