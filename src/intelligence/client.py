@@ -19,7 +19,7 @@ from typing import Any
 
 import structlog
 
-from src.api.ssrf import assert_outbound_url_allowed
+from src.security.ssrf import assert_outbound_url_allowed
 
 log = structlog.get_logger(__name__)
 

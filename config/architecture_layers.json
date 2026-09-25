@@ -81,11 +81,6 @@
       "why": "The orchestrator imports transport types. Half of the api<->engine package cycle."
     },
     {
-      "from": "intelligence",
-      "to": "api",
-      "why": "An analytics package importing the HTTP edge. The most inverted of the six: whatever it needs from api is a shape that belongs lower down."
-    },
-    {
       "from": "strategies",
       "to": "engine",
       "why": "A strategy reaching back into the thing that runs it. Half of the engine<->strategies package cycle."
