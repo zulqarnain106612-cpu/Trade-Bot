@@ -56,6 +56,10 @@
         {
           "module": "src/mathcore/curves/secp256k1.py",
           "kind": "consumer"
+        },
+        {
+          "module": "tests/test_math_registry.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A field implementation with a data-dependent branch or a non-constant-time reduction leaks the secret scalar through timing, which turns a correct algorithm into a key-recovery oracle.",
@@ -86,6 +90,26 @@
         {
           "module": "src/ecc/ecdsa_scan.py",
           "kind": "consumer"
+        },
+        {
+          "module": "tests/test_bip32.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_ecc_curve_boundary.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_hnp.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_secp256k1.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_threshold.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A group whose order has small factors admits Pohlig-Hellman decomposition, reducing a 256-bit problem to several small ones and recovering the key in practice.",
@@ -127,6 +151,26 @@
           "module": "src/ecc/schnorr_taproot.py",
           "kind": "consumer",
           "note": "BIP-340 and MuSig2 cosigner detection"
+        },
+        {
+          "module": "tests/test_bip32.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_ecc_curve_boundary.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_hnp.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_secp256k1.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_threshold.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Point arithmetic that does not validate an input point lies on the curve accepts an invalid-curve point and leaks the private scalar over repeated queries.",
@@ -166,6 +210,10 @@
           "module": "src/security/api_signer.py",
           "kind": "consumer",
           "note": "Ed25519 request signing, already in use"
+        },
+        {
+          "module": "tests/test_ed25519.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Ed25519 has a cofactor of 8, so signature verification that does not follow one consistent convention can accept a signature another implementation rejects. For consensus-relevant checks this disagreement is a chain split, not a cosmetic difference.",
@@ -196,6 +244,10 @@
           "module": "src/mathcore/curves/bls12_381.py",
           "kind": "owner",
           "note": "parameters and verification of aggregate signatures only"
+        },
+        {
+          "module": "tests/test_bls12_381.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A curve with a small embedding degree collapses the elliptic-curve DLP into a finite-field DLP via the MOV reduction, destroying the security margin.",
@@ -231,6 +283,10 @@
           "module": "src/security/pq_transport.py",
           "kind": "consumer",
           "note": "currently an explicit Kyber-768 placeholder, not a working KEM"
+        },
+        {
+          "module": "tests/test_gaussian_lattice.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Sampling error terms from a distribution that is not the intended discrete Gaussian breaks the worst-case-to-average-case reduction, so the scheme has no proof left even though it still interoperates.",
@@ -257,6 +313,10 @@
         {
           "module": "src/mathcore/coding/mds.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_coding.py",
+          "kind": "test"
         }
       ],
       "depends_on": [
@@ -324,6 +384,14 @@
         {
           "module": "src/mathcore/fields/interpolation.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_interpolation.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_threshold.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Sharing with a polynomial whose coefficients are not uniformly random, or reusing one across secrets, leaks the secret to a sub-threshold set of shareholders.",
@@ -374,6 +442,10 @@
           "module": "src/mathcore/numbertheory/factorization.py",
           "kind": "owner",
           "note": "Pollard rho and p-1, for auditing key quality only"
+        },
+        {
+          "module": "tests/test_numbertheory_analytics.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Keys generated from a low-entropy pool share prime factors across the population, and a batch GCD over public keys recovers the private keys of every affected party at once.",
@@ -432,6 +504,18 @@
         {
           "module": "src/mathcore/fields/prime_field.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_interpolation.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_math_registry.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_prime_field.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A hand-rolled fast reduction that is correct on random inputs but wrong on a narrow carry case produces a signature that verifies for the attacker's chosen message.",
@@ -460,6 +544,14 @@
         {
           "module": "src/mathcore/numbertheory/primality.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_numbertheory_analytics.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_primality.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Too few Miller-Rabin rounds, or rounds with attacker-chosen bases, accepts a composite as prime and yields a modulus that factors trivially.",
@@ -504,6 +596,10 @@
         {
           "module": "src/mathcore/numbertheory/crt.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_crt.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A single bit-flip during one CRT half, whether from a fault injection or bad RAM, lets an observer factor the modulus from one faulty signature by a GCD. Verify every CRT signature before releasing it.",
@@ -531,6 +627,18 @@
         {
           "module": "src/mathcore/numbertheory/residues.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_ed25519.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_primality.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_residues.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Accepting a decompressed point without checking the residue condition admits an off-curve point, which is the entry point for invalid-curve key extraction.",
@@ -554,6 +662,18 @@
         {
           "module": "src/mathcore/numbertheory/residues.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_ed25519.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_primality.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_residues.py",
+          "kind": "test"
         }
       ],
       "depends_on": [
@@ -610,6 +730,10 @@
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
           "kind": "owner",
           "note": "computes achieved security level from group parameters; analysis, not an attack tool"
+        },
+        {
+          "module": "tests/test_numbertheory_analytics.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Quoting a key's bit length as its security level overstates safety whenever the group order has small factors or a cofactor is mishandled.",
@@ -633,6 +757,10 @@
         {
           "module": "src/mathcore/numbertheory/dlp_bounds.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_numbertheory_analytics.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Comparing an RSA modulus size with an elliptic-curve key size as if the same attack applied to both leads to keeping RSA-1024 alongside a 256-bit curve and believing they match.",
@@ -660,6 +788,10 @@
         {
           "module": "src/mathcore/numbertheory/continued_fractions.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_numbertheory_analytics.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Choosing a small private exponent d to speed up decryption exposes the key outright when d is below roughly n^0.25.",
@@ -704,6 +836,14 @@
         {
           "module": "src/mathcore/numbertheory/primality.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_numbertheory_analytics.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_primality.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Implementing the ordinary rather than the strong Lucas test weakens the composite-rejection guarantee that the combined test relies on.",
@@ -733,6 +873,18 @@
           "module": "src/security/pq_transport.py",
           "kind": "consumer",
           "note": "required before the Kyber placeholder can become real"
+        },
+        {
+          "module": "tests/test_gaussian_lattice.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_math_registry.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_ntt.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A butterfly loop with a secret-dependent memory access pattern leaks the secret polynomial through cache timing, which is a published attack class against lattice KEMs, not a theoretical one.",
@@ -761,6 +913,10 @@
         {
           "module": "src/mathcore/harmonic/walsh_hadamard.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_harmonic_spectral.py",
+          "kind": "test"
         }
       ],
       "depends_on": [
@@ -785,6 +941,10 @@
         {
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_gaussian_lattice.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Choosing a Gaussian width below the smoothing parameter voids the reduction, so the scheme retains its interface and loses its proof without any visible symptom.",
@@ -845,6 +1005,10 @@
           "module": "src/security/constant_time.py",
           "kind": "consumer",
           "note": "existing constant-time comparisons gain an empirical timing-leak test"
+        },
+        {
+          "module": "tests/test_harmonic_spectral.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Asserting that a comparison is constant-time without measuring it. The only evidence that matters is a distribution of timings that does not separate by secret value.",
@@ -885,6 +1049,10 @@
         {
           "module": "src/mathcore/probability/birthday.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_birthday.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Assuming a 256-bit hash gives 256-bit collision resistance leads to accepting truncated digests that are within reach of a birthday search.",
@@ -910,6 +1078,10 @@
           "module": "src/mathcore/probability/entropy.py",
           "kind": "owner",
           "note": "min-entropy estimators for auditing any RNG this project trusts"
+        },
+        {
+          "module": "tests/test_entropy.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Quoting average Shannon entropy for a skewed source overstates unpredictability; a source with 128 bits of Shannon entropy and 30 bits of min-entropy is brute-forceable.",
@@ -938,6 +1110,10 @@
           "module": "src/features/derivatives.py",
           "kind": "consumer",
           "note": "settlement-timing features"
+        },
+        {
+          "module": "tests/test_confirmations.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Treating a ten-minute average as a ten-minute guarantee. The exponential tail means an hour-long gap is unremarkable, and a deposit-timing model that assumes otherwise will mis-size positions during confirmation waits.",
@@ -966,6 +1142,10 @@
           "module": "src/risk/",
           "kind": "consumer",
           "note": "settlement risk before a deposit is treated as spendable"
+        },
+        {
+          "module": "tests/test_confirmations.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Using a fixed confirmation count regardless of transfer size and current hash-rate distribution. The required depth is a function of value at risk and attacker share, not a constant.",
@@ -991,6 +1171,10 @@
         {
           "module": "src/mathcore/probability/committee.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_probability_consensus.py",
+          "kind": "test"
         }
       ],
       "references": [
@@ -1013,6 +1197,10 @@
         {
           "module": "src/mathcore/probability/reorg.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_probability_consensus.py",
+          "kind": "test"
         }
       ],
       "references": [
@@ -1037,6 +1225,10 @@
         {
           "module": "src/mathcore/coding/reed_solomon.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_coding.py",
+          "kind": "test"
         }
       ],
       "depends_on": [
@@ -1079,6 +1271,10 @@
         {
           "module": "src/mathcore/coding/mds.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_coding.py",
+          "kind": "test"
         }
       ],
       "depends_on": [
@@ -1120,6 +1316,10 @@
         {
           "module": "src/mathcore/lattice/lll.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_lll.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Underestimating BKZ progress when choosing lattice parameters produces a scheme that is secure on paper against yesterday's reduction and not against today's.",
@@ -1150,6 +1350,10 @@
           "module": "src/ecc/ecdsa_scan.py",
           "kind": "consumer",
           "note": "existing module detects exact r-reuse; bias detection is the gap this closes"
+        },
+        {
+          "module": "tests/test_hnp.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Any signer whose nonce generation is not RFC 6979 deterministic, or whose RNG is biased, leaks its key over enough signatures. Detection is necessary but the fix is deterministic nonces, not monitoring.",
@@ -1197,6 +1401,10 @@
         {
           "module": "src/mathcore/commitments/merkle.py",
           "kind": "owner"
+        },
+        {
+          "module": "tests/test_merkle.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "A tree that does not domain-separate leaves from internal nodes admits second-preimage attacks; Bitcoin's duplicate-transaction quirk is the well-known instance of getting this subtly wrong.",
@@ -1231,6 +1439,10 @@
           "module": "src/mathcore/constants/nutms.py",
           "kind": "owner",
           "note": "re-derives published constants and asserts they match, so a swapped constant is caught rather than trusted"
+        },
+        {
+          "module": "tests/test_nutms.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "An unexplained constant is a place a backdoor can live. Dual_EC_DRBG's unexplained points were exactly that, and secp256k1's generator point has no published derivation either, which is a real if largely theoretical criticism of Bitcoin's curve.",
@@ -1258,6 +1470,10 @@
           "module": "src/mathcore/harmonic/gaussian_lattice.py",
           "kind": "owner",
           "note": "smoothing_parameter carries the pi of the discrete Gaussian exp(-pi|x|^2/s^2); the module docstring records it as the structural, non-decorative use this entry names"
+        },
+        {
+          "module": "tests/test_gaussian_lattice.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Dropping the pi from the Gaussian definition when porting a formula changes the width by a constant factor and silently moves the scheme below its smoothing parameter.",
@@ -1350,6 +1566,10 @@
         {
           "module": "src/security/credential_vault.py",
           "kind": "consumer"
+        },
+        {
+          "module": "tests/test_bip32.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "An extended public key plus any one non-hardened child private key reveals the parent private key and therefore the whole branch. Use hardened derivation at account level, and never let an xpub and a child key meet.",
@@ -1385,6 +1605,14 @@
           "module": "src/mathcore/derivation/nonces.py",
           "kind": "owner",
           "note": "verification helper that flags any signer not on a deterministic scheme"
+        },
+        {
+          "module": "tests/test_hnp.py",
+          "kind": "test"
+        },
+        {
+          "module": "tests/test_rfc6979_nonces.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "This is the fix for the hidden number problem. Any signing path that reintroduces a random nonce reintroduces the entire attack class, however good the RNG is believed to be.",
@@ -1418,6 +1646,10 @@
           "module": "src/ecc/schnorr_taproot.py",
           "kind": "consumer",
           "note": "MuSig2 cosigner detection already present"
+        },
+        {
+          "module": "tests/test_threshold.py",
+          "kind": "test"
         }
       ],
       "risk_if_misused": "Naive multi-round threshold Schnorr is vulnerable to concurrent-session attacks (the Wagner ROS attack). Use a scheme with proven concurrent security, not an ad-hoc aggregation.",
