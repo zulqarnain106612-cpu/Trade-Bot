@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 16 | 16 |
+| Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -984,6 +984,19 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Depends on:** `SECR-015`
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
+
+#### `SEC-0005` — A file holding real credentials is never committable
+
+**VERIFIED** · high · security_regression · source: QE-51
+
+Every filename that carries the same secrets as .env -- .env itself and its backup, local and save variants -- is matched by .gitignore, while the secret-free .env.example template stays tracked.
+
+- **If violated:** A bare .env pattern matches that one name only, so .env.bak.<timestamp> from a backup-before-edit, .env.local and .env.save were all committable while holding the same API_SECRET_KEY and OPERATOR_SECRET. Ignoring only .env protects the filename, not the secret; one 'git add -A' publishes the operator credentials to a remote.
+- **Owned by:** `.gitignore`
+- **Verification:**
+  - `tests/security/test_gitignore_secret_files.py` (security)
+
+> Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked.
 
 ## Supply chain and artifacts
 

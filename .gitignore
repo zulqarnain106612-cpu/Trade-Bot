@@ -2,6 +2,14 @@ __pycache__/
 *.pyc
 .venv/
 .env
+# A bare `.env` matches that one name and nothing else, so every neighbour of
+# it stayed committable -- `.env.bak.<timestamp>` from a backup-before-edit,
+# `.env.local`, `.env.save`. Each holds the same API_SECRET_KEY and
+# OPERATOR_SECRET as the original, so ignoring only `.env` protected the
+# filename rather than the secret. `.env.example` is excluded below because it
+# is the checked-in, secret-free template.
+.env.*
+!.env.example
 .coverage
 # coverage.py's parallel mode, which the suite runs in under xdist, writes
 # one data file per worker suffixed with host and pid (.coverage.vm.pid740.*),
