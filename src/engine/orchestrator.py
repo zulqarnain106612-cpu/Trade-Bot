@@ -64,6 +64,7 @@ from src.engine.strategy_portfolio import (
     required_inputs,
 )
 from src.engine.universe_returns import UniverseReturnsCache
+from src.eventbus import get_event_bus
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
@@ -1057,6 +1058,39 @@ class Orchestrator:
                 agreement_score=result.regime_agreement_scalar,
             )
             await self._storage.upsert_regime_snapshot(snap)
+            get_event_bus().publish(
+                "regime",
+                {
+                    "symbol": self._symbol,
+                    "timeframe": tf.value,
+                    "state": result.regime.state,
+                    "name": ["ranging", "trending", "volatile"][result.regime.state],
+                    "prob_ranging": round(result.regime.prob_ranging, 4),
+                    "prob_trending": round(result.regime.prob_trending, 4),
+                    "prob_volatile": round(result.regime.prob_volatile, 4),
+                    "changepoint_probability": result.changepoint_probability,
+                },
+            )
+
+        # The signal itself. Bar-bound by nature -- the bar has to close before
+        # there is a signal at all -- so this does not make signals faster. It
+        # removes the polling delay that was stacked on top of the bar, which
+        # on the 15m primary stream was up to another 15 minutes of nothing.
+        get_event_bus().publish(
+            "signal",
+            {
+                "symbol": self._symbol,
+                "timeframe": tf.value,
+                "tradeable": result.tradeable,
+                "direction": result.direction,
+                "p_long": round(result.p_long, 4),
+                "p_bet": round(result.p_bet, 4),
+                # Why a tick did nothing is the question an operator actually
+                # asks, and it is the half a positions table cannot answer.
+                "skip_reason": result.skip_reason,
+                "regime_agreement_scalar": round(result.regime_agreement_scalar, 4),
+            },
+        )
 
         # Feed the registry adapter this tick's SignalResult. SignalEngine is
         # async and stateful, so SignalEngineStrategy cannot call it — it
@@ -1334,9 +1368,7 @@ class Orchestrator:
             if not t.cancelled() and t.exception() is not None:
                 err = str(t.exception())
                 self._last_retrain_error[_tf] = err
-                self._log.error(
-                    "orchestrator.manual_retrain_failed", timeframe=_tf, error=err
-                )
+                self._log.error("orchestrator.manual_retrain_failed", timeframe=_tf, error=err)
             else:
                 # Clear a stale error so the dashboard stops showing a
                 # failure that a later run has already recovered from.

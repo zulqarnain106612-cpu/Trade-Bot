@@ -46,6 +46,7 @@ from src.config import (
     TradingMode,
     get_settings,
 )
+from src.eventbus import get_event_bus
 from src.risk.slippage import SlippageEstimate
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -745,6 +746,20 @@ def evaluate_all_gates(
                 reason=result.reason,
                 **dict(result.details.items()),
             )
+            # A block had no push path at all: it reached the operator only
+            # via a 30s poll of /debug/audit, so the most important thing the
+            # risk layer does was also the slowest thing to see. Publishing is
+            # synchronous and cannot raise, which is why it is safe to call
+            # from inside a gate -- see src/eventbus (INV-032).
+            get_event_bus().publish(
+                "gate",
+                {
+                    "passed": False,
+                    "status": result.status.value,
+                    "reason": result.reason,
+                    "details": {str(k): v for k, v in result.details.items()},
+                },
+            )
             return result
         if result.size_scalar < 1.0:
             advisory_scalar *= result.size_scalar
@@ -754,6 +769,18 @@ def evaluate_all_gates(
                 status=result.status.value,
                 scalar=result.size_scalar,
                 reason=result.reason,
+            )
+            # Advisory reductions are published too. A size silently cut to a
+            # third is not a block, but an operator watching fills get smaller
+            # with no explanation is looking at the same mystery.
+            get_event_bus().publish(
+                "gate",
+                {
+                    "passed": True,
+                    "status": result.status.value,
+                    "reason": result.reason,
+                    "size_scalar": result.size_scalar,
+                },
             )
 
     log.debug(
