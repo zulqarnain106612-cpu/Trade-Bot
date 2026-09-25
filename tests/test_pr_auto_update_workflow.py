@@ -287,4 +287,3 @@ class TestResolveNext:
         """
         assert "Nothing pushed." in resolve_script
         assert "exit 1" in resolve_script
-
