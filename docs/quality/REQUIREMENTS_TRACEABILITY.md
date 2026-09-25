@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 4 |
+| VERIFIED | 5 |
 | PARTIAL | 38 |
 | PLANNED | 49 |
 | ACCEPTED GAP | 0 |
-| **Total** | **91** |
+| **Total** | **92** |
 
 ## Summary by subsystem
 
@@ -61,7 +61,7 @@ deletion of the thing it points at.
 | Execution | 11 | 0 |
 | Portfolio | 1 | 0 |
 | Signal and features | 3 | 0 |
-| Models and leakage | 7 | 0 |
+| Models and leakage | 8 | 1 |
 | Data, money and time | 6 | 0 |
 | API and WebSocket | 9 | 0 |
 | Cryptography and secrets | 10 | 0 |
@@ -451,6 +451,17 @@ Model validation uses combinatorial purged cross-validation with an embargo, so 
 - **If violated:** A leaky validation split reports skill the strategy does not have.
 - **Owned by:** `src/models/trainer.py`
 - **Verification:** none yet
+
+#### `REG-0001` — A hung ensemble fit must not block orchestrator startup
+
+**VERIFIED** · high · regression · source: QE-26
+
+Orchestrator._train_models() bounds every ensemble fit and save with a finite timeout on an executor dedicated to the ensemble, so a fit that never returns degrades to ensemble=None and startup completes. No ensemble path may block the FastAPI lifespan, and shutdown may never wait on a pool whose worker has already overrun.
+
+- **If violated:** train_ensemble() fits five models inside the FastAPI lifespan with no bound, guarded only by `except Exception` -- which cannot catch a hang. A wedged fit holds port 8000 closed indefinitely, and because the health endpoint lives behind the same lifespan there is nothing left to query. Under systemd this is indistinguishable from a healthy slow start.
+- **Owned by:** `src/engine/orchestrator.py`
+- **Verification:**
+  - `tests/test_ensemble_train_timeout.py` (regression) — Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown.
 
 ## Data, money and time
 
@@ -1119,4 +1130,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 91 entries.
+Registry version: 1.0.0 — 92 entries.

@@ -8,6 +8,10 @@ __pycache__/
 # up committed.
 .env.local
 .env.*.local
+# Timestamped backups taken before editing .env. They contain the same
+# API_SECRET_KEY / OPERATOR_SECRET as the original, so a bare `.env` pattern
+# leaving these tracked would defeat the point of ignoring `.env` at all.
+.env.bak*
 .coverage
 htmlcov/
 data/

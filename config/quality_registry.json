@@ -1460,6 +1460,25 @@
       "owning_modules": ["docs/quality"],
       "planned_in": "PR-012",
       "failure_mode": "A single green percentage is mistaken for readiness."
+    },
+    {
+      "id": "REG-0001",
+      "kind": "regression",
+      "title": "A hung ensemble fit must not block orchestrator startup",
+      "statement": "Orchestrator._train_models() bounds every ensemble fit and save with a finite timeout on an executor dedicated to the ensemble, so a fit that never returns degrades to ensemble=None and startup completes. No ensemble path may block the FastAPI lifespan, and shutdown may never wait on a pool whose worker has already overrun.",
+      "criticality": "high",
+      "subsystem": "model",
+      "status": "verified",
+      "source": "QE-26",
+      "owning_modules": ["src/engine/orchestrator.py"],
+      "verification": [
+        {
+          "test": "tests/test_ensemble_train_timeout.py",
+          "test_type": "regression",
+          "note": "Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown."
+        }
+      ],
+      "failure_mode": "train_ensemble() fits five models inside the FastAPI lifespan with no bound, guarded only by `except Exception` -- which cannot catch a hang. A wedged fit holds port 8000 closed indefinitely, and because the health endpoint lives behind the same lifespan there is nothing left to query. Under systemd this is indistinguishable from a healthy slow start."
     }
   ]
 }
