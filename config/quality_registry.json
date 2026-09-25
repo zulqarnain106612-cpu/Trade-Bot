@@ -3173,6 +3173,27 @@
         }
       ],
       "notes": "Pins payload completeness with and without an executor, the method-vs-property fact the bug turned on, and the original TypeError as a negative case. layer: test-suite"
+    },
+    {
+      "id": "SEC-0005",
+      "kind": "security_regression",
+      "title": "A file holding real credentials is never committable",
+      "statement": "Every filename that carries the same secrets as .env -- .env itself and its backup, local and save variants -- is matched by .gitignore, while the secret-free .env.example template stays tracked.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-51",
+      "failure_mode": "A bare .env pattern matches that one name only, so .env.bak.<timestamp> from a backup-before-edit, .env.local and .env.save were all committable while holding the same API_SECRET_KEY and OPERATOR_SECRET. Ignoring only .env protects the filename, not the secret; one 'git add -A' publishes the operator credentials to a remote.",
+      "owning_modules": [
+        ".gitignore"
+      ],
+      "verification": [
+        {
+          "test": "tests/security/test_gitignore_secret_files.py",
+          "test_type": "security"
+        }
+      ],
+      "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
     }
   ]
 }

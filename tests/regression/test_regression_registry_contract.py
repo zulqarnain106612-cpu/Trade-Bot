@@ -155,7 +155,14 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0015",
             "REG-0016",
         }
-        assert {e.id for e in registry.by_kind("security_regression")} == set()
+        # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
+        # name and nothing else -- so `.env.bak.<timestamp>` from a
+        # backup-before-edit, `.env.local` and `.env.save` were all
+        # committable while holding the same API_SECRET_KEY and
+        # OPERATOR_SECRET. The secret scanners read committed content, and
+        # these files were never committed, so nothing upstream of a commit
+        # could have seen it.
+        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005"}
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -380,7 +387,10 @@ class TestTheMetricsCollector:
         # 9 -> 10 with REG-0016: the tick metrics payload raised on a method
         # treated as an attribute. No test built the payload, so only reading
         # the per-tick warning would have shown it -- test-suite.
-        assert metric["value"] == {"test-suite": 10, "review": 1}
+        # 10 -> 11 with SEC-0005: a bare `.env` pattern left every backup of
+        # it committable. Scanners read committed content and these were
+        # never committed, so only a suite check could have seen it.
+        assert metric["value"] == {"test-suite": 11, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

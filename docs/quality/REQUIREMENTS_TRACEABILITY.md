@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 125 |
+| VERIFIED | 126 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **125** |
+| **Total** | **126** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 16 | 16 |
+| Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -985,6 +985,19 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
 
+#### `SEC-0005` — A file holding real credentials is never committable
+
+**VERIFIED** · high · security_regression · source: QE-51
+
+Every filename that carries the same secrets as .env -- .env itself and its backup, local and save variants -- is matched by .gitignore, while the secret-free .env.example template stays tracked.
+
+- **If violated:** A bare .env pattern matches that one name only, so .env.bak.<timestamp> from a backup-before-edit, .env.local and .env.save were all committable while holding the same API_SECRET_KEY and OPERATOR_SECRET. Ignoring only .env protects the filename, not the secret; one 'git add -A' publishes the operator credentials to a remote.
+- **Owned by:** `.gitignore`
+- **Verification:**
+  - `tests/security/test_gitignore_secret_files.py` (security)
+
+> Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1649,4 +1662,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 125 entries.
+Registry version: 1.0.0 — 126 entries.
