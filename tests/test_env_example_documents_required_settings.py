@@ -15,6 +15,9 @@ system's own settings.
 
 The check reads the required names out of main.py rather than hardcoding
 them, so a third startup guard added later has to be documented too.
+
+Decides:
+  - REL-006 — Configuration drift is detected and DEBUG never reaches production
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-"""Tests for RiskGate v2 (CVaR-Kelly sizing, ADWIN drift, circuit breaker)."""
+"""Tests for RiskGate v2 (CVaR-Kelly sizing, ADWIN drift, circuit breaker).
+
+Decides:
+  - REL-001 — Paper qualification precedes live
+"""
 
 from __future__ import annotations
 

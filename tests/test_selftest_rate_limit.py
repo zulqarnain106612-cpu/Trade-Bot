@@ -7,6 +7,9 @@ set_risk_controls and the self-tuning trio via check_endpoint_rate_limit,
 set_execution_mode via the stricter 3-per-hour mode limiter. This one was
 not, so any holder of a valid key could keep the box building throwaway
 matrices while the live tick loop waited for a thread.
+
+Decides:
+  - API-006 — Rate limiting protects authentication, trading and expensive endpoints
 """
 
 from __future__ import annotations

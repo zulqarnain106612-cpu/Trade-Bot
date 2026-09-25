@@ -5,6 +5,9 @@ ones whose exchange does not publish those numbers -- the values are then
 None. `float(precision.get("amount", 8))` returns None from the .get and
 raises, on the path that decides how an order is rounded and whether it
 clears the venue minimum.
+
+Decides:
+  - DATA-005 — Tick size, lot size and minimum quantity are respected
 """
 
 from __future__ import annotations

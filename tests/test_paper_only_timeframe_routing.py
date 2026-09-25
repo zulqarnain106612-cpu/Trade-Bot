@@ -5,6 +5,9 @@ The README states that only the intraday stream trades real money;
 scalping and swing are paper-only regardless of TRADING_MODE. That held,
 but only incidentally: _executor_for fell back to self._executor whenever
 the paper executor was unset, and in live mode that fallback is real money.
+
+Decides:
+  - INV-005 — A disabled trading mode cannot submit orders
 """
 
 from __future__ import annotations

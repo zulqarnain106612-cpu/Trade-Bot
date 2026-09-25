@@ -1,4 +1,8 @@
-"""Tests for the v10 periodic red-team scheduler."""
+"""Tests for the v10 periodic red-team scheduler.
+
+Decides:
+  - RES-007 — Chaos exercises end in a safe state, not merely a live process
+"""
 
 from __future__ import annotations
 

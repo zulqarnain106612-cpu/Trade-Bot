@@ -18,6 +18,9 @@ derives symmetrically because hardened BIP-32 needs no public key), and that
 is a perfectly good posture -- it is the silence that was the problem.
 
 AST-only: nothing here imports the modules, which pull in `cryptography`.
+
+Decides:
+  - SECR-008 — No custom cryptographic primitives
 """
 
 from __future__ import annotations

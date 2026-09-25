@@ -5,6 +5,9 @@ check_performance_drift() produced HALT_DRIFT, was tested, and was absent
 from evaluate_all_gates() -- so drift was measured and reported and the
 system kept trading on the drifted model. Detection was wired; the gate was
 not.
+
+Decides:
+  - MODL-004 — Model drift beyond threshold demotes the model
 """
 
 from __future__ import annotations

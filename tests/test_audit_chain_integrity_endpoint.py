@@ -5,6 +5,9 @@ audit_trail.py hash-chains every entry so tampering is detectable, and
 SignalEngine writes to it every tick — but `verify_chain_integrity()` had no
 caller and the trail had no reader. The hashing cost was paid on every tick
 and the guarantee it buys was never collected.
+
+Decides:
+  - SECR-004 — The audit log is a verifiable hash chain
 """
 
 from __future__ import annotations

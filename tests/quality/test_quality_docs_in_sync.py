@@ -5,6 +5,9 @@ A hand-edited generated file is the worst of both worlds: it reads as
 authoritative and is no longer derived from anything. These tests are the same
 check CI runs (`--check`), plus the assertions that make the failure legible
 when someone does edit the prose.
+
+Decides:
+  - GOV-005 — Requirement-to-test traceability is machine-checked
 """
 
 from __future__ import annotations
