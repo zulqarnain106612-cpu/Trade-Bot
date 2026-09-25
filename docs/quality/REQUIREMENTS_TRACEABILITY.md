@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 122 |
+| VERIFIED | 123 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **122** |
+| **Total** | **123** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
-| Governance | 28 | 28 |
+| Governance | 29 | 29 |
 
 ## Outstanding work by phase
 
@@ -1500,6 +1500,18 @@ get_settings() must return the configuration in force including live operator ov
 
 > 79 of the 80 get_settings() calls in src/ already read at use time, so the fix was the function, not 188 fields. The cache is never cleared: VUL-028 showed that invalidating it in a request path re-instantiates every setting from the environment and exposes concurrent readers to a half-built object. The effective settings are rebuilt off the read path and the module reference is swapped, so a reader sees the whole previous object or the whole next one. Re-validation rather than model_copy(update=) is deliberate: copy runs no validators and would accept a negative kelly_multiplier. EXCLUDED_PARAMS is unchanged and still bars the autotuner from risk limits; it never described what the operator may do, and reading it that way had locked the owner out of their own position caps. Credentials remain permanently unexposed and unsettable; api.host/port/reload and the storage connection fields are reported requires_restart rather than falsely live. layer: review
 
+#### `GOV-029` — A conflict confined to generated files resolves itself, and is gated before it is pushed
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-25
+
+When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator, in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.
+
+- **If violated:** Every pull request that adds a registry entry regenerates the whole traceability document, so any two of them conflict regardless of how unrelated the entries are -- which made a registry entry cost a manual rebase per pull request ahead of it. The file that does not conflict is the dangerous one: git merges the registry JSON cleanly and can still produce a document the strict loader refuses, two branches allocating the same id being the usual way, since the scaffolder allocates against main and cannot see open branches. Resolving without re-running the gate would push that onto the head branch, green in appearance.
+- **Owned by:** `.github/workflows/pr-auto-update.yml`
+- **Depends on:** `GOV-017`
+- **Verification:**
+  - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate.
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1611,4 +1623,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 122 entries.
+Registry version: 1.0.0 — 123 entries.
