@@ -3194,6 +3194,27 @@
         }
       ],
       "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
+    },
+    {
+      "id": "GOV-031",
+      "kind": "requirement",
+      "title": "strategies does not import engine",
+      "statement": "src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.",
+      "owning_modules": [
+        "src/strategies/signal_engine_adapter.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
     }
   ]
 }
