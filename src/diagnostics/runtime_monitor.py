@@ -12,6 +12,8 @@ Authority:
   - Chan (2013) Algorithmic Trading Ch.8 — live system monitoring
   - Tulchinsky (2019) Finding Alphas — signal health checks
   - López de Prado (2018) AFML Ch.16 — strategy diagnostics
+
+Registry: REL-004, REL-005, REL-007, RES-001 (config/quality_registry.json).
 """
 
 from __future__ import annotations

@@ -12,6 +12,8 @@ Authority:
   - Domain Prior: account for fees, slippage, partial fills, latency,
     reconnects — this ledger records venue-attributed positions precisely
     so those costs can be attributed correctly, not netted away.
+
+Registry: DATA-004, INV-009 (config/quality_registry.json).
 """
 
 from __future__ import annotations

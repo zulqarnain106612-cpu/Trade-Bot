@@ -17,6 +17,8 @@ either way, which is why the vocabulary here is deliberately neutral.
 Authority:
   - Domain Prior: account for partial fills, latency, reconnects — this is
     the recovery-path complement to that execution discipline
+
+Registry: INV-009, RES-002, RES-003, RES-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations

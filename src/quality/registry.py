@@ -24,6 +24,8 @@ The two failure modes this is built to prevent:
      declared phases. An entry cannot sit in limbo without an owner.
 
 The file is read-only at runtime. Nothing here writes to it.
+
+Registry: GOV-001, GOV-002, GOV-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

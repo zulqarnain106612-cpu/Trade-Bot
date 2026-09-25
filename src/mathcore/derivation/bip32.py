@@ -35,6 +35,8 @@ secret for a timing adversary to recover -- and that is exactly why the module
 refuses to accept one.
 
 References: BIP-32, BIP-44, SLIP-0010; Bitcoin Core's ``xpub`` handling.
+
+Registry: SECR-011, SECR-012 (config/quality_registry.json).
 """
 
 from __future__ import annotations

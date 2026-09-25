@@ -24,6 +24,8 @@ WebSocket push format (JSON):
   { "type": "tick", "equity_usd": ..., "positions": [...], "regime": {...} }
   { "type": "approval", "request": {...} }
   { "type": "trade", "trade": {...} }
+
+Registry: API-001, API-003, API-005, API-009, REL-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations
