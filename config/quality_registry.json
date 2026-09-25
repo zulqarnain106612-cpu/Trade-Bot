@@ -3210,6 +3210,21 @@
       "notes": "Pins payload completeness with and without an executor, the method-vs-property fact the bug turned on, and the original TypeError as a negative case. layer: test-suite"
     },
     {
+      "id": "REG-0017",
+      "kind": "regression",
+      "title": "A hook that takes a callback calls the latest one, not the first render's",
+      "statement": "usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "OPS-2026-09-25",
+      "failure_mode": "usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.",
+      "owning_modules": [
+        "frontend/src/hooks/useApi.js"
+      ],
+      "planned_in": "PR-004"
+    },
+    {
       "id": "SEC-0005",
       "kind": "security_regression",
       "title": "A file holding real credentials is never committable",

@@ -49,9 +49,9 @@ deletion of the thing it points at.
 |---|---|
 | VERIFIED | 128 |
 | PARTIAL | 0 |
-| PLANNED | 0 |
+| PLANNED | 1 |
 | ACCEPTED GAP | 0 |
-| **Total** | **128** |
+| **Total** | **129** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 13 | 13 |
+| API and WebSocket | 14 | 13 |
 | Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -77,7 +77,7 @@ deletion of the thing it points at.
 | PR-001 | Quality/Security Foundation | — |
 | PR-002 | Risk Invariants + Boundary Tests | — |
 | PR-003 | Signal/Feature Verification | — |
-| PR-004 | Model/Leakage Verification | — |
+| PR-004 | Model/Leakage Verification | `REG-0017` |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
 | PR-007 | API/WebSocket Security | — |
@@ -811,6 +811,16 @@ A successful write through POST /controls/{name} must broadcast a control_change
   - `tests/test_venue_api.py` (api)
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
+
+#### `REG-0017` — A hook that takes a callback calls the latest one, not the first render's
+
+**PLANNED → PR-004** · medium · regression · source: OPS-2026-09-25
+
+usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
+
+- **If violated:** usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Verification:** none yet
 
 ## Cryptography and secrets
 
@@ -1688,4 +1698,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 128 entries.
+Registry version: 1.0.0 — 129 entries.

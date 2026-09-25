@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useWebSocket, usePolling, useOperatorAction, apiFetch, postJson } from './hooks/useApi';
+import { useWebSocket, useStream, usePolling, useOperatorAction, apiFetch, postJson } from './hooks/useApi';
 import { ControlHubPanel } from './components/panels/ControlHubPanel';
 import { Panel } from './components/Panel';
 import { ModeSwitcher, StatCard } from './components/Controls';
@@ -73,7 +73,7 @@ export default function App() {
   const onEvent = useCallback((msg) => {
     if (msg.type === 'control_changed') setControlVersion((v) => v + 1);
   }, []);
-  const wsConnected = useWebSocket(onTick, onEvent);
+  const { connected: wsConnected, lagMs } = useWebSocket(onTick, onEvent);
 
   // Every list endpoint returns its rows under a named key
   // (src/api/main.py), while the panels below take plain arrays — so each
@@ -82,9 +82,31 @@ export default function App() {
   // their empty-state placeholder forever with no error shown.
   const status = usePolling('/status', 5000);
   const equityCurve = usePolling('/equity?limit=200', 30000, (b) => b?.curve ?? []);
-  const trades = usePolling('/trades?limit=50', 15000, (b) => b?.trades ?? []);
+  // A closed position is a new trade row, so the close event is the trigger
+  // to re-read rather than a 15s timer. Re-fetching on the event keeps the
+  // row exactly as the server renders it -- the event payload is not the
+  // trade record and should not be reshaped into one here.
+  const trades = useStream('position', '/trades?limit=50', {
+    transform: (b) => b?.trades ?? [],
+    refetch: true,
+  });
   const missedTrades = usePolling('/missed-trades?limit=30', 30000, (b) => b?.missed_trades ?? []);
-  const approvals = usePolling('/approvals', 10000, (b) => b?.approvals ?? []);
+  // Streamed, not polled. An approval is the one event with a human waiting
+  // on the other end, and it used to take up to a 10s poll before the
+  // operator could even see that a decision was being asked for. The `apply`
+  // folds each event into the list rather than replacing it, because an
+  // approval event describes one request, not the queue.
+  const approvals = useStream('approval', '/approvals', {
+    transform: (b) => b?.approvals ?? [],
+    apply: (prev, ev) => {
+      const list = prev ?? [];
+      if (ev.action === 'resolved') {
+        return list.filter((a) => a.request_id !== ev.request_id);
+      }
+      if (list.some((a) => a.request_id === ev.request_id)) return list;
+      return [...list, ev];
+    },
+  });
   const riskControls = usePolling('/risk-controls', 10000, (b) => b?.risk_controls ?? null);
   // Polled here only for the backfill timeframe options; ModelTrainingPanel
   // polls the same endpoint for its own display.
@@ -157,6 +179,7 @@ export default function App() {
     <div style={{ minHeight: '100vh', background: 'var(--c-bg)', color: 'var(--c-text)', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
       <Header
         wsConnected={wsConnected}
+        lagMs={lagMs}
         executionMode={executionMode}
         onModeSwitch={handleModeSwitch}
         operatorId={operatorId}
@@ -353,7 +376,7 @@ export default function App() {
 }
 
 function Header({
-  wsConnected, executionMode, onModeSwitch,
+  wsConnected, lagMs, executionMode, onModeSwitch,
   operatorId, setOperatorId, operatorSecret, setOperatorSecret,
   showPanelManager, setShowPanelManager,
 }) {
@@ -378,6 +401,21 @@ function Header({
           }} />
           {wsConnected ? 'LIVE' : 'DISCONNECTED'}
         </span>
+        {/* A green dot only says the socket is open. It stays green while a
+            starved stream shows minute-old numbers, which is the failure this
+            transport work exists to remove -- so the dot carries the measured
+            producer-to-browser lag beside it. */}
+        {wsConnected && lagMs !== null && (
+          <span
+            title="Producer-to-browser lag, measured from the timestamp the producer stamped"
+            style={{
+              fontSize: 10,
+              color: lagMs > 5000 ? 'var(--c-red)' : lagMs > 1500 ? 'var(--c-yellow)' : 'var(--c-muted)',
+            }}
+          >
+            {lagMs < 1000 ? `${lagMs}ms` : `${(lagMs / 1000).toFixed(1)}s`}
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
