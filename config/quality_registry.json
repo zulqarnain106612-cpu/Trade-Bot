@@ -3090,6 +3090,27 @@
       "notes": "Observed against Binance answering HTTP 451 'Service unavailable from a restricted location' on both mainnet and testnet from an affected network, which made the backend unstartable however healthy OKX and everything else was. initialize() built both venues and loaded their markets in one unisolated sequence. GET /venues and POST /venues/{venue}/reconnect expose the state and the recovery so neither needs a restart. layer: test-suite"
     },
     {
+      "id": "REG-0015",
+      "kind": "regression",
+      "title": "A hung ensemble fit must not block orchestrator startup",
+      "statement": "Orchestrator._train_models() bounds every ensemble fit and save with a finite timeout on an executor dedicated to the ensemble, so a fit that never returns degrades to ensemble=None and startup completes. No ensemble path may block the FastAPI lifespan, and shutdown may never wait on a pool whose worker has already overrun.",
+      "criticality": "high",
+      "subsystem": "model",
+      "status": "verified",
+      "source": "QE-26",
+      "failure_mode": "train_ensemble() fits five models inside the FastAPI lifespan with no bound, guarded only by 'except Exception' -- which cannot catch a hang. A wedged fit holds port 8000 closed indefinitely, and because the health endpoint lives behind the same lifespan there is nothing left to query. Under systemd this is indistinguishable from a healthy slow start.",
+      "owning_modules": [
+        "src/engine/orchestrator.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ensemble_train_timeout.py",
+          "test_type": "regression"
+        }
+      ],
+      "notes": "Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown."
+    },
+    {
       "id": "SECR-015",
       "kind": "requirement",
       "title": "A received Diffie-Hellman public value is confined to the prime-order subgroup",
