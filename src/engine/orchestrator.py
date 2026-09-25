@@ -64,6 +64,7 @@ from src.engine.strategy_portfolio import (
     required_inputs,
 )
 from src.engine.universe_returns import UniverseReturnsCache
+from src.eventbus import get_event_bus
 from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
@@ -1057,6 +1058,39 @@ class Orchestrator:
                 agreement_score=result.regime_agreement_scalar,
             )
             await self._storage.upsert_regime_snapshot(snap)
+            get_event_bus().publish(
+                "regime",
+                {
+                    "symbol": self._symbol,
+                    "timeframe": tf.value,
+                    "state": result.regime.state,
+                    "name": ["ranging", "trending", "volatile"][result.regime.state],
+                    "prob_ranging": round(result.regime.prob_ranging, 4),
+                    "prob_trending": round(result.regime.prob_trending, 4),
+                    "prob_volatile": round(result.regime.prob_volatile, 4),
+                    "changepoint_probability": result.changepoint_probability,
+                },
+            )
+
+        # The signal itself. Bar-bound by nature -- the bar has to close before
+        # there is a signal at all -- so this does not make signals faster. It
+        # removes the polling delay that was stacked on top of the bar, which
+        # on the 15m primary stream was up to another 15 minutes of nothing.
+        get_event_bus().publish(
+            "signal",
+            {
+                "symbol": self._symbol,
+                "timeframe": tf.value,
+                "tradeable": result.tradeable,
+                "direction": result.direction,
+                "p_long": round(result.p_long, 4),
+                "p_bet": round(result.p_bet, 4),
+                # Why a tick did nothing is the question an operator actually
+                # asks, and it is the half a positions table cannot answer.
+                "skip_reason": result.skip_reason,
+                "regime_agreement_scalar": round(result.regime_agreement_scalar, 4),
+            },
+        )
 
         # Feed the registry adapter this tick's SignalResult. SignalEngine is
         # async and stateful, so SignalEngineStrategy cannot call it — it
@@ -1307,6 +1341,135 @@ class Orchestrator:
                     "orchestrator.retrain_skipped_already_running",
                     timeframe=tf.value,
                 )
+
+    # ------------------------------------------------------------------
+    # Operator-triggered actions (exposed over the API for the dashboard)
+    # ------------------------------------------------------------------
+
+    def request_retrain(self, tf: Timeframe) -> str:
+        """
+        Start an out-of-band retrain for one timeframe.
+
+        Shares the overlap guard and the done-callback with the scheduled
+        retrain in _tick: a manual request while a retrain is already in
+        flight is refused rather than queued, because two trainers writing
+        the same artifact path would race.
+
+        Returns "started" or "already_running".
+        """
+        prior = self._retrain_tasks.get(tf.value)
+        if prior is not None and not prior.done():
+            self._log.warning("orchestrator.manual_retrain_skipped", timeframe=tf.value)
+            return "already_running"
+
+        task = asyncio.create_task(self._train_models(tf), name=f"manual_retrain_{tf.value}")
+
+        def _done(t: asyncio.Task, _tf: str = tf.value) -> None:
+            if not t.cancelled() and t.exception() is not None:
+                err = str(t.exception())
+                self._last_retrain_error[_tf] = err
+                self._log.error("orchestrator.manual_retrain_failed", timeframe=_tf, error=err)
+            else:
+                # Clear a stale error so the dashboard stops showing a
+                # failure that a later run has already recovered from.
+                self._last_retrain_error.pop(_tf, None)
+            if self._retrain_tasks.get(_tf) is t:
+                del self._retrain_tasks[_tf]
+
+        task.add_done_callback(_done)
+        self._retrain_tasks[tf.value] = task
+        self._log.info("orchestrator.manual_retrain_started", timeframe=tf.value)
+        return "started"
+
+    def retrain_status(self) -> dict[str, dict[str, Any]]:
+        """Per-timeframe retrain state for the dashboard."""
+        out: dict[str, dict[str, Any]] = {}
+        for tf in self._timeframes:
+            task = self._retrain_tasks.get(tf.value)
+            out[tf.value] = {
+                "running": task is not None and not task.done(),
+                "last_error": self._last_retrain_error.get(tf.value),
+                "is_primary": tf == self._primary_tf,
+            }
+        return out
+
+    async def request_backfill(self, timeframe: Timeframe, lookback_days: int) -> int:
+        """
+        Fetch historical bars on demand and return the number written.
+
+        Awaited rather than fire-and-forget: the caller is an HTTP request
+        that should report the real bar count, and bootstrap_history already
+        paginates with its own rate limiting.
+        """
+        self._log.info(
+            "orchestrator.manual_backfill_started",
+            timeframe=timeframe.value,
+            lookback_days=lookback_days,
+        )
+        written = await self._fetcher.bootstrap_history(
+            symbol=self._symbol,
+            timeframe=timeframe,
+            lookback_days=lookback_days,
+        )
+        self._log.info(
+            "orchestrator.manual_backfill_done",
+            timeframe=timeframe.value,
+            bars_written=written,
+        )
+        return written
+
+    def capital_floor_status(self) -> dict[str, dict[str, Any]]:
+        """
+        Halt state of each timeframe's capital-preservation floor.
+
+        The floor lives on each SignalEngine (src/engine/signal_engine.py),
+        so there is one per timeframe rather than one per process.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for tf_value, engine in self._engines.items():
+            floor = getattr(engine, "_capital_floor", None)
+            if floor is None:
+                continue
+            reauth = floor.last_reauthorization
+            out[tf_value] = {
+                "halted": floor.is_halted,
+                "halt_reason": floor.halt_reason,
+                "last_reauthorization": (
+                    {
+                        "authorized_by": reauth.authorized_by,
+                        "reason": reauth.reason,
+                        "at_ms": reauth.at_ms,
+                    }
+                    if reauth is not None
+                    else None
+                ),
+            }
+        return out
+
+    def re_authorize_capital_floor(
+        self, timeframe: str, authorized_by: str, reason: str, at_ms: int
+    ) -> bool:
+        """
+        Clear one timeframe's capital-preservation halt.
+
+        Returns False when that timeframe has no engine or no floor, so the
+        caller can answer 404 instead of reporting a clear that never
+        happened. Never resets peak equity — see
+        CapitalPreservationFloor.re_authorize.
+        """
+        engine = self._engines.get(timeframe)
+        if engine is None:
+            return False
+        floor = getattr(engine, "_capital_floor", None)
+        if floor is None:
+            return False
+        floor.re_authorize(authorized_by=authorized_by, reason=reason, at_ms=at_ms)
+        self._log.warning(
+            "orchestrator.capital_floor_reauthorized",
+            timeframe=timeframe,
+            authorized_by=authorized_by,
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Model training

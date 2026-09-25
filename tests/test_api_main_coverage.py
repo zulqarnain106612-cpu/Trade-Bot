@@ -977,58 +977,47 @@ def _fake_ws():
     return ws
 
 
-async def _run_ws_endpoint_iterations(mock_state, n_sleeps, orchestrator=None, executor=None):
-    """Drive websocket_endpoint() directly with a controlled fake sleep that
-    stops the `while True` loop after n_sleeps iterations by raising
-    WebSocketDisconnect on the (n_sleeps+1)th call -- avoids the real
-    TestClient WS transport's timing flakiness entirely."""
-    from starlette.websockets import WebSocketDisconnect
+def _executor_stub():
+    """An executor complete enough for a snapshot to be built from it."""
+    executor = AsyncMock()
+    executor.equity_usd = 1000.0
+    executor.cash_usd = 500.0
+    executor.open_positions_safe = AsyncMock(return_value=[])
+    executor.pending_approvals_safe = AsyncMock(return_value=[])
+    return executor
 
+
+# These four used to drive websocket_endpoint()'s own `while True` with a
+# patched asyncio.sleep. That loop is gone: the snapshot is now built once per
+# beat by the shared _heartbeat_loop rather than once per connection, so a
+# test that patches asyncio.sleep to break the endpoint's loop would pass
+# while exercising nothing. Same properties, addressed to where they now live.
+
+
+def test_snapshot_is_skipped_while_the_orchestrator_is_still_starting(mock_state):
+    """orchestrator is None (server still starting) -> no snapshot, no crash
+    on None._executor. The heartbeat treats None as "skip this beat"."""
     import src.api.main as main_mod
 
-    mock_state.orchestrator = orchestrator
-    ws = _fake_ws()
-    call_count = 0
+    mock_state.orchestrator = None
 
-    async def _fake_sleep(_s):
-        nonlocal call_count
-        call_count += 1
-        if call_count > n_sleeps:
-            raise WebSocketDisconnect
-
-    async def _allow_ws(_ws):
-        return None
-
-    with (
-        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
-        patch.object(main_mod._state, "add_ws_client", return_value=True),
-        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        patch("asyncio.sleep", side_effect=_fake_sleep),
-    ):
-        await main_mod.websocket_endpoint(ws)
-    return ws
+    assert asyncio.run(main_mod._build_tick_snapshot()) is None
 
 
-def test_websocket_orchestrator_none_skips_tick(mock_state):
-    """orchestrator is None (server still starting) -> heartbeat loop must
-    `continue` rather than crash on None._executor."""
-    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=None))
-    ws.send_text.assert_not_called()
+def test_snapshot_is_skipped_while_there_is_no_executor(mock_state):
+    """orchestrator exists but has no executor yet -> same skip contract."""
+    import src.api.main as main_mod
 
-
-def test_websocket_executor_none_skips_tick(mock_state):
-    """orchestrator exists but has no executor yet -> same skip-tick contract."""
     fake_orch = MagicMock()
     fake_orch._executor = None
-    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=fake_orch))
-    ws.send_text.assert_not_called()
+    mock_state.orchestrator = fake_orch
+
+    assert asyncio.run(main_mod._build_tick_snapshot()) is None
 
 
-def test_websocket_tick_includes_regime_snapshot(mock_state):
+def test_snapshot_includes_the_regime_block(mock_state):
     """When storage.latest_regime() returns a snapshot, the tick payload
     must include a "regime" block built from it."""
-    from starlette.websockets import WebSocketDisconnect
-
     import src.api.main as main_mod
 
     snap = MagicMock()
@@ -1038,63 +1027,47 @@ def test_websocket_tick_includes_regime_snapshot(mock_state):
     snap.prob_volatile = 0.1
     mock_state.storage.latest_regime = AsyncMock(return_value=snap)
 
-    ws = _fake_ws()
-    call_count = 0
+    fake_orch = MagicMock()
+    fake_orch._executor = _executor_stub()
+    mock_state.orchestrator = fake_orch
 
-    async def _fake_sleep(_s):
-        nonlocal call_count
-        call_count += 1
-        if call_count > 1:
-            raise WebSocketDisconnect
+    payload = asyncio.run(main_mod._build_tick_snapshot())
 
-    async def _allow_ws(_ws):
-        return None
-
-    with (
-        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
-        patch.object(main_mod._state, "add_ws_client", return_value=True),
-        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        patch("asyncio.sleep", side_effect=_fake_sleep),
-    ):
-        asyncio.run(main_mod.websocket_endpoint(ws))
-
-    sent = ws.send_text.call_args.args[0]
-    assert '"regime"' in sent
-    assert '"trending"' in sent
+    assert payload["regime"]["name"] == "trending"
+    assert payload["regime"]["prob_trending"] == 0.8
 
 
-def test_websocket_generic_exception_logged_not_raised(mock_state):
-    """Any non-WebSocketDisconnect exception inside the loop must be caught
-    and logged, not propagate out of the handler."""
+def test_a_failing_beat_does_not_kill_the_heartbeat_loop(mock_state):
+    """
+    The loop outlives a bad beat. It is now shared by every client rather than
+    owned by one, so an exception escaping it would take the whole server's
+    push path down instead of a single connection -- the blast radius of this
+    `except` grew with the rewrite, which is why it is pinned here.
+    """
     import src.api.main as main_mod
 
     fake_orch = MagicMock()
-    fake_executor = AsyncMock()
-    fake_executor.equity_usd = 1000.0
-    fake_executor.cash_usd = 500.0
-    fake_executor.open_positions_safe = AsyncMock(return_value=[])
-    fake_executor.pending_approvals_safe = AsyncMock(return_value=[])
-    fake_orch._executor = fake_executor
+    fake_orch._executor = _executor_stub()
     mock_state.orchestrator = fake_orch
     mock_state.storage.latest_regime = AsyncMock(side_effect=RuntimeError("db exploded"))
+    mock_state._ws_clients.add(_fake_ws())
 
-    ws = _fake_ws()
+    beats = 0
 
-    async def _allow_ws(_ws):
-        return None
+    async def _fake_sleep(_s):
+        # Two beats, then unwind the loop from inside its own await so the
+        # test never depends on wall-clock time (GOV-016).
+        nonlocal beats
+        beats += 1
+        if beats > 2:
+            raise asyncio.CancelledError
 
-    async def _one_sleep_then_ok(_s):
-        return None
+    with patch("asyncio.sleep", side_effect=_fake_sleep):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(main_mod._heartbeat_loop())
 
-    with (
-        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
-        patch.object(main_mod._state, "add_ws_client", return_value=True),
-        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        patch("asyncio.sleep", side_effect=_one_sleep_then_ok),
-    ):
-        # storage.latest_regime raising propagates out of the try body ->
-        # caught by `except Exception` -> handler returns normally.
-        asyncio.run(main_mod.websocket_endpoint(ws))
+    # It survived the first raising beat to attempt a second one.
+    assert beats == 3
 
 
 def test_websocket_capacity_rejected(mock_state):

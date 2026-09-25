@@ -58,19 +58,43 @@ body {
   color: #fff;
 }
 
+/* Scrollbars.
+   Previously 6px with a #2e2b31 thumb on a #0c0b0f surface — present in
+   the DOM but effectively invisible, so overflowing panels looked like
+   truncated ones and the hidden content was unreachable. Wider, with a
+   thumb that actually contrasts against the surface and a track that
+   marks the scrollable region. */
+/* Firefox only. In Chromium the standard scrollbar-* properties take
+   precedence over ::-webkit-scrollbar and silently cancel the sizing
+   below, so they must not apply there. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #5a5460 rgba(255, 255, 255, 0.04);
+  }
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2e2b31;
-  border-radius: 3px;
+  background: #5a5460;
+  border-radius: 5px;
+  /* Inset the thumb so it reads as a handle inside the track rather than
+     filling it edge to edge. */
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--c-claude);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .glass {
@@ -139,6 +163,16 @@ body {
   overflow: auto;
   padding: 12px;
   scrollbar-gutter: stable;
+  /* Long unbroken strings — halt reasons, stack traces, file paths, error
+     text from the API — used to run past the panel edge instead of
+     wrapping. `anywhere` rather than `break-word` so a single long token
+     with no break opportunity still wraps. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* Without this the body's default min-width (auto = content width)
+     lets a wide table stretch the panel instead of scrolling inside it.
+     .panel keeps its own min-width: 200px — that floor is deliberate. */
+  min-width: 0;
 }
 
 .resize-handle {
@@ -322,7 +356,16 @@ body {
   padding: 5px 8px;
   border-bottom: 1px solid rgba(38, 35, 41, 0.5);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  white-space: nowrap;
+  /* Was nowrap, which pushed long text cells (symbols, exit reasons)
+     off the panel edge. Normal wrapping breaks at spaces only, so a
+     price or timestamp still stays on one line — there is no break
+     opportunity inside one. */
+  white-space: normal;
+  /* Cancel the panel-body `anywhere` rule here: inside a table it would
+     break a number mid-digit, which is worse than overflowing. */
+  overflow-wrap: normal;
+  word-break: normal;
+  vertical-align: top;
 }
 .data-table tr:hover td {
   background: rgba(255,255,255,0.02);

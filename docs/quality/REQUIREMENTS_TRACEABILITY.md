@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 127 |
+| VERIFIED | 128 |
 | PARTIAL | 0 |
-| PLANNED | 0 |
+| PLANNED | 1 |
 | ACCEPTED GAP | 0 |
-| **Total** | **127** |
+| **Total** | **129** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 12 | 12 |
+| API and WebSocket | 14 | 13 |
 | Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -80,7 +80,7 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | — |
+| PR-007 | API/WebSocket Security | `REG-0017` |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
@@ -649,6 +649,21 @@ MarketDataFetcher.initialize() must open each venue independently, record an una
 
 ## API and WebSocket
 
+#### `INV-032` — GUI backpressure never reaches the trading loop
+
+**VERIFIED** · critical · invariant · source: OPS-2026-09-25
+
+Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.
+
+- **If violated:** A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.
+- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`
+- **Verification:**
+  - `tests/test_event_bus.py` (resilience)
+  - `tests/test_ws_broadcaster.py` (api) — The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market.
+  - `tests/test_event_bus_producers.py` (risk) — The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path.
+
+> Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events.
+
 #### `API-001` — The authorization matrix is executable and every cell is tested
 
 **VERIFIED** · critical · requirement · source: QE-19
@@ -796,6 +811,16 @@ A successful write through POST /controls/{name} must broadcast a control_change
   - `tests/test_venue_api.py` (api)
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
+
+#### `REG-0017` — A hook that takes a callback calls the latest one, not the first render's
+
+**PLANNED → PR-007** · medium · regression · source: OPS-2026-09-25
+
+usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
+
+- **If violated:** usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Verification:** none yet
 
 ## Cryptography and secrets
 
@@ -1673,4 +1698,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 127 entries.
+Registry version: 1.0.0 — 129 entries.

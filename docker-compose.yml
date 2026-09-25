@@ -1,0 +1,82 @@
+# Local operational stack: TimescaleDB + Trade-Bot API.
+#
+# StorageSettings.timescale_dsn defaults to a host on 127.0.0.1:5433. Inside
+# compose, containers reach the DB by service name (`timescaledb:5432`) — set
+# STORAGE_TIMESCALE_DSN in `.env` accordingly (see .env.example).
+#
+# Authoritative trading loop: the `api` service.
+#
+# `src/api/main.py`'s FastAPI lifespan unconditionally starts the
+# Orchestrator, so the API replica owns the trading loop. Running the
+# headless worker at the same time would produce a second loop trading
+# the same account against the same DB — disabled here on purpose.
+#
+# The worker service definition is kept below under the `worker` profile
+# so operators can opt in explicitly, e.g. to run the loop headlessly on
+# a separate host. Only ever run ONE of {api-with-loop, worker} at a time:
+#   * default `docker compose up`         → api only (loop lives in api).
+#   * `docker compose --profile worker up worker timescaledb`
+#                                          → worker only (loop headless);
+#                                            do NOT also start `api`
+#                                            until src/api/main.py grows
+#                                            a toggle to skip its own
+#                                            Orchestrator startup.
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.14.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tradebot
+      POSTGRES_PASSWORD: tradebot-local
+      POSTGRES_DB: tradebot
+    volumes:
+      - tsdb-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradebot -d tradebot"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Container must bind 0.0.0.0 so compose can expose the port.
+      # See src/api/main.py lifespan: the non-loopback bind is intentional
+      # here and must be paired with a TLS-terminating reverse proxy in prod.
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      STORAGE_BACKEND: timescale
+      STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@timescaledb:5432/tradebot
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  # Opt-in only. Never start with `api` — see header comment.
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      STORAGE_BACKEND: timescale
+      STORAGE_TIMESCALE_DSN: postgresql://tradebot:tradebot-local@timescaledb:5432/tradebot
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: ["python", "-m", "src.workers"]
+
+volumes:
+  tsdb-data:
