@@ -135,6 +135,13 @@ class TestTheRegistryHasAPlaceForDefects:
         # living behind that same lifespan, could not be asked. Nothing in
         # the suite bounded a training call, so only a hang in the wild
         # would have shown it.
+        # REG-0016: the tick's metrics snapshot was an inline dict calling
+        # len() on `open_positions`, which is a method while `equity_usd`
+        # beside it is a property. Python evaluates the dict in full before
+        # update_metrics() is reached, so the TypeError cost all eight gauges
+        # on every tick rather than one. The call site catches Exception and
+        # logs at warning by design, and Prometheus gives no feedback into
+        # the process, so an empty gauge looked exactly like a quiet market.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -146,6 +153,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0013",
             "REG-0014",
             "REG-0015",
+            "REG-0016",
         }
         assert {e.id for e in registry.by_kind("security_regression")} == set()
 
@@ -369,7 +377,10 @@ class TestTheMetricsCollector:
         # 8 -> 9 with REG-0015: an unbounded ensemble fit inside the startup
         # lifespan. The suite bounded no training call, so nothing but a hang
         # in the wild could have surfaced it -- test-suite, not review.
-        assert metric["value"] == {"test-suite": 9, "review": 1}
+        # 9 -> 10 with REG-0016: the tick metrics payload raised on a method
+        # treated as an attribute. No test built the payload, so only reading
+        # the per-tick warning would have shown it -- test-suite.
+        assert metric["value"] == {"test-suite": 10, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

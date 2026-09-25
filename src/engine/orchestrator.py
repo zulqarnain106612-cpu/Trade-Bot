@@ -122,6 +122,33 @@ def _blend_audit(result: SignalResult) -> BlendAudit | None:
     )
 
 
+def _metrics_payload(result: Any, executor: Any) -> dict[str, float | int]:
+    """
+    Build the Prometheus snapshot for one tick.
+
+    Extracted from `_tick_traced` so the payload can be tested directly. It
+    was inline, and the whole dict is evaluated before `update_metrics()` is
+    reached -- so one bad member did not cost one metric, it cost every
+    metric on every tick, for as long as nobody read the warning.
+
+    `open_positions` is a **method** on AbstractExecutor, not a property;
+    `equity_usd` beside it is a property. Calling one and not the other is
+    the mistake this function exists to keep in one place (REG-0016).
+    """
+    regime = result.regime
+    kelly = result.kelly_result
+    return {
+        "signal_score": float(result.p_long - (1.0 - result.p_long)),
+        "regime_state": regime.state if regime else 0,
+        "prob_ranging": regime.prob_ranging if regime else 0.0,
+        "prob_trending": regime.prob_trending if regime else 0.0,
+        "prob_volatile": regime.prob_volatile if regime else 0.0,
+        "kelly_fraction": kelly.adjusted_fraction if kelly else 0.0,
+        "equity_usd": executor.equity_usd if executor else 0.0,
+        "open_positions": len(executor.open_positions()) if executor else 0,
+    }
+
+
 #: REG-0015: wall-clock ceiling for one ensemble fit or save. train_ensemble()
 #: fits five models (ARIMA/XGBoost/LSTM/GP/TreeEnsemble) inside the FastAPI
 #: lifespan, so an unbounded one holds port 8000 closed indefinitely with no
@@ -1046,20 +1073,7 @@ class Orchestrator:
         # TASK-007: push metrics snapshot to Prometheus gauges/counters
         try:
             _executor = getattr(self, "_executor", None)
-            update_metrics(
-                {
-                    "signal_score": float(result.p_long - (1.0 - result.p_long)),
-                    "regime_state": result.regime.state if result.regime else 0,
-                    "prob_ranging": result.regime.prob_ranging if result.regime else 0.0,
-                    "prob_trending": result.regime.prob_trending if result.regime else 0.0,
-                    "prob_volatile": result.regime.prob_volatile if result.regime else 0.0,
-                    "kelly_fraction": result.kelly_result.adjusted_fraction
-                    if result.kelly_result
-                    else 0.0,
-                    "equity_usd": _executor.equity_usd if _executor else 0.0,
-                    "open_positions": len(_executor.open_positions) if _executor else 0,
-                }
-            )
+            update_metrics(_metrics_payload(result, _executor))
         except Exception as exc:
             # Metric failure must never affect the trade path -- but a silent
             # `pass` here would hide a real bug (e.g. a typo'd attribute)

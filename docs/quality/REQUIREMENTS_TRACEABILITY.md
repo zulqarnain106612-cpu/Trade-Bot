@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 124 |
+| VERIFIED | 125 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **124** |
+| **Total** | **125** |
 
 ## Summary by subsystem
 
@@ -61,7 +61,7 @@ deletion of the thing it points at.
 | Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
-| Models and leakage | 8 | 8 |
+| Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
 | Cryptography and secrets | 16 | 16 |
@@ -526,6 +526,19 @@ Orchestrator._train_models() bounds every ensemble fit and save with a finite ti
   - `tests/test_ensemble_train_timeout.py` (regression)
 
 > Pins the finite ceiling, the timeout firing on a wedged fit, the except-ordering the handler relies on, executor isolation from the training pool, and the non-waiting shutdown. layer: test-suite
+
+#### `REG-0016` — A single bad member silently voided every Prometheus metric
+
+**VERIFIED** · medium · regression · source: QE-54
+
+Orchestrator._metrics_payload() builds a complete metrics snapshot for every tick, calling open_positions() as the method it is and reading equity_usd as the property it is, so no member of the payload can abort construction of the rest.
+
+- **If violated:** The snapshot was an inline dict literal calling len(_executor.open_positions) on a bound method, raising TypeError. Python evaluates the dict in full before update_metrics() is reached, so the failure cost all eight gauges on every tick of every timeframe, not one. The call site catches Exception and logs at warning by design, and Prometheus gives no feedback into the process, so an empty gauge was indistinguishable from a quiet market.
+- **Owned by:** `src/engine/orchestrator.py`
+- **Verification:**
+  - `tests/regression/test_metrics_payload.py` (regression)
+
+> Pins payload completeness with and without an executor, the method-vs-property fact the bug turned on, and the original TypeError as a negative case. layer: test-suite
 
 ## Data, money and time
 
@@ -1636,4 +1649,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 124 entries.
+Registry version: 1.0.0 — 125 entries.
