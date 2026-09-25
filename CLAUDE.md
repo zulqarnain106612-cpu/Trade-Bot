@@ -252,6 +252,18 @@ Passing tests alone is insufficient if the wrong behavior was implemented.
 
 First always use desktop commander mcp server and its tools, if failed then follow below instructions.
 
+## Tool surface
+
+`.claude/settings.local.json` allows only these eight desktop-commander tools and denies every other tool, built-in or MCP:
+
+`read_file`, `list_directory`, `start_search`, `get_more_search_results`, `edit_block`, `write_file`, `start_process`, `read_process_output`
+
+They are the floor — read, list, search, page-search, edit, write, run, read-output. Removing any one stalls ordinary work.
+
+`permissions.allow` and `permissions.deny` are arrays of **strings** in permission-rule syntax: a tool name, optionally with an argument pattern such as `Bash(git *)`. Object entries are invalid and are ignored, and no key expresses a per-call line bound — rules match tool names, never argument values. The read bound lives in `config/command_policy.json`; desktop-commander's own reads are governed by its `fileReadLineLimit`.
+
+Because `Bash` is denied, all shell execution runs through `start_process`, and `.claude/hooks/pre_tool_use.py` — which matches `Bash` only — never fires. The line bound, the destructive-command refusal and the secret-echo refusal are unenforced in that configuration; enforcement rests on `common/shell_exec.run()` being used deliberately.
+
 `.claude/skills/programmatic-tool-calling/SKILL.md`
 
 Use one script under `scripts/`, importing only `orchestratable=True` functions from `tools/registry.py` via `registry.namespace()`, execute it once through bash, and return its printed digest rather than raw tool output.
