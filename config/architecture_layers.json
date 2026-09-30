@@ -1,4 +1,5 @@
 {
+  "_registry": "GOV-018 (config/quality_registry.json).",
   "_note": "The direction dependencies are allowed to run in src/. A package may import from its own layer or any layer below it, never above. Cycles between packages are the thing this prevents: scripts/check_static_invariants.py already refuses module-level cycles, but a package-level cycle hides behind submodule and deferred imports and shows up instead as two things that cannot be changed or tested apart. Edit this file to change the architecture, not to make a violation go away.",
   "layers": [
     {
@@ -73,11 +74,6 @@
       "from": "diagnostics",
       "to": "features",
       "why": "Diagnostics reaches up into feature code to describe what a feature computed. The description belongs with the feature, not with the reporter."
-    },
-    {
-      "from": "engine",
-      "to": "api",
-      "why": "The orchestrator imports transport types. Half of the api<->engine package cycle."
     },
     {
       "from": "intelligence",

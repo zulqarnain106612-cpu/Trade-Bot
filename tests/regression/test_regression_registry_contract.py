@@ -112,6 +112,48 @@ class TestTheRegistryHasAPlaceForDefects:
         # REG-0011: the same scaffolder reported success against the JSON
         # schema while the gate validates with the loader, so it printed
         # "[ok  ] added SEC-0001" for an entry the loader then refused.
+        # REG-0012: GOV-015 pinned the CPU torch index for every workflow that
+        # installs torch, and its test globs .github/workflows. The Dockerfile
+        # installs "-r requirements.txt" and never names torch, so the largest
+        # torch install in the repository sat outside both the rule's wording
+        # and its test until the container job died on "No space left on
+        # device".
+        # REG-0013: scripts/timescaledb.sh was named from six call sites --
+        # the README, two src/ comments and the skip message all 92
+        # TimescaleDB tests printed -- and was not in the repository, so the
+        # backend reported green by absence and the instruction the reader
+        # was given could not be followed.
+        # REG-0014: initialize() loaded both exchange venues in one unisolated
+        # sequence, so Binance answering 451 from a restricted location aborted
+        # startup entirely and stopped OKX strategies that never touched
+        # Binance -- and recovery meant restarting the process.
+        # REG-0015: the same shape as REG-0014 one layer further in. The
+        # ensemble fit was submitted to the shared single-worker training
+        # executor with no timeout, guarded only by `except Exception` --
+        # which cannot catch a hang. A wedged fit held the FastAPI lifespan
+        # open forever, so port 8000 never opened and the health endpoint,
+        # living behind that same lifespan, could not be asked. Nothing in
+        # the suite bounded a training call, so only a hang in the wild
+        # would have shown it.
+        # REG-0016: the tick's metrics snapshot was an inline dict calling
+        # len() on `open_positions`, which is a method while `equity_usd`
+        # beside it is a property. Python evaluates the dict in full before
+        # update_metrics() is reached, so the TypeError cost all eight gauges
+        # on every tick rather than one. The call site catches Exception and
+        # logs at warning by design, and Prometheus gives no feedback into
+        # the process, so an empty gauge looked exactly like a quiet market.
+        # REG-0017: LAW12 matched the token `DH` rather than a cipher suite,
+        # under `re.IGNORECASE` and with no left boundary. It therefore
+        # reported `DHE` and `ECDHE` -- the ephemeral, forward-secret
+        # exchanges -- as "Non-PFS", and fired on any word ending in "dh",
+        # including a lowercase scheme name in a lookup table. The rule had
+        # no test of its own, so the first thing able to tell a true positive
+        # from a false one was a PR tripping it.
+        # REG-0018: the CI notice counted a cancelled job as a failing one,
+        # so a commit replaced by a newer push reported its successor's
+        # cancellations as its own failures. This workflow is the only
+        # channel permitted for CI failure information, and its
+        # classification had no test.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -119,8 +161,22 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0009",
             "REG-0010",
             "REG-0011",
+            "REG-0012",
+            "REG-0013",
+            "REG-0014",
+            "REG-0015",
+            "REG-0016",
+            "REG-0017",
+            "REG-0018",
         }
-        assert {e.id for e in registry.by_kind("security_regression")} == set()
+        # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
+        # name and nothing else -- so `.env.bak.<timestamp>` from a
+        # backup-before-edit, `.env.local` and `.env.save` were all
+        # committable while holding the same API_SECRET_KEY and
+        # OPERATOR_SECRET. The secret scanners read committed content, and
+        # these files were never committed, so nothing upstream of a commit
+        # could have seen it.
+        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005"}
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -339,7 +395,21 @@ class TestTheMetricsCollector:
         metric = collector.collect()["metrics"]["escaped_defects_by_layer"]
         assert metric["status"] == "ok"
         assert "unknown" not in metric["value"]
-        assert metric["value"] == {"test-suite": 5, "review": 1}
+        # 8 -> 9 with REG-0015: an unbounded ensemble fit inside the startup
+        # lifespan. The suite bounded no training call, so nothing but a hang
+        # in the wild could have surfaced it -- test-suite, not review.
+        # 9 -> 10 with REG-0016: the tick metrics payload raised on a method
+        # treated as an attribute. No test built the payload, so only reading
+        # the per-tick warning would have shown it -- test-suite.
+        # 10 -> 11 with SEC-0005: a bare `.env` pattern left every backup of
+        # it committable. Scanners read committed content and these were
+        # never committed, so only a suite check could have seen it.
+        # REG-0017: the LAW12 rule had no test of its own, so nothing could
+        # separate a true positive from a false one -- test-suite.
+        # REG-0018: the notice classification had no test, so the
+        # over-report was visible only to a reader who already knew which
+        # jobs were superseded -- test-suite.
+        assert metric["value"] == {"test-suite": 13, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
