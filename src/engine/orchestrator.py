@@ -30,7 +30,6 @@ from typing import Any, cast
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
 
-from src.api.metrics import update_metrics
 from src.config import (
     EXCHANGE_BINANCE,
     EXCHANGE_OKX,
@@ -50,6 +49,7 @@ from src.data.storage import (
     ModelMetricsRecord,
     RegimeSnapshotRecord,
 )
+from src.diagnostics.metrics import update_metrics
 from src.diagnostics.runtime_monitor import get_monitor
 from src.diagnostics.signal_debugger import (
     run_pipeline_selftest,

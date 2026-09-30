@@ -36,13 +36,13 @@ import pandas as pd
 import structlog
 from xgboost import XGBClassifier
 
-from src.api.metrics import regime_ensemble_failure_total
 from src.config import REGIME_VOLATILE, TIMEFRAME_SECONDS, Settings, Timeframe, get_settings
 from src.data.fetcher import MarketDataFetcher
 from src.data.quality_gate import DataQualityGate, FreshnessBudget
 from src.data.storage import AnyStorageBackend, ModelMetricsRecord
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.decision_log_writer import StructuralChangeRecord, append_to_decision_log
+from src.diagnostics.metrics import regime_ensemble_failure_total
 from src.diagnostics.signal_debugger import get_degradation_tracker, get_drift_monitor
 from src.diagnostics.trade_auditor import AuditRecord, get_auditor
 from src.features.pipeline import (

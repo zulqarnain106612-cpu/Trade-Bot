@@ -76,11 +76,6 @@
       "why": "Diagnostics reaches up into feature code to describe what a feature computed. The description belongs with the feature, not with the reporter."
     },
     {
-      "from": "engine",
-      "to": "api",
-      "why": "The orchestrator imports transport types. Half of the api<->engine package cycle."
-    },
-    {
       "from": "strategies",
       "to": "engine",
       "why": "A strategy reaching back into the thing that runs it. Half of the engine<->strategies package cycle."

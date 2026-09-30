@@ -3196,6 +3196,111 @@
       "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
     },
     {
+      "id": "SECR-017",
+      "kind": "requirement",
+      "title": "A post-quantum symmetric margin is reported with the caveat that makes it conservative",
+      "statement": "assess_symmetric returns the sequential-depth figure alongside the halved effective strength, so the halving cannot be quoted without the assumption it rests on, and weakest_link answers the suite-level question deterministically. The dataclass fields carrying the caveat are asserted structurally.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "A post-quantum readiness claim that is either alarmist or complacent with no way for a reader to tell which they were given. Reported alone, the halving reads as 'AES-128 is broken', which NIST IR 8547 does not say -- the bound assumes one coherent machine running 2**64 successive error-corrected operations and Grover parallelises badly. The converse failure is the entry's stated risk: migrating asymmetric primitives while leaving 128-bit symmetric keys in place, which is invisible while each primitive is examined alone.",
+      "owning_modules": [
+        "src/mathcore/quantum/grover.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_quantum_margins.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SECR-018",
+      "kind": "requirement",
+      "title": "Quantum exposure is computed from declared assumptions, never from invented constants",
+      "statement": "is_broken_by_shor classifies by hard problem and treats an unknown scheme name as broken, migration_verdict implements Mosca's X+Y>Z with years_until_capable_machine keyword-only and undefaulted, and the module contains no resource estimate and no module-level year constant. All three absences are asserted by tests rather than described.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Two ways to produce a confident migration plan resting on nothing. A transcribed logical-qubit or Toffoli-depth figure is model-dependent and uncheckable here -- there is no machine and a simulator says nothing about a 256-bit curve -- which is the fabricated-constant class this repository has shipped three times. A defaulted arrival year is worse: it lets a caller obtain a verdict without ever deciding what they believe, and the assumption then stops being questioned. Separately, an unclassified scheme name silently passing an audit would report a clean suite while a forgotten asymmetric primitive stays deployed.",
+      "owning_modules": [
+        "src/mathcore/quantum/shor.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_quantum_margins.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "GOV-030",
+      "kind": "requirement",
+      "title": "engine does not import api",
+      "statement": "src/engine/ must not import from src.api. The Prometheus metrics module is observability -- it moved to src/diagnostics/metrics.py (io layer), and both the api HTTP handler and engine internals import it downward.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.api.* in src/engine/, silently reviving the engine->api package edge.",
+      "owning_modules": [
+        "src/diagnostics/metrics.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "REG-0017",
+      "kind": "regression",
+      "title": "LAW12 flags cipher suites without forward secrecy, not the token DH",
+      "statement": "The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and export-grade suites by their suite construction. It does not match DHE or ECDHE, and does not match a lowercase scheme name or the letters DH inside prose under re.IGNORECASE.",
+      "criticality": "medium",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "The rule inverted itself: DHE and ECDHE are the ephemeral exchanges that provide forward secrecy, so the recommended suites were reported as 'Non-PFS', while the absent left boundary plus re.IGNORECASE fired on any word ending in 'dh' -- a lookup-table key or the word ECDH in a sentence. A false HIGH is not harmless: it is baselined, and the suppression then hides the real finding that file later grows, or it trains a reviewer to read LAW12 as noise. One such suppression (src/mathcore/numbertheory/safe_primes.py) already existed and is removed by this change.",
+      "owning_modules": [
+        ".claude/skills/crypto-architect/scripts/validate_arch.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_law12_cipher_suite_pattern.py",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": [],
+      "notes": "The rule shipped with no test of its own, so nothing could tell a true positive from a false one until a PR tripped it. The test added with this entry is that missing check. layer: test-suite"
+    },
+    {
+      "id": "REG-0018",
+      "kind": "regression",
+      "title": "A cancelled job is not counted as a failing job in the CI notice",
+      "statement": "ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.",
+      "criticality": "medium",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_notice_supersession.py",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": [],
+      "notes": "The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite"
+    },
+    {
       "id": "GOV-023",
       "kind": "requirement",
       "title": "intelligence stays within its layer",

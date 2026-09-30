@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 127 |
+| VERIFIED | 132 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **127** |
+| **Total** | **132** |
 
 ## Summary by subsystem
 
@@ -64,11 +64,11 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 17 | 17 |
+| Cryptography and secrets | 20 | 20 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 9 | 9 |
-| Governance | 30 | 30 |
+| Release and production | 10 | 10 |
+| Governance | 31 | 31 |
 
 ## Outstanding work by phase
 
@@ -985,6 +985,41 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
 
+#### `SECR-017` — A post-quantum symmetric margin is reported with the caveat that makes it conservative
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+assess_symmetric returns the sequential-depth figure alongside the halved effective strength, so the halving cannot be quoted without the assumption it rests on, and weakest_link answers the suite-level question deterministically. The dataclass fields carrying the caveat are asserted structurally.
+
+- **If violated:** A post-quantum readiness claim that is either alarmist or complacent with no way for a reader to tell which they were given. Reported alone, the halving reads as 'AES-128 is broken', which NIST IR 8547 does not say -- the bound assumes one coherent machine running 2**64 successive error-corrected operations and Grover parallelises badly. The converse failure is the entry's stated risk: migrating asymmetric primitives while leaving 128-bit symmetric keys in place, which is invisible while each primitive is examined alone.
+- **Owned by:** `src/mathcore/quantum/grover.py`
+- **Verification:**
+  - `tests/test_quantum_margins.py` (security)
+
+#### `SECR-018` — Quantum exposure is computed from declared assumptions, never from invented constants
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+is_broken_by_shor classifies by hard problem and treats an unknown scheme name as broken, migration_verdict implements Mosca's X+Y>Z with years_until_capable_machine keyword-only and undefaulted, and the module contains no resource estimate and no module-level year constant. All three absences are asserted by tests rather than described.
+
+- **If violated:** Two ways to produce a confident migration plan resting on nothing. A transcribed logical-qubit or Toffoli-depth figure is model-dependent and uncheckable here -- there is no machine and a simulator says nothing about a 256-bit curve -- which is the fabricated-constant class this repository has shipped three times. A defaulted arrival year is worse: it lets a caller obtain a verdict without ever deciding what they believe, and the assumption then stops being questioned. Separately, an unclassified scheme name silently passing an audit would report a clean suite while a forgotten asymmetric primitive stays deployed.
+- **Owned by:** `src/mathcore/quantum/shor.py`
+- **Verification:**
+  - `tests/test_quantum_margins.py` (security)
+
+#### `REG-0017` — LAW12 flags cipher suites without forward secrecy, not the token DH
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and export-grade suites by their suite construction. It does not match DHE or ECDHE, and does not match a lowercase scheme name or the letters DH inside prose under re.IGNORECASE.
+
+- **If violated:** The rule inverted itself: DHE and ECDHE are the ephemeral exchanges that provide forward secrecy, so the recommended suites were reported as 'Non-PFS', while the absent left boundary plus re.IGNORECASE fired on any word ending in 'dh' -- a lookup-table key or the word ECDH in a sentence. A false HIGH is not harmless: it is baselined, and the suppression then hides the real finding that file later grows, or it trains a reviewer to read LAW12 as noise. One such suppression (src/mathcore/numbertheory/safe_primes.py) already existed and is removed by this change.
+- **Owned by:** `.claude/skills/crypto-architect/scripts/validate_arch.py`
+- **Verification:**
+  - `tests/test_law12_cipher_suite_pattern.py` (regression)
+
+> The rule shipped with no test of its own, so nothing could tell a true positive from a false one until a PR tripped it. The test added with this entry is that missing check. layer: test-suite
+
 #### `SEC-0005` — A file holding real credentials is never committable
 
 **VERIFIED** · high · security_regression · source: QE-51
@@ -1276,6 +1311,19 @@ The production workflow can return to the previous trusted artifact, and a drill
 - **Verification:**
   - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
+#### `REG-0018` — A cancelled job is not counted as a failing job in the CI notice
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.
+
+- **If violated:** This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_notice_supersession.py` (regression)
+
+> The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -1562,6 +1610,17 @@ When no open pull request is behind, the oldest conflicted non-draft pull reques
 - **Verification:**
   - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate.
 
+#### `GOV-030` — engine does not import api
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/engine/ must not import from src.api. The Prometheus metrics module is observability -- it moved to src/diagnostics/metrics.py (io layer), and both the api HTTP handler and engine internals import it downward.
+
+- **If violated:** A future edit reintroduces an import of src.api.* in src/engine/, silently reviving the engine->api package edge.
+- **Owned by:** `src/diagnostics/metrics.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1673,4 +1732,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 127 entries.
+Registry version: 1.0.0 — 132 entries.
