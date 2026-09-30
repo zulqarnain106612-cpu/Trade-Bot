@@ -813,10 +813,10 @@ A successful write through POST /controls/{name} must broadcast a control_change
 
 **VERIFIED** · medium · requirement · source: OPS-2026-09-30
 
-src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available.
+src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available. The kill switch publishes RISK on an auto-disable, after the state change, so the RISK topic /ws subscribes to has a producer rather than being a socket parked on silence.
 
 - **If violated:** Every GUI surface stays floored by its own timer period: /ws sleeps for the heartbeat before building a snapshot, so a fill landing one millisecond after a tick is invisible for the rest of the period, and raising the tick rate buys latency with load without removing the floor. A topic spelled as a literal rather than a constant fails the other way -- the publisher reports zero subscribers and the panel simply never updates, which on screen is indistinguishable from a quiet market.
-- **Owned by:** `src/eventbus/bus.py`, `src/eventbus/topics.py`, `src/api/main.py`
+- **Owned by:** `src/eventbus/bus.py`, `src/eventbus/topics.py`, `src/api/main.py`, `src/risk/strategy_kill_switch.py`
 - **Verification:**
   - `tests/test_event_bus.py` (component)
   - `tests/test_ws_event_wakeup.py` (contract)

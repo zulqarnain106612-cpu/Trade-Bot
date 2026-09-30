@@ -80,3 +80,23 @@ def test_both_executors_publish_after_persisting_equity(module: str) -> None:
     publish = source.index("get_event_bus().publish(")
     assert insert < publish, "publish must follow the persisted snapshot"
     assert "PORTFOLIO," in source[publish : publish + 200]
+
+
+def test_the_risk_topic_has_a_producer() -> None:
+    """
+    /ws subscribes to RISK, so a RISK topic nobody publishes is a socket
+    parked on silence -- the same dead-in-production shape as
+    src/data/orderbook_stream.py, and the reason kill-switch trips were
+    one of the two things the dashboard never saw at all.
+
+    The publish must follow the state change: a consumer must not be able
+    to observe the trip before capital has been pulled.
+    """
+    import importlib
+
+    source = inspect.getsource(importlib.import_module("src.risk.strategy_kill_switch"))
+    disabled = source.index("state.enabled = False")
+    publish = source.index("get_event_bus().publish(")
+    assert disabled < publish, "publish must follow the disable"
+    assert "RISK," in source[publish : publish + 120]
+    assert '"event": "strategy_disabled"' in source[publish : publish + 300]

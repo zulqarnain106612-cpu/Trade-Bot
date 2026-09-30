@@ -3220,7 +3220,7 @@
       "id": "GOV-032",
       "kind": "requirement",
       "title": "The GUI transport has a push path that is not a timer",
-      "statement": "src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available.",
+      "statement": "src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available. The kill switch publishes RISK on an auto-disable, after the state change, so the RISK topic /ws subscribes to has a producer rather than being a socket parked on silence.",
       "criticality": "medium",
       "subsystem": "api",
       "status": "verified",
@@ -3229,7 +3229,8 @@
       "owning_modules": [
         "src/eventbus/bus.py",
         "src/eventbus/topics.py",
-        "src/api/main.py"
+        "src/api/main.py",
+        "src/risk/strategy_kill_switch.py"
       ],
       "verification": [
         {
