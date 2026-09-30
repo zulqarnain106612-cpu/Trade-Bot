@@ -3321,6 +3321,27 @@
       "notes": "The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite"
     },
     {
+      "id": "SEC-0006",
+      "kind": "security_regression",
+      "title": "The runtime manifest never resolves a vulnerable urllib3",
+      "statement": "requirements.txt declares urllib3>=2.8.0 and caps ccxt below 4.5.65, so pip cannot resolve urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97688, CVE-2026-97689).",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-54",
+      "failure_mode": "urllib3 was only a transitive dependency. Every ccxt from 4.5.65 to 4.5.84 pins urllib3==2.7.0 exactly, so pip chose the newest ccxt and the vulnerable urllib3 with it; the pip-audit job failed and every PR's Security gate went red.",
+      "owning_modules": [
+        "requirements.txt"
+      ],
+      "verification": [
+        {
+          "test": "tests/security/test_urllib3_cve_floor.py",
+          "test_type": "security"
+        }
+      ],
+      "notes": "Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite"
+    },
+    {
       "id": "GOV-036",
       "kind": "requirement",
       "title": "Claude never runs unattended on the owner's plan",
