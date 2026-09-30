@@ -15,12 +15,12 @@ import pytest
 
 from src.eventbus import (
     DEFAULT_MAXSIZE,
+    EVENT_BUS,
     PORTFOLIO,
     RISK,
     Event,
     EventBus,
     get_event_bus,
-    set_event_bus,
 )
 from src.eventbus import topics as T
 
@@ -395,17 +395,32 @@ async def test_risk_events_wake_the_socket_too(bus: EventBus) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_get_event_bus_is_a_singleton_and_resettable() -> None:
-    set_event_bus(None)
-    try:
-        first = get_event_bus()
-        assert get_event_bus() is first
+def test_get_event_bus_returns_one_shared_instance() -> None:
+    """
+    Bound at import, so there is no window in which two callers each build
+    a bus and then talk past each other -- a producer publishing into one
+    while the consumer is parked on the other.
+    """
+    assert get_event_bus() is get_event_bus() is EVENT_BUS
 
-        first.close()
-        assert get_event_bus() is not first  # a closed bus is replaced
 
-        installed = EventBus()
-        set_event_bus(installed)
-        assert get_event_bus() is installed
-    finally:
-        set_event_bus(None)
+def test_the_application_bus_is_open_and_stays_open() -> None:
+    """
+    Nothing closes the process-wide bus: closing it would end every
+    consumer's iteration with no way to reopen it. Tests that need
+    isolation build their own EventBus, as every test above does.
+    """
+    assert not EVENT_BUS.closed
+
+
+def test_the_module_exposes_no_way_to_rebind_the_bus() -> None:
+    """
+    LAW2: a setter is a `global` rebinding by another name, and a bus
+    swapped mid-flight strands every subscriber already parked on the old
+    one. The accessor is read-only by construction.
+    """
+    import src.eventbus as pkg
+    import src.eventbus.bus as bus_module
+
+    assert not hasattr(bus_module, "set_event_bus")
+    assert not hasattr(pkg, "set_event_bus")

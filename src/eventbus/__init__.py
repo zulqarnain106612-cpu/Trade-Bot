@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from .bus import (
     DEFAULT_MAXSIZE,
+    EVENT_BUS,
     Event,
     EventBus,
     Subscription,
     get_event_bus,
-    set_event_bus,
 )
 from .topics import ALL, APPROVALS, KNOWN_TOPICS, ORDERS, PORTFOLIO, REGIME, RISK
 
@@ -21,9 +21,9 @@ __all__ = [
     "PORTFOLIO",
     "REGIME",
     "RISK",
+    "EVENT_BUS",
     "Event",
     "EventBus",
     "Subscription",
     "get_event_bus",
-    "set_event_bus",
 ]

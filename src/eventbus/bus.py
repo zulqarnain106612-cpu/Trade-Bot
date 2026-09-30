@@ -284,25 +284,31 @@ class EventBus:
         }
 
 
-_bus: EventBus | None = None
+#: The application-wide bus.
+#:
+#: Bound once at import and never rebound. The lazy-singleton spelling --
+#: a module global reassigned by ``get_event_bus()`` under a ``global``
+#: statement -- is the shared-mutable-global race LAW2 names: two callers
+#: reaching the ``is None`` check before either assigns each get their own
+#: bus, and the producer then publishes into one while the consumer is
+#: parked on the other. Binding at import removes the window rather than
+#: narrowing it, and costs nothing: the constructor allocates a list and
+#: an int, touches no event loop, and holds no resource worth deferring.
+#:
+#: It is deliberately never closed. Closing the process-wide bus would end
+#: every consumer's iteration with no way to reopen it, which is a
+#: shutdown concern the application does not have and a footgun it does
+#: not need. Tests that need isolation construct their own ``EventBus``.
+EVENT_BUS: Final[EventBus] = EventBus()
 
 
 def get_event_bus() -> EventBus:
     """
-    The application-wide bus, created on first use.
+    Return the application-wide bus.
 
-    A module-level accessor rather than a constructor argument threaded
-    through every producer: the alternative is an optional parameter on
-    each call site, and an optional bus is one that is ``None`` in
-    production the first time somebody forgets to pass it.
+    An accessor rather than a constructor argument threaded through every
+    producer: the alternative is an optional parameter on each call site,
+    and an optional bus is one that is ``None`` in production the first
+    time somebody forgets to pass it.
     """
-    global _bus
-    if _bus is None or _bus.closed:
-        _bus = EventBus()
-    return _bus
-
-
-def set_event_bus(bus: EventBus | None) -> None:
-    """Install a bus (tests, or an application wiring its own). ``None`` resets."""
-    global _bus
-    _bus = bus
+    return EVENT_BUS
