@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 130 |
+| VERIFIED | 131 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **130** |
+| **Total** | **131** |
 
 ## Summary by subsystem
 
@@ -67,7 +67,7 @@ deletion of the thing it points at.
 | Cryptography and secrets | 20 | 20 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 9 | 9 |
+| Release and production | 10 | 10 |
 | Governance | 30 | 30 |
 
 ## Outstanding work by phase
@@ -1311,6 +1311,19 @@ The production workflow can return to the previous trusted artifact, and a drill
 - **Verification:**
   - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
+#### `REG-0018` — A cancelled job is not counted as a failing job in the CI notice
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.
+
+- **If violated:** This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_notice_supersession.py` (regression)
+
+> The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -1708,4 +1721,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 130 entries.
+Registry version: 1.0.0 — 131 entries.

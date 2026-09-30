@@ -149,6 +149,11 @@ class TestTheRegistryHasAPlaceForDefects:
         # including a lowercase scheme name in a lookup table. The rule had
         # no test of its own, so the first thing able to tell a true positive
         # from a false one was a PR tripping it.
+        # REG-0018: the CI notice counted a cancelled job as a failing one,
+        # so a commit replaced by a newer push reported its successor's
+        # cancellations as its own failures. This workflow is the only
+        # channel permitted for CI failure information, and its
+        # classification had no test.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -162,6 +167,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0015",
             "REG-0016",
             "REG-0017",
+            "REG-0018",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -400,7 +406,10 @@ class TestTheMetricsCollector:
         # never committed, so only a suite check could have seen it.
         # REG-0017: the LAW12 rule had no test of its own, so nothing could
         # separate a true positive from a false one -- test-suite.
-        assert metric["value"] == {"test-suite": 12, "review": 1}
+        # REG-0018: the notice classification had no test, so the
+        # over-report was visible only to a reader who already knew which
+        # jobs were superseded -- test-suite.
+        assert metric["value"] == {"test-suite": 13, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

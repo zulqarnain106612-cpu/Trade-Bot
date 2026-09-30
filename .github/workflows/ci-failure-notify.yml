@@ -156,6 +156,11 @@ jobs:
               /^The (job|operation) was canceled/i,
               /^Error: Process completed/i,
               /^##\[error\]Process completed with exit code/i,
+              // A run replaced by a newer commit on the same ref, and the
+              // upload step that then finds nothing to upload. Both describe
+              // the cancellation, not a defect in the commit.
+              /^Canceling since a higher priority waiting request/i,
+              /^No files were found with the provided path:/i,
             ];
             const isNoise = (line) => NOISE.some(re => re.test(line));
 
@@ -235,12 +240,29 @@ jobs:
             const body = [];
             body.push(marker);
 
-            if (failing.length === 0) {
+            // A cancelled job reached no verdict. Counting it as "not green"
+            // inflates every notice posted for a commit that a newer push
+            // replaced -- the eleven-job notice this rule exists to prevent
+            // was two real failures and nine runs cancelled by their own
+            // successor. Cancellations are partitioned out of the count and
+            // named once at the end, because they are also never evidence of
+            // green: a commit whose jobs were cancelled proved nothing.
+            const cancelled = failing.filter(f => f.job.conclusion === 'cancelled');
+            const failures = failing.filter(f => f.job.conclusion !== 'cancelled');
+            const cancelledNote = cancelled.length
+              ? `_${cancelled.length} job(s) cancelled — superseded by a newer commit, no verdict_`
+              : null;
+
+            if (failures.length === 0 && cancelled.length === 0) {
               body.push(`### CI \`${short}\` — all checks green`);
-            } else {
-              body.push(`### CI \`${short}\` — ${failing.length} not green`);
+            } else if (failures.length === 0) {
+              body.push(`### CI \`${short}\` — no verdict`);
               body.push('');
-              for (const { workflow, job } of failing.slice(0, MAX_JOBS)) {
+              body.push(cancelledNote);
+            } else {
+              body.push(`### CI \`${short}\` — ${failures.length} not green`);
+              body.push('');
+              for (const { workflow, job } of failures.slice(0, MAX_JOBS)) {
                 const step = (job.steps || []).find(
                   s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
                 const where = step ? ` · \`${step.name}\`` : '';
@@ -252,9 +274,10 @@ jobs:
                   body.push('```');
                 }
               }
-              if (failing.length > MAX_JOBS) {
-                body.push(`_and ${failing.length - MAX_JOBS} more not green_`);
+              if (failures.length > MAX_JOBS) {
+                body.push(`_and ${failures.length - MAX_JOBS} more not green_`);
               }
+              if (cancelledNote) body.push(cancelledNote);
             }
             // Rule 2 ends the comment here. No footer, no advice, no links to
             // a log nobody is allowed to open.
