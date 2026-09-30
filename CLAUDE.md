@@ -341,7 +341,7 @@ Required behavior:
 
 Read the latest notice comment. If it is insufficient, fix the notice mechanism rather than accessing logs.
 
-Waiting for merge follows the same rule: return later and read comments; never poll or monitor.
+Waiting for merge follows the same rule: stop and let the owner return; never poll, monitor, or schedule a wake-up (GOV-036).
 
 ---
 
@@ -593,21 +593,21 @@ Rules:
 
 * Every new job must be added to the gate's `needs:`; `tests/test_assert_jobs_green.py` requires exact set equality.
 * Never remove `if: always()`.
-* Current exception: `retrieve-context` on fork PRs.
 * Branch protection requires the gates, not individual jobs.
 
 See `docs/REQUIRED_CHECKS.md`.
 
 ---
 
-# 19. Cloud Review — Component 5
+# 19. No Unattended Claude — GOV-036
 
-Every PR is automatically reviewed by:
+The Claude cloud review workflow was removed. Claude runs only in sessions the
+owner starts and can see.
 
-`.github/workflows/claude-review.yml`
+* No GitHub workflow may invoke Claude (claude-code-action,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `claude -p`).
+* Sessions must not schedule wake-ups, reminders, crons or routines, and must
+  not subscribe to PR activity. `.claude/settings.json` denies those tools.
+* To wait on CI, stop and let the owner come back; never arm a re-check.
 
-Review uses MongoDB Atlas RAG + knowledge-graph retrieval through `review/retrieval.py`, including vector, full-text, hybrid, and graph retrieval.
-
-The review is **advisory only** and never approves or merges.
-
-Setup and GitHub App/secret requirements: `docs/CLOUD_REVIEW.md`.
+`tests/test_no_claude_automation.py` enforces both rules.

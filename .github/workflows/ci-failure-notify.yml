@@ -37,7 +37,6 @@ on:
       - "CI"
       - "CodeQL"
       - "Workflow lint"
-      - "Claude Cloud Review (RAG + Knowledge Graph retrieval)"
       - "Security"
     types: [completed]
 
@@ -79,7 +78,6 @@ jobs:
               'CI',
               'CodeQL',
               'Workflow lint',
-              'Claude Cloud Review (RAG + Knowledge Graph retrieval)',
               'Security',
             ];
 
