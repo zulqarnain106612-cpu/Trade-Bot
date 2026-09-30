@@ -3215,6 +3215,52 @@
         }
       ],
       "depends_on": []
+    },
+    {
+      "id": "GOV-035",
+      "kind": "requirement",
+      "title": "Frontend behaviour is decided by a test, not only by the build",
+      "statement": "frontend/ runs vitest under jsdom, and `npm test` is a step of the gated `frontend` job in ci.yml. Tests live beside the module they decide and may not reach the network.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "`npm run build` was the only frontend gate, and a build proves nothing about lifecycle: a socket that reconnects after unmount, a retry that never cancels, a handler that routes the wrong frame to the wrong callback all compile perfectly. Every defect of that class reached whoever had the dashboard open, and the registry could not name a deciding test for any frontend requirement because no runner existed to hold one.",
+      "owning_modules": [
+        "frontend/vitest.config.js",
+        ".github/workflows/ci.yml"
+      ],
+      "verification": [
+        {
+          "test": "frontend/src/hooks/useApi.test.js",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "REG-0019",
+      "kind": "regression",
+      "title": "The dashboard socket does not reconnect after unmount, and backs off with jitter",
+      "statement": "useWebSocket marks itself disposed and clears any pending retry in its effect cleanup, so a close it caused never schedules a reconnect. Retries use exponential backoff with full jitter drawn from [0, backoff), capped at RECONNECT_CAP_MS, and the attempt counter resets when a connection opens.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "Two defects in one handler. The cleanup closed the socket, which fired onclose, which scheduled another connect -- so every unmount left a reconnect loop running against a component that no longer existed, and React 18 StrictMode starts one on the first mount in dev. Separately the delay was a flat 3s with no jitter, so every open dashboard retried in lockstep and an API that had just come back up met the whole fleet at once, every three seconds, for as long as it stayed unhealthy.",
+      "notes": "Neither defect is visible to a build, and there was no frontend test runner to hold the check that would have caught them. layer: test-suite",
+      "owning_modules": [
+        "frontend/src/hooks/useApi.js"
+      ],
+      "verification": [
+        {
+          "test": "frontend/src/hooks/useApi.test.js",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": [
+        "GOV-035"
+      ]
     }
   ]
 }

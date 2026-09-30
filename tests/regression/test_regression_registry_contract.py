@@ -142,6 +142,11 @@ class TestTheRegistryHasAPlaceForDefects:
         # on every tick rather than one. The call site catches Exception and
         # logs at warning by design, and Prometheus gives no feedback into
         # the process, so an empty gauge looked exactly like a quiet market.
+        # REG-0019: the dashboard's socket reconnected after unmount --
+        # cleanup closed it, the close handler scheduled a retry, and the
+        # loop outlived the component -- and retried on a flat 3s with no
+        # jitter, so the whole fleet hit a recovering API together. Neither
+        # is visible to a build, and there was no frontend test runner.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -154,6 +159,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0014",
             "REG-0015",
             "REG-0016",
+            "REG-0019",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -390,7 +396,9 @@ class TestTheMetricsCollector:
         # 10 -> 11 with SEC-0005: a bare `.env` pattern left every backup of
         # it committable. Scanners read committed content and these were
         # never committed, so only a suite check could have seen it.
-        assert metric["value"] == {"test-suite": 11, "review": 1}
+        # REG-0019: no frontend runner existed to hold the check that
+        # would have caught either defect -- test-suite.
+        assert metric["value"] == {"test-suite": 12, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

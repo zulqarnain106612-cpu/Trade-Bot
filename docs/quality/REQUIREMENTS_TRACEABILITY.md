@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 127 |
+| VERIFIED | 129 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **127** |
+| **Total** | **129** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 12 | 12 |
+| API and WebSocket | 14 | 14 |
 | Cryptography and secrets | 17 | 17 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -796,6 +796,31 @@ A successful write through POST /controls/{name} must broadcast a control_change
   - `tests/test_venue_api.py` (api)
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
+
+#### `GOV-035` — Frontend behaviour is decided by a test, not only by the build
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-30
+
+frontend/ runs vitest under jsdom, and `npm test` is a step of the gated `frontend` job in ci.yml. Tests live beside the module they decide and may not reach the network.
+
+- **If violated:** `npm run build` was the only frontend gate, and a build proves nothing about lifecycle: a socket that reconnects after unmount, a retry that never cancels, a handler that routes the wrong frame to the wrong callback all compile perfectly. Every defect of that class reached whoever had the dashboard open, and the registry could not name a deciding test for any frontend requirement because no runner existed to hold one.
+- **Owned by:** `frontend/vitest.config.js`, `.github/workflows/ci.yml`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (contract)
+
+#### `REG-0019` — The dashboard socket does not reconnect after unmount, and backs off with jitter
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+useWebSocket marks itself disposed and clears any pending retry in its effect cleanup, so a close it caused never schedules a reconnect. Retries use exponential backoff with full jitter drawn from [0, backoff), capped at RECONNECT_CAP_MS, and the attempt counter resets when a connection opens.
+
+- **If violated:** Two defects in one handler. The cleanup closed the socket, which fired onclose, which scheduled another connect -- so every unmount left a reconnect loop running against a component that no longer existed, and React 18 StrictMode starts one on the first mount in dev. Separately the delay was a flat 3s with no jitter, so every open dashboard retried in lockstep and an API that had just come back up met the whole fleet at once, every three seconds, for as long as it stayed unhealthy.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Depends on:** `GOV-035`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (regression)
+
+> Neither defect is visible to a build, and there was no frontend test runner to hold the check that would have caught them. layer: test-suite
 
 ## Cryptography and secrets
 
@@ -1673,4 +1698,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 127 entries.
+Registry version: 1.0.0 — 129 entries.

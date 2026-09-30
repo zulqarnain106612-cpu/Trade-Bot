@@ -11,7 +11,8 @@
     "icons": "node scripts/build-icons.mjs",
     "electron:dev": "concurrently -k -n vite,electron -c blue,yellow \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
     "electron:build": "npm run icons && npm run build && electron-builder",
-    "desktop:install": "bash scripts/install-desktop-shortcut.sh"
+    "desktop:install": "bash scripts/install-desktop-shortcut.sh",
+    "test": "vitest run"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -23,14 +24,18 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^10.0.5",
     "electron": "^44.4.1",
     "electron-builder": "^26.15.3",
+    "jsdom": "^26.1.0",
     "postcss": "^8.5.28",
     "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.0",
+    "vitest": "^3.2.7",
     "wait-on": "^9.1.0"
   },
   "build": {
