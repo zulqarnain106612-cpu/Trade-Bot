@@ -3275,7 +3275,8 @@
           "test_type": "regression"
         }
       ],
-      "depends_on": []
+      "depends_on": [],
+      "notes": "The rule shipped with no test of its own, so nothing could tell a true positive from a false one until a PR tripped it. The test added with this entry is that missing check. layer: test-suite"
     }
   ]
 }

@@ -1018,6 +1018,8 @@ The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and exp
 - **Verification:**
   - `tests/test_law12_cipher_suite_pattern.py` (regression)
 
+> The rule shipped with no test of its own, so nothing could tell a true positive from a false one until a PR tripped it. The test added with this entry is that missing check. layer: test-suite
+
 #### `SEC-0005` — A file holding real credentials is never committable
 
 **VERIFIED** · high · security_regression · source: QE-51
