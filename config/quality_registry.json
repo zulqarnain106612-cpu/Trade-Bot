@@ -3235,7 +3235,8 @@
           "test_type": "regression"
         }
       ],
-      "depends_on": []
+      "depends_on": [],
+      "notes": "The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite"
     }
   ]
 }

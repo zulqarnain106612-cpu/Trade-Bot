@@ -1287,6 +1287,8 @@ ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the
 - **Verification:**
   - `tests/test_ci_notice_supersession.py` (regression)
 
+> The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
