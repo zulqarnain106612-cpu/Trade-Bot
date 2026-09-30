@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 131 |
+| VERIFIED | 132 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **131** |
+| **Total** | **132** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 10 | 10 |
-| Governance | 30 | 30 |
+| Governance | 31 | 31 |
 
 ## Outstanding work by phase
 
@@ -1560,6 +1560,17 @@ The CI notice waits until every watched workflow has completed for a commit, the
   - `tests/test_ci_failure_notify_workflow.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
+#### `GOV-021` — tuning stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDetector Protocol and callers inject a detector, keeping tuning inside the analytics layer and shrinking the accepted_upward_edges ratchet.
+
+- **If violated:** A future edit reintroduces an import of src.risk.performance_drift in src/tuning/, silently reviving the tuning->risk package edge.
+- **Owned by:** `src/tuning/watchdog.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-024` — intelligence does not import intel
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1721,4 +1732,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 131 entries.
+Registry version: 1.0.0 — 132 entries.

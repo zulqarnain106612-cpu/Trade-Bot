@@ -2722,6 +2722,26 @@
       ]
     },
     {
+      "id": "GOV-021",
+      "kind": "requirement",
+      "title": "tuning stays within its layer",
+      "statement": "src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDetector Protocol and callers inject a detector, keeping tuning inside the analytics layer and shrinking the accepted_upward_edges ratchet.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.risk.performance_drift in src/tuning/, silently reviving the tuning->risk package edge.",
+      "owning_modules": [
+        "src/tuning/watchdog.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "GOV-024",
       "kind": "requirement",
       "title": "intelligence does not import intel",
