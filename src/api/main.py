@@ -65,7 +65,6 @@ from src.api.fail_closed import (
     SecurityControlUnavailable,
     mark_all_healthy,
 )
-from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.api.object_refs import (
     NOT_FOUND_DETAIL,
@@ -81,6 +80,7 @@ from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_back
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
+from src.diagnostics.metrics import metrics_output
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.mode_persistence import load_execution_mode, save_execution_mode

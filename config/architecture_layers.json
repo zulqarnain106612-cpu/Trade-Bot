@@ -76,11 +76,6 @@
       "why": "Diagnostics reaches up into feature code to describe what a feature computed. The description belongs with the feature, not with the reporter."
     },
     {
-      "from": "engine",
-      "to": "api",
-      "why": "The orchestrator imports transport types. Half of the api<->engine package cycle."
-    },
-    {
       "from": "intelligence",
       "to": "api",
       "why": "An analytics package importing the HTTP edge. The most inverted of the six: whatever it needs from api is a shape that belongs lower down."
