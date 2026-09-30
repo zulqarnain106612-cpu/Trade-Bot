@@ -6,6 +6,7 @@
       "name": "foundation",
       "packages": [
         "config",
+        "eventbus",
         "logging_setup",
         "mathcore",
         "quality"
