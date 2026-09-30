@@ -3302,6 +3302,11 @@
         {
           "test": "tests/test_ws_event_wakeup.py",
           "test_type": "contract"
+        },
+        {
+          "test": "tests/test_api_main_coverage.py",
+          "test_type": "component",
+          "note": "Drives the endpoint loop itself. The AST seam test can say the loop awaits drain(); only this one can say the loop still terminates -- it stayed green while the suite hung."
         }
       ],
       "depends_on": []

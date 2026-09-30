@@ -820,6 +820,7 @@ src/eventbus/ provides an in-process publish/subscribe bus in the foundation lay
 - **Verification:**
   - `tests/test_event_bus.py` (component)
   - `tests/test_ws_event_wakeup.py` (contract)
+  - `tests/test_api_main_coverage.py` (component) — Drives the endpoint loop itself. The AST seam test can say the loop awaits drain(); only this one can say the loop still terminates -- it stayed green while the suite hung.
 
 #### `GOV-034` — A full subscriber queue drops the oldest event and counts the drop
 
