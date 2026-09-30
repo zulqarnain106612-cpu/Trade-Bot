@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 129 |
+| VERIFIED | 130 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **129** |
+| **Total** | **130** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 19 | 19 |
+| Cryptography and secrets | 20 | 20 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 9 | 9 |
@@ -1007,6 +1007,17 @@ is_broken_by_shor classifies by hard problem and treats an unknown scheme name a
 - **Verification:**
   - `tests/test_quantum_margins.py` (security)
 
+#### `REG-0017` — LAW12 flags cipher suites without forward secrecy, not the token DH
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and export-grade suites by their suite construction. It does not match DHE or ECDHE, and does not match a lowercase scheme name or the letters DH inside prose under re.IGNORECASE.
+
+- **If violated:** The rule inverted itself: DHE and ECDHE are the ephemeral exchanges that provide forward secrecy, so the recommended suites were reported as 'Non-PFS', while the absent left boundary plus re.IGNORECASE fired on any word ending in 'dh' -- a lookup-table key or the word ECDH in a sentence. A false HIGH is not harmless: it is baselined, and the suppression then hides the real finding that file later grows, or it trains a reviewer to read LAW12 as noise. One such suppression (src/mathcore/numbertheory/safe_primes.py) already existed and is removed by this change.
+- **Owned by:** `.claude/skills/crypto-architect/scripts/validate_arch.py`
+- **Verification:**
+  - `tests/test_law12_cipher_suite_pattern.py` (regression)
+
 #### `SEC-0005` — A file holding real credentials is never committable
 
 **VERIFIED** · high · security_regression · source: QE-51
@@ -1695,4 +1706,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 129 entries.
+Registry version: 1.0.0 — 130 entries.

@@ -3255,6 +3255,27 @@
         }
       ],
       "depends_on": []
+    },
+    {
+      "id": "REG-0017",
+      "kind": "regression",
+      "title": "LAW12 flags cipher suites without forward secrecy, not the token DH",
+      "statement": "The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and export-grade suites by their suite construction. It does not match DHE or ECDHE, and does not match a lowercase scheme name or the letters DH inside prose under re.IGNORECASE.",
+      "criticality": "medium",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "The rule inverted itself: DHE and ECDHE are the ephemeral exchanges that provide forward secrecy, so the recommended suites were reported as 'Non-PFS', while the absent left boundary plus re.IGNORECASE fired on any word ending in 'dh' -- a lookup-table key or the word ECDH in a sentence. A false HIGH is not harmless: it is baselined, and the suppression then hides the real finding that file later grows, or it trains a reviewer to read LAW12 as noise. One such suppression (src/mathcore/numbertheory/safe_primes.py) already existed and is removed by this change.",
+      "owning_modules": [
+        ".claude/skills/crypto-architect/scripts/validate_arch.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_law12_cipher_suite_pattern.py",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": []
     }
   ]
 }
