@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import hmac  # SCAN3-003: moved from inline import inside set_execution_mode()
 import json
 import os
@@ -168,6 +169,9 @@ class AppState:
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
         self._ws_clients: set[WebSocket] = set()
+        # GOV-038: the single sender. One task for the process, started
+        # with the first client and stopped with the last.
+        self._tick_broadcaster: asyncio.Task[None] | None = None
         self._ws_lock: asyncio.Lock = asyncio.Lock()
         # SCAN3-015: deque with maxlen prevents unbounded growth under request flood.
         # Each deque entry is a monotonic timestamp (float). maxlen=_ENDPOINT_LIMIT
@@ -200,6 +204,34 @@ class AppState:
         """Remove a WS client from the tracked set."""
         async with self._ws_lock:
             self._ws_clients.discard(ws)
+
+    async def ensure_tick_broadcaster(self) -> None:
+        """
+        Start the single broadcaster if it is not already running.
+
+        Idempotent and lock-held: two clients connecting in the same tick
+        would otherwise each start one, and two senders means every
+        dashboard receives every frame twice.
+        """
+        async with self._ws_lock:
+            if self._tick_broadcaster is None or self._tick_broadcaster.done():
+                self._tick_broadcaster = asyncio.create_task(_tick_broadcaster())
+
+    async def stop_tick_broadcaster_if_idle(self) -> None:
+        """
+        Stop the broadcaster once the last client has gone.
+
+        Left running it would keep building a snapshot -- a storage read per
+        heartbeat -- to send to nobody, for the life of the process.
+        """
+        async with self._ws_lock:
+            if self._ws_clients or self._tick_broadcaster is None:
+                return
+            task = self._tick_broadcaster
+            self._tick_broadcaster = None
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def broadcast(self, payload: dict[str, Any]) -> int:
         """
@@ -1444,8 +1476,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         return
 
     await ws.accept()
-    cfg = get_settings()
-    heartbeat = cfg.api.ws_heartbeat_s
     log.info("api.ws_connected", client=str(ws.client))
 
     # API-005: the socket is push-only, so anything arriving on it is
@@ -1501,6 +1531,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
             await ws.send_text(json.dumps(payload))
 
+    try:
+        # The reader returns when the socket closes or the guard trips, so
+        # awaiting it is how this connection waits. There is nothing else for
+        # it to do: the broadcaster owns the sending.
+        await reader
     except WebSocketDisconnect:
         log.info("api.ws_disconnected", client=str(ws.client))
     except Exception as exc:
@@ -1510,6 +1545,81 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         bus.unsubscribe(events)
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
+        await _state.stop_tick_broadcaster_if_idle()
+
+
+async def _build_tick_payload() -> dict[str, Any] | None:
+    """
+    The tick every connected dashboard receives, built once.
+
+    Returns ``None`` while the server is still starting: the orchestrator or
+    its executor may not exist yet, and a tick asserting an equity of zero is
+    worse than no tick at all.
+    """
+    if _state.orchestrator is None:
+        return None
+    executor = cast(AbstractExecutor, _state.orchestrator._executor)
+    if executor is None:
+        return None
+
+    cfg = get_settings()
+    payload: dict[str, Any] = {
+        "type": "tick",
+        "equity_usd": round(executor.equity_usd, 2),
+        "cash_usd": round(executor.cash_usd, 2),
+        # Use lock-safe variants to prevent RuntimeError from dict mutation
+        # during concurrent position open/close (VUL-035)
+        "positions": await executor.open_positions_safe(),
+        "pending_approvals": await executor.pending_approvals_safe(),
+        "trading_mode": cfg.trading_mode.value,
+        "execution_mode": (await runtime_config.get_execution_mode()).value,
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+    }
+
+    snap = await _state.storage.latest_regime(cfg.primary_symbol, cfg.primary_timeframe.value)
+    if snap is not None:
+        payload["regime"] = {
+            "state": snap.regime_state,
+            "name": ["ranging", "trending", "volatile"][snap.regime_state],
+            "prob_ranging": round(snap.prob_ranging, 4),
+            "prob_trending": round(snap.prob_trending, 4),
+            "prob_volatile": round(snap.prob_volatile, 4),
+        }
+    return payload
+
+
+async def _tick_broadcaster() -> None:
+    """
+    Build one tick per wake and fan it out to every connected dashboard.
+
+    Woken by a producer publishing to the bus, with the heartbeat as a
+    timeout so an idle socket still gets its keepalive (GOV-032). Runs only
+    while at least one client is connected.
+
+    A failure here must not end the task: it is the only sender, so an
+    exception escaping would leave every dashboard silently frozen on its
+    last frame with the socket still open -- the failure mode hardest to
+    notice from the outside.
+    """
+    cfg = get_settings()
+    heartbeat = cfg.api.ws_heartbeat_s
+    bus = get_event_bus()
+    events: Subscription = bus.subscribe([PORTFOLIO, RISK])
+    try:
+        while True:
+            await events.drain(heartbeat)
+            try:
+                payload = await _build_tick_payload()
+                if payload is not None:
+                    await _state.broadcast(payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive
+                log.error("api.ws_broadcast_error", error=str(exc), exc_info=True)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        bus.unsubscribe(events)
 
 
 async def _guarded_ws_reader(ws: WebSocket) -> None:

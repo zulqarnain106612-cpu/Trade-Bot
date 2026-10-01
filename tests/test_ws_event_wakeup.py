@@ -27,11 +27,13 @@ API_MAIN = Path(__file__).resolve().parent.parent / "src" / "api" / "main.py"
 @pytest.fixture(scope="module")
 def ws_endpoint_source() -> str:
     """Parsed once for the module -- the file is large and read-only here."""
+    # GOV-038: the send loop moved out of the per-connection endpoint into
+    # one process-wide broadcaster, so that is where this seam now lives.
     tree = ast.parse(API_MAIN.read_text(encoding="utf-8"))
     for node in tree.body:
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "websocket_endpoint":
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_tick_broadcaster":
             return ast.unparse(node)
-    pytest.fail("websocket_endpoint not found in src/api/main.py")
+    pytest.fail("_tick_broadcaster not found in src/api/main.py")
 
 
 def test_the_loop_waits_on_the_bus(ws_endpoint_source: str) -> None:

@@ -3497,6 +3497,33 @@
       "depends_on": [
         "GOV-032"
       ]
+    },
+    {
+      "id": "GOV-038",
+      "kind": "requirement",
+      "title": "One tick is built per wake, not one per connected dashboard",
+      "statement": "A single process-wide _tick_broadcaster subscribes to the bus, calls _build_tick_payload once per wake and fans the result out through AppState.broadcast, which serialises once. The endpoint builds and sends nothing; it waits for its reader to end. The broadcaster starts with the first client and is cancelled when the last disconnects.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-10-01",
+      "failure_mode": "Every connected dashboard receives the same bytes -- the same equity, the same positions, the same regime row from the same storage read -- so building per connection multiplied one snapshot by the client limit: fifty awaited latest_regime() calls and fifty json.dumps for fifty identical frames, on every tick. That is the cost the event bus exists to remove, paid fifty times over. Two further failures are guarded: starting a second broadcaster would send every frame twice, so the start is idempotent under the client lock; and an exception escaping the sole sender would leave every dashboard frozen on its last frame with the socket still open, which is the failure hardest to notice from outside.",
+      "owning_modules": [
+        "src/api/main.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_api_main_coverage.py",
+          "test_type": "component"
+        },
+        {
+          "test": "tests/test_ws_event_wakeup.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": [
+        "GOV-032"
+      ]
     }
   ]
 }
