@@ -320,7 +320,10 @@ class TestSemanticChecksInIsolation:
         entry = self.entry(
             verdict="folklore",
             status="implemented",
-            wiring=[{"module": "src/mathcore/registry.py", "kind": "owner"}],
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/test_math_registry.py", "kind": "test"},
+            ],
         )
         with pytest.raises(RegistryError, match="folklore"):
             self.check([entry])
