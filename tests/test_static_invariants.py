@@ -1243,7 +1243,7 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
-# check_no_subprocess_shell_true (INV-029)
+# check_no_subprocess_shell_true (GOV-053)
 # ---------------------------------------------------------------------------
 
 
