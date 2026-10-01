@@ -178,6 +178,27 @@ class TestTheExpensiveInstallIsCached:
                     continue
                 assert "download.pytorch.org/whl/cpu" in body, f"{path.name}:{job_id}"
 
+    def test_the_container_image_takes_torch_from_the_cpu_index_too(self):
+        """
+        REG-0012. The rule above globs .github/workflows, so the Dockerfile sat
+        outside it: the image installed `-r requirements.txt` straight from
+        PyPI, pulled the CUDA-bundling torch wheel into a build layer, and the
+        container job died on "No space left on device" before it reached the
+        scan. torch is never named in the Dockerfile -- it arrives through the
+        requirements file -- so the condition is the install, not the word.
+        """
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        installs_requirements = "-r requirements.txt" in dockerfile
+        assert installs_requirements, "Dockerfile no longer installs requirements.txt"
+
+        index = dockerfile.find("download.pytorch.org/whl/cpu")
+        assert index != -1, "Dockerfile installs requirements.txt without the CPU torch index"
+        # First, not merely present: a CPU pre-pass after the requirements
+        # install has already paid for the CUDA wheel it was meant to avoid.
+        assert index < dockerfile.find("-r requirements.txt"), (
+            "the CPU torch index must be named before requirements.txt is installed"
+        )
+
 
 class TestShardingActuallyShortensTheRun:
     def test_the_shard_list_and_the_declared_total_agree(self, spec):
