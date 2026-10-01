@@ -986,9 +986,19 @@ def _fake_ws():
 # facts neither of them needs one for.
 
 
-def test_build_tick_payload_is_none_while_orchestrator_is_starting(mock_state):
-    """A tick asserting an equity of zero is worse than no tick at all."""
-    import src.api.main as main_mod
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
+        # Subscription.drain, which returns on a published event or on the
+        # heartbeat timeout. Driving it through asyncio.sleep stopped
+        # controlling anything, so these tests blocked for the real
+        # heartbeat on every iteration and the shard hit its 25m ceiling.
+        patch.object(main_mod.Subscription, "drain", side_effect=_fake_sleep),
+    ):
+        await main_mod.websocket_endpoint(ws)
+    return ws
 
     mock_state.orchestrator = None
     assert asyncio.run(main_mod._build_tick_payload()) is None
@@ -1035,8 +1045,18 @@ def test_build_tick_payload_includes_the_regime_snapshot(mock_state):
 def test_build_tick_payload_omits_regime_when_there_is_no_snapshot(mock_state):
     import src.api.main as main_mod
 
-    mock_state.orchestrator = _orchestrator_with_executor()
-    mock_state.storage.latest_regime = AsyncMock(return_value=None)
+    with (
+        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
+        patch.object(main_mod._state, "add_ws_client", return_value=True),
+        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
+        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
+        # Subscription.drain, which returns on a published event or on the
+        # heartbeat timeout. Driving it through asyncio.sleep stopped
+        # controlling anything, so these tests blocked for the real
+        # heartbeat on every iteration and the shard hit its 25m ceiling.
+        patch.object(main_mod.Subscription, "drain", side_effect=_fake_sleep),
+    ):
+        asyncio.run(main_mod.websocket_endpoint(ws))
 
     payload = asyncio.run(main_mod._build_tick_payload())
     assert payload is not None and "regime" not in payload

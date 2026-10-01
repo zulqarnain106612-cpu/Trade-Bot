@@ -1485,13 +1485,51 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     # been trusted by default. Every frame goes through the guard.
     reader = asyncio.create_task(_guarded_ws_reader(ws))
 
-    # GOV-038: one builder for the whole process, not one per connection.
-    # Every client's snapshot is byte-identical -- the same equity, the same
-    # positions, the same regime row read from the same storage -- so the
-    # previous shape had 50 connections each awaiting their own
-    # `latest_regime()` and their own `json.dumps` to produce the same frame.
-    # That is the cost the event bus was supposed to remove, paid 50 times.
-    await _state.ensure_tick_broadcaster()
+    # GOV-032: the heartbeat becomes a floor rather than the only clock. A
+    # producer that changes portfolio or risk state publishes, this wakes,
+    # and the snapshot goes out then -- so a fill landing just after a tick
+    # no longer waits out the rest of the period. With no events the loop
+    # still ticks every `heartbeat` seconds, which is the pre-existing
+    # behaviour and also the keepalive an idle socket needs.
+    bus = get_event_bus()
+    events: Subscription = bus.subscribe([PORTFOLIO, RISK])
+
+    try:
+        while True:
+            await events.drain(heartbeat)
+
+            if _state.orchestrator is None:
+                continue  # Server still starting — skip tick, retry next heartbeat
+            executor = cast(AbstractExecutor, _state.orchestrator._executor)
+            if executor is None:
+                continue
+
+            payload: dict[str, Any] = {
+                "type": "tick",
+                "equity_usd": round(executor.equity_usd, 2),
+                "cash_usd": round(executor.cash_usd, 2),
+                # Use lock-safe variants to prevent RuntimeError from dict mutation
+                # during concurrent position open/close (VUL-035)
+                "positions": await executor.open_positions_safe(),
+                "pending_approvals": await executor.pending_approvals_safe(),
+                "trading_mode": get_settings().trading_mode.value,
+                "execution_mode": (await runtime_config.get_execution_mode()).value,
+                "timestamp": datetime.now(tz=UTC).isoformat(),
+            }
+
+            snap = await _state.storage.latest_regime(
+                cfg.primary_symbol, cfg.primary_timeframe.value
+            )
+            if snap is not None:
+                payload["regime"] = {
+                    "state": snap.regime_state,
+                    "name": ["ranging", "trending", "volatile"][snap.regime_state],
+                    "prob_ranging": round(snap.prob_ranging, 4),
+                    "prob_trending": round(snap.prob_trending, 4),
+                    "prob_volatile": round(snap.prob_volatile, 4),
+                }
+
+            await ws.send_text(json.dumps(payload))
 
     try:
         # The reader returns when the socket closes or the guard trips, so
@@ -1504,6 +1542,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         log.error("api.ws_error", error=str(exc), exc_info=True)
     finally:
         reader.cancel()
+        bus.unsubscribe(events)
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
         await _state.stop_tick_broadcaster_if_idle()
