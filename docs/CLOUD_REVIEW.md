@@ -1,3 +1,7 @@
+> **Removed (GOV-036).** `.github/workflows/claude-review.yml` was deleted: it ran Claude on the
+> owner's plan on every PR push. No workflow may invoke Claude; see `tests/test_no_claude_automation.py`.
+> The text below is kept for history only.
+
 # Cloud-only PR review + retrieval (Component 5)
 
 Source: [Managed Agents: CMA with MongoDB Atlas](https://platform.claude.com/cookbook/managed-agents-cma-with-mongodb-atlas)
