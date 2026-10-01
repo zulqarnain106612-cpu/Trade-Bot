@@ -37,6 +37,7 @@ import structlog
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.storage import AnyStorageBackend, BlendAudit, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
+from src.eventbus import PORTFOLIO, get_event_bus
 from src.execution.base import AbstractExecutor
 from src.execution.idempotency import (
     DuplicateOrderError,
@@ -1087,6 +1088,25 @@ class PaperExecutor(AbstractExecutor):
             drawdown_pct=round(dd_pct, 8),
         )
         await self._storage.insert_equity(record)
+
+        # GOV-032: the values above were captured inside the lock and are now
+        # persisted, so this is the one point in the paper executor where the
+        # portfolio is both changed and consistent. Telling the bus here is
+        # what lets /ws resume on the change instead of on the next
+        # heartbeat. publish() is synchronous by contract (GOV-033), so no
+        # subscriber -- however slow its socket -- can suspend this coroutine.
+        get_event_bus().publish(
+            PORTFOLIO,
+            {
+                "trading_mode": TradingMode.PAPER.value,
+                "equity_usd": record.equity_usd,
+                "cash_usd": record.cash_usd,
+                "unrealized_pnl": record.unrealized_pnl,
+                "daily_pnl_usd": record.daily_pnl_usd,
+                "daily_pnl_pct": record.daily_pnl_pct,
+                "drawdown_pct": record.drawdown_pct,
+            },
+        )
 
     def _require_initialized(self) -> None:
         if not self._initialized:
