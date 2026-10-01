@@ -149,6 +149,11 @@ class TestTheRegistryHasAPlaceForDefects:
         # including a lowercase scheme name in a lookup table. The rule had
         # no test of its own, so the first thing able to tell a true positive
         # from a false one was a PR tripping it.
+        # REG-0018: the CI notice counted a cancelled job as a failing one,
+        # so a commit replaced by a newer push reported its successor's
+        # cancellations as its own failures. This workflow is the only
+        # channel permitted for CI failure information, and its
+        # classification had no test.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -162,6 +167,8 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0015",
             "REG-0016",
             "REG-0017",
+            "REG-0018",
+            "REG-0020",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -170,7 +177,10 @@ class TestTheRegistryHasAPlaceForDefects:
         # OPERATOR_SECRET. The secret scanners read committed content, and
         # these files were never committed, so nothing upstream of a commit
         # could have seen it.
-        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005"}
+        # SEC-0006: urllib3 was only transitive, and every ccxt from 4.5.65 on
+        # pins urllib3==2.7.0 exactly, so an upstream release -- not a commit
+        # here -- made pip resolve a version with three CVEs.
+        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005", "SEC-0006"}
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -400,7 +410,14 @@ class TestTheMetricsCollector:
         # never committed, so only a suite check could have seen it.
         # REG-0017: the LAW12 rule had no test of its own, so nothing could
         # separate a true positive from a false one -- test-suite.
-        assert metric["value"] == {"test-suite": 12, "review": 1}
+        # REG-0018: the notice classification had no test, so the
+        # over-report was visible only to a reader who already knew which
+        # jobs were superseded -- test-suite.
+        # SEC-0006: no test held a floor on a transitive dependency, so a new
+        # upstream release could pull a vulnerable urllib3 unseen -- test-suite.
+        # REG-0020: the notice's extraction was only tested on pytest-shaped
+        # output, so a tool with a different failure shape went unseen -- test-suite.
+        assert metric["value"] == {"test-suite": 15, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
