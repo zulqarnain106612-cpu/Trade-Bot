@@ -37,7 +37,6 @@ on:
       - "CI"
       - "CodeQL"
       - "Workflow lint"
-      - "Claude Cloud Review (RAG + Knowledge Graph retrieval)"
       - "Security"
     types: [completed]
 
@@ -79,7 +78,6 @@ jobs:
               'CI',
               'CodeQL',
               'Workflow lint',
-              'Claude Cloud Review (RAG + Knowledge Graph retrieval)',
               'Security',
             ];
 
@@ -88,7 +86,7 @@ jobs:
             // the two stay equal. Excusing a job in a gate without excusing it
             // here would bury the notice under noise nobody reads.
             const ALLOW_SKIPPED = new Set([
-              'retrieve-context', 'dependency-review', 'promote', 'rollback',
+              'retry', 'dependency-review', 'promote', 'rollback',
             ]);
 
             // ---- which pull request -------------------------------------
@@ -181,6 +179,29 @@ jobs:
 
             const MAX_MSG_LINES = 4;
 
+            // REG-0020: a tool whose failure matches no SIGNAL -- pip-audit's
+            // vulnerability table is the case that surfaced it -- left the
+            // notice with the step name and no error at all. The tool's own
+            // last lines are the error: the output of the failing step sits
+            // between the runner's `##[endgroup]` (end of the echoed command
+            // and env) and its closing `##[error]` exit-code line. Table
+            // rules and runner markers are not error text and are dropped.
+            const RULE = /^[-=+|\s]+$/;
+            function stepOutputTail(raw) {
+              let end = -1;
+              for (let i = raw.length - 1; i >= 0; i--) {
+                if (/^##\[error\]/.test(raw[i])) { end = i; break; }
+              }
+              if (end < 0) return [];
+              let start = 0;
+              for (let i = end - 1; i >= 0; i--) {
+                if (/^##\[endgroup\]/.test(raw[i])) { start = i + 1; break; }
+              }
+              return raw.slice(start, end)
+                .filter(l => !/^##\[/.test(l) && !RULE.test(l) && !isNoise(l))
+                .slice(-MAX_MSG_LINES);
+            }
+
             async function messagesFor(job) {
               // Annotations first: GitHub already extracted the assertion
               // text, and it is one cheap call.
@@ -205,17 +226,17 @@ jobs:
                 const text = typeof log.data === 'string'
                   ? log.data
                   : Buffer.from(log.data).toString('utf8');
-                const lines = text
+                const raw = text
                   .split('\n')
                   .map(l => l.replace(/^\S*\d{2}:\d{2}:\d{2}\.?\d*Z?\s*/, '').trim())
-                  .filter(Boolean)
-                  .filter(l => !isNoise(l));
+                  .filter(Boolean);
+                const lines = raw.filter(l => !isNoise(l));
                 for (const re of SIGNAL) {
                   const hits = lines.filter(l => re.test(l));
                   // The last ones: pytest prints what actually failed at the end.
                   if (hits.length) return hits.slice(-MAX_MSG_LINES);
                 }
-                return [];
+                return stepOutputTail(raw);
               } catch (e) {
                 core.info(`log unavailable for ${job.name}: ${e.message}`);
                 return [];
