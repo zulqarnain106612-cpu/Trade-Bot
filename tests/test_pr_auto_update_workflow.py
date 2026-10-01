@@ -240,6 +240,18 @@ class TestResolveNext:
         """
         assert path in resolve_script
 
+    def test_a_registry_conflict_is_resolved_per_entry_not_by_side(self, resolve_script):
+        """
+        GOV-029: two branches that each register an entry collide on the
+        array's tail although their ids differ. The registry is not generated,
+        so it is resolved by scripts/resolve_registry_merge.py, entry by entry,
+        and the traceability document is regenerated from the result.
+        """
+        assert "config/quality_registry.json) ;;" in resolve_script
+        step = resolve_script[resolve_script.index("resolve_registry_merge.py") :]
+        assert step.index("git merge --abort") < step.index("generate_quality_docs.py")
+        assert "--ours" not in resolve_script and "--theirs" not in resolve_script
+
     def test_one_unknown_path_abandons_the_whole_merge(self, resolve_script):
         """
         Resolving the generated half of a conflict and leaving the rest would

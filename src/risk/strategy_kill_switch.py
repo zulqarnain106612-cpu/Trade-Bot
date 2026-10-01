@@ -31,6 +31,7 @@ from src.diagnostics.decision_log_writer import (
     StructuralChangeRecord,
     append_to_decision_log,
 )
+from src.eventbus import RISK, get_event_bus
 from src.risk.performance_drift import (
     DriftDetected,
     PerformanceBaseline,
@@ -185,6 +186,23 @@ class StrategyKillSwitchManager:
                 strategy_id=strategy_id,
                 reason=drift.reason,
                 metric=drift.metric,
+            )
+            # GOV-032: /ws already subscribes to the RISK topic, and a
+            # kill-switch trip was one of the two things the dashboard never
+            # saw at all -- not late, never. Published after the state change
+            # for the same reason the decision log is: a consumer must not be
+            # able to observe the trip before capital has actually been
+            # pulled. publish() is synchronous and cannot fail into this path
+            # (GOV-033), so it cannot stop the disable either.
+            get_event_bus().publish(
+                RISK,
+                {
+                    "event": "strategy_disabled",
+                    "strategy_id": strategy_id,
+                    "reason": drift.reason,
+                    "metric": drift.metric,
+                    "disabled_at_ms": now_ms,
+                },
             )
             # Recorded AFTER the state change, never before: a decision log
             # that cannot be written must not stop capital being pulled from
