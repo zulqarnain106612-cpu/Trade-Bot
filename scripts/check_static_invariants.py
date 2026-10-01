@@ -1529,9 +1529,7 @@ def check_yaml_uses_safe_load() -> list[str]:
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id == "yaml"
             ):
-                problems.append(
-                    f"{_rel(path)}:{node.lineno}: yaml.load() -- use yaml.safe_load()"
-                )
+                problems.append(f"{_rel(path)}:{node.lineno}: yaml.load() -- use yaml.safe_load()")
     return problems
 
 
