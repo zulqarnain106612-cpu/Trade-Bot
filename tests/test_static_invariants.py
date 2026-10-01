@@ -1243,7 +1243,7 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
-# check_text_open_names_encoding (INV-031)
+# check_text_open_names_encoding (GOV-055)
 # ---------------------------------------------------------------------------
 
 

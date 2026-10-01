@@ -1541,7 +1541,7 @@ def check_text_open_names_encoding() -> list[str]:
             if any(kw.arg == "encoding" for kw in node.keywords):
                 continue
             problems.append(
-                f"{_rel(path)}:{node.lineno}: open() in text mode without encoding=; pass encoding=\"utf-8\""
+                f'{_rel(path)}:{node.lineno}: open() in text mode without encoding=; pass encoding="utf-8"'
             )
     return problems
 
