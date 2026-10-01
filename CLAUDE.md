@@ -345,16 +345,19 @@ Waiting for merge follows the same rule: stop and let the owner return; never po
 
 ---
 
-# 10. Pull Requests and Branch Updates
+# 10. Pull Requests and the Merge Queue — GOV-037
 
-`main` requires four gate checks and an up-to-date branch.
+`main` requires four gate checks and lands pull requests through a **merge queue**
+(`.github/rulesets/main-protection.json`, applied with `scripts/apply_repo_ruleset.py`):
+one squashed PR at a time, each tested on top of the current `main`. The queue
+replaces the up-to-date requirement, so nobody updates a branch by hand.
 
 PRs:
 
 * run independently
 * are never automatically parked/drafted
-* use `--squash --auto`
-* merge automatically when required checks are green
+* use `--squash --auto`; auto-merge puts a green PR into the queue
+* merge automatically when the queue's merge group is green
 
 The old `.github/workflows/pr-queue.yml` and draft guards remain removed. They caused required checks to report `skipped`, which GitHub could treat as satisfied.
 
@@ -362,25 +365,32 @@ Every gate job must have **only**:
 
 `if: always()`
 
-No draft guard or alternative condition.
+No draft guard or alternative condition. Every gating workflow must trigger on `merge_group`.
 
-## GOV-017 — Automatic branch update
+## GOV-037 — Retry, then hand over
 
-`.github/workflows/pr-auto-update.yml` runs on every push to `main` and updates only the **oldest open non-draft PR whose `mergeable_state=behind`**.
+`.github/workflows/merge-queue-retry.yml` (deterministic, no model):
 
-Do not update all PRs simultaneously; that creates redundant runs against a moving `main`.
+* arms auto-merge on every ready same-repository PR;
+* re-queues a PR the queue removed, up to **3** times (labels `queue-retry-N`);
+* then comments `@owner have a look on this PR` once (label `queue-retry-exhausted`)
+  and leaves it until a new commit lands;
+* `queue-hold` opts a PR out. It never checks out or runs PR code.
 
-Flow:
+## GOV-029 — Conflicts that resolve themselves
 
-**update oldest → checks → auto-merge → main push → update next**
+`.github/workflows/pr-auto-update.yml` runs on every push to `main` and merges `main`
+into the oldest conflicted PR **only** when every conflicted path is a generated
+document or `config/quality_registry.json` (resolved per entry id by
+`scripts/resolve_registry_merge.py`). Anything else is left for a person. The result
+passes `qe_gate.py` before it is pushed.
 
-This is not a queue: PRs are never parked, drafted, or closed.
+Its first job (GOV-017) still updates the oldest PR whose `mergeable_state` is
+`behind`; under the queue that update is no longer needed for a PR to merge.
 
-The workflow requires `secrets.PR_AUTOUPDATE_TOKEN` (PAT or GitHub App token with `repo` scope). A `GITHUB_TOKEN` push does not trigger the required workflow chain and can leave stale check runs attached to the updated branch.
-
-Missing token must fail without modifying anything.
-
-The alternative is GitHub merge queue; gating workflows already declare `merge_group`.
+Both workflows require `secrets.PR_AUTOUPDATE_TOKEN` (PAT with `repo` scope; also
+as a Dependabot secret). A `GITHUB_TOKEN` event starts no workflow run. Missing
+token must fail without modifying anything.
 
 ---
 
@@ -611,3 +621,22 @@ owner starts and can see.
 * To wait on CI, stop and let the owner come back; never arm a re-check.
 
 `tests/test_no_claude_automation.py` enforces both rules.
+
+---
+
+# 20. Error-Reduced Output
+
+Every response and every artifact must carry the fewest possible errors.
+
+* State as fact only what was verified in this session: run it, read it, or
+  reproduce it. Mark everything else as inference or unknown (section 4).
+* Verify before claiming done: re-run the deciding check after the last edit;
+  never report a result from an earlier state.
+* Check external facts (APIs, versions, payload fields) against primary
+  sources before depending on them; if undocumented, design so the behaviour
+  does not depend on them.
+* Prefer executing the real path over reasoning about it: run scripts, replay
+  real failures, exercise edge cases.
+* Correct a wrong statement as soon as it is found, explicitly.
+* Report only what changed, what was verified, and what remains unverified --
+  no padding, no unverifiable promises.

@@ -168,6 +168,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0016",
             "REG-0017",
             "REG-0018",
+            "REG-0020",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -414,7 +415,9 @@ class TestTheMetricsCollector:
         # jobs were superseded -- test-suite.
         # SEC-0006: no test held a floor on a transitive dependency, so a new
         # upstream release could pull a vulnerable urllib3 unseen -- test-suite.
-        assert metric["value"] == {"test-suite": 14, "review": 1}
+        # REG-0020: the notice's extraction was only tested on pytest-shaped
+        # output, so a tool with a different failure shape went unseen -- test-suite.
+        assert metric["value"] == {"test-suite": 15, "review": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

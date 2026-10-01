@@ -2878,19 +2878,25 @@
       "id": "GOV-029",
       "kind": "requirement",
       "title": "A conflict confined to generated files resolves itself, and is gated before it is pushed",
-      "statement": "When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator, in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.",
+      "statement": "When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator or config/quality_registry.json, which is merged per entry id by scripts/resolve_registry_merge.py (a clash on one entry abandons the merge), in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.",
       "criticality": "medium",
       "subsystem": "governance",
       "status": "verified",
       "source": "OPS-2026-09-25",
       "owning_modules": [
-        ".github/workflows/pr-auto-update.yml"
+        ".github/workflows/pr-auto-update.yml",
+        "scripts/resolve_registry_merge.py"
       ],
       "verification": [
         {
           "test": "tests/test_pr_auto_update_workflow.py",
           "test_type": "unit",
           "note": "Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate."
+        },
+        {
+          "test": "tests/test_resolve_registry_merge.py",
+          "test_type": "unit",
+          "note": "Keeps both sides' new entries, takes a one-sided edit, refuses an entry changed differently on both sides, and writes nothing when it refuses."
         }
       ],
       "depends_on": [
@@ -3362,6 +3368,56 @@
         }
       ],
       "depends_on": []
+    },
+    {
+      "id": "GOV-037",
+      "kind": "requirement",
+      "title": "Pull requests land through a one-at-a-time merge queue that retries, then hands over",
+      "statement": "main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A ready same-repository pull request gets auto-merge; one the queue removes is re-queued up to three times, after which the owner is mentioned once and it is left alone until a new commit lands. The label queue-hold opts a pull request out. No step checks out or runs pull request code, and no model is invoked.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-01",
+      "failure_mode": "Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another, with nothing retrying a flaky queue failure and nothing telling the owner which pull request needed a person.",
+      "owning_modules": [
+        ".github/rulesets/main-protection.json",
+        ".github/workflows/merge-queue-retry.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_merge_queue_retry_workflow.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/test_apply_repo_ruleset.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "GOV-029"
+      ]
+    },
+    {
+      "id": "REG-0020",
+      "kind": "regression",
+      "title": "The CI notice names the error of a failure no pattern recognises",
+      "statement": "When no SIGNAL pattern matches a failing job's log, the notice carries the last lines of the failing step's own output -- between the runner's ##[endgroup] and its ##[error] exit-code line -- without table rules or runner markers.",
+      "criticality": "medium",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "pip-audit's vulnerability table matched none of the patterns, so the notice on #385 named the failing step and no error, and the failing lines had to be pasted by hand.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [],
+      "notes": "Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite"
     }
   ]
 }
