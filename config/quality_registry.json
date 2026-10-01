@@ -361,7 +361,7 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
-      "id": "GOV-038",
+      "id": "GOV-046",
       "kind": "requirement",
       "title": "declared taxonomy has a user",
       "statement": "The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.",

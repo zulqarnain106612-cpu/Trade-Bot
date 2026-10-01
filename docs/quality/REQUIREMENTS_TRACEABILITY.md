@@ -1672,7 +1672,7 @@ main is protected by a merge queue that squash-merges one pull request at a time
   - `tests/test_merge_queue_retry_workflow.py` (unit)
   - `tests/test_apply_repo_ruleset.py` (unit)
 
-#### `GOV-038` — declared taxonomy has a user
+#### `GOV-046` — declared taxonomy has a user
 
 **VERIFIED** · low · requirement · source: QE-52
 
