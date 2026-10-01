@@ -3340,6 +3340,28 @@
         }
       ],
       "notes": "Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite"
+    },
+    {
+      "id": "GOV-036",
+      "kind": "requirement",
+      "title": "Claude never runs unattended on the owner's plan",
+      "statement": "No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or `claude -p`), and .claude/settings.json denies ScheduleWakeup, CronCreate, RemoteTrigger and PR-activity subscription, so Claude runs only in sessions the owner starts and can see.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-53",
+      "failure_mode": "claude-review.yml ran up to 120 turns on every PR push, and cloud sessions scheduled their own wake-ups and re-armed them, spending the owner's usage with no visible session until the five-hour limit was hit.",
+      "owning_modules": [
+        ".claude/settings.json",
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_no_claude_automation.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
     }
   ]
 }

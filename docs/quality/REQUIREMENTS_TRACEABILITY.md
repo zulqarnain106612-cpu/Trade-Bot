@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 133 |
+| VERIFIED | 134 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **133** |
+| **Total** | **134** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 10 | 10 |
-| Governance | 31 | 31 |
+| Governance | 32 | 32 |
 
 ## Outstanding work by phase
 
@@ -1634,6 +1634,17 @@ src/engine/ must not import from src.api. The Prometheus metrics module is obser
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
 
+#### `GOV-036` — Claude never runs unattended on the owner's plan
+
+**VERIFIED** · high · requirement · source: QE-53
+
+No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or `claude -p`), and .claude/settings.json denies ScheduleWakeup, CronCreate, RemoteTrigger and PR-activity subscription, so Claude runs only in sessions the owner starts and can see.
+
+- **If violated:** claude-review.yml ran up to 120 turns on every PR push, and cloud sessions scheduled their own wake-ups and re-armed them, spending the owner's usage with no visible session until the five-hour limit was hit.
+- **Owned by:** `.claude/settings.json`, `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_no_claude_automation.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1745,4 +1756,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 133 entries.
+Registry version: 1.0.0 — 134 entries.

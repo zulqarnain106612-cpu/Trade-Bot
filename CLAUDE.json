@@ -673,19 +673,16 @@
     "exact_set": "Every new job must be added to the gate's needs; tests/test_assert_jobs_green.py requires exact set equality.",
     "always": "Never remove if: always().",
     "allowed_skips": {
-      "rule": "No skips allowed except the documented exception.",
-      "exception": "retrieve-context on fork PRs, declared as ALLOW_SKIPPED in .github/workflows/claude-review.yml."
+      "rule": "Skips are allowed only where a workflow declares them in ALLOW_SKIPPED with a comment saying why."
     },
     "branch_protection": "Require the gate checks by name, not individual jobs; missing or skipped jobs can otherwise create a protection hole.",
     "docs": "docs/REQUIRED_CHECKS.md"
   },
   "cloud_review": {
     "claude_md": "19",
-    "component": "Component 5",
-    "workflow": ".github/workflows/claude-review.yml",
-    "behavior": "Automatically reviews every PR using MongoDB Atlas RAG and knowledge-graph retrieval through review/retrieval.py, including vector, full-text, hybrid, and graph retrieval.",
-    "authority": "Advisory only; never approves or merges.",
-    "docs": "docs/CLOUD_REVIEW.md contains setup and the one-time GitHub App/secret requirements."
+    "status": "removed (GOV-036)",
+    "rule": "No workflow may invoke Claude; sessions may not schedule wake-ups, reminders, crons, routines or PR subscriptions.",
+    "test": "tests/test_no_claude_automation.py"
   },
   "final_audit": [
     "No unrelated changes",
