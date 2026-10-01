@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 139 |
+| VERIFIED | 140 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **139** |
+| **Total** | **140** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 14 | 14 |
+| API and WebSocket | 15 | 15 |
 | Cryptography and secrets | 21 | 21 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -833,6 +833,19 @@ Subscription._offer evicts the head of a full queue rather than refusing the new
 - **Depends on:** `GOV-032`
 - **Verification:**
   - `tests/test_event_bus.py` (contract)
+
+#### `GOV-038` — One tick is built per wake, not one per connected dashboard
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-01
+
+A single process-wide _tick_broadcaster subscribes to the bus, calls _build_tick_payload once per wake and fans the result out through AppState.broadcast, which serialises once. The endpoint builds and sends nothing; it waits for its reader to end. The broadcaster starts with the first client and is cancelled when the last disconnects.
+
+- **If violated:** Every connected dashboard receives the same bytes -- the same equity, the same positions, the same regime row from the same storage read -- so building per connection multiplied one snapshot by the client limit: fifty awaited latest_regime() calls and fifty json.dumps for fifty identical frames, on every tick. That is the cost the event bus exists to remove, paid fifty times over. Two further failures are guarded: starting a second broadcaster would send every frame twice, so the start is idempotent under the client lock; and an exception escaping the sole sender would leave every dashboard frozen on its last frame with the socket still open, which is the failure hardest to notice from outside.
+- **Owned by:** `src/api/main.py`
+- **Depends on:** `GOV-032`
+- **Verification:**
+  - `tests/test_api_main_coverage.py` (component)
+  - `tests/test_ws_event_wakeup.py` (contract)
 
 ## Cryptography and secrets
 
@@ -1820,4 +1833,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 139 entries.
+Registry version: 1.0.0 — 140 entries.

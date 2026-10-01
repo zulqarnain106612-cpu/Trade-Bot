@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -977,63 +978,44 @@ def _fake_ws():
     return ws
 
 
-async def _run_ws_endpoint_iterations(mock_state, n_sleeps, orchestrator=None, executor=None):
-    """Drive websocket_endpoint() directly with a controlled fake sleep that
-    stops the `while True` loop after n_sleeps iterations by raising
-    WebSocketDisconnect on the (n_sleeps+1)th call -- avoids the real
-    TestClient WS transport's timing flakiness entirely."""
-    from starlette.websockets import WebSocketDisconnect
+# GOV-038: the endpoint no longer builds or sends anything -- a single
+# process-wide broadcaster does, because every client's frame is identical.
+# These tests follow the behaviour to where it now lives: _build_tick_payload
+# decides what a tick contains, _tick_broadcaster decides when one goes out.
+# Driving them through the endpoint would mean standing up a socket to assert
+# facts neither of them needs one for.
 
+
+def test_build_tick_payload_is_none_while_orchestrator_is_starting(mock_state):
+    """A tick asserting an equity of zero is worse than no tick at all."""
     import src.api.main as main_mod
 
-    mock_state.orchestrator = orchestrator
-    ws = _fake_ws()
-    call_count = 0
-
-    async def _fake_sleep(_s):
-        nonlocal call_count
-        call_count += 1
-        if call_count > n_sleeps:
-            raise WebSocketDisconnect
-
-    async def _allow_ws(_ws):
-        return None
-
-    with (
-        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
-        patch.object(main_mod._state, "add_ws_client", return_value=True),
-        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
-        # Subscription.drain, which returns on a published event or on the
-        # heartbeat timeout. Driving it through asyncio.sleep stopped
-        # controlling anything, so these tests blocked for the real
-        # heartbeat on every iteration and the shard hit its 25m ceiling.
-        patch.object(main_mod.Subscription, "drain", side_effect=_fake_sleep),
-    ):
-        await main_mod.websocket_endpoint(ws)
-    return ws
+    mock_state.orchestrator = None
+    assert asyncio.run(main_mod._build_tick_payload()) is None
 
 
-def test_websocket_orchestrator_none_skips_tick(mock_state):
-    """orchestrator is None (server still starting) -> heartbeat loop must
-    `continue` rather than crash on None._executor."""
-    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=None))
-    ws.send_text.assert_not_called()
+def test_build_tick_payload_is_none_before_the_executor_exists(mock_state):
+    """Same contract one level in: orchestrator up, executor not yet."""
+    import src.api.main as main_mod
 
-
-def test_websocket_executor_none_skips_tick(mock_state):
-    """orchestrator exists but has no executor yet -> same skip-tick contract."""
     fake_orch = MagicMock()
     fake_orch._executor = None
-    ws = asyncio.run(_run_ws_endpoint_iterations(mock_state, n_sleeps=1, orchestrator=fake_orch))
-    ws.send_text.assert_not_called()
+    mock_state.orchestrator = fake_orch
+    assert asyncio.run(main_mod._build_tick_payload()) is None
 
 
-def test_websocket_tick_includes_regime_snapshot(mock_state):
-    """When storage.latest_regime() returns a snapshot, the tick payload
-    must include a "regime" block built from it."""
-    from starlette.websockets import WebSocketDisconnect
+def _orchestrator_with_executor(equity=1000.0, cash=500.0):
+    fake_executor = MagicMock()
+    fake_executor.equity_usd = equity
+    fake_executor.cash_usd = cash
+    fake_executor.open_positions_safe = AsyncMock(return_value=[])
+    fake_executor.pending_approvals_safe = AsyncMock(return_value=[])
+    fake_orch = MagicMock()
+    fake_orch._executor = fake_executor
+    return fake_orch
 
+
+def test_build_tick_payload_includes_the_regime_snapshot(mock_state):
     import src.api.main as main_mod
 
     snap = MagicMock()
@@ -1041,75 +1023,99 @@ def test_websocket_tick_includes_regime_snapshot(mock_state):
     snap.prob_ranging = 0.1
     snap.prob_trending = 0.8
     snap.prob_volatile = 0.1
+    mock_state.orchestrator = _orchestrator_with_executor()
     mock_state.storage.latest_regime = AsyncMock(return_value=snap)
 
-    ws = _fake_ws()
-    call_count = 0
-
-    async def _fake_sleep(_s):
-        nonlocal call_count
-        call_count += 1
-        if call_count > 1:
-            raise WebSocketDisconnect
-
-    async def _allow_ws(_ws):
-        return None
-
-    with (
-        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
-        patch.object(main_mod._state, "add_ws_client", return_value=True),
-        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
-        # Subscription.drain, which returns on a published event or on the
-        # heartbeat timeout. Driving it through asyncio.sleep stopped
-        # controlling anything, so these tests blocked for the real
-        # heartbeat on every iteration and the shard hit its 25m ceiling.
-        patch.object(main_mod.Subscription, "drain", side_effect=_fake_sleep),
-    ):
-        asyncio.run(main_mod.websocket_endpoint(ws))
-
-    sent = ws.send_text.call_args.args[0]
-    assert '"regime"' in sent
-    assert '"trending"' in sent
+    payload = asyncio.run(main_mod._build_tick_payload())
+    assert payload is not None
+    assert payload["regime"]["name"] == "trending"
+    assert payload["regime"]["prob_trending"] == 0.8
 
 
-def test_websocket_generic_exception_logged_not_raised(mock_state):
-    """Any non-WebSocketDisconnect exception inside the loop must be caught
-    and logged, not propagate out of the handler."""
+def test_build_tick_payload_omits_regime_when_there_is_no_snapshot(mock_state):
     import src.api.main as main_mod
 
-    fake_orch = MagicMock()
-    fake_executor = AsyncMock()
-    fake_executor.equity_usd = 1000.0
-    fake_executor.cash_usd = 500.0
-    fake_executor.open_positions_safe = AsyncMock(return_value=[])
-    fake_executor.pending_approvals_safe = AsyncMock(return_value=[])
-    fake_orch._executor = fake_executor
-    mock_state.orchestrator = fake_orch
+    mock_state.orchestrator = _orchestrator_with_executor()
+    mock_state.storage.latest_regime = AsyncMock(return_value=None)
+
+    payload = asyncio.run(main_mod._build_tick_payload())
+    assert payload is not None and "regime" not in payload
+
+
+def test_the_broadcaster_survives_a_failing_snapshot_build(mock_state):
+    """
+    It is the only sender. An exception escaping would leave every dashboard
+    frozen on its last frame with the socket still open -- the failure mode
+    hardest to notice from outside.
+    """
+    import src.api.main as main_mod
+
+    mock_state.orchestrator = _orchestrator_with_executor()
     mock_state.storage.latest_regime = AsyncMock(side_effect=RuntimeError("db exploded"))
+    broadcast = AsyncMock()
 
-    ws = _fake_ws()
+    async def drive():
+        woken = asyncio.Event()
 
-    async def _allow_ws(_ws):
-        return None
+        async def _drain(_window):
+            if woken.is_set():
+                await asyncio.sleep(3600)  # park after the first pass
+            woken.set()
+            return 1
 
-    async def _one_sleep_then_ok(_s):
-        return None
+        with (
+            patch.object(main_mod.Subscription, "drain", side_effect=_drain),
+            patch.object(main_mod._state, "broadcast", new=broadcast),
+        ):
+            task = asyncio.create_task(main_mod._tick_broadcaster())
+            await woken.wait()
+            await asyncio.sleep(0)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
-    with (
-        patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
-        patch.object(main_mod._state, "add_ws_client", return_value=True),
-        patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
-        # Subscription.drain, which returns on a published event or on the
-        # heartbeat timeout. Driving it through asyncio.sleep stopped
-        # controlling anything, so these tests blocked for the real
-        # heartbeat on every iteration and the shard hit its 25m ceiling.
-        patch.object(main_mod.Subscription, "drain", side_effect=_one_sleep_then_ok),
-    ):
-        # storage.latest_regime raising propagates out of the try body ->
-        # caught by `except Exception` -> handler returns normally.
-        asyncio.run(main_mod.websocket_endpoint(ws))
+    asyncio.run(asyncio.wait_for(drive(), timeout=5))
+    broadcast.assert_not_awaited()
+
+
+def test_the_broadcaster_builds_once_and_fans_out(mock_state):
+    """The whole point of GOV-038: one build, one serialization, N sends."""
+    import src.api.main as main_mod
+
+    mock_state.orchestrator = _orchestrator_with_executor()
+    mock_state.storage.latest_regime = AsyncMock(return_value=None)
+    broadcast = AsyncMock()
+    builds = 0
+
+    async def counting_build():
+        nonlocal builds
+        builds += 1
+        return {"type": "tick"}
+
+    async def drive():
+        woken = asyncio.Event()
+
+        async def _drain(_window):
+            if woken.is_set():
+                await asyncio.sleep(3600)
+            woken.set()
+            return 1
+
+        with (
+            patch.object(main_mod.Subscription, "drain", side_effect=_drain),
+            patch.object(main_mod, "_build_tick_payload", side_effect=counting_build),
+            patch.object(main_mod._state, "broadcast", new=broadcast),
+        ):
+            task = asyncio.create_task(main_mod._tick_broadcaster())
+            await woken.wait()
+            await asyncio.sleep(0)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    asyncio.run(asyncio.wait_for(drive(), timeout=5))
+    assert builds == 1
+    broadcast.assert_awaited_once()
 
 
 def test_websocket_capacity_rejected(mock_state):
