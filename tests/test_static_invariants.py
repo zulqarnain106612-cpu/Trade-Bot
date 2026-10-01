@@ -1243,7 +1243,7 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
-# check_layering (INV-017)
+# check_layering (GOV-042)
 # ---------------------------------------------------------------------------
 #
 # The fake-tree coverage for check_layering lives in
