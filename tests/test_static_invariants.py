@@ -1243,13 +1243,15 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
-# check_no_weak_hash (INV-030)
+# check_no_weak_hash (GOV-054)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("algo", ["md5", "sha1"])
 def test_bare_weak_hash_is_flagged(invariants, fake_tree, algo) -> None:
-    fake_tree("src/mod.py", f"import hashlib\ndef go(b):\n    return hashlib.{algo}(b).hexdigest()\n")
+    fake_tree(
+        "src/mod.py", f"import hashlib\ndef go(b):\n    return hashlib.{algo}(b).hexdigest()\n"
+    )
     problems = invariants.check_no_weak_hash()
     assert any(f"hashlib.{algo}()" in p for p in problems)
 
