@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 136 |
+| VERIFIED | 137 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **136** |
+| **Total** | **137** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 33 | 33 |
+| Governance | 34 | 34 |
 
 ## Outstanding work by phase
 
@@ -1672,6 +1672,17 @@ main is protected by a merge queue that squash-merges one pull request at a time
   - `tests/test_merge_queue_retry_workflow.py` (unit)
   - `tests/test_apply_repo_ruleset.py` (unit)
 
+#### `GOV-038` — verified entry depends on verified or accepted_gap only
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.
+
+- **If violated:** A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1783,4 +1794,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 136 entries.
+Registry version: 1.0.0 — 137 entries.
