@@ -57,6 +57,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
+from src.api.control_surface import ControlWriteError, apply_control, build_control_surface
 from src.api.error_hygiene import install_error_handlers
 from src.api.fail_closed import (
     CONTROL_HEALTH,
@@ -64,7 +65,6 @@ from src.api.fail_closed import (
     SecurityControlUnavailable,
     mark_all_healthy,
 )
-from src.api.metrics import metrics_output
 from src.api.middleware import validate_cors_config
 from src.api.object_refs import (
     NOT_FOUND_DETAIL,
@@ -80,6 +80,7 @@ from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_back
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
+from src.diagnostics.metrics import metrics_output
 from src.engine.orchestrator import Orchestrator
 from src.execution.base import AbstractExecutor
 from src.execution.mode_persistence import load_execution_mode, save_execution_mode
@@ -195,6 +196,43 @@ class AppState:
         """Remove a WS client from the tracked set."""
         async with self._ws_lock:
             self._ws_clients.discard(ws)
+
+    async def broadcast(self, payload: dict[str, Any]) -> int:
+        """
+        Push one message to every connected dashboard. Returns how many got it.
+
+        Each connection otherwise pushes its own heartbeat, so a control moved
+        between ticks is invisible until the next one -- long enough for an
+        operator to move a slider, see nothing, and move it again. This is the
+        out-of-band path for that.
+
+        A send is never allowed to fail the caller: this runs after a write has
+        already been applied, and a dashboard that has gone away is not a
+        reason to report the write as failed. Failures drop the client instead,
+        which is what the heartbeat's own error path does.
+
+        The set is snapshotted under the lock before sending. Iterating it
+        directly would mutate-during-iteration the moment a send fails and the
+        client is discarded.
+        """
+        async with self._ws_lock:
+            clients = list(self._ws_clients)
+
+        message = json.dumps(payload)
+        delivered = 0
+        dead: list[WebSocket] = []
+        for client in clients:
+            try:
+                await client.send_text(message)
+                delivered += 1
+            except Exception:
+                dead.append(client)
+
+        for client in dead:
+            await self.remove_ws_client(client)
+        if dead:
+            log.info("api.ws_broadcast_dropped", dropped=len(dead), delivered=delivered)
+        return delivered
 
     def check_endpoint_rate_limit(self, endpoint: str, client_ip: str = "") -> None:
         """
@@ -2555,3 +2593,126 @@ async def risk_size_check(body: SizeCheckRequest, request: Request) -> dict[str,
         "allowed": allowed,
         "reject_reason": reject_reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# Venue connectivity (REG-0014)
+#
+# A venue can now be down while the bot runs, so its state has to be readable
+# and its recovery has to be reachable without a restart. These two endpoints
+# are that control surface: what is up, and bring one back.
+# ---------------------------------------------------------------------------
+
+
+class VenueReconnectRequest(BaseModel):
+    """Second factor for reconnecting a venue, as for every other control."""
+
+    operator_secret: str
+
+
+@app.get("/venues", dependencies=[Depends(api_key_header)])
+async def venues_status() -> dict[str, Any]:
+    """
+    Per-venue availability and, for a venue that is down, what it said.
+
+    The reason is the point: an operator has to tell a transient network fault
+    from a 451 eligibility block, because only one of those is worth retrying.
+    """
+    orchestrator = require_orchestrator()
+    status = orchestrator._fetcher.venue_status()
+    return {
+        "venues": status,
+        "available": sorted(v for v, s in status.items() if s["available"]),
+        "degraded": any(not s["available"] for s in status.values()),
+    }
+
+
+@app.post("/venues/{venue}/reconnect", dependencies=[Depends(api_key_header)])
+async def reconnect_venue(
+    venue: str,
+    body: VenueReconnectRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Re-open one venue in place. Returns its state after the attempt."""
+    _state.check_endpoint_rate_limit(
+        "reconnect_venue", request.client.host if request.client else ""
+    )
+    # SEC-007: same second-factor pattern as /execution-mode. Reconnecting is a
+    # state change on the trading path -- it can put a venue back in service --
+    # so the API key alone is not enough.
+    expected = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="OPERATOR_SECRET is not configured.")
+    if not hmac.compare_digest(body.operator_secret.encode("utf-8"), expected.encode("utf-8")):
+        log.warning("api.reconnect_venue_bad_operator_secret", venue=venue)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+
+    orchestrator = require_orchestrator()
+    try:
+        reconnected = await orchestrator._fetcher.reconnect(venue)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    status = orchestrator._fetcher.venue_status()[venue]
+    log.info("api.venue_reconnect", venue=venue, available=reconnected)
+    return {"venue": venue, "reconnected": reconnected, **status}
+
+
+@app.get("/controls", dependencies=[Depends(api_key_header)])
+async def control_surface() -> dict[str, Any]:
+    """
+    Every control the operator has, each labelled with the tier it belongs to.
+
+    The dashboard renders from this rather than from its own idea of what is
+    adjustable, so a control it offers is one the backend will actually honour.
+    Protected entries (hard risk limits, credentials) are present and read-only
+    with the reason: an operator needs to see that a position-size cap exists
+    and that it is not movable from here, which is not the same as hiding it.
+    """
+    return await build_control_surface(SetRiskControlsRequest)
+
+
+class SetControlRequest(BaseModel):
+    """One control, one value, plus the second factor."""
+
+    value: Any
+    operator: str
+    operator_secret: str
+
+
+@app.post("/controls/{name}", dependencies=[Depends(api_key_header)])
+async def set_control(name: str, body: SetControlRequest, request: Request) -> dict[str, Any]:
+    """
+    Set one live control, routed to the setter that already owns it.
+
+    One entry point for the dashboard, not a second way in: a risk control is
+    still validated by SetRiskControlsRequest and a tunable still by its
+    registry bounds, so this endpoint cannot write anything the dedicated
+    endpoints would have refused. A protected parameter is refused outright.
+    """
+    _state.check_endpoint_rate_limit("set_control", request.client.host if request.client else "")
+    # SEC-007: same second factor as /execution-mode and /risk-controls. This
+    # moves live trading parameters, so the API key alone is not enough.
+    expected = os.environ.get("OPERATOR_SECRET", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="OPERATOR_SECRET is not configured.")
+    if not hmac.compare_digest(body.operator_secret.encode("utf-8"), expected.encode("utf-8")):
+        log.warning("api.set_control_bad_operator_secret", control=name)
+        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+
+    try:
+        applied = await apply_control(
+            name,
+            body.value,
+            SetRiskControlsRequest,
+            operator=body.operator,
+            operator_secret=body.operator_secret,
+        )
+    except ControlWriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    log.info("api.control_set", control=name, value=applied["value"])
+    # Out of band, so a second dashboard -- or the same one, mid-drag -- sees
+    # the new value now rather than at the next heartbeat.
+    await _state.broadcast({"type": "control_changed", **applied})
+    return {"applied": True, **applied}
