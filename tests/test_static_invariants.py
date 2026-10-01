@@ -1243,7 +1243,7 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
-# check_every_gate_status_is_reachable (INV-016)
+# check_every_gate_status_is_reachable (GOV-041)
 # ---------------------------------------------------------------------------
 
 
