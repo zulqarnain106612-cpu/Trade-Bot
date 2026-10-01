@@ -38,7 +38,16 @@ WORKDIR /build
 # that can silently pick up something different.
 COPY requirements.txt ./
 
+# The CPU torch index first, for the same reason ci.yml does it (GOV-015).
+# PyPI's default torch wheel bundles the CUDA runtime: gigabytes of wheel for
+# an image that has no GPU and never executes a line of it. Unpacked into a
+# build layer it exhausted the runner's disk outright -- the container job
+# died on "No space left on device" before it reached the scan. The range pin
+# below is already satisfied when pip reaches requirements.txt, so that file
+# stays the single source of truth for the version.
 RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir --prefix=/install \
+         --index-url https://download.pytorch.org/whl/cpu "torch>=2.3,<3.0" \
     && python -m pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 COPY src ./src

@@ -453,17 +453,17 @@ class TestGraph:
         load(
             tree,
             [
-                {
-                    **entry(id="RISK-002"),
-                    "status": "accepted_gap",
-                    "planned_in": None,
-                    "waiver": {
+                entry(
+                    id="RISK-002",
+                    status="accepted_gap",
+                    planned_in=None,
+                    waiver={
                         "reason": "explicitly deferred, dated in review",
-                        "granted_on": "2026-01-01",
-                        "granted_by": "reviewer",
+                        "accepted_by": "reviewer",
+                        "review_by": "2027-01-01",
                     },
-                },
-                {**entry(id="RISK-001", depends_on=["RISK-002"]), **VERIFIED},
+                ),
+                entry(id="RISK-001", depends_on=["RISK-002"], **VERIFIED),
             ],
         )
 
