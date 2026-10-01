@@ -1,0 +1,179 @@
+name: Merge queue retry
+
+# GOV-037. The merge queue (.github/rulesets/main-protection.json) lands one
+# squashed pull request at a time and removes an entry whose merge group fails.
+# This workflow is the deterministic rest of the loop -- no model, no Claude,
+# nothing that reads or runs the pull request's code:
+#
+#   * a ready pull request gets auto-merge, so it joins the queue once its own
+#     checks are green;
+#   * an entry the queue removes is put back, up to MAX_RETRIES times;
+#   * after that, the owner is mentioned once and the pull request is left
+#     alone until a new commit lands on it;
+#   * the label `queue-hold` opts a pull request out entirely.
+#
+# Conflicts are not handled here: pr-auto-update.yml resolves the ones that are
+# safe to resolve mechanically on every push to main (GOV-029), and that push
+# arrives here as `synchronize`, which re-arms auto-merge.
+#
+# pull_request_target, not pull_request: Dependabot's pull_request runs get no
+# secrets, and the queue needs a token whose events start workflow runs.
+# Running in the base branch's context is safe because nothing from the head is
+# checked out or executed -- every step is an API call.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize, dequeued]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-queue-retry-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    # Same-repository branches only; a fork's pull request is never auto-merged.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Arm, re-queue, or hand over
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HAS_TOKEN: ${{ secrets.PR_AUTOUPDATE_TOKEN != '' && '1' || '' }}
+        with:
+          # A PAT, not GITHUB_TOKEN: the queue's merge_group runs must start,
+          # and events made with GITHUB_TOKEN start no workflow run.
+          github-token: ${{ secrets.PR_AUTOUPDATE_TOKEN || github.token }}
+          script: |
+            const MAX_RETRIES = 3;
+            const HOLD = 'queue-hold';
+            const EXHAUSTED = 'queue-retry-exhausted';
+            const RETRY_RE = /^queue-retry-(\d+)$/;
+
+            if (!process.env.HAS_TOKEN) {
+              core.setFailed(
+                'PR_AUTOUPDATE_TOKEN is not set (as an Actions secret, and as a ' +
+                'Dependabot secret for Dependabot pull requests). Nothing changed.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const number = context.payload.pull_request.number;
+            const action = context.payload.action;
+            const pr = (await github.rest.pulls.get({ owner, repo, pull_number: number })).data;
+            if (pr.state !== 'open' || pr.merged || pr.draft) return;
+
+            const labels = pr.labels.map(l => l.name);
+            if (labels.includes(HOLD)) {
+              core.info(`#${number} carries ${HOLD}; left alone.`);
+              return;
+            }
+
+            async function ensureLabel(name) {
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name, color: 'ededed' });
+              } catch (e) {
+                if (e.status !== 422) throw e;  // 422: it already exists
+              }
+            }
+            async function dropLabel(name) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+            }
+            async function armAutoMerge() {
+              await github.graphql(
+                `mutation($id: ID!, $oid: GitObjectID) {
+                   enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $oid, mergeMethod: SQUASH}) {
+                     clientMutationId
+                   }
+                 }`,
+                { id: pr.node_id, oid: pr.head.sha });
+            }
+            async function enqueue() {
+              await github.graphql(
+                `mutation($id: ID!, $oid: GitObjectID) {
+                   enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid}) {
+                     clientMutationId
+                   }
+                 }`,
+                { id: pr.node_id, oid: pr.head.sha });
+            }
+
+            if (action !== 'dequeued') {
+              // New content starts a new series of attempts.
+              if (action === 'synchronize') {
+                for (const l of labels.filter(l => RETRY_RE.test(l) || l === EXHAUSTED)) {
+                  await dropLabel(l);
+                }
+              }
+              try {
+                await armAutoMerge();
+                core.info(`#${number}: auto-merge armed.`);
+              } catch (e) {
+                // Already armed, or not yet mergeable; the next event re-arms.
+                core.info(`#${number}: auto-merge not armed: ${e.message}`);
+              }
+              return;
+            }
+
+            if (labels.includes(EXHAUSTED)) return;  // the owner already has it
+
+            const done = Math.max(0, ...labels.map(l => (l.match(RETRY_RE) || [0, 0])[1]).map(Number));
+            if (done >= MAX_RETRIES) {
+              await ensureLabel(EXHAUSTED);
+              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [EXHAUSTED] });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: `@${owner} have a look on this PR`,
+              });
+              return;
+            }
+
+            const next = `queue-retry-${done + 1}`;
+            await ensureLabel(next);
+            for (const l of labels.filter(l => RETRY_RE.test(l))) await dropLabel(l);
+            await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [next] });
+
+            try {
+              await enqueue();
+              core.info(`#${number}: re-queued (${next}).`);
+            } catch (e) {
+              core.info(`#${number}: enqueue refused (${e.message}); arming auto-merge instead.`);
+              try {
+                await armAutoMerge();
+              } catch (e2) {
+                // Neither path can put it back -- a conflict or a red check on
+                // the pull request itself. Hand it over now rather than wait.
+                await ensureLabel(EXHAUSTED);
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [EXHAUSTED] });
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: number,
+                  body: `@${owner} have a look on this PR`,
+                });
+              }
+            }
+
+  # The gate law (CLAUDE.md section 18): this workflow posts a check on the
+  # pull request, so it ends in a gate even though the gate is not required.
+  # Its checkout takes no `ref`, which under pull_request_target is the base
+  # branch -- trusted code, never the pull request's head.
+  gate:
+    name: Merge queue retry gate (all jobs green)
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs: [retry]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert every job in this workflow succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          # retry: skipped on a fork's pull request by its `if:`, which is
+          # correct -- a fork is never auto-merged.
+          ALLOW_SKIPPED: retry
+        run: python3 scripts/assert_jobs_green.py
