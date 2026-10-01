@@ -1672,7 +1672,7 @@ main is protected by a merge queue that squash-merges one pull request at a time
   - `tests/test_merge_queue_retry_workflow.py` (unit)
   - `tests/test_apply_repo_ruleset.py` (unit)
 
-#### `GOV-038` — every wiring kind is held to the existence check
+#### `GOV-045` — every wiring kind is held to the existence check
 
 **VERIFIED** · medium · requirement · source: QE-52
 
