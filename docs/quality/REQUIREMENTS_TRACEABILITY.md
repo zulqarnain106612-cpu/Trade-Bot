@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 130 |
+| VERIFIED | 136 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **130** |
+| **Total** | **136** |
 
 ## Summary by subsystem
 
@@ -64,11 +64,11 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 20 | 20 |
+| Cryptography and secrets | 21 | 21 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 9 | 9 |
-| Governance | 30 | 30 |
+| Release and production | 11 | 11 |
+| Governance | 33 | 33 |
 
 ## Outstanding work by phase
 
@@ -1033,6 +1033,19 @@ Every filename that carries the same secrets as .env -- .env itself and its back
 
 > Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite
 
+#### `SEC-0006` — The runtime manifest never resolves a vulnerable urllib3
+
+**VERIFIED** · high · security_regression · source: QE-54
+
+requirements.txt declares urllib3>=2.8.0 and caps ccxt below 4.5.65, so pip cannot resolve urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97688, CVE-2026-97689).
+
+- **If violated:** urllib3 was only a transitive dependency. Every ccxt from 4.5.65 to 4.5.84 pins urllib3==2.7.0 exactly, so pip chose the newest ccxt and the vulnerable urllib3 with it; the pip-audit job failed and every PR's Security gate went red.
+- **Owned by:** `requirements.txt`
+- **Verification:**
+  - `tests/security/test_urllib3_cve_floor.py` (security)
+
+> Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1311,6 +1324,32 @@ The production workflow can return to the previous trusted artifact, and a drill
 - **Verification:**
   - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
+#### `REG-0018` — A cancelled job is not counted as a failing job in the CI notice
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.
+
+- **If violated:** This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_notice_supersession.py` (regression)
+
+> The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite
+
+#### `REG-0020` — The CI notice names the error of a failure no pattern recognises
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+When no SIGNAL pattern matches a failing job's log, the notice carries the last lines of the failing step's own output -- between the runner's ##[endgroup] and its ##[error] exit-code line -- without table rules or runner markers.
+
+- **If violated:** pip-audit's vulnerability table matched none of the patterns, so the notice on #385 named the failing step and no error, and the failing lines had to be pasted by hand.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit)
+
+> Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -1547,6 +1586,17 @@ The CI notice waits until every watched workflow has completed for a commit, the
   - `tests/test_ci_failure_notify_workflow.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
+#### `GOV-021` — tuning stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDetector Protocol and callers inject a detector, keeping tuning inside the analytics layer and shrinking the accepted_upward_edges ratchet.
+
+- **If violated:** A future edit reintroduces an import of src.risk.performance_drift in src/tuning/, silently reviving the tuning->risk package edge.
+- **Owned by:** `src/tuning/watchdog.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-024` — intelligence does not import intel
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1578,13 +1628,14 @@ get_settings() must return the configuration in force including live operator ov
 
 **VERIFIED** · medium · requirement · source: OPS-2026-09-25
 
-When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator, in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.
+When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator or config/quality_registry.json, which is merged per entry id by scripts/resolve_registry_merge.py (a clash on one entry abandons the merge), in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.
 
 - **If violated:** Every pull request that adds a registry entry regenerates the whole traceability document, so any two of them conflict regardless of how unrelated the entries are -- which made a registry entry cost a manual rebase per pull request ahead of it. The file that does not conflict is the dangerous one: git merges the registry JSON cleanly and can still produce a document the strict loader refuses, two branches allocating the same id being the usual way, since the scaffolder allocates against main and cannot see open branches. Resolving without re-running the gate would push that onto the head branch, green in appearance.
-- **Owned by:** `.github/workflows/pr-auto-update.yml`
+- **Owned by:** `.github/workflows/pr-auto-update.yml`, `scripts/resolve_registry_merge.py`
 - **Depends on:** `GOV-017`
 - **Verification:**
   - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate.
+  - `tests/test_resolve_registry_merge.py` (unit) — Keeps both sides' new entries, takes a one-sided edit, refuses an entry changed differently on both sides, and writes nothing when it refuses.
 
 #### `GOV-030` — engine does not import api
 
@@ -1596,6 +1647,30 @@ src/engine/ must not import from src.api. The Prometheus metrics module is obser
 - **Owned by:** `src/diagnostics/metrics.py`
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
+
+#### `GOV-036` — Claude never runs unattended on the owner's plan
+
+**VERIFIED** · high · requirement · source: QE-53
+
+No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or `claude -p`), and .claude/settings.json denies ScheduleWakeup, CronCreate, RemoteTrigger and PR-activity subscription, so Claude runs only in sessions the owner starts and can see.
+
+- **If violated:** claude-review.yml ran up to 120 turns on every PR push, and cloud sessions scheduled their own wake-ups and re-armed them, spending the owner's usage with no visible session until the five-hour limit was hit.
+- **Owned by:** `.claude/settings.json`, `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_no_claude_automation.py` (contract)
+
+#### `GOV-037` — Pull requests land through a one-at-a-time merge queue that retries, then hands over
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-01
+
+main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A ready same-repository pull request gets auto-merge; one the queue removes is re-queued up to three times, after which the owner is mentioned once and it is left alone until a new commit lands. The label queue-hold opts a pull request out. No step checks out or runs pull request code, and no model is invoked.
+
+- **If violated:** Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another, with nothing retrying a flaky queue failure and nothing telling the owner which pull request needed a person.
+- **Owned by:** `.github/rulesets/main-protection.json`, `.github/workflows/merge-queue-retry.yml`
+- **Depends on:** `GOV-029`
+- **Verification:**
+  - `tests/test_merge_queue_retry_workflow.py` (unit)
+  - `tests/test_apply_repo_ruleset.py` (unit)
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1708,4 +1783,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 130 entries.
+Registry version: 1.0.0 — 136 entries.
