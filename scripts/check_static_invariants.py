@@ -1524,9 +1524,7 @@ def check_no_bare_except() -> list[str]:
     for path in _py_files(SRC):
         for node in ast.walk(_parse(path)):
             if isinstance(node, ast.ExceptHandler) and node.type is None:
-                problems.append(
-                    f"{_rel(path)}:{node.lineno}: bare except -- name the exception"
-                )
+                problems.append(f"{_rel(path)}:{node.lineno}: bare except -- name the exception")
     return problems
 
 
