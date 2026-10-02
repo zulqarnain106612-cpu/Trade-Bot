@@ -1,7 +1,7 @@
 {
-  "_registry": "GOV-011, GOV-012 (config/quality_registry.json).",
   "$schema": "https://trade-bot.local/schemas/command-policy/1.0.0.json",
-  "policy_version": "1.2.0",
+  "_registry": "GOV-011, GOV-012 (config/quality_registry.json).",
+  "policy_version": "1.4.0",
   "enforcement": "block",
   "_enforcement_values": [
     "block",
@@ -11,35 +11,70 @@
   "_enforcement_note": "block: refuse the tool call and explain. warn: allow but inject the reason as feedback. off: allow silently. The TB_COMMAND_POLICY env var overrides this value for one session, which is the documented rollback path -- edit this file for a durable change.",
   "bounded_output": {
     "enabled": true,
-    "max_declared_lines": 30,
-    "_note": "Project directive: fetch at most 30 lines per call, then request the next 30. A read command must carry an explicit bound (head -N, tail -N, sed -n 'a,bp', grep -m N, git log -n N, --max-count) with N <= max_declared_lines. When the bound is satisfied the output is returned normally; when it is not, the only thing that leaves the hook is refusal_message.",
+    "max_declared_lines": 2,
+    "_note": "Owner directive: at most 2 lines leave any read, in every session, through every tool, local or cloud, directly or indirectly. A read command must carry an explicit bound (head -2, tail -2, sed -n 'a,bp' spanning at most two lines, grep -m 2, -n 2, --limit 2) and nothing wider. When the bound is satisfied the output is returned normally; when it is not, the only thing that leaves the hook is refusal_message.",
     "bounded_flag_patterns": [
-      "\\|\\s*(head|tail)\\s+(-n\\s*)?-?(?:[1-9]|[12][0-9]|30)\\b",
-      "\\b(head|tail)\\s+(-n\\s*)?-?(?:[1-9]|[12][0-9]|30)\\b",
+      "\\|\\s*(head|tail)\\s+(-n\\s*)?-?[12]\\b",
+      "\\b(head|tail)\\s+(-n\\s*)?-?[12]\\b",
       "\\bsed\\s+-n\\s*['\\\"]?\\s*[0-9]+\\s*,\\s*[0-9]+\\s*p",
       "\\bsed\\s+-n\\s*['\\\"]?\\s*[0-9]+\\s*p",
-      "\\bgrep\\b[^|]*\\s-m\\s*(?:[1-9]|[12][0-9]|30)\\b",
-      "\\bgrep\\b[^|]*--max-count[= ](?:[1-9]|[12][0-9]|30)\\b",
-      "\\b(git\\s+log|git\\s+shortlog)\\b[^|]*\\s-n?\\s*(?:[1-9]|[12][0-9]|30)\\b",
-      "\\b(gh\\s+\\w+)\\b[^|]*\\s(?:-L|--limit)\\s*(?:[1-9]|[12][0-9]|30)\\b",
+      "\\bgrep\\b[^|]*\\s-m\\s*[12]\\b",
+      "\\bgrep\\b[^|]*--max-count[= ][12]\\b",
+      "\\b(git\\s+log|git\\s+shortlog)\\b[^|]*\\s-n?\\s*[12]\\b",
+      "\\b(gh\\s+\\w+)\\b[^|]*\\s(?:-L|--limit)\\s*[12]\\b",
       "\\bhead\\s+-c\\s+[0-9]+\\b",
       "\\bwc\\b",
-      "\\b(ls|find)\\b[^|]*\\|\\s*(head|tail|wc)\\b",
       "\\bgrep\\b[^|]*\\s-[a-zA-Z]*c\\b"
     ],
     "unbounded_commands": [
-      "cat",
-      "less",
-      "more",
+      "ack",
+      "ag",
+      "awk",
+      "base64",
       "bat",
-      "strings",
-      "find",
-      "tree",
+      "cat",
+      "column",
+      "comm",
+      "csplit",
+      "cut",
+      "df",
+      "diff",
+      "dmesg",
+      "du",
       "env",
-      "printenv",
+      "expand",
+      "find",
+      "fold",
+      "grep",
+      "head",
+      "hexdump",
       "history",
+      "join",
       "journalctl",
-      "dmesg"
+      "jq",
+      "less",
+      "ls",
+      "more",
+      "nl",
+      "od",
+      "paste",
+      "pr",
+      "printenv",
+      "ps",
+      "rev",
+      "rg",
+      "sed",
+      "shuf",
+      "sort",
+      "split",
+      "strings",
+      "tac",
+      "tail",
+      "tree",
+      "unexpand",
+      "uniq",
+      "xxd",
+      "yq"
     ],
     "exempt_commands": [
       "cd",
@@ -69,7 +104,7 @@
       "make",
       "git"
     ],
-    "_exempt_note": "Commands whose output is either trivially small or whose own tooling already bounds it (pytest -q, ruff, git with -n). Exemption applies to the FIRST word of a pipeline segment only; a pipeline that ends in an unbounded reader is still checked.",
+    "_exempt_note": "Commands whose output is either trivially small or whose own tooling already bounds it (pytest -q, ruff, git with -n). Exemption applies to the FIRST word of a pipeline segment only; a pipeline that ends in an unbounded reader is still checked. A reader added to unbounded_commands is NOT exempt even when it also appears there; exempt_commands is consulted for the segment head only and unbounded_commands wins for the readers listed above.",
     "bounded_required_subcommands": {
       "git": [
         "log",
@@ -101,19 +136,22 @@
       "\\bgrep\\b[^|]*?\\s-m\\s*(\\d+)\\b",
       "\\bgrep\\b[^|]*?--max-count[= ](\\d+)\\b",
       "\\b(?:git\\s+\\w+|docker\\s+logs|kubectl\\s+logs)\\b[^|]*?\\s(?:-n|--max-count|--tail)[= ]?(\\d+)\\b",
-      "\\bgh\\s+\\w+\\b[^|]*?\\s(?:-L|--limit)[= ]?(\\d+)\\b"
+      "\\bgh\\s+\\w+\\b[^|]*?\\s(?:-L|--limit)[= ]?(\\d+)\\b",
+      "\\bgrep\\b[^|]*?\\s-[ABC]\\s*(\\d+)\\b",
+      "\\bgrep\\b[^|]*?--(?:after|before)-context[= ](\\d+)\\b",
+      "\\bgrep\\b[^|]*?--context[= ](\\d+)\\b"
     ],
     "oversized_range_patterns": [
       "\\bsed\\s+-n\\s*['\\\"]?\\s*(\\d+)\\s*,\\s*(\\d+)\\s*p"
     ],
-    "_oversized_note": "A bound that is present but large is not a bound. head -100 puts 100 lines in context just as surely as cat does. These patterns extract the declared N and compare it against max_declared_lines; sed ranges are compared by span.",
-    "max_declared_bytes": 2000,
+    "_oversized_note": "A bound that is present but large is not a bound. head -100 puts 100 lines in context just as surely as cat does. These patterns extract the declared N and compare it against max_declared_lines; sed ranges are compared by span. A context flag is a bound of its own: `grep -m 2 -A 50` satisfies the match bound and still returns a hundred lines, so -A, -B and -C are compared against the same limit.",
+    "max_declared_bytes": 200,
     "oversized_byte_patterns": [
       "\\b(?:head|tail)\\s+-c\\s*(\\d+)\\b"
     ],
     "_byte_note": "head -c is a legitimate bound for output with no newlines, but a byte bound is still a bound: -c 500000 is unbounded in practice. Compared against max_declared_bytes rather than max_declared_lines.",
     "_count_note": "grep -c emits a single count line, so it is inherently bounded and must not be treated as an unbounded read just because it follows a reader in the pipeline.",
-    "refusal_message": "only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
+    "refusal_message": "only 2 lines reading is allowed",
     "_gh_note": "`gh` is not exempt as a whole, but `gh run view --log`, `gh run list` and `gh api .../logs` page an entire CI run into context. They are allowed only behind an explicit bound; `gh pr view/checks/merge` are untouched."
   },
   "destructive": {
@@ -138,7 +176,7 @@
   "ci_observability": {
     "enabled": true,
     "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk retrieval is no longer a bounded alternative either: see ci_log_access, which refuses it outright.",
-    "message": "CI live monitoring is permanently disabled. only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
+    "message": "CI live monitoring is permanently disabled. only 2 lines reading is allowed",
     "live_patterns": [
       "\\bgh\\s+run\\s+watch\\b",
       "\\bgh\\s+(run|pr)\\b[^|]*--watch\\b",
@@ -187,5 +225,309 @@
       "\\bcurl\\b[^|]*/check-runs?\\b",
       "\\bact\\b\\s+-"
     ]
+  },
+  "comment_read": {
+    "enabled": true,
+    "_note": "The pull-request comment channel stays open, because closing it would leave no way at all to learn why a run failed. It is narrowed to one comment: the latest. A query that fetches the whole comments array pulls every notice ever posted on the pull request into one call, which is the thing being prevented -- so the command must name the last comment itself, and the two-line bound then applies to that comment's body like any other read.",
+    "message": "only the latest comment may be read. name it in the query, e.g. gh pr view <n> --json comments -q '.comments[-1].body' | head -2. reading the whole comments array is not allowed.",
+    "patterns": [
+      "\\bgh\\s+(pr|issue)\\s+view\\b[^|]*\\bcomments\\b",
+      "\\bgh\\s+api\\b[^|]*/(issues|pulls)/\\d+/comments\\b",
+      "\\bgh\\s+api\\b[^|]*/issues/comments\\b",
+      "\\bcurl\\b[^|]*/(issues|pulls)/\\d+/comments\\b"
+    ],
+    "_selector_note": "One of these must appear for the read to be about the latest comment. `head -1` is deliberately absent: it selects the OLDEST comment.",
+    "latest_selectors": [
+      "\\[\\s*-1\\s*\\]",
+      "\\[\\s*-1\\s*:\\s*\\]",
+      "\\|\\s*last\\b",
+      "\\blast\\s*\\(",
+      "\\btail\\s+(-n\\s*)?-?[12]\\b",
+      "\\bper_page=1\\b"
+    ]
+  },
+  "local_ci_work": {
+    "enabled": true,
+    "_note": "Work that GitHub Actions already performs on every push belongs there, not on this machine. A local suite, build, lint, type-check, coverage run or dependency install proves nothing about the merge gate -- different interpreter, different resolved dependency set, different checkout -- while costing minutes and filling context with output nobody will act on. The refusal is deliberately one short line: the replacement is not a smaller local command, it is pushing the branch and letting the gate decide. Detection is by the executable at the head of a pipeline segment, never by substring, so `grep -n pytest tests/foo.py` stays a search and is not mistaken for a test run.",
+    "message": "use github platform",
+    "blocked_executables": [
+      "pytest",
+      "tox",
+      "nox",
+      "ruff",
+      "mypy",
+      "pyright",
+      "flake8",
+      "pylint",
+      "black",
+      "isort",
+      "bandit",
+      "pip-audit",
+      "safety",
+      "semgrep",
+      "eslint",
+      "tsc",
+      "jest",
+      "vitest",
+      "pre-commit",
+      "act",
+      "shellcheck",
+      "hadolint"
+    ],
+    "blocked_subcommands": {
+      "make": [
+        "test",
+        "tests",
+        "build",
+        "lint",
+        "check",
+        "checks",
+        "ci",
+        "coverage",
+        "typecheck",
+        "verify",
+        "all"
+      ],
+      "npm": [
+        "test",
+        "ci",
+        "install",
+        "audit"
+      ],
+      "yarn": [
+        "test",
+        "build",
+        "lint",
+        "install"
+      ],
+      "pnpm": [
+        "test",
+        "build",
+        "lint",
+        "install"
+      ],
+      "cargo": [
+        "test",
+        "build",
+        "clippy",
+        "check"
+      ],
+      "go": [
+        "test",
+        "build",
+        "vet"
+      ],
+      "docker": [
+        "build",
+        "buildx"
+      ],
+      "docker-compose": [
+        "build",
+        "up"
+      ],
+      "coverage": [
+        "run",
+        "report",
+        "xml",
+        "html",
+        "combine"
+      ],
+      "pip": [
+        "install"
+      ],
+      "pip3": [
+        "install"
+      ],
+      "uv": [
+        "pip",
+        "sync"
+      ],
+      "poetry": [
+        "install"
+      ],
+      "mvn": [
+        "test",
+        "verify",
+        "package"
+      ],
+      "gradle": [
+        "test",
+        "build",
+        "check"
+      ],
+      "bazel": [
+        "test",
+        "build"
+      ]
+    },
+    "blocked_python_modules": [
+      "pytest",
+      "unittest",
+      "mypy",
+      "ruff",
+      "flake8",
+      "black",
+      "isort",
+      "pylint",
+      "coverage",
+      "tox",
+      "nox",
+      "pip",
+      "build",
+      "venv",
+      "compileall"
+    ],
+    "_script_note": "Repository scripts whose whole purpose is to verify, which is what the gate job runs. A generator that WRITES a committed file is not listed, because CI runs it with --check and cannot produce the artifact; only its --check mode is refused here.",
+    "_runners_note": "A blocked_script_patterns entry is matched only against a pipeline stage whose executable is one of these, or whose executable is the script itself. Naming a script in a search is not running it.",
+    "script_runners": [
+      "python",
+      "python3",
+      "bash",
+      "sh",
+      "zsh",
+      "npm",
+      "npx",
+      "uv",
+      "poetry",
+      "make"
+    ],
+    "blocked_script_patterns": [
+      "\\bqe_gate\\.py\\b",
+      "\\bcheck_static_invariants\\.py\\b",
+      "\\bassert_jobs_green\\.py\\b",
+      "\\bgenerate_\\w+_docs\\.py\\b[^|]*--check\\b",
+      "\\bnpm\\s+run\\s+(test|build|lint|typecheck|check|ci)\\b",
+      "\\b(bash|sh)\\s+[^|]*\\b(test|build|lint|ci)\\.sh\\b"
+    ]
+  },
+  "github_read_bound": {
+    "enabled": true,
+    "_note": "Anything that reports on GitHub -- a CI notice, a PR status, a run, a workflow, a runner, a branch listing, `git status`, `git log`, `git diff` -- returns an open-ended report, and the useful part of it is one or two lines. The cap is two lines, declared in the command itself, so the truncation happens before the output reaches context rather than after. This is narrower than bounded_output on purpose and is checked first, so the two-line figure is what the caller is told. Mutating commands (`git commit`, `git push`, `gh pr create`) are NOT listed: they are not reads, and piping their output through `head` would hide their failures.",
+    "message": "only 2 lines reading is allowed",
+    "max_declared_lines": 2,
+    "max_declared_bytes": 200,
+    "_clients_note": "The read_patterns are matched only against a pipeline stage whose executable is one of these, so a search or an echo that merely mentions `git status` is not mistaken for performing one.",
+    "read_clients": [
+      "gh",
+      "git",
+      "glab",
+      "hub",
+      "curl",
+      "wget"
+    ],
+    "read_patterns": [
+      "\\bgh\\s+[a-z-]+\\s+(view|list|status|checks|diff|download|logs)\\b",
+      "\\bgh\\s+[a-z-]+\\s+[a-z-]+\\s+(view|list|get)\\b",
+      "\\bgh\\s+(status|api|browse|search)\\b",
+      "\\bglab\\s+[a-z-]+\\s+(view|list)\\b",
+      "\\bhub\\s+(pr|issue|ci-status|browse)\\b",
+      "\\bgit\\s+(status|log|diff|show|branch|remote|tag|blame|shortlog|describe|reflog|whatchanged|cherry|ls-remote|ls-files|ls-tree|rev-list|range-diff|diff-tree|for-each-ref|show-ref|show-branch|notes|var|count-objects|fsck|verify-commit|verify-tag)\\b",
+      "\\bgit\\s+(worktree|stash|submodule|bisect)\\s+(list|log)\\b",
+      "\\bgit\\s+config\\s+(--list|-l)\\b",
+      "\\bcurl\\b[^|]*\\bgithub\\.com\\b",
+      "\\bcurl\\b[^|]*\\bgithubusercontent\\.com\\b",
+      "\\bwget\\b[^|]*\\bgithub(usercontent)?\\.com\\b"
+    ],
+    "bounded_flag_patterns": [
+      "\\|\\s*(head|tail)\\s+(-n\\s*)?-?[12]\\b",
+      "\\b(head|tail)\\s+(-n\\s*)?-?[12]\\b",
+      "\\bsed\\s+-n\\s*['\\\"]?\\s*[0-9]+\\s*,\\s*[0-9]+\\s*p",
+      "\\bsed\\s+-n\\s*['\\\"]?\\s*[0-9]+\\s*p",
+      "\\bgrep\\b[^|]*\\s-m\\s*[12]\\b",
+      "\\bgrep\\b[^|]*--max-count[= ][12]\\b",
+      "\\bgit\\s+\\w+\\b[^|]*\\s-n\\s*[12]\\b",
+      "\\bgh\\s+\\w+\\b[^|]*\\s(?:-L|--limit)[= ]?[12]\\b",
+      "\\bwc\\b",
+      "\\bgrep\\b[^|]*\\s-[a-zA-Z]*c\\b"
+    ]
+  },
+  "direct_file_read": {
+    "enabled": true,
+    "_note": "A file is searched, not opened. `cat`, the Read tool and Desktop Commander's read_file all put a whole file in context to answer a question that `grep -n` answers in one line, and an edit needs the exact block, not the surrounding four hundred lines. Reading is therefore allowed only in the bounded form that follows a search: locate with grep, read that span with sed -n, change it with the edit tool. The per-file session budget closes the other route to the same place -- thirty bounded reads walked down one file is a full-file read with extra steps.",
+    "message": "direct file reading is not allowed, and no read returns more than 2 lines. search the exact location first (grep -m 2 -n 'needle' <file>), read only that span (sed -n 'a,bp', at most two lines), then apply the change with the edit tool.",
+    "max_declared_lines": 2,
+    "whole_file_readers": [
+      "cat",
+      "less",
+      "more",
+      "bat",
+      "nl",
+      "od",
+      "xxd",
+      "hexdump",
+      "strings",
+      "tac",
+      "rev",
+      "fold",
+      "expand",
+      "unexpand",
+      "pr",
+      "column"
+    ],
+    "paging": {
+      "enabled": true,
+      "_note": "With every read capped at two lines, paging is the only way to read anything, so the per-file session budget is what still prevents walking a file from its first line to its last. Twenty reads or forty lines per file per session, whichever binds first; a search costs nothing, which keeps grep the route that never runs out. Every failure in this bookkeeping allows the call -- a budget that cannot be read must not block work.",
+      "message": "this file has already been paged in this session; budget spent. search it instead: grep -n 'needle' <file> and read only the lines the search names.",
+      "max_reads_per_file": 20,
+      "max_lines_per_file": 40,
+      "state_dir": ".claude/.hook-state"
+    },
+    "_tools_note": "Every tool that returns file or search content is covered, not just Bash: the rule is about how many lines reach the transcript, not about which tool fetched them. A tool in read_tools must declare its bound field at no more than `max`. forbid_negative names fields whose negative value makes the tool ignore the bound (Desktop Commander's negative offset reads a tail of any length); forbid_true names fields that bypass it outright (isUrl reads a URL in full whatever the bound says); also_max caps a second field that multiplies output, such as contextLines. A tool in blocked_read_tools has no bound field at all and so has no form that respects the limit.",
+    "read_tools": {
+      "Read": {
+        "bound": "limit",
+        "max": 2,
+        "target": "file_path"
+      },
+      "NotebookRead": {
+        "bound": "limit",
+        "max": 2,
+        "target": "notebook_path"
+      },
+      "Grep": {
+        "bound": "head_limit",
+        "max": 2
+      },
+      "mcp__Desktop_Commander__read_file": {
+        "bound": "length",
+        "max": 2,
+        "target": "path",
+        "forbid_negative": [
+          "offset"
+        ],
+        "forbid_true": [
+          "isUrl"
+        ]
+      },
+      "mcp__Desktop_Commander__get_more_search_results": {
+        "bound": "length",
+        "max": 2,
+        "forbid_negative": [
+          "offset"
+        ]
+      },
+      "mcp__Desktop_Commander__start_search": {
+        "bound": "maxResults",
+        "max": 2,
+        "also_max": {
+          "contextLines": 2
+        }
+      },
+      "mcp__terminal__read_terminal": {
+        "bound": "lines",
+        "max": 2
+      }
+    },
+    "blocked_read_tools": [
+      "mcp__Desktop_Commander__list_directory",
+      "mcp__Desktop_Commander__read_process_output",
+      "mcp__Desktop_Commander__list_processes",
+      "mcp__Desktop_Commander__list_searches",
+      "mcp__Desktop_Commander__list_sessions",
+      "mcp__Desktop_Commander__get_file_info",
+      "mcp__Desktop_Commander__get_recent_tool_calls",
+      "mcp__Desktop_Commander__get_usage_stats"
+    ],
+    "blocked_tool_message": "this tool returns more than 2 lines and has no bound to declare, so there is no allowed form of it. use a bounded read instead: grep -m 2 -n 'needle' <file>, or ls | head -2."
   }
 }

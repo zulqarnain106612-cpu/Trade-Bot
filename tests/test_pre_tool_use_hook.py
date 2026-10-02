@@ -72,28 +72,33 @@ class TestPolicyFileIntegrity:
         assert load_policy()["enforcement"] == "block"
 
     def test_per_fetch_limit_matches_the_project_directive(self):
-        assert load_policy()["bounded_output"]["max_declared_lines"] == 30
+        assert load_policy()["bounded_output"]["max_declared_lines"] == 2
 
 
 class TestAllowsCompliantCommands:
     @pytest.mark.parametrize(
         "command",
         [
-            "sed -n '1,5p' README.md",
-            "sed -n '6,10p' README.md",
-            "ls | head -5",
-            "grep -m 5 needle file.py",
-            "grep -rn -m 5 needle .",
-            "git log --oneline -3",
-            "git status",
-            "python3 -m pytest -q",
-            "ruff check .",
-            "wc -l a.py b.py",
-            "head -c 500 blob.bin",
-            # grep -c emits one count line: bounded by construction.
-            "env | grep -c MARKER",
-            "echo hi",
+            # A bound of one or two lines, in each shape the policy accepts.
+            "head -2 README.md",
+            "tail -1 app.log",
+            "sed -n '10,11p' README.md",
+            "sed -n '5p' README.md",
+            "grep -m 2 -n needle app.py",
+            "grep -c needle app.py",
+            "wc -l README.md",
+            "ls | head -2",
+            "cat README.md | head -2",
+            # Not reads at all: a write, a mutation, a trivial emit.
+            "echo hello",
             "mkdir -p build",
+            "cp a.txt b.txt",
+            "git add -A",
+            "git commit -m 'wip'",
+            "git push origin HEAD",
+            "git rev-parse HEAD",
+            "gh pr create --fill",
+            "cat a.txt b.txt > merged.txt",
         ],
     )
     def test_allowed(self, command):
@@ -102,21 +107,25 @@ class TestAllowsCompliantCommands:
 
 class TestBlocksUnboundedReads:
     @pytest.mark.parametrize(
-        "command",
+        ("command", "expected"),
         [
-            "cat README.md",
-            "less README.md",
-            "find . -name '*.py'",
-            "tree src",
-            "git log",
-            "git diff",
-            "journalctl -u svc",
+            # Opening a file whole and reading a GitHub report each have a
+            # narrower rule than the thirty-line one, and each says its own
+            # thing: "search instead" and "two lines". The generic refusal
+            # covers what is left -- a directory walk, a log, a journal.
+            ("cat README.md", DIRECT_READ_REFUSAL),
+            ("less README.md", DIRECT_READ_REFUSAL),
+            ("git log", GITHUB_REFUSAL),
+            ("git diff", GITHUB_REFUSAL),
+            ("find . -name '*.py'", REFUSAL),
+            ("tree src", REFUSAL),
+            ("journalctl -u svc", REFUSAL),
         ],
     )
-    def test_denied(self, command):
+    def test_denied(self, command, expected):
         decision = decide(command)
         assert decision["permissionDecision"] == "deny"
-        assert decision["permissionDecisionReason"] == REFUSAL
+        assert decision["permissionDecisionReason"] == expected
 
 
 class TestBlocksOversizedBounds:
@@ -259,8 +268,24 @@ class TestEnforcementLevels:
 
 
 class TestScopeAndFailureModes:
-    def test_non_bash_tools_are_untouched(self):
-        assert decide("cat README.md", tool="Read")["permissionDecision"] == "allow"
+    def test_tools_outside_the_read_set_are_untouched(self):
+        """
+        A tool that returns no file or search content is not judged at all.
+
+        `Grep` is deliberately not in this list: it returns matching lines, so
+        it answers to the same cap every other reader does.
+        """
+        for tool in ("Edit", "Write", "mcp__Desktop_Commander__edit_block"):
+            assert decide("cat README.md", tool=tool)["permissionDecision"] == "allow"
+
+    def test_an_unbounded_read_tool_is_refused(self):
+        """
+        The file-reading tools answer to the same rule Bash readers do.
+
+        `tests/test_read_discipline_hook.py` owns that rule; this asserts only
+        that the hook is reached through a tool call with no command string.
+        """
+        assert decide("", tool="Read")["permissionDecision"] == "deny"
 
     def test_empty_command_is_allowed(self):
         assert decide("")["permissionDecision"] == "allow"

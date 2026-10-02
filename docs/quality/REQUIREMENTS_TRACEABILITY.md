@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 137 |
+| VERIFIED | 141 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **137** |
+| **Total** | **141** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 34 | 34 |
+| Governance | 38 | 38 |
 
 ## Outstanding work by phase
 
@@ -1683,6 +1683,58 @@ The quality registry loader refuses a verified entry whose depends_on names an e
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-039` — No read returns more than two lines, through any tool
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-02
+
+Every call that returns file, repository, search or terminal content is capped at two lines, in every session, local or cloud, directly or indirectly. A Bash reader must declare an explicit bound of one or two lines. A tool that returns content must declare its own bound field at no more than two, and a tool with no bound field has no allowed form. A bound the tool would ignore does not count as a bound: a negative Desktop Commander offset, isUrl, or a grep context flag wider than two. The refusal is a single line, because a longer one spends the context the rule protects.
+
+- **If violated:** An unbounded read paged an entire file, run or listing into the session, and the context it displaced was the context the task needed. A cap that applied to Bash alone was then walked around by whichever tool had no cap.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`, `.claude/settings.json`
+- **Depends on:** `GOV-011`, `GOV-012`
+- **Verification:**
+  - `tests/test_read_discipline_hook.py` (unit)
+  - `tests/test_pre_tool_use_hook.py` (unit)
+
+#### `GOV-040` — Work GitHub already does happens on GitHub
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-02
+
+A test suite, build, lint, type-check, coverage run or dependency install is refused on this machine with the single line: use github platform. Detection is on the executable at the head of a pipeline segment, on python -m <module>, and on a verification script invoked through an interpreter, a package runner or directly. It is never on a substring, so a search that names a tool or a script is not mistaken for running it. A generator that writes a committed file stays allowed; only its --check mode is refused.
+
+- **If violated:** A local full-suite run cost the owner thirty-five minutes and proved nothing about the merge gate, which resolves different dependencies on a different checkout. The gate is the only verdict that counts, so the local run was delay with no information in it.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`, `.claude/settings.json`
+- **Depends on:** `GOV-039`
+- **Verification:**
+  - `tests/test_read_discipline_hook.py` (unit)
+  - `tests/test_pre_tool_use_hook.py` (unit)
+
+#### `GOV-041` — A file is searched, not opened, and cannot be paged to its end
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-02
+
+Opening a file whole -- cat, less, nl, strings, bat, or a read tool with no bound -- is refused with a message naming the replacement: search with grep, read only the matching span with sed -n, apply the change with the edit tool. Because every read is capped at two lines, a per-file session budget is what still prevents a file being walked from its first line to its last: twenty reads or forty lines per file, whichever binds first. A search costs no budget, which keeps grep the route that never runs out. Heredoc bodies and redirected writes are content, not reads, and are charged nothing. Every failure in this bookkeeping allows the call.
+
+- **If violated:** A whole file was read to answer a question one grep would have answered. When a per-call bound was added, the same file was paged two lines at a time to its end instead -- a full-file read with extra steps, reported as though the file had not been read.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`, `.claude/settings.json`
+- **Depends on:** `GOV-039`
+- **Verification:**
+  - `tests/test_read_discipline_hook.py` (unit)
+  - `tests/test_pre_tool_use_hook.py` (unit)
+
+#### `GOV-042` — Only the latest pull-request comment may be read
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-02
+
+The pull-request comment channel stays open, because closing it would leave no way to learn why a run failed, and it is one comment wide. A query must name the last comment itself -- .comments[-1], jq last, tail -1, per_page=1 -- or it is refused. head -1 is not a selector, because it returns the oldest comment. Which comment and how much of it are separate rules: the selected comment is still read two lines at a time.
+
+- **If violated:** Fetching the comments array pulled every notice ever posted on the pull request into one call, so reading the one comment that mattered cost the context of all the others.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`, `.claude/settings.json`
+- **Depends on:** `GOV-039`, `GOV-012`
+- **Verification:**
+  - `tests/test_read_discipline_hook.py` (unit)
+  - `tests/test_pre_tool_use_hook.py` (unit)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1794,4 +1846,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 137 entries.
+Registry version: 1.0.0 — 141 entries.

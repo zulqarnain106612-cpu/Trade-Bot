@@ -29,6 +29,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Grep|NotebookRead|Read|mcp__Desktop_Commander__get_file_info|mcp__Desktop_Commander__get_more_search_results|mcp__Desktop_Commander__get_recent_tool_calls|mcp__Desktop_Commander__get_usage_stats|mcp__Desktop_Commander__list_directory|mcp__Desktop_Commander__list_processes|mcp__Desktop_Commander__list_searches|mcp__Desktop_Commander__list_sessions|mcp__Desktop_Commander__read_file|mcp__Desktop_Commander__read_process_output|mcp__Desktop_Commander__start_search|mcp__terminal__read_terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_tool_use.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
