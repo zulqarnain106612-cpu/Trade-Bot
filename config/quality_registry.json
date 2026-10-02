@@ -3443,7 +3443,7 @@
       "id": "GOV-039",
       "kind": "requirement",
       "title": "No read returns more than two lines, through any tool",
-      "statement": "Every call that returns file, repository, search or terminal content is capped at two lines, in every session, local or cloud, directly or indirectly. A Bash reader must declare an explicit bound of one or two lines. A tool that returns content must declare its own bound field at no more than two, and a tool with no bound field has no allowed form. A bound the tool would ignore does not count as a bound: a negative Desktop Commander offset, isUrl, or a grep context flag wider than two. The refusal is a single line, because a longer one spends the context the rule protects.",
+      "statement": "Every call that returns file, repository, search or terminal content is capped at two lines, in every session, local or cloud, directly or indirectly. A Bash reader must declare an explicit bound of one or two lines, and an interpreter is a reader: `python3 script.py` printing five hundred lines is an indirect read of five hundred lines, so it declares a bound like anything else, and a heredoc alone no longer counts as silence. A tool that returns content must declare its own bound field at no more than two, and a tool with no bound field has no allowed form. A bound the tool would ignore does not count as a bound: a negative Desktop Commander offset, isUrl, or a grep context flag wider than two. Detection splits a command line only on operators outside quotes, so a quoted `&&` inside an awk script is not mistaken for a command separator.",
       "criticality": "medium",
       "subsystem": "governance",
       "status": "verified",

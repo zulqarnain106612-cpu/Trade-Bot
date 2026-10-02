@@ -164,20 +164,81 @@ def _is_write_not_read(segment: str) -> bool:
     """
     True when a nominally-reading command is actually writing a file.
 
-    A redirect or heredoc means the segment produces no transcript output at
-    all; treating it as an unbounded read blocks a legitimate silent write.
+    A redirect means the segment produces no transcript output at all, so
+    treating it as an unbounded read would block a legitimate silent write.
+
+    A heredoc on its own does NOT qualify. ``cat > notes.md <<EOF`` writes a
+    file and is silent because of the redirect, but ``python3 - <<PY`` feeds a
+    program that can print whatever it likes -- and an interpreter fed a script
+    was the last route by which an unbounded read could still reach the
+    session. The heredoc *body* is still stripped before any rule reads the
+    command, so its text is never mistaken for a command.
     """
-    return bool(re.search(r">>?\s*\S", segment)) or bool(_HEREDOC_START.search(segment))
+    return bool(re.search(r">>?\s*\S", segment))
+
+
+def _split_top_level(text: str, operators: tuple[str, ...]) -> list[str]:
+    """
+    Split on shell operators that are not inside quotes.
+
+    Splitting with a plain regex tears a quoted script in half: the `&&` in
+    ``awk 'NR<=190 && /x/ {...}' f | head -2`` is awk source, not a command
+    separator, and the fragment left of it carries no bound. The result was a
+    refusal for a command that was correctly bounded all along -- and a guard
+    that refuses correct commands is a guard someone switches off.
+    """
+    parts: list[str] = []
+    buf: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            buf.append(char)
+            if char == "\\" and quote == '"' and index + 1 < len(text):
+                buf.append(text[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char in "'\"":
+            quote = char
+            buf.append(char)
+            index += 1
+            continue
+        if char == "\\" and index + 1 < len(text):
+            buf.append(char)
+            buf.append(text[index + 1])
+            index += 2
+            continue
+        # `||` is a command separator, never a pipeline stage boundary, so a
+        # pipe split steps over it rather than cutting it in two.
+        if operators == ("|",) and text.startswith("||", index):
+            buf.append("||")
+            index += 2
+            continue
+        separator = next((op for op in operators if text.startswith(op, index)), "")
+        if separator:
+            parts.append("".join(buf))
+            buf = []
+            index += len(separator)
+            continue
+        buf.append(char)
+        index += 1
+    parts.append("".join(buf))
+    return [part.strip() for part in parts if part.strip()]
 
 
 def _commands(command_line: str) -> list[str]:
     """Split a command line into independently-output-producing commands."""
-    return [c.strip() for c in _COMMAND_SPLIT.split(command_line) if c.strip()]
+    return _split_top_level(command_line, ("&&", "||", ";"))
 
 
 def _stages(command: str) -> list[str]:
     """Split one command into its pipeline stages."""
-    return [stage.strip() for stage in _STAGE_SPLIT.split(command) if stage.strip()]
+    return _split_top_level(command, ("|",))
 
 
 def _head_word(segment: str) -> str:

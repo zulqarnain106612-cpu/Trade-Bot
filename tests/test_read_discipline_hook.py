@@ -580,7 +580,7 @@ def test_budget_is_per_file_and_per_session(hook, budget):
 
 def test_searching_never_spends_budget(hook, budget):
     """grep is the route that has to stay open, so it is charged nothing."""
-    scoped, target = budget
+    _scoped, target = budget
     relative = str(target.relative_to(hook.PROJECT_DIR))
     assert hook._read_paths(f"grep -m 2 -n 'x = 1' {relative}") == []
     assert hook._read_paths(f"sed -n '1,2p' {relative}") == [relative]
@@ -588,7 +588,7 @@ def test_searching_never_spends_budget(hook, budget):
 
 
 def test_a_sed_script_is_not_mistaken_for_a_file(hook, budget):
-    scoped, target = budget
+    _scoped, target = budget
     relative = str(target.relative_to(hook.PROJECT_DIR))
     assert hook._read_paths(f"sed -n '1,2p' {relative}") == [relative]
 
@@ -601,14 +601,14 @@ def test_a_heredoc_body_is_content_not_a_read(hook, budget):
     like `head -2 ...`, and whatever path appears on a later line of the
     document gets charged for a read that never happened.
     """
-    scoped, target = budget
+    _scoped, target = budget
     relative = str(target.relative_to(hook.PROJECT_DIR))
     document = f"cat > out.md <<'EOF'\nsee head -2 {relative} for detail\nEOF"
     assert hook._read_paths(document) == []
 
 
 def test_a_write_costs_no_read_budget(hook, budget):
-    scoped, target = budget
+    _scoped, target = budget
     relative = str(target.relative_to(hook.PROJECT_DIR))
     assert hook._read_paths(f"cat {relative} > /tmp/copy.py") == []
 
@@ -627,6 +627,100 @@ def test_bookkeeping_failure_allows_the_call(hook, policy, tmp_path, monkeypatch
     scoped["direct_file_read"]["paging"]["state_dir"] = "/proc/nope/state"
     hook._budget_record(["src/x.py"], 2, scoped, "s5")
     assert hook._budget_verdict(["src/x.py"], 2, scoped, "s5") == ""
+
+
+# --------------------------------------------------------------------------
+# An interpreter is a reader too
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 script.py",
+        "python3 -c 'print(1)'",
+        "node app.js",
+        "python3 scripts/generate_quality_docs.py",
+        "python3 - <<'PY'\nprint('x')\nPY",
+    ],
+)
+def test_an_interpreter_declares_a_bound_like_any_reader(hook, policy, command):
+    """
+    A script printing five hundred lines is an indirect read of five hundred
+    lines, and the directive covers indirect reads.
+
+    An interpreter was the last route by which an unbounded read could still
+    reach the session: it was exempt, and a heredoc counted as silence.
+    """
+    assert hook._violations(command, policy)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 script.py | head -2",
+        "python3 script.py > out.log",
+        "cat > notes.md <<'EOF'\ncontent\nEOF",
+        "python3 - <<'PY' | head -2\nprint('x')\nPY",
+    ],
+)
+def test_a_bounded_or_silent_interpreter_call_is_allowed(hook, policy, command):
+    assert hook._violations(command, policy) == []
+
+
+def test_a_heredoc_alone_does_not_mean_silence(hook):
+    """`cat > notes.md <<EOF` is silent because of the redirect, not the heredoc."""
+    assert hook._is_write_not_read("cat > notes.md <<'EOF'")
+    assert not hook._is_write_not_read("python3 - <<'PY'")
+
+
+# --------------------------------------------------------------------------
+# A quoted shell operator is not a command separator
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "awk 'NR<=190 && /def test/ {print NR}' f.py | head -2",
+        "grep -m 2 -n 'a && b' f.py",
+        'grep -m 2 -n "x|y" f.py',
+        "echo 'a; b' | head -2",
+    ],
+)
+def test_a_quoted_operator_does_not_split_the_command(hook, policy, command):
+    """
+    Split by plain regex, the `&&` inside an awk script tears the command in
+    half and the left fragment carries no bound, so a correctly bounded command
+    is refused. A guard that refuses correct commands is one someone turns off.
+    """
+    assert hook._violations(command, policy) == []
+
+
+@pytest.mark.parametrize(
+    ("command", "count"),
+    [
+        ("cat f.py && ls", 2),
+        ("echo hi; echo there", 2),
+        ("a || b", 2),
+        ("echo 'x && y'", 1),
+        ("echo 'a; b'", 1),
+    ],
+)
+def test_real_operators_still_separate_commands(hook, command, count):
+    assert len(hook._commands(command)) == count
+
+
+@pytest.mark.parametrize(
+    ("command", "count"),
+    [
+        ("grep -m 2 x f | head -2", 2),
+        ('echo "a | b"', 1),
+        ("cat f | grep x | head -2", 3),
+    ],
+)
+def test_real_pipes_still_separate_stages(hook, command, count):
+    assert len(hook._stages(command)) == count
 
 
 # --------------------------------------------------------------------------

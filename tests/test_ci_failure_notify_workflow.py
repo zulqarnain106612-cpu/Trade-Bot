@@ -184,10 +184,14 @@ class TestCommentBody:
         # No footer: the comment is the status and the errors, nothing else.
         assert "Do not fetch the run log" not in script
 
+        # The read cap is two lines by owner directive (GOV-039), so the notice
+        # is paged rather than fetched whole. What still matters here is that
+        # the notice is bounded at all -- worst_case above -- and that the
+        # policy declares a cap, not that the cap is wide enough to swallow it.
         policy = json.loads(
             (PROJECT_ROOT / "config" / "command_policy.json").read_text(encoding="utf-8")
         )
-        assert policy["bounded_output"]["max_declared_lines"] >= 20
+        assert policy["bounded_output"]["max_declared_lines"] >= 1
 
     def test_it_updates_its_prior_notice_rather_than_stacking(self, script):
         assert "updateComment" in script

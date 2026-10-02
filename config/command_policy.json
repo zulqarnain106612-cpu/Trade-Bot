@@ -56,13 +56,19 @@
       "ls",
       "more",
       "nl",
+      "node",
       "od",
       "paste",
+      "perl",
+      "php",
       "pr",
       "printenv",
       "ps",
+      "python",
+      "python3",
       "rev",
       "rg",
+      "ruby",
       "sed",
       "shuf",
       "sort",
@@ -90,8 +96,6 @@
       "touch",
       "cp",
       "mv",
-      "python",
-      "python3",
       "pip",
       "pip3",
       "pytest",
@@ -100,11 +104,10 @@
       "black",
       "npm",
       "npx",
-      "node",
       "make",
       "git"
     ],
-    "_exempt_note": "Commands whose output is either trivially small or whose own tooling already bounds it (pytest -q, ruff, git with -n). Exemption applies to the FIRST word of a pipeline segment only; a pipeline that ends in an unbounded reader is still checked. A reader added to unbounded_commands is NOT exempt even when it also appears there; exempt_commands is consulted for the segment head only and unbounded_commands wins for the readers listed above.",
+    "_exempt_note": "Commands whose output is trivially small or whose own tooling already bounds it. Exemption applies to the FIRST word of a pipeline segment only; a pipeline that ends in an unbounded reader is still checked. An interpreter is NOT exempt: `python3 script.py` that prints five hundred lines is an indirect read of five hundred lines, and the directive covers indirect reads, so an interpreter declares a bound like everything else. A reader added to unbounded_commands wins over this list.",
     "bounded_required_subcommands": {
       "git": [
         "log",
@@ -152,7 +155,8 @@
     "_byte_note": "head -c is a legitimate bound for output with no newlines, but a byte bound is still a bound: -c 500000 is unbounded in practice. Compared against max_declared_bytes rather than max_declared_lines.",
     "_count_note": "grep -c emits a single count line, so it is inherently bounded and must not be treated as an unbounded read just because it follows a reader in the pipeline.",
     "refusal_message": "only 2 lines reading is allowed",
-    "_gh_note": "`gh` is not exempt as a whole, but `gh run view --log`, `gh run list` and `gh api .../logs` page an entire CI run into context. They are allowed only behind an explicit bound; `gh pr view/checks/merge` are untouched."
+    "_gh_note": "`gh` is not exempt as a whole, but `gh run view --log`, `gh run list` and `gh api .../logs` page an entire CI run into context. They are allowed only behind an explicit bound; `gh pr view/checks/merge` are untouched.",
+    "_heredoc_note": "A heredoc alone no longer means a command produces no transcript output. `cat > notes.md <<EOF` writes a file and is silent, but `python3 - <<PY` feeds a program that can print anything, which was the last route by which an unbounded read reached the session."
   },
   "destructive": {
     "enabled": true,

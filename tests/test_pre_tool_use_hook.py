@@ -48,6 +48,10 @@ def load_policy() -> dict:
 
 
 REFUSAL = load_policy()["bounded_output"]["refusal_message"]
+# Each narrower rule carries its own message, so a refusal names the rule
+# that fired rather than the widest one that could have.
+DIRECT_READ_REFUSAL = load_policy()["direct_file_read"]["message"]
+GITHUB_REFUSAL = load_policy()["github_read_bound"]["message"]
 
 
 class TestPolicyFileIntegrity:
@@ -230,8 +234,19 @@ class TestHeredocsAndWrites:
     def test_a_python_heredoc_body_is_not_a_shell_command_line(self):
         # Shell patterns do not apply to Python source; matching them there
         # flags any script whose text mentions a filtered command.
-        command = "python3 - <<'PY'\nprint('cat README.md')\nPY"
+        command = "python3 - <<'PY' | head -2\nprint('cat README.md')\nPY"
         assert decide(command)["permissionDecision"] == "allow"
+
+    def test_an_interpreter_fed_a_heredoc_still_declares_a_bound(self):
+        """
+        A heredoc alone does not mean a command is silent.
+
+        `cat > notes.md <<EOF` is silent because of the redirect. `python3 -
+        <<PY` feeds a program that can print five hundred lines, which was the
+        last route by which an unbounded read could reach the session.
+        """
+        command = "python3 - <<'PY'\nprint('x')\nPY"
+        assert decide(command)["permissionDecision"] == "deny"
 
     def test_redirect_in_a_non_final_command_is_still_a_write(self):
         # A ';' or '&&' starts a new command with its own output. Treating the
