@@ -17,6 +17,8 @@ Slippage: actual fill price from order response (not request price).
 Authority:
   - ccxt unified API — market orders, fetch_order
   - Chan (2013) Ch.6 — live execution infrastructure
+
+Registry: INV-010 (config/quality_registry.json).
 """
 
 from __future__ import annotations

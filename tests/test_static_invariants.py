@@ -1265,6 +1265,121 @@ def test_yaml_safe_load_passes(invariants, fake_tree) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_layering (GOV-042)
+# ---------------------------------------------------------------------------
+#
+# The fake-tree coverage for check_layering lives in
+# tests/test_architecture_layers.py (upward-edge flagging, accepted-edge
+# ratchet, layer placement) because that suite already owns the
+# architecture-layers contract and its fixtures. The shim below is here so
+# a reader looking at this file's per-check pattern is pointed at that
+# coverage rather than concluding no dedicated test exists.
+
+
+def test_check_layering_has_dedicated_coverage_elsewhere() -> None:
+    """
+    Locator test. The negative + positive cases for `check_layering` live in
+    `tests/test_architecture_layers.py`. If they are ever removed from there,
+    this test still passes -- it is not a substitute -- but the accompanying
+    docstring keeps the pointer visible in the file where every other
+    check_* has its per-case tests.
+    """
+    coverage_path = Path(__file__).resolve().parent / "test_architecture_layers.py"
+    coverage_file = coverage_path.read_text(encoding="utf-8")
+    assert "check_layering" in coverage_file or "_layering_problems" in coverage_file
+
+
+# ---------------------------------------------------------------------------
+# check_every_gate_status_is_reachable (GOV-041)
+# ---------------------------------------------------------------------------
+
+
+_GATES_TEMPLATE = """
+class GateStatus:
+    PASS = "pass"
+    HALT_DRIFT = "halt_drift"
+    HALT_DRAWDOWN = "halt_drawdown"
+
+
+def check_drawdown(state):
+    if state.dd > 0.1:
+        return GateStatus.HALT_DRAWDOWN
+    return GateStatus.PASS
+
+
+{extra}
+
+def evaluate_all_gates(state):
+    return [
+        check_drawdown(state),
+        {extra_call}
+    ]
+"""
+
+
+def test_gate_status_member_no_check_emits_is_flagged(invariants, fake_tree) -> None:
+    # HALT_DRIFT is declared but no called check function emits it.
+    fake_tree("src/risk/gates.py", _GATES_TEMPLATE.format(extra="", extra_call=""))
+    problems = invariants.check_every_gate_status_is_reachable()
+    assert any("HALT_DRIFT" in p and "can never be emitted" in p for p in problems)
+
+
+def test_gate_status_member_reached_via_called_check_passes(invariants, fake_tree) -> None:
+    extra = (
+        "def check_drift(state):\n"
+        "    if state.drift > 0.5:\n"
+        "        return GateStatus.HALT_DRIFT\n"
+        "    return GateStatus.PASS\n"
+    )
+    fake_tree(
+        "src/risk/gates.py",
+        _GATES_TEMPLATE.format(extra=extra, extra_call="check_drift(state),"),
+    )
+    assert invariants.check_every_gate_status_is_reachable() == []
+
+
+# ---------------------------------------------------------------------------
+# check_import_cycles (GOV-040)
+# ---------------------------------------------------------------------------
+
+
+def test_two_module_cycle_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "from src.a import back\n")
+    problems = invariants.check_import_cycles()
+    assert any("import cycle" in p and "src.a" in p and "src.b" in p for p in problems)
+
+
+def test_acyclic_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "def go():\n    return 1\n")
+    assert invariants.check_import_cycles() == []
+
+
+def test_deferred_import_does_not_count_as_a_cycle(invariants, fake_tree) -> None:
+    """A cycle needs a *module-level* import; one inside a function cannot fail at import time."""
+    fake_tree("src/a.py", "def go():\n    from src.b import back\n")
+    fake_tree("src/b.py", "from src.a import go\n")
+    assert invariants.check_import_cycles() == []
+
+
+# ---------------------------------------------------------------------------
+# check_zip_is_strict (GOV-039)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_zip_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b))\n")
+    problems = invariants.check_zip_is_strict()
+    assert any("zip() without strict=" in p for p in problems)
+
+
+def test_strict_zip_passes(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b, strict=True))\n")
+    assert invariants.check_zip_is_strict() == []
+
+
+# ---------------------------------------------------------------------------
 # check_no_wildcard_imports (GOV-048)
 # ---------------------------------------------------------------------------
 

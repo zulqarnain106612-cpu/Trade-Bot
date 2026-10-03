@@ -4,6 +4,9 @@ the signal engine and the orchestrator's retrain path.
 
 The property under test throughout: a retrained bundle changes nothing
 about live trading until it has out-predicted the incumbent on real bars.
+
+Decides:
+  - MODL-006 — Research output cannot change production parameters directly
 """
 
 from __future__ import annotations

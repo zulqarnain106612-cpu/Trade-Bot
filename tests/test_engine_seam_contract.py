@@ -20,6 +20,9 @@ disagreeing about meaning.
 So the contract is pinned from both ends -- what every producer must emit, and
 what the consumer must receive -- against the same fixture, and the positional
 assumption is made explicit instead of implied.
+
+Decides:
+  - SIG-004 — The eighteen-engine seam is asserted from both sides, positions included
 """
 
 from __future__ import annotations
