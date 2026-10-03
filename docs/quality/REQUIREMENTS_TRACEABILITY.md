@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 143 |
+| VERIFIED | 149 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **143** |
+| **Total** | **149** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 39 | 39 |
+| Governance | 45 | 45 |
 
 ## Outstanding work by phase
 
@@ -1728,6 +1728,61 @@ The quality registry loader refuses a verified entry whose depends_on names an e
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-039` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-040` — check_import_cycles has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses module-level import cycles carries a dedicated fake-tree test proving it can fire on a 2-module cycle, and a companion test proving a deferred (function-scope) import is not counted.
+
+- **If violated:** check_import_cycles is reached only by the whole-repo positive gate. A bug that stops it from detecting cycles would ship silently, and a module-level cycle would then fail at collection time with only the ImportError as the signal.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-041` — check_every_gate_status_is_reachable has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses an unreachable GateStatus member carries a dedicated fake-tree test proving it can fire: given a synthetic gates.py whose evaluate_all_gates does not call a check that emits a declared status, the invariant reports it.
+
+- **If violated:** The check was reached only by the whole-repo positive gate; a bug that stopped it detecting an unreachable status would ship silently, and a declared halt the stack cannot emit is a risk control that does not exist. HALT_DRIFT was exactly that shape.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-042` — check_layering coverage locator
+
+**VERIFIED** · low · requirement · source: QE-52
+
+tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.
+
+- **If violated:** A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-043` — test docstrings name the entries they decide
+
+**VERIFIED** · low · requirement · source: QE-52
+
+Test modules that decide three or more registry entries name those entries in their module docstring. A future contributor grep'ing for an entry id lands in the test that decides it without a traceability round-trip.
+
+- **If violated:** A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.
+- **Owned by:** `tests/quality/test_quality_registry.py`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (contract)
+
 #### `GOV-044` — math implementations rest on implementations
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1749,6 +1804,17 @@ The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcar
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-056` — implemented math entry names its test
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.
+
+- **If violated:** An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1861,4 +1927,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 143 entries.
+Registry version: 1.0.0 — 149 entries.

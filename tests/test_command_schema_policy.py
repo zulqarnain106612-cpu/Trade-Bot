@@ -5,6 +5,9 @@ Covers the five controls added in 1.1.0 -- effect classification, declared
 timeout, cwd, environment containment, byte capping and secret redaction --
 at the level that matters: not "is the key present" but "does the control
 actually stop the thing it exists to stop".
+
+Decides:
+  - SECR-001 — Secrets never appear in source, images, logs or workflow YAML
 """
 
 from __future__ import annotations

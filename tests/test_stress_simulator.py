@@ -1,4 +1,8 @@
-"""Tests for src/tuning/stress_simulator.py — portfolio stress testing."""
+"""Tests for src/tuning/stress_simulator.py — portfolio stress testing.
+
+Decides:
+  - RES-007 — Chaos exercises end in a safe state, not merely a live process
+"""
 
 from __future__ import annotations
 
