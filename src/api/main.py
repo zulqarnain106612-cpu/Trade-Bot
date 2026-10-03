@@ -20,10 +20,7 @@ Endpoints:
   GET  /debug/reconcile            — in-memory book vs persisted open trades
   WS   /ws                         — live push of equity + positions + signals
 
-WebSocket push format (JSON). A tick is sent when a producer publishes a
-portfolio or risk change (GOV-032), and otherwise every ws_heartbeat_s
-seconds as a keepalive -- the heartbeat is a floor on staleness, not the
-clock the feed runs on:
+WebSocket push format (JSON):
   { "type": "tick", "equity_usd": ..., "positions": [...], "regime": {...} }
   { "type": "approval", "request": {...} }
   { "type": "trade", "trade": {...} }
@@ -85,7 +82,6 @@ from src.diagnostics.audit_trail import get_audit_trail
 from src.diagnostics.disaster_recovery import PositionSnapshot, is_state_consistent, reconcile
 from src.diagnostics.metrics import metrics_output
 from src.engine.orchestrator import Orchestrator
-from src.eventbus import PORTFOLIO, RISK, Subscription, get_event_bus
 from src.execution.base import AbstractExecutor
 from src.execution.mode_persistence import load_execution_mode, save_execution_mode
 from src.execution.unified_ledger import get_unified_ledger
@@ -1455,18 +1451,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     # been trusted by default. Every frame goes through the guard.
     reader = asyncio.create_task(_guarded_ws_reader(ws))
 
-    # GOV-032: the heartbeat becomes a floor rather than the only clock. A
-    # producer that changes portfolio or risk state publishes, this wakes,
-    # and the snapshot goes out then -- so a fill landing just after a tick
-    # no longer waits out the rest of the period. With no events the loop
-    # still ticks every `heartbeat` seconds, which is the pre-existing
-    # behaviour and also the keepalive an idle socket needs.
-    bus = get_event_bus()
-    events: Subscription = bus.subscribe([PORTFOLIO, RISK])
-
     try:
         while True:
-            await events.drain(heartbeat)
+            await asyncio.sleep(heartbeat)
 
             if _state.orchestrator is None:
                 continue  # Server still starting — skip tick, retry next heartbeat
@@ -1507,7 +1494,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         log.error("api.ws_error", error=str(exc), exc_info=True)
     finally:
         reader.cancel()
-        bus.unsubscribe(events)
         # SCAN3-013: thread-safe removal via locked method
         await _state.remove_ws_client(ws)
 

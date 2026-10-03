@@ -361,6 +361,26 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
+      "id": "GOV-038",
+      "kind": "requirement",
+      "title": "verified entry depends on verified or accepted_gap only",
+      "statement": "The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.",
+      "owning_modules": [
+        "src/quality/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "RISK-001",
       "kind": "requirement",
       "title": "Maximum position exposure must not exceed the configured ceiling",
@@ -3418,85 +3438,6 @@
       ],
       "depends_on": [],
       "notes": "Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite"
-    },
-    {
-      "id": "GOV-032",
-      "kind": "requirement",
-      "title": "The GUI transport has a push path that is not a timer",
-      "statement": "src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available. The kill switch publishes RISK on an auto-disable, after the state change, so the RISK topic /ws subscribes to has a producer rather than being a socket parked on silence.",
-      "criticality": "medium",
-      "subsystem": "api",
-      "status": "verified",
-      "source": "OPS-2026-09-30",
-      "failure_mode": "Every GUI surface stays floored by its own timer period: /ws sleeps for the heartbeat before building a snapshot, so a fill landing one millisecond after a tick is invisible for the rest of the period, and raising the tick rate buys latency with load without removing the floor. A topic spelled as a literal rather than a constant fails the other way -- the publisher reports zero subscribers and the panel simply never updates, which on screen is indistinguishable from a quiet market.",
-      "owning_modules": [
-        "src/eventbus/bus.py",
-        "src/eventbus/topics.py",
-        "src/api/main.py",
-        "src/risk/strategy_kill_switch.py"
-      ],
-      "verification": [
-        {
-          "test": "tests/test_event_bus.py",
-          "test_type": "component"
-        },
-        {
-          "test": "tests/test_ws_event_wakeup.py",
-          "test_type": "contract"
-        },
-        {
-          "test": "tests/test_api_main_coverage.py",
-          "test_type": "component",
-          "note": "Drives the endpoint loop itself. The AST seam test can say the loop awaits drain(); only this one can say the loop still terminates -- it stayed green while the suite hung."
-        }
-      ],
-      "depends_on": []
-    },
-    {
-      "id": "GOV-033",
-      "kind": "requirement",
-      "title": "Publishing to the event bus can never block the producer",
-      "statement": "EventBus.publish is a synchronous def with no await point, so no subscriber state -- full queue, wedged consumer, congested socket -- can suspend a caller inside the trading loop. The signature is asserted structurally, not only behaviourally.",
-      "criticality": "high",
-      "subsystem": "execution",
-      "status": "verified",
-      "source": "OPS-2026-09-30",
-      "failure_mode": "A GUI client on a slow link becomes backpressure on the trading loop: an await inside publish suspends the coroutine that was recording a fill or evaluating a risk gate, so display congestion delays execution. Every behavioural test would still pass if publish became async and awaited a full queue -- they would just await it -- so only the signature assertion detects the change.",
-      "owning_modules": [
-        "src/eventbus/bus.py"
-      ],
-      "verification": [
-        {
-          "test": "tests/test_event_bus.py",
-          "test_type": "contract"
-        }
-      ],
-      "depends_on": [
-        "GOV-032"
-      ]
-    },
-    {
-      "id": "GOV-034",
-      "kind": "requirement",
-      "title": "A full subscriber queue drops the oldest event and counts the drop",
-      "statement": "Subscription._offer evicts the head of a full queue rather than refusing the new event, and increments a per-subscription dropped counter that EventBus.stats aggregates. Ordering of the retained events is preserved.",
-      "criticality": "high",
-      "subsystem": "api",
-      "status": "verified",
-      "source": "OPS-2026-09-30",
-      "failure_mode": "Dropping the newest event instead pins a slow client's panel to whatever was on screen when congestion started and leaves it there: the display is not merely late but wrong, and recovers only when the operator reloads. Dropping silently is the same defect one level down -- a dropped frame and a quiet market are indistinguishable on screen, so without the counter there is nothing to alert on.",
-      "owning_modules": [
-        "src/eventbus/bus.py"
-      ],
-      "verification": [
-        {
-          "test": "tests/test_event_bus.py",
-          "test_type": "contract"
-        }
-      ],
-      "depends_on": [
-        "GOV-032"
-      ]
     },
     {
       "id": "GOV-023",

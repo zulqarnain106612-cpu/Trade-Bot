@@ -1003,12 +1003,7 @@ async def _run_ws_endpoint_iterations(mock_state, n_sleeps, orchestrator=None, e
         patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
         patch.object(main_mod._state, "add_ws_client", return_value=True),
         patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
-        # Subscription.drain, which returns on a published event or on the
-        # heartbeat timeout. Driving it through asyncio.sleep stopped
-        # controlling anything, so these tests blocked for the real
-        # heartbeat on every iteration and the shard hit its 25m ceiling.
-        patch.object(main_mod.Subscription, "drain", side_effect=_fake_sleep),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
     ):
         await main_mod.websocket_endpoint(ws)
     return ws
@@ -1059,12 +1054,7 @@ def test_websocket_tick_includes_regime_snapshot(mock_state):
         patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
         patch.object(main_mod._state, "add_ws_client", return_value=True),
         patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
-        # Subscription.drain, which returns on a published event or on the
-        # heartbeat timeout. Driving it through asyncio.sleep stopped
-        # controlling anything, so these tests blocked for the real
-        # heartbeat on every iteration and the shard hit its 25m ceiling.
-        patch.object(main_mod.Subscription, "drain", side_effect=_fake_sleep),
+        patch("asyncio.sleep", side_effect=_fake_sleep),
     ):
         asyncio.run(main_mod.websocket_endpoint(ws))
 
@@ -1100,12 +1090,7 @@ def test_websocket_generic_exception_logged_not_raised(mock_state):
         patch.object(main_mod, "verify_ws_key", side_effect=_allow_ws),
         patch.object(main_mod._state, "add_ws_client", return_value=True),
         patch.object(main_mod._state, "remove_ws_client", new=AsyncMock()),
-        # GOV-032: the loop no longer sleeps the heartbeat -- it parks on
-        # Subscription.drain, which returns on a published event or on the
-        # heartbeat timeout. Driving it through asyncio.sleep stopped
-        # controlling anything, so these tests blocked for the real
-        # heartbeat on every iteration and the shard hit its 25m ceiling.
-        patch.object(main_mod.Subscription, "drain", side_effect=_one_sleep_then_ok),
+        patch("asyncio.sleep", side_effect=_one_sleep_then_ok),
     ):
         # storage.latest_regime raising propagates out of the try body ->
         # caught by `except Exception` -> handler returns normally.
