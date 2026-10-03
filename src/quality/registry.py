@@ -417,7 +417,12 @@ def _check_filesystem(entries: list[RegistryEntry], root: Path) -> None:
 
 
 def _check_graph(entries: list[RegistryEntry]) -> None:
-    """depends_on resolves, and the dependency graph is acyclic."""
+    """
+    depends_on resolves, the dependency graph is acyclic, and a verified entry
+    does not rest on one that is still planned or partial. An accepted_gap
+    dependency is an explicit, dated waiver: the parent can rely on the same
+    argument the gap was accepted on, so it is permitted.
+    """
     id_set = {e.id for e in entries}
     for entry in entries:
         missing = [d for d in entry.depends_on if d not in id_set]
@@ -425,6 +430,19 @@ def _check_graph(entries: list[RegistryEntry]) -> None:
             raise RegistryError(
                 f"entry {entry.id!r} depends on unknown entries: {', '.join(missing)}"
             )
+
+    by_id = {e.id: e for e in entries}
+    for entry in entries:
+        if entry.status != "verified":
+            continue
+        for dep_id in entry.depends_on:
+            dep = by_id[dep_id]
+            if dep.status not in {"verified", "accepted_gap"}:
+                raise RegistryError(
+                    f"entry {entry.id!r} is verified but depends on {dep_id!r} "
+                    f"whose status is {dep.status!r}. A verified claim resting on "
+                    f"a planned or partial dependency has nothing under it."
+                )
 
     graph = {e.id: list(e.depends_on) for e in entries}
     WHITE, GREY, BLACK = 0, 1, 2

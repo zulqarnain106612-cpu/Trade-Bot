@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "deny": [
+      "ScheduleWakeup",
+      "CronCreate",
+      "RemoteTrigger",
+      "mcp__github__subscribe_pr_activity"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
