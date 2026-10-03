@@ -52,6 +52,48 @@ class IntelSignal:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+def load_horizon_specs() -> dict[str, Any]:
+    """
+    Horizon specs from horizons.yaml, keyed h1..hN.
+
+    Module level rather than a method: the API reports the term structure
+    even when the intel engine is switched off, and it should not have to
+    construct a CryptoIntelligence (which spawns worker processes) just to
+    read a config file.
+    """
+    try:
+        with open(_HORIZONS_CONFIG) as fh:
+            return (yaml.safe_load(fh) or {}).get("horizons") or {}
+    except FileNotFoundError:
+        log.warning("horizons_config_not_found", path=str(_HORIZONS_CONFIG))
+        return {}
+
+
+def horizon_entry(key: str, spec: dict[str, Any] | None) -> dict[str, Any]:
+    """One horizon's static fields, shared by the live and disabled paths."""
+    spec = spec or {}
+    return {
+        "key": key,
+        "id": int(spec.get("id", 0)),
+        "label": str(spec.get("label", key)),
+        "seconds": spec.get("seconds"),
+        "models": list(spec.get("models") or []),
+        "ecc_op": spec.get("ecc_op"),
+        "retrain_schedule": spec.get("retrain_schedule"),
+        "last_prediction": None,
+        "age_seconds": None,
+    }
+
+
+def sorted_horizon_entries() -> list[dict[str, Any]]:
+    """Every declared horizon as a static entry, shortest term first."""
+    specs = load_horizon_specs()
+    return [
+        horizon_entry(key, spec)
+        for key, spec in sorted(specs.items(), key=lambda kv: (kv[1] or {}).get("id", 0))
+    ]
+
+
 class CryptoIntelligence:
     """
     Top-level crypto-intel-v6 inference pipeline.
@@ -159,6 +201,14 @@ class CryptoIntelligence:
         self._regime_id: int = 0
         self._started = False
 
+        # Last result per horizon id, with the wall-clock time it was
+        # recorded: horizon_status() reports staleness, and a horizon whose
+        # worker has died must be distinguishable from one that is merely
+        # predicting flat.
+        self._last_horizon_results: dict[int, tuple[WorkerResult, float]] = {}
+        self._last_horizon_ts: float | None = None
+        self._last_horizon_symbol: str | None = None
+
     def _load_config(self, path: Path) -> dict:
         try:
             with open(path) as fh:
@@ -166,6 +216,50 @@ class CryptoIntelligence:
         except FileNotFoundError:
             log.warning("config_not_found", path=str(path))
             return {}
+
+    def horizon_status(self) -> list[dict[str, Any]]:
+        """
+        The full horizon term structure: every horizon declared in
+        horizons.yaml, with its last prediction if one has been made.
+
+        Returns one entry per *declared* horizon, not per horizon that has
+        reported. A horizon whose worker never answered still appears, with
+        ``last_prediction`` None — otherwise a dead worker would simply
+        vanish from the view rather than showing up as a problem.
+
+        Ordered by the horizon's own ``id`` so the result reads as a term
+        structure (shortest first), which is the order a reader expects and
+        the order the chart plots.
+        """
+        now = time.time()
+        out: list[dict[str, Any]] = []
+
+        for entry in sorted_horizon_entries():
+            recorded = self._last_horizon_results.get(entry["id"])
+            if recorded is not None:
+                r, ts = recorded
+                entry["last_prediction"] = {
+                    "direction": r.direction,
+                    "confidence": r.confidence,
+                    "magnitude_mu": r.magnitude_mu,
+                    "magnitude_sigma": r.magnitude_sigma,
+                    "timing": r.timing,
+                    "algo": r.algo,
+                    "error": r.error,
+                }
+                entry["age_seconds"] = round(now - ts, 3)
+
+            out.append(entry)
+
+        return out
+
+    @property
+    def last_horizon_symbol(self) -> str | None:
+        return self._last_horizon_symbol
+
+    @property
+    def last_horizon_ts(self) -> float | None:
+        return self._last_horizon_ts
 
     def start(self) -> None:
         """Start the worker orchestrator (spawns model processes + ECC thread)."""
@@ -262,6 +356,18 @@ class CryptoIntelligence:
             r = self._drain_one(timeout=1.0)
             if r is not None:
                 results.append(r)
+
+        # Retain the per-horizon view before conflict resolution collapses it
+        # to one winner. `results` was a local that went out of scope, so the
+        # only horizon fact leaving on_bar was the winning index — nothing
+        # could show what the other nine predicted, or that one had stopped
+        # reporting. Recorded even on the empty path below, so a horizon that
+        # goes silent is visible as a stale timestamp rather than as the last
+        # value it happened to produce.
+        self._last_horizon_ts = time.time()
+        self._last_horizon_symbol = symbol
+        for r in results:
+            self._last_horizon_results[r.horizon_id] = (r, self._last_horizon_ts)
 
         if not results:
             log.warning("no_horizon_results", symbol=symbol)
