@@ -12,6 +12,8 @@ Implementation follows AFML Ch.10 (López de Prado 2018):
 
 All sizing functions are pure (no I/O, no side effects) so they are
 trivially testable and reusable across paper and live executors.
+
+Registry: DATA-004, DATA-005, INV-001, RISK-003 (config/quality_registry.json).
 """
 
 from __future__ import annotations
