@@ -1,6 +1,8 @@
 """
 CORS validation middleware — prevents wildcard + credentials misconfiguration
 and rejects unsafe origin values ("null", bare IPs without scheme, etc.).
+
+Registry: API-003, API-006, API-007, API-008 (config/quality_registry.json).
 """
 
 from __future__ import annotations
