@@ -120,6 +120,10 @@ class RegistryEntry:
     def consumers(self) -> tuple[WiringPoint, ...]:
         return tuple(w for w in self.wiring if w.kind == "consumer")
 
+    @property
+    def tests(self) -> tuple[WiringPoint, ...]:
+        return tuple(w for w in self.wiring if w.kind == "test")
+
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> RegistryEntry:
         return cls(
@@ -323,6 +327,23 @@ def _check_semantics(registry_raw: dict[str, Any], entries: Iterable[RegistryEnt
                 )
 
     for entry in entries:
+        if entry.status not in IMPLEMENTED_STATUSES:
+            continue
+        if not entry.tests:
+            raise RegistryError(
+                f"entry {entry.id!r} is marked implemented but names no test "
+                f"module. Every implemented mathematical object gets at least one "
+                f"'test'-kind wiring pointing at the file that decides it."
+            )
+        for test in entry.tests:
+            if not (PROJECT_ROOT / test.module).exists():
+                raise RegistryError(
+                    f"entry {entry.id!r} names test module {test.module!r} "
+                    f"which does not exist. The registry must describe the tree "
+                    f"as it is, not as it is planned to be."
+                )
+
+    for entry in entries:
         if entry.is_gated and entry.status == "implemented":
             raise RegistryError(
                 f"entry {entry.id!r} is folklore and cannot be marked implemented. "
@@ -339,6 +360,22 @@ def _check_semantics(registry_raw: dict[str, Any], entries: Iterable[RegistryEnt
                     f"which does not exist. Every wiring kind is held to the same "
                     f"existence check -- a pointer to a missing file is worse than "
                     f"no pointer."
+                )
+
+    by_id = {e.id: e for e in entries}
+    for entry in entries:
+        if entry.status != "implemented":
+            continue
+        for dep_id in entry.depends_on:
+            dep = by_id.get(dep_id)
+            if dep is None:
+                continue  # dangling deps are caught above.
+            if dep.status not in {"implemented", "not_applicable"}:
+                raise RegistryError(
+                    f"entry {entry.id!r} is marked implemented but depends on {dep_id!r} "
+                    f"whose status is {dep.status!r}. An implementation resting on a "
+                    f"dependency that is not itself implemented (or explicitly "
+                    f"not_applicable) is a claim the tree cannot support."
                 )
 
 

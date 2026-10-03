@@ -5,6 +5,10 @@ Covers the three ways a duplicate reaches the exchange in production: a retry
 after an error, a WebSocket reconnect replaying an intent, and a reconciliation
 pass re-issuing an order it could not match. All three reduce to "the same
 intent submitted twice", which is what these tests assert is refused.
+
+Decides:
+  - INV-007 — Duplicate execution requests cannot create duplicate positions
+  - EXEC-001 — Execution requests carry an idempotency key end to end
 """
 
 from __future__ import annotations

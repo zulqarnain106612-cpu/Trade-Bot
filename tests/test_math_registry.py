@@ -320,9 +320,37 @@ class TestSemanticChecksInIsolation:
         entry = self.entry(
             verdict="folklore",
             status="implemented",
-            wiring=[{"module": "src/mathcore/registry.py", "kind": "owner"}],
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/test_math_registry.py", "kind": "test"},
+            ],
         )
         with pytest.raises(RegistryError, match="folklore"):
+            self.check([entry])
+
+    def test_implemented_entry_without_a_test_wiring_is_refused(self):
+        """
+        An `implemented` entry must name at least one `test`-kind wiring.
+        Without this rule an entry can claim implementation with no file
+        that decides it — exactly the shape that lets a subtle regression
+        arrive with no test failure to name it.
+        """
+        entry = self.entry(
+            status="implemented",
+            wiring=[{"module": "src/mathcore/registry.py", "kind": "owner"}],
+        )
+        with pytest.raises(RegistryError, match="names no test module"):
+            self.check([entry])
+
+    def test_implemented_entry_with_missing_test_file_is_refused(self):
+        entry = self.entry(
+            status="implemented",
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/does_not_exist.py", "kind": "test"},
+            ],
+        )
+        with pytest.raises(RegistryError, match="does not exist"):
             self.check([entry])
 
     def test_a_component_without_an_owner_is_refused(self):
@@ -355,6 +383,33 @@ class TestSemanticChecksInIsolation:
         )
         with pytest.raises(RegistryError, match="does not exist"):
             self.check([entry])
+
+    def test_implemented_entry_depending_on_a_planned_entry_is_rejected(self):
+        planned = self.entry(id="planned-dep", status="planned")
+        implemented = self.entry(
+            id="claims-it",
+            status="implemented",
+            depends_on=["planned-dep"],
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/test_math_registry.py", "kind": "test"},
+            ],
+        )
+        with pytest.raises(RegistryError, match="depends on 'planned-dep'"):
+            self.check([planned, implemented])
+
+    def test_implemented_entry_depending_on_a_not_applicable_entry_passes(self):
+        na = self.entry(id="na-dep", status="not_applicable")
+        implemented = self.entry(
+            id="claims-it",
+            status="implemented",
+            depends_on=["na-dep"],
+            wiring=[
+                {"module": "src/mathcore/registry.py", "kind": "owner"},
+                {"module": "tests/test_math_registry.py", "kind": "test"},
+            ],
+        )
+        self.check([na, implemented])
 
 
 class TestQueryApi:
