@@ -6,6 +6,9 @@ measurement does not trip a threshold — it slips past it. `<= 0.0` guards
 do not catch it either. src/risk/kelly.py already closed this defect class
 one layer down (VF-024/026/027/028/029/030); these tests pin it at the gate
 layer, where failing open is worse because nothing downstream re-checks.
+
+Decides:
+  - INV-004 — NaN or Infinity cannot produce an executable order
 """
 
 from __future__ import annotations

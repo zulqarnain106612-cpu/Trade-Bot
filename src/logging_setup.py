@@ -13,6 +13,8 @@ that changes nothing.
 
 configure_logging() is idempotent, so calling it from more than one
 entrypoint is safe.
+
+Registry: SECR-001 (config/quality_registry.json).
 """
 
 from __future__ import annotations

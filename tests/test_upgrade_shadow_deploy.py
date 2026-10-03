@@ -3,6 +3,9 @@
 evidently is an optional dependency not installed in CI, so
 _generate_evidently_report naturally exercises its ImportError branch
 here; a fake module covers the installed-but-failing branch.
+
+Decides:
+  - MODL-006 — Research output cannot change production parameters directly
 """
 
 from __future__ import annotations
