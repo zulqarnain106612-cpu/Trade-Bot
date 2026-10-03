@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 146 |
+| VERIFIED | 147 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **146** |
+| **Total** | **147** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 42 | 42 |
+| Governance | 43 | 43 |
 
 ## Outstanding work by phase
 
@@ -1761,6 +1761,17 @@ The static invariant that refuses an unreachable GateStatus member carries a ded
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
 
+#### `GOV-042` — check_layering coverage locator
+
+**VERIFIED** · low · requirement · source: QE-52
+
+tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.
+
+- **If violated:** A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1894,4 +1905,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 146 entries.
+Registry version: 1.0.0 — 147 entries.

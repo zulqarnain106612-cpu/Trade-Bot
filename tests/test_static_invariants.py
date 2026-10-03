@@ -1243,6 +1243,31 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
+# check_layering (GOV-042)
+# ---------------------------------------------------------------------------
+#
+# The fake-tree coverage for check_layering lives in
+# tests/test_architecture_layers.py (upward-edge flagging, accepted-edge
+# ratchet, layer placement) because that suite already owns the
+# architecture-layers contract and its fixtures. The shim below is here so
+# a reader looking at this file's per-check pattern is pointed at that
+# coverage rather than concluding no dedicated test exists.
+
+
+def test_check_layering_has_dedicated_coverage_elsewhere() -> None:
+    """
+    Locator test. The negative + positive cases for `check_layering` live in
+    `tests/test_architecture_layers.py`. If they are ever removed from there,
+    this test still passes -- it is not a substitute -- but the accompanying
+    docstring keeps the pointer visible in the file where every other
+    check_* has its per-case tests.
+    """
+    coverage_path = Path(__file__).resolve().parent / "test_architecture_layers.py"
+    coverage_file = coverage_path.read_text(encoding="utf-8")
+    assert "check_layering" in coverage_file or "_layering_problems" in coverage_file
+
+
+# ---------------------------------------------------------------------------
 # check_every_gate_status_is_reachable (GOV-041)
 # ---------------------------------------------------------------------------
 
