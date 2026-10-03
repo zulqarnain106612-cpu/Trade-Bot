@@ -1290,6 +1290,46 @@ def test_gate_status_member_reached_via_called_check_passes(invariants, fake_tre
     )
     assert invariants.check_every_gate_status_is_reachable() == []
 
+# ---------------------------------------------------------------------------
+# check_import_cycles (GOV-040)
+# ---------------------------------------------------------------------------
+
+
+def test_two_module_cycle_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "from src.a import back\n")
+    problems = invariants.check_import_cycles()
+    assert any("import cycle" in p and "src.a" in p and "src.b" in p for p in problems)
+
+
+def test_acyclic_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "def go():\n    return 1\n")
+    assert invariants.check_import_cycles() == []
+
+
+def test_deferred_import_does_not_count_as_a_cycle(invariants, fake_tree) -> None:
+    """A cycle needs a *module-level* import; one inside a function cannot fail at import time."""
+    fake_tree("src/a.py", "def go():\n    from src.b import back\n")
+    fake_tree("src/b.py", "from src.a import go\n")
+    assert invariants.check_import_cycles() == []
+
+
+# ---------------------------------------------------------------------------
+# check_zip_is_strict (GOV-039)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_zip_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b))\n")
+    problems = invariants.check_zip_is_strict()
+    assert any("zip() without strict=" in p for p in problems)
+
+
+def test_strict_zip_passes(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b, strict=True))\n")
+    assert invariants.check_zip_is_strict() == []
+
 
 # ---------------------------------------------------------------------------
 # check_no_wildcard_imports (GOV-048)
