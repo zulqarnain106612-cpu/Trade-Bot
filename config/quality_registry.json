@@ -3539,6 +3539,26 @@
       "depends_on": []
     },
     {
+      "id": "GOV-039",
+      "kind": "requirement",
+      "title": "check_zip_is_strict has a negative test",
+      "statement": "The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "GOV-056",
       "kind": "requirement",
       "title": "implemented math entry names its test",

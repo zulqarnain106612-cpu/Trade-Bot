@@ -1243,6 +1243,22 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
+# check_zip_is_strict (GOV-039)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_zip_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b))\n")
+    problems = invariants.check_zip_is_strict()
+    assert any("zip() without strict=" in p for p in problems)
+
+
+def test_strict_zip_passes(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b, strict=True))\n")
+    assert invariants.check_zip_is_strict() == []
+
+
+# ---------------------------------------------------------------------------
 # check_no_wildcard_imports (GOV-048)
 # ---------------------------------------------------------------------------
 
