@@ -97,7 +97,7 @@ class TestTrigger:
         excused here, and the two lists must name the same jobs.
         """
         assert "ALLOW_SKIPPED" in script
-        assert "'retrieve-context'" in script
+        assert "'retry'" in script
 
         # assert_jobs_green.py reads its allowlist from the ALLOW_SKIPPED
         # environment variable, so the authority on which job is excused is
@@ -251,6 +251,35 @@ class TestCommentBody:
         """
         assert "issuesAndPullRequests" in script
         assert "head_sha" in script
+
+
+class TestUnmatchedFailureOutput:
+    """REG-0020: a failure no SIGNAL pattern recognises still names its error.
+
+    pip-audit's vulnerability table matched none of the patterns, so the notice
+    for #385 carried the step name and no error, and the failing lines had to
+    be pasted by hand. The fallback takes the failing step's own output -- the
+    lines between the runner's ``##[endgroup]`` and its ``##[error]`` exit-code
+    line -- minus table rules and runner markers.
+    """
+
+    def test_the_fallback_is_reached_when_no_signal_matches(self, script):
+        loop = script.index("for (const re of SIGNAL)")
+        assert "return stepOutputTail(raw);" in script[loop : loop + 400]
+
+    def test_the_fallback_reads_the_failing_steps_output_only(self, script):
+        body = script[
+            script.index("function stepOutputTail(raw)") : script.index(
+                "async function messagesFor"
+            )
+        ]
+        assert "/^##\\[error\\]/" in body
+        assert "/^##\\[endgroup\\]/" in body
+        assert ".slice(-MAX_MSG_LINES)" in body
+
+    def test_table_rules_and_runner_markers_are_not_error_text(self, script):
+        assert "const RULE = /^[-=+|\\s]+$/;" in script
+        assert "!RULE.test(l)" in script and "!/^##\\[/.test(l)" in script
 
 
 class TestGateLaw:

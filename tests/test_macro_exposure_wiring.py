@@ -42,7 +42,13 @@ def _make_orch(storage, *, enabled: bool = True, lookback: int = 30):
         cfg.risk.macro_exposure_enabled = enabled
         cfg.risk.macro_exposure_lookback_bars = lookback
         mock_cfg.return_value = cfg
-        return Orchestrator(storage, MagicMock())
+        orch = Orchestrator(storage, MagicMock())
+        # Pin the double explicitly. get_settings() is read at use time now
+        # (GOV-028), so constructing inside the patch no longer freezes the
+        # fake onto the instance -- the with-block exits and later reads see
+        # the real settings. The pin says what the test always meant.
+        orch._cfg = cfg
+        return orch
 
 
 def _risk_off_features(rows: int = MIN_ROWS) -> pd.DataFrame:
