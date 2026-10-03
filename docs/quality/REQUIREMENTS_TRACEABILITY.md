@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 137 |
+| VERIFIED | 138 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **137** |
+| **Total** | **138** |
 
 ## Summary by subsystem
 
@@ -67,7 +67,7 @@ deletion of the thing it points at.
 | Cryptography and secrets | 21 | 21 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 11 | 11 |
+| Release and production | 12 | 12 |
 | Governance | 34 | 34 |
 
 ## Outstanding work by phase
@@ -1350,6 +1350,19 @@ When no SIGNAL pattern matches a failing job's log, the notice carries the last 
 
 > Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite
 
+#### `REG-0021` — The CI notice resolves no pull request and posts nothing
+
+**VERIFIED** · high · regression · source: OPS-2026-10-03
+
+The notice resolves a commit's pull requests from the commit itself, so a workflow_run whose pull_requests array is empty -- the normal case for a push-triggered run -- still produces exactly one comment per commit.
+
+- **If violated:** workflow_run.pull_requests is empty for a push-triggered run, and the fallback searched is:pr for a bare head SHA, which issue search does not match. Both resolutions returned nothing, so the job logged 'nothing to notify' and exited 0. #322 and #323 carried no notice for ten days and looked frozen with no readable failure.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit)
+
+> A silent notice is the one failure this channel cannot have: CLAUDE.md section 9 makes it the sole CI failure interface, so when it posts nothing every pull request looks stuck for no visible reason. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -1794,4 +1807,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 137 entries.
+Registry version: 1.0.0 — 138 entries.

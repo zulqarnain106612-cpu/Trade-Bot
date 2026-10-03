@@ -90,15 +90,28 @@ jobs:
             ]);
 
             // ---- which pull request -------------------------------------
-            // A workflow_run event carries its PRs only for same-repo
-            // branches; for a fork the array is empty, so fall back to a
-            // head-SHA search rather than silently posting nothing.
+            // A workflow_run event carries its PRs only sometimes: empty for a
+            // fork, and empty whenever the triggering run came from a push,
+            // which is the usual case. Resolve the commit itself rather than
+            // letting the guard below post nothing.
             let prNumbers = (trigger.pull_requests || []).map(pr => pr.number);
             if (prNumbers.length === 0) {
-              const search = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${context.repo.owner}/${context.repo.repo} is:pr ${headSha}`,
-              });
-              prNumbers = search.data.items.map(item => item.number);
+              // workflow_run.pull_requests is empty whenever the triggering run
+              // started from a push, which is the normal case here. Issue search
+              // never reliably matches a bare SHA to its pull request and needs
+              // the commit indexed first, so it returned nothing and the guard
+              // below exited 0 without posting -- a silent notice, the one
+              // failure mode this workflow must not have. Resolve the commit
+              // directly instead: the endpoint is exact and needs no indexing.
+              const associated =
+                await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  commit_sha: headSha,
+                });
+              prNumbers = associated.data
+                .filter(pr => pr.state === 'open')
+                .map(pr => pr.number);
             }
             if (prNumbers.length === 0) {
               core.info(`No pull request for ${headSha}; nothing to notify.`);

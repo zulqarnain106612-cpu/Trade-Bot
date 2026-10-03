@@ -289,3 +289,22 @@ class TestGateLaw:
         assert "gate" not in spec["jobs"]
         triggers = spec.get("on") or spec.get(True)
         assert "pull_request" not in triggers
+
+
+def test_pull_request_is_resolved_from_the_commit(script: str) -> None:
+    """REG-0021: a push-triggered run must still find its pull request.
+
+    ``workflow_run.pull_requests`` is empty whenever the triggering run came
+    from a push, which is the usual case here, so resolution falls through to
+    the second branch. That branch has to be exact, because the guard after it
+    returns without commenting -- and a notice that posts nothing leaves every
+    pull request looking frozen with no failure anyone can read.
+    """
+    assert "listPullRequestsAssociatedWithCommit" in script
+
+
+def test_notice_does_not_resolve_a_pull_request_by_issue_search(
+    script: str,
+) -> None:
+    """REG-0021: issue search never matches a bare head SHA, so it is banned."""
+    assert "search.issuesAndPullRequests" not in script
