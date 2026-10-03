@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 150 |
+| VERIFIED | 151 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **150** |
+| **Total** | **151** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 46 | 46 |
+| Governance | 47 | 47 |
 
 ## Outstanding work by phase
 
@@ -1805,6 +1805,17 @@ The math registry loader refuses any wiring pointing at a file that does not exi
 - **Verification:**
   - `tests/test_math_registry.py` (contract)
 
+#### `GOV-046` — declared taxonomy has a user
+
+**VERIFIED** · low · requirement · source: QE-52
+
+The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.
+
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1938,4 +1949,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 150 entries.
+Registry version: 1.0.0 — 151 entries.

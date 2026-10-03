@@ -236,11 +236,6 @@ class TestVocabularies:
         )
 
 
-# ---------------------------------------------------------------------------
-# The status contract
-# ---------------------------------------------------------------------------
-
-
 class TestStatusContract:
     def test_verified_must_name_a_test(self, tree):
         expect_error(
@@ -687,6 +682,16 @@ class TestTheRealRegistry:
     def test_the_ten_trading_invariants_are_all_present(self, registry):
         found = {e.id for e in registry.by_kind("invariant")}
         assert found == {f"INV-{n:03d}" for n in range(1, 11)}
+
+    def test_no_declared_test_type_is_unused(self, registry):
+        # A vocabulary term with no user is dead vocabulary: delete it, or give
+        # it its first entry. The other direction -- an entry inventing a type
+        # the taxonomy never declared -- is refused by the loader, which sees
+        # one registry at a time. This direction is a property of ours alone:
+        # the schema requires at least one declared test_type, so a registry of
+        # planned entries, which reference no test, could never satisfy it.
+        used = {v.test_type for e in registry for v in e.verification}
+        assert not sorted(set(registry.test_types) - used)
 
     def test_every_invariant_is_critical(self, registry):
         # An invariant that is not critical is not an invariant.
