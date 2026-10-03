@@ -13,6 +13,8 @@ Authority:
   - Domain Prior: enforce drawdown and position limits; Kelly is a
     ceiling, not a target — this is the outermost such ceiling, beneath
     which no automated system may trade regardless of any other signal
+
+Registry: INV-002 (config/quality_registry.json).
 """
 
 from __future__ import annotations

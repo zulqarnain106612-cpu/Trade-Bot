@@ -5,6 +5,9 @@ Tests for two config knobs that were declared and never read.
 only the wall-clock half of the tuning cadence guard was enforced.
 `StorageSettings.bar_cache_days` configured a retention window that
 `prune_old_bars()` implemented on both backends and nothing ever called.
+
+Decides:
+  - REL-006 — Configuration drift is detected and DEBUG never reaches production
 """
 
 from __future__ import annotations

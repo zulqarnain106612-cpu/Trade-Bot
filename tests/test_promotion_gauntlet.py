@@ -1,4 +1,8 @@
-"""Tests for the v6 strategy promotion gauntlet."""
+"""Tests for the v6 strategy promotion gauntlet.
+
+Decides:
+  - RISK-005 — No optimizer may directly modify a live risk control
+"""
 
 from __future__ import annotations
 

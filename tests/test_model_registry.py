@@ -1,4 +1,8 @@
-"""Tests for the v4 model registry with shadow-mode evaluation."""
+"""Tests for the v4 model registry with shadow-mode evaluation.
+
+Decides:
+  - MODL-001 — Every model artifact carries full provenance
+"""
 
 from __future__ import annotations
 
