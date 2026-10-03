@@ -100,8 +100,8 @@
         "One pull request at a time, squash-merged: each entry is built on top",
         "of main alone, so a failure names exactly one pull request and the",
         "next one starts as soon as it lands. An entry that fails leaves the",
-        "queue; .github/workflows/merge-queue-retry.yml re-queues it up to three",
-        "times and then mentions the owner (GOV-037).",
+        "queue and stays out until a person looks at it -- nothing re-queues it",
+        "automatically (GOV-037).",
         "check_response_timeout_minutes 60 covers the CI test shards with room",
         "to spare. Every required gate workflow triggers on merge_group."
       ]

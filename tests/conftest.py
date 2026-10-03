@@ -8,6 +8,8 @@ row-count assertions depend on whatever previous runs left behind.
 `_DB_PATH` is read from `DUCKDB_PATH` at import time, so this must run
 before any test imports `src.data.duckdb_store` — a `tests/conftest.py`
 module body is imported first, which is why this is not a fixture.
+
+Registry: REG-0005, REG-0009 (config/quality_registry.json).
 """
 
 from __future__ import annotations
