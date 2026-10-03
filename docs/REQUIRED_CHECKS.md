@@ -91,7 +91,7 @@ nobody re-verifies is a rule that quietly stops existing.
 |---|---|
 | `required_status_checks` | The four gates below must be green |
 | `strict_required_status_checks_policy` | Off: the merge queue tests every entry on top of the current base instead (GOV-037) |
-| `merge_queue` | One squashed pull request at a time; a removed entry is retried up to 3 times by `merge-queue-retry.yml`, then the owner is mentioned |
+| `merge_queue` | One squashed pull request at a time; an entry the queue removes stays out until a person acts on it |
 | `pull_request` | Changes reach `main` through a pull request, with review threads resolved |
 | `non_fast_forward` | No force-pushes to `main` |
 | `deletion` | `main` cannot be deleted |

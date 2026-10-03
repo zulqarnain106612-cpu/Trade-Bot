@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 138 |
+| VERIFIED | 139 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **138** |
+| **Total** | **139** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 34 | 34 |
+| Governance | 35 | 35 |
 
 ## Outstanding work by phase
 
@@ -1610,6 +1610,17 @@ src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDe
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
 
+#### `GOV-022` — diagnostics stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/diagnostics/ must not import from src.features. The synthetic pipeline selftest that used to invert the layer order lives beside the pipeline in src/features/selftest.py; callers import from there.
+
+- **If violated:** A future edit reintroduces an import of src.features.pipeline in src/diagnostics/, silently reviving the diagnostics->features package edge.
+- **Owned by:** `src/features/selftest.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-024` — intelligence does not import intel
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1672,17 +1683,16 @@ No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, 
 - **Verification:**
   - `tests/test_no_claude_automation.py` (contract)
 
-#### `GOV-037` — Pull requests land through a one-at-a-time merge queue that retries, then hands over
+#### `GOV-037` — Pull requests land through a one-at-a-time merge queue
 
 **VERIFIED** · medium · requirement · source: OPS-2026-10-01
 
-main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A ready same-repository pull request gets auto-merge; one the queue removes is re-queued up to three times, after which the owner is mentioned once and it is left alone until a new commit lands. The label queue-hold opts a pull request out. No step checks out or runs pull request code, and no model is invoked.
+main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A pull request joins the queue when auto-merge is armed on it and its own gates are green. An entry the queue removes stays out until a person acts on it: nothing re-queues it automatically.
 
-- **If violated:** Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another, with nothing retrying a flaky queue failure and nothing telling the owner which pull request needed a person.
-- **Owned by:** `.github/rulesets/main-protection.json`, `.github/workflows/merge-queue-retry.yml`
+- **If violated:** Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another.
+- **Owned by:** `.github/rulesets/main-protection.json`
 - **Depends on:** `GOV-029`
 - **Verification:**
-  - `tests/test_merge_queue_retry_workflow.py` (unit)
   - `tests/test_apply_repo_ruleset.py` (unit)
 
 #### `GOV-038` — verified entry depends on verified or accepted_gap only
@@ -1807,4 +1817,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 138 entries.
+Registry version: 1.0.0 — 139 entries.
