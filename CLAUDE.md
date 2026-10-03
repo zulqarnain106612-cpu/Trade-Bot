@@ -367,15 +367,8 @@ Every gate job must have **only**:
 
 No draft guard or alternative condition. Every gating workflow must trigger on `merge_group`.
 
-## GOV-037 — Retry, then hand over
-
-`.github/workflows/merge-queue-retry.yml` (deterministic, no model):
-
-* arms auto-merge on every ready same-repository PR;
-* re-queues a PR the queue removed, up to **3** times (labels `queue-retry-N`);
-* then comments `@owner have a look on this PR` once (label `queue-retry-exhausted`)
-  and leaves it until a new commit lands;
-* `queue-hold` opts a PR out. It never checks out or runs PR code.
+An entry the queue removes stays out. Nothing re-queues it: arm auto-merge again
+yourself, or push a fix. No workflow may be added to do this automatically.
 
 ## GOV-029 — Conflicts that resolve themselves
 
@@ -388,9 +381,9 @@ passes `qe_gate.py` before it is pushed.
 Its first job (GOV-017) still updates the oldest PR whose `mergeable_state` is
 `behind`; under the queue that update is no longer needed for a PR to merge.
 
-Both workflows require `secrets.PR_AUTOUPDATE_TOKEN` (PAT with `repo` scope; also
-as a Dependabot secret). A `GITHUB_TOKEN` event starts no workflow run. Missing
-token must fail without modifying anything.
+It requires `secrets.PR_AUTOUPDATE_TOKEN` (PAT with `repo` scope; also as a
+Dependabot secret). A `GITHUB_TOKEN` event starts no workflow run. Missing token
+must fail without modifying anything.
 
 ---
 

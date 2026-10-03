@@ -455,9 +455,7 @@
       "governance": "GOV-037",
       "ruleset": ".github/rulesets/main-protection.json",
       "apply": "python3 scripts/apply_repo_ruleset.py",
-      "retry_workflow": ".github/workflows/merge-queue-retry.yml",
-      "retry": "Re-queue a PR the queue removed, up to 3 times (labels queue-retry-N); then comment '@owner have a look on this PR' once (label queue-retry-exhausted). A new commit resets the count. Label queue-hold opts out.",
-      "safety": "pull_request_target; never checks out or runs PR code; same-repository PRs only; no model is invoked."
+      "retry": "None. An entry the queue removes stays out until a person arms auto-merge again or pushes a fix. No workflow may re-queue it automatically."
     }
   },
   "ci_cost": {
