@@ -1,6 +1,16 @@
 """
 SSRF protection for outbound requests.
 
+post_quantum posture (LAW12):
+  Nothing here needs a PQC migration, and the reason is not "it is only URL
+  validation". This module contains no cryptography at all -- no key
+  agreement, no signature, no cipher -- so there is no primitive whose
+  security assumption a quantum adversary changes. What it defends is the
+  destination of a request, which is a routing decision, not a secret.
+
+  Stated rather than left absent, because a security module with no posture
+  section is indistinguishable from one whose posture nobody considered.
+
 API-004. The hazard the source document names:
 
 > The application should not become a network proxy for an attacker.

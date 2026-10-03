@@ -7,6 +7,8 @@ Responsibilities:
   - Handle provider-specific rate limits
   - Fallback strategy if one provider fails
   - Data validation and standardization
+
+Registry: API-004, SECR-006 (config/quality_registry.json).
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from typing import Any
 
 import structlog
 
-from src.api.ssrf import assert_outbound_url_allowed
+from src.security.ssrf import assert_outbound_url_allowed
 
 log = structlog.get_logger(__name__)
 
