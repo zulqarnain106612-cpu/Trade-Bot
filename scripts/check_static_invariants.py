@@ -1587,11 +1587,33 @@ def check_no_assert_in_src() -> list[str]:
     return problems
 
 
+def check_no_eval_or_exec() -> list[str]:
+    """
+    ``eval`` and ``exec`` accept a string and run it as code. In a trading
+    process that reads from configuration, from a network peer, or from any
+    source that is not entirely under the operator's key, that string is a
+    remote-code-execution primitive. Nothing in ``src/`` needs either.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"eval", "exec"}
+            ):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: {node.func.id}() in src/ -- refuse code from a string"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("print in src", check_no_print_in_src),
     ("bare except", check_no_bare_except),
     ("assert in src", check_no_assert_in_src),
+    ("eval or exec", check_no_eval_or_exec),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
