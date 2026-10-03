@@ -12,6 +12,8 @@ Authority:
   - López de Prado (2018) AFML Ch.11 — backtest overfitting; a discovered
     factor/strategy must prove itself out-of-sample under real paper
     trading conditions, not just a historical replay
+
+Registry: MODL-006, RISK-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations
