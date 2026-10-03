@@ -3537,6 +3537,28 @@
         }
       ],
       "depends_on": []
+    },
+    {
+      "id": "REG-0021",
+      "kind": "regression",
+      "title": "The CI notice resolves no pull request and posts nothing",
+      "statement": "The notice resolves a commit's pull requests from the commit itself, so a workflow_run whose pull_requests array is empty -- the normal case for a push-triggered run -- still produces exactly one comment per commit.",
+      "criticality": "high",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-10-03",
+      "failure_mode": "workflow_run.pull_requests is empty for a push-triggered run, and the fallback searched is:pr for a bare head SHA, which issue search does not match. Both resolutions returned nothing, so the job logged 'nothing to notify' and exited 0. #322 and #323 carried no notice for ten days and looked frozen with no readable failure.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [],
+      "notes": "A silent notice is the one failure this channel cannot have: CLAUDE.md section 9 makes it the sole CI failure interface, so when it posts nothing every pull request looks stuck for no visible reason. layer: test-suite"
     }
   ]
 }
