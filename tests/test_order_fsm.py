@@ -1,4 +1,8 @@
-"""Test suite for Order FSM state machine."""
+"""Test suite for Order FSM state machine.
+
+Decides:
+  - EXEC-002 — The order state machine is total and its transitions are legal
+"""
 
 from datetime import UTC, datetime
 

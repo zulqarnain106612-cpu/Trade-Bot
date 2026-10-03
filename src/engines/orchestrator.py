@@ -3,6 +3,8 @@ Engine Orchestrator — parallel execution of all 18 Crypto-Box engines.
 
 All engines run concurrently via asyncio.gather with per-engine SLA timeouts.
 Engines that time-out or error are removed from consensus (graceful degradation).
+
+Registry: SIG-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations
