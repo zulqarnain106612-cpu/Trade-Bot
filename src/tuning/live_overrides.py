@@ -23,6 +23,8 @@ exact proposal it generated, not a value that could change mid-backtest
 -- must keep passing an explicit cfg= / *_cfg= argument. These helpers
 only change what each consumer's *default* resolves to; every call site
 that already passes cfg explicitly is unaffected.
+
+Registry: REG-0005, RISK-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

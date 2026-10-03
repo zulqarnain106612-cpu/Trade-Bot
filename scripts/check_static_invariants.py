@@ -1513,6 +1513,26 @@ def check_dataclass_attributes_exist() -> list[str]:
     return problems
 
 
+def check_no_wildcard_imports() -> list[str]:
+    """
+    ``from x import *`` puts the exporter in charge of a caller's namespace:
+    a rename in x silently deletes a name in the caller, and a new export
+    silently adds one that shadows what the caller had. Neither shows in the
+    caller's diff. Every import in src/ names what it takes.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == "*":
+                        source = "." * node.level + (node.module or "")
+                        problems.append(
+                            f"{_rel(path)}:{node.lineno}: wildcard import 'from {source} import *'"
+                        )
+    return problems
+
+
 def check_no_assert_in_src() -> list[str]:
     """
     ``assert`` disappears under ``python -O``. A production check spelled as
@@ -1533,6 +1553,7 @@ def check_no_assert_in_src() -> list[str]:
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("assert in src", check_no_assert_in_src),
+    ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
     ("wall-clock durations", check_durations_use_monotonic),

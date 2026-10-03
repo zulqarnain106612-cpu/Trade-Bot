@@ -1,3 +1,4 @@
+# Registry: GOV-017 (config/quality_registry.json).
 name: PR auto-update
 
 # `main` is protected by a ruleset that requires an up-to-date branch, so every
