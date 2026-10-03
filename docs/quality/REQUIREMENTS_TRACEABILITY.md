@@ -47,28 +47,28 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 140 |
+| VERIFIED | 138 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **140** |
+| **Total** | **138** |
 
 ## Summary by subsystem
 
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 10 |
-| Execution | 12 | 12 |
+| Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 14 | 14 |
+| API and WebSocket | 12 | 12 |
 | Cryptography and secrets | 21 | 21 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 34 | 34 |
+| Governance | 35 | 35 |
 
 ## Outstanding work by phase
 
@@ -351,18 +351,6 @@ Nightly mutation testing of the execution modules kills at least 90% of generate
 - **Owned by:** `config/mutation_thresholds.json`, `.github/workflows`
 - **Verification:**
   - `tests/regression/test_regression_registry_contract.py` (mutation) — The execution subsystem's 90% floor, mutating order_fsm, idempotency and exchange_contract nightly.
-
-#### `GOV-033` — Publishing to the event bus can never block the producer
-
-**VERIFIED** · high · requirement · source: OPS-2026-09-30
-
-EventBus.publish is a synchronous def with no await point, so no subscriber state -- full queue, wedged consumer, congested socket -- can suspend a caller inside the trading loop. The signature is asserted structurally, not only behaviourally.
-
-- **If violated:** A GUI client on a slow link becomes backpressure on the trading loop: an await inside publish suspends the coroutine that was recording a fill or evaluating a risk gate, so display congestion delays execution. Every behavioural test would still pass if publish became async and awaited a full queue -- they would just await it -- so only the signature assertion detects the change.
-- **Owned by:** `src/eventbus/bus.py`
-- **Depends on:** `GOV-032`
-- **Verification:**
-  - `tests/test_event_bus.py` (contract)
 
 ## Portfolio
 
@@ -808,31 +796,6 @@ A successful write through POST /controls/{name} must broadcast a control_change
   - `tests/test_venue_api.py` (api)
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
-
-#### `GOV-032` — The GUI transport has a push path that is not a timer
-
-**VERIFIED** · medium · requirement · source: OPS-2026-09-30
-
-src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available. The kill switch publishes RISK on an auto-disable, after the state change, so the RISK topic /ws subscribes to has a producer rather than being a socket parked on silence.
-
-- **If violated:** Every GUI surface stays floored by its own timer period: /ws sleeps for the heartbeat before building a snapshot, so a fill landing one millisecond after a tick is invisible for the rest of the period, and raising the tick rate buys latency with load without removing the floor. A topic spelled as a literal rather than a constant fails the other way -- the publisher reports zero subscribers and the panel simply never updates, which on screen is indistinguishable from a quiet market.
-- **Owned by:** `src/eventbus/bus.py`, `src/eventbus/topics.py`, `src/api/main.py`, `src/risk/strategy_kill_switch.py`
-- **Verification:**
-  - `tests/test_event_bus.py` (component)
-  - `tests/test_ws_event_wakeup.py` (contract)
-  - `tests/test_api_main_coverage.py` (component) — Drives the endpoint loop itself. The AST seam test can say the loop awaits drain(); only this one can say the loop still terminates -- it stayed green while the suite hung.
-
-#### `GOV-034` — A full subscriber queue drops the oldest event and counts the drop
-
-**VERIFIED** · high · requirement · source: OPS-2026-09-30
-
-Subscription._offer evicts the head of a full queue rather than refusing the new event, and increments a per-subscription dropped counter that EventBus.stats aggregates. Ordering of the retained events is preserved.
-
-- **If violated:** Dropping the newest event instead pins a slow client's panel to whatever was on screen when congestion started and leaves it there: the display is not merely late but wrong, and recovers only when the operator reloads. Dropping silently is the same defect one level down -- a dropped frame and a quiet market are indistinguishable on screen, so without the counter there is nothing to alert on.
-- **Owned by:** `src/eventbus/bus.py`
-- **Depends on:** `GOV-032`
-- **Verification:**
-  - `tests/test_event_bus.py` (contract)
 
 ## Cryptography and secrets
 
@@ -1720,6 +1683,17 @@ main is protected by a merge queue that squash-merges one pull request at a time
   - `tests/test_merge_queue_retry_workflow.py` (unit)
   - `tests/test_apply_repo_ruleset.py` (unit)
 
+#### `GOV-038` — verified entry depends on verified or accepted_gap only
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.
+
+- **If violated:** A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1831,4 +1805,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 140 entries.
+Registry version: 1.0.0 — 138 entries.
