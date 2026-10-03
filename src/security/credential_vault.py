@@ -28,6 +28,8 @@ post_quantum posture (LAW12):
   anything with a public counterpart -- the quantum exposure moves to that
   key and this note stops holding. The master seed itself is symmetric and
   is not the concern.
+
+Registry: SECR-003, SECR-007, SECR-009, SECR-010 (config/quality_registry.json).
 """
 
 from __future__ import annotations
