@@ -80,7 +80,7 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | `REG-0021` |
+| PR-007 | API/WebSocket Security | `REG-0022` |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
@@ -813,7 +813,7 @@ A successful write through POST /controls/{name} must broadcast a control_change
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
-#### `REG-0021` — A hook that takes a callback calls the latest one, not the first render's
+#### `REG-0022` — A hook that takes a callback calls the latest one, not the first render's
 
 **PLANNED → PR-007** · medium · regression · source: OPS-2026-09-25
 

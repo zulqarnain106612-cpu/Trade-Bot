@@ -3580,7 +3580,7 @@
       "notes": "Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events."
     },
     {
-      "id": "REG-0021",
+      "id": "REG-0022",
       "kind": "regression",
       "title": "A hook that takes a callback calls the latest one, not the first render's",
       "statement": "usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.",
