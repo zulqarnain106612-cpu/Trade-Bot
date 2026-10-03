@@ -361,21 +361,21 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
-      "id": "GOV-055",
+      "id": "GOV-038",
       "kind": "requirement",
-      "title": "text open names encoding",
-      "statement": "The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.",
-      "criticality": "medium",
+      "title": "verified entry depends on verified or accepted_gap only",
+      "statement": "The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.",
+      "criticality": "high",
       "subsystem": "governance",
       "status": "verified",
       "source": "QE-52",
-      "failure_mode": "A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.",
+      "failure_mode": "A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.",
       "owning_modules": [
-        "scripts/check_static_invariants.py"
+        "src/quality/registry.py"
       ],
       "verification": [
         {
-          "test": "tests/test_static_invariants.py",
+          "test": "tests/quality/test_quality_registry.py",
           "test_type": "contract"
         }
       ]
@@ -1220,7 +1220,7 @@
       "source": "QE-22",
       "owning_modules": [
         "src/intelligence/client.py",
-        "src/api/ssrf.py"
+        "src/security/ssrf.py"
       ],
       "verification": [
         {
@@ -3392,22 +3392,17 @@
     {
       "id": "GOV-037",
       "kind": "requirement",
-      "title": "Pull requests land through a one-at-a-time merge queue that retries, then hands over",
-      "statement": "main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A ready same-repository pull request gets auto-merge; one the queue removes is re-queued up to three times, after which the owner is mentioned once and it is left alone until a new commit lands. The label queue-hold opts a pull request out. No step checks out or runs pull request code, and no model is invoked.",
+      "title": "Pull requests land through a one-at-a-time merge queue",
+      "statement": "main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A pull request joins the queue when auto-merge is armed on it and its own gates are green. An entry the queue removes stays out until a person acts on it: nothing re-queues it automatically.",
       "criticality": "medium",
       "subsystem": "governance",
       "status": "verified",
       "source": "OPS-2026-10-01",
-      "failure_mode": "Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another, with nothing retrying a flaky queue failure and nothing telling the owner which pull request needed a person.",
+      "failure_mode": "Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another.",
       "owning_modules": [
-        ".github/rulesets/main-protection.json",
-        ".github/workflows/merge-queue-retry.yml"
+        ".github/rulesets/main-protection.json"
       ],
       "verification": [
-        {
-          "test": "tests/test_merge_queue_retry_workflow.py",
-          "test_type": "unit"
-        },
         {
           "test": "tests/test_apply_repo_ruleset.py",
           "test_type": "unit"
@@ -3438,6 +3433,130 @@
       ],
       "depends_on": [],
       "notes": "Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite"
+    },
+    {
+      "id": "SEC-0007",
+      "kind": "security_regression",
+      "title": "The frontend dependency tree carries no unfixable advisory",
+      "statement": "npm audit over frontend's whole dependency tree at --audit-level=high reports no advisories, and electron-builder is absent from both dependencies and devDependencies while http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched release.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-10-03",
+      "failure_mode": "Eight high advisories failed Security gate on every pull request. All eight arrived through electron-builder and traced to http-cache-semantics GHSA-ch52-4w7c-c8xp, vulnerable range <= 4.2.0 with first_patched_version null -- every release ever published. Measured in frontend/: unchanged full tree 8 high; pinned to the 26.5.0 that npm audit fix --force proposes 14 (13 high, 1 critical, tar <= 7.5.20); electron-builder removed 0 vulnerabilities. No override escapes it, because cacheable-request@13.0.19, the latest, still depends on http-cache-semantics@^4.2.0.",
+      "owning_modules": [
+        "frontend/package.json",
+        ".github/workflows/security.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_frontend_audit_scope.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [],
+      "notes": "No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain"
+    },
+    {
+      "id": "GOV-022",
+      "kind": "requirement",
+      "title": "diagnostics stays within its layer",
+      "statement": "src/diagnostics/ must not import from src.features. The synthetic pipeline selftest that used to invert the layer order lives beside the pipeline in src/features/selftest.py; callers import from there.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.features.pipeline in src/diagnostics/, silently reviving the diagnostics->features package edge.",
+      "owning_modules": [
+        "src/features/selftest.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-048",
+      "kind": "requirement",
+      "title": "no wildcard imports in src",
+      "statement": "The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-023",
+      "kind": "requirement",
+      "title": "intelligence stays within its layer",
+      "statement": "src/intelligence/ must not import from src.api. The SSRF address-space guard used by the intelligence client is stdlib-only network policy and lives in src/security/ssrf.py, below both analytics and edge.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.api.* in src/intelligence/, silently reviving the intelligence->api package edge.",
+      "owning_modules": [
+        "src/security/ssrf.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-031",
+      "kind": "requirement",
+      "title": "strategies does not import engine",
+      "statement": "src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.",
+      "owning_modules": [
+        "src/strategies/signal_engine_adapter.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "GOV-055",
+      "kind": "requirement",
+      "title": "text open names encoding",
+      "statement": "The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
     }
   ]
 }
