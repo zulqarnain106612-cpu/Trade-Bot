@@ -3539,7 +3539,7 @@
       "depends_on": []
     },
     {
-      "id": "GOV-049",
+      "id": "GOV-056",
       "kind": "requirement",
       "title": "implemented math entry names its test",
       "statement": "The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.",

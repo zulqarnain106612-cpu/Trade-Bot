@@ -1739,7 +1739,7 @@ The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcar
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
 
-#### `GOV-049` — implemented math entry names its test
+#### `GOV-056` — implemented math entry names its test
 
 **VERIFIED** · high · requirement · source: QE-52
 
