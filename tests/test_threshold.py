@@ -23,6 +23,10 @@ wrong participant, a share valid under a different dealer's polynomial.
 ``t-1`` must not: not "returns garbage", but refuses. Interpolating too few
 points yields a number indistinguishable from the real secret, and for a
 custody key that means signing with a key nobody controls.
+
+Decides:
+  - SECR-013 — The threshold module supplies sharing primitives and refuses to be a signer
+  - SECR-014 — A tampered share is rejected and too few shares are refused, not approximated
 """
 
 from __future__ import annotations

@@ -1,4 +1,9 @@
-"""Tests for src/risk/gates.py — all risk gate functions and the full stack."""
+"""Tests for src/risk/gates.py — all risk gate functions and the full stack.
+
+Decides:
+  - INV-006 — Risk engine failure cannot result in an executable order
+  - RISK-001 — Maximum position exposure must not exceed the configured ceiling
+"""
 
 import pytest
 
