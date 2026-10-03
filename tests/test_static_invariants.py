@@ -1266,3 +1266,25 @@ def test_check_layering_has_dedicated_coverage_elsewhere() -> None:
         Path(__file__).resolve().parent / "test_architecture_layers.py"
     ).read_text(encoding="utf-8")
     assert "check_layering" in coverage_file or "_layering_problems" in coverage_file
+
+
+# ---------------------------------------------------------------------------
+# check_no_wildcard_imports (GOV-048)
+# ---------------------------------------------------------------------------
+
+
+def test_wildcard_import_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("wildcard import" in p for p in problems)
+
+
+def test_relative_wildcard_import_names_its_source(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from . import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("from . import *" in p for p in problems)
+
+
+def test_named_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import foo, bar\nimport src.other as o\n")
+    assert invariants.check_no_wildcard_imports() == []

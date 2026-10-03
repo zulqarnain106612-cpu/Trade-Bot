@@ -47,28 +47,28 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 140 |
+| VERIFIED | 143 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **140** |
+| **Total** | **143** |
 
 ## Summary by subsystem
 
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 10 |
-| Execution | 12 | 12 |
+| Execution | 11 | 11 |
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 14 | 14 |
-| Cryptography and secrets | 21 | 21 |
+| API and WebSocket | 12 | 12 |
+| Cryptography and secrets | 22 | 22 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 34 | 34 |
+| Governance | 39 | 39 |
 
 ## Outstanding work by phase
 
@@ -351,18 +351,6 @@ Nightly mutation testing of the execution modules kills at least 90% of generate
 - **Owned by:** `config/mutation_thresholds.json`, `.github/workflows`
 - **Verification:**
   - `tests/regression/test_regression_registry_contract.py` (mutation) — The execution subsystem's 90% floor, mutating order_fsm, idempotency and exchange_contract nightly.
-
-#### `GOV-033` — Publishing to the event bus can never block the producer
-
-**VERIFIED** · high · requirement · source: OPS-2026-09-30
-
-EventBus.publish is a synchronous def with no await point, so no subscriber state -- full queue, wedged consumer, congested socket -- can suspend a caller inside the trading loop. The signature is asserted structurally, not only behaviourally.
-
-- **If violated:** A GUI client on a slow link becomes backpressure on the trading loop: an await inside publish suspends the coroutine that was recording a fill or evaluating a risk gate, so display congestion delays execution. Every behavioural test would still pass if publish became async and awaited a full queue -- they would just await it -- so only the signature assertion detects the change.
-- **Owned by:** `src/eventbus/bus.py`
-- **Depends on:** `GOV-032`
-- **Verification:**
-  - `tests/test_event_bus.py` (contract)
 
 ## Portfolio
 
@@ -703,7 +691,7 @@ SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payl
 Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.
 
 - **If violated:** The bot becomes the attacker's proxy into the private network and the metadata service.
-- **Owned by:** `src/intelligence/client.py`, `src/api/ssrf.py`
+- **Owned by:** `src/intelligence/client.py`, `src/security/ssrf.py`
 - **Verification:**
   - `tests/api/test_ssrf_protection.py` (security) — Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client.
 
@@ -808,31 +796,6 @@ A successful write through POST /controls/{name} must broadcast a control_change
   - `tests/test_venue_api.py` (api)
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
-
-#### `GOV-032` — The GUI transport has a push path that is not a timer
-
-**VERIFIED** · medium · requirement · source: OPS-2026-09-30
-
-src/eventbus/ provides an in-process publish/subscribe bus in the foundation layer, so a producer in any layer can state that something changed and a consumer resumes on that event rather than on the next heartbeat. Topics are named constants and both publish and subscribe reject a topic outside KNOWN_TOPICS. /ws parks on Subscription.drain rather than sleeping the heartbeat, and both executors publish PORTFOLIO immediately after the equity snapshot is persisted, so the consumer and at least one producer are wired rather than merely available. The kill switch publishes RISK on an auto-disable, after the state change, so the RISK topic /ws subscribes to has a producer rather than being a socket parked on silence.
-
-- **If violated:** Every GUI surface stays floored by its own timer period: /ws sleeps for the heartbeat before building a snapshot, so a fill landing one millisecond after a tick is invisible for the rest of the period, and raising the tick rate buys latency with load without removing the floor. A topic spelled as a literal rather than a constant fails the other way -- the publisher reports zero subscribers and the panel simply never updates, which on screen is indistinguishable from a quiet market.
-- **Owned by:** `src/eventbus/bus.py`, `src/eventbus/topics.py`, `src/api/main.py`, `src/risk/strategy_kill_switch.py`
-- **Verification:**
-  - `tests/test_event_bus.py` (component)
-  - `tests/test_ws_event_wakeup.py` (contract)
-  - `tests/test_api_main_coverage.py` (component) — Drives the endpoint loop itself. The AST seam test can say the loop awaits drain(); only this one can say the loop still terminates -- it stayed green while the suite hung.
-
-#### `GOV-034` — A full subscriber queue drops the oldest event and counts the drop
-
-**VERIFIED** · high · requirement · source: OPS-2026-09-30
-
-Subscription._offer evicts the head of a full queue rather than refusing the new event, and increments a per-subscription dropped counter that EventBus.stats aggregates. Ordering of the retained events is preserved.
-
-- **If violated:** Dropping the newest event instead pins a slow client's panel to whatever was on screen when congestion started and leaves it there: the display is not merely late but wrong, and recovers only when the operator reloads. Dropping silently is the same defect one level down -- a dropped frame and a quiet market are indistinguishable on screen, so without the counter there is nothing to alert on.
-- **Owned by:** `src/eventbus/bus.py`
-- **Depends on:** `GOV-032`
-- **Verification:**
-  - `tests/test_event_bus.py` (contract)
 
 ## Cryptography and secrets
 
@@ -1082,6 +1045,19 @@ requirements.txt declares urllib3>=2.8.0 and caps ccxt below 4.5.65, so pip cann
   - `tests/security/test_urllib3_cve_floor.py` (security)
 
 > Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite
+
+#### `SEC-0007` — The frontend dependency tree carries no unfixable advisory
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-03
+
+npm audit over frontend's whole dependency tree at --audit-level=high reports no advisories, and electron-builder is absent from both dependencies and devDependencies while http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched release.
+
+- **If violated:** Eight high advisories failed Security gate on every pull request. All eight arrived through electron-builder and traced to http-cache-semantics GHSA-ch52-4w7c-c8xp, vulnerable range <= 4.2.0 with first_patched_version null -- every release ever published. Measured in frontend/: unchanged full tree 8 high; pinned to the 26.5.0 that npm audit fix --force proposes 14 (13 high, 1 critical, tar <= 7.5.20); electron-builder removed 0 vulnerabilities. No override escapes it, because cacheable-request@13.0.19, the latest, still depends on http-cache-semantics@^4.2.0.
+- **Owned by:** `frontend/package.json`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/test_frontend_audit_scope.py` (unit)
+
+> No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain
 
 ## Supply chain and artifacts
 
@@ -1634,6 +1610,28 @@ src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDe
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
 
+#### `GOV-022` — diagnostics stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/diagnostics/ must not import from src.features. The synthetic pipeline selftest that used to invert the layer order lives beside the pipeline in src/features/selftest.py; callers import from there.
+
+- **If violated:** A future edit reintroduces an import of src.features.pipeline in src/diagnostics/, silently reviving the diagnostics->features package edge.
+- **Owned by:** `src/features/selftest.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
+#### `GOV-023` — intelligence stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/intelligence/ must not import from src.api. The SSRF address-space guard used by the intelligence client is stdlib-only network policy and lives in src/security/ssrf.py, below both analytics and edge.
+
+- **If violated:** A future edit reintroduces an import of src.api.* in src/intelligence/, silently reviving the intelligence->api package edge.
+- **Owned by:** `src/security/ssrf.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-024` — intelligence does not import intel
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1685,6 +1683,17 @@ src/engine/ must not import from src.api. The Prometheus metrics module is obser
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
 
+#### `GOV-031` — strategies does not import engine
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.
+
+- **If violated:** A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.
+- **Owned by:** `src/strategies/signal_engine_adapter.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-036` — Claude never runs unattended on the owner's plan
 
 **VERIFIED** · high · requirement · source: QE-53
@@ -1696,18 +1705,28 @@ No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, 
 - **Verification:**
   - `tests/test_no_claude_automation.py` (contract)
 
-#### `GOV-037` — Pull requests land through a one-at-a-time merge queue that retries, then hands over
+#### `GOV-037` — Pull requests land through a one-at-a-time merge queue
 
 **VERIFIED** · medium · requirement · source: OPS-2026-10-01
 
-main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A ready same-repository pull request gets auto-merge; one the queue removes is re-queued up to three times, after which the owner is mentioned once and it is left alone until a new commit lands. The label queue-hold opts a pull request out. No step checks out or runs pull request code, and no model is invoked.
+main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A pull request joins the queue when auto-merge is armed on it and its own gates are green. An entry the queue removes stays out until a person acts on it: nothing re-queues it automatically.
 
-- **If violated:** Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another, with nothing retrying a flaky queue failure and nothing telling the owner which pull request needed a person.
-- **Owned by:** `.github/rulesets/main-protection.json`, `.github/workflows/merge-queue-retry.yml`
+- **If violated:** Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another.
+- **Owned by:** `.github/rulesets/main-protection.json`
 - **Depends on:** `GOV-029`
 - **Verification:**
-  - `tests/test_merge_queue_retry_workflow.py` (unit)
   - `tests/test_apply_repo_ruleset.py` (unit)
+
+#### `GOV-038` — verified entry depends on verified or accepted_gap only
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.
+
+- **If violated:** A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
 
 #### `GOV-042` — check_layering coverage locator
 
@@ -1716,6 +1735,17 @@ main is protected by a merge queue that squash-merges one pull request at a time
 tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.
 
 - **If violated:** A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-048` — no wildcard imports in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.
+
+- **If violated:** A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
@@ -1831,4 +1861,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 140 entries.
+Registry version: 1.0.0 — 143 entries.
