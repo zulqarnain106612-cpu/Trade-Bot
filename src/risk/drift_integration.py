@@ -10,6 +10,8 @@ Usage in orchestrator:
         trade_id, exit_price, pnl_usd, predicted_prob,
         actual_direction, current_equity, starting_equity
     )
+
+Registry: MODL-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations
