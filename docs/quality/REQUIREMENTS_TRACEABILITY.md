@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 145 |
+| VERIFIED | 146 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **145** |
+| **Total** | **146** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 41 | 41 |
+| Governance | 42 | 42 |
 
 ## Outstanding work by phase
 
@@ -1750,6 +1750,17 @@ The static invariant that refuses module-level import cycles carries a dedicated
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
 
+#### `GOV-041` — check_every_gate_status_is_reachable has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses an unreachable GateStatus member carries a dedicated fake-tree test proving it can fire: given a synthetic gates.py whose evaluate_all_gates does not call a check that emits a declared status, the invariant reports it.
+
+- **If violated:** The check was reached only by the whole-repo positive gate; a bug that stopped it detecting an unreachable status would ship silently, and a declared halt the stack cannot emit is a risk control that does not exist. HALT_DRIFT was exactly that shape.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1883,4 +1894,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 145 entries.
+Registry version: 1.0.0 — 146 entries.
