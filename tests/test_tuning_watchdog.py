@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from src.config import SelfTuningSettings
-from src.risk.performance_drift import PerformanceBaseline
+from src.risk.performance_drift import PerformanceBaseline, PerformanceDriftDetector
 from src.tuning.audit import TuningAuditLog, TuningEventType
 from src.tuning.store import VersionedConfigStore
 from src.tuning.watchdog import PostPromotionWatchdog, WatchdogOutcome
@@ -17,6 +17,10 @@ def make_baseline() -> PerformanceBaseline:
         max_drawdown_pct=0.05,
         trades_in_backtest=1000,
     )
+
+
+def make_detector() -> PerformanceDriftDetector:
+    return PerformanceDriftDetector(make_baseline())
 
 
 def build(
@@ -45,7 +49,7 @@ def test_record_trade_when_not_in_probation_is_noop(tmp_path: Path) -> None:
 def test_healthy_trades_stay_in_probation_until_cleared(tmp_path: Path) -> None:
     watchdog, store, _ = build(tmp_path, probation_trades=5)
     store.promote("hmm.entropy_threshold", 0.55, {})
-    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    watchdog.start_probation("hmm.entropy_threshold", make_detector())
 
     for i in range(4):
         outcome = watchdog.record_trade_outcome(
@@ -74,7 +78,7 @@ def test_drift_triggers_rollback_and_lock(tmp_path: Path) -> None:
     watchdog, store, audit = build(tmp_path, probation_trades=100)
     store.promote("hmm.entropy_threshold", 0.50, {"note": "champion"})
     store.promote("hmm.entropy_threshold", 0.65, {"note": "promoted challenger"})
-    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    watchdog.start_probation("hmm.entropy_threshold", make_detector())
 
     outcome = WatchdogOutcome.IN_PROBATION
     for i in range(35):
@@ -111,7 +115,7 @@ def test_probation_status_returns_locked_after_rollback(tmp_path: Path) -> None:
     watchdog, store, _ = build(tmp_path, probation_trades=100)
     store.promote("hmm.entropy_threshold", 0.50, {})
     store.promote("hmm.entropy_threshold", 0.65, {})
-    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    watchdog.start_probation("hmm.entropy_threshold", make_detector())
 
     for i in range(35):
         outcome = watchdog.record_trade_outcome(
@@ -143,7 +147,7 @@ def test_lock_expires_after_cooldown(tmp_path: Path) -> None:
 
     store.promote("hmm.entropy_threshold", 0.50, {})
     store.promote("hmm.entropy_threshold", 0.65, {})
-    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    watchdog.start_probation("hmm.entropy_threshold", make_detector())
 
     # Force a rollback
     for i in range(35):
@@ -171,7 +175,7 @@ def test_lock_expires_after_cooldown(tmp_path: Path) -> None:
 def test_start_probation_while_already_in_probation_overwrites(tmp_path: Path) -> None:
     watchdog, store, _ = build(tmp_path, probation_trades=100)
     store.promote("hmm.entropy_threshold", 0.55, {})
-    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    watchdog.start_probation("hmm.entropy_threshold", make_detector())
     # Restart probation — should not raise, should reset state
-    watchdog.start_probation("hmm.entropy_threshold", make_baseline())
+    watchdog.start_probation("hmm.entropy_threshold", make_detector())
     assert watchdog.probation_status("hmm.entropy_threshold") == WatchdogOutcome.IN_PROBATION
