@@ -19,6 +19,8 @@ Authority sources:
   - Chan (2013) Algorithmic Trading — realized vol, ATR momentum
   - Wilder (1978) New Concepts in Technical Trading Systems — ATR
   - Bollerslev (1986) "Generalized Autoregressive Conditional Heteroskedasticity"
+
+Registry: MODL-003, SIG-002 (config/quality_registry.json).
 """
 
 from __future__ import annotations
