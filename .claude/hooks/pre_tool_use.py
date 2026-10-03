@@ -581,10 +581,7 @@ def _comment_read(command: str, policy: dict[str, Any]) -> str:
     cfg = policy.get("comment_read", {})
     if not cfg.get("enabled", True):
         return ""
-    if not any(
-        re.search(pattern, command, re.IGNORECASE)
-        for pattern in cfg.get("patterns", [])
-    ):
+    if not any(re.search(p, command, re.IGNORECASE) for p in cfg.get("patterns", [])):
         return ""
     if any(
         re.search(selector, command, re.IGNORECASE)
@@ -777,7 +774,10 @@ def _budget_load(path: Path) -> dict[str, Any]:
 
 
 def _budget_verdict(
-    paths: list[str], lines: int, policy: dict[str, Any], session_id: str
+    paths: list[str],
+    lines: int,
+    policy: dict[str, Any],
+    session_id: str,
 ) -> str:
     """
     Return the refusal message when a file's session budget is spent, else "".
@@ -805,7 +805,10 @@ def _budget_verdict(
 
 
 def _budget_record(
-    paths: list[str], lines: int, policy: dict[str, Any], session_id: str
+    paths: list[str],
+    lines: int,
+    policy: dict[str, Any],
+    session_id: str,
 ) -> None:
     """
     Charge an allowed read to its files.
@@ -833,7 +836,9 @@ def _budget_record(
 
 
 def _read_tool_verdict(
-    tool_name: str, tool_input: dict[str, Any], policy: dict[str, Any]
+    tool_name: str,
+    tool_input: dict[str, Any],
+    policy: dict[str, Any],
 ) -> str:
     """
     Return the refusal message when a read tool call is not capped, else "".
@@ -890,7 +895,9 @@ def _read_tool_verdict(
 
 
 def _read_tool_target(
-    tool_name: str, tool_input: dict[str, Any], policy: dict[str, Any]
+    tool_name: str,
+    tool_input: dict[str, Any],
+    policy: dict[str, Any],
 ) -> str:
     """The path a read tool was pointed at, for the per-file budget."""
     spec = policy.get("direct_file_read", {}).get("read_tools", {}).get(tool_name)
@@ -944,9 +951,7 @@ def main() -> None:
             return
 
         ci_cfg = policy.get("ci_observability", {})
-        if ci_cfg.get("enabled", True) and tool_name in set(
-            ci_cfg.get("banned_tools", [])
-        ):
+        if ci_cfg.get("enabled", True) and tool_name in set(ci_cfg.get("banned_tools", [])):
             _emit("deny", str(ci_cfg.get("message", "Live monitoring is disabled.")))
 
         level = _enforcement(policy)

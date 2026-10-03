@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -24,8 +25,20 @@ POLICY = PROJECT_DIR / "config" / "command_policy.json"
 
 
 def decide(command: str, tool: str = "Bash", env_extra: dict | None = None) -> dict:
-    """Run the hook exactly as Claude Code does and return its decision block."""
-    payload = json.dumps({"tool_name": tool, "tool_input": {"command": command}})
+    """
+    Run the hook exactly as Claude Code does and return its decision block.
+
+    Each call gets its own session id. The hook charges allowed reads against a
+    per-file budget keyed by session, so a shared id would let one test spend
+    another's budget and make the order of the suite matter.
+    """
+    payload = json.dumps(
+        {
+            "tool_name": tool,
+            "tool_input": {"command": command},
+            "session_id": f"test-{uuid.uuid4().hex}",
+        }
+    )
     env = dict(os.environ)
     env["CLAUDE_PROJECT_DIR"] = str(PROJECT_DIR)
     env.pop("TB_COMMAND_POLICY", None)
@@ -262,7 +275,7 @@ class TestHeredocsAndWrites:
         assert decide(command)["permissionDecision"] == "deny"
 
     def test_a_pipe_stage_is_not_a_separate_command(self):
-        assert decide("ls -la | head -5")["permissionDecision"] == "allow"
+        assert decide("ls -la | head -2")["permissionDecision"] == "allow"
 
     def test_each_command_in_a_sequence_is_checked(self):
         assert decide("git status; git log")["permissionDecision"] == "deny"
@@ -346,7 +359,7 @@ class TestSharedClassification:
         assert classify("rm -rf build") == "destructive"
         assert decide("rm -rf build")["permissionDecision"] == "deny"
         assert classify("ls -la") == "read_only"
-        assert decide("ls -la")["permissionDecision"] == "allow"
+        assert decide("ls -la | head -2")["permissionDecision"] == "allow"
 
 
 class TestSettingsWiring:
@@ -436,7 +449,7 @@ class TestCiObservability:
         which now returns on the CI rule before reaching either.
         """
         reason = decide("tail -f ci.log")["permissionDecisionReason"]
-        assert reason.count("only <=30 lines") == 1
+        assert reason.count(REFUSAL) == 1
 
     # Replaces `test_a_bounded_log_fetch_is_still_allowed`, which asserted the
     # opposite and was right under the old policy: a log fetch had a
@@ -501,11 +514,11 @@ class TestCiObservability:
     @pytest.mark.parametrize(
         "command",
         [
-            "gh pr view 248 --json comments",
-            "gh pr view 248 --json state,title",
+            "gh pr view 248 --json comments -q '.comments[-1].body' | head -2",
+            "gh pr view 248 --json state,title | head -2",
             "gh pr comment 248 --body 'fixed'",
-            "gh api repos/o/r/issues/248/comments --jq '.[-1].body' | head -30",
-            "gh issue view 5",
+            "gh api repos/o/r/issues/248/comments --jq '.[-1].body' | head -2",
+            "gh issue view 5 | head -2",
             "gh pr merge 248 --squash --auto",
             "gh pr create --base main --title x --body y",
         ],
@@ -527,7 +540,14 @@ class TestCiObservability:
         assert "live monitoring" in decision["permissionDecisionReason"].lower()
 
     def test_other_non_bash_tools_are_still_untouched(self):
-        assert decide("", tool="Read")["permissionDecision"] == "allow"
+        """
+        The live-monitoring ban reaches Monitor and stops there.
+
+        `Read` is no longer an example of an untouched tool -- it returns file
+        content, so it answers to the read cap -- but a tool that returns no
+        content still passes through without an opinion.
+        """
+        assert decide("", tool="Edit")["permissionDecision"] == "allow"
 
 
 class TestTwoLineBoundary:
