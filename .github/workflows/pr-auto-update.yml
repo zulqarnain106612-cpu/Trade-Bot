@@ -238,6 +238,11 @@ jobs:
               [ -n "${path}" ] || continue
               case "${path}" in
                 docs/quality/REQUIREMENTS_TRACEABILITY.md|docs/MATH_FOUNDATIONS.md) ;;
+                # Not generated, but mergeable by meaning: two branches that
+                # each register an entry collide on the array's tail although
+                # their ids differ. Resolved per entry id below, where a real
+                # clash (both sides editing one entry) abandons the merge.
+                config/quality_registry.json) ;;
                 *)
                   git merge --abort
                   echo "::notice::#${PR} conflicts in ${path}, which is not generated. Leaving it for a person."
@@ -245,6 +250,19 @@ jobs:
                   ;;
               esac
             done <<< "${conflicted}"
+
+            if grep -qx 'config/quality_registry.json' <<< "${conflicted}"; then
+              if ! python3 scripts/resolve_registry_merge.py config/quality_registry.json; then
+                git merge --abort
+                echo "::notice::#${PR} changes a registry entry that main also changed. Leaving it for a person."
+                exit 0
+              fi
+              git add -- config/quality_registry.json
+              # The traceability document is generated from the registry, so it
+              # is regenerated whether or not git managed to merge its text.
+              python3 scripts/generate_quality_docs.py
+              git add -- docs/quality/REQUIREMENTS_TRACEABILITY.md
+            fi
 
             # Regenerate from the merged registries, which is the point: the
             # correct content of a generated file is whatever its generator
@@ -256,6 +274,7 @@ jobs:
                   python3 scripts/generate_quality_docs.py ;;
                 docs/MATH_FOUNDATIONS.md)
                   python3 scripts/generate_math_docs.py ;;
+                config/quality_registry.json) ;;
               esac
               git add -- "${path}"
             done <<< "${conflicted}"

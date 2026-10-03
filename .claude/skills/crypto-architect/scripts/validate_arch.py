@@ -362,7 +362,24 @@ FORBIDDEN: list[tuple[str, str, str, Severity]] = [
     # LAW12 — weak key exchange / deprecated crypto
     (
         "LAW12",
-        r"DH(?:E|_anon)?\b|DHE_RSA|TLS_RSA_WITH",
+        # Was `DH(?:E|_anon)?\b|DHE_RSA|TLS_RSA_WITH`, which inverted its own
+        # rule: `DHE` and (via the missing left boundary) `ECDHE` are the
+        # *ephemeral* exchanges that provide forward secrecy, so the pattern
+        # flagged the recommended suites as non-PFS while the finding text
+        # said the opposite. Under re.IGNORECASE it also fired on any word
+        # ending in "dh" -- a lowercase `"ecdh"` key in a lookup table reads
+        # the same as a configured cipher suite to a substring match.
+        #
+        # What is actually non-PFS is *static* DH/ECDH (`DH_RSA`, `DH_DSS`,
+        # `ECDH_RSA`), unauthenticated `DH_anon`, RSA key transport
+        # (`TLS_RSA_WITH_*`) and the export-grade suites. Each is matched by
+        # its suite construction rather than by the token `DH` appearing,
+        # which is the same narrowing already applied to the MD5/SHA1 rule
+        # below and loses no true positive: a suite is only selectable by its
+        # full name.
+        r"(?<![A-Za-z])(?:EC)?DH_(?:RSA|DSS|anon)(?![A-Za-z])"
+        r"|TLS_RSA_WITH"
+        r"|_EXPORT(?:40|56|1024)?(?:_|\b)",
         "Non-PFS or export-grade cipher suite reference",
         Severity.HIGH,
     ),
