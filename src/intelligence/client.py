@@ -7,6 +7,8 @@ Responsibilities:
   - Handle provider-specific rate limits
   - Fallback strategy if one provider fails
   - Data validation and standardization
+
+Registry: API-004, SECR-006 (config/quality_registry.json).
 """
 
 from __future__ import annotations
