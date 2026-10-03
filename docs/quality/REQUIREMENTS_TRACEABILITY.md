@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 144 |
+| VERIFIED | 145 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **144** |
+| **Total** | **145** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 40 | 40 |
+| Governance | 41 | 41 |
 
 ## Outstanding work by phase
 
@@ -1739,6 +1739,17 @@ The static invariant that refuses bare zip() carries a dedicated fake-tree test 
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
 
+#### `GOV-040` — check_import_cycles has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses module-level import cycles carries a dedicated fake-tree test proving it can fire on a 2-module cycle, and a companion test proving a deferred (function-scope) import is not counted.
+
+- **If violated:** check_import_cycles is reached only by the whole-repo positive gate. A bug that stops it from detecting cycles would ship silently, and a module-level cycle would then fail at collection time with only the ImportError as the signal.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1872,4 +1883,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 144 entries.
+Registry version: 1.0.0 — 145 entries.
