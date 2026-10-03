@@ -1243,6 +1243,55 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
+# check_no_print_in_src (GOV-047)
+# ---------------------------------------------------------------------------
+
+
+def test_print_in_src_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/emitter.py", "def go():\n    print('debug')\n")
+    problems = invariants.check_no_print_in_src()
+    assert any("print() in src/" in p for p in problems)
+
+
+def test_structlog_call_is_not_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/emitter.py",
+        "import structlog\n"
+        "log = structlog.get_logger(__name__)\n"
+        "def go():\n    log.info('debug')\n",
+    )
+    assert invariants.check_no_print_in_src() == []
+
+
+def test_a_print_referenced_as_a_method_attribute_is_not_flagged(invariants, fake_tree) -> None:
+    """`something.print()` is a method call on `something`, not the builtin."""
+    fake_tree(
+        "src/emitter.py",
+        "class Q:\n    def print(self):\n        pass\ndef go(q):\n    q.print()\n",
+    )
+    assert invariants.check_no_print_in_src() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_bare_except (GOV-049)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_except_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go():\n    try:\n        do()\n    except:\n        return\n")
+    problems = invariants.check_no_bare_except()
+    assert any("bare except" in p for p in problems)
+
+
+def test_named_except_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go():\n    try:\n        do()\n    except Exception:\n        return\n",
+    )
+    assert invariants.check_no_bare_except() == []
+
+
+# ---------------------------------------------------------------------------
 # check_no_assert_in_src (GOV-050)
 # ---------------------------------------------------------------------------
 

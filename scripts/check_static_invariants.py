@@ -1533,6 +1533,43 @@ def check_no_wildcard_imports() -> list[str]:
     return problems
 
 
+def check_no_print_in_src() -> list[str]:
+    """
+    ``print()`` in production code is the shape of an output that the
+    observability stack cannot see. structlog is the only writer the runbook
+    covers, so a print() bypasses log level, formatting and rate limiting,
+    and its output vanishes wherever stdout does. Tests and scripts may
+    still print freely; only ``src/`` is guarded.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: print() in src/ -- use structlog instead"
+                )
+    return problems
+
+
+def check_no_bare_except() -> list[str]:
+    """
+    A bare ``except:`` catches ``KeyboardInterrupt`` and ``SystemExit`` too,
+    which turns Ctrl+C and ``sys.exit()`` into swallowed exceptions in a
+    long-running trading process. Every handler names what it means to
+    catch; ``except Exception:`` is the widest permitted.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                problems.append(f"{_rel(path)}:{node.lineno}: bare except -- name the exception")
+    return problems
+
+
 def check_no_assert_in_src() -> list[str]:
     """
     ``assert`` disappears under ``python -O``. A production check spelled as
@@ -1552,6 +1589,8 @@ def check_no_assert_in_src() -> list[str]:
 
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("print in src", check_no_print_in_src),
+    ("bare except", check_no_bare_except),
     ("assert in src", check_no_assert_in_src),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),

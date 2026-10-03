@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 152 |
+| VERIFIED | 154 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **152** |
+| **Total** | **154** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 48 | 48 |
+| Governance | 50 | 50 |
 
 ## Outstanding work by phase
 
@@ -1816,6 +1816,17 @@ The quality registry loader refuses a test_types entry that no registry entry us
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-047` — no print() in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+Every module in src/ writes through structlog. The static-invariants gate refuses a bare print() call in src/ so an output the observability stack cannot see cannot ship. Tests and scripts remain free to print.
+
+- **If violated:** A print() slips into a production path. Its output bypasses log level, formatting and rate limiting, vanishes wherever stdout does, and produces a diagnostic that only appears in interactive runs -- the shape you cannot search for after the fact.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1823,6 +1834,17 @@ The quality registry loader refuses a test_types entry that no registry entry us
 The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.
 
 - **If violated:** A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-049` — no bare except in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.
+
+- **If violated:** A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
@@ -1960,4 +1982,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 152 entries.
+Registry version: 1.0.0 — 154 entries.
