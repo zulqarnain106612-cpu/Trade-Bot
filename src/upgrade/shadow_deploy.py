@@ -13,6 +13,8 @@ Architecture:
   - On each inference call, both models produce predictions
   - Predictions are tracked in rolling arrays for Sharpe computation
   - _evaluate() promotes challenger or discards it
+
+Registry: MODL-006 (config/quality_registry.json).
 """
 
 from __future__ import annotations
