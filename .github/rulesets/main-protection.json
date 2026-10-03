@@ -54,7 +54,7 @@
     {
       "type": "required_status_checks",
       "parameters": {
-        "strict_required_status_checks_policy": true,
+        "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           { "context": "CI gate (all jobs green)" },
@@ -71,9 +71,10 @@
         "absent. Each gate depends on every job in its workflow and runs with",
         "`if: always()`, so it reports on every run and fails on any non-success.",
         "",
-        "strict_required_status_checks_policy requires the branch to be up to",
-        "date with the base first: without it, a green result measured against",
-        "an older base can be merged into a base that has since changed.",
+        "strict_required_status_checks_policy is false because the merge queue",
+        "below gives the same guarantee without asking anyone to update a",
+        "branch: every entry is tested on top of the current base, plus the",
+        "entries ahead of it, before it lands.",
         "",
         "'Cloud review gate (all jobs green)' is deliberately NOT required.",
         "CLAUDE.md and docs/CLOUD_REVIEW.md both state the cloud review is",
@@ -82,6 +83,27 @@
         "problems (a missing MONGODB_URI, an Atlas outage) that say nothing",
         "about the change under review. Its gate job still runs, so its state is",
         "always visible. Add the context here if that changes."
+      ]
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "check_response_timeout_minutes": 60,
+        "grouping_strategy": "ALLGREEN",
+        "max_entries_to_build": 1,
+        "max_entries_to_merge": 1,
+        "merge_method": "SQUASH",
+        "min_entries_to_merge": 1,
+        "min_entries_to_merge_wait_minutes": 0
+      },
+      "_why": [
+        "One pull request at a time, squash-merged: each entry is built on top",
+        "of main alone, so a failure names exactly one pull request and the",
+        "next one starts as soon as it lands. An entry that fails leaves the",
+        "queue and stays out until a person looks at it -- nothing re-queues it",
+        "automatically (GOV-037).",
+        "check_response_timeout_minutes 60 covers the CI test shards with room",
+        "to spare. Every required gate workflow triggers on merge_group."
       ]
     }
   ]

@@ -361,45 +361,24 @@
       "failure_mode": "Untested strategy code reaches real capital."
     },
     {
-      "id": "INV-032",
-      "kind": "invariant",
-      "title": "GUI backpressure never reaches the trading loop",
-      "statement": "Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.",
-      "criticality": "critical",
-      "subsystem": "api",
+      "id": "GOV-038",
+      "kind": "requirement",
+      "title": "verified entry depends on verified or accepted_gap only",
+      "statement": "The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.",
+      "criticality": "high",
+      "subsystem": "governance",
       "status": "verified",
-      "source": "OPS-2026-09-25",
-      "failure_mode": "A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.",
+      "source": "QE-52",
+      "failure_mode": "A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.",
       "owning_modules": [
-        "src/eventbus/bus.py",
-        "src/api/main.py",
-        "src/risk/gates.py",
-        "src/execution/paper.py",
-        "src/engine/orchestrator.py",
-        "src/data/orderbook_stream.py"
+        "src/quality/registry.py"
       ],
       "verification": [
         {
-          "test": "tests/test_event_bus.py",
-          "test_type": "resilience"
-        },
-        {
-          "test": "tests/test_ws_broadcaster.py",
-          "test_type": "api",
-          "note": "The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market."
-        },
-        {
-          "test": "tests/test_event_bus_producers.py",
-          "test_type": "risk",
-          "note": "The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path."
-        },
-        {
-          "test": "tests/test_orderbook_stream_publish.py",
-          "test_type": "resilience",
-          "note": "The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed."
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "contract"
         }
-      ],
-      "notes": "Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events."
+      ]
     },
     {
       "id": "RISK-001",
@@ -1241,7 +1220,7 @@
       "source": "QE-22",
       "owning_modules": [
         "src/intelligence/client.py",
-        "src/api/ssrf.py"
+        "src/security/ssrf.py"
       ],
       "verification": [
         {
@@ -2763,6 +2742,26 @@
       ]
     },
     {
+      "id": "GOV-021",
+      "kind": "requirement",
+      "title": "tuning stays within its layer",
+      "statement": "src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDetector Protocol and callers inject a detector, keeping tuning inside the analytics layer and shrinking the accepted_upward_edges ratchet.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.risk.performance_drift in src/tuning/, silently reviving the tuning->risk package edge.",
+      "owning_modules": [
+        "src/tuning/watchdog.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "GOV-024",
       "kind": "requirement",
       "title": "intelligence does not import intel",
@@ -2899,19 +2898,25 @@
       "id": "GOV-029",
       "kind": "requirement",
       "title": "A conflict confined to generated files resolves itself, and is gated before it is pushed",
-      "statement": "When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator, in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.",
+      "statement": "When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator or config/quality_registry.json, which is merged per entry id by scripts/resolve_registry_merge.py (a clash on one entry abandons the merge), in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.",
       "criticality": "medium",
       "subsystem": "governance",
       "status": "verified",
       "source": "OPS-2026-09-25",
       "owning_modules": [
-        ".github/workflows/pr-auto-update.yml"
+        ".github/workflows/pr-auto-update.yml",
+        "scripts/resolve_registry_merge.py"
       ],
       "verification": [
         {
           "test": "tests/test_pr_auto_update_workflow.py",
           "test_type": "unit",
           "note": "Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate."
+        },
+        {
+          "test": "tests/test_resolve_registry_merge.py",
+          "test_type": "unit",
+          "note": "Keeps both sides' new entries, takes a one-sided edit, refuses an entry changed differently on both sides, and writes nothing when it refuses."
         }
       ],
       "depends_on": [
@@ -3216,21 +3221,6 @@
       "notes": "Pins payload completeness with and without an executor, the method-vs-property fact the bug turned on, and the original TypeError as a negative case. layer: test-suite"
     },
     {
-      "id": "REG-0017",
-      "kind": "regression",
-      "title": "A hook that takes a callback calls the latest one, not the first render's",
-      "statement": "usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.",
-      "criticality": "medium",
-      "subsystem": "api",
-      "status": "planned",
-      "source": "OPS-2026-09-25",
-      "failure_mode": "usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.",
-      "owning_modules": [
-        "frontend/src/hooks/useApi.js"
-      ],
-      "planned_in": "PR-007"
-    },
-    {
       "id": "SEC-0005",
       "kind": "security_regression",
       "title": "A file holding real credentials is never committable",
@@ -3252,6 +3242,46 @@
       "notes": "Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite"
     },
     {
+      "id": "SECR-017",
+      "kind": "requirement",
+      "title": "A post-quantum symmetric margin is reported with the caveat that makes it conservative",
+      "statement": "assess_symmetric returns the sequential-depth figure alongside the halved effective strength, so the halving cannot be quoted without the assumption it rests on, and weakest_link answers the suite-level question deterministically. The dataclass fields carrying the caveat are asserted structurally.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "A post-quantum readiness claim that is either alarmist or complacent with no way for a reader to tell which they were given. Reported alone, the halving reads as 'AES-128 is broken', which NIST IR 8547 does not say -- the bound assumes one coherent machine running 2**64 successive error-corrected operations and Grover parallelises badly. The converse failure is the entry's stated risk: migrating asymmetric primitives while leaving 128-bit symmetric keys in place, which is invisible while each primitive is examined alone.",
+      "owning_modules": [
+        "src/mathcore/quantum/grover.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_quantum_margins.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "SECR-018",
+      "kind": "requirement",
+      "title": "Quantum exposure is computed from declared assumptions, never from invented constants",
+      "statement": "is_broken_by_shor classifies by hard problem and treats an unknown scheme name as broken, migration_verdict implements Mosca's X+Y>Z with years_until_capable_machine keyword-only and undefaulted, and the module contains no resource estimate and no module-level year constant. All three absences are asserted by tests rather than described.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-22",
+      "failure_mode": "Two ways to produce a confident migration plan resting on nothing. A transcribed logical-qubit or Toffoli-depth figure is model-dependent and uncheckable here -- there is no machine and a simulator says nothing about a 256-bit curve -- which is the fabricated-constant class this repository has shipped three times. A defaulted arrival year is worse: it lets a caller obtain a verdict without ever deciding what they believe, and the assumption then stops being questioned. Separately, an unclassified scheme name silently passing an audit would report a clean suite while a forgotten asymmetric primitive stays deployed.",
+      "owning_modules": [
+        "src/mathcore/quantum/shor.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_quantum_margins.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
       "id": "GOV-030",
       "kind": "requirement",
       "title": "engine does not import api",
@@ -3271,6 +3301,298 @@
         }
       ],
       "depends_on": []
+    },
+    {
+      "id": "REG-0017",
+      "kind": "regression",
+      "title": "LAW12 flags cipher suites without forward secrecy, not the token DH",
+      "statement": "The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and export-grade suites by their suite construction. It does not match DHE or ECDHE, and does not match a lowercase scheme name or the letters DH inside prose under re.IGNORECASE.",
+      "criticality": "medium",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "The rule inverted itself: DHE and ECDHE are the ephemeral exchanges that provide forward secrecy, so the recommended suites were reported as 'Non-PFS', while the absent left boundary plus re.IGNORECASE fired on any word ending in 'dh' -- a lookup-table key or the word ECDH in a sentence. A false HIGH is not harmless: it is baselined, and the suppression then hides the real finding that file later grows, or it trains a reviewer to read LAW12 as noise. One such suppression (src/mathcore/numbertheory/safe_primes.py) already existed and is removed by this change.",
+      "owning_modules": [
+        ".claude/skills/crypto-architect/scripts/validate_arch.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_law12_cipher_suite_pattern.py",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": [],
+      "notes": "The rule shipped with no test of its own, so nothing could tell a true positive from a false one until a PR tripped it. The test added with this entry is that missing check. layer: test-suite"
+    },
+    {
+      "id": "REG-0018",
+      "kind": "regression",
+      "title": "A cancelled job is not counted as a failing job in the CI notice",
+      "statement": "ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.",
+      "criticality": "medium",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_notice_supersession.py",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": [],
+      "notes": "The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite"
+    },
+    {
+      "id": "SEC-0006",
+      "kind": "security_regression",
+      "title": "The runtime manifest never resolves a vulnerable urllib3",
+      "statement": "requirements.txt declares urllib3>=2.8.0 and caps ccxt below 4.5.65, so pip cannot resolve urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97688, CVE-2026-97689).",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-54",
+      "failure_mode": "urllib3 was only a transitive dependency. Every ccxt from 4.5.65 to 4.5.84 pins urllib3==2.7.0 exactly, so pip chose the newest ccxt and the vulnerable urllib3 with it; the pip-audit job failed and every PR's Security gate went red.",
+      "owning_modules": [
+        "requirements.txt"
+      ],
+      "verification": [
+        {
+          "test": "tests/security/test_urllib3_cve_floor.py",
+          "test_type": "security"
+        }
+      ],
+      "notes": "Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite"
+    },
+    {
+      "id": "GOV-036",
+      "kind": "requirement",
+      "title": "Claude never runs unattended on the owner's plan",
+      "statement": "No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or `claude -p`), and .claude/settings.json denies ScheduleWakeup, CronCreate, RemoteTrigger and PR-activity subscription, so Claude runs only in sessions the owner starts and can see.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-53",
+      "failure_mode": "claude-review.yml ran up to 120 turns on every PR push, and cloud sessions scheduled their own wake-ups and re-armed them, spending the owner's usage with no visible session until the five-hour limit was hit.",
+      "owning_modules": [
+        ".claude/settings.json",
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_no_claude_automation.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "GOV-037",
+      "kind": "requirement",
+      "title": "Pull requests land through a one-at-a-time merge queue",
+      "statement": "main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A pull request joins the queue when auto-merge is armed on it and its own gates are green. An entry the queue removes stays out until a person acts on it: nothing re-queues it automatically.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-01",
+      "failure_mode": "Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another.",
+      "owning_modules": [
+        ".github/rulesets/main-protection.json"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_apply_repo_ruleset.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "GOV-029"
+      ]
+    },
+    {
+      "id": "REG-0020",
+      "kind": "regression",
+      "title": "The CI notice names the error of a failure no pattern recognises",
+      "statement": "When no SIGNAL pattern matches a failing job's log, the notice carries the last lines of the failing step's own output -- between the runner's ##[endgroup] and its ##[error] exit-code line -- without table rules or runner markers.",
+      "criticality": "medium",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "pip-audit's vulnerability table matched none of the patterns, so the notice on #385 named the failing step and no error, and the failing lines had to be pasted by hand.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [],
+      "notes": "Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite"
+    },
+    {
+      "id": "SEC-0007",
+      "kind": "security_regression",
+      "title": "The frontend dependency tree carries no unfixable advisory",
+      "statement": "npm audit over frontend's whole dependency tree at --audit-level=high reports no advisories, and electron-builder is absent from both dependencies and devDependencies while http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched release.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "OPS-2026-10-03",
+      "failure_mode": "Eight high advisories failed Security gate on every pull request. All eight arrived through electron-builder and traced to http-cache-semantics GHSA-ch52-4w7c-c8xp, vulnerable range <= 4.2.0 with first_patched_version null -- every release ever published. Measured in frontend/: unchanged full tree 8 high; pinned to the 26.5.0 that npm audit fix --force proposes 14 (13 high, 1 critical, tar <= 7.5.20); electron-builder removed 0 vulnerabilities. No override escapes it, because cacheable-request@13.0.19, the latest, still depends on http-cache-semantics@^4.2.0.",
+      "owning_modules": [
+        "frontend/package.json",
+        ".github/workflows/security.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_frontend_audit_scope.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [],
+      "notes": "No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain"
+    },
+    {
+      "id": "GOV-022",
+      "kind": "requirement",
+      "title": "diagnostics stays within its layer",
+      "statement": "src/diagnostics/ must not import from src.features. The synthetic pipeline selftest that used to invert the layer order lives beside the pipeline in src/features/selftest.py; callers import from there.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.features.pipeline in src/diagnostics/, silently reviving the diagnostics->features package edge.",
+      "owning_modules": [
+        "src/features/selftest.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-048",
+      "kind": "requirement",
+      "title": "no wildcard imports in src",
+      "statement": "The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-023",
+      "kind": "requirement",
+      "title": "intelligence stays within its layer",
+      "statement": "src/intelligence/ must not import from src.api. The SSRF address-space guard used by the intelligence client is stdlib-only network policy and lives in src/security/ssrf.py, below both analytics and edge.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.api.* in src/intelligence/, silently reviving the intelligence->api package edge.",
+      "owning_modules": [
+        "src/security/ssrf.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-031",
+      "kind": "requirement",
+      "title": "strategies does not import engine",
+      "statement": "src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.",
+      "owning_modules": [
+        "src/strategies/signal_engine_adapter.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_architecture_layers.py",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "INV-032",
+      "kind": "invariant",
+      "title": "GUI backpressure never reaches the trading loop",
+      "statement": "Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-25",
+      "failure_mode": "A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.",
+      "owning_modules": [
+        "src/eventbus/bus.py",
+        "src/api/main.py",
+        "src/risk/gates.py",
+        "src/execution/paper.py",
+        "src/engine/orchestrator.py",
+        "src/data/orderbook_stream.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_event_bus.py",
+          "test_type": "resilience"
+        },
+        {
+          "test": "tests/test_ws_broadcaster.py",
+          "test_type": "api",
+          "note": "The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market."
+        },
+        {
+          "test": "tests/test_event_bus_producers.py",
+          "test_type": "risk",
+          "note": "The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path."
+        },
+        {
+          "test": "tests/test_orderbook_stream_publish.py",
+          "test_type": "resilience",
+          "note": "The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed."
+        }
+      ],
+      "notes": "Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events."
+    },
+    {
+      "id": "REG-0021",
+      "kind": "regression",
+      "title": "A hook that takes a callback calls the latest one, not the first render's",
+      "statement": "usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "planned",
+      "source": "OPS-2026-09-25",
+      "failure_mode": "usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.",
+      "owning_modules": [
+        "frontend/src/hooks/useApi.js"
+      ],
+      "planned_in": "PR-007"
     }
   ]
 }

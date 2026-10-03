@@ -1,3 +1,4 @@
+# Registry: GOV-013, GOV-020 (config/quality_registry.json).
 name: CI failure notice
 
 # Why this exists: CI logs, job records, annotations, artifacts and check
@@ -37,7 +38,6 @@ on:
       - "CI"
       - "CodeQL"
       - "Workflow lint"
-      - "Claude Cloud Review (RAG + Knowledge Graph retrieval)"
       - "Security"
     types: [completed]
 
@@ -79,7 +79,6 @@ jobs:
               'CI',
               'CodeQL',
               'Workflow lint',
-              'Claude Cloud Review (RAG + Knowledge Graph retrieval)',
               'Security',
             ];
 
@@ -88,7 +87,7 @@ jobs:
             // the two stay equal. Excusing a job in a gate without excusing it
             // here would bury the notice under noise nobody reads.
             const ALLOW_SKIPPED = new Set([
-              'retrieve-context', 'dependency-review', 'promote', 'rollback',
+              'retry', 'dependency-review', 'promote', 'rollback',
             ]);
 
             // ---- which pull request -------------------------------------
@@ -156,6 +155,11 @@ jobs:
               /^The (job|operation) was canceled/i,
               /^Error: Process completed/i,
               /^##\[error\]Process completed with exit code/i,
+              // A run replaced by a newer commit on the same ref, and the
+              // upload step that then finds nothing to upload. Both describe
+              // the cancellation, not a defect in the commit.
+              /^Canceling since a higher priority waiting request/i,
+              /^No files were found with the provided path:/i,
             ];
             const isNoise = (line) => NOISE.some(re => re.test(line));
 
@@ -175,6 +179,29 @@ jobs:
             ];
 
             const MAX_MSG_LINES = 4;
+
+            // REG-0020: a tool whose failure matches no SIGNAL -- pip-audit's
+            // vulnerability table is the case that surfaced it -- left the
+            // notice with the step name and no error at all. The tool's own
+            // last lines are the error: the output of the failing step sits
+            // between the runner's `##[endgroup]` (end of the echoed command
+            // and env) and its closing `##[error]` exit-code line. Table
+            // rules and runner markers are not error text and are dropped.
+            const RULE = /^[-=+|\s]+$/;
+            function stepOutputTail(raw) {
+              let end = -1;
+              for (let i = raw.length - 1; i >= 0; i--) {
+                if (/^##\[error\]/.test(raw[i])) { end = i; break; }
+              }
+              if (end < 0) return [];
+              let start = 0;
+              for (let i = end - 1; i >= 0; i--) {
+                if (/^##\[endgroup\]/.test(raw[i])) { start = i + 1; break; }
+              }
+              return raw.slice(start, end)
+                .filter(l => !/^##\[/.test(l) && !RULE.test(l) && !isNoise(l))
+                .slice(-MAX_MSG_LINES);
+            }
 
             async function messagesFor(job) {
               // Annotations first: GitHub already extracted the assertion
@@ -200,17 +227,17 @@ jobs:
                 const text = typeof log.data === 'string'
                   ? log.data
                   : Buffer.from(log.data).toString('utf8');
-                const lines = text
+                const raw = text
                   .split('\n')
                   .map(l => l.replace(/^\S*\d{2}:\d{2}:\d{2}\.?\d*Z?\s*/, '').trim())
-                  .filter(Boolean)
-                  .filter(l => !isNoise(l));
+                  .filter(Boolean);
+                const lines = raw.filter(l => !isNoise(l));
                 for (const re of SIGNAL) {
                   const hits = lines.filter(l => re.test(l));
                   // The last ones: pytest prints what actually failed at the end.
                   if (hits.length) return hits.slice(-MAX_MSG_LINES);
                 }
-                return [];
+                return stepOutputTail(raw);
               } catch (e) {
                 core.info(`log unavailable for ${job.name}: ${e.message}`);
                 return [];
@@ -235,12 +262,29 @@ jobs:
             const body = [];
             body.push(marker);
 
-            if (failing.length === 0) {
+            // A cancelled job reached no verdict. Counting it as "not green"
+            // inflates every notice posted for a commit that a newer push
+            // replaced -- the eleven-job notice this rule exists to prevent
+            // was two real failures and nine runs cancelled by their own
+            // successor. Cancellations are partitioned out of the count and
+            // named once at the end, because they are also never evidence of
+            // green: a commit whose jobs were cancelled proved nothing.
+            const cancelled = failing.filter(f => f.job.conclusion === 'cancelled');
+            const failures = failing.filter(f => f.job.conclusion !== 'cancelled');
+            const cancelledNote = cancelled.length
+              ? `_${cancelled.length} job(s) cancelled — superseded by a newer commit, no verdict_`
+              : null;
+
+            if (failures.length === 0 && cancelled.length === 0) {
               body.push(`### CI \`${short}\` — all checks green`);
-            } else {
-              body.push(`### CI \`${short}\` — ${failing.length} not green`);
+            } else if (failures.length === 0) {
+              body.push(`### CI \`${short}\` — no verdict`);
               body.push('');
-              for (const { workflow, job } of failing.slice(0, MAX_JOBS)) {
+              body.push(cancelledNote);
+            } else {
+              body.push(`### CI \`${short}\` — ${failures.length} not green`);
+              body.push('');
+              for (const { workflow, job } of failures.slice(0, MAX_JOBS)) {
                 const step = (job.steps || []).find(
                   s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
                 const where = step ? ` · \`${step.name}\`` : '';
@@ -252,9 +296,10 @@ jobs:
                   body.push('```');
                 }
               }
-              if (failing.length > MAX_JOBS) {
-                body.push(`_and ${failing.length - MAX_JOBS} more not green_`);
+              if (failures.length > MAX_JOBS) {
+                body.push(`_and ${failures.length - MAX_JOBS} more not green_`);
               }
+              if (cancelledNote) body.push(cancelledNote);
             }
             // Rule 2 ends the comment here. No footer, no advice, no links to
             // a log nobody is allowed to open.

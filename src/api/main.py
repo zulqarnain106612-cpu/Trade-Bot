@@ -24,6 +24,8 @@ WebSocket push format (JSON):
   { "type": "tick", "equity_usd": ..., "positions": [...], "regime": {...} }
   { "type": "approval", "request": {...} }
   { "type": "trade", "trade": {...} }
+
+Registry: API-001, API-003, API-005, API-009, REL-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations
@@ -1984,7 +1986,7 @@ async def debug_selftest(request: Request) -> dict[str, Any]:
     key running a diagnostic is legitimate. The cost is the problem, and a
     rate limit is the control that matches it.
     """
-    from src.diagnostics.signal_debugger import run_pipeline_selftest
+    from src.features.selftest import run_pipeline_selftest
 
     _state.check_endpoint_rate_limit(
         "debug_selftest", request.client.host if request.client else ""
