@@ -4,6 +4,9 @@ The GAP-015 Carver/AFML/Thorp notional cap in compute_position_size().
 A ceiling has exactly one forbidden outcome: letting through a position
 larger than the ceiling allows. These tests pin the three paths where the
 previous implementation did precisely that.
+
+Decides:
+  - INV-001 — No order exceeds the configured maximum notional
 """
 
 from __future__ import annotations

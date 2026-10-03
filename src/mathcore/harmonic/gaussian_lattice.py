@@ -26,6 +26,8 @@ reference, not the sampler on a signing hot path.
 References: Micciancio & Regev, *Worst-case to average-case reductions based on
 Gaussian measures* (2007), for the smoothing parameter; Lyubashevsky, Peikert &
 Regev, *On Ideal Lattices and Learning with Errors over Rings* (2013); FIPS 203.
+
+Registry: pi-structural-uses (config/math_registry.json).
 """
 
 from __future__ import annotations

@@ -14,6 +14,8 @@ Authority:
   - Aronson (2006) Evidence-Based TA Ch.9 — curve-fitting and overfitting
   - Carver (2019) Systematic Trading Ch.12 — signal health monitoring
   - Bailey et al. (2014) "The Deflated Sharpe Ratio" — performance expectations
+
+Registry: MODL-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations

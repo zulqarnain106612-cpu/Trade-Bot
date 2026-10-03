@@ -1,4 +1,8 @@
-"""Tests for the v3 unified cross-exchange ledger."""
+"""Tests for the v3 unified cross-exchange ledger.
+
+Decides:
+  - DATA-004 — Money arithmetic uses a declared exact representation
+"""
 
 from __future__ import annotations
 
