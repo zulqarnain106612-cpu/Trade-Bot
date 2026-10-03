@@ -530,19 +530,19 @@ class TestCiObservability:
         assert decide("", tool="Read")["permissionDecision"] == "allow"
 
 
-class TestThirtyLineBoundary:
-    """The limit is inclusive: 30 passes, 31 does not."""
+class TestTwoLineBoundary:
+    """The limit is inclusive: 2 passes, 3 does not."""
 
     @pytest.mark.parametrize(
         "command",
-        ["head -30 f", "tail -n 30 f", "grep -m 30 x f", "sed -n '1,30p' f", "git log -n 30"],
+        ["tail -n 2 f", "grep -m 2 x f", "sed -n '1,2p' f", "git log -n 2"],
     )
-    def test_exactly_thirty_is_allowed(self, command):
+    def test_exactly_two_is_allowed(self, command):
         assert decide(command)["permissionDecision"] == "allow"
 
     @pytest.mark.parametrize(
         "command",
-        ["head -31 f", "tail -n 31 f", "grep -m 31 x f", "sed -n '1,31p' f", "git log -n 31"],
+        ["tail -n 3 f", "grep -m 3 x f", "sed -n '1,3p' f", "git log -n 3"],
     )
-    def test_thirty_one_is_refused(self, command):
+    def test_three_is_refused(self, command):
         assert decide(command)["permissionDecision"] == "deny"

@@ -153,9 +153,8 @@ def test_a_small_context_flag_is_still_allowed(hook, policy):
     ],
 )
 def test_a_github_read_above_two_lines_is_refused(hook, policy, command):
-    assert hook._github_read_bound(command, policy) == (
-        policy["github_read_bound"]["message"]
-    )
+    expected = policy["github_read_bound"]["message"]
+    assert hook._github_read_bound(command, policy) == expected
 
 
 @pytest.mark.parametrize(
@@ -264,9 +263,8 @@ def test_the_latest_comment_still_obeys_the_two_line_cap(hook, policy):
     """Which comment and how much of it are two separate rules."""
     command = "gh pr view 381 --json comments -q '.comments[-1].body'"
     assert hook._comment_read(command, policy) == ""
-    assert hook._violations(command, policy) == [
-        policy["github_read_bound"]["message"]
-    ]
+    expected = [policy["github_read_bound"]["message"]]
+    assert hook._violations(command, policy) == expected
 
 
 def test_a_command_that_is_not_a_comment_read_is_untouched(hook, policy):
@@ -424,9 +422,8 @@ def test_a_bounded_read_or_a_search_is_allowed(hook, policy, command):
     ],
 )
 def test_an_uncapped_read_tool_call_is_refused(hook, policy, tool, tool_input):
-    assert hook._read_tool_verdict(tool, tool_input, policy) == (
-        policy["direct_file_read"]["message"]
-    )
+    expected = policy["direct_file_read"]["message"]
+    assert hook._read_tool_verdict(tool, tool_input, policy) == expected
 
 
 @pytest.mark.parametrize(
@@ -476,17 +473,13 @@ def test_a_capped_read_tool_call_is_allowed(hook, policy, tool, tool_input):
     ],
 )
 def test_a_bound_that_the_tool_ignores_is_refused(hook, policy, tool, tool_input):
-    assert hook._read_tool_verdict(tool, tool_input, policy) == (
-        policy["direct_file_read"]["message"]
-    )
+    expected = policy["direct_file_read"]["message"]
+    assert hook._read_tool_verdict(tool, tool_input, policy) == expected
 
 
 def test_small_context_lines_are_accepted(hook, policy):
-    assert hook._read_tool_verdict(
-        "mcp__Desktop_Commander__start_search",
-        {"pattern": "x", "maxResults": 2, "contextLines": 2},
-        policy,
-    ) == ""
+    call = {"pattern": "x", "maxResults": 2, "contextLines": 2}
+    assert hook._read_tool_verdict("mcp__Desktop_Commander__start_search", call, policy) == ""
 
 
 @pytest.mark.parametrize(
@@ -499,9 +492,8 @@ def test_small_context_lines_are_accepted(hook, policy):
     ],
 )
 def test_a_reader_with_no_bound_field_has_no_allowed_form(hook, policy, tool):
-    assert hook._read_tool_verdict(tool, {"path": "."}, policy) == (
-        policy["direct_file_read"]["blocked_tool_message"]
-    )
+    expected = policy["direct_file_read"]["blocked_tool_message"]
+    assert hook._read_tool_verdict(tool, {"path": "."}, policy) == expected
 
 
 def test_tools_that_return_no_content_are_untouched(hook, policy):

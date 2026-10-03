@@ -854,9 +854,7 @@ def _read_tool_verdict(
         return ""
 
     if tool_name in set(cfg.get("blocked_read_tools", [])):
-        return str(
-            cfg.get("blocked_tool_message", "this tool returns more than 2 lines.")
-        )
+        return str(cfg.get("blocked_tool_message", "this tool returns 2+ lines."))
 
     spec = cfg.get("read_tools", {}).get(tool_name)
     if not isinstance(spec, dict):
