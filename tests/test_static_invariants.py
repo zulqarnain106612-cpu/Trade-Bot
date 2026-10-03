@@ -1256,3 +1256,25 @@ def test_bare_zip_is_flagged(invariants, fake_tree) -> None:
 def test_strict_zip_passes(invariants, fake_tree) -> None:
     fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b, strict=True))\n")
     assert invariants.check_zip_is_strict() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_wildcard_imports (GOV-048)
+# ---------------------------------------------------------------------------
+
+
+def test_wildcard_import_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("wildcard import" in p for p in problems)
+
+
+def test_relative_wildcard_import_names_its_source(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from . import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("from . import *" in p for p in problems)
+
+
+def test_named_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import foo, bar\nimport src.other as o\n")
+    assert invariants.check_no_wildcard_imports() == []
