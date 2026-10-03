@@ -1270,3 +1270,25 @@ def test_a_print_referenced_as_a_method_attribute_is_not_flagged(invariants, fak
         "class Q:\n    def print(self):\n        pass\ndef go(q):\n    q.print()\n",
     )
     assert invariants.check_no_print_in_src() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_wildcard_imports (GOV-048)
+# ---------------------------------------------------------------------------
+
+
+def test_wildcard_import_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("wildcard import" in p for p in problems)
+
+
+def test_relative_wildcard_import_names_its_source(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from . import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("from . import *" in p for p in problems)
+
+
+def test_named_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import foo, bar\nimport src.other as o\n")
+    assert invariants.check_no_wildcard_imports() == []

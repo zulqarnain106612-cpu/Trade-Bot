@@ -1,3 +1,4 @@
+# Registry: GOV-014 (config/quality_registry.json).
 name: Security
 
 # Regenerated after the config purge. The pre-purge tree gated every PR on
