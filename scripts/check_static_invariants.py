@@ -1526,8 +1526,9 @@ def check_no_wildcard_imports() -> list[str]:
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if alias.name == "*":
+                        source = "." * node.level + (node.module or "")
                         problems.append(
-                            f"{_rel(path)}:{node.lineno}: wildcard import 'from {node.module} import *'"
+                            f"{_rel(path)}:{node.lineno}: wildcard import 'from {source} import *'"
                         )
     return problems
 
