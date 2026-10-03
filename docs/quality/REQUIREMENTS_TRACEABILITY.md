@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 141 |
+| VERIFIED | 142 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **141** |
+| **Total** | **142** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 37 | 37 |
+| Governance | 38 | 38 |
 
 ## Outstanding work by phase
 
@@ -1683,6 +1683,17 @@ src/engine/ must not import from src.api. The Prometheus metrics module is obser
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
 
+#### `GOV-031` — strategies does not import engine
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.
+
+- **If violated:** A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.
+- **Owned by:** `src/strategies/signal_engine_adapter.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-036` — Claude never runs unattended on the owner's plan
 
 **VERIFIED** · high · requirement · source: QE-53
@@ -1839,4 +1850,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 141 entries.
+Registry version: 1.0.0 — 142 entries.

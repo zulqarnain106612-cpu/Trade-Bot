@@ -10,8 +10,15 @@ in src/engine/signal_engine.py exactly as-is.
 
 from __future__ import annotations
 
-from src.engine.signal_engine import SignalResult
+from typing import Any
+
 from src.strategies.registry import Signal
+
+# `SignalResult` originates in src/engine/signal_engine.py (orchestration
+# layer). This adapter lives in the decision layer and must not import
+# upward (GOV-031): the concrete type is passed in by the caller and read
+# structurally (tradeable, direction, p_bet, gate_result), typed here as
+# `Any` at the layer boundary.
 
 STRATEGY_ID_SIGNAL_ENGINE: str = "signal_engine_v1"
 
@@ -33,9 +40,9 @@ class SignalEngineStrategy:
         if not 0.0 < max_capital_fraction <= 1.0:
             raise ValueError(f"max_capital_fraction must be in (0, 1], got {max_capital_fraction}")
         self._max_capital_fraction = max_capital_fraction
-        self._last_result: SignalResult | None = None
+        self._last_result: Any | None = None
 
-    def submit_result(self, result: SignalResult) -> None:
+    def submit_result(self, result: Any) -> None:
         """Feed the latest SignalEngine tick output prior to generate_signal()."""
         self._last_result = result
 

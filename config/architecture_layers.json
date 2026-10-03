@@ -70,10 +70,5 @@
     }
   ],
   "accepted_upward_edges": [
-    {
-      "from": "strategies",
-      "to": "engine",
-      "why": "A strategy reaching back into the thing that runs it. Half of the engine<->strategies package cycle."
-    }
   ]
 }
