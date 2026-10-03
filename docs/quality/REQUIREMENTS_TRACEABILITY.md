@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 152 |
+| VERIFIED | 153 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **152** |
+| **Total** | **153** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 48 | 48 |
+| Governance | 49 | 49 |
 
 ## Outstanding work by phase
 
@@ -1838,6 +1838,17 @@ The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcar
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
 
+#### `GOV-049` — no bare except in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.
+
+- **If violated:** A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-056` — implemented math entry names its test
 
 **VERIFIED** · high · requirement · source: QE-52
@@ -1960,4 +1971,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 152 entries.
+Registry version: 1.0.0 — 153 entries.

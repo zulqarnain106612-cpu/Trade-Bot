@@ -1273,6 +1273,25 @@ def test_a_print_referenced_as_a_method_attribute_is_not_flagged(invariants, fak
 
 
 # ---------------------------------------------------------------------------
+# check_no_bare_except (GOV-049)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_except_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go():\n    try:\n        do()\n    except:\n        return\n")
+    problems = invariants.check_no_bare_except()
+    assert any("bare except" in p for p in problems)
+
+
+def test_named_except_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go():\n    try:\n        do()\n    except Exception:\n        return\n",
+    )
+    assert invariants.check_no_bare_except() == []
+
+
+# ---------------------------------------------------------------------------
 # check_layering (GOV-042)
 # ---------------------------------------------------------------------------
 #
