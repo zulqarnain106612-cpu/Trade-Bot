@@ -1262,9 +1262,8 @@ def test_check_layering_has_dedicated_coverage_elsewhere() -> None:
     docstring keeps the pointer visible in the file where every other
     check_* has its per-case tests.
     """
-    coverage_file = (
-        Path(__file__).resolve().parent / "test_architecture_layers.py"
-    ).read_text(encoding="utf-8")
+    coverage_path = Path(__file__).resolve().parent / "test_architecture_layers.py"
+    coverage_file = coverage_path.read_text(encoding="utf-8")
     assert "check_layering" in coverage_file or "_layering_problems" in coverage_file
 
 
