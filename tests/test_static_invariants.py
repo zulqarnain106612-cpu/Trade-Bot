@@ -1265,3 +1265,25 @@ def test_deferred_import_does_not_count_as_a_cycle(invariants, fake_tree) -> Non
     fake_tree("src/a.py", "def go():\n    from src.b import back\n")
     fake_tree("src/b.py", "from src.a import go\n")
     assert invariants.check_import_cycles() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_wildcard_imports (GOV-048)
+# ---------------------------------------------------------------------------
+
+
+def test_wildcard_import_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("wildcard import" in p for p in problems)
+
+
+def test_relative_wildcard_import_names_its_source(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from . import *\n")
+    problems = invariants.check_no_wildcard_imports()
+    assert any("from . import *" in p for p in problems)
+
+
+def test_named_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "from src.other import foo, bar\nimport src.other as o\n")
+    assert invariants.check_no_wildcard_imports() == []
