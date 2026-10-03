@@ -168,6 +168,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0016",
             "REG-0017",
             "REG-0018",
+            "REG-0020",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -179,7 +180,14 @@ class TestTheRegistryHasAPlaceForDefects:
         # SEC-0006: urllib3 was only transitive, and every ccxt from 4.5.65 on
         # pins urllib3==2.7.0 exactly, so an upstream release -- not a commit
         # here -- made pip resolve a version with three CVEs.
-        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005", "SEC-0006"}
+        # SEC-0007: http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched
+        # release at all, so electron-builder carried eight high advisories
+        # into the frontend tree that no upgrade or override could clear.
+        assert {e.id for e in registry.by_kind("security_regression")} == {
+            "SEC-0005",
+            "SEC-0006",
+            "SEC-0007",
+        }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -414,7 +422,12 @@ class TestTheMetricsCollector:
         # jobs were superseded -- test-suite.
         # SEC-0006: no test held a floor on a transitive dependency, so a new
         # upstream release could pull a vulnerable urllib3 unseen -- test-suite.
-        assert metric["value"] == {"test-suite": 14, "review": 1}
+        # REG-0020: the notice's extraction was only tested on pytest-shaped
+        # output, so a tool with a different failure shape went unseen -- test-suite.
+        # SEC-0007: the advisory reached the tree through a dependency nobody
+        # here chose, and no test or review of this repository's own code could
+        # have seen it arrive -- supply-chain, which no earlier defect carried.
+        assert metric["value"] == {"test-suite": 15, "review": 1, "supply-chain": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
