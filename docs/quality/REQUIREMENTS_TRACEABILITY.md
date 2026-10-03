@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 139 |
+| VERIFIED | 140 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **139** |
+| **Total** | **140** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 35 | 35 |
+| Governance | 36 | 36 |
 
 ## Outstanding work by phase
 
@@ -1706,6 +1706,17 @@ The quality registry loader refuses a verified entry whose depends_on names an e
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-048` — no wildcard imports in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.
+
+- **If violated:** A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -1817,4 +1828,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 139 entries.
+Registry version: 1.0.0 — 140 entries.
