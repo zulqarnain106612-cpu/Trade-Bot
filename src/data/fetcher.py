@@ -13,6 +13,8 @@ Authority sources:
   - Binance Spot API v3 (https://binance-docs.github.io/apidocs/spot/en/)
   - OKX REST API v5 (https://www.okx.com/docs-v5/)
   - Chan (2013) Algorithmic Trading — data quality requirements
+
+Registry: DATA-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

@@ -9,6 +9,8 @@ Receives RouteResult objects from SmartOrderRouter and computes:
   - execution_quality_score: composite 0-1 score
 
 Persists summaries to DuckDB via DuckDBStore.
+
+Registry: EXEC-006 (config/quality_registry.json).
 """
 
 from __future__ import annotations
