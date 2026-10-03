@@ -1292,6 +1292,28 @@ def test_named_except_passes(invariants, fake_tree) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_no_assert_in_src (GOV-050)
+# ---------------------------------------------------------------------------
+
+
+def test_assert_in_src_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(x):\n    assert x > 0\n    return x\n")
+    problems = invariants.check_no_assert_in_src()
+    assert any("assert in src/" in p for p in problems)
+
+
+def test_if_raise_replacement_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go(x):\n"
+        "    if not x > 0:\n"
+        "        raise ValueError('x must be positive')\n"
+        "    return x\n",
+    )
+    assert invariants.check_no_assert_in_src() == []
+
+
+# ---------------------------------------------------------------------------
 # check_layering (GOV-042)
 # ---------------------------------------------------------------------------
 #

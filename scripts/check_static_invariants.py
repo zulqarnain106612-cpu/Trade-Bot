@@ -1570,10 +1570,28 @@ def check_no_bare_except() -> list[str]:
     return problems
 
 
+def check_no_assert_in_src() -> list[str]:
+    """
+    ``assert`` disappears under ``python -O``. A production check spelled as
+    an assert becomes a silent no-op in optimised runs, so the invariant it
+    was defending goes with it. Every production check is an ``if x: raise``.
+    Tests are free to assert; only ``src/`` is guarded.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Assert):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: assert in src/ -- use 'if not x: raise'"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("print in src", check_no_print_in_src),
     ("bare except", check_no_bare_except),
+    ("assert in src", check_no_assert_in_src),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
