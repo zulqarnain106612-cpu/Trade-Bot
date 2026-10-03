@@ -13,6 +13,8 @@ Authority:
     Ch.7 (CPCV), Ch.10 (sample weights by returns)
   - Chen & Guestrin (2016) XGBoost paper
   - Kelly (1956) — Sharpe as validation metric
+
+Registry: MODL-001, MODL-005, MODL-007 (config/quality_registry.json).
 """
 
 from __future__ import annotations
