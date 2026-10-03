@@ -1290,6 +1290,7 @@ def test_gate_status_member_reached_via_called_check_passes(invariants, fake_tre
     )
     assert invariants.check_every_gate_status_is_reachable() == []
 
+
 # ---------------------------------------------------------------------------
 # check_import_cycles (GOV-040)
 # ---------------------------------------------------------------------------
