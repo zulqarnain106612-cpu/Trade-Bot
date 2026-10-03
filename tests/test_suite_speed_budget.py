@@ -17,6 +17,9 @@ What the budget cannot see -- a function-scoped fixture that re-parses a file
 for every case, a real network client where a fake would do, a loop that
 should have been `parametrize` -- is in CLAUDE.md under "New tests are written
 for speed". This file holds the part a machine can check.
+
+Decides:
+  - GOV-016 — A new test is written to run as fast as it can while still deciding its question
 """
 
 from __future__ import annotations
