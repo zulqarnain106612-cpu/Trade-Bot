@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 149 |
+| VERIFIED | 150 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **149** |
+| **Total** | **150** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 45 | 45 |
+| Governance | 46 | 46 |
 
 ## Outstanding work by phase
 
@@ -1794,6 +1794,17 @@ The math registry loader refuses an entry with status='implemented' whose depend
 - **Verification:**
   - `tests/test_math_registry.py` (contract)
 
+#### `GOV-045` — every wiring kind is held to the existence check
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses any wiring pointing at a file that does not exist -- owner, component, consumer, config or doc. Same standard for every pointer; a pointer to a missing file is worse than no pointer.
+
+- **If violated:** A rename or deletion silently orphans a consumer/config/doc pointer that the loader used to skip -- so a registry query returns a module name a reader trusts and cannot find, while owner and component pointers stay honest.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1927,4 +1938,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 149 entries.
+Registry version: 1.0.0 — 150 entries.

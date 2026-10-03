@@ -371,6 +371,19 @@ class TestSemanticChecksInIsolation:
         with pytest.raises(RegistryError, match="component modules but no owner"):
             self.check([entry])
 
+    def test_a_consumer_wiring_pointing_at_a_missing_file_is_refused(self):
+        """
+        Owner and component wirings are already checked for existence. A
+        consumer wiring that names a nonexistent file is the same defect
+        with a different label -- a pointer to a file that does not exist
+        is worse than no pointer.
+        """
+        entry = self.entry(
+            wiring=[{"module": "src/does/not/exist.py", "kind": "consumer"}],
+        )
+        with pytest.raises(RegistryError, match="does not exist"):
+            self.check([entry])
+
     def test_implemented_entry_depending_on_a_planned_entry_is_rejected(self):
         planned = self.entry(id="planned-dep", status="planned")
         implemented = self.entry(

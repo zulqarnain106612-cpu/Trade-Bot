@@ -350,6 +350,18 @@ def _check_semantics(registry_raw: dict[str, Any], entries: Iterable[RegistryEnt
                 f"If it is being used, it must pass the validation gate first."
             )
 
+    for entry in entries:
+        for wire in entry.wiring:
+            if wire.kind not in {"consumer", "config", "doc"}:
+                continue
+            if not (PROJECT_ROOT / wire.module).exists():
+                raise RegistryError(
+                    f"entry {entry.id!r} names {wire.kind} module {wire.module!r} "
+                    f"which does not exist. Every wiring kind is held to the same "
+                    f"existence check -- a pointer to a missing file is worse than "
+                    f"no pointer."
+                )
+
     by_id = {e.id: e for e in entries}
     for entry in entries:
         if entry.status != "implemented":
