@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 138 |
+| VERIFIED | 139 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **138** |
+| **Total** | **139** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 21 | 21 |
+| Cryptography and secrets | 22 | 22 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
@@ -1046,6 +1046,19 @@ requirements.txt declares urllib3>=2.8.0 and caps ccxt below 4.5.65, so pip cann
 
 > Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite
 
+#### `SEC-0007` — The frontend dependency tree carries no unfixable advisory
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-03
+
+npm audit over frontend's whole dependency tree at --audit-level=high reports no advisories, and electron-builder is absent from both dependencies and devDependencies while http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched release.
+
+- **If violated:** Eight high advisories failed Security gate on every pull request. All eight arrived through electron-builder and traced to http-cache-semantics GHSA-ch52-4w7c-c8xp, vulnerable range <= 4.2.0 with first_patched_version null -- every release ever published. Measured in frontend/: unchanged full tree 8 high; pinned to the 26.5.0 that npm audit fix --force proposes 14 (13 high, 1 critical, tar <= 7.5.20); electron-builder removed 0 vulnerabilities. No override escapes it, because cacheable-request@13.0.19, the latest, still depends on http-cache-semantics@^4.2.0.
+- **Owned by:** `frontend/package.json`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/test_frontend_audit_scope.py` (unit)
+
+> No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1805,4 +1818,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 138 entries.
+Registry version: 1.0.0 — 139 entries.
