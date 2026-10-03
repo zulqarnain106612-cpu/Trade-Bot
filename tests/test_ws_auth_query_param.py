@@ -6,6 +6,9 @@ comment: browsers cannot set headers on a WebSocket upgrade. verify_ws_key
 read only the header, so every browser connection was closed 4401 -- which
 went unnoticed because the REST polling that fills most of the UI does set
 the header and kept working.
+
+Decides:
+  - API-005 — WebSocket payloads are validated regardless of connection state
 """
 
 from __future__ import annotations
