@@ -38,6 +38,8 @@ References: RFC 7919 (named finite-field DH groups); RFC 2785; Lim-Lee,
 "A key recovery attack on discrete log based schemes using a prime order
 subgroup" (1997); Valenta et al., "Measuring small subgroup attacks against
 Diffie-Hellman" (2017).
+
+Registry: SECR-015, SECR-016 (config/quality_registry.json).
 """
 
 from __future__ import annotations

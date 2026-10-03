@@ -27,7 +27,7 @@ duckdb>=1.0,<2.0
 pymongo>=4.18.1,<5.0
 # Pins the CA bundle pymongo verifies Atlas against; a bare CI runner's
 # system trust store cannot verify the Atlas chain (opaque SSL handshake error).
-certifi>=2024.2.2
+certifi>=2026.7.22
 
 # --- exchange / market data -------------------------------------------------
 # <4.5.65: every ccxt from 4.5.65 to the latest (4.5.84) pins urllib3==2.7.0
@@ -69,10 +69,10 @@ PyYAML>=6.0,<7.0
 #                         tests/test_meta_network_loss.py imports it at module
 #                         scope, so pytest needs it at collection time.
 xgboost>=2.0,<4.0
-hmmlearn>=0.3,<1.0
+hmmlearn>=0.3.3,<1.0
 optuna>=3.6,<5.0
 sentence-transformers>=6.0.0,<7.0
-torch>=2.3,<3.0
+torch>=2.14.0,<3.0
 
 jsonschema>=4.0,<5.0
 

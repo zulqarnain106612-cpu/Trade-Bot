@@ -26,6 +26,8 @@ Quantity is quantised before hashing (:data:`_QTY_QUANTUM`). Float sizing is
 not bit-reproducible across a retry that recomputes Kelly from a marginally
 different equity reading, and a key that changes with the eighth decimal of
 size is not an idempotency key at all.
+
+Registry: EXEC-001, INV-007, RES-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

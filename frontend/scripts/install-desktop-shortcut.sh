@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Installs a Linux app-drawer entry + Desktop shortcut for the Trade Bot
-# Electron app. Run once after `npm run electron:build` (or after
-# `npm install` if you only want to launch via `npm run electron:dev`).
+# Electron app. Run once after `npm install`; the entry launches through
+# `npm run electron:dev`.
+#
+# The packaged-AppImage branch below is kept for a release/ directory built
+# elsewhere: electron-builder was removed in SEC-0007 (every published
+# http-cache-semantics is vulnerable), so no npm script packages the app.
 #
 # Usage: npm run desktop:install   (from frontend/)
 set -euo pipefail
@@ -29,7 +33,7 @@ elif [[ -x "$FRONTEND_DIR/node_modules/.bin/electron" ]]; then
   LAUNCH_CMD="/usr/bin/env bash -lc 'cd \"$FRONTEND_DIR\" && npm run electron:dev'"
 else
   echo "No AppImage found in release/ and electron not installed." >&2
-  echo "Run 'npm run electron:build' (packaged) or 'npm install' (dev mode) first." >&2
+  echo "Run 'npm install' first, or drop a packaged AppImage into release/." >&2
   exit 1
 fi
 
