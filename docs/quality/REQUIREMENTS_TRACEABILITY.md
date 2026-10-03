@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 143 |
+| VERIFIED | 145 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **143** |
+| **Total** | **145** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 39 | 39 |
+| Governance | 41 | 41 |
 
 ## Outstanding work by phase
 
@@ -1728,6 +1728,17 @@ The quality registry loader refuses a verified entry whose depends_on names an e
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-039` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-040` — check_import_cycles has a negative test
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1749,6 +1760,17 @@ The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcar
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-056` — implemented math entry names its test
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.
+
+- **If violated:** An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1861,4 +1883,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 143 entries.
+Registry version: 1.0.0 — 145 entries.

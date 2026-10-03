@@ -3539,6 +3539,46 @@
       "depends_on": []
     },
     {
+      "id": "GOV-039",
+      "kind": "requirement",
+      "title": "check_zip_is_strict has a negative test",
+      "statement": "The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-056",
+      "kind": "requirement",
+      "title": "implemented math entry names its test",
+      "statement": "The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.",
+      "owning_modules": [
+        "src/mathcore/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_math_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
       "id": "GOV-040",
       "kind": "requirement",
       "title": "check_import_cycles has a negative test",
