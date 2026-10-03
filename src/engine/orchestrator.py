@@ -30,7 +30,6 @@ from typing import Any, cast
 import pandas as pd  # SCAN3-006: moved from inline imports inside _train_models()
 import structlog
 
-from src.api.metrics import update_metrics
 from src.config import (
     EXCHANGE_BINANCE,
     EXCHANGE_OKX,
@@ -50,10 +49,8 @@ from src.data.storage import (
     ModelMetricsRecord,
     RegimeSnapshotRecord,
 )
+from src.diagnostics.metrics import update_metrics
 from src.diagnostics.runtime_monitor import get_monitor
-from src.diagnostics.signal_debugger import (
-    run_pipeline_selftest,
-)
 from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
 from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
 from src.engine.strategy_portfolio import (
@@ -68,6 +65,7 @@ from src.execution.live import LiveExecutor
 from src.execution.paper import PaperExecutor
 from src.execution.unified_ledger import VenuePosition, get_unified_ledger
 from src.features.pipeline import build_feature_matrix
+from src.features.selftest import run_pipeline_selftest
 from src.intelligence.macro_indicators import build_macro_indicators
 from src.intelligence.macro_regime import classify_macro_regime
 from src.models.online_trainer import OnlineTrainer
