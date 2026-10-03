@@ -1,3 +1,4 @@
+# Registry: GOV-014, GOV-015, REG-0007 (config/quality_registry.json).
 name: CI
 
 on:

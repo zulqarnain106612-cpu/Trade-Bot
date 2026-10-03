@@ -29,10 +29,10 @@ import math
 import pytest
 
 from src.api.access_control import Permission, Role, require_permission
-from src.api.ssrf import SSRFError, assert_outbound_url_allowed
 from src.data.quality_gate import DataQualityGate
 from src.execution.exchange_contract import parse_order
 from src.models.trainer import _validate_timeframe
+from src.security.ssrf import SSRFError, assert_outbound_url_allowed
 
 
 def _baseline():
