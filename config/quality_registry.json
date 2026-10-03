@@ -3676,7 +3676,7 @@
       "notes": "Asserts both halves: permitted_topics excludes approval for READ_ONLY, a published approval frame does not reach a read-only socket, and an explicit subscribe to it is refused without being granted."
     },
     {
-      "id": "REG-0021",
+      "id": "REG-0022",
       "kind": "regression",
       "title": "A hook that takes a callback calls the latest one, not the first render's",
       "statement": "usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.",
