@@ -656,11 +656,12 @@ MarketDataFetcher.initialize() must open each venue independently, record an una
 Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.
 
 - **If violated:** A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.
-- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`
+- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`
 - **Verification:**
   - `tests/test_event_bus.py` (resilience)
   - `tests/test_ws_broadcaster.py` (api) — The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market.
   - `tests/test_event_bus_producers.py` (risk) — The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path.
+  - `tests/test_orderbook_stream_publish.py` (resilience) — The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed.
 
 > Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events.
 
