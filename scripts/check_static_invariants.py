@@ -1533,8 +1533,31 @@ def check_no_wildcard_imports() -> list[str]:
     return problems
 
 
+def check_no_print_in_src() -> list[str]:
+    """
+    ``print()`` in production code is the shape of an output that the
+    observability stack cannot see. structlog is the only writer the runbook
+    covers, so a print() bypasses log level, formatting and rate limiting,
+    and its output vanishes wherever stdout does. Tests and scripts may
+    still print freely; only ``src/`` is guarded.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: print() in src/ -- use structlog instead"
+                )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("print in src", check_no_print_in_src),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),
