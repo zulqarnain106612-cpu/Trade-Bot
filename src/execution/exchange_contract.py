@@ -27,6 +27,8 @@ the contract does not recognise produces one whose status is `UNKNOWN` and
 whose `problems` say why. Returning a value rather than raising is deliberate
 — the caller polling an order needs to distinguish "keep waiting" from "stop
 and reconcile", and an exception collapses both into one.
+
+Registry: EXEC-003, EXEC-004, INV-003, RES-008 (config/quality_registry.json).
 """
 
 from __future__ import annotations

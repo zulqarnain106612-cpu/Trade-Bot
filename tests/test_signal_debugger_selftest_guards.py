@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.diagnostics.signal_debugger import run_pipeline_selftest
+from src.features.selftest import run_pipeline_selftest
 
 
 class _FakeMatrix:
@@ -28,7 +28,7 @@ class _FakeMatrix:
 
 def _run_with_matrix(features) -> dict:
     with patch(
-        "src.features.pipeline.build_feature_matrix",
+        "src.features.selftest.build_feature_matrix",
         return_value=_FakeMatrix(features),
     ):
         return run_pipeline_selftest()
