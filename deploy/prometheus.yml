@@ -1,0 +1,35 @@
+# Prometheus scrape config for Trade-Bot.
+#
+# `/metrics` on the API is gated by the `X-API-Key` header — Prometheus must
+# be given a read-only key (API_READONLY_KEY, see src/api/access_control.py)
+# with permission to hit the metrics route. The key is passed via
+# authorization → basic auth is NOT compatible; use a static token in a
+# custom header via `authorization: {credentials: ...}` on a proxy, OR
+# expose /metrics behind an internal reverse proxy that strips the header
+# check. Documented in docs/ops/RUNBOOK.md § Metrics.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    app: tradebot
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: tradebot-api
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["tradebot-api:8000"]
+    # `X-API-Key` cannot be set by native Prometheus config — front the API
+    # with a reverse proxy that injects the header, or read /metrics from
+    # a sidecar. See RUNBOOK.
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/tradebot.key
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

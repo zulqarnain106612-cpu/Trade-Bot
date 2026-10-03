@@ -20,6 +20,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from src.eventbus import get_event_bus
+
 
 @dataclass(frozen=True, slots=True)
 class ReAuthorization:
@@ -89,6 +91,21 @@ class CapitalPreservationFloor:
                     f"drawdown {drawdown_pct:.3f} >= floor {self._max_drawdown_pct:.3f} "
                     f"(peak={self._peak_equity:.2f}, current={equity_usd:.2f})"
                 )
+                # The outermost backstop tripping is the single most
+                # important thing this process can tell an operator, and it
+                # never auto-clears -- someone has to come and re-authorize
+                # it. Waiting for a 30s poll to surface that is 30s of a
+                # halted system looking like a quiet one.
+                get_event_bus().publish(
+                    "capital_floor",
+                    {
+                        "halted": True,
+                        "reason": self._halt_reason,
+                        "drawdown_pct": round(drawdown_pct, 4),
+                        "peak_equity_usd": round(self._peak_equity, 2),
+                        "equity_usd": round(equity_usd, 2),
+                    },
+                )
                 return False
         return True
 
@@ -112,6 +129,15 @@ class CapitalPreservationFloor:
         self._halted = False
         self._halt_reason = ""
         self._last_reauth = ReAuthorization(authorized_by=authorized_by, reason=reason, at_ms=at_ms)
+        get_event_bus().publish(
+            "capital_floor",
+            {
+                "halted": False,
+                "authorized_by": authorized_by,
+                "reason": reason,
+                "at_ms": at_ms,
+            },
+        )
 
     @property
     def last_reauthorization(self) -> ReAuthorization | None:

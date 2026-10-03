@@ -1,0 +1,70 @@
+# Prometheus alert rules for Trade-Bot.
+#
+# Metric names sourced from src/api/metrics.py. Thresholds are defaults;
+# tune per deployment. All alerts fire to whatever Alertmanager route is
+# configured — this file only defines the conditions.
+
+groups:
+  - name: tradebot-liveness
+    interval: 30s
+    rules:
+      - alert: TradebotDown
+        expr: up{job="tradebot-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Trade-Bot API/loop unreachable ({{ $labels.instance }})"
+          description: "Prometheus has been unable to scrape the API for 2 minutes. The trading loop may be dead."
+
+      - alert: TradebotTickSlow
+        expr: histogram_quantile(0.95, rate(tradebot_tick_duration_seconds_bucket[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 orchestrator tick > 5s"
+          description: "Engine SLAs (see src/engines/orchestrator.py _ENGINE_SLAS) may be tripping."
+
+  - name: tradebot-risk
+    interval: 30s
+    rules:
+      - alert: EquityDrop
+        # Fires if equity dropped >5% in the last hour relative to 1h ago.
+        expr: (tradebot_equity_usd offset 1h - tradebot_equity_usd) / tradebot_equity_usd offset 1h > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Equity dropped >5% in 1h"
+          description: "Check daily_drawdown_halt_pct and capital_preservation_max_drawdown_pct — kill switch may need manual re_authorize()."
+
+      - alert: GateBlockSpike
+        expr: sum by (gate_name) (rate(tradebot_gate_block_total[15m])) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gate {{ $labels.gate_name }} blocking >0.5/s for 15m"
+          description: "Persistent gate block indicates a stuck condition (drawdown, correlation, regime)."
+
+      - alert: ModelAccuracyDegraded
+        expr: tradebot_model_accuracy_rolling < 0.45
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rolling win-rate below 0.45 for 30m"
+          description: "Consider triggering retrain or kill-switching the underperforming strategy."
+
+  - name: tradebot-instrumentation
+    interval: 30s
+    rules:
+      - alert: RegimeEnsembleFailing
+        expr: rate(tradebot_regime_ensemble_failure_total[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Regime ensemble raising >0.1/s"
+          description: "Instrumentation-only path (never blocks trading), but the observability signal has gone dark."

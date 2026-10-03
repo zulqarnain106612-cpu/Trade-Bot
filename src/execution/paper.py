@@ -37,6 +37,7 @@ import structlog
 from src.config import ExecutionMode, TradingMode, get_settings, runtime_config
 from src.data.storage import AnyStorageBackend, BlendAudit, EquityRecord, TradeRecord
 from src.diagnostics.attribution import AttributedFill, get_attribution_tracker
+from src.eventbus import get_event_bus
 from src.execution.base import AbstractExecutor
 from src.execution.idempotency import (
     DuplicateOrderError,
@@ -115,6 +116,22 @@ class PaperPosition:
             if pct > self.peak_unrealized_pct:
                 self.peak_unrealized_pct = pct
         return self.unrealized_pnl
+
+    def unrealized_at(self, price: float) -> float:
+        """
+        Unrealized PnL at ``price``, computed without touching this position.
+
+        The read-only twin of ``mark``, and the reason it exists: ``mark``
+        advances ``peak_unrealized_pct``, which the trailing stop reads. A
+        sub-second price feed samples far more extremes than a 5s poll, so
+        refreshing a dashboard through ``mark`` would raise the recorded peak
+        and move a live exit threshold against highs the exit logic itself
+        has never evaluated. Showing a number must not be able to change when
+        a position closes.
+        """
+        if self.direction == 1:
+            return (price - self.entry_price) * self.quantity
+        return (self.entry_price - price) * self.quantity
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +545,38 @@ class PaperExecutor(AbstractExecutor):
             peak_equity=snap_peak,
         )
 
+        # Both the close and the equity it moved, from the same in-lock
+        # snapshot the record was written from. A close that updated the
+        # positions table but not the equity figure is the kind of split the
+        # operator reads as a bug in the numbers.
+        get_event_bus().publish(
+            "position",
+            {
+                "action": "closed",
+                "trade_id": trade_id,
+                "symbol": pos.symbol,
+                "direction": pos.direction,
+                "exit_price": fill_price,
+                "pnl_usd": round(net_pnl, 8),
+                "pnl_pct": round(pnl_pct, 8),
+                "exit_reason": exit_reason,
+                "fee_usd": round(total_fee, 8),
+                "strategy_id": pos.strategy_id,
+            },
+        )
+        get_event_bus().publish(
+            "equity",
+            {
+                "equity_usd": round(snap_equity, 2),
+                "cash_usd": round(snap_cash, 2),
+                "unrealized_pnl_usd": round(snap_unrealized, 2),
+                "daily_pnl_usd": round(snap_daily_pnl, 2),
+                "daily_pnl_pct": round(snap_daily_pct, 4),
+                "drawdown_pct": round(snap_dd_pct, 4),
+                "peak_equity_usd": round(snap_peak, 2),
+            },
+        )
+
         get_attribution_tracker().record(
             AttributedFill(
                 strategy_id=pos.strategy_id,
@@ -596,7 +645,54 @@ class PaperExecutor(AbstractExecutor):
             dd_pct=snap_dd_pct,
             peak_equity=snap_peak,
         )
+        # Published outside the lock, from the values captured inside it, so
+        # the dashboard sees a consistent set rather than a torn read -- and so
+        # that no part of publishing happens while the position lock is held.
+        get_event_bus().publish(
+            "equity",
+            {
+                "equity_usd": round(snap_equity, 2),
+                "cash_usd": round(snap_cash, 2),
+                "unrealized_pnl_usd": round(snap_unrealized, 2),
+                "daily_pnl_usd": round(snap_daily_pnl, 2),
+                "daily_pnl_pct": round(snap_daily_pct, 4),
+                "drawdown_pct": round(snap_dd_pct, 4),
+                "peak_equity_usd": round(snap_peak, 2),
+            },
+        )
         return total_unrealized
+
+    async def preview_marked_equity(self, prices: dict[str, float]) -> dict[str, float] | None:
+        """
+        What equity *would* read at ``prices``, changing nothing.
+
+        This is the display path for the sub-second price stream. It
+        deliberately does not call ``mark_to_market``: that mutates
+        ``_peak_equity`` and the drawdown tracker, whose
+        ``drawdown_from_peak_pct`` and ``daily_pnl_usd`` feed
+        ``check_daily_drawdown``. Marking at 4Hz instead of 0.2Hz samples
+        twenty times as many extremes, so the recorded peak climbs, measured
+        drawdown widens, and a risk gate starts tripping on spikes it has
+        never previously seen. Making the dashboard faster must not make the
+        system trade differently.
+
+        Returns None when flat, so the caller can skip publishing entirely.
+        """
+        async with self._lock:
+            if not self._positions:
+                return None
+            unrealized = 0.0
+            for pos in self._positions.values():
+                price = prices.get(pos.symbol)
+                unrealized += (
+                    pos.unrealized_at(price) if price and price > 0.0 else (pos.unrealized_pnl)
+                )
+            cash = self._cash
+        return {
+            "equity_usd": round(cash + unrealized, 2),
+            "cash_usd": round(cash, 2),
+            "unrealized_pnl_usd": round(unrealized, 2),
+        }
 
     # ------------------------------------------------------------------
     # Approval queue — used by API to resolve RESTRICTED/MANUAL requests
@@ -620,6 +716,17 @@ class PaperExecutor(AbstractExecutor):
             req.approved = approved
             req.operator = operator
             req._event.set()
+
+        get_event_bus().publish(
+            "approval",
+            {
+                "action": "resolved",
+                "request_id": request_id,
+                "approved": approved,
+                "operator": operator,
+                "symbol": req.symbol,
+            },
+        )
 
         self._log.info(
             "paper.approval_resolved",
@@ -904,6 +1011,20 @@ class PaperExecutor(AbstractExecutor):
             )
             self._positions[trade_id] = pos
 
+        get_event_bus().publish(
+            "position",
+            {
+                "action": "opened",
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "direction": direction,
+                "quantity": kelly_result.quantity,
+                "entry_price": simulated_fill_price,
+                "notional_usd": notional,
+                "strategy_id": strategy_id,
+            },
+        )
+
         await self._idempotency.complete(idempotency_key, trade_id)
 
         # Persist entry record (exit fields are None until close)
@@ -977,6 +1098,23 @@ class PaperExecutor(AbstractExecutor):
         )
         async with self._lock:
             self._approval_queue[req_id] = req
+
+        # An approval is the one event with a human waiting on the other end.
+        # On the old 5s heartbeat a trade that needed a decision sat invisible
+        # for up to a full beat before the operator could even see it existed.
+        get_event_bus().publish(
+            "approval",
+            {
+                "action": "queued",
+                "request_id": req_id,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "direction": direction,
+                "notional_usd": kelly_result.notional_usd,
+                "quantity": kelly_result.quantity,
+                "regime_state": regime_state,
+            },
+        )
 
         self._log.info(
             "paper.approval_queued",

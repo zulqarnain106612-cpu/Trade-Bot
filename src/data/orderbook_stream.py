@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,10 +20,21 @@ import structlog
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from src.eventbus import get_event_bus
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BINANCE_WS = "wss://stream.binance.com:9443/ws"
 _MAX_SPREAD_BPS = 200
+
+# How often the depth stream is allowed to fan out, in seconds.
+#
+# The raw stream arrives every 100ms, which is far faster than any display
+# needs and far faster than it is safe to broadcast: unthrottled, each message
+# would build a DataFrame for the provider cache and push a frame to every
+# connected dashboard, ten times a second. Coalescing to 250ms keeps the
+# display current to within a quarter second while cutting that work by 60%.
+_PUBLISH_INTERVAL_S = 0.25
 
 
 @dataclass
@@ -46,9 +58,17 @@ class TradeEvent:
 class OrderbookStream:
     symbol: str  # e.g. "btcusdt"
     data_root: Path = field(default_factory=lambda: Path("data"))
+    publish_interval_s: float = _PUBLISH_INTERVAL_S
     _snapshots: list[OrderbookSnapshot] = field(default_factory=list, repr=False)
     _trades: list[TradeEvent] = field(default_factory=list, repr=False)
     _running: bool = field(default=False, repr=False)
+    # Monotonic, not wall clock: this gates a rate, and a clock step (NTP
+    # correction, DST on a badly configured host) must not be able to stall
+    # the feed or open the floodgate.
+    _last_publish: float = field(default=0.0, repr=False)
+    # When the last depth message landed, on the monotonic clock. Drives the
+    # staleness test in latest_mid; None until the first message arrives.
+    _last_depth_at: float | None = field(default=None, repr=False)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -67,6 +87,29 @@ class OrderbookStream:
 
     def latest_snapshot(self) -> OrderbookSnapshot | None:
         return self._snapshots[-1] if self._snapshots else None
+
+    def latest_mid(self, max_age_s: float = 10.0) -> float | None:
+        """
+        Freshest mid price, or None if the stream has gone quiet.
+
+        The staleness bound is the whole point. A disconnected socket leaves
+        the last snapshot sitting there looking like a price, and a position
+        marked against a price from four minutes ago is worse than one not
+        marked at all -- it is wrong with no indication that it is wrong.
+        Callers treat None as "fall back to REST".
+
+        Age comes from the monotonic clock, not from the snapshot's own
+        `timestamp_utc`. That field is a point in history and correct for the
+        parquet record, but subtracting two wall-clock readings to get a
+        duration means an NTP correction can make a live feed look stale --
+        or, worse, make a dead one look fresh.
+        """
+        snap = self.latest_snapshot()
+        if snap is None or self._last_depth_at is None:
+            return None
+        if time.monotonic() - self._last_depth_at > max_age_s:
+            return None
+        return snap.mid
 
     def recent_trades(self, n: int = 500) -> list[TradeEvent]:
         return self._trades[-n:]
@@ -110,6 +153,21 @@ class OrderbookStream:
             spread_bps=spread_bps,
         )
         self._snapshots.append(snap)
+        now_mono = time.monotonic()
+        self._last_depth_at = now_mono
+
+        # Everything below is rate-limited together. Appending the snapshot is
+        # cheap and must happen on every message -- the parquet record and the
+        # engines that read it depend on the full stream. Rebuilding a
+        # DataFrame and fanning out to every dashboard is neither, and doing
+        # both ten times a second was affordable only while this module was
+        # unreferenced. Wiring it into the runtime is what makes the cost real.
+        if now_mono - self._last_publish < self.publish_interval_s:
+            if len(self._snapshots) >= 1000:
+                self._flush_orderbook()
+            return
+        self._last_publish = now_mono
+
         try:
             from src.data.provider_cache import get_provider_cache
 
@@ -121,6 +179,23 @@ class OrderbookStream:
                 symbol=self.symbol,
                 exc=str(exc),
             )
+
+        bus = get_event_bus()
+        bus.publish("price", {"symbol": self.symbol, "mid": mid, "spread_bps": spread_bps})
+        bus.publish(
+            "book",
+            {
+                "symbol": self.symbol,
+                "mid": mid,
+                "spread_bps": spread_bps,
+                # Five levels, not twenty. The dashboard renders a ladder, and
+                # the other fifteen are bytes multiplied by every connected
+                # client for depth nobody is looking at.
+                "bids": bids[:5],
+                "asks": asks[:5],
+            },
+        )
+
         if len(self._snapshots) >= 1000:
             self._flush_orderbook()
 
