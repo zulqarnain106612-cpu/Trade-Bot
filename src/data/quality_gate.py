@@ -44,6 +44,8 @@ Callers state the budget they actually need, and
 :meth:`FreshnessBudget.for_timeframe` derives it from the bar interval.
 
 All rejections log to audit_trail.py.
+
+Registry: DATA-001, DATA-002, INV-008, RES-008 (config/quality_registry.json).
 """
 
 from __future__ import annotations

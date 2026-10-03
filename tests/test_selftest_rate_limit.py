@@ -34,7 +34,7 @@ async def test_the_limiter_is_consulted() -> None:
     with (
         patch.object(_state, "check_endpoint_rate_limit") as limiter,
         patch(
-            "src.diagnostics.signal_debugger.run_pipeline_selftest",
+            "src.features.selftest.run_pipeline_selftest",
             return_value={"passed": True},
         ),
     ):
@@ -51,7 +51,7 @@ async def test_it_is_keyed_by_client_ip() -> None:
     with (
         patch.object(_state, "check_endpoint_rate_limit") as limiter,
         patch(
-            "src.diagnostics.signal_debugger.run_pipeline_selftest",
+            "src.features.selftest.run_pipeline_selftest",
             return_value={"passed": True},
         ),
     ):
@@ -70,7 +70,7 @@ async def test_the_expensive_work_never_runs_when_throttled() -> None:
             "check_endpoint_rate_limit",
             side_effect=HTTPException(status_code=429, detail="slow down"),
         ),
-        patch("src.diagnostics.signal_debugger.run_pipeline_selftest") as selftest,
+        patch("src.features.selftest.run_pipeline_selftest") as selftest,
         pytest.raises(HTTPException) as exc,
     ):
         await debug_selftest(_request())
@@ -87,7 +87,7 @@ async def test_a_missing_client_does_not_crash_the_endpoint() -> None:
     with (
         patch.object(_state, "check_endpoint_rate_limit") as limiter,
         patch(
-            "src.diagnostics.signal_debugger.run_pipeline_selftest",
+            "src.features.selftest.run_pipeline_selftest",
             return_value={"passed": True},
         ),
     ):

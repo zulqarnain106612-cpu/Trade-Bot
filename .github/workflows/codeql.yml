@@ -1,3 +1,4 @@
+# Registry: GOV-014, GOV-015 (config/quality_registry.json).
 name: "CodeQL"
 
 on:
