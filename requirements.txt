@@ -30,10 +30,12 @@ pymongo>=4.18.1,<5.0
 certifi>=2026.7.22
 
 # --- exchange / market data -------------------------------------------------
-# <4.5.65: every ccxt from 4.5.65 to the latest (4.5.84) pins urllib3==2.7.0
-# exactly, which pip-audit flags (SEC-0006). Lift the cap once a ccxt release
-# allows urllib3>=2.8.0.
-ccxt>=4.5.84,<4.5.85
+# >=4.5.85: ccxt 4.5.65 through 4.5.84 pin urllib3==2.7.0 exactly, which
+# pip-audit flags (SEC-0006), so those releases cannot satisfy the
+# urllib3>=2.8.0 floor above. 4.5.85 moves its pin to urllib3==2.8.0, which
+# does, so the old <4.5.65 cap is replaced by a floor at the first release
+# that resolves. Do not drop below 4.5.85.
+ccxt>=4.5.85,<5.0
 
 # --- numerics and modelling -------------------------------------------------
 numpy>=2.4.6,<3.0
