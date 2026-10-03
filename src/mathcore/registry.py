@@ -120,6 +120,10 @@ class RegistryEntry:
     def consumers(self) -> tuple[WiringPoint, ...]:
         return tuple(w for w in self.wiring if w.kind == "consumer")
 
+    @property
+    def tests(self) -> tuple[WiringPoint, ...]:
+        return tuple(w for w in self.wiring if w.kind == "test")
+
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> RegistryEntry:
         return cls(
@@ -320,6 +324,23 @@ def _check_semantics(registry_raw: dict[str, Any], entries: Iterable[RegistryEnt
                     f"entry {entry.id!r} is marked implemented but its {module.kind} "
                     f"module {module.module!r} does not exist. The registry must "
                     f"describe the tree as it is, not as it is planned to be."
+                )
+
+    for entry in entries:
+        if entry.status not in IMPLEMENTED_STATUSES:
+            continue
+        if not entry.tests:
+            raise RegistryError(
+                f"entry {entry.id!r} is marked implemented but names no test "
+                f"module. Every implemented mathematical object gets at least one "
+                f"'test'-kind wiring pointing at the file that decides it."
+            )
+        for test in entry.tests:
+            if not (PROJECT_ROOT / test.module).exists():
+                raise RegistryError(
+                    f"entry {entry.id!r} names test module {test.module!r} "
+                    f"which does not exist. The registry must describe the tree "
+                    f"as it is, not as it is planned to be."
                 )
 
     for entry in entries:
