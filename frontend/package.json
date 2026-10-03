@@ -26,10 +26,10 @@
     "concurrently": "^10.0.5",
     "electron": "^44.5.1",
     "postcss": "^8.5.28",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.1",
-    "wait-on": "^9.1.0"
+    "wait-on": "^9.5.1"
   },
   "build": {
     "appId": "com.tradebot.dashboard",
