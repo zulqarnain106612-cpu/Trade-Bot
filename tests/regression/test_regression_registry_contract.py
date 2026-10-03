@@ -142,6 +142,18 @@ class TestTheRegistryHasAPlaceForDefects:
         # on every tick rather than one. The call site catches Exception and
         # logs at warning by design, and Prometheus gives no feedback into
         # the process, so an empty gauge looked exactly like a quiet market.
+        # REG-0017: LAW12 matched the token `DH` rather than a cipher suite,
+        # under `re.IGNORECASE` and with no left boundary. It therefore
+        # reported `DHE` and `ECDHE` -- the ephemeral, forward-secret
+        # exchanges -- as "Non-PFS", and fired on any word ending in "dh",
+        # including a lowercase scheme name in a lookup table. The rule had
+        # no test of its own, so the first thing able to tell a true positive
+        # from a false one was a PR tripping it.
+        # REG-0018: the CI notice counted a cancelled job as a failing one,
+        # so a commit replaced by a newer push reported its successor's
+        # cancellations as its own failures. This workflow is the only
+        # channel permitted for CI failure information, and its
+        # classification had no test.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -154,6 +166,9 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0014",
             "REG-0015",
             "REG-0016",
+            "REG-0017",
+            "REG-0018",
+            "REG-0020",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -162,7 +177,17 @@ class TestTheRegistryHasAPlaceForDefects:
         # OPERATOR_SECRET. The secret scanners read committed content, and
         # these files were never committed, so nothing upstream of a commit
         # could have seen it.
-        assert {e.id for e in registry.by_kind("security_regression")} == {"SEC-0005"}
+        # SEC-0006: urllib3 was only transitive, and every ccxt from 4.5.65 on
+        # pins urllib3==2.7.0 exactly, so an upstream release -- not a commit
+        # here -- made pip resolve a version with three CVEs.
+        # SEC-0007: http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched
+        # release at all, so electron-builder carried eight high advisories
+        # into the frontend tree that no upgrade or override could clear.
+        assert {e.id for e in registry.by_kind("security_regression")} == {
+            "SEC-0005",
+            "SEC-0006",
+            "SEC-0007",
+        }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
         # The rule that separates a regression entry from a bug report: the
@@ -390,7 +415,19 @@ class TestTheMetricsCollector:
         # 10 -> 11 with SEC-0005: a bare `.env` pattern left every backup of
         # it committable. Scanners read committed content and these were
         # never committed, so only a suite check could have seen it.
-        assert metric["value"] == {"test-suite": 11, "review": 1}
+        # REG-0017: the LAW12 rule had no test of its own, so nothing could
+        # separate a true positive from a false one -- test-suite.
+        # REG-0018: the notice classification had no test, so the
+        # over-report was visible only to a reader who already knew which
+        # jobs were superseded -- test-suite.
+        # SEC-0006: no test held a floor on a transitive dependency, so a new
+        # upstream release could pull a vulnerable urllib3 unseen -- test-suite.
+        # REG-0020: the notice's extraction was only tested on pytest-shaped
+        # output, so a tool with a different failure shape went unseen -- test-suite.
+        # SEC-0007: the advisory reached the tree through a dependency nobody
+        # here chose, and no test or review of this repository's own code could
+        # have seen it arrive -- supply-chain, which no earlier defect carried.
+        assert metric["value"] == {"test-suite": 15, "review": 1, "supply-chain": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

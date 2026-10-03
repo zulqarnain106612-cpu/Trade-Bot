@@ -15,6 +15,8 @@ PerformanceDriftDetector.check_drift().
 Authority:
   - López de Prado (2018) AFML Ch.11 — backtest overfitting and the need
     for out-of-sample re-validation before reinstating a strategy
+
+Registry: EXEC-005, REL-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations
