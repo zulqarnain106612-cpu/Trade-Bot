@@ -1,7 +1,8 @@
 // Rasterizes public/icon.svg into build/icon.png (512x512) plus two small
 // tray-sized variants (plain + red-dot "pending approvals" badge) that
-// electron/main.cjs swaps between at runtime. electron-builder derives
-// .ico / .icns / all Linux sizes from the single 512px icon.png.
+// electron/main.cjs swaps between at runtime. The single 512px icon.png is
+// the source a packager derives .ico / .icns / Linux sizes from; SEC-0007
+// removed electron-builder, so nothing in this repository packages it now.
 import sharp from "sharp";
 import { mkdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";

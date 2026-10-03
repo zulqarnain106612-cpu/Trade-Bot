@@ -252,6 +252,18 @@ Passing tests alone is insufficient if the wrong behavior was implemented.
 
 First always use desktop commander mcp server and its tools, if failed then follow below instructions.
 
+## Tool surface
+
+`.claude/settings.local.json` allows only these eight desktop-commander tools and denies every other tool, built-in or MCP:
+
+`read_file`, `list_directory`, `start_search`, `get_more_search_results`, `edit_block`, `write_file`, `start_process`, `read_process_output`
+
+They are the floor — read, list, search, page-search, edit, write, run, read-output. Removing any one stalls ordinary work.
+
+`permissions.allow` and `permissions.deny` are arrays of **strings** in permission-rule syntax: a tool name, optionally with an argument pattern such as `Bash(git *)`. Object entries are invalid and are ignored, and no key expresses a per-call line bound — rules match tool names, never argument values. The read bound lives in `config/command_policy.json`; desktop-commander's own reads are governed by its `fileReadLineLimit`.
+
+Because `Bash` is denied, all shell execution runs through `start_process`, and `.claude/hooks/pre_tool_use.py` — which matches `Bash` only — never fires. The line bound, the destructive-command refusal and the secret-echo refusal are unenforced in that configuration; enforcement rests on `common/shell_exec.run()` being used deliberately.
+
 `.claude/skills/programmatic-tool-calling/SKILL.md`
 
 Use one script under `scripts/`, importing only `orchestratable=True` functions from `tools/registry.py` via `registry.namespace()`, execute it once through bash, and return its printed digest rather than raw tool output.
@@ -367,15 +379,8 @@ Every gate job must have **only**:
 
 No draft guard or alternative condition. Every gating workflow must trigger on `merge_group`.
 
-## GOV-037 — Retry, then hand over
-
-`.github/workflows/merge-queue-retry.yml` (deterministic, no model):
-
-* arms auto-merge on every ready same-repository PR;
-* re-queues a PR the queue removed, up to **3** times (labels `queue-retry-N`);
-* then comments `@owner have a look on this PR` once (label `queue-retry-exhausted`)
-  and leaves it until a new commit lands;
-* `queue-hold` opts a PR out. It never checks out or runs PR code.
+An entry the queue removes stays out. Nothing re-queues it: arm auto-merge again
+yourself, or push a fix. No workflow may be added to do this automatically.
 
 ## GOV-029 — Conflicts that resolve themselves
 
@@ -388,9 +393,9 @@ passes `qe_gate.py` before it is pushed.
 Its first job (GOV-017) still updates the oldest PR whose `mergeable_state` is
 `behind`; under the queue that update is no longer needed for a PR to merge.
 
-Both workflows require `secrets.PR_AUTOUPDATE_TOKEN` (PAT with `repo` scope; also
-as a Dependabot secret). A `GITHUB_TOKEN` event starts no workflow run. Missing
-token must fail without modifying anything.
+It requires `secrets.PR_AUTOUPDATE_TOKEN` (PAT with `repo` scope; also as a
+Dependabot secret). A `GITHUB_TOKEN` event starts no workflow run. Missing token
+must fail without modifying anything.
 
 ---
 
