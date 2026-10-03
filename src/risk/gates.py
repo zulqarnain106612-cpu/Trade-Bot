@@ -29,6 +29,8 @@ Authority:
   - Chan (2013) Algorithmic Trading Ch.7 (drawdown controls)
   - Almgren & Chriss (2001) "Optimal Execution of Portfolio Transactions"
     (gate 0 — slippage/market-impact veto, see src/risk/slippage.py)
+
+Registry: INV-001, INV-002, INV-004, INV-005, INV-006, INV-010, MODL-002, REL-001, REL-003, RISK-001, RISK-002 (config/quality_registry.json).
 """
 
 from __future__ import annotations

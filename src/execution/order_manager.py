@@ -10,6 +10,8 @@ Handles:
   - Network error recovery (resume without re-submitting)
 
 Integrates with LiveExecutor via place_order_with_fsm().
+
+Registry: EXEC-001, EXEC-003, RES-005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

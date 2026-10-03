@@ -20,6 +20,8 @@ controls, self-tuning pause/resume/rollback).
 Authority:
   - Domain Prior: no hidden failures or skipped validation — a role check
     must fail closed (deny) on any unrecognized role/permission pair
+
+Registry: API-001, API-002 (config/quality_registry.json).
 """
 
 from __future__ import annotations
