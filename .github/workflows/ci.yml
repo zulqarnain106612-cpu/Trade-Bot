@@ -349,6 +349,15 @@ jobs:
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
 
+      - name: Test
+        working-directory: frontend
+        # Runs in the job that already installed these dependencies, so this
+        # adds a step rather than a job: no second checkout, no second
+        # `npm ci`, nothing installed that is not executed (GOV-015). It
+        # runs before the build because a lifecycle defect the build cannot
+        # see is exactly what these tests are for.
+        run: npm test
+
       - name: Build
         working-directory: frontend
         run: npm run build

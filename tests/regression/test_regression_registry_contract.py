@@ -154,6 +154,11 @@ class TestTheRegistryHasAPlaceForDefects:
         # cancellations as its own failures. This workflow is the only
         # channel permitted for CI failure information, and its
         # classification had no test.
+        # REG-0019: the dashboard's socket reconnected after unmount --
+        # cleanup closed it, the close handler scheduled a retry, and the
+        # loop outlived the component -- and retried on a flat 3s with no
+        # jitter, so the whole fleet hit a recovering API together. Neither
+        # is visible to a build, and there was no frontend test runner.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -168,6 +173,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0016",
             "REG-0017",
             "REG-0018",
+            "REG-0019",
             "REG-0020",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
@@ -424,10 +430,12 @@ class TestTheMetricsCollector:
         # upstream release could pull a vulnerable urllib3 unseen -- test-suite.
         # REG-0020: the notice's extraction was only tested on pytest-shaped
         # output, so a tool with a different failure shape went unseen -- test-suite.
+        # REG-0019: no frontend runner existed to hold the check that
+        # would have caught either defect -- test-suite.
         # SEC-0007: the advisory reached the tree through a dependency nobody
         # here chose, and no test or review of this repository's own code could
         # have seen it arrive -- supply-chain, which no earlier defect carried.
-        assert metric["value"] == {"test-suite": 15, "review": 1, "supply-chain": 1}
+        assert metric["value"] == {"test-suite": 16, "review": 1, "supply-chain": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

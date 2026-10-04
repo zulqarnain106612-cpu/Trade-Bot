@@ -1,5 +1,9 @@
 """Tests for src/tuning/live_overrides.py -- the seam that surfaces promoted
-self-tuning values to the live regime/risk/features/model code paths."""
+self-tuning values to the live regime/risk/features/model code paths.
+
+Decides:
+  - REG-0005 — A test's result never depends on which tests ran before it
+"""
 
 from __future__ import annotations
 

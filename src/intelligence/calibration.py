@@ -10,6 +10,8 @@ a prior instead of trusting small samples at face value, and so calibration
 Authority:
   - Gelman et al. (2013) Bayesian Data Analysis
   - McElreath (2020) Statistical Rethinking
+
+Registry: RISK-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations
