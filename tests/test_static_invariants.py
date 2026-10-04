@@ -1411,6 +1411,30 @@ def test_sha256_passes(invariants, fake_tree) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_text_open_names_encoding (GOV-055)
+# ---------------------------------------------------------------------------
+
+
+def test_text_open_without_encoding_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(p):\n    with open(p) as fh:\n        return fh.read()\n")
+    problems = invariants.check_text_open_names_encoding()
+    assert any("open() in text mode without encoding=" in p for p in problems)
+
+
+def test_text_open_with_encoding_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go(p):\n    with open(p, encoding='utf-8') as fh:\n        return fh.read()\n",
+    )
+    assert invariants.check_text_open_names_encoding() == []
+
+
+def test_binary_open_passes(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(p):\n    with open(p, 'rb') as fh:\n        return fh.read()\n")
+    assert invariants.check_text_open_names_encoding() == []
+
+
+# ---------------------------------------------------------------------------
 # check_layering (GOV-042)
 # ---------------------------------------------------------------------------
 #

@@ -1687,6 +1687,39 @@ def check_no_weak_hash() -> list[str]:
     return problems
 
 
+def check_text_open_names_encoding() -> list[str]:
+    """
+    ``open(path)`` in text mode without an explicit ``encoding=`` uses the
+    system default, which differs between hosts and is not guaranteed to be
+    UTF-8. A model artifact written on one host and read on another has
+    already lost data through this on this codebase. Binary opens are
+    unaffected.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "open"
+            ):
+                continue
+            mode = "r"
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                mode = str(node.args[1].value)
+            for kw in node.keywords:
+                if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                    mode = str(kw.value.value)
+            if "b" in mode:
+                continue
+            if any(kw.arg == "encoding" for kw in node.keywords):
+                continue
+            problems.append(
+                f'{_rel(path)}:{node.lineno}: open() in text mode without encoding=; pass encoding="utf-8"'
+            )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("print in src", check_no_print_in_src),
@@ -1696,6 +1729,7 @@ CHECKS = (
     ("yaml.load", check_yaml_uses_safe_load),
     ("shell=True", check_no_subprocess_shell_true),
     ("weak hash", check_no_weak_hash),
+    ("text open without encoding", check_text_open_names_encoding),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),

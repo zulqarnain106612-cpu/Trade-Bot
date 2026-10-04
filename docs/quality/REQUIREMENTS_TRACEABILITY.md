@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 158 |
+| VERIFIED | 159 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **158** |
+| **Total** | **159** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 50 | 50 |
+| Governance | 51 | 51 |
 
 ## Outstanding work by phase
 
@@ -1904,6 +1904,17 @@ The static-invariants gate refuses assert statements anywhere in src/. assert is
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
 
+#### `GOV-055` — text open names encoding
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.
+
+- **If violated:** A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-056` — implemented math entry names its test
 
 **VERIFIED** · high · requirement · source: QE-52
@@ -2026,4 +2037,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 158 entries.
+Registry version: 1.0.0 — 159 entries.
