@@ -6,6 +6,9 @@ refactor: this scalar may only ever *shrink*. A portfolio agreeing with the
 incumbent must be worth nothing in size, because a cluster of correlated
 strategies would otherwise bid its own position up exactly when its members
 are most likely to be wrong together.
+
+Decides:
+  - PORT-001 — Portfolio-level exposure, correlation and agreement limits are enforced
 """
 
 from __future__ import annotations
