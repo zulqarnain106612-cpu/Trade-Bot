@@ -1628,6 +1628,31 @@ def check_yaml_uses_safe_load() -> list[str]:
     return problems
 
 
+def check_no_subprocess_shell_true() -> list[str]:
+    """
+    ``shell=True`` on a subprocess turns any interpolated string into a shell
+    command line. In a codebase whose configuration and adapter surfaces
+    include values from peers, exchanges and operators, that is a shell
+    injection primitive one f-string away. Pass a list argv and let the
+    kernel handle argument boundaries.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if (
+                    kw.arg == "shell"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is True
+                ):
+                    problems.append(
+                        f"{_rel(path)}:{node.lineno}: shell=True -- pass an argv list instead"
+                    )
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("print in src", check_no_print_in_src),
@@ -1635,6 +1660,7 @@ CHECKS = (
     ("assert in src", check_no_assert_in_src),
     ("eval or exec", check_no_eval_or_exec),
     ("yaml.load", check_yaml_uses_safe_load),
+    ("shell=True", check_no_subprocess_shell_true),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),

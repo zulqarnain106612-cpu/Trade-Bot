@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 156 |
+| VERIFIED | 157 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **156** |
+| **Total** | **157** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 24 | 24 |
+| Cryptography and secrets | 25 | 25 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
@@ -817,6 +817,17 @@ The static-invariants gate refuses eval() and exec() anywhere in src/. Both acce
 The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.
 
 - **If violated:** A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-053` — no shell=True in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
+
+- **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (security)
@@ -2004,4 +2015,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 156 entries.
+Registry version: 1.0.0 — 157 entries.

@@ -1357,6 +1357,30 @@ def test_yaml_safe_load_passes(invariants, fake_tree) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_no_subprocess_shell_true (GOV-053)
+# ---------------------------------------------------------------------------
+
+
+def test_shell_true_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\ndef go(cmd):\n    subprocess.run(cmd, shell=True)\n",
+    )
+    problems = invariants.check_no_subprocess_shell_true()
+    assert any("shell=True" in p for p in problems)
+
+
+def test_shell_false_and_default_pass(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\n"
+        "def a(argv):\n    subprocess.run(argv, shell=False)\n"
+        "def b(argv):\n    subprocess.run(argv)\n",
+    )
+    assert invariants.check_no_subprocess_shell_true() == []
+
+
+# ---------------------------------------------------------------------------
 # check_layering (GOV-042)
 # ---------------------------------------------------------------------------
 #
