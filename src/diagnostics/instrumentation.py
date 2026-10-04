@@ -9,6 +9,8 @@ environment variable to "false".
 Usage: call install_instrumentation() early during process startup (e.g. in API lifespan()).
 
 The wrappers are conservative: they log stack traces and basic context only.
+
+Registry: RES-006 (config/quality_registry.json).
 """
 
 from __future__ import annotations

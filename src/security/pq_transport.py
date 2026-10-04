@@ -31,6 +31,8 @@ Migration path for Trade-Bot:
 
 This file is intentionally inert — it documents the integration path
 without adding a new runtime dependency before it is needed.
+
+Registry: SECR-008 (config/quality_registry.json).
 """
 
 from __future__ import annotations

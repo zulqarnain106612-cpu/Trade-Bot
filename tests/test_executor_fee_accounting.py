@@ -11,6 +11,9 @@ what the live gate checks against its out-of-sample threshold.
 The two quantities genuinely differ, which is the trap: the fix must lower
 recorded PnL without touching cash, or the entry fee gets charged twice and
 equity drains.
+
+Decides:
+  - EXEC-006 — Partial fills and fees are accounted exactly
 """
 
 from __future__ import annotations

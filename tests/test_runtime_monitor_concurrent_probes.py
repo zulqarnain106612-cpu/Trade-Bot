@@ -10,6 +10,9 @@ describe.
 
 Each probe still keeps its own timeout and its own consecutive-failure
 count; only the waiting is shared.
+
+Decides:
+  - RES-005 — Concurrency produces no double order, lost order or corrupted position
 """
 
 from __future__ import annotations
