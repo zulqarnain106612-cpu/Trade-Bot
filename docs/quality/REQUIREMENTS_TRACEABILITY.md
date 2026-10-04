@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 157 |
+| VERIFIED | 158 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **157** |
+| **Total** | **158** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 25 | 25 |
+| Cryptography and secrets | 26 | 26 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
@@ -828,6 +828,17 @@ The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_
 The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
 
 - **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-054` — no bare md5 or sha1 in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.
+
+- **If violated:** A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (security)
@@ -2015,4 +2026,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 157 entries.
+Registry version: 1.0.0 — 158 entries.
