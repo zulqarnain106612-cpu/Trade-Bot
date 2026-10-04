@@ -3966,13 +3966,19 @@
       "statement": "usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.",
       "criticality": "medium",
       "subsystem": "api",
-      "status": "planned",
+      "status": "verified",
       "source": "OPS-2026-09-25",
       "failure_mode": "usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.",
       "owning_modules": [
         "frontend/src/hooks/useApi.js"
       ],
-      "planned_in": "PR-007"
+      "notes": "Both halves are one defect: a ref is what lets the latest callback run without the effect's lifetime following the callback's identity. layer: test-suite",
+      "verification": [
+        {
+          "test": "frontend/src/hooks/useApi.test.js",
+          "test_type": "regression"
+        }
+      ]
     }
   ]
 }

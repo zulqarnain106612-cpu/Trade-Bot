@@ -261,7 +261,7 @@ export function useStream(topic, hydratePath, options = {}) {
 export function usePolling(path, interval, transform) {
   const [data, setData] = useState(null);
 
-  // REG-0017. The effect's dependency array is [path, interval] but the body
+  // REG-0022. The effect's dependency array is [path, interval] but the body
   // closed over `transform`, so a caller passing an inline arrow -- which
   // App.jsx does at five call sites -- pinned the first render's function
   // forever. Adding `transform` to the deps is the obvious fix and the wrong

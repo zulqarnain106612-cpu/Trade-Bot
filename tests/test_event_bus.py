@@ -186,6 +186,43 @@ class TestPublishIsTotal:
         sub.close()
         assert bus.subscriber_count == 0
 
+    def test_a_consumer_whose_loop_died_costs_the_live_ones_nothing(
+        self, bus: EventBus
+    ) -> None:
+        """
+        A subscriber left behind by a torn-down lifespan still sits on the
+        process-wide bus, and waking it resolves futures on a loop that no
+        longer exists. Without this, the first such subscriber ends the
+        fan-out for everyone after it in the iteration -- publish() stays
+        total for its caller while the live dashboards silently stop
+        updating, which is the failure this law exists to prevent.
+
+        The dead event is a stand-in rather than a real closed loop: parking
+        a waiter on a loop and closing it leaves a pending task behind, and
+        the warning that produces would be noise in every later test in the
+        module. The raise is what the subscriber sees either way.
+        """
+
+        class _LoopIsGone:
+            def set(self) -> None:
+                raise RuntimeError("Event loop is closed")
+
+            def clear(self) -> None:
+                pass
+
+        dead = bus.subscribe(["equity"])
+        dead._wake = _LoopIsGone()
+        live = bus.subscribe(["equity"])
+        assert bus.subscriber_count == 2
+
+        bus.publish("equity", {"equity_usd": 1.0})
+
+        assert len(live._queue) == 1
+        assert bus.published == 1
+        # And it is gone, so the next publish does not pay for it again.
+        assert bus.subscriber_count == 1
+        assert dead not in bus._subscribers
+
 
 class TestProducerTimestamp:
     def test_ts_ms_is_stamped_at_publish(self, bus: EventBus) -> None:

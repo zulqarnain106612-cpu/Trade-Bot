@@ -47,9 +47,9 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 162 |
+| VERIFIED | 163 |
 | PARTIAL | 0 |
-| PLANNED | 1 |
+| PLANNED | 0 |
 | ACCEPTED GAP | 0 |
 | **Total** | **163** |
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 16 | 15 |
+| API and WebSocket | 16 | 16 |
 | Cryptography and secrets | 26 | 26 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
@@ -80,7 +80,7 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | `REG-0022` |
+| PR-007 | API/WebSocket Security | — |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
@@ -839,13 +839,16 @@ useWebSocket marks itself disposed and clears any pending retry in its effect cl
 
 #### `REG-0022` — A hook that takes a callback calls the latest one, not the first render's
 
-**PLANNED → PR-007** · medium · regression · source: OPS-2026-09-25
+**VERIFIED** · medium · regression · source: OPS-2026-09-25
 
 usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
 
 - **If violated:** usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.
 - **Owned by:** `frontend/src/hooks/useApi.js`
-- **Verification:** none yet
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (regression)
+
+> Both halves are one defect: a ref is what lets the latest callback run without the effect's lifetime following the callback's identity. layer: test-suite
 
 ## Cryptography and secrets
 
