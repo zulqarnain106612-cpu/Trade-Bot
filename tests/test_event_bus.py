@@ -186,9 +186,7 @@ class TestPublishIsTotal:
         sub.close()
         assert bus.subscriber_count == 0
 
-    def test_a_consumer_whose_loop_died_costs_the_live_ones_nothing(
-        self, bus: EventBus
-    ) -> None:
+    def test_a_consumer_whose_loop_died_costs_the_live_ones_nothing(self, bus: EventBus) -> None:
         """
         A subscriber left behind by a torn-down lifespan still sits on the
         process-wide bus, and waking it resolves futures on a loop that no

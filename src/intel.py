@@ -62,7 +62,7 @@ def load_horizon_specs() -> dict[str, Any]:
     read a config file.
     """
     try:
-        with open(_HORIZONS_CONFIG) as fh:
+        with open(_HORIZONS_CONFIG, encoding="utf-8") as fh:
             return (yaml.safe_load(fh) or {}).get("horizons") or {}
     except FileNotFoundError:
         log.warning("horizons_config_not_found", path=str(_HORIZONS_CONFIG))
