@@ -113,9 +113,7 @@ class TestWallClockStalls:
 
 class TestProcessSpawns:
     def test_the_suite_does_not_spawn_more_processes_than_its_budget(self, sources):
-        found = {
-            path.name: count for path, text in sources if (count := _spawns(text))
-        }
+        found = {path.name: count for path, text in sources if (count := _spawns(text))}
         total = sum(found.values())
         assert total <= SUBPROCESS_BUDGET, (
             f"{total} process spawns, budget {SUBPROCESS_BUDGET}. "
