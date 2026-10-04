@@ -24,6 +24,7 @@ Decides:
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -43,7 +44,7 @@ SUBPROCESS_BUDGET = 14
 # completion, and awaiting it would blow the job timeout long before this
 # budget mattered. Everything between the two is real wall clock.
 _SLEEP = re.compile(r"(?:time|asyncio)\.sleep\(\s*([0-9.]+)\s*\)")
-_SUBPROCESS = re.compile(r"subprocess\.(?:run|call|check_output|check_call|Popen)\(")
+_SPAWN_ATTRS = frozenset({"run", "call", "check_output", "check_call", "Popen"})
 
 STALL_FLOOR = 0.0
 SENTINEL_CEILING = 60.0
@@ -66,6 +67,27 @@ def sources() -> list[tuple[Path, str]]:
     # Module-scoped on purpose: reading three hundred files once per module is
     # cheap, once per test is the very habit this file is about.
     return _test_sources()
+
+
+def _spawns(text: str) -> int:
+    """Count the real ``subprocess`` spawn call sites in one test module.
+
+    Matching the source text would also count the fake modules the
+    static-invariant tests hand to the checks, where ``subprocess.run(...)``
+    is a string the check reads, not a process this suite starts. Only call
+    nodes are spawns, so the budget is measured on the parse tree.
+    """
+    found = 0
+    for node in ast.walk(ast.parse(text)):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _SPAWN_ATTRS
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
+        ):
+            found += 1
+    return found
 
 
 def _stalls(text: str) -> list[float]:
@@ -92,7 +114,7 @@ class TestWallClockStalls:
 class TestProcessSpawns:
     def test_the_suite_does_not_spawn_more_processes_than_its_budget(self, sources):
         found = {
-            path.name: len(hits) for path, text in sources if (hits := _SUBPROCESS.findall(text))
+            path.name: count for path, text in sources if (count := _spawns(text))
         }
         total = sum(found.values())
         assert total <= SUBPROCESS_BUDGET, (
@@ -100,13 +122,22 @@ class TestProcessSpawns:
             f"Import the module and call it instead: {found}"
         )
 
+    def test_a_spawn_inside_a_string_literal_is_not_a_spawn(self):
+        """Fake source a check reads is data, not a process the suite starts."""
+        source = 'BAD = "subprocess.run(cmd, shell=True)"\n'
+        assert _spawns(source) == 0
+
+    def test_a_real_spawn_call_is_counted(self):
+        source = "import subprocess\nsubprocess.run(['true'], check=True)\n"
+        assert _spawns(source) == 1
+
 
 class TestTheBudgetIsARatchet:
     @pytest.mark.parametrize(
         ("name", "budget", "counter"),
         [
             ("sleep", SLEEP_BUDGET, lambda t: len(_stalls(t))),
-            ("subprocess", SUBPROCESS_BUDGET, lambda t: len(_SUBPROCESS.findall(t))),
+            ("subprocess", SUBPROCESS_BUDGET, _spawns),
         ],
     )
     def test_the_budget_is_not_slack(self, sources, name, budget, counter):
