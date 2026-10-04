@@ -3539,6 +3539,392 @@
       "depends_on": []
     },
     {
+      "id": "GOV-039",
+      "kind": "requirement",
+      "title": "check_zip_is_strict has a negative test",
+      "statement": "The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-056",
+      "kind": "requirement",
+      "title": "implemented math entry names its test",
+      "statement": "The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.",
+      "owning_modules": [
+        "src/mathcore/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_math_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-040",
+      "kind": "requirement",
+      "title": "check_import_cycles has a negative test",
+      "statement": "The static invariant that refuses module-level import cycles carries a dedicated fake-tree test proving it can fire on a 2-module cycle, and a companion test proving a deferred (function-scope) import is not counted.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "check_import_cycles is reached only by the whole-repo positive gate. A bug that stops it from detecting cycles would ship silently, and a module-level cycle would then fail at collection time with only the ImportError as the signal.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-041",
+      "kind": "requirement",
+      "title": "check_every_gate_status_is_reachable has a negative test",
+      "statement": "The static invariant that refuses an unreachable GateStatus member carries a dedicated fake-tree test proving it can fire: given a synthetic gates.py whose evaluate_all_gates does not call a check that emits a declared status, the invariant reports it.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "The check was reached only by the whole-repo positive gate; a bug that stopped it detecting an unreachable status would ship silently, and a declared halt the stack cannot emit is a risk control that does not exist. HALT_DRIFT was exactly that shape.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-042",
+      "kind": "requirement",
+      "title": "check_layering coverage locator",
+      "statement": "tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.",
+      "criticality": "low",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-043",
+      "kind": "requirement",
+      "title": "test docstrings name the entries they decide",
+      "statement": "Test modules that decide three or more registry entries name those entries in their module docstring. A future contributor grep'ing for an entry id lands in the test that decides it without a traceability round-trip.",
+      "criticality": "low",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.",
+      "owning_modules": [
+        "tests/quality/test_quality_registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-044",
+      "kind": "requirement",
+      "title": "math implementations rest on implementations",
+      "statement": "The math registry loader refuses an entry with status='implemented' whose depends_on names an entry that is not itself 'implemented' or 'not_applicable'. A claim resting on planned or rejected dependencies has nothing under it.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "An implemented entry that depends on a still-planned primitive claims to work without the mathematics it needs. The traceability document then reports a load-bearing entry as ready while its foundation is not; a reader following depends_on lands on an entry with no owner.",
+      "owning_modules": [
+        "src/mathcore/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_math_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-045",
+      "kind": "requirement",
+      "title": "every wiring kind is held to the existence check",
+      "statement": "The math registry loader refuses any wiring pointing at a file that does not exist -- owner, component, consumer, config or doc. Same standard for every pointer; a pointer to a missing file is worse than no pointer.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A rename or deletion silently orphans a consumer/config/doc pointer that the loader used to skip -- so a registry query returns a module name a reader trusts and cannot find, while owner and component pointers stay honest.",
+      "owning_modules": [
+        "src/mathcore/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_math_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-046",
+      "kind": "requirement",
+      "title": "declared taxonomy has a user",
+      "statement": "The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.",
+      "criticality": "low",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.",
+      "owning_modules": [
+        "src/quality/registry.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-047",
+      "kind": "requirement",
+      "title": "no print() in src",
+      "statement": "Every module in src/ writes through structlog. The static-invariants gate refuses a bare print() call in src/ so an output the observability stack cannot see cannot ship. Tests and scripts remain free to print.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A print() slips into a production path. Its output bypasses log level, formatting and rate limiting, vanishes wherever stdout does, and produces a diagnostic that only appears in interactive runs -- the shape you cannot search for after the fact.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-049",
+      "kind": "requirement",
+      "title": "no bare except in src",
+      "statement": "The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-050",
+      "kind": "requirement",
+      "title": "no assert in src",
+      "statement": "The static-invariants gate refuses assert statements anywhere in src/. assert is stripped by python -O, so any production check written as an assert becomes a silent no-op in optimised runs. Every production check is 'if not x: raise'.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A production check written as an assert. Under python -O the assert vanishes, the invariant it defended is unenforced, and no test signals the loss because the behaviour under -O differs from the behaviour the test observed.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-051",
+      "kind": "requirement",
+      "title": "no eval or exec in src",
+      "statement": "The static-invariants gate refuses eval() and exec() anywhere in src/. Both accept a string and run it as code, so anywhere the string comes from configuration, from a network peer, or from any source not entirely under the operator's key, they are a remote-code-execution primitive.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "eval() or exec() lands in src/. A source of the string that seemed inert -- a config key, a broker response, a filename -- becomes an arbitrary-code path, and the shape of the defect is one line the reviewer would recognise if they saw it and would not if they did not.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "GOV-052",
+      "kind": "requirement",
+      "title": "yaml uses safe_load",
+      "statement": "The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "GOV-053",
+      "kind": "requirement",
+      "title": "no shell=True in src",
+      "statement": "The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.",
+      "criticality": "critical",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "GOV-054",
+      "kind": "requirement",
+      "title": "no bare md5 or sha1 in src",
+      "statement": "The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.",
+      "criticality": "high",
+      "subsystem": "security",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "security"
+        }
+      ]
+    },
+    {
+      "id": "GOV-055",
+      "kind": "requirement",
+      "title": "text open names encoding",
+      "statement": "The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "QE-52",
+      "failure_mode": "A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.",
+      "owning_modules": [
+        "scripts/check_static_invariants.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_static_invariants.py",
+          "test_type": "contract"
+        }
+      ]
+    },
+    {
+      "id": "GOV-035",
+      "kind": "requirement",
+      "title": "Frontend behaviour is decided by a test, not only by the build",
+      "statement": "frontend/ runs vitest under jsdom, and `npm test` is a step of the gated `frontend` job in ci.yml. Tests live beside the module they decide and may not reach the network.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "`npm run build` was the only frontend gate, and a build proves nothing about lifecycle: a socket that reconnects after unmount, a retry that never cancels, a handler that routes the wrong frame to the wrong callback all compile perfectly. Every defect of that class reached whoever had the dashboard open, and the registry could not name a deciding test for any frontend requirement because no runner existed to hold one.",
+      "owning_modules": [
+        "frontend/vitest.config.js",
+        ".github/workflows/ci.yml"
+      ],
+      "verification": [
+        {
+          "test": "frontend/src/hooks/useApi.test.js",
+          "test_type": "contract"
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "REG-0019",
+      "kind": "regression",
+      "title": "The dashboard socket does not reconnect after unmount, and backs off with jitter",
+      "statement": "useWebSocket marks itself disposed and clears any pending retry in its effect cleanup, so a close it caused never schedules a reconnect. Retries use exponential backoff with full jitter drawn from [0, backoff), capped at RECONNECT_CAP_MS, and the attempt counter resets when a connection opens.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-09-30",
+      "failure_mode": "Two defects in one handler. The cleanup closed the socket, which fired onclose, which scheduled another connect -- so every unmount left a reconnect loop running against a component that no longer existed, and React 18 StrictMode starts one on the first mount in dev. Separately the delay was a flat 3s with no jitter, so every open dashboard retried in lockstep and an API that had just come back up met the whole fleet at once, every three seconds, for as long as it stayed unhealthy.",
+      "notes": "Neither defect is visible to a build, and there was no frontend test runner to hold the check that would have caught them. layer: test-suite",
+      "owning_modules": [
+        "frontend/src/hooks/useApi.js"
+      ],
+      "verification": [
+        {
+          "test": "frontend/src/hooks/useApi.test.js",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": [
+        "GOV-035"
+      ]
+    },
+    {
       "id": "INV-032",
       "kind": "invariant",
       "title": "GUI backpressure never reaches the trading loop",

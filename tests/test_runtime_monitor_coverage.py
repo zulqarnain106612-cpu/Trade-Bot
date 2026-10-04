@@ -1,4 +1,8 @@
-"""Tests for src/diagnostics/runtime_monitor.py (27% → target 80%+)."""
+"""Tests for src/diagnostics/runtime_monitor.py (27% → target 80%+).
+
+Decides:
+  - REL-004 — Automatic halt triggers are machine-enforced
+"""
 
 from __future__ import annotations
 

@@ -75,6 +75,22 @@ function _emit(topic, payload) {
 // state rather than resuming blind.
 const _resyncListeners = new Set();
 
+// Reconnect delay: exponential with full jitter, capped.
+//
+// The flat 3s this replaces made every open dashboard retry in lockstep,
+// so an API that had just come back up met the whole fleet at once, every
+// three seconds, for as long as it stayed unhealthy. Full jitter --
+// a uniform draw from [0, backoff] rather than backoff +/- a wobble -- is
+// what actually spreads a fleet; a small wobble around a common centre
+// still arrives together.
+export const RECONNECT_BASE_MS = 500;
+export const RECONNECT_CAP_MS = 30000;
+
+export function reconnectDelay(attempt, random = Math.random) {
+  const backoff = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempt);
+  return Math.floor(random() * backoff);
+}
+
 export function useWebSocket(onTick, onEvent) {
   const [connected, setConnected] = useState(false);
   const [lagMs, setLagMs] = useState(null);
@@ -154,13 +170,8 @@ export function useWebSocket(onTick, onEvent) {
       ws.onclose = () => {
         setConnected(false);
         if (closed) return;
-        // Exponential backoff with jitter, 250ms -> 10s. The flat 3s retry
-        // this replaces put every dashboard in the building on the same
-        // 3-second cadence, so a server coming back up was met by all of
-        // them at once, in lockstep, forever.
-        const base = Math.min(250 * 2 ** attempt, 10_000);
+        retryTimer = setTimeout(connect, reconnectDelay(attempt));
         attempt += 1;
-        retryTimer = setTimeout(connect, base * (0.5 + Math.random() * 0.5));
       };
     }
 

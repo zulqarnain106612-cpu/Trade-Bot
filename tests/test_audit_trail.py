@@ -1,4 +1,8 @@
-"""Tests for the v8 immutable, hash-chained audit trail."""
+"""Tests for the v8 immutable, hash-chained audit trail.
+
+Decides:
+  - SECR-004 — The audit log is a verifiable hash chain
+"""
 
 from __future__ import annotations
 

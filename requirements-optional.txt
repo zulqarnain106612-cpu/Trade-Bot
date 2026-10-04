@@ -5,7 +5,7 @@
 # Regenerated from real imports; each entry names the module that pulls it in.
 
 # --- deep learning (torch itself is a core dep -- see requirements.txt) -----
-torch-geometric>=2.5,<3.0          # src/models graph networks
+torch-geometric>=2.8.0.post1,<3.0          # src/models graph networks
 transformers>=5.16.1,<6.0          # src/intelligence text models
 
 # --- gradient boosting / classical ML --------------------------------------
