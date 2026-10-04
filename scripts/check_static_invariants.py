@@ -1533,6 +1533,126 @@ def check_no_wildcard_imports() -> list[str]:
     return problems
 
 
+def check_no_print_in_src() -> list[str]:
+    """
+    ``print()`` in production code is the shape of an output that the
+    observability stack cannot see. structlog is the only writer the runbook
+    covers, so a print() bypasses log level, formatting and rate limiting,
+    and its output vanishes wherever stdout does. Tests and scripts may
+    still print freely; only ``src/`` is guarded.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: print() in src/ -- use structlog instead"
+                )
+    return problems
+
+
+def check_no_bare_except() -> list[str]:
+    """
+    A bare ``except:`` catches ``KeyboardInterrupt`` and ``SystemExit`` too,
+    which turns Ctrl+C and ``sys.exit()`` into swallowed exceptions in a
+    long-running trading process. Every handler names what it means to
+    catch; ``except Exception:`` is the widest permitted.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                problems.append(f"{_rel(path)}:{node.lineno}: bare except -- name the exception")
+    return problems
+
+
+def check_no_assert_in_src() -> list[str]:
+    """
+    ``assert`` disappears under ``python -O``. A production check spelled as
+    an assert becomes a silent no-op in optimised runs, so the invariant it
+    was defending goes with it. Every production check is an ``if x: raise``.
+    Tests are free to assert; only ``src/`` is guarded.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Assert):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: assert in src/ -- use 'if not x: raise'"
+                )
+    return problems
+
+
+def check_no_eval_or_exec() -> list[str]:
+    """
+    ``eval`` and ``exec`` accept a string and run it as code. In a trading
+    process that reads from configuration, from a network peer, or from any
+    source that is not entirely under the operator's key, that string is a
+    remote-code-execution primitive. Nothing in ``src/`` needs either.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"eval", "exec"}
+            ):
+                problems.append(
+                    f"{_rel(path)}:{node.lineno}: {node.func.id}() in src/ -- refuse code from a string"
+                )
+    return problems
+
+
+def check_yaml_uses_safe_load() -> list[str]:
+    """
+    ``yaml.load`` without a loader argument accepts YAML tags that construct
+    arbitrary Python objects -- the shape of ``!!python/object/apply:os.system``.
+    ``yaml.safe_load`` is the only entry point that refuses those tags.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "load"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "yaml"
+            ):
+                problems.append(f"{_rel(path)}:{node.lineno}: yaml.load() -- use yaml.safe_load()")
+    return problems
+
+
+def check_no_subprocess_shell_true() -> list[str]:
+    """
+    ``shell=True`` on a subprocess turns any interpolated string into a shell
+    command line. In a codebase whose configuration and adapter surfaces
+    include values from peers, exchanges and operators, that is a shell
+    injection primitive one f-string away. Pass a list argv and let the
+    kernel handle argument boundaries.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if (
+                    kw.arg == "shell"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is True
+                ):
+                    problems.append(
+                        f"{_rel(path)}:{node.lineno}: shell=True -- pass an argv list instead"
+                    )
+    return problems
+
+
 def check_no_weak_hash() -> list[str]:
     """
     MD5 and SHA-1 fail collision resistance in the field. Every hash in this
@@ -1569,6 +1689,12 @@ def check_no_weak_hash() -> list[str]:
 
 CHECKS = (
     ("import cycles", check_import_cycles),
+    ("print in src", check_no_print_in_src),
+    ("bare except", check_no_bare_except),
+    ("assert in src", check_no_assert_in_src),
+    ("eval or exec", check_no_eval_or_exec),
+    ("yaml.load", check_yaml_uses_safe_load),
+    ("shell=True", check_no_subprocess_shell_true),
     ("weak hash", check_no_weak_hash),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
