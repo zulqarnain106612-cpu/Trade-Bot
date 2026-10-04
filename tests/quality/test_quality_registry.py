@@ -679,9 +679,10 @@ class TestTheRealRegistry:
         ]
         assert not missing
 
-    def test_the_ten_trading_invariants_are_all_present(self, registry):
+    def test_the_trading_invariants_are_all_present(self, registry):
         found = {e.id for e in registry.by_kind("invariant")}
-        assert found == {f"INV-{n:03d}" for n in range(1, 11)}
+        expected = {f"INV-{n:03d}" for n in range(1, 11)} | {"INV-032"}
+        assert found == expected
 
     def test_no_declared_test_type_is_unused(self, registry):
         # A vocabulary term with no user is dead vocabulary: delete it, or give

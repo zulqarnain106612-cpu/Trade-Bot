@@ -13,6 +13,8 @@ import {
   RECONNECT_BASE_MS,
   RECONNECT_CAP_MS,
   reconnectDelay,
+  usePolling,
+  useStream,
   useWebSocket,
 } from './useApi.js';
 
@@ -128,5 +130,86 @@ describe('useWebSocket', () => {
     act(() => { FakeWebSocket.instances[0].onmessage({ data: 'not json' }); });
     expect(onTick).not.toHaveBeenCalled();
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+});
+/**
+ * REG-0022 — a hook that takes a callback must call the one its caller passed
+ * on the current render, and the socket's lifetime must not depend on the
+ * identity of the handlers passed to it.
+ *
+ * These two pull against each other, which is why the defect survived: listing
+ * the callbacks in the dependency array fixes staleness and introduces a
+ * teardown storm, because `App.jsx` passes inline arrows at five call sites and
+ * an inline arrow is a new identity on every render. Refs are what satisfy both,
+ * so both halves are asserted here -- a fix that drops either one fails.
+ */
+describe('REG-0022: callbacks are read from the current render', () => {
+  const noop = () => {};
+
+  it('does not rebuild the socket when the handler identities change', () => {
+    const { rerender } = renderHook(({ t, e }) => useWebSocket(t, e), {
+      initialProps: { t: () => {}, e: () => {} },
+    });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    // What App.jsx does on every render: fresh arrows, same intent.
+    rerender({ t: () => {}, e: () => {} });
+    rerender({ t: () => {}, e: () => {} });
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(FakeWebSocket.instances[0].closed).toBe(false);
+  });
+
+  it('delivers a tick to the handler from the current render', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = renderHook(({ t }) => useWebSocket(t, noop), {
+      initialProps: { t: first },
+    });
+    rerender({ t: second });
+
+    act(() => {
+      FakeWebSocket.instances[0].onmessage({ data: JSON.stringify({ type: 'tick' }) });
+    });
+
+    expect(first).toHaveBeenCalledTimes(0);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('folds a stream event with the apply callback from the current render', () => {
+    renderHook(() => useWebSocket(noop, noop));
+    const { result, rerender } = renderHook(
+      ({ f }) => useStream('trades', null, { apply: f }),
+      { initialProps: { f: (_prev, payload) => `first:${payload.v}` } },
+    );
+    rerender({ f: (_prev, payload) => `second:${payload.v}` });
+
+    act(() => {
+      FakeWebSocket.instances[0].onmessage({
+        data: JSON.stringify({ type: 'event', topic: 'trades', data: { v: 7 } }),
+      });
+    });
+
+    expect(result.current).toBe('second:7');
+  });
+
+  it('polls with the transform from the current render', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ n: 1 }) })),
+    );
+
+    const { result, rerender } = renderHook(({ t }) => usePolling('/equity', 10_000, t), {
+      initialProps: { t: (body) => `first:${body.n}` },
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current).toBe('first:1');
+
+    rerender({ t: (body) => `second:${body.n}` });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+
+    // The interval is still the one the first render started -- the point of
+    // the ref is that the timer survives while the function does not.
+    expect(result.current).toBe('second:1');
   });
 });

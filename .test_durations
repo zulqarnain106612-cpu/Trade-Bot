@@ -1422,7 +1422,7 @@
     "tests/quality/test_quality_registry.py::TestTheRealRegistry::test_it_loads": 0.03566650900000923,
     "tests/quality/test_quality_registry.py::TestTheRealRegistry::test_no_critical_entry_is_waived": 0.0018694450000111829,
     "tests/quality/test_quality_registry.py::TestTheRealRegistry::test_no_waiver_has_expired": 0.001853166000046258,
-    "tests/quality/test_quality_registry.py::TestTheRealRegistry::test_the_ten_trading_invariants_are_all_present": 0.0018976169999973536,
+    "tests/quality/test_quality_registry.py::TestTheRealRegistry::test_the_trading_invariants_are_all_present": 0.0018976169999973536,
     "tests/quality/test_quality_registry.py::TestVocabularies::test_an_undeclared_test_type_is_refused": 0.003605382999921858,
     "tests/quality/test_quality_registry.py::TestVocabularies::test_an_undeclared_value_is_refused[criticality-catastrophic-criticality_definitions]": 0.0040302310000015495,
     "tests/quality/test_quality_registry.py::TestVocabularies::test_an_undeclared_value_is_refused[kind-guideline-kind_definitions]": 0.0039041000000565873,
