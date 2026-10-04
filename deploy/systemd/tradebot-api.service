@@ -1,0 +1,39 @@
+[Unit]
+Description=Trade-Bot API + trading loop (authoritative)
+Documentation=file:/opt/tradebot/docs/ops/RUNBOOK.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tradebot
+Group=tradebot
+WorkingDirectory=/opt/tradebot
+EnvironmentFile=/etc/tradebot/tradebot.env
+# The API's FastAPI lifespan owns the Orchestrator — do NOT also run
+# tradebot-worker.service on the same host or against the same DB.
+ExecStart=/opt/tradebot/venv/bin/python -m src.api
+Restart=on-failure
+RestartSec=10s
+# Give shutdown enough time for the lifespan to persist an equity
+# snapshot and cancel the orchestrator task cleanly (10s wait inside
+# the lifespan, +buffer).
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+# Hardening — non-privileged, restricted filesystem.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/tradebot/data /opt/tradebot/logs /opt/tradebot/models/artifacts
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -159,6 +159,12 @@ class TestTheRegistryHasAPlaceForDefects:
         # loop outlived the component -- and retried on a flat 3s with no
         # jitter, so the whole fleet hit a recovering API together. Neither
         # is visible to a build, and there was no frontend test runner.
+        # REG-0022: usePolling and useStream closed over the callback their
+        # caller passed on the first render, so the five inline arrows in
+        # App.jsx were pinned forever, while useWebSocket listed its handlers
+        # in the dependency array and so tore the socket down on every render
+        # that passed new ones. One defect with two faces: the obvious fix for
+        # either is the other's bug, and refs are what satisfy both.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -175,6 +181,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0018",
             "REG-0019",
             "REG-0020",
+            "REG-0022",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -435,7 +442,10 @@ class TestTheMetricsCollector:
         # SEC-0007: the advisory reached the tree through a dependency nobody
         # here chose, and no test or review of this repository's own code could
         # have seen it arrive -- supply-chain, which no earlier defect carried.
-        assert metric["value"] == {"test-suite": 16, "review": 1, "supply-chain": 1}
+        # REG-0022: a stale callback and a socket rebuilt on every render both
+        # look like a working dashboard to a reader and to a build; only a test
+        # driving a rerender separates them -- test-suite.
+        assert metric["value"] == {"test-suite": 17, "review": 1, "supply-chain": 1}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
