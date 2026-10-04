@@ -307,14 +307,55 @@
   "programmatic_tool_calling": {
     "claude_md": "7",
     "first_choice": "Always use the desktop-commander MCP server and its tools first; fall back to the rules below only if that fails.",
+    "tool_surface": {
+      "policy": "Only the desktop-commander tools listed in allowed may be called. Every other tool, built-in or MCP, is denied.",
+      "configured_in": ".claude/settings.local.json",
+      "allowed": [
+        "mcp__plugin_desktop-commander_desktop-commander__read_file",
+        "mcp__plugin_desktop-commander_desktop-commander__list_directory",
+        "mcp__plugin_desktop-commander_desktop-commander__start_search",
+        "mcp__plugin_desktop-commander_desktop-commander__get_more_search_results",
+        "mcp__plugin_desktop-commander_desktop-commander__edit_block",
+        "mcp__plugin_desktop-commander_desktop-commander__write_file",
+        "mcp__plugin_desktop-commander_desktop-commander__start_process",
+        "mcp__plugin_desktop-commander_desktop-commander__read_process_output"
+      ],
+      "minimum_set": "These eight are the floor -- read, list, search, page-search, edit, write, run, read-output. Removing any one stalls ordinary work.",
+      "denied": "Every other tool: the built-in Bash/Read/Write/Edit/NotebookEdit/WebFetch/WebSearch/Agent/Artifact set, the scheduling and messaging tools, and every non-desktop-commander MCP server.",
+      "shell": "All shell execution runs through start_process, because Bash is denied.",
+      "rule_syntax": "permissions.allow and permissions.deny are arrays of strings in permission-rule syntax: a tool name, optionally with an argument pattern such as Bash(git *). Object entries are invalid and are ignored, and no key expresses a per-call line bound -- rules match tool names, never argument values.",
+      "line_bound": {
+        "authority": "config/command_policy.json -> bounded_output.max_declared_lines",
+        "value": 5,
+        "not_settable_here": "A permission rule cannot bound a read; desktop-commander's own fileReadLineLimit governs its reads.",
+        "claude_md_drift": "CLAUDE.md section 8 still says 30 lines; the policy file enforces 5."
+      }
+    },
     "skill": ".claude/skills/programmatic-tool-calling/SKILL.md",
     "rules": [
       "one script under scripts/",
       "import only orchestratable=True functions from tools/registry.py via registry.namespace()",
-      "execute once through bash",
+      "execute once through the shell (start_process, since Bash is denied)",
       "return the script's printed digest rather than raw tool output",
       "never mark destructive/rate-limited/side-effecting tools orchestratable=True"
     ],
+    "registered_tools": {
+      "gate": "tools/registry.py -- registry.namespace() refuses any function not marked orchestratable=True",
+      "tested_by": [
+        "tests/test_orchestratable_safety.py",
+        "tests/test_tools_registry.py"
+      ],
+      "orchestratable": [
+        "get_team_members",
+        "get_expenses",
+        "get_custom_budget"
+      ],
+      "not_orchestratable": [
+        "send_email",
+        "delete_record"
+      ],
+      "state": "All five live in tools/example_tools.py and are demo fixtures. No real Trade-Bot tool is registered, so the gate is enforced and tested but the allow list is empty of production tools."
+    },
     "research": {
       "command": "orchestrator_cli.py \"<task>\"",
       "use_for": "independent research/lookup subtasks followed by synthesis",
@@ -362,10 +403,12 @@
       "path": ".claude/hooks/pre_tool_use.py",
       "policy": "config/command_policy.json",
       "scope": "Enforces the same policy for raw Bash.",
+      "inert_while_bash_denied": "The hook matches the Bash tool only. While .claude/settings.local.json denies Bash and shell runs through desktop-commander's start_process, the hook never fires: the 5-line bound, the destructive-command refusal and the secret-echo refusal are all unenforced. Enforcement then rests entirely on common/shell_exec.run() being used deliberately.",
       "rules": [
         "unbounded reads refused",
-        "first reads limited to <=30 lines and must be paged",
-        "bounds >30 refused",
+        "reads limited to <=5 lines per call and must be paged (config/command_policy.json bounded_output.max_declared_lines; CLAUDE.md section 8 still says 30, which is stale)",
+        "bounds above that value refused",
+        "byte bounds above max_declared_bytes (2000) refused",
         "destructive commands refused",
         "credential disclosure refused"
       ],
@@ -421,10 +464,10 @@
   },
   "pull_requests": {
     "claude_md": "10",
-    "main": "Protected by four gate checks and an up-to-date branch requirement.",
+    "main": "Protected by four gate checks and a merge queue (one squashed PR at a time, tested on current main); the queue replaces the up-to-date requirement.",
     "merge": "Merge only when every required check is green; neutral/skipped/cancelled/failed are not green.",
     "merge_command": "gh pr merge --squash --auto",
-    "model": "Open independent PRs; no queue, parking, serialization, or automatic draft conversion. PRs are never parked, drafted, or closed.",
+    "model": "Open independent PRs; auto-merge puts a green PR into the merge queue. PRs are never parked, drafted, or closed.",
     "removed": {
       "workflow": ".github/workflows/pr-queue.yml",
       "draft_guard": true,
@@ -443,14 +486,20 @@
       "trigger": "every push to main",
       "behavior": "Select the oldest open non-draft PR with mergeable_state=behind, update that one, then stop.",
       "rationale": "Updating every PR simultaneously creates redundant runs against a moving main.",
-      "chain": "update oldest -> checks -> auto-merge -> main push -> update next",
-      "not_a_queue": true,
+      "chain": "update oldest behind PR (no longer required for merging under the queue); resolve the oldest safely-resolvable conflict",
       "secret": "secrets.PR_AUTOUPDATE_TOKEN",
       "authorization": "PAT or GitHub App token with repo scope",
       "missing_secret": "Fail loudly and modify nothing.",
-      "token_constraint": "A GITHUB_TOKEN push does not trigger the required workflow chain and can leave stale check runs attached to the updated branch."
+      "token_constraint": "A GITHUB_TOKEN push does not trigger the required workflow chain and can leave stale check runs attached to the updated branch.",
+      "conflict_resolution": "GOV-029: merge main into the oldest conflicted PR only when every conflicted path is a generated document or config/quality_registry.json (per-entry merge by scripts/resolve_registry_merge.py); qe_gate.py must pass before push."
     },
-    "alternative": "GitHub merge queue; gating workflows already declare merge_group."
+    "alternative": "GitHub merge queue; gating workflows already declare merge_group.",
+    "merge_queue": {
+      "governance": "GOV-037",
+      "ruleset": ".github/rulesets/main-protection.json",
+      "apply": "python3 scripts/apply_repo_ruleset.py",
+      "retry": "None. An entry the queue removes stays out until a person arms auto-merge again or pushes a fix. No workflow may re-queue it automatically."
+    }
   },
   "ci_cost": {
     "claude_md": "11",
@@ -673,19 +722,16 @@
     "exact_set": "Every new job must be added to the gate's needs; tests/test_assert_jobs_green.py requires exact set equality.",
     "always": "Never remove if: always().",
     "allowed_skips": {
-      "rule": "No skips allowed except the documented exception.",
-      "exception": "retrieve-context on fork PRs, declared as ALLOW_SKIPPED in .github/workflows/claude-review.yml."
+      "rule": "Skips are allowed only where a workflow declares them in ALLOW_SKIPPED with a comment saying why."
     },
     "branch_protection": "Require the gate checks by name, not individual jobs; missing or skipped jobs can otherwise create a protection hole.",
     "docs": "docs/REQUIRED_CHECKS.md"
   },
   "cloud_review": {
     "claude_md": "19",
-    "component": "Component 5",
-    "workflow": ".github/workflows/claude-review.yml",
-    "behavior": "Automatically reviews every PR using MongoDB Atlas RAG and knowledge-graph retrieval through review/retrieval.py, including vector, full-text, hybrid, and graph retrieval.",
-    "authority": "Advisory only; never approves or merges.",
-    "docs": "docs/CLOUD_REVIEW.md contains setup and the one-time GitHub App/secret requirements."
+    "status": "removed (GOV-036)",
+    "rule": "No workflow may invoke Claude; sessions may not schedule wake-ups, reminders, crons, routines or PR subscriptions.",
+    "test": "tests/test_no_claude_automation.py"
   },
   "final_audit": [
     "No unrelated changes",
@@ -694,5 +740,16 @@
     "applicable tests and gates executed",
     "final diff/regression audit completed",
     "report outcome, validation, and material residual uncertainty"
-  ]
+  ],
+  "error_reduced_output": {
+    "claude_md": "20",
+    "rules": [
+      "State as fact only what was verified in this session; mark the rest as inference or unknown.",
+      "Re-run the deciding check after the last edit before claiming done.",
+      "Check external facts against primary sources; if undocumented, do not depend on them.",
+      "Prefer executing the real path over reasoning about it.",
+      "Correct a wrong statement as soon as it is found, explicitly.",
+      "Report only what changed, what was verified, and what remains unverified."
+    ]
+  }
 }

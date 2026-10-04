@@ -7,6 +7,9 @@ So the file's content is asserted here as strictly as the script's logic.
 
 Nothing here touches the network. The parts that talk to GitHub are separated
 from the parts that decide what to send, and only the latter are tested.
+
+Decides:
+  - GOV-008 — main is protected and every required check must be green
 """
 
 from __future__ import annotations
@@ -57,9 +60,21 @@ class TestRulesetFile:
         types = {rule["type"] for rule in raw["rules"]}
         assert "required_status_checks" in types
 
-    def test_requires_branch_to_be_up_to_date(self, raw, mod):
+    def test_the_merge_queue_replaces_the_up_to_date_requirement(self, raw, mod):
+        # GOV-037: the queue tests every entry on top of the current base, which
+        # is what the strict policy guaranteed, without anyone updating a branch.
+        # Turning strict off is only safe while the queue rule is present.
         rule = next(r for r in raw["rules"] if r["type"] == "required_status_checks")
-        assert rule["parameters"]["strict_required_status_checks_policy"] is True
+        assert rule["parameters"]["strict_required_status_checks_policy"] is False
+        assert "merge_queue" in {r["type"] for r in raw["rules"]}
+
+    def test_the_queue_merges_one_squashed_pull_request_at_a_time(self, raw):
+        params = next(r for r in raw["rules"] if r["type"] == "merge_queue")["parameters"]
+        assert params["merge_method"] == "SQUASH"
+        assert params["grouping_strategy"] == "ALLGREEN"
+        assert params["max_entries_to_build"] == 1
+        assert params["max_entries_to_merge"] == 1
+        assert params["min_entries_to_merge"] == 1
 
     def test_blocks_force_push_and_deletion(self, raw):
         types = {rule["type"] for rule in raw["rules"]}

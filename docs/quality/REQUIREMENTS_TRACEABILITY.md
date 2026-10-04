@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 127 |
+| VERIFIED | 159 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **127** |
+| **Total** | **159** |
 
 ## Summary by subsystem
 
@@ -64,11 +64,11 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 17 | 17 |
+| Cryptography and secrets | 26 | 26 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 9 | 9 |
-| Governance | 30 | 30 |
+| Release and production | 11 | 11 |
+| Governance | 51 | 51 |
 
 ## Outstanding work by phase
 
@@ -691,7 +691,7 @@ SQL, NoSQL, command, template, path-traversal, header and JSON-manipulation payl
 Any caller-influenced outbound request refuses localhost, loopback, link-local, private ranges, cloud metadata endpoints and internal hostnames.
 
 - **If violated:** The bot becomes the attacker's proxy into the private network and the metadata service.
-- **Owned by:** `src/intelligence/client.py`, `src/api/ssrf.py`
+- **Owned by:** `src/intelligence/client.py`, `src/security/ssrf.py`
 - **Verification:**
   - `tests/api/test_ssrf_protection.py` (security) — Every resolved address is checked, the metadata service and private ranges are denied, and the guard is wired into the outbound client.
 
@@ -798,6 +798,50 @@ A successful write through POST /controls/{name} must broadcast a control_change
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
 ## Cryptography and secrets
+
+#### `GOV-051` — no eval or exec in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses eval() and exec() anywhere in src/. Both accept a string and run it as code, so anywhere the string comes from configuration, from a network peer, or from any source not entirely under the operator's key, they are a remote-code-execution primitive.
+
+- **If violated:** eval() or exec() lands in src/. A source of the string that seemed inert -- a config key, a broker response, a filename -- becomes an arbitrary-code path, and the shape of the defect is one line the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-052` — yaml uses safe_load
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.
+
+- **If violated:** A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-053` — no shell=True in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
+
+- **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-054` — no bare md5 or sha1 in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.
+
+- **If violated:** A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
@@ -985,6 +1029,41 @@ is_safe_prime requires both p and (p-1)/2 prime, and validate_group reports ever
 - **Verification:**
   - `tests/test_safe_primes.py` (validation)
 
+#### `SECR-017` — A post-quantum symmetric margin is reported with the caveat that makes it conservative
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+assess_symmetric returns the sequential-depth figure alongside the halved effective strength, so the halving cannot be quoted without the assumption it rests on, and weakest_link answers the suite-level question deterministically. The dataclass fields carrying the caveat are asserted structurally.
+
+- **If violated:** A post-quantum readiness claim that is either alarmist or complacent with no way for a reader to tell which they were given. Reported alone, the halving reads as 'AES-128 is broken', which NIST IR 8547 does not say -- the bound assumes one coherent machine running 2**64 successive error-corrected operations and Grover parallelises badly. The converse failure is the entry's stated risk: migrating asymmetric primitives while leaving 128-bit symmetric keys in place, which is invisible while each primitive is examined alone.
+- **Owned by:** `src/mathcore/quantum/grover.py`
+- **Verification:**
+  - `tests/test_quantum_margins.py` (security)
+
+#### `SECR-018` — Quantum exposure is computed from declared assumptions, never from invented constants
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-22
+
+is_broken_by_shor classifies by hard problem and treats an unknown scheme name as broken, migration_verdict implements Mosca's X+Y>Z with years_until_capable_machine keyword-only and undefaulted, and the module contains no resource estimate and no module-level year constant. All three absences are asserted by tests rather than described.
+
+- **If violated:** Two ways to produce a confident migration plan resting on nothing. A transcribed logical-qubit or Toffoli-depth figure is model-dependent and uncheckable here -- there is no machine and a simulator says nothing about a 256-bit curve -- which is the fabricated-constant class this repository has shipped three times. A defaulted arrival year is worse: it lets a caller obtain a verdict without ever deciding what they believe, and the assumption then stops being questioned. Separately, an unclassified scheme name silently passing an audit would report a clean suite while a forgotten asymmetric primitive stays deployed.
+- **Owned by:** `src/mathcore/quantum/shor.py`
+- **Verification:**
+  - `tests/test_quantum_margins.py` (security)
+
+#### `REG-0017` — LAW12 flags cipher suites without forward secrecy, not the token DH
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+The LAW12 cipher-suite pattern matches static DH/ECDH, RSA key transport and export-grade suites by their suite construction. It does not match DHE or ECDHE, and does not match a lowercase scheme name or the letters DH inside prose under re.IGNORECASE.
+
+- **If violated:** The rule inverted itself: DHE and ECDHE are the ephemeral exchanges that provide forward secrecy, so the recommended suites were reported as 'Non-PFS', while the absent left boundary plus re.IGNORECASE fired on any word ending in 'dh' -- a lookup-table key or the word ECDH in a sentence. A false HIGH is not harmless: it is baselined, and the suppression then hides the real finding that file later grows, or it trains a reviewer to read LAW12 as noise. One such suppression (src/mathcore/numbertheory/safe_primes.py) already existed and is removed by this change.
+- **Owned by:** `.claude/skills/crypto-architect/scripts/validate_arch.py`
+- **Verification:**
+  - `tests/test_law12_cipher_suite_pattern.py` (regression)
+
+> The rule shipped with no test of its own, so nothing could tell a true positive from a false one until a PR tripped it. The test added with this entry is that missing check. layer: test-suite
+
 #### `SEC-0005` — A file holding real credentials is never committable
 
 **VERIFIED** · high · security_regression · source: QE-51
@@ -997,6 +1076,32 @@ Every filename that carries the same secrets as .env -- .env itself and its back
   - `tests/security/test_gitignore_secret_files.py` (security)
 
 > Names the concrete backup filenames rather than asserting the abstract intent, and pins the negative case that .env.example stays tracked. layer: test-suite
+
+#### `SEC-0006` — The runtime manifest never resolves a vulnerable urllib3
+
+**VERIFIED** · high · security_regression · source: QE-54
+
+requirements.txt declares urllib3>=2.8.0 and caps ccxt below 4.5.65, so pip cannot resolve urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97688, CVE-2026-97689).
+
+- **If violated:** urllib3 was only a transitive dependency. Every ccxt from 4.5.65 to 4.5.84 pins urllib3==2.7.0 exactly, so pip chose the newest ccxt and the vulnerable urllib3 with it; the pip-audit job failed and every PR's Security gate went red.
+- **Owned by:** `requirements.txt`
+- **Verification:**
+  - `tests/security/test_urllib3_cve_floor.py` (security)
+
+> Lift the ccxt cap once a ccxt release allows urllib3>=2.8.0; the test pins the two ends of the known pinning range. layer: test-suite
+
+#### `SEC-0007` — The frontend dependency tree carries no unfixable advisory
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-03
+
+npm audit over frontend's whole dependency tree at --audit-level=high reports no advisories, and electron-builder is absent from both dependencies and devDependencies while http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched release.
+
+- **If violated:** Eight high advisories failed Security gate on every pull request. All eight arrived through electron-builder and traced to http-cache-semantics GHSA-ch52-4w7c-c8xp, vulnerable range <= 4.2.0 with first_patched_version null -- every release ever published. Measured in frontend/: unchanged full tree 8 high; pinned to the 26.5.0 that npm audit fix --force proposes 14 (13 high, 1 critical, tar <= 7.5.20); electron-builder removed 0 vulnerabilities. No override escapes it, because cacheable-request@13.0.19, the latest, still depends on http-cache-semantics@^4.2.0.
+- **Owned by:** `frontend/package.json`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/test_frontend_audit_scope.py` (unit)
+
+> No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain
 
 ## Supply chain and artifacts
 
@@ -1276,6 +1381,32 @@ The production workflow can return to the previous trusted artifact, and a drill
 - **Verification:**
   - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
+#### `REG-0018` — A cancelled job is not counted as a failing job in the CI notice
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.
+
+- **If violated:** This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_notice_supersession.py` (regression)
+
+> The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite
+
+#### `REG-0020` — The CI notice names the error of a failure no pattern recognises
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+When no SIGNAL pattern matches a failing job's log, the notice carries the last lines of the failing step's own output -- between the runner's ##[endgroup] and its ##[error] exit-code line -- without table rules or runner markers.
+
+- **If violated:** pip-audit's vulnerability table matched none of the patterns, so the notice on #385 named the failing step and no error, and the failing lines had to be pasted by hand.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit)
+
+> Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -1512,6 +1643,39 @@ The CI notice waits until every watched workflow has completed for a commit, the
   - `tests/test_ci_failure_notify_workflow.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
+#### `GOV-021` — tuning stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/tuning/ must not import from src.risk. Watchdog defines a structural DriftDetector Protocol and callers inject a detector, keeping tuning inside the analytics layer and shrinking the accepted_upward_edges ratchet.
+
+- **If violated:** A future edit reintroduces an import of src.risk.performance_drift in src/tuning/, silently reviving the tuning->risk package edge.
+- **Owned by:** `src/tuning/watchdog.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
+#### `GOV-022` — diagnostics stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/diagnostics/ must not import from src.features. The synthetic pipeline selftest that used to invert the layer order lives beside the pipeline in src/features/selftest.py; callers import from there.
+
+- **If violated:** A future edit reintroduces an import of src.features.pipeline in src/diagnostics/, silently reviving the diagnostics->features package edge.
+- **Owned by:** `src/features/selftest.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
+#### `GOV-023` — intelligence stays within its layer
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/intelligence/ must not import from src.api. The SSRF address-space guard used by the intelligence client is stdlib-only network policy and lives in src/security/ssrf.py, below both analytics and edge.
+
+- **If violated:** A future edit reintroduces an import of src.api.* in src/intelligence/, silently reviving the intelligence->api package edge.
+- **Owned by:** `src/security/ssrf.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
 #### `GOV-024` — intelligence does not import intel
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1543,13 +1707,14 @@ get_settings() must return the configuration in force including live operator ov
 
 **VERIFIED** · medium · requirement · source: OPS-2026-09-25
 
-When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator, in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.
+When no open pull request is behind, the oldest conflicted non-draft pull request on a branch in this repository is merged with main; the merge is completed only if every conflicted path is a generated document with a known generator or config/quality_registry.json, which is merged per entry id by scripts/resolve_registry_merge.py (a clash on one entry abandons the merge), in which case each is regenerated from the merged inputs rather than resolved to either side, and one unknown conflicted path abandons the whole merge and leaves the pull request untouched. Both the conflicted and the cleanly-merged path run the quality gate before the single push to the head branch, using the token whose pushes start workflow runs; a refused gate pushes nothing and fails the job.
 
 - **If violated:** Every pull request that adds a registry entry regenerates the whole traceability document, so any two of them conflict regardless of how unrelated the entries are -- which made a registry entry cost a manual rebase per pull request ahead of it. The file that does not conflict is the dangerous one: git merges the registry JSON cleanly and can still produce a document the strict loader refuses, two branches allocating the same id being the usual way, since the scaffolder allocates against main and cannot see open branches. Resolving without re-running the gate would push that onto the head branch, green in appearance.
-- **Owned by:** `.github/workflows/pr-auto-update.yml`
+- **Owned by:** `.github/workflows/pr-auto-update.yml`, `scripts/resolve_registry_merge.py`
 - **Depends on:** `GOV-017`
 - **Verification:**
   - `tests/test_pr_auto_update_workflow.py` (unit) — Asserts that a fork is never nominated, that nothing is nominated on a run that already updated a branch, that the job runs only on a nomination, that it uses the PAT and the whole history, that it installs nothing, that only the two generated documents are resolvable and an unknown path aborts the merge before any regeneration, that resolution regenerates rather than taking --ours or --theirs, and that there is exactly one push to the head branch and it comes after the gate.
+  - `tests/test_resolve_registry_merge.py` (unit) — Keeps both sides' new entries, takes a one-sided edit, refuses an entry changed differently on both sides, and writes nothing when it refuses.
 
 #### `GOV-030` — engine does not import api
 
@@ -1561,6 +1726,205 @@ src/engine/ must not import from src.api. The Prometheus metrics module is obser
 - **Owned by:** `src/diagnostics/metrics.py`
 - **Verification:**
   - `tests/test_architecture_layers.py` (contract)
+
+#### `GOV-031` — strategies does not import engine
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+src/strategies/ must not import from src.engine. The SignalEngine adapter reads its result structurally with a boundary type of Any, so the decision layer stays below orchestration.
+
+- **If violated:** A future edit reintroduces an import of src.engine in src/strategies/, silently reviving the strategies->engine package edge.
+- **Owned by:** `src/strategies/signal_engine_adapter.py`
+- **Verification:**
+  - `tests/test_architecture_layers.py` (contract)
+
+#### `GOV-036` — Claude never runs unattended on the owner's plan
+
+**VERIFIED** · high · requirement · source: QE-53
+
+No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or `claude -p`), and .claude/settings.json denies ScheduleWakeup, CronCreate, RemoteTrigger and PR-activity subscription, so Claude runs only in sessions the owner starts and can see.
+
+- **If violated:** claude-review.yml ran up to 120 turns on every PR push, and cloud sessions scheduled their own wake-ups and re-armed them, spending the owner's usage with no visible session until the five-hour limit was hit.
+- **Owned by:** `.claude/settings.json`, `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_no_claude_automation.py` (contract)
+
+#### `GOV-037` — Pull requests land through a one-at-a-time merge queue
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-01
+
+main is protected by a merge queue that squash-merges one pull request at a time, each tested on top of the current base, which replaces the up-to-date requirement. A pull request joins the queue when auto-merge is armed on it and its own gates are green. An entry the queue removes stays out until a person acts on it: nothing re-queues it automatically.
+
+- **If violated:** Every merge left each other green pull request behind main, so each had to be updated and fully re-run by hand, one after another.
+- **Owned by:** `.github/rulesets/main-protection.json`
+- **Depends on:** `GOV-029`
+- **Verification:**
+  - `tests/test_apply_repo_ruleset.py` (unit)
+
+#### `GOV-038` — verified entry depends on verified or accepted_gap only
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The quality registry loader refuses a verified entry whose depends_on names an entry that is not itself 'verified' or 'accepted_gap'. Planned or partial dependencies are refused; the accepted_gap exception exists because a gap is an explicit, dated waiver whose argument carries through.
+
+- **If violated:** A verified entry can rest on a still-planned or partial dependency and the traceability document then reports it as decided while its foundation is not. The same shape as INV-019 for the math registry, applied here for the quality registry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
+#### `GOV-039` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-040` — check_import_cycles has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses module-level import cycles carries a dedicated fake-tree test proving it can fire on a 2-module cycle, and a companion test proving a deferred (function-scope) import is not counted.
+
+- **If violated:** check_import_cycles is reached only by the whole-repo positive gate. A bug that stops it from detecting cycles would ship silently, and a module-level cycle would then fail at collection time with only the ImportError as the signal.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-041` — check_every_gate_status_is_reachable has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses an unreachable GateStatus member carries a dedicated fake-tree test proving it can fire: given a synthetic gates.py whose evaluate_all_gates does not call a check that emits a declared status, the invariant reports it.
+
+- **If violated:** The check was reached only by the whole-repo positive gate; a bug that stopped it detecting an unreachable status would ship silently, and a declared halt the stack cannot emit is a risk control that does not exist. HALT_DRIFT was exactly that shape.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-042` — check_layering coverage locator
+
+**VERIFIED** · low · requirement · source: QE-52
+
+tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.
+
+- **If violated:** A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-043` — test docstrings name the entries they decide
+
+**VERIFIED** · low · requirement · source: QE-52
+
+Test modules that decide three or more registry entries name those entries in their module docstring. A future contributor grep'ing for an entry id lands in the test that decides it without a traceability round-trip.
+
+- **If violated:** A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.
+- **Owned by:** `tests/quality/test_quality_registry.py`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (contract)
+
+#### `GOV-044` — math implementations rest on implementations
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' whose depends_on names an entry that is not itself 'implemented' or 'not_applicable'. A claim resting on planned or rejected dependencies has nothing under it.
+
+- **If violated:** An implemented entry that depends on a still-planned primitive claims to work without the mathematics it needs. The traceability document then reports a load-bearing entry as ready while its foundation is not; a reader following depends_on lands on an entry with no owner.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-045` — every wiring kind is held to the existence check
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses any wiring pointing at a file that does not exist -- owner, component, consumer, config or doc. Same standard for every pointer; a pointer to a missing file is worse than no pointer.
+
+- **If violated:** A rename or deletion silently orphans a consumer/config/doc pointer that the loader used to skip -- so a registry query returns a module name a reader trusts and cannot find, while owner and component pointers stay honest.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-046` — declared taxonomy has a user
+
+**VERIFIED** · low · requirement · source: QE-52
+
+The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.
+
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
+#### `GOV-047` — no print() in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+Every module in src/ writes through structlog. The static-invariants gate refuses a bare print() call in src/ so an output the observability stack cannot see cannot ship. Tests and scripts remain free to print.
+
+- **If violated:** A print() slips into a production path. Its output bypasses log level, formatting and rate limiting, vanishes wherever stdout does, and produces a diagnostic that only appears in interactive runs -- the shape you cannot search for after the fact.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-048` — no wildcard imports in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.
+
+- **If violated:** A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-049` — no bare except in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.
+
+- **If violated:** A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-050` — no assert in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses assert statements anywhere in src/. assert is stripped by python -O, so any production check written as an assert becomes a silent no-op in optimised runs. Every production check is 'if not x: raise'.
+
+- **If violated:** A production check written as an assert. Under python -O the assert vanishes, the invariant it defended is unenforced, and no test signals the loss because the behaviour under -O differs from the behaviour the test observed.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-055` — text open names encoding
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.
+
+- **If violated:** A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-056` — implemented math entry names its test
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.
+
+- **If violated:** An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1673,4 +2037,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 127 entries.
+Registry version: 1.0.0 — 159 entries.

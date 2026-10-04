@@ -11,6 +11,9 @@ prevent.
 So the rule is mechanical: whatever is required to merge must also run in the
 queue. These tests derive the required set from the workflows themselves
 rather than restating it, so adding a gate cannot quietly skip this check.
+
+Decides:
+  - GOV-014 — Every required check also runs in the merge queue
 """
 
 from __future__ import annotations
@@ -23,9 +26,9 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
 
-# Advisory, by CLAUDE.md: the cloud review never approves or merges, so it is
-# deliberately not a required check and therefore not a queue participant.
-ADVISORY = {"claude-review.yml"}
+# No advisory workflows remain: the cloud review was removed (GOV-036) and no
+# workflow may run Claude again.
+ADVISORY: set[str] = set()
 
 # Reports on a failed run of another workflow; it has no place in a queue.
 NOT_A_GATE = {"ci-failure-notify.yml"}

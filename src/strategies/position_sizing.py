@@ -20,6 +20,8 @@ Authority:
   - Kelly (1956) Bell System Technical Journal 35(4): 917-926
   - Thorp (2006) The Kelly Criterion in Blackjack, Sports Betting and the
     Stock Market — fractional Kelly derivation
+
+Registry: INV-004, RISK-001, RISK-003, RISK-004 (config/quality_registry.json).
 """
 
 from __future__ import annotations

@@ -12,6 +12,8 @@ Authority:
   - Chan (2013) Algorithmic Trading Ch.8 — live system monitoring
   - Tulchinsky (2019) Finding Alphas — signal health checks
   - López de Prado (2018) AFML Ch.16 — strategy diagnostics
+
+Registry: REL-004, REL-005, REL-007, RES-001 (config/quality_registry.json).
 """
 
 from __future__ import annotations
@@ -324,7 +326,7 @@ class RuntimeMonitor:
     def _rss_mb() -> float:
         """Read process RSS from /proc/self/status (Linux). Returns 0.0 on failure."""
         try:
-            with open("/proc/self/status") as f:
+            with open("/proc/self/status", encoding="utf-8") as f:
                 for line in f:
                     if line.startswith("VmRSS:"):
                         return float(line.split()[1]) / 1024.0

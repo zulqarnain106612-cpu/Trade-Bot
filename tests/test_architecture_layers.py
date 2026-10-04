@@ -12,6 +12,9 @@ config/architecture_layers.json declares the layer order and the upward edges
 that already exist. These tests pin the contract itself, and the rule that
 decides it, on graphs that are not this repository's -- the live repository is
 checked by test_repository_satisfies_every_invariant.
+
+Decides:
+  - GOV-018 — Dependencies between src packages run downward, and the exceptions are a shrinki
 """
 
 from __future__ import annotations
