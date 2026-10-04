@@ -1243,6 +1243,174 @@ class TestDefaultAllowOnFailure:
 
 
 # ---------------------------------------------------------------------------
+# check_no_print_in_src (GOV-047)
+# ---------------------------------------------------------------------------
+
+
+def test_print_in_src_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/emitter.py", "def go():\n    print('debug')\n")
+    problems = invariants.check_no_print_in_src()
+    assert any("print() in src/" in p for p in problems)
+
+
+def test_structlog_call_is_not_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/emitter.py",
+        "import structlog\n"
+        "log = structlog.get_logger(__name__)\n"
+        "def go():\n    log.info('debug')\n",
+    )
+    assert invariants.check_no_print_in_src() == []
+
+
+def test_a_print_referenced_as_a_method_attribute_is_not_flagged(invariants, fake_tree) -> None:
+    """`something.print()` is a method call on `something`, not the builtin."""
+    fake_tree(
+        "src/emitter.py",
+        "class Q:\n    def print(self):\n        pass\ndef go(q):\n    q.print()\n",
+    )
+    assert invariants.check_no_print_in_src() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_bare_except (GOV-049)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_except_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go():\n    try:\n        do()\n    except:\n        return\n")
+    problems = invariants.check_no_bare_except()
+    assert any("bare except" in p for p in problems)
+
+
+def test_named_except_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go():\n    try:\n        do()\n    except Exception:\n        return\n",
+    )
+    assert invariants.check_no_bare_except() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_assert_in_src (GOV-050)
+# ---------------------------------------------------------------------------
+
+
+def test_assert_in_src_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(x):\n    assert x > 0\n    return x\n")
+    problems = invariants.check_no_assert_in_src()
+    assert any("assert in src/" in p for p in problems)
+
+
+def test_if_raise_replacement_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go(x):\n"
+        "    if not x > 0:\n"
+        "        raise ValueError('x must be positive')\n"
+        "    return x\n",
+    )
+    assert invariants.check_no_assert_in_src() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_eval_or_exec (GOV-051)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("call", ["eval", "exec"])
+def test_eval_or_exec_in_src_is_flagged(invariants, fake_tree, call) -> None:
+    fake_tree("src/mod.py", f"def go(payload):\n    return {call}(payload)\n")
+    problems = invariants.check_no_eval_or_exec()
+    assert any(f"{call}() in src/" in p for p in problems)
+
+
+def test_getattr_is_not_flagged(invariants, fake_tree) -> None:
+    """getattr, __import__ and friends are not the code-from-string primitives."""
+    fake_tree(
+        "src/mod.py",
+        "def go(name, obj):\n    return getattr(obj, name)\n",
+    )
+    assert invariants.check_no_eval_or_exec() == []
+
+
+# ---------------------------------------------------------------------------
+# check_yaml_uses_safe_load (GOV-052)
+# ---------------------------------------------------------------------------
+
+
+def test_yaml_load_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.load(text)\n",
+    )
+    problems = invariants.check_yaml_uses_safe_load()
+    assert any("yaml.load()" in p for p in problems)
+
+
+def test_yaml_safe_load_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.safe_load(text)\n",
+    )
+    assert invariants.check_yaml_uses_safe_load() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_subprocess_shell_true (GOV-053)
+# ---------------------------------------------------------------------------
+
+
+def test_shell_true_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\ndef go(cmd):\n    subprocess.run(cmd, shell=True)\n",
+    )
+    problems = invariants.check_no_subprocess_shell_true()
+    assert any("shell=True" in p for p in problems)
+
+
+def test_shell_false_and_default_pass(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\n"
+        "def a(argv):\n    subprocess.run(argv, shell=False)\n"
+        "def b(argv):\n    subprocess.run(argv)\n",
+    )
+    assert invariants.check_no_subprocess_shell_true() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_weak_hash (GOV-054)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("algo", ["md5", "sha1"])
+def test_bare_weak_hash_is_flagged(invariants, fake_tree, algo) -> None:
+    fake_tree(
+        "src/mod.py", f"import hashlib\ndef go(b):\n    return hashlib.{algo}(b).hexdigest()\n"
+    )
+    problems = invariants.check_no_weak_hash()
+    assert any(f"hashlib.{algo}()" in p for p in problems)
+
+
+def test_usedforsecurity_false_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import hashlib\ndef go(b):\n    return hashlib.md5(b, usedforsecurity=False).hexdigest()\n",
+    )
+    assert invariants.check_no_weak_hash() == []
+
+
+def test_sha256_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import hashlib\ndef go(b):\n    return hashlib.sha256(b).hexdigest()\n",
+    )
+    assert invariants.check_no_weak_hash() == []
+
+
+# ---------------------------------------------------------------------------
 # check_text_open_names_encoding (GOV-055)
 # ---------------------------------------------------------------------------
 

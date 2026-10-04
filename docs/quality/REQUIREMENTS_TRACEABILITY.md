@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 152 |
+| VERIFIED | 159 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **152** |
+| **Total** | **159** |
 
 ## Summary by subsystem
 
@@ -64,11 +64,11 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 22 | 22 |
+| Cryptography and secrets | 26 | 26 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 48 | 48 |
+| Governance | 51 | 51 |
 
 ## Outstanding work by phase
 
@@ -798,6 +798,50 @@ A successful write through POST /controls/{name} must broadcast a control_change
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
 ## Cryptography and secrets
+
+#### `GOV-051` — no eval or exec in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses eval() and exec() anywhere in src/. Both accept a string and run it as code, so anywhere the string comes from configuration, from a network peer, or from any source not entirely under the operator's key, they are a remote-code-execution primitive.
+
+- **If violated:** eval() or exec() lands in src/. A source of the string that seemed inert -- a config key, a broker response, a filename -- becomes an arbitrary-code path, and the shape of the defect is one line the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-052` — yaml uses safe_load
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.
+
+- **If violated:** A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-053` — no shell=True in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
+
+- **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-054` — no bare md5 or sha1 in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.
+
+- **If violated:** A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
@@ -1816,6 +1860,17 @@ The quality registry loader refuses a test_types entry that no registry entry us
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-047` — no print() in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+Every module in src/ writes through structlog. The static-invariants gate refuses a bare print() call in src/ so an output the observability stack cannot see cannot ship. Tests and scripts remain free to print.
+
+- **If violated:** A print() slips into a production path. Its output bypasses log level, formatting and rate limiting, vanishes wherever stdout does, and produces a diagnostic that only appears in interactive runs -- the shape you cannot search for after the fact.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1823,6 +1878,28 @@ The quality registry loader refuses a test_types entry that no registry entry us
 The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcard puts the exporter in charge of the caller's namespace: a rename in x silently deletes a name in the caller, and a new export silently adds one that shadows what the caller had. Neither shows in the caller's diff.
 
 - **If violated:** A src/ module uses 'from x import *'. A future rename in x silently deletes the caller's binding of that name, or adds a name shadowing one the caller already had. The behaviour change lands with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-049` — no bare except in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.
+
+- **If violated:** A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-050` — no assert in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses assert statements anywhere in src/. assert is stripped by python -O, so any production check written as an assert becomes a silent no-op in optimised runs. Every production check is 'if not x: raise'.
+
+- **If violated:** A production check written as an assert. Under python -O the assert vanishes, the invariant it defended is unenforced, and no test signals the loss because the behaviour under -O differs from the behaviour the test observed.
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
@@ -1960,4 +2037,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 152 entries.
+Registry version: 1.0.0 — 159 entries.
