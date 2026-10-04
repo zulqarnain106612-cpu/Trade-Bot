@@ -1608,12 +1608,33 @@ def check_no_eval_or_exec() -> list[str]:
     return problems
 
 
+def check_yaml_uses_safe_load() -> list[str]:
+    """
+    ``yaml.load`` without a loader argument accepts YAML tags that construct
+    arbitrary Python objects -- the shape of ``!!python/object/apply:os.system``.
+    ``yaml.safe_load`` is the only entry point that refuses those tags.
+    """
+    problems: list[str] = []
+    for path in _py_files(SRC):
+        for node in ast.walk(_parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "load"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "yaml"
+            ):
+                problems.append(f"{_rel(path)}:{node.lineno}: yaml.load() -- use yaml.safe_load()")
+    return problems
+
+
 CHECKS = (
     ("import cycles", check_import_cycles),
     ("print in src", check_no_print_in_src),
     ("bare except", check_no_bare_except),
     ("assert in src", check_no_assert_in_src),
     ("eval or exec", check_no_eval_or_exec),
+    ("yaml.load", check_yaml_uses_safe_load),
     ("wildcard imports", check_no_wildcard_imports),
     ("layering", check_layering),
     ("cpu-bound work on the loop", check_cpu_bound_work_is_offloaded),

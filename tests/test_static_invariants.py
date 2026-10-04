@@ -1335,6 +1335,28 @@ def test_getattr_is_not_flagged(invariants, fake_tree) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_yaml_uses_safe_load (GOV-052)
+# ---------------------------------------------------------------------------
+
+
+def test_yaml_load_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.load(text)\n",
+    )
+    problems = invariants.check_yaml_uses_safe_load()
+    assert any("yaml.load()" in p for p in problems)
+
+
+def test_yaml_safe_load_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.safe_load(text)\n",
+    )
+    assert invariants.check_yaml_uses_safe_load() == []
+
+
+# ---------------------------------------------------------------------------
 # check_layering (GOV-042)
 # ---------------------------------------------------------------------------
 #
