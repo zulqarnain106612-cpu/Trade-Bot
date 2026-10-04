@@ -6,7 +6,7 @@
 # requirements-dev.txt. Target interpreter: Python 3.11 (.python-version).
 
 # --- async I/O and HTTP -----------------------------------------------------
-aiohttp>=3.9,<4.0
+aiohttp>=3.14.3,<4.0
 httpx>=0.27,<1.0
 requests>=2.34.2,<3.0
 # CVE-2026-97687/97688/97689 are fixed in 2.8.0 (SEC-0006). Declared directly
