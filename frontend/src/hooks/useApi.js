@@ -87,7 +87,22 @@ function _sendSubscribe(ws) {
   const topics = [..._topicListeners.keys()];
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   try {
-    ws.send(JSON.stringify({ op: 'subscribe', topics }));
+    // `type`, `nonce` and `ts` are the server's frame guard (API-005), not
+    // decoration: an inbound frame missing any of them is a policy violation
+    // and the guard *closes the socket*. A subscribe without them would make
+    // every connect a disconnect, and the reconnect that followed would send
+    // the same frame again -- a loop in which the dashboard never receives
+    // anything. ts is seconds, within the guard's clock skew; the nonce is
+    // per-frame because the guard refuses a replay.
+    ws.send(
+      JSON.stringify({
+        type: 'subscribe',
+        nonce: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+        ts: Date.now() / 1000,
+        op: 'subscribe',
+        topics,
+      }),
+    );
   } catch (_) {}
 }
 
