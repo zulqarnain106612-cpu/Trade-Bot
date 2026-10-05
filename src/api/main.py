@@ -471,13 +471,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 task.cancel()
             await asyncio.gather(*ws_tasks, return_exceptions=True)
 
-        # Close the subscription before cancelling, so the fan-out loop's
-        # `async for` ends on its own rather than being torn out of an await.
-        ws_subscription.close()
-        for task in ws_tasks:
-            task.cancel()
-        await asyncio.gather(*ws_tasks, return_exceptions=True)
-
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
         if _state.intel_adapter is not None:
