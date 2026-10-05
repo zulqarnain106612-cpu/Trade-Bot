@@ -112,5 +112,11 @@ def test_deduplication_is_scoped_to_session(monkeypatch, tmp_path):
     }
     first = gate.transform({**base, "session_id": "one"})
     second = gate.transform({**base, "session_id": "two"})
-    assert first["hookSpecificOutput"]["updatedToolOutput"] == "[Read]\na repeated observation with enough characters"
-    assert second["hookSpecificOutput"]["updatedToolOutput"] == "[Read]\\na repeated observation with enough characters"
+    assert (
+        first["hookSpecificOutput"]["updatedToolOutput"]
+        == "[Read]\na repeated observation with enough characters"
+    )
+    assert (
+        second["hookSpecificOutput"]["updatedToolOutput"]
+        == "[Read]\na repeated observation with enough characters"
+    )
