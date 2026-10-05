@@ -1,7 +1,6 @@
 from importlib import util
 from pathlib import Path
 
-
 ROOT = Path(__file__).parents[1]
 GATE_PATH = ROOT / ".claude" / "hooks" / "observation_gate.py"
 
