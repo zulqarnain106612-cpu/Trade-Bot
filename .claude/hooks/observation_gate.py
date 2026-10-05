@@ -109,7 +109,7 @@ def _state_path(event: dict[str, object]) -> Path | None:
         state_dir = Path(root)
     else:
         project = str(event.get("cwd") or "unknown-project")
-        project_key = hashlib.sha256(project.encode("utf-8")).hexdigest()[:16]
+        project_key = hashlib.sha256(project.encode()).hexdigest()[:16]
         state_dir = Path("/tmp") / "trade-bot-observation-gate" / project_key
 
     state_dir.mkdir(parents=True, exist_ok=True)
