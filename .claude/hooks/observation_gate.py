@@ -76,10 +76,7 @@ def minimize_text(text: str) -> str:
     if not text:
         return ""
 
-    lines = [
-        line.rstrip()
-        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    ]
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     diagnostic = _diagnostic_lines(lines)
     if diagnostic:
         out = diagnostic
@@ -148,12 +145,8 @@ def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
     if not text or len(text) < 24:
         return text
 
-    tool_name = str(
-        next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown")
-    )
-    digest = hashlib.sha256(
-        f"{tool_name}\0{field}\0{text}".encode()
-    ).hexdigest()
+    tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
+    digest = hashlib.sha256(f"{tool_name}\0{field}\0{text}".encode()).hexdigest()
     seen = _load_seen(event)
     if digest in seen:
         return REPEAT_MARKER
@@ -163,9 +156,7 @@ def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
     return text
 
 
-def _minimize_value(
-    value: object, event: dict[str, object], field: str
-) -> object:
+def _minimize_value(value: object, event: dict[str, object], field: str) -> object:
     if isinstance(value, str):
         return _dedupe_text(minimize_text(value), event, field)
     if isinstance(value, list):
@@ -202,9 +193,7 @@ def transform(event: dict[str, object]) -> dict[str, object]:
         )
 
     if isinstance(result, str):
-        tool_name = str(
-            next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown")
-        )
+        tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
         result = f"[{tool_name}]\n{result}"
 
     return {
