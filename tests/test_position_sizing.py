@@ -1,4 +1,8 @@
-"""Test coverage for src/strategies/position_sizing.py — Carver/AFML/Thorp sizing."""
+"""Test coverage for src/strategies/position_sizing.py — Carver/AFML/Thorp sizing.
+
+Decides:
+  - RISK-001 — Maximum position exposure must not exceed the configured ceiling
+"""
 
 import numpy as np
 import pytest

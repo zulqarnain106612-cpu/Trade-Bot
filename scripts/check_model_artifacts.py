@@ -22,7 +22,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from src.config import get_settings
+# Run as `python scripts/check_model_artifacts.py` and it is scripts/ that lands on
+# sys.path, not the repo root, so the first-party imports below do not
+# resolve on their own. Anchoring on __file__ rather than the cwd keeps
+# that true from any working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.config import get_settings  # noqa: E402
 
 
 def main() -> int:

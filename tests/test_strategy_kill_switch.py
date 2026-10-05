@@ -1,4 +1,8 @@
-"""Tests for the per-strategy kill-switch manager (v2 Sub-task 3)."""
+"""Tests for the per-strategy kill-switch manager (v2 Sub-task 3).
+
+Decides:
+  - EXEC-005 — The kill switch is authenticated, authorized, audited, idempotent and durable
+"""
 
 from __future__ import annotations
 
