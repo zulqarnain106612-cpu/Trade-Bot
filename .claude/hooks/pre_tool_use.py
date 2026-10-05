@@ -47,16 +47,6 @@ try:
 except Exception:  # pragma: no cover - defended below by _fail_open
     classify = None  # type: ignore[assignment]
 
-try:
-    # Shared with shell_exec.run() so the hook and the runtime cannot disagree
-    # about what counts as reading CI data. When the project is not importable
-    # -- a bare session, a detached checkout -- _ci_log_access falls back to
-    # the equivalent patterns in config/command_policy.json, which is why they
-    # are duplicated there rather than only here.
-    from common.command_schema import is_ci_log_access as _shared_is_ci_log_access
-except Exception:  # pragma: no cover - policy-file fallback covers this
-    _shared_is_ci_log_access = None  # type: ignore[assignment]
-
 
 # --------------------------------------------------------------------------
 # Decision plumbing
