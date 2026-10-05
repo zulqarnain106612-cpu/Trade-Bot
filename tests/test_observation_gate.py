@@ -87,3 +87,36 @@ def test_main_never_raises_on_bad_input(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
     assert "error" in payload
+
+
+def test_transform_deduplicates_repeated_observation(monkeypatch, tmp_path):
+    gate = load_gate()
+    monkeypatch.setenv("OBSERVATION_GATE_STATE_DIR", str(tmp_path))
+    event = {
+        "session_id": "session-1",
+        "tool_name": "Bash",
+        "tool_response": {"stdout": "same output that is long enough to deduplicate"},
+    }
+    first = gate.transform(event)
+    second = gate.transform(event)
+    assert "same output" in first["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
+    assert second["hookSpecificOutput"]["updatedToolOutput"]["stdout"] == gate.REPEAT_MARKER
+
+
+def test_deduplication_is_scoped_to_session(monkeypatch, tmp_path):
+    gate = load_gate()
+    monkeypatch.setenv("OBSERVATION_GATE_STATE_DIR", str(tmp_path))
+    base = {
+        "tool_name": "Read",
+        "tool_response": "a repeated observation with enough characters",
+    }
+    first = gate.transform({**base, "session_id": "one"})
+    second = gate.transform({**base, "session_id": "two"})
+    assert (
+        first["hookSpecificOutput"]["updatedToolOutput"]
+        == "[Read]\na repeated observation with enough characters"
+    )
+    assert (
+        second["hookSpecificOutput"]["updatedToolOutput"]
+        == "[Read]\na repeated observation with enough characters"
+    )

@@ -6,16 +6,26 @@ to Claude is rewritten. The gateway is signal-first: failures keep a tiny
 diagnostic neighborhood; successful/noisy output keeps only a small bounded
 summary. Structured tool outputs retain their shape so built-in validation
 continues to accept the replacement.
+
+The gateway also suppresses exact repeats within a session. A repeated
+observation is replaced with a short reference to the earlier observation,
+which prevents identical tool results from accumulating in model context.
 """
 
+import hashlib
 import json
+import os
 import re
 import sys
+from pathlib import Path
 
 MAX_LINES = 24
 MAX_DIAGNOSTIC_HITS = 8
 MAX_DIAGNOSTIC_CONTEXT = 1
 MAX_CHARS = 4000
+MAX_SEEN = 256
+REPEAT_MARKER = "[observation repeated; see earlier identical observation]"
+STATE_ENV = "OBSERVATION_GATE_STATE_DIR"
 ERROR_RE = re.compile(
     r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
     r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed)\b"
@@ -30,6 +40,7 @@ NOISE_RE = re.compile(
     r"\s*[-\\|/]+\s*$)"
 )
 TOOL_NAME_KEYS = ("tool_name", "toolName")
+TEXT_KEYS = ("stdout", "stderr", "content", "output", "text", "message")
 
 
 def compact_text(value: object) -> str:
@@ -85,15 +96,79 @@ def minimize_text(text: str) -> str:
     return result
 
 
-def _minimize_value(value: object) -> object:
+def _state_path(event: dict[str, object]) -> Path | None:
+    session_id = event.get("session_id")
+    if not session_id:
+        return None
+
+    root = os.environ.get(STATE_ENV)
+    if root:
+        state_dir = Path(root)
+    else:
+        project = str(event.get("cwd") or "unknown-project")
+        project_key = hashlib.sha256(project.encode()).hexdigest()[:16]
+        state_dir = Path("/tmp") / "trade-bot-observation-gate" / project_key
+
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / f"{session_id}.json"
+
+
+def _load_seen(event: dict[str, object]) -> set[str]:
+    path = _state_path(event)
+    if path is None:
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        values = payload.get("seen", [])
+        return set(values) if isinstance(values, list) else set()
+    except (OSError, ValueError):
+        return set()
+
+
+def _save_seen(event: dict[str, object], seen: set[str]) -> None:
+    path = _state_path(event)
+    if path is None:
+        return
+    try:
+        trimmed = list(seen)[-MAX_SEEN:]
+        temp = path.with_suffix(".tmp")
+        temp.write_text(
+            json.dumps({"seen": trimmed}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temp.replace(path)
+    except OSError:
+        pass
+
+
+def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
+    if not text or len(text) < 24:
+        return text
+
+    tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
+    digest = hashlib.sha256(f"{tool_name}\0{field}\0{text}".encode()).hexdigest()
+    seen = _load_seen(event)
+    if digest in seen:
+        return REPEAT_MARKER
+
+    seen.add(digest)
+    _save_seen(event, seen)
+    return text
+
+
+def _minimize_value(value: object, event: dict[str, object], field: str) -> object:
     if isinstance(value, str):
-        return minimize_text(value)
+        return _dedupe_text(minimize_text(value), event, field)
     if isinstance(value, list):
         result = []
-        for item in value:
+        for index, item in enumerate(value):
             if isinstance(item, dict) and isinstance(item.get("text"), str):
                 copied = dict(item)
-                copied["text"] = minimize_text(copied["text"])
+                copied["text"] = _dedupe_text(
+                    minimize_text(copied["text"]),
+                    event,
+                    f"{field}[{index}].text",
+                )
                 result.append(copied)
             else:
                 result.append(item)
@@ -105,13 +180,17 @@ def transform(event: dict[str, object]) -> dict[str, object]:
     raw = event.get("tool_response")
     if isinstance(raw, dict):
         result = dict(raw)
-        for key in ("stdout", "stderr", "content", "output", "text", "message"):
+        for key in TEXT_KEYS:
             if key in result:
-                result[key] = _minimize_value(result[key])
+                result[key] = _minimize_value(result[key], event, key)
     elif isinstance(raw, list):
-        result = _minimize_value(raw)
+        result = _minimize_value(raw, event, "response")
     else:
-        result = minimize_text(compact_text(raw))
+        result = _dedupe_text(
+            minimize_text(compact_text(raw)),
+            event,
+            "response",
+        )
 
     if isinstance(result, str):
         tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
