@@ -280,9 +280,7 @@ class TestTheFrameTheClientSends:
         assert ws.close_codes == []
         assert ws.sent == []
 
-    async def test_a_frame_without_the_envelope_is_closed_not_subscribed(
-        self, api_state
-    ) -> None:
+    async def test_a_frame_without_the_envelope_is_closed_not_subscribed(self, api_state) -> None:
         """
         The other half of the same fact, pinned so the client cannot quietly
         go back to sending a bare command: the guard closes it, and nothing
