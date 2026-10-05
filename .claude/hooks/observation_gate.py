@@ -9,8 +9,6 @@ model-visible observation with a compact, task-useful representation.
 import json
 import re
 import sys
-from typing import Any
-
 
 MAX_LINES = 80
 MAX_CHARS = 12000
@@ -22,7 +20,7 @@ NOISE_RE = re.compile(r"(?i)^(npm warn|warning:|hint:|notice:|progress|downloadi
 TOOL_NAME_KEYS = ("tool_name", "toolName")
 
 
-def compact_text(value: Any) -> str:
+def compact_text(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -64,7 +62,7 @@ def minimize_text(text: str) -> str:
     return result
 
 
-def transform(event: dict[str, Any]) -> dict[str, Any]:
+def transform(event: dict[str, object]) -> dict[str, object]:
     tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
     raw = event.get("tool_response")
 
