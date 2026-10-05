@@ -19,10 +19,10 @@ import re
 import sys
 from pathlib import Path
 
-MAX_LINES = 24
-MAX_DIAGNOSTIC_HITS = 8
+MAX_LINES = 3
+MAX_DIAGNOSTIC_HITS = 3
 MAX_DIAGNOSTIC_CONTEXT = 1
-MAX_CHARS = 4000
+MAX_CHARS = 1200
 MAX_SEEN = 256
 REPEAT_MARKER = "[observation repeated; see earlier identical observation]"
 STATE_ENV = "OBSERVATION_GATE_STATE_DIR"
