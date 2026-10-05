@@ -64,7 +64,9 @@ except Exception:  # pragma: no cover - policy-file fallback covers this
 # --------------------------------------------------------------------------
 
 
-def _emit(decision: str, reason: str = "", updated_input: dict[str, Any] | None = None) -> None:
+def _emit(
+    decision: str, reason: str = "", updated_input: dict[str, Any] | None = None
+) -> None:
     """Write the hook decision and exit 0."""
     payload: dict[str, Any] = {
         "hookSpecificOutput": {
