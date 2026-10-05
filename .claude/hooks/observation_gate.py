@@ -65,19 +65,12 @@ def minimize_text(text: str) -> str:
     if not text:
         return ""
 
-    lines = [
-        line.rstrip()
-        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    ]
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     diagnostic = _diagnostic_lines(lines)
     if diagnostic:
         out = diagnostic
     else:
-        meaningful = [
-            line
-            for line in lines
-            if line.strip() and not NOISE_RE.search(line)
-        ]
+        meaningful = [line for line in lines if line.strip() and not NOISE_RE.search(line)]
         signal = [line for line in meaningful if SIGNAL_RE.search(line)]
         out = (signal or meaningful)[:MAX_LINES]
 
@@ -121,9 +114,7 @@ def transform(event: dict[str, object]) -> dict[str, object]:
         result = minimize_text(compact_text(raw))
 
     if isinstance(result, str):
-        tool_name = str(
-            next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown")
-        )
+        tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
         result = f"[{tool_name}]\n{result}"
 
     return {
