@@ -150,7 +150,7 @@ def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
 
     tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
     digest = hashlib.sha256(
-        f"{tool_name}\0{field}\0{text}".encode("utf-8")
+        f"{tool_name}\0{field}\0{text}".encode()
     ).hexdigest()
     seen = _load_seen(event)
     if digest in seen:
