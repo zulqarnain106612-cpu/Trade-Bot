@@ -29,6 +29,7 @@ into blocking something the runtime allows, or vice versa.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -63,7 +64,7 @@ except Exception:  # pragma: no cover - policy-file fallback covers this
 # --------------------------------------------------------------------------
 
 
-def _emit(decision: str, reason: str = "") -> None:
+def _emit(decision: str, reason: str = "", updated_input: dict[str, Any] | None = None) -> None:
     """Write the hook decision and exit 0."""
     payload: dict[str, Any] = {
         "hookSpecificOutput": {
@@ -73,9 +74,18 @@ def _emit(decision: str, reason: str = "") -> None:
     }
     if reason:
         payload["hookSpecificOutput"]["permissionDecisionReason"] = reason
+    if updated_input is not None:
+        payload["hookSpecificOutput"]["updatedInput"] = updated_input
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     sys.exit(0)
+
+
+def _bounded_bash_input(command: str) -> dict[str, Any]:
+    """Run the exact command through the local output-capture boundary."""
+    encoded = base64.b64encode(command.encode("utf-8")).decode("ascii")
+    wrapper = PROJECT_DIR / ".claude" / "hooks" / "bounded_bash.py"
+    return {"command": f'python3 "{wrapper}" {encoded}'}
 
 
 def _fail_open(note: str) -> None:
@@ -476,7 +486,7 @@ def main() -> None:
 
     level = _enforcement(policy)
     if level == "off":
-        _emit("allow")
+        _emit("allow", updated_input=_bounded_bash_input(command))
         return
 
     try:
@@ -486,7 +496,7 @@ def main() -> None:
         return
 
     if not problems:
-        _emit("allow")
+        _emit("allow", updated_input=_bounded_bash_input(command))
         return
 
     deduped: list[str] = []
@@ -496,7 +506,7 @@ def main() -> None:
     reason = " ".join(deduped)
     if level == "warn":
         print(f"[pre_tool_use] policy warning: {reason}", file=sys.stderr)
-        _emit("allow")
+        _emit("allow", updated_input=_bounded_bash_input(command))
         return
 
     _emit("deny", reason)
