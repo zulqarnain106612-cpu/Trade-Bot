@@ -159,20 +159,16 @@ def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
 def _minimize_value(value: object, event: dict[str, object], field: str) -> object:
     if isinstance(value, str):
         return _dedupe_text(minimize_text(value), event, field)
+    if isinstance(value, dict):
+        return {
+            key: _minimize_value(item, event, str(key))
+            for key, item in value.items()
+        }
     if isinstance(value, list):
-        result = []
-        for index, item in enumerate(value):
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                copied = dict(item)
-                copied["text"] = _dedupe_text(
-                    minimize_text(copied["text"]),
-                    event,
-                    f"{field}[{index}].text",
-                )
-                result.append(copied)
-            else:
-                result.append(item)
-        return result
+        return [
+            _minimize_value(item, event, f"{field}[{index}]")
+            for index, item in enumerate(value)
+        ]
     return value
 
 
