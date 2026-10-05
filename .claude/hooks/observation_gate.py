@@ -100,12 +100,14 @@ def main() -> int:
         return 0
     except Exception as exc:
         # Never break the underlying tool because the observation filter failed.
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse"
-            },
-            "error": f"observation gate failed: {exc}",
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {"hookEventName": "PostToolUse"},
+                    "error": f"observation gate failed: {exc}",
+                }
+            )
+        )
         return 0
 
 
