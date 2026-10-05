@@ -290,7 +290,11 @@ jobs:
 
       - name: Repo-wide coverage gate
         # fail_under = 99 comes from [tool.coverage.report] in pyproject.toml.
-        run: coverage report
+        # -m --skip-covered so the failure notice names the files that are
+        # short and the lines they are missing: the notice carries the tail of
+        # this step, and a full listing of a 26k-statement repo pushed every
+        # useful row out of it.
+        run: coverage report -m --skip-covered
 
       - name: Per-file coverage floors
         run: python scripts/check_coverage_floors.py

@@ -47,18 +47,18 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 163 |
+| VERIFIED | 164 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **163** |
+| **Total** | **164** |
 
 ## Summary by subsystem
 
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 10 |
-| Execution | 11 | 11 |
+| Execution | 12 | 12 |
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
@@ -265,6 +265,20 @@ After any restart, the reconstructed position and balance state matches the exch
 - **Owned by:** `src/execution/unified_ledger.py`, `src/diagnostics/disaster_recovery.py`
 - **Verification:**
   - `tests/recovery/test_crash_replay.py` (recovery) — Reconstructed state is compared against the venue at every crash point; signed quantities, partial fills and dust are each distinguished from a missing position.
+
+#### `INV-033` — A display refresh never advances risk state
+
+**VERIFIED** · critical · invariant · source: OPS-2026-10-05
+
+Reading a price for the dashboard leaves every running extreme the exit logic consults exactly as the trading path left it: a position's peak_unrealized_pct, the executor's _peak_equity and the drawdown tracker are advanced only by mark/mark_to_market on the position monitor's own cadence. The sub-second path publishes previews computed by unrealized_at and preview_marked_equity, which mutate nothing, and neither of its loops may end on a bad tick.
+
+- **If violated:** The streamed mid arrives about twenty times as often as the 5s REST poll. Marking at that cadence samples twenty times as many extremes, so the recorded peak climbs, measured drawdown widens against highs no exit rule ever evaluated, and check_daily_drawdown and the trailing stop begin firing on spikes the slow path never saw -- a latency fix silently changing when positions close. The quieter half: a loop that dies on one failed socket or one bad snapshot ends the price feed for the life of the process while the dashboard keeps showing the last value it got.
+- **Owned by:** `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`
+- **Verification:**
+  - `tests/test_price_preview_path.py` (risk) — The read-only pair and the two loops: unrealized_at and preview_marked_equity leave peak_unrealized_pct, _peak_equity and cash untouched, the preview loop never reaches mark_to_market, a dropped socket is retried rather than abandoned, and a failing snapshot is logged without ending the feed.
+  - `tests/test_orderbook_stream_publish.py` (api) — The producer half: the stream coalesces its 100ms feed to 250ms, withholds a stale mid rather than publishing a frozen price as a live one, and a broken subscriber cannot reach the feed.
+
+> The display path is deliberately a separate loop from _position_monitor_loop rather than a faster version of it. Sharing the monitor's loop would have been less code and would have moved live thresholds, which is a trading-behaviour change a latency fix is not allowed to smuggle in.
 
 #### `EXEC-001` — Execution requests carry an idempotency key end to end
 
@@ -656,11 +670,12 @@ MarketDataFetcher.initialize() must open each venue independently, record an una
 Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.
 
 - **If violated:** A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.
-- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`
+- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`
 - **Verification:**
   - `tests/test_event_bus.py` (resilience)
   - `tests/test_ws_broadcaster.py` (api) — The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market.
   - `tests/test_event_bus_producers.py` (risk) — The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path.
+  - `tests/test_orderbook_stream_publish.py` (resilience) — The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed.
 
 > Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events.
 
@@ -2090,4 +2105,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 163 entries.
+Registry version: 1.0.0 — 164 entries.

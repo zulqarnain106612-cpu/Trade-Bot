@@ -210,9 +210,24 @@ jobs:
                 const ann = await github.rest.checks.listAnnotations({
                   ...context.repo, check_run_id: job.id, per_page: 20,
                 });
+                // Location first. A bare message names the exception and not
+                // the test that raised it, and "Event loop is closed" with no
+                // file is a notice that cannot be acted on without the log
+                // this workflow exists to avoid reading.
                 const msgs = ann.data
                   .filter(a => a.annotation_level !== 'notice')
-                  .map(a => (a.message || a.title || '').split('\n').map(s => s.trim()).filter(Boolean)[0])
+                  .map(a => {
+                    const first = (a.message || a.title || '')
+                      .split('\n').map(s => s.trim()).filter(Boolean)[0];
+                    if (!first) return '';
+                    const where = a.path && a.path !== '.github'
+                      ? `${a.path}${a.start_line ? ':' + a.start_line : ''}: `
+                      : '';
+                    const title = a.title && a.title.trim() && !first.includes(a.title.trim())
+                      ? `${a.title.trim()} -- `
+                      : '';
+                    return `${where}${title}${first}`;
+                  })
                   .filter(Boolean)
                   .filter(l => !isNoise(l));
                 if (msgs.length) return msgs.slice(0, MAX_MSG_LINES);
