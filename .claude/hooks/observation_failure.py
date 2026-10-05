@@ -16,7 +16,9 @@ import sys
 
 MAX_LINES = 3
 MAX_CHARS = 900
-ERROR_RE = re.compile(r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|exit\s+code)\b")
+ERROR_RE = re.compile(
+    r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|exit\s+code)\b"
+)
 
 
 def compact(value: object) -> str:
@@ -43,7 +45,9 @@ def summarize(text: str) -> str:
 def main() -> int:
     try:
         event = json.load(sys.stdin)
-        raw = event.get("error") or event.get("tool_response") or event.get("message")
+        raw = (
+            event.get("error") or event.get("tool_response") or event.get("message")
+        )
         summary = summarize(compact(raw))
         print(json.dumps({
             "hookSpecificOutput": {
