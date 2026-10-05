@@ -1,4 +1,4 @@
-import importlib.util
+from importlib import util
 from pathlib import Path
 
 
@@ -7,8 +7,8 @@ GATE_PATH = ROOT / ".claude" / "hooks" / "observation_gate.py"
 
 
 def load_gate():
-    spec = importlib.util.spec_from_file_location("observation_gate_v2", GATE_PATH)
-    module = importlib.util.module_from_spec(spec)
+    spec = util.spec_from_file_location("observation_gate_v2", GATE_PATH)
+    module = util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
