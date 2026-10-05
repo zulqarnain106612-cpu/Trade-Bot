@@ -22,12 +22,18 @@ def test_minimize_text_keeps_diagnostic_and_context():
     assert len(result) < len(raw)
 
 
-def test_minimize_text_bounds_non_error_output():
+def test_minimize_text_bounds_success_output_tightly():
     gate = load_gate()
     raw = "\n".join(f"line {i}" for i in range(200))
     result = gate.minimize_text(raw)
     assert result.count("\n") <= gate.MAX_LINES
     assert "line 0" in result
+    assert len(result) < len(raw) // 4
+
+
+def test_empty_text_stays_empty():
+    gate = load_gate()
+    assert gate.minimize_text("") == ""
 
 
 def test_transform_preserves_structured_tool_shape():
@@ -55,6 +61,23 @@ def test_transform_compacts_scalar_response():
     output = result["hookSpecificOutput"]["updatedToolOutput"]
     assert output.startswith("[Read]\n")
     assert "line 1" in output
+
+
+def test_transform_compacts_common_structured_text_fields():
+    gate = load_gate()
+    event = {
+        "tool_name": "MCP",
+        "tool_response": {
+            "content": [{"type": "text", "text": "\n".join(f"line {i}" for i in range(100))}],
+            "message": "\n".join(f"line {i}" for i in range(100)),
+            "id": "keep-me",
+        },
+    }
+    result = gate.transform(event)
+    output = result["hookSpecificOutput"]["updatedToolOutput"]
+    assert output["id"] == "keep-me"
+    assert len(output["content"][0]["text"]) < 1000
+    assert len(output["message"]) < 1000
 
 
 def test_main_never_raises_on_bad_input(monkeypatch, capsys):
