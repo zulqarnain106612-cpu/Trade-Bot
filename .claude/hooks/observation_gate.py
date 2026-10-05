@@ -202,7 +202,9 @@ def transform(event: dict[str, object]) -> dict[str, object]:
         )
 
     if isinstance(result, str):
-        tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
+        tool_name = str(
+            next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown")
+        )
         result = f"[{tool_name}]\n{result}"
 
     return {
