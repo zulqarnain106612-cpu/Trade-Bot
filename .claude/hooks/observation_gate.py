@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""Minimize successful Claude tool observations before they re-enter model context.
+"""Deterministic gateway for model-visible successful tool observations.
 
-This hook is intentionally deterministic and runs after a tool has executed.
-It does not prevent the underlying command/tool from running; it replaces the
-model-visible observation with a compact, task-useful representation.
+The underlying tool is allowed to run normally. Only the observation sent back
+to Claude is rewritten. The gateway is signal-first: failures keep a tiny
+diagnostic neighborhood; successful/noisy output keeps only a small bounded
+summary. Structured tool outputs retain their shape so built-in validation
+continues to accept the replacement.
 """
 
 import json
 import re
 import sys
 
-MAX_LINES = 80
-MAX_CHARS = 12000
+MAX_LINES = 24
+MAX_DIAGNOSTIC_HITS = 8
+MAX_DIAGNOSTIC_CONTEXT = 1
+MAX_CHARS = 4000
 ERROR_RE = re.compile(
     r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
     r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed)\b"
 )
-NOISE_RE = re.compile(r"(?i)^(npm warn|warning:|hint:|notice:|progress|downloading)")
+SIGNAL_RE = re.compile(
+    r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
+    r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed|"
+    r"warning|warn|exit\s+code|passed|success|completed)\b"
+)
+NOISE_RE = re.compile(
+    r"(?i)^(npm warn|warning:|hint:|notice:|progress|downloading|"
+    r"\s*[-\\|/]+\s*$)"
+)
 TOOL_NAME_KEYS = ("tool_name", "toolName")
 
 
@@ -33,23 +45,41 @@ def compact_text(value: object) -> str:
         return str(value)
 
 
+def _diagnostic_lines(lines: list[str]) -> list[str]:
+    hits = [i for i, line in enumerate(lines) if ERROR_RE.search(line)]
+    if not hits:
+        return []
+
+    selected: set[int] = set()
+    for index in hits[:MAX_DIAGNOSTIC_HITS]:
+        selected.update(
+            range(
+                max(0, index - MAX_DIAGNOSTIC_CONTEXT),
+                min(len(lines), index + MAX_DIAGNOSTIC_CONTEXT + 1),
+            )
+        )
+    return [lines[i] for i in sorted(selected) if lines[i].strip()]
+
+
 def minimize_text(text: str) -> str:
     if not text:
         return ""
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [line.rstrip() for line in text.split("\n")]
 
-    # Preserve high-signal diagnostics first. Include a small amount of
-    # surrounding context, while dropping repetitive low-value noise.
-    hits = [i for i, line in enumerate(lines) if ERROR_RE.search(line)]
-    if hits:
-        selected: set[int] = set()
-        for i in hits[:20]:
-            selected.update(range(max(0, i - 1), min(len(lines), i + 2)))
-        out = [lines[i] for i in sorted(selected) if lines[i].strip()]
+    lines = [
+        line.rstrip()
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
+    diagnostic = _diagnostic_lines(lines)
+    if diagnostic:
+        out = diagnostic
     else:
-        out = [line for line in lines if line.strip() and not NOISE_RE.search(line)]
-        out = out[:MAX_LINES]
+        meaningful = [
+            line
+            for line in lines
+            if line.strip() and not NOISE_RE.search(line)
+        ]
+        signal = [line for line in meaningful if SIGNAL_RE.search(line)]
+        out = (signal or meaningful)[:MAX_LINES]
 
     if not out:
         return "(tool completed; no concise diagnostic output)"
@@ -62,27 +92,38 @@ def minimize_text(text: str) -> str:
     return result
 
 
-def transform(event: dict[str, object]) -> dict[str, object]:
-    tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
-    raw = event.get("tool_response")
+def _minimize_value(value: object) -> object:
+    if isinstance(value, str):
+        return minimize_text(value)
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                copied = dict(item)
+                copied["text"] = minimize_text(copied["text"])
+                result.append(copied)
+            else:
+                result.append(item)
+        return result
+    return value
 
-    # Claude validates built-in tool response shapes. For structured responses
-    # that cannot safely be reconstructed generically, retain a compact JSON
-    # representation rather than returning an invalid shape.
+
+def transform(event: dict[str, object]) -> dict[str, object]:
+    raw = event.get("tool_response")
     if isinstance(raw, dict):
         result = dict(raw)
-        for key in ("stdout", "stderr"):
+        for key in ("stdout", "stderr", "content", "output", "text", "message"):
             if key in result:
-                result[key] = minimize_text(compact_text(result[key]))
-        if "content" in result and not ("stdout" in result or "stderr" in result):
-            result["content"] = minimize_text(compact_text(result["content"]))
+                result[key] = _minimize_value(result[key])
     elif isinstance(raw, list):
-        result = minimize_text(compact_text(raw))
+        result = _minimize_value(raw)
     else:
         result = minimize_text(compact_text(raw))
 
-    # Keep the tool identity available without retaining the raw payload.
     if isinstance(result, str):
+        tool_name = str(
+            next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown")
+        )
         result = f"[{tool_name}]\n{result}"
 
     return {
@@ -97,9 +138,7 @@ def main() -> int:
     try:
         event = json.load(sys.stdin)
         print(json.dumps(transform(event), ensure_ascii=False))
-        return 0
     except Exception as exc:
-        # Never break the underlying tool because the observation filter failed.
         print(
             json.dumps(
                 {
@@ -108,7 +147,7 @@ def main() -> int:
                 }
             )
         )
-        return 0
+    return 0
 
 
 if __name__ == "__main__":
