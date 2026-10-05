@@ -148,7 +148,9 @@ def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
     if not text or len(text) < 24:
         return text
 
-    tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
+    tool_name = str(
+        next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown")
+    )
     digest = hashlib.sha256(
         f"{tool_name}\0{field}\0{text}".encode()
     ).hexdigest()
