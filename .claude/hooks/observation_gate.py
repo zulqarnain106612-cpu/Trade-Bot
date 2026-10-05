@@ -6,6 +6,8 @@ It does not prevent the underlying command/tool from running; it replaces the
 model-visible observation with a compact, task-useful representation.
 """
 
+from __future__ import annotations
+
 import json
 import re
 import sys
