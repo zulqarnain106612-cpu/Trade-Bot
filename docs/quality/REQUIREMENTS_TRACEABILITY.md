@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 143 |
+| VERIFIED | 163 |
 | PARTIAL | 0 |
-| PLANNED | 1 |
+| PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **144** |
+| **Total** | **163** |
 
 ## Summary by subsystem
 
@@ -63,12 +63,12 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 14 | 13 |
-| Cryptography and secrets | 22 | 22 |
+| API and WebSocket | 16 | 16 |
+| Cryptography and secrets | 26 | 26 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 38 | 38 |
+| Governance | 51 | 51 |
 
 ## Outstanding work by phase
 
@@ -80,7 +80,7 @@ deletion of the thing it points at.
 | PR-004 | Model/Leakage Verification | — |
 | PR-005 | Execution/FSM/Exchange Contracts | — |
 | PR-006 | Regression + Property Testing | — |
-| PR-007 | API/WebSocket Security | `REG-0022` |
+| PR-007 | API/WebSocket Security | — |
 | PR-008 | Cryptographic/Secret Architecture | — |
 | PR-009 | Supply-Chain + Artifact Security | — |
 | PR-010 | Recovery/Chaos/Performance | — |
@@ -813,17 +813,89 @@ A successful write through POST /controls/{name} must broadcast a control_change
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
+#### `GOV-035` — Frontend behaviour is decided by a test, not only by the build
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-30
+
+frontend/ runs vitest under jsdom, and `npm test` is a step of the gated `frontend` job in ci.yml. Tests live beside the module they decide and may not reach the network.
+
+- **If violated:** `npm run build` was the only frontend gate, and a build proves nothing about lifecycle: a socket that reconnects after unmount, a retry that never cancels, a handler that routes the wrong frame to the wrong callback all compile perfectly. Every defect of that class reached whoever had the dashboard open, and the registry could not name a deciding test for any frontend requirement because no runner existed to hold one.
+- **Owned by:** `frontend/vitest.config.js`, `.github/workflows/ci.yml`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (contract)
+
+#### `REG-0019` — The dashboard socket does not reconnect after unmount, and backs off with jitter
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+useWebSocket marks itself disposed and clears any pending retry in its effect cleanup, so a close it caused never schedules a reconnect. Retries use exponential backoff with full jitter drawn from [0, backoff), capped at RECONNECT_CAP_MS, and the attempt counter resets when a connection opens.
+
+- **If violated:** Two defects in one handler. The cleanup closed the socket, which fired onclose, which scheduled another connect -- so every unmount left a reconnect loop running against a component that no longer existed, and React 18 StrictMode starts one on the first mount in dev. Separately the delay was a flat 3s with no jitter, so every open dashboard retried in lockstep and an API that had just come back up met the whole fleet at once, every three seconds, for as long as it stayed unhealthy.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Depends on:** `GOV-035`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (regression)
+
+> Neither defect is visible to a build, and there was no frontend test runner to hold the check that would have caught them. layer: test-suite
+
 #### `REG-0022` — A hook that takes a callback calls the latest one, not the first render's
 
-**PLANNED → PR-007** · medium · regression · source: OPS-2026-09-25
+**VERIFIED** · medium · regression · source: OPS-2026-09-25
 
 usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
 
 - **If violated:** usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.
 - **Owned by:** `frontend/src/hooks/useApi.js`
-- **Verification:** none yet
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (regression)
+
+> Both halves are one defect: a ref is what lets the latest callback run without the effect's lifetime following the callback's identity. layer: test-suite
 
 ## Cryptography and secrets
+
+#### `GOV-051` — no eval or exec in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses eval() and exec() anywhere in src/. Both accept a string and run it as code, so anywhere the string comes from configuration, from a network peer, or from any source not entirely under the operator's key, they are a remote-code-execution primitive.
+
+- **If violated:** eval() or exec() lands in src/. A source of the string that seemed inert -- a config key, a broker response, a filename -- becomes an arbitrary-code path, and the shape of the defect is one line the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-052` — yaml uses safe_load
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.
+
+- **If violated:** A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-053` — no shell=True in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
+
+- **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-054` — no bare md5 or sha1 in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.
+
+- **If violated:** A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
@@ -1754,6 +1826,105 @@ The quality registry loader refuses a verified entry whose depends_on names an e
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-039` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-040` — check_import_cycles has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses module-level import cycles carries a dedicated fake-tree test proving it can fire on a 2-module cycle, and a companion test proving a deferred (function-scope) import is not counted.
+
+- **If violated:** check_import_cycles is reached only by the whole-repo positive gate. A bug that stops it from detecting cycles would ship silently, and a module-level cycle would then fail at collection time with only the ImportError as the signal.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-041` — check_every_gate_status_is_reachable has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses an unreachable GateStatus member carries a dedicated fake-tree test proving it can fire: given a synthetic gates.py whose evaluate_all_gates does not call a check that emits a declared status, the invariant reports it.
+
+- **If violated:** The check was reached only by the whole-repo positive gate; a bug that stopped it detecting an unreachable status would ship silently, and a declared halt the stack cannot emit is a risk control that does not exist. HALT_DRIFT was exactly that shape.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-042` — check_layering coverage locator
+
+**VERIFIED** · low · requirement · source: QE-52
+
+tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.
+
+- **If violated:** A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-043` — test docstrings name the entries they decide
+
+**VERIFIED** · low · requirement · source: QE-52
+
+Test modules that decide three or more registry entries name those entries in their module docstring. A future contributor grep'ing for an entry id lands in the test that decides it without a traceability round-trip.
+
+- **If violated:** A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.
+- **Owned by:** `tests/quality/test_quality_registry.py`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (contract)
+
+#### `GOV-044` — math implementations rest on implementations
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' whose depends_on names an entry that is not itself 'implemented' or 'not_applicable'. A claim resting on planned or rejected dependencies has nothing under it.
+
+- **If violated:** An implemented entry that depends on a still-planned primitive claims to work without the mathematics it needs. The traceability document then reports a load-bearing entry as ready while its foundation is not; a reader following depends_on lands on an entry with no owner.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-045` — every wiring kind is held to the existence check
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses any wiring pointing at a file that does not exist -- owner, component, consumer, config or doc. Same standard for every pointer; a pointer to a missing file is worse than no pointer.
+
+- **If violated:** A rename or deletion silently orphans a consumer/config/doc pointer that the loader used to skip -- so a registry query returns a module name a reader trusts and cannot find, while owner and component pointers stay honest.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-046` — declared taxonomy has a user
+
+**VERIFIED** · low · requirement · source: QE-52
+
+The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.
+
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
+#### `GOV-047` — no print() in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+Every module in src/ writes through structlog. The static-invariants gate refuses a bare print() call in src/ so an output the observability stack cannot see cannot ship. Tests and scripts remain free to print.
+
+- **If violated:** A print() slips into a production path. Its output bypasses log level, formatting and rate limiting, vanishes wherever stdout does, and produces a diagnostic that only appears in interactive runs -- the shape you cannot search for after the fact.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1764,6 +1935,50 @@ The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcar
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-049` — no bare except in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.
+
+- **If violated:** A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-050` — no assert in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses assert statements anywhere in src/. assert is stripped by python -O, so any production check written as an assert becomes a silent no-op in optimised runs. Every production check is 'if not x: raise'.
+
+- **If violated:** A production check written as an assert. Under python -O the assert vanishes, the invariant it defended is unenforced, and no test signals the loss because the behaviour under -O differs from the behaviour the test observed.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-055` — text open names encoding
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.
+
+- **If violated:** A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-056` — implemented math entry names its test
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.
+
+- **If violated:** An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1876,4 +2091,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 144 entries.
+Registry version: 1.0.0 — 163 entries.

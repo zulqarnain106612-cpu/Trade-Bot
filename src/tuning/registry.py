@@ -9,6 +9,8 @@ proposal can never exceed. Hard risk limits are permanently excluded and
 cannot be registered, regardless of caller intent -- this is enforced in
 code, not just by convention, so a future call site can't accidentally
 open up Kelly sizing or drawdown halts to self-tuning.
+
+Registry: REG-0005 (config/quality_registry.json).
 """
 
 from __future__ import annotations

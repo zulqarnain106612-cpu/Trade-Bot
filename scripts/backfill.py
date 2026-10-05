@@ -27,13 +27,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
 import structlog
 
-from src.config import Timeframe, get_settings
-from src.data.fetcher import open_fetcher
-from src.data.storage import create_storage_backend
-from src.logging_setup import configure_logging
+# Run as `python scripts/backfill.py` and it is scripts/ that lands on
+# sys.path, not the repo root, so the first-party imports below do not
+# resolve on their own. Anchoring on __file__ rather than the cwd keeps
+# that true from any working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.config import Timeframe, get_settings  # noqa: E402
+from src.data.fetcher import open_fetcher  # noqa: E402
+from src.data.storage import create_storage_backend  # noqa: E402
+from src.logging_setup import configure_logging  # noqa: E402
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 

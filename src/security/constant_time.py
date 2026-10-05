@@ -20,6 +20,8 @@ post_quantum posture (LAW12):
 
   The gate flags it because its scope is src/security/, not because it has
   quantum-fragile primitives.
+
+Registry: SECR-002 (config/quality_registry.json).
 """
 
 from __future__ import annotations

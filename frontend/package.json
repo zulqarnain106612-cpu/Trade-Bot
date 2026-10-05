@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "icons": "node scripts/build-icons.mjs",
     "electron:dev": "concurrently -k -n vite,electron -c blue,yellow \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
-    "desktop:install": "bash scripts/install-desktop-shortcut.sh"
+    "desktop:install": "bash scripts/install-desktop-shortcut.sh",
+    "test": "vitest run"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -22,14 +23,18 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^10.0.5",
     "electron": "^44.5.1",
+    "jsdom": "^30.1.1",
     "postcss": "^8.5.28",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.3",
-    "vite": "^8.3.1",
-    "wait-on": "^9.1.0"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "wait-on": "^9.5.1"
   },
   "build": {
     "appId": "com.tradebot.dashboard",
