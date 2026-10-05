@@ -99,13 +99,8 @@ def test_transform_deduplicates_repeated_observation(monkeypatch, tmp_path):
     }
     first = gate.transform(event)
     second = gate.transform(event)
-    assert (
-        "same output" in first["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
-    )
-    assert (
-        second["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
-        == gate.REPEAT_MARKER
-    )
+    assert "same output" in first["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
+    assert second["hookSpecificOutput"]["updatedToolOutput"]["stdout"] == gate.REPEAT_MARKER
 
 
 def test_deduplication_is_scoped_to_session(monkeypatch, tmp_path):
