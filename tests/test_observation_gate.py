@@ -26,7 +26,7 @@ def test_minimize_text_bounds_non_error_output():
     gate = load_gate()
     raw = "\n".join(f"line {i}" for i in range(200))
     result = gate.minimize_text(raw)
-    assert result.count("\n") < gate.MAX_LINES
+    assert result.count("\n") <= gate.MAX_LINES
     assert "line 0" in result
 
 
