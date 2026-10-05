@@ -10,7 +10,9 @@ HOOK = ROOT / ".claude" / "hooks" / "pre_tool_use.py"
 
 
 def test_bash_input_is_routed_through_capture_boundary():
-    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "printf 'one\\ntwo\\n'"}})
+    payload = json.dumps(
+        {"tool_name": "Bash", "tool_input": {"command": "printf 'one\\ntwo\\n'"}}
+    )
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT)}
     proc = subprocess.run(
         [sys.executable, str(HOOK)],
