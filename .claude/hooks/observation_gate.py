@@ -6,8 +6,6 @@ It does not prevent the underlying command/tool from running; it replaces the
 model-visible observation with a compact, task-useful representation.
 """
 
-from __future__ import annotations
-
 import json
 import re
 import sys
@@ -38,6 +36,8 @@ def compact_text(value: Any) -> str:
 
 
 def minimize_text(text: str) -> str:
+    if not text:
+        return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in text.split("\n")]
 
