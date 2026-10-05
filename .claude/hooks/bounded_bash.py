@@ -16,7 +16,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-PROJECT_DIR = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2]))
+PROJECT_DIR = Path(
+    os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])
+)
 GATE = PROJECT_DIR / ".claude" / "hooks" / "observation_gate.py"
 
 
@@ -65,7 +67,9 @@ def main() -> int:
                 summary = "(no output)"
             print(f"[bash result]\nexit_code={proc.returncode}\n{summary}")
     except Exception as exc:
-        print(f"[bash result]\nexit_code=2\nwrapper failed: {type(exc).__name__}: {exc}")
+        print(
+            f"[bash result]\nexit_code=2\nwrapper failed: {type(exc).__name__}: {exc}"
+        )
     return 0
 
 
