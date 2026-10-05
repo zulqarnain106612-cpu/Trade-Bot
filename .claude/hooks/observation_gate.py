@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """Model-observation boundary for successful Claude Code tool calls.
 
-This hook never changes the tool input or execution. It only replaces the
-successful result that Claude receives. The policy is semantic rather than a
-global line/byte truncation:
-
-* Read/search/navigation tools remain intact because their payload is the data
-  the agent explicitly asked to inspect.
-* execution tools expose outcome/error signals instead of replaying stdout.
-* write/edit tools keep their native structured result.
-* MCP/external results are compacted only in fields that are explicitly
-  log/diagnostic shaped, while metadata and ordinary content remain intact.
-
-No repeat suppression is used: a replacement must remain useful even if the
-earlier observation has been compacted away.
+Native tool input and execution are never changed. Only the successful result
+returned to the model is replaced.
 """
 
 from __future__ import annotations
@@ -29,10 +18,6 @@ MAX_SUMMARY_CHARS = 1200
 MIN_COMPACT_CHARS = 1200
 
 TOOL_NAME_KEYS = ("tool_name", "toolName")
-
-# These tools are data retrieval tools. Their successful payload is normally
-# the information Claude requested, so replacing it with a generic summary
-# would break ordinary agent work.
 PRESERVE_TOOLS = {
     "Read",
     "Grep",
@@ -43,11 +28,7 @@ PRESERVE_TOOLS = {
     "AskUserQuestion",
     "ExitPlanMode",
 }
-
-# Tool outputs whose stdout/stderr are execution telemetry rather than the
-# primary artifact being inspected.
 EXECUTION_TOOLS = {"Bash", "Monitor", "PowerShell"}
-
 DIAGNOSTIC_RE = re.compile(
     r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
     r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed|"
@@ -63,8 +44,6 @@ NOISE_RE = re.compile(
     r"(?i)^(npm warn|warning:|hint:|notice:|progress|downloading|"
     r"\s*[-\\|/]+\s*$)"
 )
-
-# Only these field names are treated as disposable execution/log payloads.
 LOG_FIELDS = {
     "stdout",
     "stderr",
@@ -108,14 +87,14 @@ def summarize_execution(text: str) -> str:
         line.rstrip()
         for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     ]
-
-    diagnostics = [line for line in lines if DIAGNOSTIC_RE.search(line) and line.strip()]
+    diagnostics = [
+        line for line in lines if line.strip() and DIAGNOSTIC_RE.search(line)
+    ]
     if diagnostics:
         selected = diagnostics[:MAX_DIAGNOSTIC_LINES]
     else:
         meaningful = [
-            line for line in lines
-            if line.strip() and not NOISE_RE.search(line)
+            line for line in lines if line.strip() and not NOISE_RE.search(line)
         ]
         signals = [line for line in meaningful if SIGNAL_RE.search(line)]
         selected = (signals or meaningful)[:MAX_SUMMARY_LINES]
@@ -133,24 +112,25 @@ def summarize_execution(text: str) -> str:
 
 def _compact_log_value(value: object) -> object:
     if isinstance(value, str):
-        if len(value) < MIN_COMPACT_CHARS:
-            return value
-        return summarize_execution(value)
+        return (
+            summarize_execution(value)
+            if len(value) >= MIN_COMPACT_CHARS
+            else value
+        )
 
     if isinstance(value, list):
-        # Preserve content-block/list shape while compacting only text-bearing
-        # log entries. Never discard list items or metadata.
-        out = []
+        output = []
         for item in value:
             if isinstance(item, dict):
                 copied = dict(item)
                 for key in ("text", "stdout", "stderr", "message"):
-                    if isinstance(copied.get(key), str) and len(copied[key]) >= MIN_COMPACT_CHARS:
-                        copied[key] = summarize_execution(copied[key])
-                out.append(copied)
+                    text = copied.get(key)
+                    if isinstance(text, str) and len(text) >= MIN_COMPACT_CHARS:
+                        copied[key] = summarize_execution(text)
+                output.append(copied)
             else:
-                out.append(item)
-        return out
+                output.append(item)
+        return output
 
     return value
 
@@ -159,7 +139,16 @@ def _looks_operational(tool: str) -> bool:
     lowered = tool.lower()
     return any(
         marker in lowered
-        for marker in ("log", "console", "trace", "workflow", "ci", "exec", "shell", "command")
+        for marker in (
+            "log",
+            "console",
+            "trace",
+            "workflow",
+            "ci",
+            "exec",
+            "shell",
+            "command",
+        )
     )
 
 
@@ -187,10 +176,8 @@ def transform(event: dict[str, Any]) -> dict[str, Any]:
     raw = event.get("tool_response")
     tool = tool_name(event)
 
-    # Do not mutate canonical retrieval payloads.
     if tool in PRESERVE_TOOLS:
         replacement = raw
-
     elif tool in EXECUTION_TOOLS:
         if isinstance(raw, dict):
             replacement = dict(raw)
@@ -203,7 +190,6 @@ def transform(event: dict[str, Any]) -> dict[str, Any]:
             replacement = summarize_execution(raw)
         else:
             replacement = raw
-
     else:
         replacement = _compact_mcp_result(raw, tool)
 
@@ -220,8 +206,6 @@ def main() -> int:
         event = json.load(sys.stdin)
         print(json.dumps(transform(event), ensure_ascii=False))
     except Exception as exc:
-        # A broken observation hook must never replace a valid tool result with
-        # malformed data. Claude Code therefore keeps the original output.
         print(
             json.dumps(
                 {
