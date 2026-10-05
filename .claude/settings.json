@@ -19,18 +19,6 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Monitor",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_tool_use.py\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "*",
