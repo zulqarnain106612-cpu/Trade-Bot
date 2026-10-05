@@ -21,10 +21,19 @@ import {
 /** Minimal stand-in: records instances and lets a test drive the callbacks. */
 class FakeWebSocket {
   static instances = [];
+  // The real constant, because `_sendSubscribe` compares against
+  // `WebSocket.OPEN` and a stub without it would let every frame through a
+  // check the browser applies.
+  static OPEN = 1;
   constructor(url) {
     this.url = url;
     this.closed = false;
+    this.readyState = FakeWebSocket.OPEN;
+    this.sent = [];
     FakeWebSocket.instances.push(this);
+  }
+  send(data) {
+    this.sent.push(data);
   }
   close() {
     this.closed = true;
@@ -211,5 +220,48 @@ describe('REG-0022: callbacks are read from the current render', () => {
     // The interval is still the one the first render started -- the point of
     // the ref is that the timer survives while the function does not.
     expect(result.current).toBe('second:1');
+  });
+});
+
+describe('the subscribe frame', () => {
+  const noop = () => {};
+
+  /**
+   * The server runs every inbound frame through its guard (API-005) before
+   * any handler sees it, and a frame missing `type`, `nonce` or `ts` is a
+   * policy violation the guard answers by closing the socket. A subscribe
+   * carrying only `op` and `topics` therefore turns each connect into a
+   * disconnect, and the reconnect sends the same frame again -- a loop in
+   * which no panel ever receives anything. Mirrored by
+   * tests/test_ws_subscriptions.py::TestTheFrameTheClientSends, which drives
+   * the server's real reader with this exact shape.
+   */
+  it('carries the envelope the server guard requires', () => {
+    // No hydrate path: the subscription is what is under test, not the
+    // cold-start fetch.
+    renderHook(() => useStream('equity', null));
+    renderHook(() => useWebSocket(noop, noop));
+
+    act(() => { FakeWebSocket.instances[0].onopen(); });
+
+    const frame = JSON.parse(FakeWebSocket.instances[0].sent[0]);
+    expect(frame.type).toBe('subscribe');
+    expect(frame.op).toBe('subscribe');
+    expect(frame.topics).toContain('equity');
+    expect(frame.nonce.length).toBeGreaterThanOrEqual(8);
+    expect(frame.nonce.length).toBeLessThanOrEqual(64);
+    // Seconds, not milliseconds: the guard compares against its own wall
+    // clock with a 120s skew allowance, so ms would read as the year 57000.
+    expect(Math.abs(frame.ts - Date.now() / 1000)).toBeLessThan(120);
+  });
+
+  it('is not sent on a socket that is not open', () => {
+    renderHook(() => useWebSocket(noop, noop));
+    const ws = FakeWebSocket.instances[0];
+    ws.readyState = 0; // CONNECTING
+
+    act(() => { ws.onopen(); });
+
+    expect(ws.sent).toHaveLength(0);
   });
 });

@@ -75,6 +75,37 @@ function _emit(topic, payload) {
 // state rather than resuming blind.
 const _resyncListeners = new Set();
 
+// The live socket, so a panel mounting after the connection is already open
+// can widen the subscription without waiting for a reconnect.
+let _liveSocket = null;
+
+function _sendSubscribe(ws) {
+  // The set falls out of which panels are mounted -- a hidden panel has no
+  // useStream, so its topic is not in the map and the server sends nothing
+  // for it. Panel visibility is already persisted in localStorage, so the
+  // subscription follows the operator's own layout for free.
+  const topics = [..._topicListeners.keys()];
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    // `type`, `nonce` and `ts` are the server's frame guard (API-005), not
+    // decoration: an inbound frame missing any of them is a policy violation
+    // and the guard *closes the socket*. A subscribe without them would make
+    // every connect a disconnect, and the reconnect that followed would send
+    // the same frame again -- a loop in which the dashboard never receives
+    // anything. ts is seconds, within the guard's clock skew; the nonce is
+    // per-frame because the guard refuses a replay.
+    ws.send(
+      JSON.stringify({
+        type: 'subscribe',
+        nonce: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+        ts: Date.now() / 1000,
+        op: 'subscribe',
+        topics,
+      }),
+    );
+  } catch (_) {}
+}
+
 // Reconnect delay: exponential with full jitter, capped.
 //
 // The flat 3s this replaces made every open dashboard retry in lockstep,
@@ -125,6 +156,7 @@ export function useWebSocket(onTick, onEvent) {
       const ws = new WebSocket(wsUrl);
       socket = ws;
       wsRef.current = ws;
+      _liveSocket = ws;
 
       ws.onopen = () => {
         setConnected(true);
@@ -133,6 +165,7 @@ export function useWebSocket(onTick, onEvent) {
         // drops into a 250ms hot loop.
         const wasReconnect = attempt > 0;
         attempt = 0;
+        _sendSubscribe(ws);
         if (wasReconnect) {
           for (const listener of [..._resyncListeners]) {
             try { listener(); } catch (_) {}
@@ -242,9 +275,14 @@ export function useStream(topic, hydratePath, options = {}) {
       setData((prev) => (applyRef.current ? applyRef.current(prev, payload) : payload));
     }
 
-    if (!_topicListeners.has(topic)) _topicListeners.set(topic, new Set());
+    const isNewTopic = !_topicListeners.has(topic);
+    if (isNewTopic) _topicListeners.set(topic, new Set());
     _topicListeners.get(topic).add(onEventPayload);
     _resyncListeners.add(hydrate);
+
+    // A panel unhidden after connect would otherwise receive nothing until
+    // the next reconnect, which on a healthy server is never.
+    if (isNewTopic) _sendSubscribe(_liveSocket);
 
     hydrate();
 
