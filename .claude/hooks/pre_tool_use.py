@@ -312,18 +312,14 @@ def _ci_log_access(command: str, policy: dict[str, Any]) -> str:
 
 
 def _violations(command: str, policy: dict[str, Any]) -> list[str]:
-    """
-    Collect every rule this command breaks, most severe first.
+    """Return only genuine safety violations.
 
-    Returns an empty list when the command is acceptable. Reasons are written
-    for the reader who has to fix the command, so each one names the concrete
-    replacement rather than restating the rule.
+    Output-volume and CI-log restrictions do not belong in PreToolUse: they
+    change which commands the agent can execute. Observation minimization is
+    handled after successful execution by observation_gate.py.
     """
     problems: list[str] = []
-    # Heredoc bodies destined for a file are content, not commands.
-    command = _strip_heredoc_bodies(command)
 
-    # 1. Secrets ---------------------------------------------------------
     secret_cfg = policy.get("secret_echo", {})
     if secret_cfg.get("enabled", True):
         for pattern in secret_cfg.get("patterns", []):
@@ -335,7 +331,6 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
                 )
                 break
 
-    # 2. Destructive effects ---------------------------------------------
     destructive_cfg = policy.get("destructive", {})
     if destructive_cfg.get("enabled", True) and classify is not None:
         marker = destructive_cfg.get("allow_marker", "TB_DESTRUCTIVE_OK=1")
@@ -347,79 +342,7 @@ def _violations(command: str, policy: dict[str, Any]) -> list[str]:
                 "has explicitly approved this specific action."
             )
 
-    # 3. CI run data ------------------------------------------------------
-    # Before live monitoring and before the bounded-output rules, and it
-    # returns immediately: this is not an output-size objection, so appending
-    # a line-bound refusal would suggest a smaller bound would have worked.
-    # Nothing about a CI log, job record, annotation, artifact or check result
-    # is readable from here under any condition; the pull-request notice is
-    # the channel, and it already carries the status and the failing lines.
-    ci_logs = _ci_log_access(command, policy)
-    if ci_logs:
-        problems.append(ci_logs)
-        return problems
-
-    # 4. Live CI monitoring -----------------------------------------------
-    # A live watch is refused outright, and the bounded-output rules below are
-    # not consulted: its message already carries the line directive, and
-    # appending the bound refusal to it would say the same thing twice.
-    live = _live_monitoring(command, policy)
-    if live:
-        problems.append(live)
-        return problems
-
-    # 5. Unbounded output -------------------------------------------------
-    bounded_cfg = policy.get("bounded_output", {})
-    if bounded_cfg.get("enabled", True):
-        limit = int(bounded_cfg.get("max_declared_lines", 30))
-        # One line leaves the hook on a bound violation, by configuration.
-        # A longer explanation is itself context spend on a call that was
-        # refused precisely to protect context.
-        refusal = str(
-            bounded_cfg.get(
-                "refusal_message",
-                f"only <={limit} lines are allowed,run command for minimum "
-                "line which can make you understand the failure",
-            )
-        )
-        unbounded = set(bounded_cfg.get("unbounded_commands", []))
-        exempt = set(bounded_cfg.get("exempt_commands", []))
-        # An exempt command is never itself an unbounded reader; the
-        # bounded_required_subcommands map is what re-arms specific
-        # subcommands of one, such as git log or kubectl logs.
-        unbounded -= exempt
-        patterns = list(bounded_cfg.get("bounded_flag_patterns", []))
-
-        for cmd in _commands(command):
-            stages = _stages(cmd)
-            if not stages:
-                continue
-
-            # A command whose final stage redirects to a file or feeds a
-            # heredoc produces no transcript output, so no bound applies.
-            if _is_write_not_read(stages[-1]):
-                continue
-
-            offender = ""
-            for stage in stages:
-                stage_head = _head_word(stage)
-                if stage_head in unbounded or _needs_bound(stage, bounded_cfg):
-                    offender = stage_head
-                    break
-
-            if not offender or _is_bounded(cmd, patterns):
-                continue
-
-            problems.append(refusal)
-            break
-
-        oversized = _oversized_bounds(command, bounded_cfg, limit)
-        if oversized:
-            problems.append(refusal)
-
     return problems
-
-
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
