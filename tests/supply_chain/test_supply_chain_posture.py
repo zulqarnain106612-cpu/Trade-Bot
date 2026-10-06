@@ -13,6 +13,11 @@ exactly the same code; what this file adds is the other half — that the
 checker itself detects the violations it claims to, driven against synthetic
 workflows. A scanner nobody has shown a positive to is a scanner that passes
 because it finds nothing anywhere.
+
+Decides:
+  - SUP-002 — Third-party actions are pinned to a full commit SHA
+  - SUP-003 — Fork pull requests cannot reach production secrets
+  - SUP-005 — Dependency vulnerabilities are surveilled continuously
 """
 
 from __future__ import annotations

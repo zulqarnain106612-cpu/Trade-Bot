@@ -11,6 +11,10 @@ control_surface.py hardcoded fractions (0.001-0.50) while the endpoint's
 validator takes percentages (0.1-50.0), so a live stop_loss_pct of 2.0 would
 have been reported as below its own minimum. Deriving the bounds from the
 model removed the second source of truth; this asserts it stays removed.
+
+Decides:
+  - GOV-025 — The control surface never misrepresents what it controls
+  - GOV-028 — A setting the operator changes takes effect without a restart
 """
 
 from __future__ import annotations

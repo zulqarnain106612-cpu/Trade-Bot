@@ -6,6 +6,11 @@ that make it trustworthy rather than the properties that make it parse: that
 it cannot claim code which does not exist, that folklore cannot quietly become
 a live signal, that its dependency graph resolves, and that the documentation
 describing it has not drifted away from it.
+
+Decides:
+  - GOV-044 — math implementations rest on implementations
+  - GOV-045 — every wiring kind is held to the existence check
+  - GOV-056 — implemented math entry names its test
 """
 
 from __future__ import annotations

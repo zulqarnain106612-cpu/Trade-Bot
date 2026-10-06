@@ -14,6 +14,10 @@ Two separate properties share this file because they share a mechanism:
         json.dumps per client for identical bytes. A subscription model that
         builds a payload per recipient brings that straight back, so the
         filter selects recipients and the serialization still happens once.
+
+Decides:
+  - INV-032 — GUI backpressure never reaches the trading loop
+  - SECR-019 — A read-only websocket key never receives the approval queue
 """
 
 from __future__ import annotations

@@ -15,10 +15,14 @@ Decides:
   - GOV-001 — every production defect yields a permanent regression test
   - GOV-002 — every security finding yields a permanent SEC-#### test
   - GOV-005 — requirement-to-test traceability is machine-checked
+  - GOV-038 — verified entry depends on verified or accepted_gap only
+  - GOV-046 — declared taxonomy has a user
+  - GOV-043 — test docstrings name the entries they decide
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from datetime import UTC, date, datetime
@@ -672,6 +676,31 @@ class TestTheRealRegistry:
             if not (PROJECT_ROOT / path).exists()
         ]
         assert not missing
+
+    def test_every_named_test_names_the_entries_it_decides(self, registry):
+        # GOV-043. The registry points at a test; nothing pointed back. A
+        # reader opening the file could not tell which requirement a failure
+        # breaks, and a test could be rewritten out from under its entry
+        # without anyone noticing -- the traceability only ran one way.
+        #
+        # Python tests only: a .js test carries no module docstring.
+        offenders: list[tuple[str, list[str]]] = []
+        for path in sorted({p for e in registry for p in e.test_paths}):
+            if not path.endswith(".py"):
+                continue
+            file = PROJECT_ROOT / path
+            if not file.exists():
+                continue  # test_every_named_test_exists owns that failure
+            doc = ast.get_docstring(ast.parse(file.read_text(encoding="utf-8"))) or ""
+            unnamed = sorted(
+                e.id for e in registry if path in e.test_paths and e.id not in doc
+            )
+            if unnamed:
+                offenders.append((path, unnamed))
+        assert not offenders, (
+            "these tests are named by entries their docstring never mentions; "
+            "add a 'Decides:' line per id: " + repr(offenders)
+        )
 
     def test_every_owning_module_exists(self, registry):
         missing = [

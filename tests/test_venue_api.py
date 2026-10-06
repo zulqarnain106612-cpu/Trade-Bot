@@ -7,6 +7,10 @@ hold that surface: the reason a venue is down survives all the way to the
 response (an operator has to tell a network fault from a 451 eligibility
 block), and reconnecting carries the same second factor as every other control
 on the trading path.
+
+Decides:
+  - GOV-026 — One write endpoint, and not a second way in
+  - GOV-027 — A control change is pushed, not waited for
 """
 
 from __future__ import annotations

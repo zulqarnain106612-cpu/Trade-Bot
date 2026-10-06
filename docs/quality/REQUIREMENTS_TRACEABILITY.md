@@ -1947,7 +1947,7 @@ Test modules that decide three or more registry entries name those entries in th
 - **If violated:** A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.
 - **Owned by:** `tests/quality/test_quality_registry.py`
 - **Verification:**
-  - `tests/test_pre_tool_use_hook.py` (contract)
+  - `tests/quality/test_quality_registry.py` (unit)
 
 #### `GOV-044` — math implementations rest on implementations
 

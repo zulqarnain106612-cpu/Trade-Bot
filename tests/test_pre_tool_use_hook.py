@@ -1,4 +1,11 @@
-"""Contract tests for the universal PreToolUse boundary."""
+"""Contract tests for the universal PreToolUse boundary.
+
+Decides:
+  - GOV-011 — CI output reaching an agent is bounded at 30 lines per fetch
+  - GOV-012 — Live CI monitoring is refused, not rate-limited
+  - GOV-019 — CI run data is unreadable from a session under every condition
+  - GOV-057 — all model-visible tool observations cross the repository boundary
+"""
 
 from __future__ import annotations
 
