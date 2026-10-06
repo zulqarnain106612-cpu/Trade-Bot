@@ -1,7 +1,7 @@
 {
   "name": "Repository Engineering Directives",
   "source": "CLAUDE.md",
-  "note": "Machine-readable encoding of CLAUDE.md. Every section of CLAUDE.md maps to a block here; each block records its claude_md section so drift between the two is detectable. CLAUDE.md remains the prose authority; where CLAUDE.md prose disagrees with a repository-enforced registry, precedence rank 4 outranks rank 6 and the registry wins.",
+  "note": "Machine-readable encoding of CLAUDE.md. each block records its claude_md section so drift between the two is detectable. CLAUDE.md remains the prose authority; where CLAUDE.md prose disagrees with a repository-enforced registry, precedence rank 4 outranks rank 6 and the registry wins.",
   "purpose": "Autonomous, evidence-based, production-grade repository engineering without compromising correctness, security, quality, architecture, testing, CI, or existing user changes.",
   "scope": {
     "claude_md": "1",
@@ -304,83 +304,20 @@
       "insufficient": "Passing tests alone is insufficient if the wrong behavior was implemented."
     }
   },
-  "programmatic_tool_calling": {
-    "claude_md": "7",
-    "first_choice": "Always use the desktop-commander MCP server and its tools first; fall back to the rules below only if that fails.",
-    "tool_surface": {
-      "policy": "Only the desktop-commander tools listed in allowed may be called. Every other tool, built-in or MCP, is denied.",
-      "configured_in": ".claude/settings.local.json",
-      "allowed": [
-        "mcp__plugin_desktop-commander_desktop-commander__read_file",
-        "mcp__plugin_desktop-commander_desktop-commander__list_directory",
-        "mcp__plugin_desktop-commander_desktop-commander__start_search",
-        "mcp__plugin_desktop-commander_desktop-commander__get_more_search_results",
-        "mcp__plugin_desktop-commander_desktop-commander__edit_block",
-        "mcp__plugin_desktop-commander_desktop-commander__write_file",
-        "mcp__plugin_desktop-commander_desktop-commander__start_process",
-        "mcp__plugin_desktop-commander_desktop-commander__read_process_output"
-      ],
-      "minimum_set": "These eight are the floor -- read, list, search, page-search, edit, write, run, read-output. Removing any one stalls ordinary work.",
-      "denied": "Every other tool: the built-in Bash/Read/Write/Edit/NotebookEdit/WebFetch/WebSearch/Agent/Artifact set, the scheduling and messaging tools, and every non-desktop-commander MCP server.",
-      "shell": "All shell execution runs through start_process, because Bash is denied.",
-      "rule_syntax": "permissions.allow and permissions.deny are arrays of strings in permission-rule syntax: a tool name, optionally with an argument pattern such as Bash(git *). Object entries are invalid and are ignored, and no key expresses a per-call line bound -- rules match tool names, never argument values.",
-      "line_bound": {
-        "authority": "config/command_policy.json -> bounded_output.max_declared_lines",
-        "value": 5,
-        "not_settable_here": "A permission rule cannot bound a read; desktop-commander's own fileReadLineLimit governs its reads.",
-        "claude_md_drift": "CLAUDE.md section 8 still says 30 lines; the policy file enforces 5."
-      }
-    },
-    "skill": ".claude/skills/programmatic-tool-calling/SKILL.md",
-    "rules": [
-      "one script under scripts/",
-      "import only orchestratable=True functions from tools/registry.py via registry.namespace()",
-      "execute once through the shell (start_process, since Bash is denied)",
-      "return the script's printed digest rather than raw tool output",
-      "never mark destructive/rate-limited/side-effecting tools orchestratable=True"
-    ],
-    "registered_tools": {
-      "gate": "tools/registry.py -- registry.namespace() refuses any function not marked orchestratable=True",
-      "tested_by": [
-        "tests/test_orchestratable_safety.py",
-        "tests/test_tools_registry.py"
-      ],
-      "orchestratable": [
-        "get_team_members",
-        "get_expenses",
-        "get_custom_budget"
-      ],
-      "not_orchestratable": [
-        "send_email",
-        "delete_record"
-      ],
-      "state": "All five live in tools/example_tools.py and are demo fixtures. No real Trade-Bot tool is registered, so the gate is enforced and tested but the allow list is empty of production tools."
-    },
-    "research": {
-      "command": "orchestrator_cli.py \"<task>\"",
-      "use_for": "independent research/lookup subtasks followed by synthesis",
-      "docs": "docs/ORCHESTRATOR.md"
-    },
-    "knowledge_graph": {
-      "command": "kg_cli.py ingest <file> -> kg_cli.py query",
-      "use_for": "multi-document fact chains",
-      "docs": "docs/KNOWLEDGE_GRAPH.md"
-    }
-  },
   "command_execution": {
-    "claude_md": "8",
+    "claude_md": "7",
     "rule": "Native command/tool execution is allowed; model-visible successful observations are reduced by .claude/hooks/observation_gate.py.",
     "observation_boundary": ".claude/hooks/observation_gate.py",
     "input_semantics": "The hook does not rewrite tool input or execution."
   },
   "ci_observability": {
-    "claude_md": "9",
+    "claude_md": "8",
     "rule": "CI commands and tools are allowed.",
     "observation_boundary": ".claude/hooks/observation_gate.py",
     "failure_limit": "PostToolUseFailure cannot replace failed-tool output; no instruction-only workaround is used."
   },
   "pull_requests": {
-    "claude_md": "10",
+    "claude_md": "9",
     "main": "Protected by four gate checks and a merge queue (one squashed PR at a time, tested on current main); the queue replaces the up-to-date requirement.",
     "merge": "Merge only when every required check is green; neutral/skipped/cancelled/failed are not green.",
     "merge_command": "gh pr merge --squash --auto",

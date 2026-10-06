@@ -248,43 +248,7 @@ Passing tests alone is insufficient if the wrong behavior was implemented.
 
 ---
 
-# 7. Programmatic Tool Calling
-
-First always use desktop commander mcp server and its tools, if failed then follow below instructions.
-
-## Tool surface
-
-`.claude/settings.local.json` allows only these eight desktop-commander tools and denies every other tool, built-in or MCP:
-
-`read_file`, `list_directory`, `start_search`, `get_more_search_results`, `edit_block`, `write_file`, `start_process`, `read_process_output`
-
-They are the floor — read, list, search, page-search, edit, write, run, read-output. Removing any one stalls ordinary work.
-
-`permissions.allow` and `permissions.deny` are arrays of **strings** in permission-rule syntax: a tool name, optionally with an argument pattern such as `Bash(git *)`. Object entries are invalid and are ignored, and no key expresses a per-call line bound — rules match tool names, never argument values. The read bound lives in `config/command_policy.json`; desktop-commander's own reads are governed by its `fileReadLineLimit`.
-
-Because `Bash` is denied, all shell execution runs through `start_process`, and `.claude/hooks/pre_tool_use.py` — which matches `Bash` only — never fires. The line bound, the destructive-command refusal and the secret-echo refusal are unenforced in that configuration; enforcement rests on `common/shell_exec.run()` being used deliberately.
-
-`.claude/skills/programmatic-tool-calling/SKILL.md`
-
-Use one script under `scripts/`, importing only `orchestratable=True` functions from `tools/registry.py` via `registry.namespace()`, execute it once through bash, and return its printed digest rather than raw tool output.
-
-Never mark destructive, rate-limited, or side-effecting tools `orchestratable=True`.
-
-For independent research/lookup subtasks followed by synthesis, use:
-
-`orchestrator_cli.py "<task>"`
-
-See `docs/ORCHESTRATOR.md`.
-
-For multi-document fact chains:
-
-`kg_cli.py ingest <file>` → `kg_cli.py query`
-
-See `docs/KNOWLEDGE_GRAPH.md`.
-
----
-
-# 8. Command Execution and Model Observation
+# 7. Command Execution and Model Observation
 
 Claude may use the native command/tool surface directly. There is no mandatory
 wrapper, output declaration, paging rule, or CI-log prohibition in the project
@@ -304,7 +268,7 @@ protection remain separate from observation minimization.
 
 ---
 
-# 9. CI Observability
+# 8. CI Observability
 
 CI commands and tools are allowed. The agent may inspect full workflow logs,
 job output, annotations, or other CI data when that is useful to the task.
@@ -317,7 +281,7 @@ There is no instruction-only requirement to avoid CI logs and no requirement
 to use a special notification channel instead of the actual tool result.
 
 ---
-# 10. Pull Requests and the Merge Queue — GOV-037
+# 9. Pull Requests and the Merge Queue — GOV-037
 
 `main` requires four gate checks and lands pull requests through a **merge queue**
 (`.github/rulesets/main-protection.json`, applied with `scripts/apply_repo_ruleset.py`):
