@@ -4049,6 +4049,45 @@
         }
       ],
       "notes": "Asserts both halves: permitted_topics excludes approval for READ_ONLY, a published approval frame does not reach a read-only socket, and an explicit subscribe to it is refused without being granted."
+    },
+    {
+      "id": "GOV-057",
+      "kind": "requirement",
+      "title": "all model-visible tool observations cross the repository boundary",
+      "statement": "Every successful Claude Code tool result in a repository session is passed through the PostToolUse observation boundary, native source reads are bounded before execution, direct CI run-data is blocked as a model-observation route, and failed tool calls receive only compact additional failure context because PostToolUseFailure cannot replace the native failure result.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-06",
+      "failure_mode": "A tool bypasses the repository observation boundary and emits a large file, CI, MCP, shell, or search payload into model context, consuming context budget and weakening failure recovery. A native failed-tool record also cannot be rewritten after the failure event, so the design must not claim stronger enforcement than the Claude Code hook contract provides.",
+      "owning_modules": [
+        ".claude/hooks/pre_tool_use.py",
+        ".claude/hooks/observation_gate.py",
+        ".claude/hooks/observation_failure.py",
+        ".claude/settings.json"
+      ],
+      "depends_on": [
+        "GOV-019",
+        "GOV-020"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_observation_gate.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_observation_failure.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_ci_log_access.py",
+          "test_type": "contract"
+        }
+      ]
     }
   ]
 }

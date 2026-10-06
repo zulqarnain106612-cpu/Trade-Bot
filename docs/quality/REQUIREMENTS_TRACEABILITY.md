@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 165 |
+| VERIFIED | 166 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **165** |
+| **Total** | **166** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 51 | 51 |
+| Governance | 52 | 52 |
 
 ## Outstanding work by phase
 
@@ -2009,6 +2009,21 @@ The math registry loader refuses an entry with status='implemented' unless its w
 - **Verification:**
   - `tests/test_math_registry.py` (contract)
 
+#### `GOV-057` — all model-visible tool observations cross the repository boundary
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-06
+
+Every successful Claude Code tool result in a repository session is passed through the PostToolUse observation boundary, native source reads are bounded before execution, direct CI run-data is blocked as a model-observation route, and failed tool calls receive only compact additional failure context because PostToolUseFailure cannot replace the native failure result.
+
+- **If violated:** A tool bypasses the repository observation boundary and emits a large file, CI, MCP, shell, or search payload into model context, consuming context budget and weakening failure recovery. A native failed-tool record also cannot be rewritten after the failure event, so the design must not claim stronger enforcement than the Claude Code hook contract provides.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `.claude/hooks/observation_gate.py`, `.claude/hooks/observation_failure.py`, `.claude/settings.json`
+- **Depends on:** `GOV-019`, `GOV-020`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (contract)
+  - `tests/test_observation_gate.py` (contract)
+  - `tests/test_observation_failure.py` (contract)
+  - `tests/test_ci_log_access.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -2120,4 +2135,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 165 entries.
+Registry version: 1.0.0 — 166 entries.

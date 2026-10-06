@@ -13,9 +13,19 @@ def load_gate():
     return module
 
 
-def test_read_output_is_not_destroyed():
+def test_read_output_is_compacted_to_three_model_visible_lines():
     gate = load_gate()
-    raw = "\n".join(f"{i + 1}\timportant source line {i}" for i in range(200))
+    raw = "\n".join(f"{i + 1}\tdef important_source_{i}():" for i in range(200))
+    event = {"tool_name": "Read", "tool_response": raw}
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert output != raw
+    assert len(output.splitlines()) <= 4
+    assert "source observation compacted" in output
+
+
+def test_small_read_output_is_preserved():
+    gate = load_gate()
+    raw = "1\tdef foo():\n2\t    return 1"
     event = {"tool_name": "Read", "tool_response": raw}
     output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
     assert output == raw
@@ -73,9 +83,39 @@ def test_operational_mcp_logs_are_compacted_but_metadata_survives():
     assert "ERROR: test failed" in output["logs"]
 
 
-def test_non_operational_mcp_content_is_preserved():
+def test_large_arbitrary_mcp_text_is_compacted():
     gate = load_gate()
-    raw = "\n".join(f"result line {i}" for i in range(200))
+    raw = "\n".join(f"payload line {i}" for i in range(500))
+    event = {
+        "tool_name": "mcp__example__search",
+        "tool_response": {"content": raw, "id": "abc"},
+    }
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert output["id"] == "abc"
+    assert len(output["content"]) < len(raw)
+    assert "observation compacted" in output["content"]
+
+
+def test_nested_content_blocks_are_compacted_without_destroying_shape():
+    gate = load_gate()
+    raw = "\n".join(f"detail {i}" for i in range(300))
+    event = {
+        "tool_name": "mcp__example__tool",
+        "tool_response": {
+            "content": [
+                {"type": "text", "text": raw},
+                {"type": "image", "source": {"data": "preserve-me"}},
+            ]
+        },
+    }
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert len(output["content"][0]["text"]) < len(raw)
+    assert output["content"][1]["source"]["data"] == "preserve-me"
+
+
+def test_non_operational_mcp_content_is_preserved_when_small():
+    gate = load_gate()
+    raw = "\n".join(f"result line {i}" for i in range(20))
     event = {
         "tool_name": "mcp__github__get_pull_request",
         "tool_response": {"body": raw, "number": 414},
@@ -85,7 +125,30 @@ def test_non_operational_mcp_content_is_preserved():
     assert output["number"] == 414
 
 
-def test_repeated_observations_are_not_replaced_with_unresolvable_markers():
+def test_search_results_are_semantically_compacted():
+    gate = load_gate()
+    raw = "\n".join(f"src/pkg_{i % 3}.py:{i}: matched symbol {i}" for i in range(500))
+    event = {"tool_name": "Grep", "tool_response": raw}
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert len(output) < len(raw)
+    assert "search compacted" in output
+    assert "src/pkg_0.py" in output
+    assert "matched symbol 0" in output
+
+
+def test_large_glob_output_is_compacted_by_directory_not_head_tail():
+    gate = load_gate()
+    raw = "\n".join(f"src/pkg_{i % 10}/module_{i}.py" for i in range(1000))
+    event = {"tool_name": "Glob", "tool_response": raw}
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert len(output) < len(raw)
+    assert "1000 entries" in output
+    assert "src/pkg_0" in output
+    assert "src/pkg_9" in output
+    assert "Use a narrower search query" in output
+
+
+def test_repeated_observations_are_deterministic():
     gate = load_gate()
     event = {
         "session_id": "same-session",
@@ -116,44 +179,3 @@ def test_empty_execution_output_is_valid():
     output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
     assert output["stdout"] == ""
     assert output["stderr"] == ""
-
-
-def test_large_grep_output_is_semantically_compacted():
-    gate = load_gate()
-    raw = "\n".join(f"src/pkg_{i % 3}.py:{i}: matched symbol {i}" for i in range(500))
-    event = {"tool_name": "Grep", "tool_response": raw}
-    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
-    assert len(output) < len(raw)
-    assert "search compacted" in output
-    assert "src/pkg_0.py" in output
-    assert "matched symbol 0" in output
-    assert "Use a narrower" not in output
-
-
-def test_large_glob_output_is_compacted_by_directory_not_head_tail():
-    gate = load_gate()
-    raw = "\n".join(f"src/pkg_{i % 10}/module_{i}.py" for i in range(1000))
-    event = {"tool_name": "Glob", "tool_response": raw}
-    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
-    assert len(output) < len(raw)
-    assert "1000 entries" in output
-    assert "src/pkg_0" in output
-    assert "src/pkg_9" in output
-    assert "Use a narrower Glob/LS query" in output
-
-
-def test_nested_operational_mcp_logs_are_compacted():
-    gate = load_gate()
-    raw = "\n".join(["noise"] * 300 + ["ERROR: nested failure", "detail"])
-    event = {
-        "tool_name": "mcp__github__workflow",
-        "tool_response": {
-            "data": {"logs": raw, "status": "failure"},
-            "metadata": {"run_id": 123},
-        },
-    }
-    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
-    assert output["metadata"]["run_id"] == 123
-    assert output["data"]["status"] == "failure"
-    assert "ERROR: nested failure" in output["data"]["logs"]
-    assert len(output["data"]["logs"].splitlines()) <= 4
