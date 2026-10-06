@@ -196,10 +196,15 @@ class TestTheRegistryHasAPlaceForDefects:
         # SEC-0007: http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched
         # release at all, so electron-builder carried eight high advisories
         # into the frontend tree that no upgrade or override could clear.
+        # SEC-0008: shell-quote GHSA-pqg4-j6r4-53mv is patched in 1.11.0, but
+        # concurrently pins 1.9.0 exactly and its latest release still does,
+        # so an upstream advisory -- not a commit here -- put two criticals in
+        # the tree, and an override was the only route to the patched line.
         assert {e.id for e in registry.by_kind("security_regression")} == {
             "SEC-0005",
             "SEC-0006",
             "SEC-0007",
+            "SEC-0008",
         }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
@@ -445,7 +450,10 @@ class TestTheMetricsCollector:
         # REG-0022: a stale callback and a socket rebuilt on every render both
         # look like a working dashboard to a reader and to a build; only a test
         # driving a rerender separates them -- test-suite.
-        assert metric["value"] == {"test-suite": 17, "review": 1, "supply-chain": 1}
+        # SEC-0008: shell-quote's advisory was published against a pin that
+        # concurrently already shipped, so no commit or review here could have
+        # seen it arrive -- supply-chain, taking that bucket from 1 to 2.
+        assert metric["value"] == {"test-suite": 17, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

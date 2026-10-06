@@ -1197,7 +1197,7 @@ frontend's npm tree resolves shell-quote to a version at or above 1.11.0, so npm
 - **Verification:**
   - `tests/test_frontend_audit_scope.py` (unit)
 
-> An npm overrides entry, not a dependency bump: concurrently pins shell-quote exactly, so the override is the only route that keeps the 10.x line. concurrently@10.0.5 was smoke-run against shell-quote 1.12.0 -- it parses and launches both quoted commands and -k still terminates the sibling -- so the only consumer of the overridden package still works. The override is pinned to the patched line (^1.11.0) rather than an exact version so future patches are picked up; the deciding test holds the floor at 1.11.0 and holds concurrently on ^10 so the advisory cannot be dodged by downgrading instead.
+> An npm overrides entry, not a dependency bump: concurrently pins shell-quote exactly, so the override is the only route that keeps the 10.x line. concurrently@10.0.5 was smoke-run against shell-quote 1.12.0 -- it parses and launches both quoted commands and -k still terminates the sibling -- so the only consumer of the overridden package still works. The override is pinned to the patched line (^1.11.0) rather than an exact version so future patches are picked up; the deciding test holds the floor at 1.11.0 and holds concurrently on ^10 so the advisory cannot be dodged by downgrading instead. Nothing committed here put the advisory in the tree: concurrently's pin was already 1.9.0 and the advisory was published against it upstream, which is the same shape as SEC-0007. layer: supply-chain
 
 ## Supply chain and artifacts
 
