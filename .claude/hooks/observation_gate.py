@@ -83,13 +83,8 @@ def summarize_execution(text: str) -> str:
     if not text:
         return ""
 
-    lines = [
-        line.rstrip()
-        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    ]
-    diagnostics = [
-        line for line in lines if line.strip() and DIAGNOSTIC_RE.search(line)
-    ]
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    diagnostics = [line for line in lines if line.strip() and DIAGNOSTIC_RE.search(line)]
     if diagnostics:
         selected = diagnostics[:MAX_DIAGNOSTIC_LINES]
     else:
@@ -112,11 +107,7 @@ def summarize_execution(text: str) -> str:
 
 def _compact_log_value(value: object) -> object:
     if isinstance(value, str):
-        return (
-            summarize_execution(value)
-            if len(value) >= MIN_COMPACT_CHARS
-            else value
-        )
+        return summarize_execution(value) if len(value) >= MIN_COMPACT_CHARS else value
 
     if isinstance(value, list):
         output = []
@@ -183,9 +174,7 @@ def transform(event: dict[str, Any]) -> dict[str, Any]:
             replacement = dict(raw)
             for key in ("stdout", "stderr"):
                 if key in replacement:
-                    replacement[key] = summarize_execution(
-                        compact_text(replacement[key])
-                    )
+                    replacement[key] = summarize_execution(compact_text(replacement[key]))
         elif isinstance(raw, str):
             replacement = summarize_execution(raw)
         else:
