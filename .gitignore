@@ -44,3 +44,6 @@ frontend/release/
 # Created at runtime by StorageSettings.model_dir the first time a model is
 # registered, which any suite run does. Artifacts, not source.
 models/
+
+# Claude runtime state (never source)
+.claude/.hook-state/

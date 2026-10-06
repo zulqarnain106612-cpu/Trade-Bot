@@ -52,6 +52,36 @@ class TestExecutionIsNotRestrictedByOutputShape:
         assert decide("", tool="Monitor")["permissionDecision"] == "allow"
 
 
+class TestLocalChecksAreNarrow:
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pytest",
+            "python3 -m pytest tests/test_x.py",
+            "ruff check src/api/main.py",
+            "npm run build",
+            "npx vitest run tests/example.test.js",
+            "python3 .claude/skills/quality-engineering/scripts/qe_gate.py",
+            "bash scripts/arch_gate.sh",
+        ],
+    )
+    def test_direct_local_checks_are_denied(self, command: str):
+        decision = decide(command)
+        assert decision["permissionDecision"] == "deny"
+        assert "local test/check" in decision["permissionDecisionReason"].lower()
+
+    def test_prepare_is_allowed(self):
+        assert decide("python3 scripts/local_checks.py prepare")["permissionDecision"] == "allow"
+
+    def test_run_requires_the_explicit_marker(self):
+        decision = decide("python3 scripts/local_checks.py run tests")
+        assert decision["permissionDecision"] == "deny"
+
+    def test_marked_wrapper_is_allowed(self):
+        command = "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run tests"
+        assert decide(command)["permissionDecision"] == "allow"
+
+
 class TestSafetyStillApplies:
     @pytest.mark.parametrize(
         "command",
