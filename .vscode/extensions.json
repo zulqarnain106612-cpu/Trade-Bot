@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "anthropic.claude-code",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "github.vscode-github-actions",
+    "dbaeumer.vscode-eslint"
+  ]
+}

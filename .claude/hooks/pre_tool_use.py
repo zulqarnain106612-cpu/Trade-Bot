@@ -58,8 +58,39 @@ def _enforcement(policy: dict[str, Any]) -> str:
     return configured if configured in {"block", "warn", "off"} else "block"
 
 
+def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
+    cfg = policy.get("local_checks", {})
+    if not cfg.get("enabled", False):
+        return ""
+
+    wrapper = str(cfg.get("wrapper", "scripts/local_checks.py"))
+    run_marker = str(cfg.get("run_marker", "TB_LOCAL_CHECKS=1"))
+    if wrapper in command:
+        if re.search(r"\bprepare\b", command):
+            return ""
+        if run_marker in command:
+            return ""
+        return (
+            "Local CI checks must be invoked with the per-command marker "
+            f"{run_marker}."
+        )
+
+    for pattern in cfg.get("blocked_patterns", []):
+        if re.search(pattern, command, re.IGNORECASE):
+            return (
+                "Direct local test/check execution is disabled. Use "
+                f"{run_marker} python3 {wrapper} run <failed-check> instead; "
+                "the wrapper permits only checks that were non-green on the "
+                "last completed PR run."
+            )
+    return ""
+
+
 def _violations(command: str, policy: dict[str, Any]) -> list[str]:
     problems: list[str] = []
+    local_check = _local_check_violation(command, policy)
+    if local_check:
+        problems.append(local_check)
 
     secret_cfg = policy.get("secret_echo", {})
     if secret_cfg.get("enabled", True):

@@ -67,7 +67,7 @@ flowchart TB
 |   `-- example_tools.py       # reference tool implementations
 |-- scripts/
 |   `-- orchestration_template.py
-|-- .claude/skills/programmatic-tool-calling/SKILL.md
+|-- .claude/skills/local-checks/SKILL.md
 |-- orchestrator/               # Component 3: plan-big / execute-small
 |   |-- config.py planner.py worker.py synthesizer.py run.py
 |-- orchestrator_cli.py

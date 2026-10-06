@@ -187,5 +187,27 @@
       "\\bcurl\\b[^|]*/check-runs?\\b",
       "\\bact\\b\\s+-"
     ]
+  },
+  "local_checks": {
+    "enabled": true,
+    "wrapper": "scripts/local_checks.py",
+    "run_marker": "TB_LOCAL_CHECKS=1",
+    "prepare_command": "python3 scripts/local_checks.py prepare",
+    "run_command": "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run <failed-check>",
+    "rule": "After a completed PR run, prepare records only non-green checks. If every tracked check is green, no local check may run. After a fix, run may execute only a recorded failed check. The test check also requires paths extracted from the CI failure notice and never runs a whole test suite.",
+    "blocked_patterns": [
+      "\\bpytest\\b",
+      "\\bpython(?:3)?\\s+-m\\s+pytest\\b",
+      "\\bruff\\s+(?:check|format)\\b",
+      "\\bmypy\\b",
+      "\\bpyright\\b",
+      "\\bbandit\\b",
+      "\\bpip-audit\\b",
+      "\\bnpx\\s+(?:vitest|eslint)\\b",
+      "\\bnpm\\s+(?:test|run\\s+build)\\b",
+      "\\bactionlint\\b",
+      "\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b",
+      "\\bscripts/arch_gate\\.sh\\b"
+    ]
   }
 }
