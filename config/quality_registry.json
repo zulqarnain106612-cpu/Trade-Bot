@@ -4074,6 +4074,27 @@
       ]
     },
     {
+      "id": "REG-0023",
+      "kind": "regression",
+      "title": "a crashed test worker is named in the CI notice, not reduced to its last stdout line",
+      "statement": "When a test worker dies, the CI notice reports the line that names the node id it was running ('crashed while running <nodeid>', '[gwN] node down', 'replacing crashed worker') or the session-level abort ('INTERNALERROR>', 'Interrupted'), in preference to the summary line, so the failing test is identified even though the run produced no short summary at all.",
+      "criticality": "medium",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A dying worker takes the short summary with it: the run ends with no FAILED line, so every SIGNAL pattern missed and the REG-0020 fallback published the step's last stdout instead. On PR 423 that made the whole notice the words 'Event loop is closed', with no node id, no file and no test. Section 8 of the directives makes the notice the only failure channel a session may read, so a failure this channel cannot name is a failure nobody can diagnose: the branch is blocked and the only remaining move is to guess.",
+      "owning_modules": [
+        ".github/workflows/ci-failure-notify.yml"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_ci_failure_notify_workflow.py",
+          "test_type": "unit"
+        }
+      ],
+      "notes": "The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite"
+    },
+    {
       "id": "SECR-019",
       "kind": "requirement",
       "title": "A read-only websocket key never receives the approval queue",

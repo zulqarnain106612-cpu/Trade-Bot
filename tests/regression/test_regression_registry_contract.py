@@ -165,6 +165,11 @@ class TestTheRegistryHasAPlaceForDefects:
         # in the dependency array and so tore the socket down on every render
         # that passed new ones. One defect with two faces: the obvious fix for
         # either is the other's bug, and refs are what satisfy both.
+        # REG-0023: a worker that died took the short summary with it, so the
+        # notice matched no failure pattern and published the step's last
+        # stdout line instead -- "Event loop is closed", naming no test. The
+        # notice is the only CI channel a session may read, and no test
+        # asserted it stays legible when the summary is missing -- test-suite.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -182,6 +187,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0019",
             "REG-0020",
             "REG-0022",
+            "REG-0023",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -459,7 +465,7 @@ class TestTheMetricsCollector:
         # SEC-0008: shell-quote's advisory was published against a pin that
         # concurrently already shipped, so no commit or review here could have
         # seen it arrive -- supply-chain, taking that bucket from 1 to 2.
-        assert metric["value"] == {"test-suite": 18, "review": 1, "supply-chain": 2}
+        assert metric["value"] == {"test-suite": 19, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
