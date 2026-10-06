@@ -414,9 +414,12 @@ Before coding establish:
 
 The registry entry and deciding test belong in the same commit as the behavior.
 
-Before pushing:
-
-`python3 .claude/skills/quality-engineering/scripts/qe_gate.py`
+`qe_gate.py` runs in CI, not from a session: `config/command_policy.json` lists
+`.claude/skills/quality-engineering/scripts/qe_gate.py` among the blocked local
+checks, so an instruction to run it before pushing would order a command the
+pre-tool boundary refuses. Route a local run through
+`TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run <failed-check>`, which
+only permits checks that were non-green on the last completed PR run.
 
 The gate validates:
 
