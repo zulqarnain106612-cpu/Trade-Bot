@@ -116,3 +116,46 @@ def test_empty_execution_output_is_valid():
     output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
     assert output["stdout"] == ""
     assert output["stderr"] == ""
+
+
+def test_large_grep_output_is_semantically_compacted():
+    gate = load_gate()
+    raw = "\n".join(
+        f"src/pkg_{i % 3}.py:{i}: matched symbol {i}" for i in range(500)
+    )
+    event = {"tool_name": "Grep", "tool_response": raw}
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert len(output) < len(raw)
+    assert "search compacted" in output
+    assert "src/pkg_0.py" in output
+    assert "matched symbol 0" in output
+    assert "Use a narrower" not in output
+
+
+def test_large_glob_output_is_compacted_by_directory_not_head_tail():
+    gate = load_gate()
+    raw = "\n".join(f"src/pkg_{i % 10}/module_{i}.py" for i in range(1000))
+    event = {"tool_name": "Glob", "tool_response": raw}
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert len(output) < len(raw)
+    assert "1000 entries" in output
+    assert "src/pkg_0" in output
+    assert "src/pkg_9" in output
+    assert "Use a narrower Glob/LS query" in output
+
+
+def test_nested_operational_mcp_logs_are_compacted():
+    gate = load_gate()
+    raw = "\n".join(["noise"] * 300 + ["ERROR: nested failure", "detail"])
+    event = {
+        "tool_name": "mcp__github__workflow",
+        "tool_response": {
+            "data": {"logs": raw, "status": "failure"},
+            "metadata": {"run_id": 123},
+        },
+    }
+    output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
+    assert output["metadata"]["run_id"] == 123
+    assert output["data"]["status"] == "failure"
+    assert "ERROR: nested failure" in output["data"]["logs"]
+    assert len(output["data"]["logs"].splitlines()) <= 4
