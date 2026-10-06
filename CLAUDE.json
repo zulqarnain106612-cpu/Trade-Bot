@@ -369,98 +369,15 @@
   },
   "command_execution": {
     "claude_md": "8",
-    "skill": ".claude/skills/command-execution/SKILL.md",
-    "rule": "Every shell command must be declared as COMMAND_EXEC_SCHEMA and run via common/shell_exec.run().",
-    "limits": {
-      "max_lines": "Mandatory; default 50; never >100 without explicit justification.",
-      "timeout_s": "1-900",
-      "max_bytes": "output_policy.max_bytes is mandatory; line limits alone are insufficient",
-      "redaction": "on by default",
-      "cwd": "validated",
-      "env": "inherit/allowlist/overrides; prefer allowlists to prevent secret exposure"
-    },
-    "filtering": "Use grep/tail/regex/fields; jq only if jq is installed, otherwise use fields/regex. If output is truncated, refine the filter; never increase max_lines merely to expose more output.",
-    "classification": {
-      "values": [
-        "read_only",
-        "mutating",
-        "destructive"
-      ],
-      "rule": "Runtime rejects a classification weaker than the classify() result.",
-      "destructive": "Requires confirm_destructive.",
-      "retry": "Never retry destructive commands."
-    },
-    "result_fields": [
-      "bytes_truncated",
-      "timed_out",
-      "duration_s",
-      "classification",
-      "redactions_applied",
-      "command_sha256",
-      "started_at"
-    ],
-    "pre_tool_hook": {
-      "path": ".claude/hooks/pre_tool_use.py",
-      "policy": "config/command_policy.json",
-      "scope": "Enforces the same policy for raw Bash.",
-      "inert_while_bash_denied": "The hook matches the Bash tool only. While .claude/settings.local.json denies Bash and shell runs through desktop-commander's start_process, the hook never fires: the 5-line bound, the destructive-command refusal and the secret-echo refusal are all unenforced. Enforcement then rests entirely on common/shell_exec.run() being used deliberately.",
-      "rules": [
-        "unbounded reads refused",
-        "reads limited to <=5 lines per call and must be paged (config/command_policy.json bounded_output.max_declared_lines; CLAUDE.md section 8 still says 30, which is stale)",
-        "bounds above that value refused",
-        "byte bounds above max_declared_bytes (2000) refused",
-        "destructive commands refused",
-        "credential disclosure refused"
-      ],
-      "shared_classifier": "The hook shares classify() with runtime enforcement and falls back to config/command_policy.json when necessary.",
-      "failure": "fails open on misconfiguration",
-      "session_override": "TB_COMMAND_POLICY=warn|off"
-    }
+    "rule": "Native command/tool execution is allowed; model-visible successful observations are reduced by .claude/hooks/observation_gate.py.",
+    "observation_boundary": ".claude/hooks/observation_gate.py",
+    "input_semantics": "The hook does not rewrite tool input or execution."
   },
   "ci_observability": {
     "claude_md": "9",
-    "rule": "Never fetch CI logs, job records, step annotations, artifacts, caches, check results, or equivalent output.",
-    "forbidden": [
-      "gh run view/list/download",
-      "gh workflow run/view/list",
-      "gh pr checks",
-      "gh cache",
-      "gh api actions/check-runs",
-      "gh pr view --json statusCheckRollup",
-      "curl to those CI endpoints",
-      "act",
-      "workflow dispatch/re-run solely for inspection",
-      "tail -f",
-      "docker/kubectl logs -f",
-      "watch",
-      "inotifywait -m",
-      "polling loops",
-      "Monitor"
-    ],
-    "bound_exception": "No output bound makes CI log access permissible.",
-    "notice_channel": {
-      "workflow": ".github/workflows/ci-failure-notify.yml",
-      "only_channel": true,
-      "behavior": [
-        "wait until all watched workflows for the commit finish",
-        "post/edit exactly one comment keyed by head SHA",
-        "report all checks green, or the number of non-green jobs",
-        "for each non-green workflow/job report conclusion, failing step, and exact failing lines",
-        "no advice/footer/log link"
-      ],
-      "properties": [
-        "one comment per commit",
-        "never report before all watched workflows finish",
-        "filter meaningless runner exit-code noise",
-        "prefer meaningful summaries over bare traceback frames"
-      ],
-      "green_before_push": {
-        "rule": "First verify that every check passed individually. If any check failed, was skipped, or was neutral, fix its root cause and re-run only the fixed checks.",
-        "confidence": "Before pushing the final resolved PR, hold 100% confidence that it passes every check on a single push and merges cleanly."
-      },
-      "insufficient": "Read the latest notice comment; if it is insufficient, fix the notice workflow instead of fetching logs.",
-      "merge_wait": "Return after a plausible interval and read comments; never poll, watch, or monitor."
-    }
+    "rule": "CI commands and tools are allowed.",
+    "observation_boundary": ".claude/hooks/observation_gate.py",
+    "failure_limit": "PostToolUseFailure cannot replace failed-tool output; no instruction-only workaround is used."
   },
   "pull_requests": {
     "claude_md": "10",

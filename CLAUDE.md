@@ -284,79 +284,39 @@ See `docs/KNOWLEDGE_GRAPH.md`.
 
 ---
 
-# 8. Command Execution
+# 8. Command Execution and Model Observation
 
-Every shell command must be declared as `COMMAND_EXEC_SCHEMA` and executed through `common/shell_exec.run()` according to:
+Claude may use the native command/tool surface directly. There is no mandatory
+wrapper, output declaration, paging rule, or CI-log prohibition in the project
+instructions.
 
-`.claude/skills/command-execution/SKILL.md`
+Model-visible successful tool results are controlled mechanically by:
 
-Rules:
+`.claude/hooks/observation_gate.py`
 
-* `max_lines` is mandatory; default 50, never >100 without justification.
-* Use filtering (`grep`, `tail`, `regex`, `fields`) to retrieve only required data.
-* `jq` requires `jq`; otherwise use `fields`/`regex`.
-* If output is truncated, refine the filter; never increase the line limit.
-* Never retry destructive commands.
-* Declare correct `classification`: `read_only | mutating | destructive`.
-* Destructive commands require `confirm_destructive`.
-* Declare `timeout_s` (1–900s) and validated `cwd`.
-* Prefer environment allowlists to prevent secret exposure.
-* Enforce `output_policy.max_bytes`; line limits alone are insufficient.
-* Redaction is enabled by default.
+The hook runs after successful tool execution and replaces the result delivered
+to Claude. It is tool-aware: retrieval tools keep the data they were asked to
+retrieve; execution/log telemetry is reduced to outcome and diagnostic signals;
+structured metadata is preserved. The hook never rewrites the tool input.
 
-Runtime results include truncation, timeout, duration, classification, redaction, command hash, and start time.
-
-`.claude/hooks/pre_tool_use.py` enforces the same policy for raw Bash:
-
-* unbounded reads are refused;
-* first reads are limited to ≤30 lines and must be paged;
-* destructive commands and credential disclosure are refused;
-* policy misconfiguration may be relaxed for one session with
-  `TB_COMMAND_POLICY=warn|off`.
-
-The hook shares `classify()` with runtime enforcement and falls back to `config/command_policy.json` when necessary.
+Security controls such as destructive-command authorization and credential
+protection remain separate from observation minimization.
 
 ---
 
 # 9. CI Observability
 
-## CI logs are prohibited
+CI commands and tools are allowed. The agent may inspect full workflow logs,
+job output, annotations, or other CI data when that is useful to the task.
 
-Do not fetch CI logs, job records, annotations, artifacts, caches, check results, or equivalent output.
+The model-visible successful result is passed through the observation boundary,
+which reduces log-shaped output to the smallest diagnostic signal it can
+derive without changing the command that ran.
 
-This includes:
-
-`gh run view/list/download`, `gh workflow run/view/list`, `gh pr checks`, `gh cache`, relevant `gh api` endpoints, `gh pr view --json statusCheckRollup`, equivalent `curl`, `act`, workflow dispatch/re-run solely for inspection, and live monitoring such as `tail -f`, `watch`, polling loops, or log-follow commands.
-
-No output-size limit makes CI log access permissible.
-
-## Failure information channel
-
-`.github/workflows/ci-failure-notify.yml` is the sole CI failure-information interface.
-
-After **all watched workflows** finish for a commit, it creates/updates **one comment per commit** containing:
-
-* `all checks green`, or the number of non-green jobs
-* each non-green workflow/job/conclusion
-* failing step
-* exact failing lines
-
-It must contain no advice, footer, or log link.
-
-Required behavior:
-
-* first verify that all checks passed individually, if any failed/skiped/neutral then fix its root cause and run only the fixed ones.before you push the final resolved/fixed PR, you should have cofidence 100% for this will pass all checks with only one push and got merged cleanly.
-* one comment per commit
-* never report before all watched workflows finish
-* filter meaningless exit-code noise
-* prefer meaningful summaries over bare traceback frames
-
-Read the latest notice comment. If it is insufficient, fix the notice mechanism rather than accessing logs.
-
-Waiting for merge follows the same rule: stop and let the owner return; never poll, monitor, or schedule a wake-up (GOV-036).
+There is no instruction-only requirement to avoid CI logs and no requirement
+to use a special notification channel instead of the actual tool result.
 
 ---
-
 # 10. Pull Requests and the Merge Queue — GOV-037
 
 `main` requires four gate checks and lands pull requests through a **merge queue**

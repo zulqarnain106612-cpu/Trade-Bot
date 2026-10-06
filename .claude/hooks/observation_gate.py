@@ -1,46 +1,69 @@
 #!/usr/bin/env python3
-"""Deterministic gateway for model-visible successful tool observations.
+"""Model-observation boundary for successful Claude Code tool calls.
 
-The underlying tool is allowed to run normally. Only the observation sent back
-to Claude is rewritten. The gateway is signal-first: failures keep a tiny
-diagnostic neighborhood; successful/noisy output keeps only a small bounded
-summary. Structured tool outputs retain their shape so built-in validation
-continues to accept the replacement.
-
-The gateway also suppresses exact repeats within a session. A repeated
-observation is replaced with a short reference to the earlier observation,
-which prevents identical tool results from accumulating in model context.
+Native tool input and execution are never changed. Only the successful result
+returned to the model is replaced.
 """
 
-import hashlib
+from __future__ import annotations
+
 import json
-import os
 import re
 import sys
-from pathlib import Path
+from typing import Any
 
-MAX_LINES = 24
-MAX_DIAGNOSTIC_HITS = 8
-MAX_DIAGNOSTIC_CONTEXT = 1
-MAX_CHARS = 4000
-MAX_SEEN = 256
-REPEAT_MARKER = "[observation repeated; see earlier identical observation]"
-STATE_ENV = "OBSERVATION_GATE_STATE_DIR"
-ERROR_RE = re.compile(
+MAX_DIAGNOSTIC_LINES = 3
+MAX_SUMMARY_LINES = 3
+MAX_SUMMARY_CHARS = 1200
+MIN_COMPACT_CHARS = 1200
+
+TOOL_NAME_KEYS = ("tool_name", "toolName")
+PRESERVE_TOOLS = {
+    "Read",
+    "Grep",
+    "Glob",
+    "LS",
+    "NotebookRead",
+    "TaskOutput",
+    "AskUserQuestion",
+    "ExitPlanMode",
+}
+EXECUTION_TOOLS = {"Bash", "Monitor", "PowerShell"}
+DIAGNOSTIC_RE = re.compile(
     r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
-    r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed)\b"
+    r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed|"
+    r"exit\s+code|timed?\s*out)\b"
 )
 SIGNAL_RE = re.compile(
     r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
     r"assert(?:ion)?|test\s+failed|command\s+failed|build\s+failed|"
-    r"warning|warn|exit\s+code|passed|success|completed)\b"
+    r"warning|warn|exit\s+code|passed|success|completed|changed|created|"
+    r"deleted|updated)\b"
 )
 NOISE_RE = re.compile(
     r"(?i)^(npm warn|warning:|hint:|notice:|progress|downloading|"
     r"\s*[-\\|/]+\s*$)"
 )
-TOOL_NAME_KEYS = ("tool_name", "toolName")
-TEXT_KEYS = ("stdout", "stderr", "content", "output", "text", "message")
+LOG_FIELDS = {
+    "stdout",
+    "stderr",
+    "log",
+    "logs",
+    "console",
+    "trace",
+    "stack",
+    "stacktrace",
+    "diagnostics",
+    "raw_log",
+    "raw_logs",
+    "execution_log",
+    "test_output",
+    "build_output",
+}
+
+
+def tool_name(event: dict[str, Any]) -> str:
+    return str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
 
 
 def compact_text(value: object) -> str:
@@ -56,150 +79,111 @@ def compact_text(value: object) -> str:
         return str(value)
 
 
-def _diagnostic_lines(lines: list[str]) -> list[str]:
-    hits = [i for i, line in enumerate(lines) if ERROR_RE.search(line)]
-    if not hits:
-        return []
-
-    selected: set[int] = set()
-    for index in hits[:MAX_DIAGNOSTIC_HITS]:
-        selected.update(
-            range(
-                max(0, index - MAX_DIAGNOSTIC_CONTEXT),
-                min(len(lines), index + MAX_DIAGNOSTIC_CONTEXT + 1),
-            )
-        )
-    return [lines[i] for i in sorted(selected) if lines[i].strip()]
-
-
-def minimize_text(text: str) -> str:
+def summarize_execution(text: str) -> str:
     if not text:
         return ""
 
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
-    diagnostic = _diagnostic_lines(lines)
-    if diagnostic:
-        out = diagnostic
+    diagnostics = [line for line in lines if line.strip() and DIAGNOSTIC_RE.search(line)]
+    if diagnostics:
+        selected = diagnostics[:MAX_DIAGNOSTIC_LINES]
     else:
         meaningful = [line for line in lines if line.strip() and not NOISE_RE.search(line)]
-        signal = [line for line in meaningful if SIGNAL_RE.search(line)]
-        out = (signal or meaningful)[:MAX_LINES]
+        signals = [line for line in meaningful if SIGNAL_RE.search(line)]
+        selected = (signals or meaningful)[:MAX_SUMMARY_LINES]
 
-    if not out:
-        return "(tool completed; no concise diagnostic output)"
+    if not selected:
+        return "(completed; no diagnostic output)"
 
-    result = "\n".join(out)
-    if len(result) > MAX_CHARS:
-        result = result[:MAX_CHARS].rsplit("\n", 1)[0] + "\n[observation compacted]"
-    if len(out) >= MAX_LINES:
+    result = "\n".join(selected)
+    if len(result) > MAX_SUMMARY_CHARS:
+        result = result[:MAX_SUMMARY_CHARS].rsplit("\n", 1)[0] + "\n[observation compacted]"
+    elif len(selected) >= MAX_SUMMARY_LINES or len(diagnostics) > MAX_DIAGNOSTIC_LINES:
         result += "\n[observation compacted]"
     return result
 
 
-def _state_path(event: dict[str, object]) -> Path | None:
-    session_id = event.get("session_id")
-    if not session_id:
-        return None
-
-    root = os.environ.get(STATE_ENV)
-    if root:
-        state_dir = Path(root)
-    else:
-        project = str(event.get("cwd") or "unknown-project")
-        project_key = hashlib.sha256(project.encode()).hexdigest()[:16]
-        state_dir = Path("/tmp") / "trade-bot-observation-gate" / project_key
-
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / f"{session_id}.json"
-
-
-def _load_seen(event: dict[str, object]) -> set[str]:
-    path = _state_path(event)
-    if path is None:
-        return set()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        values = payload.get("seen", [])
-        return set(values) if isinstance(values, list) else set()
-    except (OSError, ValueError):
-        return set()
-
-
-def _save_seen(event: dict[str, object], seen: set[str]) -> None:
-    path = _state_path(event)
-    if path is None:
-        return
-    try:
-        trimmed = list(seen)[-MAX_SEEN:]
-        temp = path.with_suffix(".tmp")
-        temp.write_text(
-            json.dumps({"seen": trimmed}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        temp.replace(path)
-    except OSError:
-        pass
-
-
-def _dedupe_text(text: str, event: dict[str, object], field: str) -> str:
-    if not text or len(text) < 24:
-        return text
-
-    tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
-    digest = hashlib.sha256(f"{tool_name}\0{field}\0{text}".encode()).hexdigest()
-    seen = _load_seen(event)
-    if digest in seen:
-        return REPEAT_MARKER
-
-    seen.add(digest)
-    _save_seen(event, seen)
-    return text
-
-
-def _minimize_value(value: object, event: dict[str, object], field: str) -> object:
+def _compact_log_value(value: object) -> object:
     if isinstance(value, str):
-        return _dedupe_text(minimize_text(value), event, field)
+        return summarize_execution(value) if len(value) >= MIN_COMPACT_CHARS else value
+
     if isinstance(value, list):
-        result = []
-        for index, item in enumerate(value):
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
+        output = []
+        for item in value:
+            if isinstance(item, dict):
                 copied = dict(item)
-                copied["text"] = _dedupe_text(
-                    minimize_text(copied["text"]),
-                    event,
-                    f"{field}[{index}].text",
-                )
-                result.append(copied)
+                for key in ("text", "stdout", "stderr", "message"):
+                    text = copied.get(key)
+                    if isinstance(text, str) and len(text) >= MIN_COMPACT_CHARS:
+                        copied[key] = summarize_execution(text)
+                output.append(copied)
             else:
-                result.append(item)
-        return result
+                output.append(item)
+        return output
+
     return value
 
 
-def transform(event: dict[str, object]) -> dict[str, object]:
-    raw = event.get("tool_response")
-    if isinstance(raw, dict):
-        result = dict(raw)
-        for key in TEXT_KEYS:
-            if key in result:
-                result[key] = _minimize_value(result[key], event, key)
-    elif isinstance(raw, list):
-        result = _minimize_value(raw, event, "response")
-    else:
-        result = _dedupe_text(
-            minimize_text(compact_text(raw)),
-            event,
-            "response",
+def _looks_operational(tool: str) -> bool:
+    lowered = tool.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "log",
+            "console",
+            "trace",
+            "workflow",
+            "ci",
+            "exec",
+            "shell",
+            "command",
         )
+    )
 
-    if isinstance(result, str):
-        tool_name = str(next((event.get(k) for k in TOOL_NAME_KEYS if event.get(k)), "unknown"))
-        result = f"[{tool_name}]\n{result}"
+
+def _compact_mcp_result(value: object, tool: str) -> object:
+    if not _looks_operational(tool):
+        return value
+
+    if isinstance(value, dict):
+        result = dict(value)
+        for key, item in value.items():
+            if str(key).lower() in LOG_FIELDS:
+                result[key] = _compact_log_value(item)
+        return result
+
+    if isinstance(value, list):
+        return _compact_log_value(value)
+
+    if isinstance(value, str) and len(value) >= MIN_COMPACT_CHARS:
+        return summarize_execution(value)
+
+    return value
+
+
+def transform(event: dict[str, Any]) -> dict[str, Any]:
+    raw = event.get("tool_response")
+    tool = tool_name(event)
+
+    if tool in PRESERVE_TOOLS:
+        replacement = raw
+    elif tool in EXECUTION_TOOLS:
+        if isinstance(raw, dict):
+            replacement = dict(raw)
+            for key in ("stdout", "stderr"):
+                if key in replacement:
+                    replacement[key] = summarize_execution(compact_text(replacement[key]))
+        elif isinstance(raw, str):
+            replacement = summarize_execution(raw)
+        else:
+            replacement = raw
+    else:
+        replacement = _compact_mcp_result(raw, tool)
 
     return {
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "updatedToolOutput": result,
+            "updatedToolOutput": replacement,
         }
     }
 
@@ -213,7 +197,7 @@ def main() -> int:
             json.dumps(
                 {
                     "hookSpecificOutput": {"hookEventName": "PostToolUse"},
-                    "error": f"observation gate failed: {exc}",
+                    "error": f"observation gate failed: {type(exc).__name__}: {exc}",
                 }
             )
         )
