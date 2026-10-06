@@ -173,6 +173,18 @@ jobs:
             // Lines that carry a real failure. Ordered most-specific first so
             // a pytest summary line beats a bare traceback frame.
             const SIGNAL = [
+              // REG-0023: an xdist worker that dies takes the short summary
+              // with it -- the run ends with no FAILED line at all, so every
+              // pattern below missed and the fallback printed the worker's
+              // last stdout ("Event loop is closed") with no test named. The
+              // crash lines are the only place the node id survives, so they
+              // rank above the summary line: when both exist the crash is
+              // the one a reader has to see first.
+              /crashed while running/,              // xdist: names the node id
+              /^\[gw\d+\] node down/,              // xdist: worker died
+              /^replacing crashed worker/,           // xdist: and was replaced
+              /^INTERNALERROR>/,                     // pytest itself broke
+              /^!+ .*Interrupted/,                   // session aborted
               /^FAILED\s+\S+/,                      // pytest short summary
               /^ERROR\s+\S+/,                       // pytest collection error
               /^E\s{2,}\S/,                         // pytest assertion detail

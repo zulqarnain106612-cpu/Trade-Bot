@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 168 |
+| VERIFIED | 169 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **168** |
+| **Total** | **169** |
 
 ## Summary by subsystem
 
@@ -67,7 +67,7 @@ deletion of the thing it points at.
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 11 | 11 |
+| Release and production | 12 | 12 |
 | Governance | 52 | 52 |
 
 ## Outstanding work by phase
@@ -1516,6 +1516,19 @@ When no SIGNAL pattern matches a failing job's log, the notice carries the last 
 
 > Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite
 
+#### `REG-0023` — a crashed test worker is named in the CI notice, not reduced to its last stdout line
+
+**VERIFIED** · medium · regression · source: OPS-2026-10-07
+
+When a test worker dies, the CI notice reports the line that names the node id it was running ('crashed while running <nodeid>', '[gwN] node down', 'replacing crashed worker') or the session-level abort ('INTERNALERROR>', 'Interrupted'), in preference to the summary line, so the failing test is identified even though the run produced no short summary at all.
+
+- **If violated:** A dying worker takes the short summary with it: the run ends with no FAILED line, so every SIGNAL pattern missed and the REG-0020 fallback published the step's last stdout instead. On PR 423 that made the whole notice the words 'Event loop is closed', with no node id, no file and no test. Section 8 of the directives makes the notice the only failure channel a session may read, so a failure this channel cannot name is a failure nobody can diagnose: the branch is blocked and the only remaining move is to guess.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit)
+
+> The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -2161,4 +2174,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 168 entries.
+Registry version: 1.0.0 — 169 entries.
