@@ -16,18 +16,18 @@ MAX_DIAGNOSTIC_LINES = 3
 MAX_SUMMARY_LINES = 3
 MAX_SUMMARY_CHARS = 1200
 MIN_COMPACT_CHARS = 1200
+MAX_SEARCH_CHARS = 6000
+MAX_SEARCH_ITEMS = 40
 
 TOOL_NAME_KEYS = ("tool_name", "toolName")
 PRESERVE_TOOLS = {
     "Read",
-    "Grep",
-    "Glob",
-    "LS",
     "NotebookRead",
     "TaskOutput",
     "AskUserQuestion",
     "ExitPlanMode",
 }
+SEARCH_TOOLS = {"Grep", "Glob", "LS"}
 EXECUTION_TOOLS = {"Bash", "Monitor", "PowerShell"}
 DIAGNOSTIC_RE = re.compile(
     r"(?i)\b(error|failed|failure|exception|traceback|fatal|panic|"
@@ -124,6 +124,79 @@ def _compact_log_value(value: object) -> object:
     return value
 
 
+def summarize_search(text: str, tool: str) -> str:
+    """Compress search/navigation output without blindly taking a head/tail.
+
+    Search results are discovery data, not source text. When they are large,
+    retain the structure needed to choose the next targeted Read/Grep call:
+    unique paths, line references, and per-path counts. Full source content is
+    still preserved by Read because its requested range is already the model's
+    explicit retrieval boundary.
+    """
+    lines = [
+        line.strip()
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if line.strip()
+    ]
+    if not lines:
+        return ""
+    if len("\n".join(lines)) <= MAX_SEARCH_CHARS:
+        return "\n".join(lines)
+
+    if tool == "Grep":
+        path_counts: dict[str, int] = {}
+        examples: dict[str, list[str]] = {}
+        for line in lines:
+            match = re.match(r"(?:[^:]+:)?(?P<path>[^:\n]+):(?P<line>\d+)(?::|$)", line)
+            path = match.group("path") if match else line.split(":", 1)[0]
+            path_counts[path] = path_counts.get(path, 0) + 1
+            examples.setdefault(path, [])
+            if len(examples[path]) < 3:
+                examples[path].append(line)
+        ordered = sorted(path_counts.items(), key=lambda item: (-item[1], item[0]))
+        out = [f"[search compacted: {len(lines)} matches across {len(ordered)} paths]"]
+        for path, count in ordered[:MAX_SEARCH_ITEMS]:
+            out.append(f"{path} ({count} matches)")
+            out.extend(f"  {example}" for example in examples[path])
+        if len(ordered) > MAX_SEARCH_ITEMS:
+            out.append(
+                f"[+{len(ordered) - MAX_SEARCH_ITEMS} paths; run a narrower search to inspect them]"
+            )
+        return "\n".join(out)[:MAX_SEARCH_CHARS]
+
+    # Glob/LS are inventories. Preserve directory structure and representative
+    # paths rather than an arbitrary first/last slice.
+    paths = sorted(dict.fromkeys(lines))
+    directories: dict[str, int] = {}
+    for path in paths:
+        parts = path.replace("\\", "/").split("/")
+        directory = "/".join(parts[:-1]) or "."
+        directories[directory] = directories.get(directory, 0) + 1
+    out = [f"[search compacted: {len(paths)} entries across {len(directories)} directories]"]
+    for directory, count in sorted(directories.items(), key=lambda item: (-item[1], item[0]))[
+        :MAX_SEARCH_ITEMS
+    ]:
+        out.append(f"{directory} ({count} entries)")
+    out.append("[Use a narrower Glob/LS query or Read targeted paths for contents]")
+    return "\n".join(out)[:MAX_SEARCH_CHARS]
+
+
+def _compact_nested_logs(value: object) -> object:
+    """Compact known log fields recursively, including nested MCP payloads."""
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if lowered in LOG_FIELDS:
+                result[key] = _compact_log_value(item)
+            else:
+                result[key] = _compact_nested_logs(item)
+        return result
+    if isinstance(value, list):
+        return [_compact_nested_logs(item) for item in value]
+    return value
+
+
 def _looks_operational(tool: str) -> bool:
     lowered = tool.lower()
     return any(
@@ -145,15 +218,8 @@ def _compact_mcp_result(value: object, tool: str) -> object:
     if not _looks_operational(tool):
         return value
 
-    if isinstance(value, dict):
-        result = dict(value)
-        for key, item in value.items():
-            if str(key).lower() in LOG_FIELDS:
-                result[key] = _compact_log_value(item)
-        return result
-
-    if isinstance(value, list):
-        return _compact_log_value(value)
+    if isinstance(value, (dict, list)):
+        return _compact_nested_logs(value)
 
     if isinstance(value, str) and len(value) >= MIN_COMPACT_CHARS:
         return summarize_execution(value)
@@ -167,6 +233,10 @@ def transform(event: dict[str, Any]) -> dict[str, Any]:
 
     if tool in PRESERVE_TOOLS:
         replacement = raw
+    elif tool in SEARCH_TOOLS:
+        replacement = (
+            summarize_search(compact_text(raw), tool) if isinstance(raw, (str, dict, list)) else raw
+        )
     elif tool in EXECUTION_TOOLS:
         if isinstance(raw, dict):
             replacement = dict(raw)
