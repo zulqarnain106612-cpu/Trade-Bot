@@ -71,10 +71,7 @@ class TestLocalChecksAreNarrow:
         assert "local test/check" in decision["permissionDecisionReason"].lower()
 
     def test_prepare_is_allowed(self):
-        assert (
-            decide("python3 scripts/local_checks.py prepare")["permissionDecision"]
-            == "allow"
-        )
+        assert decide("python3 scripts/local_checks.py prepare")["permissionDecision"] == "allow"
 
     def test_run_requires_the_explicit_marker(self):
         decision = decide("python3 scripts/local_checks.py run tests")

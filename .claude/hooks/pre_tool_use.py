@@ -70,10 +70,7 @@ def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
             return ""
         if run_marker in command:
             return ""
-        return (
-            "Local CI checks must be invoked with the per-command marker "
-            f"{run_marker}."
-        )
+        return f"Local CI checks must be invoked with the per-command marker {run_marker}."
 
     for pattern in cfg.get("blocked_patterns", []):
         if re.search(pattern, command, re.IGNORECASE):
