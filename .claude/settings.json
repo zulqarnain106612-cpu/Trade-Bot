@@ -21,7 +21,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Monitor",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -49,6 +49,18 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/quality_gate.py\"",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/observation_failure.py\"",
+            "timeout": 10
           }
         ]
       }

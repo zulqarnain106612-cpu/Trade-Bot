@@ -1,4 +1,4 @@
-"""Contract tests for the safety-only PreToolUse hook."""
+"""Contract tests for the universal PreToolUse boundary."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 HOOK = PROJECT_DIR / ".claude" / "hooks" / "pre_tool_use.py"
 
 
-def decide(command: str, tool: str = "Bash", env_extra: dict | None = None) -> dict:
-    payload = json.dumps({"tool_name": tool, "tool_input": {"command": command}})
+def decide(tool: str, tool_input: dict, env_extra: dict | None = None) -> dict:
+    payload = json.dumps({"tool_name": tool, "tool_input": tool_input})
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(PROJECT_DIR)}
     env.pop("TB_COMMAND_POLICY", None)
     env.update(env_extra or {})
@@ -32,27 +32,73 @@ def decide(command: str, tool: str = "Bash", env_extra: dict | None = None) -> d
     return json.loads(proc.stdout)["hookSpecificOutput"]
 
 
-class TestExecutionIsNotRestrictedByOutputShape:
-    @pytest.mark.parametrize(
-        "command",
-        [
-            "cat README.md",
-            "git diff",
-            "git log",
-            "gh run view 1 --log",
-            "gh run view --job 1 --log-failed",
-            "gh pr checks 414",
-            "tail -f ci.log",
-        ],
-    )
-    def test_output_volume_and_ci_access_are_not_denied(self, command: str):
-        assert decide(command)["permissionDecision"] == "allow"
+class TestUniversalReadBoundary:
+    def test_native_read_requires_an_explicit_bound(self):
+        decision = decide("Read", {"file_path": "/repo/src/main.py"})
+        assert decision["permissionDecision"] == "deny"
+        assert "bounded range" in decision["permissionDecisionReason"]
 
-    def test_monitor_is_not_denied_by_observation_policy(self):
-        assert decide("", tool="Monitor")["permissionDecision"] == "allow"
+    def test_native_read_accepts_at_most_thirty_lines(self):
+        assert (
+            decide("Read", {"file_path": "/repo/src/main.py", "limit": 30})["permissionDecision"]
+            == "allow"
+        )
+
+    @pytest.mark.parametrize("limit", [31, 1000])
+    def test_native_read_rejects_large_limits(self, limit: int):
+        decision = decide("Read", {"file_path": "/repo/src/main.py", "limit": limit})
+        assert decision["permissionDecision"] == "deny"
+
+    def test_notebook_reads_rely_on_post_tool_compaction(self):
+        assert (
+            decide("NotebookRead", {"notebook_path": "/repo/notebook.ipynb"})["permissionDecision"]
+            == "allow"
+        )
+
+    def test_read_file_mcp_tool_uses_the_same_limit(self):
+        assert (
+            decide(
+                "mcp__Desktop_Commander__read_file",
+                {"path": "/repo/src/main.py", "length": 30},
+            )["permissionDecision"]
+            == "allow"
+        )
+        decision = decide(
+            "mcp__Desktop_Commander__read_file",
+            {"path": "/repo/src/main.py", "length": 31},
+        )
+        assert decision["permissionDecision"] == "deny"
 
 
-class TestLocalChecksAreNarrow:
+class TestCILogBoundary:
+    def test_direct_ci_log_read_is_denied_at_pretool(self):
+        decision = decide("Bash", {"command": "gh run view 1 --log"})
+        assert decision["permissionDecision"] == "deny"
+        assert "permanently unreadable" in decision["permissionDecisionReason"]
+
+    def test_ci_check_results_are_denied(self):
+        decision = decide("Bash", {"command": "gh pr checks 313"})
+        assert decision["permissionDecision"] == "deny"
+
+    def test_ci_notice_comment_channel_remains_allowed(self):
+        assert (
+            decide(
+                "Bash",
+                {"command": "gh pr view 313 --json comments --jq '.comments[-1].body'"},
+            )["permissionDecision"]
+            == "allow"
+        )
+
+    def test_policy_rollback_does_not_disable_hard_observation_controls(self):
+        decision = decide(
+            "Bash",
+            {"command": "gh run view 1 --log"},
+            {"TB_COMMAND_POLICY": "off"},
+        )
+        assert decision["permissionDecision"] == "deny"
+
+
+class TestLocalChecksAndSafety:
     @pytest.mark.parametrize(
         "command",
         [
@@ -66,23 +112,23 @@ class TestLocalChecksAreNarrow:
         ],
     )
     def test_direct_local_checks_are_denied(self, command: str):
-        decision = decide(command)
+        decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "deny"
         assert "local test/check" in decision["permissionDecisionReason"].lower()
 
     def test_prepare_is_allowed(self):
-        assert decide("python3 scripts/local_checks.py prepare")["permissionDecision"] == "allow"
-
-    def test_run_requires_the_explicit_marker(self):
-        decision = decide("python3 scripts/local_checks.py run tests")
-        assert decision["permissionDecision"] == "deny"
+        assert (
+            decide(
+                "Bash",
+                {"command": "python3 scripts/local_checks.py prepare"},
+            )["permissionDecision"]
+            == "allow"
+        )
 
     def test_marked_wrapper_is_allowed(self):
         command = "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run tests"
-        assert decide(command)["permissionDecision"] == "allow"
+        assert decide("Bash", {"command": command})["permissionDecision"] == "allow"
 
-
-class TestSafetyStillApplies:
     @pytest.mark.parametrize(
         "command",
         [
@@ -93,45 +139,36 @@ class TestSafetyStillApplies:
         ],
     )
     def test_destructive_commands_are_denied(self, command: str):
-        decision = decide(command)
+        decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "deny"
         assert "destructive" in decision["permissionDecisionReason"].lower()
 
     def test_explicit_marker_allows_authorized_destructive_command(self):
-        assert decide("TB_DESTRUCTIVE_OK=1 rm -rf build")["permissionDecision"] == "allow"
+        assert (
+            decide("Bash", {"command": "TB_DESTRUCTIVE_OK=1 rm -rf build"})["permissionDecision"]
+            == "allow"
+        )
 
     @pytest.mark.parametrize(
         "command",
         ["cat .env", "cat ~/.ssh/id_rsa", "printenv", "gh auth token"],
     )
     def test_secret_disclosure_is_denied(self, command: str):
-        decision = decide(command)
+        decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "deny"
         assert "credential" in decision["permissionDecisionReason"].lower()
 
 
-class TestFailureModes:
-    def test_non_bash_tools_are_untouched(self):
-        assert decide("anything", tool="Read")["permissionDecision"] == "allow"
-
-    def test_empty_command_is_allowed(self):
-        assert decide("")["permissionDecision"] == "allow"
-
-    def test_malformed_payload_fails_open(self):
-        proc = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input="{not json",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "CLAUDE_PROJECT_DIR": str(PROJECT_DIR)},
-            timeout=30,
-            check=False,
-        )
-        assert proc.returncode == 0
-        assert json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
-
-
 class TestSettingsWiring:
+    def test_pretool_hook_is_registered_for_every_tool(self):
+        settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
+        entries = settings["hooks"]["PreToolUse"]
+        assert any(
+            entry.get("matcher") == "*"
+            and any("pre_tool_use.py" in h["command"] for h in entry["hooks"])
+            for entry in entries
+        )
+
     def test_observation_hook_is_registered_for_all_successful_tools(self):
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
         entries = settings["hooks"]["PostToolUse"]
@@ -141,6 +178,11 @@ class TestSettingsWiring:
             for entry in entries
         )
 
-    def test_failure_hook_is_not_registered(self):
+    def test_failure_observation_hook_is_registered_for_all_failed_tools(self):
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
-        assert "PostToolUseFailure" not in settings["hooks"]
+        entries = settings["hooks"]["PostToolUseFailure"]
+        assert any(
+            entry.get("matcher") == "*"
+            and any("observation_failure.py" in h["command"] for h in entry["hooks"])
+            for entry in entries
+        )

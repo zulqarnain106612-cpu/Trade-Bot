@@ -91,15 +91,22 @@ jobs:
             ]);
 
             // ---- which pull request -------------------------------------
-            // A workflow_run event carries its PRs only for same-repo
-            // branches; for a fork the array is empty, so fall back to a
-            // head-SHA search rather than silently posting nothing.
+            // workflow_run.pull_requests is empty for push-triggered runs,
+            // which is the normal case here. Resolve the triggering commit
+            // directly instead of using issue search on a bare SHA; the latter
+            // can return nothing because the search index may not associate
+            // the SHA with its pull request yet.
             let prNumbers = (trigger.pull_requests || []).map(pr => pr.number);
             if (prNumbers.length === 0) {
-              const search = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${context.repo.owner}/${context.repo.repo} is:pr ${headSha}`,
-              });
-              prNumbers = search.data.items.map(item => item.number);
+              const associated =
+                await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  commit_sha: headSha,
+                });
+              prNumbers = associated.data
+                .filter(pr => pr.state === 'open')
+                .map(pr => pr.number);
             }
             if (prNumbers.length === 0) {
               core.info(`No pull request for ${headSha}; nothing to notify.`);

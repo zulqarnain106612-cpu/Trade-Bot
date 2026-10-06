@@ -241,15 +241,15 @@ class TestCommentBody:
         """Annotations are check-run data; the token has to be allowed to read them."""
         assert spec["permissions"]["checks"] == "read"
 
-    def test_a_fork_pull_request_is_still_found(self, script):
+    def test_a_push_triggered_run_resolves_the_pull_request_from_the_commit(self, script):
         """
-        workflow_run carries `pull_requests` only for same-repo branches.
+        workflow_run.pull_requests can be empty for push-triggered runs.
 
-        Without the head-SHA fallback a fork's failure would be silently
-        dropped, which is the one case where silence is indistinguishable
-        from success.
+        The notice must resolve the commit directly; issue search on a bare SHA
+        is not a reliable association mechanism.
         """
-        assert "issuesAndPullRequests" in script
+        assert "listPullRequestsAssociatedWithCommit" in script
+        assert "issuesAndPullRequests" not in script
         assert "head_sha" in script
 
 

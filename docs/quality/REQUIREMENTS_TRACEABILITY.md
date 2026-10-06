@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 165 |
+| VERIFIED | 167 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **165** |
+| **Total** | **167** |
 
 ## Summary by subsystem
 
@@ -64,11 +64,11 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 16 | 16 |
-| Cryptography and secrets | 27 | 27 |
+| Cryptography and secrets | 28 | 28 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
-| Governance | 51 | 51 |
+| Governance | 52 | 52 |
 
 ## Outstanding work by phase
 
@@ -1186,6 +1186,19 @@ npm audit over frontend's whole dependency tree at --audit-level=high reports no
 
 > No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain
 
+#### `SEC-0008` — The frontend dependency tree resolves shell-quote outside the GHSA-pqg4-j6r4-53mv range
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-06
+
+frontend's npm tree resolves shell-quote to a version at or above 1.11.0, so npm audit over the whole tree at --audit-level=high reports no advisory.
+
+- **If violated:** Security gate failed on every pull request with two critical advisories. Both trace to shell-quote GHSA-pqg4-j6r4-53mv, command injection in quote() via a line terminator in a token after a { comment } token, CWE-78, CVSS 8.1, vulnerable range >=1.8.4 <1.11.0. concurrently is a devDependency at ^10.0.5 and pins shell-quote to exactly 1.9.0, not a range, so npm update cannot move it. concurrently@10.0.5 is the latest release and every neighbouring release pins a vulnerable version too (9.2.3 -> 1.8.4, 9.2.4 -> 1.9.0, 10.0.4 -> 1.9.0), so no upstream release carries the fix. npm audit fix proposes concurrently@9.2.1, a semver-major downgrade off the 10.x line, which the overrides entry avoids. Measured in frontend/ with the gate's own lockfile transform and npm@11: before, 2 critical; with overrides shell-quote ^1.11.0 resolving 1.12.0, found 0 vulnerabilities.
+- **Owned by:** `frontend/package.json`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/test_frontend_audit_scope.py` (unit)
+
+> An npm overrides entry, not a dependency bump: concurrently pins shell-quote exactly, so the override is the only route that keeps the 10.x line. concurrently@10.0.5 was smoke-run against shell-quote 1.12.0 -- it parses and launches both quoted commands and -k still terminates the sibling -- so the only consumer of the overridden package still works. The override is pinned to the patched line (^1.11.0) rather than an exact version so future patches are picked up; the deciding test holds the floor at 1.11.0 and holds concurrently on ^10 so the advisory cannot be dodged by downgrading instead. Nothing committed here put the advisory in the tree: concurrently's pin was already 1.9.0 and the advisory was published against it upstream, which is the same shape as SEC-0007. layer: supply-chain
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -2009,6 +2022,21 @@ The math registry loader refuses an entry with status='implemented' unless its w
 - **Verification:**
   - `tests/test_math_registry.py` (contract)
 
+#### `GOV-057` — all model-visible tool observations cross the repository boundary
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-06
+
+Every successful Claude Code tool result in a repository session is passed through the PostToolUse observation boundary, native source reads are bounded before execution, direct CI run-data is blocked as a model-observation route, and failed tool calls receive only compact additional failure context because PostToolUseFailure cannot replace the native failure result.
+
+- **If violated:** A tool bypasses the repository observation boundary and emits a large file, CI, MCP, shell, or search payload into model context, consuming context budget and weakening failure recovery. A native failed-tool record also cannot be rewritten after the failure event, so the design must not claim stronger enforcement than the Claude Code hook contract provides.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `.claude/hooks/observation_gate.py`, `.claude/hooks/observation_failure.py`, `.claude/settings.json`
+- **Depends on:** `GOV-019`, `GOV-020`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (contract)
+  - `tests/test_observation_gate.py` (contract)
+  - `tests/test_observation_failure.py` (contract)
+  - `tests/test_ci_log_access.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -2120,4 +2148,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 165 entries.
+Registry version: 1.0.0 — 167 entries.

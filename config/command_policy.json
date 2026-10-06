@@ -116,6 +116,16 @@
     "refusal_message": "only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
     "_gh_note": "`gh` is not exempt as a whole, but `gh run view --log`, `gh run list` and `gh api .../logs` page an entire CI run into context. They are allowed only behind an explicit bound; `gh pr view/checks/merge` are untouched."
   },
+  "observation_boundary": {
+    "enabled": true,
+    "max_success_lines": 3,
+    "max_success_chars": 1200,
+    "max_read_lines": 30,
+    "native_read_tools": ["Read"],
+    "mcp_read_tool_patterns": ["read_file$", "read_process_output$", "read_terminal$"],
+    "read_refusal_message": "Read operations must declare a bounded range of at most 30 lines. Use a targeted search first, then request the smallest exact range needed. The returned model observation is additionally compacted to at most three useful lines.",
+    "_note": "This is a model-context boundary, not a filesystem access control. PostToolUse compacts every successful tool result; PreToolUse prevents unbounded native source reads and direct CI run-data access."
+  },
   "destructive": {
     "enabled": true,
     "_note": "Destructive commands are refused outright. They are not blocked because they are forbidden -- they are blocked because they must be run through common/shell_exec.run() with classification='destructive' and confirm_destructive=True, which records the authorization. The hook names that path in its refusal.",
@@ -138,7 +148,7 @@
   "ci_observability": {
     "enabled": true,
     "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk retrieval is no longer a bounded alternative either: see ci_log_access, which refuses it outright.",
-    "message": "CI live monitoring is permanently disabled. only <=30 lines are allowed,run command for minimum line which can make you understand the failure",
+    "message": "CI live monitoring and direct CI run-data retrieval are permanently disabled as model-observation routes. Use the pull-request CI notice comment for the compact failure status and exact failing lines.",
     "live_patterns": [
       "\\bgh\\s+run\\s+watch\\b",
       "\\bgh\\s+(run|pr)\\b[^|]*--watch\\b",
