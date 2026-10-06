@@ -133,7 +133,11 @@ def summarize_search(text: str, tool: str) -> str:
     still preserved by Read because its requested range is already the model's
     explicit retrieval boundary.
     """
-    lines = [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()]
+    lines = [
+        line.strip()
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if line.strip()
+    ]
     if not lines:
         return ""
     if len("\n".join(lines)) <= MAX_SEARCH_CHARS:
@@ -155,7 +159,9 @@ def summarize_search(text: str, tool: str) -> str:
             out.append(f"{path} ({count} matches)")
             out.extend(f"  {example}" for example in examples[path])
         if len(ordered) > MAX_SEARCH_ITEMS:
-            out.append(f"[+{len(ordered) - MAX_SEARCH_ITEMS} paths; run a narrower search to inspect them]")
+            out.append(
+                f"[+{len(ordered) - MAX_SEARCH_ITEMS} paths; run a narrower search to inspect them]"
+            )
         return "\n".join(out)[:MAX_SEARCH_CHARS]
 
     # Glob/LS are inventories. Preserve directory structure and representative
@@ -167,7 +173,9 @@ def summarize_search(text: str, tool: str) -> str:
         directory = "/".join(parts[:-1]) or "."
         directories[directory] = directories.get(directory, 0) + 1
     out = [f"[search compacted: {len(paths)} entries across {len(directories)} directories]"]
-    for directory, count in sorted(directories.items(), key=lambda item: (-item[1], item[0]))[:MAX_SEARCH_ITEMS]:
+    for directory, count in sorted(directories.items(), key=lambda item: (-item[1], item[0]))[
+        :MAX_SEARCH_ITEMS
+    ]:
         out.append(f"{directory} ({count} entries)")
     out.append("[Use a narrower Glob/LS query or Read targeted paths for contents]")
     return "\n".join(out)[:MAX_SEARCH_CHARS]
@@ -226,7 +234,9 @@ def transform(event: dict[str, Any]) -> dict[str, Any]:
     if tool in PRESERVE_TOOLS:
         replacement = raw
     elif tool in SEARCH_TOOLS:
-        replacement = summarize_search(compact_text(raw), tool) if isinstance(raw, (str, dict, list)) else raw
+        replacement = (
+            summarize_search(compact_text(raw), tool) if isinstance(raw, (str, dict, list)) else raw
+        )
     elif tool in EXECUTION_TOOLS:
         if isinstance(raw, dict):
             replacement = dict(raw)

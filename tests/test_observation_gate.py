@@ -120,9 +120,7 @@ def test_empty_execution_output_is_valid():
 
 def test_large_grep_output_is_semantically_compacted():
     gate = load_gate()
-    raw = "\n".join(
-        f"src/pkg_{i % 3}.py:{i}: matched symbol {i}" for i in range(500)
-    )
+    raw = "\n".join(f"src/pkg_{i % 3}.py:{i}: matched symbol {i}" for i in range(500))
     event = {"tool_name": "Grep", "tool_response": raw}
     output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
     assert len(output) < len(raw)
