@@ -216,7 +216,10 @@ jobs:
         # `npm audit` exits 1 for three unrelated things, and this job used to
         # report all of them as if the frontend had vulnerabilities:
         #
-        #   1. high/critical advisories found -> a real verdict, must fail
+        #   1. high/critical advisories found -> a real verdict; delegated to
+        #                                        scripts/npm_audit_verdict.py,
+        #                                        which fails it unless no fix
+        #                                        for it exists at all
         #   2. registry unreachable           -> retried, then a warning:
         #                                        a finding fails this job,
         #                                        being unable to ask does not
@@ -254,8 +257,45 @@ jobs:
             fi
 
             if ! grep -q "audit endpoint returned an error" audit.log; then
-              echo "::error::npm audit reported high or critical advisories."
-              exit 1
+              # A real verdict: high or critical advisories exist. Whether that
+              # ought to fail is not the same question as whether it exists, and
+              # only the JSON report can answer the second one.
+              #
+              # npm reports `fixAvailable: false` when no published version of a
+              # package escapes the advisory -- there is no floor, no ceiling, no
+              # `overrides` entry and no `npm audit fix --force` that clears it.
+              # http-cache-semantics 4.2.0 (CVE-2026-93748) is exactly that, and
+              # it is reached only through electron-builder's build-time download
+              # chain. Failing on it blocked every pull request in the repository
+              # with no change available to any of them.
+              #
+              # So the finding is still reported, one `::warning::` per advisory,
+              # and stops blocking only while no fix exists. The exemption is not
+              # standing: when a fixed release appears, `fixAvailable` stops being
+              # false and this fails again, naming the package, until the bump
+              # lands. A critical finding blocks either way (CLAUDE.md section 17
+              # does not let a critical requirement be an accepted gap).
+              #
+              # One extra registry call, and only on the path that already found
+              # something. If it cannot be made, or its output cannot be read,
+              # npm_audit_verdict.py exits 2 and this fails: being unable to ask
+              # is not a pass, the same rule the branch below already follows.
+              set +e
+              timeout 300 npm audit --json --audit-level=high > audit.json 2> audit-json.log
+              json_status=$?
+              set -e
+
+              if [ "$json_status" -eq 0 ]; then
+                echo "npm audit reported nothing at high or critical."
+                exit 0
+              fi
+
+              cat audit-json.log
+              set +e
+              python3 "$GITHUB_WORKSPACE/scripts/npm_audit_verdict.py" audit.json
+              verdict=$?
+              set -e
+              exit "$verdict"
             fi
 
             if grep -q "Invalid package tree" audit.log; then

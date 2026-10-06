@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 167 |
+| VERIFIED | 168 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **167** |
+| **Total** | **168** |
 
 ## Summary by subsystem
 
@@ -64,7 +64,7 @@ deletion of the thing it points at.
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 16 | 16 |
-| Cryptography and secrets | 28 | 28 |
+| Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 11 | 11 |
@@ -1199,6 +1199,19 @@ frontend's npm tree resolves shell-quote to a version at or above 1.11.0, so npm
 
 > An npm overrides entry, not a dependency bump: concurrently pins shell-quote exactly, so the override is the only route that keeps the 10.x line. concurrently@10.0.5 was smoke-run against shell-quote 1.12.0 -- it parses and launches both quoted commands and -k still terminates the sibling -- so the only consumer of the overridden package still works. The override is pinned to the patched line (^1.11.0) rather than an exact version so future patches are picked up; the deciding test holds the floor at 1.11.0 and holds concurrently on ^10 so the advisory cannot be dodged by downgrading instead. Nothing committed here put the advisory in the tree: concurrently's pin was already 1.9.0 and the advisory was published against it upstream, which is the same shape as SEC-0007. layer: supply-chain
 
+#### `SEC-0009` — The npm gate blocks every advisory this repository can actually fix
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-03
+
+scripts/npm_audit_verdict.py fails the npm-audit job for any high or critical advisory whose fixAvailable is not false, always fails on a critical one whatever its fixAvailable, and fails with exit 2 rather than passing when the audit report cannot be read. security.yml delegates its verdict to that script.
+
+- **If violated:** npm audit --audit-level=high exits non-zero for every high or critical advisory and Security gate (all jobs green) is a required status check, so the two compose into a gate that no pull request can pass while the finding stands. That is correct for a finding with a fix and useless for one without: a required check that cannot be satisfied blocks every merge indefinitely, and the queue behind it stops moving.
+- **Owned by:** `scripts/npm_audit_verdict.py`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/security/test_npm_audit_fix_available_gate.py` (security)
+
+> The exemption is not standing and cannot become one. npm defaults fixAvailable to true and sets it false only when it has proved no published version escapes the advisory, so the moment a fix is published this gate fails again and names the package. layer: test-suite
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -2148,4 +2161,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 167 entries.
+Registry version: 1.0.0 — 168 entries.
