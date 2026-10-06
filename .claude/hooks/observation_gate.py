@@ -88,9 +88,7 @@ def summarize_execution(text: str) -> str:
     if diagnostics:
         selected = diagnostics[:MAX_DIAGNOSTIC_LINES]
     else:
-        meaningful = [
-            line for line in lines if line.strip() and not NOISE_RE.search(line)
-        ]
+        meaningful = [line for line in lines if line.strip() and not NOISE_RE.search(line)]
         signals = [line for line in meaningful if SIGNAL_RE.search(line)]
         selected = (signals or meaningful)[:MAX_SUMMARY_LINES]
 
