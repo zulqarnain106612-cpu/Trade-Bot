@@ -5,8 +5,11 @@ advisory, and `Security gate (all jobs green)` is a required status check, so on
 un-remediable advisory stops every pull request in the repository from merging.
 `http-cache-semantics` 4.2.0 (CVE-2026-93748) did exactly that: it has no fixed
 release -- 4.2.0 is the only 4.x and is `latest` on the registry, and the GHSA
-carries no `first_patched_version` -- and it is reached only through
-electron-builder's build-time download chain.
+carries no `first_patched_version` -- and it was reached only through
+electron-builder's build-time download chain. SEC-0007 has since removed
+electron-builder, so that advisory is out of the tree and the reports below are
+fixtures, not claims about the current lockfile. The gate still has to answer
+the question, because the next un-remediable advisory arrives the same way.
 
 The gate must therefore distinguish the two cases using the field npm computes
 for precisely this question, `fixAvailable`, rather than hardcoding advisory ids:
@@ -362,25 +365,4 @@ def test_the_workflow_delegates_its_verdict_to_this_script() -> None:
     )
     assert "npm audit --json" in workflow, (
         "the workflow must produce the JSON report the script reads"
-    )
-
-
-def test_the_unfixable_finding_is_recorded_as_a_waived_gap() -> None:
-    """
-    A warning with no registry entry behind it is an unreviewed suppression. The
-    acceptance is attributed, dated, and carries a future review date so the
-    repository's own expired-waiver check keeps it visible.
-    """
-    registry = json.loads(
-        (REPO_ROOT / "config" / "quality_registry.json").read_text(encoding="utf-8")
-    )
-    entry = next(e for e in registry["entries"] if e["id"] == "SEC-0008")
-    assert entry["status"] == "accepted_gap"
-    assert entry["criticality"] != "critical", "a critical entry cannot be waived"
-    waiver = entry["waiver"]
-    assert waiver["reason"].strip()
-    assert waiver["accepted_by"].strip()
-    assert waiver["review_by"] > "2026-10-03", "the waiver must be dated in the future"
-    assert GHSA.rsplit("/", 1)[-1] in json.dumps(entry), (
-        "the entry must name the advisory it accepts, so a reader can look it up"
     )

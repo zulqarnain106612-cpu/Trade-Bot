@@ -200,11 +200,17 @@ class TestTheRegistryHasAPlaceForDefects:
         # concurrently pins 1.9.0 exactly and its latest release still does,
         # so an upstream advisory -- not a commit here -- put two criticals in
         # the tree, and an override was the only route to the patched line.
+        # SEC-0009: `npm audit --audit-level=high` exits non-zero for every high
+        # or critical advisory, and the Security gate is required, so an
+        # advisory with no published fix made a required check unsatisfiable
+        # and stopped the queue. No test asked whether a reported advisory was
+        # fixable at all, so nothing could have caught it -- test-suite.
         assert {e.id for e in registry.by_kind("security_regression")} == {
             "SEC-0005",
             "SEC-0006",
             "SEC-0007",
             "SEC-0008",
+            "SEC-0009",
         }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
@@ -453,7 +459,7 @@ class TestTheMetricsCollector:
         # SEC-0008: shell-quote's advisory was published against a pin that
         # concurrently already shipped, so no commit or review here could have
         # seen it arrive -- supply-chain, taking that bucket from 1 to 2.
-        assert metric["value"] == {"test-suite": 17, "review": 1, "supply-chain": 2}
+        assert metric["value"] == {"test-suite": 18, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
