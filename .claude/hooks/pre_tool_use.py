@@ -15,9 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-PROJECT_DIR = Path(
-    os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])
-)
+PROJECT_DIR = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2]))
 POLICY_PATH = PROJECT_DIR / "config" / "command_policy.json"
 
 sys.path.insert(0, str(PROJECT_DIR))
