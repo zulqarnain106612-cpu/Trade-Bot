@@ -76,7 +76,11 @@ DOC_GLOBS = ("CLAUDE.md", "docs/**/*.md", ".claude/skills/*/SKILL.md", ".claude/
 _NO_TASK_ARGUMENT = frozenset(
     {"task create", "task list", "branch-audit", "session-summary", "docs"}
 )
-_DOC_COMMAND = re.compile(r"scripts/agent_control\.py[ \t]+([a-z][a-z-]*)(?:[ \t]+([a-z][a-z-]*))?")
+_DOC_COMMAND = re.compile(
+    r"(?:^|[`$])[ \t]*(?:python3[ \t]+)?scripts/agent_control\\.py[ \t]+"
+    r"([a-z][a-z-]*)(?:[ \t]+([a-z][a-z-]*))?",
+    re.MULTILINE,
+)
 
 
 class CliError(Exception):
