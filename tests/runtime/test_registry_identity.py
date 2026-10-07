@@ -1,5 +1,7 @@
-"""GOV-067: duplicate identities are rejected and a version string names one
-content forever, across replace and rollback."""
+"""RES-010: duplicate identities are rejected and a version string names one
+content forever, across replace and rollback.
+
+Decides: RES-010"""
 
 from __future__ import annotations
 

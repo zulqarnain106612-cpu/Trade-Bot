@@ -4,6 +4,8 @@ container (scripts/timescaledb.sh). A throwaway database is created per test
 session and dropped at teardown; tables are truncated between tests.
 
 Skips the whole module if the container is not reachable.
+
+Decides: RES-014
 """
 
 import asyncio

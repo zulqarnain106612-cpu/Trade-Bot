@@ -1,5 +1,7 @@
-"""GOV-071: mismatches between desired and actual state are detected and
-classified; the reconciler acts only through the change manager's policy."""
+"""RES-014: mismatches between desired and actual state are detected and
+classified; the reconciler acts only through the change manager's policy.
+
+Decides: RES-014"""
 
 from __future__ import annotations
 

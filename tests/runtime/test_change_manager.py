@@ -1,5 +1,7 @@
-"""GOV-070: every runtime mutation is a change request that is classified,
-analysed, validated and policy-checked, and every step is audited."""
+"""RES-013: every runtime mutation is a change request that is classified,
+analysed, validated and policy-checked, and every step is audited.
+
+Decides: RES-013"""
 
 from __future__ import annotations
 

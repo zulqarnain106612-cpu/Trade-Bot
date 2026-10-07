@@ -1,5 +1,7 @@
-"""GOV-066: runtime components have explicit identity and immutable versions;
-desired state and actual state are distinct."""
+"""RES-009: runtime components have explicit identity and immutable versions;
+desired state and actual state are distinct.
+
+Decides: RES-009"""
 
 from __future__ import annotations
 

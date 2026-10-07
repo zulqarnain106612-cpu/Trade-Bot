@@ -1,5 +1,7 @@
-"""GOV-070: an executed change rolls back through its inverse action, restores
-the previous desired state, and says so when no inverse exists."""
+"""RES-013: an executed change rolls back through its inverse action, restores
+the previous desired state, and says so when no inverse exists.
+
+Decides: RES-013"""
 
 from __future__ import annotations
 

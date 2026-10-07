@@ -1,6 +1,8 @@
-"""GOV-068: a controller failure produces an explicit FAILED state; past the
+"""RES-011: a controller failure produces an explicit FAILED state; past the
 restart budget the component is quarantined when it can be, and reported
-unhealthy when it cannot -- never silently left looking healthy."""
+unhealthy when it cannot -- never silently left looking healthy.
+
+Decides: RES-011"""
 
 from __future__ import annotations
 

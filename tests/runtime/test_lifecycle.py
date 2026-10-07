@@ -1,5 +1,7 @@
-"""GOV-066: lifecycle transitions are validated against one table; anything
-the table lacks is rejected explicitly."""
+"""RES-009: lifecycle transitions are validated against one table; anything
+the table lacks is rejected explicitly.
+
+Decides: RES-009"""
 
 from __future__ import annotations
 
@@ -82,7 +84,7 @@ def test_quarantine_is_reachable_from_every_other_state() -> None:
 
 def test_every_target_of_the_table_is_a_state_and_desirable_states_are_reachable() -> None:
     targets = set(TRANSITIONS.values())
-    assert DESIRABLE_STATES <= targets
+    assert targets >= DESIRABLE_STATES
     assert RUNNING_STATES <= DESIRABLE_STATES
 
 

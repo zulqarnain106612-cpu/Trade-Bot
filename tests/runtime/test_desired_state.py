@@ -1,6 +1,8 @@
-"""GOV-071: desired state persists through the existing storage backend and
+"""RES-014: desired state persists through the existing storage backend and
 is restored into a fresh registry; the newest intent is never lost to a
-failed or overlapping write."""
+failed or overlapping write.
+
+Decides: RES-014"""
 
 from __future__ import annotations
 

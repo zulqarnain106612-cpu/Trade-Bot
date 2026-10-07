@@ -1,5 +1,7 @@
-"""GOV-067: adapters read the existing registries -- which keep working
-unchanged -- into runtime specs, declaring only actions the subsystem has."""
+"""RES-010: adapters read the existing registries -- which keep working
+unchanged -- into runtime specs, declaring only actions the subsystem has.
+
+Decides: RES-010"""
 
 from __future__ import annotations
 

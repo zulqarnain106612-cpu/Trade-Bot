@@ -1,4 +1,6 @@
-"""GOV-069: dependency cycles are detected and reported as a closed path."""
+"""RES-012: dependency cycles are detected and reported as a closed path.
+
+Decides: RES-012"""
 
 from __future__ import annotations
 

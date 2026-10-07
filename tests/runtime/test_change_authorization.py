@@ -1,5 +1,7 @@
-"""GOV-070: authorization -- an AI actor can request but never approve, record
-a stage result or promote; every refusal is audited."""
+"""RES-013: authorization -- an AI actor can request but never approve, record
+a stage result or promote; every refusal is audited.
+
+Decides: RES-013"""
 
 from __future__ import annotations
 

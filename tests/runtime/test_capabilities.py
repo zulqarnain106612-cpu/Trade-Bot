@@ -1,5 +1,7 @@
-"""GOV-066: capabilities are explicit; an undeclared action is never performed
-by bookkeeping."""
+"""RES-009: capabilities are explicit; an undeclared action is never performed
+by bookkeeping.
+
+Decides: RES-009"""
 
 from __future__ import annotations
 

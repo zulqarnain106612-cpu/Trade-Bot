@@ -1,5 +1,7 @@
-"""GOV-069: dependency edges come from the component specs; dependencies,
-dependents, order and unmet requirements are computed from them."""
+"""RES-012: dependency edges come from the component specs; dependencies,
+dependents, order and unmet requirements are computed from them.
+
+Decides: RES-012"""
 
 from __future__ import annotations
 

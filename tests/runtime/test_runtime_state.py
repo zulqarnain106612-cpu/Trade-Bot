@@ -1,6 +1,8 @@
-"""GOV-068: the supervisor set dispatches by component type, components
+"""RES-011: the supervisor set dispatches by component type, components
 without a controller are observe-only, and the registry snapshot reflects
-every executed transition."""
+every executed transition.
+
+Decides: RES-011"""
 
 from __future__ import annotations
 

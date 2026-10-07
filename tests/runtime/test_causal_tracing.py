@@ -1,7 +1,9 @@
 """RES-015: events carry the correlation context bound where they were
 published; a decision is traceable end to end and a rejected one names its
 first blocking condition; runtime changes are on the bus and in the
-hash-chained audit trail."""
+hash-chained audit trail.
+
+Decides: RES-015"""
 
 from __future__ import annotations
 

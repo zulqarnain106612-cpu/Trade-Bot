@@ -1,6 +1,8 @@
 """RES-016: an adaptive candidate passes every stage in order, judged by
 someone other than its proposer, reaches live only through an approved change,
-and leaves it the way the post-promotion watchdog says."""
+and leaves it the way the post-promotion watchdog says.
+
+Decides: RES-016"""
 
 from __future__ import annotations
 

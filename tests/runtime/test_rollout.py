@@ -1,5 +1,7 @@
-"""GOV-070: the rollout class follows the policy order, and shadow/canary
-classes execute only after a passed stage."""
+"""RES-013: the rollout class follows the policy order, and shadow/canary
+classes execute only after a passed stage.
+
+Decides: RES-013"""
 
 from __future__ import annotations
 

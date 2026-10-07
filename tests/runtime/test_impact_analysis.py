@@ -1,5 +1,7 @@
-"""GOV-069: impact analysis names the affected components, the validations
-and rollout the change needs, and the failure domains it can reach."""
+"""RES-012: impact analysis names the affected components, the validations
+and rollout the change needs, and the failure domains it can reach.
+
+Decides: RES-012"""
 
 from __future__ import annotations
 

@@ -1,5 +1,7 @@
 """RES-016: the PROMOTION_GATE and SHADOW stages are decided by the existing
-promotion gauntlet and model-registry evaluation, not re-implemented."""
+promotion gauntlet and model-registry evaluation, not re-implemented.
+
+Decides: RES-016"""
 
 from __future__ import annotations
 

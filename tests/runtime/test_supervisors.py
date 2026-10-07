@@ -1,6 +1,8 @@
-"""GOV-068: supervisors share one infrastructure, preview before acting, refuse
+"""RES-011: supervisors share one infrastructure, preview before acting, refuse
 unsupported transitions without calling the controller, and the model
-supervisor promotes only through the model registry's own evaluation."""
+supervisor promotes only through the model registry's own evaluation.
+
+Decides: RES-011"""
 
 from __future__ import annotations
 

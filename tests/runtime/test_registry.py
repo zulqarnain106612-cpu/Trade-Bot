@@ -1,6 +1,8 @@
-"""GOV-067: the runtime registry answers what exists, at which version, in
+"""RES-010: the runtime registry answers what exists, at which version, in
 which state, how healthy, depending on what, desired versus actual -- and
-records only transitions the table and the capabilities allow."""
+records only transitions the table and the capabilities allow.
+
+Decides: RES-010, RES-015"""
 
 from __future__ import annotations
 
