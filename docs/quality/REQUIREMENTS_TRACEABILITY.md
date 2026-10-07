@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 190 |
+| VERIFIED | 191 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **190** |
+| **Total** | **191** |
 
 ## Summary by subsystem
 
@@ -66,7 +66,7 @@ deletion of the thing it points at.
 | API and WebSocket | 20 | 20 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 16 | 16 |
+| Resilience and recovery | 17 | 17 |
 | Release and production | 13 | 13 |
 | Governance | 59 | 59 |
 
@@ -1560,6 +1560,18 @@ Injected failures (worker death, failed load or reload, missing dependency, stal
   - `tests/runtime/test_concurrency.py` (resilience)
   - `tests/runtime/test_recovery.py` (recovery)
 
+#### `RES-020` — The runtime path is integrated end to end
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+Through the real API, an operator's desired state becomes a mismatch, a reconciliation pass turns it into a LIVE_SAFE change executed by the reconciler through the change manager, a supervisor and its controller; the transition is on the event bus with its change and component ids, the change is in the hash-chained audit trail and, flushed by the API call, in storage with the desired state; a trading decision published on the same bus is served as a trace with its first blocking gate.
+
+- **If violated:** Each layer passes its own tests but the composition drops a step: a change that is not audited, persisted, published or traceable.
+- **Owned by:** `src/runtime/platform.py`, `src/api/runtime_control.py`
+- **Depends on:** `RES-015`, `RES-017`, `RES-019`
+- **Verification:**
+  - `tests/runtime/test_integration.py` (integration)
+
 ## Release and production
 
 #### `INV-010` — Live mode cannot bypass qualification gates
@@ -2452,4 +2464,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 190 entries.
+Registry version: 1.0.0 — 191 entries.

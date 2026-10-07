@@ -4770,6 +4770,32 @@
         "RES-014",
         "RES-017"
       ]
+    },
+    {
+      "id": "RES-020",
+      "kind": "requirement",
+      "title": "The runtime path is integrated end to end",
+      "statement": "Through the real API, an operator's desired state becomes a mismatch, a reconciliation pass turns it into a LIVE_SAFE change executed by the reconciler through the change manager, a supervisor and its controller; the transition is on the event bus with its change and component ids, the change is in the hash-chained audit trail and, flushed by the API call, in storage with the desired state; a trading decision published on the same bus is served as a trace with its first blocking gate.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "Each layer passes its own tests but the composition drops a step: a change that is not audited, persisted, published or traceable.",
+      "owning_modules": [
+        "src/runtime/platform.py",
+        "src/api/runtime_control.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_integration.py",
+          "test_type": "integration"
+        }
+      ],
+      "depends_on": [
+        "RES-015",
+        "RES-017",
+        "RES-019"
+      ]
     }
   ]
 }
