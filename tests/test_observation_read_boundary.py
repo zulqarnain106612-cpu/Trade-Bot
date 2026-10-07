@@ -66,14 +66,13 @@ def test_small_targeted_read_of_modified_file_remains_available(monkeypatch, tmp
     hook.PROJECT_DIR = tmp_path
 
     class Result:
-        returncode = 1
-        stdout = ""
-        stderr = ""
+        def __init__(self, returncode):
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = ""
 
     def fake_run(args, **kwargs):
-        if args[1] == "ls-files":
-            Result.returncode = 0
-        return Result()
+        return Result(0 if args[1] == "ls-files" else 1)
 
     monkeypatch.setattr(hook.subprocess, "run", fake_run)
     event = {
