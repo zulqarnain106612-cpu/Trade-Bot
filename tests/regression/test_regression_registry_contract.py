@@ -165,6 +165,12 @@ class TestTheRegistryHasAPlaceForDefects:
         # loop outlived the component -- and retried on a flat 3s with no
         # jitter, so the whole fleet hit a recovering API together. Neither
         # is visible to a build, and there was no frontend test runner.
+        # REG-0021: workflow_run.pull_requests is empty whenever the run it
+        # reports on started from a push, which is the normal case here, and
+        # the issue search used as the fallback never reliably matched a bare
+        # SHA to its pull request. The notice resolved no pull request and
+        # exited 0, so a red PR looked stuck for no visible reason -- and the
+        # notice is the only CI channel a session may read.
         # REG-0022: usePolling and useStream closed over the callback their
         # caller passed on the first render, so the five inline arrows in
         # App.jsx were pinned forever, while useWebSocket listed its handlers
@@ -192,6 +198,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0018",
             "REG-0019",
             "REG-0020",
+            "REG-0021",
             "REG-0022",
             "REG-0023",
         }
@@ -471,7 +478,11 @@ class TestTheMetricsCollector:
         # SEC-0008: shell-quote's advisory was published against a pin that
         # concurrently already shipped, so no commit or review here could have
         # seen it arrive -- supply-chain, taking that bucket from 1 to 2.
-        assert metric["value"] == {"test-suite": 19, "review": 1, "supply-chain": 2}
+        # REG-0021: the notice resolved no pull request and exited 0. Nothing
+        # about the workflow's own YAML or a review of it says which shape of
+        # triggering run leaves workflow_run.pull_requests empty; only a test
+        # asserting the resolution path does -- test-suite, 19 to 20.
+        assert metric["value"] == {"test-suite": 20, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
