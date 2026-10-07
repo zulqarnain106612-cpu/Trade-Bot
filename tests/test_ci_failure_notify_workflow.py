@@ -12,6 +12,7 @@ own prior comment instead of stacking new ones.
 Decides:
   - GOV-013 — CI failure is pushed to the pull request, never polled for
   - GOV-020 — One comment per commit carries the status and the exact failing lines
+  - REG-0020 — The CI notice names the error of a failure no pattern recognises
   - REG-0023 — A crashed test worker is named in the notice, not reduced to its last stdout line
 """
 

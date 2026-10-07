@@ -20,6 +20,9 @@ trade. On a $150 account that $10 is 6.7% of capital, above the 5% ceiling. The
 sizer is not wrong to suggest it and the ceiling is not wrong to refuse it --
 but the invariant only holds because the gate is downstream, and a test that
 checked the sizer alone would have concluded otherwise.
+
+Decides:
+  - RISK-001 — Maximum position exposure must not exceed the configured ceiling
 """
 
 from __future__ import annotations

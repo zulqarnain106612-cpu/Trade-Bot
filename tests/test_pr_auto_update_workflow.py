@@ -10,6 +10,7 @@ touches only branches that are genuinely stale.
 
 Decides:
   - GOV-017 — The last manual step in the merge path presses itself, one pull request at a tim
+  - GOV-029 — A conflict confined to generated files resolves itself, and is gated before it is pushed
 """
 
 from __future__ import annotations

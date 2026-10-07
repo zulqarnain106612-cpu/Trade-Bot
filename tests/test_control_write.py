@@ -6,6 +6,10 @@ The risk is that a unified endpoint becomes a bypass: somewhere to set a value
 the dedicated endpoint would have refused. So apply_control is a router --
 every write goes through the setter and the validator that already owned it --
 and these tests assert it cannot write what those would reject.
+
+Decides:
+  - GOV-026 — One write endpoint, and not a second way in
+  - GOV-028 — A setting the operator changes takes effect without a restart
 """
 
 from __future__ import annotations
