@@ -76,6 +76,7 @@ TOPICS: frozenset[str] = frozenset(
         "order",  # order FSM state transitions
         "approval",  # approval queue add / resolve
         "signal",  # orchestrator tick
+        "engine",  # E-01..E-18, consensus, risk quantifier, signal gate: one per cycle
         "regime",  # orchestrator tick
         "gate",  # evaluate_all_gates, *including* blocks
         "killswitch",  # strategy_kill_switch

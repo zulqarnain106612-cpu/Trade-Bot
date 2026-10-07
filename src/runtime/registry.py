@@ -44,6 +44,8 @@ from src.runtime.contracts import (
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _HISTORY_LIMIT = 1000
+# Observed version changes keep this many earlier versions per component.
+_PREVIOUS_LIMIT = 50
 
 DesiredListener = Callable[[str, DesiredState | None], None]
 TransitionListener = Callable[[TransitionRecord], None]
@@ -400,6 +402,95 @@ class RuntimeRegistry:
             )
             self._remember(transition)
             return transition
+
+    def resync(
+        self,
+        spec: ComponentSpec,
+        state: LifecycleState,
+        health: HealthReport,
+        *,
+        actor: str = "discovery",
+    ) -> ComponentRecord:
+        """
+        Bring one record in line with what the component's owner reports now.
+
+        New: registered at ``state``. Known: the owner's version (an observed
+        change is recorded with the old version kept in ``previous_versions``),
+        capabilities and dependencies replace the recorded ones, the state is
+        observed and the health recorded. Every step is an observation -- the
+        owner changed the component; the registry only records that it did.
+        The observed content of a version string replaces any earlier content
+        under the same string: the subsystem is the truth being recorded.
+        """
+        with self._lock:
+            component_id = spec.component_id
+            record = self._records.get(component_id)
+            if record is None:
+                self.register(spec, observed_state=state, actor=actor)
+                return self.record_health(component_id, health)
+            if spec.component_type is not record.spec.component_type:
+                raise RuntimeContractError(
+                    f"{component_id} is a {record.spec.component_type.value}, "
+                    f"not a {spec.component_type.value}"
+                )
+            if spec.version != record.version:
+                transition = TransitionRecord(
+                    component_id=component_id,
+                    action=None,
+                    from_state=record.state,
+                    to_state=state,
+                    from_version=record.version.version,
+                    to_version=spec.version.version,
+                    actor=actor,
+                    at=self._clock(),
+                )
+                self._versions[component_id][spec.version.version] = spec.version
+                previous = (*record.previous_versions, record.version)[-_PREVIOUS_LIMIT:]
+                self._remember(transition)
+                return self._store(
+                    record,
+                    spec=spec,
+                    state=state,
+                    health=health,
+                    previous_versions=previous,
+                    last_transition=transition,
+                )
+            if spec != record.spec:
+                record = self._store(record, spec=spec)
+            if record.state is not state:
+                return self.observe(component_id, state, actor=actor, health=health)
+            if health != record.health:
+                return self._store(record, health=health)
+            return record
+
+    def retire(self, component_id: str) -> bool:
+        """
+        Drop a component its owner no longer reports. Only a STOPPED one that
+        nothing depends on and that is not wanted in any other state: anything
+        else is still someone's concern and stays visible. A desired state it
+        carried is cleared through the listeners, so the stored row goes too.
+        """
+        with self._lock:
+            record = self.get(component_id)
+            if record.state is not LifecycleState.STOPPED or self.dependents(component_id):
+                return False
+            desired = record.desired
+            if desired is not None and desired.target_state is not LifecycleState.STOPPED:
+                return False
+            del self._records[component_id]
+            del self._versions[component_id]
+            if desired is not None:
+                for listener in self._desired_listeners:
+                    try:
+                        listener(component_id, None)
+                    except Exception as exc:  # a listener is a mirror; the record stands
+                        log.error(
+                            "runtime.desired_listener_failed",
+                            component_id=component_id,
+                            error=str(exc),
+                        )
+            log.info("runtime.component_retired", component_id=component_id)
+            return True
 
     def note_restart(self, component_id: str) -> ComponentRecord:
         with self._lock:

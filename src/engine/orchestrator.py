@@ -156,6 +156,11 @@ def _metrics_payload(result: Any, executor: Any) -> dict[str, float | int]:
 #: cold box still completes; see docs/quality/REQUIREMENTS_TRACEABILITY.md.
 ENSEMBLE_TRAIN_TIMEOUT_S: float = 600.0
 
+# Worker counts of the orchestrator's two thread pools; reported to the
+# runtime platform as they are configured here.
+TRAIN_WORKERS = 1
+ENSEMBLE_WORKERS = 1
+
 # Retrain every N ticks of the primary timeframe (≈ daily for 15m bars)
 _RETRAIN_INTERVAL_TICKS: int = 96  # 96 x 15m = 24 h
 _HISTORY_BARS_FOR_TRAIN: int = 2000
@@ -324,14 +329,18 @@ class Orchestrator:
 
         # Dedicated single-thread executor for CPU-bound training (NEW-002).
         # Isolated from the default pool so training never starves async I/O tasks.
-        self._train_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="training")
+        self._train_executor = ThreadPoolExecutor(
+            max_workers=TRAIN_WORKERS, thread_name_prefix="training"
+        )
 
         # REG-0015: the ensemble fit gets its OWN single-thread executor.
         # A wedged fit cannot be cancelled -- Python cannot kill a running
         # thread -- so submitting it to _train_executor would leave the pool
         # every later timeframe depends on permanently occupied. Isolating it
         # means a hang costs one ensemble, not the whole startup.
-        self._ensemble_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ensemble")
+        self._ensemble_executor = ThreadPoolExecutor(
+            max_workers=ENSEMBLE_WORKERS, thread_name_prefix="ensemble"
+        )
         #: Set once an ensemble fit has overrun. The worker thread is still
         #: alive and holds the only slot, so nothing may be queued behind it.
         self._ensemble_executor_poisoned: bool = False
@@ -365,6 +374,10 @@ class Orchestrator:
         # and read by _price_preview_loop and the position monitor, both of
         # which must tolerate its absence.
         self._orderbook_stream: OrderbookStream | None = None
+        # The loops run() starts, kept so the runtime platform can observe
+        # them (background_tasks / provider_tasks); nothing outside drives them.
+        self._run_tasks: tuple[asyncio.Task[None], ...] = ()
+        self._provider_tasks: dict[str, tuple[asyncio.Task[None], ...]] = {}
 
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
@@ -609,8 +622,9 @@ class Orchestrator:
         )
 
         # Crypto-Box background data provider loops (no-op when CRYPTO_BOX!=true)
+        provider_tasks: list[asyncio.Task[None]] = []
         if self._crypto_box.enabled:
-            tasks.extend(self._crypto_box_provider_tasks())
+            provider_tasks = self._crypto_box_provider_tasks()
 
         # The sub-second price path. src/data/orderbook_stream.py is a working
         # Binance depth + aggTrade client that, until now, nothing in src/
@@ -621,6 +635,9 @@ class Orchestrator:
                 asyncio.create_task(self._orderbook_stream_loop(), name="orderbook_stream")
             )
             tasks.append(asyncio.create_task(self._price_preview_loop(), name="price_preview"))
+
+        self._run_tasks = tuple(tasks)
+        tasks.extend(provider_tasks)
 
         # Wait until stop event
         await self._stop_event.wait()
@@ -695,18 +712,67 @@ class Orchestrator:
             dp = DeribitProvider()
             xp = ExchangeFlowProvider()
             bp = BlockHeightProvider()
-            tasks.append(asyncio.create_task(sp.run_fg_loop(), name="cb_sentiment_fg"))
-            tasks.append(asyncio.create_task(sp.run_rss_loop(), name="cb_sentiment_rss"))
-            tasks.append(asyncio.create_task(mp.run_loop(), name="cb_macro"))
-            tasks.append(asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"))
-            tasks.append(asyncio.create_task(bp.run_loop(), name="cb_block_height"))
-            tasks.extend(
-                asyncio.create_task(dp.run_loop(f"{coin}/USDT"), name=f"cb_deribit_{coin}")
-                for coin in ("BTC", "ETH")
-            )
+            # Keyed by the provider-cache field each one fills -- the key the
+            # engines read it back under (ProviderCache.snapshot).
+            by_provider: dict[str, tuple[asyncio.Task[None], ...]] = {
+                "sentiment": (
+                    asyncio.create_task(sp.run_fg_loop(), name="cb_sentiment_fg"),
+                    asyncio.create_task(sp.run_rss_loop(), name="cb_sentiment_rss"),
+                ),
+                "macro": (asyncio.create_task(mp.run_loop(), name="cb_macro"),),
+                "exchange_flows": (
+                    asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"),
+                ),
+                "block_height": (asyncio.create_task(bp.run_loop(), name="cb_block_height"),),
+                "options": tuple(
+                    asyncio.create_task(dp.run_loop(f"{coin}/USDT"), name=f"cb_deribit_{coin}")
+                    for coin in ("BTC", "ETH")
+                ),
+            }
+            self._provider_tasks = by_provider
+            tasks = [t for group in by_provider.values() for t in group]
         except Exception as exc:
             self._log.warning("orchestrator.cb_provider_tasks_failed", error=str(exc))
         return tasks
+
+    # ------------------------------------------------------------------
+    # Read-only views for the runtime platform (src/runtime/production.py)
+    # ------------------------------------------------------------------
+
+    @property
+    def crypto_box(self) -> CryptoBoxSignalAdapter:
+        return self._crypto_box
+
+    def signal_engines(self) -> dict[str, SignalEngine]:
+        """One signal engine per active timeframe, keyed by timeframe value."""
+        return dict(self._engines)
+
+    def background_tasks(self) -> tuple[asyncio.Task[Any], ...]:
+        """The loops run() started (providers excepted) and in-flight retrains."""
+        return (*self._run_tasks, *self._retrain_tasks.values())
+
+    def provider_tasks(self) -> dict[str, tuple[asyncio.Task[None], ...]]:
+        """Crypto-Box provider loops by provider-cache key; empty when Crypto-Box is off."""
+        return dict(self._provider_tasks)
+
+    def worker_pools(self) -> dict[str, dict[str, Any]]:
+        """The two thread pools: configured size and whether each can take work."""
+        return {
+            "training": {
+                "workers": TRAIN_WORKERS,
+                "available": True,
+                "detail": "CPU-bound training",
+            },
+            "ensemble": {
+                "workers": ENSEMBLE_WORKERS,
+                "available": not self._ensemble_executor_poisoned,
+                "detail": (
+                    "poisoned: an ensemble fit overran and still holds the only worker"
+                    if self._ensemble_executor_poisoned
+                    else "ensemble fits"
+                ),
+            },
+        }
 
     async def shutdown(self) -> None:
         """Flush state, close all subsystems, and shut down training executor."""

@@ -434,6 +434,42 @@ class SignalEngine:
             self._registry.register_shadow(bundle.model_id)
         self._log.info("signal_engine.shadow_registered", model_id=bundle.model_id)
 
+    @property
+    def live_model_id(self) -> str | None:
+        """The model trading now (read-only; the runtime platform's view)."""
+        return self._registry.live_model_id
+
+    @property
+    def shadow_model_id(self) -> str | None:
+        """The candidate under shadow evaluation, if any."""
+        return None if self._shadow is None else self._shadow.model_id
+
+    def shadow_evaluations(self) -> int:
+        """Resolved shadow predictions so far; 0 without a shadow."""
+        model_id = self.shadow_model_id
+        if model_id is None or model_id not in self._registry.shadow_ids():
+            return 0
+        return self._registry.evaluation_count(model_id)
+
+    def discard_shadow_now(self, reason: str) -> bool:
+        """
+        Drop the shadow candidate on request -- the runtime platform's STOP on
+        a shadow model. A shadow never influences trading, so discarding one
+        only means it can no longer promote itself.
+
+        Synchronous because the runtime controller cannot await: it runs on
+        the event-loop thread inside a change-manager call, so no coroutine
+        can interleave between the lock check and the discard. A tick holding
+        the model lock is mid-evaluation; refuse rather than mutate under it.
+        False when there was no shadow to drop.
+        """
+        if self._model_lock.locked():
+            raise RuntimeError("the model lock is held; retry after the tick")
+        if self._shadow is None:
+            return False
+        self._discard_shadow_locked(reason)
+        return True
+
     def _discard_shadow_locked(self, reason: str) -> None:
         """Drops the current shadow. Caller must hold `self._model_lock`."""
         if self._shadow is None:

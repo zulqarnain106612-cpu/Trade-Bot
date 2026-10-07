@@ -180,42 +180,73 @@ class StrategyKillSwitchManager:
                     )
 
         if drift.drifted and state.enabled:
-            state.enabled = False
-            state.disabled_reason = drift.reason
-            state.disabled_at_ms = now_ms
-            log.warning(
-                "strategy_kill_switch.disabled",
-                strategy_id=strategy_id,
-                reason=drift.reason,
-                metric=drift.metric,
-            )
-            # Recorded AFTER the state change, never before: a decision log
-            # that cannot be written must not stop capital being pulled from
-            # a drifting strategy.
-            _record_structural_change(
+            self._disable(
+                state,
+                drift.reason,
+                drift.metric,
+                now_ms,
                 title=f"Strategy {strategy_id} auto-disabled",
-                change_type="strategy_disabled",
-                justification=drift.reason,
-                evidence={
-                    "strategy_id": strategy_id,
-                    "metric": drift.metric,
-                    "disabled_at_ms": now_ms,
-                },
-            )
-            # Same ordering rule as the decision-log write above, and for the
-            # same reason: capital has already been pulled from this strategy
-            # by the time anyone is told about it.
-            get_event_bus().publish(
-                "killswitch",
-                {
-                    "strategy_id": strategy_id,
-                    "enabled": False,
-                    "reason": drift.reason,
-                    "metric": drift.metric,
-                    "disabled_at_ms": now_ms,
-                },
             )
         return drift
+
+    def disable(self, strategy_id: str, reason: str, *, now_ms: int = 0) -> bool:
+        """
+        Disable a strategy on request -- the runtime platform's QUARANTINE.
+
+        The same switch evaluate() pulls on drift, with the same decision-log
+        and event; only re_enable() turns it back on, so the gauntlet still
+        decides when the strategy gets capital again. False when it was
+        already disabled (nothing changed, nothing recorded).
+        """
+        if not reason.strip():
+            raise ValueError("a disable needs a reason")
+        state = self._require_state(strategy_id)
+        if not state.enabled:
+            return False
+        self._disable(
+            state, reason, "operator", now_ms, title=f"Strategy {strategy_id} disabled on request"
+        )
+        return True
+
+    def _disable(
+        self, state: StrategyRuntimeState, reason: str, metric: str, now_ms: int, *, title: str
+    ) -> None:
+        strategy_id = state.strategy_id
+        state.enabled = False
+        state.disabled_reason = reason
+        state.disabled_at_ms = now_ms
+        log.warning(
+            "strategy_kill_switch.disabled",
+            strategy_id=strategy_id,
+            reason=reason,
+            metric=metric,
+        )
+        # Recorded AFTER the state change, never before: a decision log
+        # that cannot be written must not stop capital being pulled from
+        # a drifting strategy.
+        _record_structural_change(
+            title=title,
+            change_type="strategy_disabled",
+            justification=reason,
+            evidence={
+                "strategy_id": strategy_id,
+                "metric": metric,
+                "disabled_at_ms": now_ms,
+            },
+        )
+        # Same ordering rule as the decision-log write above, and for the
+        # same reason: capital has already been pulled from this strategy
+        # by the time anyone is told about it.
+        get_event_bus().publish(
+            "killswitch",
+            {
+                "strategy_id": strategy_id,
+                "enabled": False,
+                "reason": reason,
+                "metric": metric,
+                "disabled_at_ms": now_ms,
+            },
+        )
 
     def is_enabled(self, strategy_id: str) -> bool:
         return self._require_state(strategy_id).enabled

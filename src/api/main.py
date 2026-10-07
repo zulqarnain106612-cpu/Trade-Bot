@@ -102,12 +102,19 @@ from src.risk.strategy_kill_switch import (
     GauntletNotPassedError,
     get_strategy_kill_switch_manager,
 )
-from src.runtime.contracts import ComponentType
+from src.runtime.adapters import SELF_TUNING, safe_name
+from src.runtime.contracts import ComponentType, LifecycleState, make_component_id
 from src.runtime.platform import (
     TRACE_TOPICS,
     RuntimePlatform,
     build_runtime_platform,
-    live_discoveries,
+)
+from src.runtime.production import (
+    ProductionSources,
+    RuntimeLoop,
+    UpgradeListing,
+    production_controllers,
+    production_discoveries,
 )
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
@@ -193,6 +200,16 @@ class AppState:
         # The runtime platform (src/runtime): the control plane's one registry
         # and change manager. Set in lifespan; None until then.
         self.runtime: RuntimePlatform | None = None
+        # Its continuous discovery/reconcile loop and the MLflow listing it
+        # refreshes; set with the platform.
+        self.runtime_loop: RuntimeLoop | None = None
+        self.runtime_upgrades: UpgradeListing | None = None
+        # What the runtime platform discovers beyond the orchestrator: the
+        # self-tuning scheduler (None unless enabled), crypto-intel (None
+        # unless INTEL_ENABLED) and the API's own long-running tasks.
+        self.tuning_scheduler: AutoTuningScheduler | None = None
+        self.crypto_intel: Any | None = None
+        self.background_tasks: list[asyncio.Task[Any]] = []
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
         self._ws_clients: set[WebSocket] = set()
@@ -484,11 +501,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 _intel = CryptoIntelligence()
                 _intel.start()
                 _state.intel_adapter = IntelligenceAdapter(_intel, _state.storage)
+                _state.crypto_intel = _intel
                 log.info("api.crypto_intel_v6_started")
             except Exception as _exc:
                 log.warning("api.crypto_intel_v6_start_failed", exc=str(_exc))
-
-        orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
 
         # The two push paths, owned here rather than by a connection so that
         # their cost is paid once for the server instead of once per client.
@@ -498,19 +514,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ws_subscription = get_event_bus().subscribe(TOPICS)
         # The runtime platform, and the decision-trace index fed from its own
         # subscription (it can fall behind and drop; it can never slow a
-        # producer -- INV-032).
+        # producer -- INV-032). Started before the orchestrator's first tick:
+        # its first reconcile pass re-applies what an operator left in place
+        # before a restart (a strategy quarantine, a self-tuning pause), so no
+        # tick runs without it.
         trace_subscription = get_event_bus().subscribe(TRACE_TOPICS)
         _state.runtime = await start_runtime_platform()
+        orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
         ws_tasks = [
             asyncio.create_task(_heartbeat_loop(), name="ws_heartbeat"),
             asyncio.create_task(_event_fanout_loop(ws_subscription), name="ws_fanout"),
         ]
+        runtime_stop = asyncio.Event()
         if _state.runtime is not None:
             ws_tasks.append(
                 asyncio.create_task(
                     _state.runtime.traces.consume(trace_subscription), name="decision_traces"
                 )
             )
+        if _state.runtime_loop is not None:
+            ws_tasks.append(
+                asyncio.create_task(_state.runtime_loop.run(runtime_stop), name="runtime_loop")
+            )
+        _state.background_tasks = [orch_task, *ws_tasks]
 
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
         # is the master kill switch — see src/config.py). When an operator
@@ -526,6 +552,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 timeframe=cfg.primary_timeframe.value,
             )
             tuning_scheduler.start()
+            _state.tuning_scheduler = tuning_scheduler
 
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
         try:
@@ -540,6 +567,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # Close the subscription before cancelling, so the fan-out loop's
             # `async for` ends on its own rather than being torn out of an
             # await.
+            runtime_stop.set()
             ws_subscription.close()
             trace_subscription.close()
             for task in ws_tasks:
@@ -553,9 +581,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         for task in ws_tasks:
             task.cancel()
         await asyncio.gather(*ws_tasks, return_exceptions=True)
+        if _state.runtime_upgrades is not None:
+            _state.runtime_upgrades.close()
+        if _state.runtime is not None:
+            # Intents and change audit queued since the loop's last pass.
+            try:
+                await _state.runtime.flush()
+            except Exception as exc:
+                log.error("api.runtime_final_flush_failed", error=str(exc))
 
         if tuning_scheduler is not None:
             tuning_scheduler.stop()
+            _state.tuning_scheduler = None
         if _state.intel_adapter is not None:
             try:
                 intel_obj = getattr(_state.intel_adapter, "_intel", None)
@@ -1549,6 +1586,9 @@ async def self_tuning_pause(body: SelfTuningPauseRequest, request: Request) -> d
     _verify_operator_secret(body.operator_secret, body.operator, "self_tuning_pause")
     await tuning_pause_state.set_paused(True)
     tuning_audit_log.record("__global__", TuningEventType.PAUSED, {"operator": body.operator})
+    _note_runtime_intent(
+        _SELF_TUNING_COMPONENT, LifecycleState.PAUSED, body.operator, "/self-tuning/pause"
+    )
     log.info("api.self_tuning_paused", operator=body.operator)
     return {"paused": True, "operator": body.operator}
 
@@ -1571,6 +1611,9 @@ async def self_tuning_resume(body: SelfTuningPauseRequest, request: Request) -> 
     _verify_operator_secret(body.operator_secret, body.operator, "self_tuning_resume")
     await tuning_pause_state.set_paused(False)
     tuning_audit_log.record("__global__", TuningEventType.RESUMED, {"operator": body.operator})
+    _note_runtime_intent(
+        _SELF_TUNING_COMPONENT, LifecycleState.ACTIVE, body.operator, "/self-tuning/resume"
+    )
     log.info("api.self_tuning_resumed", operator=body.operator)
     return {"paused": False, "operator": body.operator}
 
@@ -2810,6 +2853,12 @@ async def re_enable_strategy(
             detail={"reason": str(exc), "failed_criteria": list(exc.failed_criteria)},
         ) from exc
 
+    _note_runtime_intent(
+        make_component_id(ComponentType.STRATEGY, safe_name(strategy_id)),
+        LifecycleState.ACTIVE,
+        body.operator,
+        "re-enabled through the promotion gauntlet" + (" (forced)" if body.force else ""),
+    )
     await _state.storage.insert_audit_event(
         event_type="strategy_re_enabled",
         operator=body.operator,
@@ -3343,19 +3392,76 @@ async def start_runtime_platform() -> RuntimePlatform | None:
     desired state that cannot be restored is reported per entry.
     """
     try:
+        sources = runtime_sources()
         platform = build_runtime_platform(
             bus=get_event_bus(),
-            discoveries=live_discoveries(get_event_bus()),
+            discoveries=production_discoveries(sources),
+            controllers=production_controllers(sources),
             trail=get_audit_trail(),
             desired_backend=_state.storage,
             audit_backend=_state.storage,
         )
         for problem in await platform.restore():
             log.warning("api.runtime_desired_state_unusable", problem=problem)
+        upgrades = UpgradeListing(sources)
+        loop = RuntimeLoop(
+            platform, lambda: production_discoveries(sources), slow_refresh=upgrades.refresh
+        )
+        # The first pass now, before the orchestrator ticks (see lifespan).
+        for outcome in loop.step():
+            log.info("api.runtime_startup_reconcile", outcome=outcome.to_dict())
+        await platform.flush()
     except Exception as exc:  # no control plane, not no trading; refused at 503
         log.error("api.runtime_platform_unavailable", error=str(exc))
         return None
+    _state.runtime_loop = loop
+    _state.runtime_upgrades = upgrades
     return platform
+
+
+def runtime_sources() -> ProductionSources:
+    """The running process as the runtime platform reads it (src/runtime/production.py)."""
+
+    def record_pause(paused: bool) -> None:
+        # Same audit record /self-tuning/pause and /resume write.
+        tuning_audit_log.record(
+            "__global__",
+            TuningEventType.PAUSED if paused else TuningEventType.RESUMED,
+            {"operator": "runtime-platform"},
+        )
+
+    return ProductionSources(
+        bus=get_event_bus(),
+        strategies=get_default_registry(),
+        kill_switch=get_strategy_kill_switch_manager(),
+        parameters=tuning_registry,
+        pause=tuning_pause_state,
+        on_pause_change=record_pause,
+        orchestrator=lambda: _state.orchestrator,
+        scheduler_running=lambda: _state.tuning_scheduler is not None,
+        api_tasks=lambda: tuple(_state.background_tasks),
+        intel=lambda: _state.crypto_intel,
+    )
+
+
+_SELF_TUNING_COMPONENT = make_component_id(ComponentType.TUNING, SELF_TUNING)
+
+
+def _note_runtime_intent(
+    component_id: str, target: LifecycleState, operator: str, reason: str
+) -> None:
+    """
+    A subsystem endpoint changed something the runtime platform enforces:
+    make the operator's act the desired state, or the runtime loop would put
+    back the older intent (re-quarantine a re-enabled strategy, resume a
+    paused tuner). A failure is logged, never raised: the change itself has
+    already happened through the subsystem's own gate.
+    """
+    problem = runtime_control.note_operator_intent(
+        _state.runtime, component_id, target, operator, reason
+    )
+    if problem is not None:
+        log.warning("api.runtime_intent_not_recorded", component_id=component_id, problem=problem)
 
 
 def require_runtime() -> RuntimePlatform:

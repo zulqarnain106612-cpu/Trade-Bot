@@ -4,8 +4,13 @@ rather than in production:
 
 * src/runtime imports nothing from execution, nothing that sets the
   execution mode, and no risk gate;
-* the only kill-switch use is reading it (is_registered / is_enabled /
-  disabled_reason) -- never re_enable or a manual toggle;
+* the kill switch is read (is_registered / is_enabled / disabled_reason)
+  and pulled only one way: ``disable``, by the QUARANTINE controller in
+  controllers.py -- a risk reduction. Nothing in the runtime re-enables a
+  strategy; only the gauntlet does;
+* the subsystem levers the production controllers pull (``disable``,
+  ``discard_shadow_now``, ``set_paused_now``) are called from controllers.py
+  and nowhere else in the runtime or its API;
 * no model enters the live slot except through ShadowModelController, which
   calls evaluate_shadow before promote_shadow; set_live_model is never called;
 * tuning parameters are never written (update_current), and no strategy is
@@ -86,6 +91,16 @@ def test_no_code_is_executed_or_patched(name: str) -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             assert node.func.id not in {"exec", "eval", "compile", "__import__", "setattr"}
     assert "importlib" not in _imports(TREES[name])
+
+
+CONTROLLER_LEVERS = {"disable", "discard_shadow_now", "set_paused_now"}
+
+
+def test_subsystem_levers_are_pulled_only_by_the_controllers() -> None:
+    callers = {
+        name: sorted(_attribute_calls(tree) & CONTROLLER_LEVERS) for name, tree in TREES.items()
+    }
+    assert {n: c for n, c in callers.items() if c} == {"controllers.py": sorted(CONTROLLER_LEVERS)}
 
 
 def test_promotion_is_gated_by_the_model_registrys_evaluation() -> None:

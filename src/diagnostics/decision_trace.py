@@ -16,9 +16,11 @@ What a trace answers:
   signal's own skip reason when the tick never became tradeable;
 * the final decision: FILLED, ORDERED, REJECTED, NO_TRADE or INCOMPLETE.
 
-Engine-level outputs (E-01..E-18) and consensus are summarised in the signal
-event rather than published one by one, so a trace shows them as the signal
-stage; a per-engine trace needs those producers to publish first.
+Engine-level evidence is its own stage: when the 18-engine ensemble runs
+inside a tick, ``EngineOrchestrator`` publishes one ``engine`` event carrying
+every engine's outcome, latency and vote, then consensus, the risk quantifier
+and the signal gate -- one event per cycle rather than one per engine, so a
+tick's burst stays within a subscriber's buffer.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ STAGE_OF_TOPIC: dict[str, str] = {
     "price": "market_data",
     "book": "market_data",
     "regime": "features",
+    "engine": "engines",
     "signal": "signal",
     "drift": "signal",
     "gate": "risk",
@@ -48,6 +51,7 @@ STAGE_OF_TOPIC: dict[str, str] = {
 STAGE_ORDER: tuple[str, ...] = (
     "market_data",
     "features",
+    "engines",
     "signal",
     "risk",
     "approval",
