@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import hmac
 import os
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from src.agent_control.model import ManifestError, to_dict
+from src.agent_control.store import STATE_DIR_ENV, STATE_DIR_NAME, TaskStore
 from src.runtime.changes import (
     ROLE_APPROVER,
     ROLE_REQUESTER,
@@ -242,6 +245,53 @@ def set_desired(platform: RuntimePlatform, body: RuntimeDesiredBody) -> dict[str
 def reconcile(platform: RuntimePlatform, body: OperatorFactor) -> list[dict[str, Any]]:
     actor_for(body)
     return [o.to_dict() for o in platform.reconciler.reconcile_once()]
+
+
+def _agent_state_dir() -> Path:
+    """TB_AGENT_STATE_DIR, else the clone's .git/agent-control (agent_control.store)."""
+    override = os.environ.get(STATE_DIR_ENV, "").strip()
+    return Path(override) if override else _REPO_ROOT / ".git" / STATE_DIR_NAME
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def agent_ledgers(state_dir: Path | None = None) -> dict[str, Any]:
+    """
+    The Claude session task manifests and the branch-audit ledger, read-only.
+    A manifest that does not parse is reported by id, not skipped silently.
+    """
+    store = TaskStore(state_dir or _agent_state_dir())
+    tasks: list[dict[str, Any]] = []
+    unreadable: list[str] = []
+    for task_id in store.task_ids():
+        try:
+            data = to_dict(store.load(task_id))
+        except ManifestError as exc:
+            unreadable.append(f"{task_id}: {exc}")
+            continue
+        steps = data["steps"]
+        tasks.append(
+            {
+                "task_id": data["task_id"],
+                "objective": data["objective"],
+                "phase": data["phase"],
+                "status": data["status"],
+                "branch": data["branch"],
+                "baseline_sha": data["baseline_sha"],
+                "current_sha": data["current_sha"],
+                "steps_done": sum(1 for step in steps if step["state"] != "OPEN"),
+                "steps_total": len(steps),
+                "next_action": data["next_action"],
+                "updated_at": data["updated_at"],
+            }
+        )
+    try:
+        ledger = to_dict(store.load_ledger())["entries"]
+    except ManifestError as exc:
+        unreadable.append(f"branch-audit: {exc}")
+        ledger = []
+    return {"tasks": tasks, "branch_audit": ledger, "unreadable": unreadable}
 
 
 def trace(platform: RuntimePlatform, trace_id: str) -> dict[str, Any]:

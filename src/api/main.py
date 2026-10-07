@@ -3430,6 +3430,12 @@ async def runtime_trace(trace_id: str) -> dict[str, Any]:
     return result
 
 
+@app.get("/runtime/agent", dependencies=_RUNTIME_READ)
+async def runtime_agent_ledgers() -> dict[str, Any]:
+    """Claude session task manifests and the branch-audit ledger (read-only)."""
+    return runtime_control.agent_ledgers()
+
+
 @app.post("/runtime/changes", dependencies=_RUNTIME_WRITE)
 async def runtime_submit_change(body: RuntimeChangeBody, request: Request) -> dict[str, Any]:
     _state.check_endpoint_rate_limit("runtime", request.client.host if request.client else "")

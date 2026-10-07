@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 188 |
+| VERIFIED | 189 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **188** |
+| **Total** | **189** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 10 | 10 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 19 | 19 |
+| API and WebSocket | 20 | 20 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 15 | 15 |
@@ -888,6 +888,19 @@ Runtime state (components, dependencies, changes, decision traces, mismatches) i
 - **Owned by:** `src/api/runtime_control.py`, `src/api/main.py`, `src/api/access_control.py`, `src/runtime/platform.py`
 - **Depends on:** `RES-013`, `RES-015`
 - **Verification:**
+  - `tests/runtime/test_runtime_endpoints.py` (api)
+
+#### `RES-018` — The dashboard shows runtime state and offers only decisions the change manager accepts
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-07
+
+The Runtime Platform panel renders /runtime*: component state, desired state and health, desired-versus-actual gaps, last transition, dependency order and issues, change history, decision traces with their first blocking condition, and the Claude session task and branch-audit ledgers (GET /runtime/agent, read-only, unreadable manifests reported); the decision buttons a change offers follow its status and classification exactly as the change manager accepts them (no execute button for a staged class awaiting its shadow/canary result), and every write goes through the operator second factor to /runtime/changes.
+
+- **If violated:** An operator acts on a runtime view that hides a desired/actual gap or a failed component, or is offered a control the backend will refuse.
+- **Owned by:** `frontend/src/components/panels/runtimeModel.js`, `frontend/src/components/panels/RuntimePanel.jsx`, `src/api/runtime_control.py`
+- **Depends on:** `RES-017`
+- **Verification:**
+  - `frontend/src/components/panels/runtimeModel.test.js` (unit)
   - `tests/runtime/test_runtime_endpoints.py` (api)
 
 #### `REG-0019` — The dashboard socket does not reconnect after unmount, and backs off with jitter
@@ -2424,4 +2437,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 188 entries.
+Registry version: 1.0.0 — 189 entries.

@@ -2,18 +2,29 @@
 mutation needs CHANGE_RUNTIME plus the operator second factor and goes through
 the change manager, and an AI client can request but never approve.
 
-Decides: RES-017"""
+Decides: RES-017, RES-018"""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from src.agent_control.model import (
+    SCHEMA_VERSION,
+    CompletionState,
+    TaskPhase,
+    TaskRun,
+    TaskScope,
+)
+from src.agent_control.store import STATE_DIR_ENV, TaskStore
+from src.api import runtime_control
 from src.api.access_control import Role
+from src.api.runtime_control import agent_ledgers
 from src.eventbus import EventBus
 from src.runtime.adapters import Discovery
 from src.runtime.contracts import ComponentType, LifecycleState
@@ -222,3 +233,40 @@ async def test_start_runtime_platform_restores_and_fails_closed() -> None:
         assert platform is not None
         with patch("src.api.main.build_runtime_platform", side_effect=ValueError("dup")):
             assert await main.start_runtime_platform() is None
+
+
+def _task(task_id: str) -> TaskRun:
+    sha = "c" * 40
+    return TaskRun(
+        schema_version=SCHEMA_VERSION,
+        task_id=task_id,
+        objective="runtime platform",
+        created_at="2026-10-07T00:00:00+00:00",
+        updated_at="2026-10-07T00:00:00+00:00",
+        repository="/r/.git",
+        worktree="/r",
+        branch="b",
+        baseline_sha=sha,
+        current_sha=sha,
+        phase=TaskPhase.IMPLEMENTING,
+        status=CompletionState.ACTIVE,
+        scope=TaskScope(),
+    )
+
+
+def test_agent_ledgers_are_served_read_only(
+    api: Api, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = api
+    TaskStore(tmp_path).save(_task("TB-RUN-20261007-0001"))
+    (tmp_path / "tasks" / "TB-RUN-20261007-0002.json").write_text("{bad", encoding="utf-8")
+    monkeypatch.setenv(STATE_DIR_ENV, str(tmp_path))
+    body = client.get("/runtime/agent", headers=READ).json()
+    (task,) = body["tasks"]
+    assert (task["phase"], task["status"], task["steps_total"]) == ("IMPLEMENTING", "ACTIVE", 0)
+    assert body["branch_audit"] == []
+    assert body["unreadable"][0].startswith("TB-RUN-20261007-0002")
+    (tmp_path / "branch-audit.json").write_text("{bad", encoding="utf-8")
+    assert agent_ledgers(tmp_path)["unreadable"][-1].startswith("branch-audit")
+    monkeypatch.delenv(STATE_DIR_ENV)
+    assert runtime_control._agent_state_dir().parts[-2:] == (".git", "agent-control")
