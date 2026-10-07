@@ -36,7 +36,12 @@ from src.runtime.changes import TERMINAL, ChangeManager
 from src.runtime.contracts import ComponentType
 from src.runtime.dependencies import DependencyGraph
 from src.runtime.events import audit_trail_sink, eventbus_audit_sink, transition_publisher
-from src.runtime.persistence import DesiredStateBackend, DesiredStatePersister
+from src.runtime.persistence import (
+    AuditBackend,
+    AuditPersister,
+    DesiredStateBackend,
+    DesiredStatePersister,
+)
 from src.runtime.reconcile import Reconciler, diff
 from src.runtime.registry import RuntimeRegistry
 from src.runtime.supervisor import Controller, RestartPolicy, SupervisorSet
@@ -56,10 +61,14 @@ class RuntimePlatform:
     adaptive: AdaptiveLifecycle
     traces: DecisionTraceIndex
     persister: DesiredStatePersister | None = None
+    audit_persister: AuditPersister | None = None
 
     async def flush(self) -> int:
-        """Persist queued desired-state changes; 0 without a backend."""
-        return 0 if self.persister is None else await self.persister.flush()
+        """Persist queued desired-state changes and change audit; 0 without a backend."""
+        written = 0 if self.persister is None else await self.persister.flush()
+        if self.audit_persister is not None:
+            written += await self.audit_persister.flush()
+        return written
 
     async def restore(self) -> list[str]:
         """Load stored desired states; the problems with any that could not be."""
@@ -112,6 +121,7 @@ def build_runtime_platform(
     trail: AuditTrail | None = None,
     controllers: Mapping[ComponentType, Controller] | None = None,
     desired_backend: DesiredStateBackend | None = None,
+    audit_backend: AuditBackend | None = None,
     policy: RestartPolicy | None = None,
 ) -> RuntimePlatform:
     registry = RuntimeRegistry()
@@ -124,6 +134,9 @@ def build_runtime_platform(
     sinks = [eventbus_audit_sink(bus)]
     if trail is not None:
         sinks.append(audit_trail_sink(trail))
+    audit_persister = None if audit_backend is None else AuditPersister(audit_backend)
+    if audit_persister is not None:
+        sinks.append(audit_persister.enqueue)
     changes = ChangeManager(registry, supervisors, audit_sinks=sinks)
     persister = None
     if desired_backend is not None:
@@ -137,4 +150,5 @@ def build_runtime_platform(
         adaptive=AdaptiveLifecycle(changes),
         traces=DecisionTraceIndex(),
         persister=persister,
+        audit_persister=audit_persister,
     )

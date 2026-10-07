@@ -115,3 +115,54 @@ class DesiredStatePersister:
             except RuntimeContractError as exc:
                 problems.append(f"{component_id}: {exc}")
         return problems
+
+
+class AuditBackend(Protocol):
+    async def insert_audit_event(
+        self, event_type: str, operator: str, details: dict[str, Any] | None = None
+    ) -> None: ...
+
+
+class AuditPersister:
+    """
+    Change-audit entries into the storage backend's existing ``audit_log``
+    table, so the runtime's change history survives a restart. Same shape as
+    the desired-state persister: the change manager's sink only queues, and
+    ``flush`` writes in order, stopping at the first failure so the log is
+    never written out of order and nothing queued is dropped.
+    """
+
+    def __init__(self, backend: AuditBackend) -> None:
+        self._backend = backend
+        self._lock = threading.Lock()
+        self._pending: list[dict[str, Any]] = []
+
+    def enqueue(self, entry: Any) -> None:
+        """An audit sink: takes a ``changes.AuditEntry``."""
+        with self._lock:
+            self._pending.append(entry.to_dict())
+
+    @property
+    def pending(self) -> int:
+        with self._lock:
+            return len(self._pending)
+
+    async def flush(self) -> int:
+        written = 0
+        while True:
+            with self._lock:
+                if not self._pending:
+                    return written
+                details = self._pending[0]
+            try:
+                await self._backend.insert_audit_event(
+                    "runtime_change", str(details["actor"]), details
+                )
+            except Exception as exc:  # kept, in order, for the next flush
+                log.error(
+                    "runtime.audit_persist_failed", change_id=details["change_id"], error=str(exc)
+                )
+                return written
+            with self._lock:
+                self._pending.pop(0)
+            written += 1

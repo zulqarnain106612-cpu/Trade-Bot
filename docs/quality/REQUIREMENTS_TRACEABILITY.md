@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 189 |
+| VERIFIED | 190 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **189** |
+| **Total** | **190** |
 
 ## Summary by subsystem
 
@@ -66,7 +66,7 @@ deletion of the thing it points at.
 | API and WebSocket | 20 | 20 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 15 | 15 |
+| Resilience and recovery | 16 | 16 |
 | Release and production | 13 | 13 |
 | Governance | 59 | 59 |
 
@@ -1545,6 +1545,21 @@ Every event published on the bus carries an id and the correlation ids (trace_id
   - `tests/runtime/test_causal_tracing.py` (integration)
   - `tests/runtime/test_registry.py` (unit)
 
+#### `RES-019` — Runtime control fails safe and has no path around the trading safety mechanisms
+
+**VERIFIED** · critical · requirement · source: OPS-2026-10-07
+
+Injected failures (worker death, failed load or reload, missing dependency, stale version, unhealthy result, failed rollback, partial activation, unavailable database, failed event delivery, duplicate and concurrent commands) each end in an explicit state -- the component FAILED, untouched or rolled back, the change REJECTED, FAILED, ROLLED_BACK or ROLLBACK_FAILED -- and are audited; risk-off changes complete while storage or event delivery is down, with the desired state and change audit queued in order for the next flush; after a restart the desired state and the audit written to audit_log are restored and the reconciler resumes risk-off steps; src/runtime and the runtime API import nothing from execution or the risk gates, never re-enable a kill-switched strategy, never set the live model, write a tuning parameter, set the execution mode or execute code, promote a model only after evaluate_shadow, and reach runtime state only through the change manager.
+
+- **If violated:** A runtime-control failure leaves a component half-changed or silently live, or the platform becomes a path around a risk gate, the kill switch, the execution mode or model promotion.
+- **Owned by:** `src/runtime/changes.py`, `src/runtime/supervisor.py`, `src/runtime/persistence.py`, `src/runtime/platform.py`, `src/api/runtime_control.py`
+- **Depends on:** `RES-013`, `RES-014`, `RES-017`
+- **Verification:**
+  - `tests/runtime/test_failure_injection.py` (chaos)
+  - `tests/runtime/test_runtime_safety.py` (security)
+  - `tests/runtime/test_concurrency.py` (resilience)
+  - `tests/runtime/test_recovery.py` (recovery)
+
 ## Release and production
 
 #### `INV-010` — Live mode cannot bypass qualification gates
@@ -2437,4 +2452,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 189 entries.
+Registry version: 1.0.0 — 190 entries.

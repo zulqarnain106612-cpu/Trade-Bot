@@ -4729,6 +4729,47 @@
       "depends_on": [
         "RES-017"
       ]
+    },
+    {
+      "id": "RES-019",
+      "kind": "requirement",
+      "title": "Runtime control fails safe and has no path around the trading safety mechanisms",
+      "statement": "Injected failures (worker death, failed load or reload, missing dependency, stale version, unhealthy result, failed rollback, partial activation, unavailable database, failed event delivery, duplicate and concurrent commands) each end in an explicit state -- the component FAILED, untouched or rolled back, the change REJECTED, FAILED, ROLLED_BACK or ROLLBACK_FAILED -- and are audited; risk-off changes complete while storage or event delivery is down, with the desired state and change audit queued in order for the next flush; after a restart the desired state and the audit written to audit_log are restored and the reconciler resumes risk-off steps; src/runtime and the runtime API import nothing from execution or the risk gates, never re-enable a kill-switched strategy, never set the live model, write a tuning parameter, set the execution mode or execute code, promote a model only after evaluate_shadow, and reach runtime state only through the change manager.",
+      "criticality": "critical",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A runtime-control failure leaves a component half-changed or silently live, or the platform becomes a path around a risk gate, the kill switch, the execution mode or model promotion.",
+      "owning_modules": [
+        "src/runtime/changes.py",
+        "src/runtime/supervisor.py",
+        "src/runtime/persistence.py",
+        "src/runtime/platform.py",
+        "src/api/runtime_control.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_failure_injection.py",
+          "test_type": "chaos"
+        },
+        {
+          "test": "tests/runtime/test_runtime_safety.py",
+          "test_type": "security"
+        },
+        {
+          "test": "tests/runtime/test_concurrency.py",
+          "test_type": "resilience"
+        },
+        {
+          "test": "tests/runtime/test_recovery.py",
+          "test_type": "recovery"
+        }
+      ],
+      "depends_on": [
+        "RES-013",
+        "RES-014",
+        "RES-017"
+      ]
     }
   ]
 }

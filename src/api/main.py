@@ -3348,6 +3348,7 @@ async def start_runtime_platform() -> RuntimePlatform | None:
             discoveries=live_discoveries(get_event_bus()),
             trail=get_audit_trail(),
             desired_backend=_state.storage,
+            audit_backend=_state.storage,
         )
         for problem in await platform.restore():
             log.warning("api.runtime_desired_state_unusable", problem=problem)
