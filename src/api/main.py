@@ -74,6 +74,15 @@ from src.api.object_refs import (
     not_found_response,
     validate_object_id,
 )
+from src.api import runtime_control
+from src.api.runtime_control import (
+    OperatorFactor,
+    RuntimeActionBody,
+    RuntimeChangeBody,
+    RuntimeControlError,
+    RuntimeDecisionBody,
+    RuntimeDesiredBody,
+)
 from src.api.security_headers import SecurityHeadersMiddleware
 from src.api.ws_guard import WSFrameError, WSFrameGuard
 from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
@@ -92,6 +101,13 @@ from src.logging_setup import configure_logging
 from src.risk.strategy_kill_switch import (
     GauntletNotPassedError,
     get_strategy_kill_switch_manager,
+)
+from src.runtime.contracts import ComponentType
+from src.runtime.platform import (
+    TRACE_TOPICS,
+    RuntimePlatform,
+    build_runtime_platform,
+    live_discoveries,
 )
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
@@ -174,6 +190,9 @@ class AppState:
         self.ready = False
         self.intel_adapter = None
         self.orchestrator: Orchestrator | None = None  # set in lifespan after startup()
+        # The runtime platform (src/runtime): the control plane's one registry
+        # and change manager. Set in lifespan; None until then.
+        self.runtime: RuntimePlatform | None = None
         # SCAN3-013: bounded set + lock replaces plain list — prevents TOCTOU race
         # on concurrent WS connects that could exceed _MAX_WS_CLIENTS.
         self._ws_clients: set[WebSocket] = set()
@@ -477,10 +496,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # the task would drop every event published between task creation and
         # its first scheduling slice.
         ws_subscription = get_event_bus().subscribe(TOPICS)
+        # The runtime platform, and the decision-trace index fed from its own
+        # subscription (it can fall behind and drop; it can never slow a
+        # producer -- INV-032).
+        trace_subscription = get_event_bus().subscribe(TRACE_TOPICS)
+        _state.runtime = await start_runtime_platform()
         ws_tasks = [
             asyncio.create_task(_heartbeat_loop(), name="ws_heartbeat"),
             asyncio.create_task(_event_fanout_loop(ws_subscription), name="ws_fanout"),
         ]
+        if _state.runtime is not None:
+            ws_tasks.append(
+                asyncio.create_task(
+                    _state.runtime.traces.consume(trace_subscription), name="decision_traces"
+                )
+            )
 
         # Self-tuning autostart: off by default (SelfTuningSettings.enabled
         # is the master kill switch — see src/config.py). When an operator
@@ -511,6 +541,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # `async for` ends on its own rather than being torn out of an
             # await.
             ws_subscription.close()
+            trace_subscription.close()
             for task in ws_tasks:
                 task.cancel()
             await asyncio.gather(*ws_tasks, return_exceptions=True)
@@ -518,6 +549,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Close the subscription before cancelling, so the fan-out loop's
         # `async for` ends on its own rather than being torn out of an await.
         ws_subscription.close()
+        trace_subscription.close()
         for task in ws_tasks:
             task.cancel()
         await asyncio.gather(*ws_tasks, return_exceptions=True)
@@ -3289,3 +3321,159 @@ async def set_control(name: str, body: SetControlRequest, request: Request) -> d
     # the new value now rather than at the next heartbeat.
     await _state.broadcast({"type": "control_changed", **applied})
     return {"applied": True, **applied}
+
+
+# ---------------------------------------------------------------------------
+# Runtime platform (src/runtime) -- RES-017
+#
+# Reads need VIEW_STATUS; every mutation needs CHANGE_RUNTIME plus the
+# operator second factor, and goes through the change manager, which
+# classifies it, checks dependencies, applies policy and audits it. No route
+# here reaches a supervisor or a component directly.
+# ---------------------------------------------------------------------------
+
+
+async def start_runtime_platform() -> RuntimePlatform | None:
+    """
+    Build the runtime platform and restore stored desired state.
+
+    The control plane must not be able to stop trading from starting: a
+    failed build leaves _state.runtime None, so every /runtime route answers
+    503 and nothing can be changed through it, and the failure is logged. A
+    desired state that cannot be restored is reported per entry.
+    """
+    try:
+        platform = build_runtime_platform(
+            bus=get_event_bus(),
+            discoveries=live_discoveries(get_event_bus()),
+            trail=get_audit_trail(),
+            desired_backend=_state.storage,
+        )
+        for problem in await platform.restore():
+            log.warning("api.runtime_desired_state_unusable", problem=problem)
+    except Exception as exc:  # no control plane, not no trading; refused at 503
+        log.error("api.runtime_platform_unavailable", error=str(exc))
+        return None
+    return platform
+
+
+def require_runtime() -> RuntimePlatform:
+    if _state.runtime is None:
+        raise HTTPException(status_code=503, detail="Runtime platform not started.")
+    return _state.runtime
+
+
+def _runtime_call(fn: Callable[..., Any], *args: Any) -> Any:
+    try:
+        return fn(*args)
+    except RuntimeControlError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
+_RUNTIME_READ = [Depends(api_key_header), Depends(requires(Permission.VIEW_STATUS))]
+_RUNTIME_WRITE = [
+    Depends(api_key_header),
+    Depends(requires(Permission.CHANGE_RUNTIME)),
+]
+
+
+@app.get("/runtime", dependencies=_RUNTIME_READ)
+async def runtime_overview() -> dict[str, Any]:
+    """Counts by type and state, desired/actual mismatches, open changes."""
+    return require_runtime().summary()
+
+
+@app.get("/runtime/components", dependencies=_RUNTIME_READ)
+async def runtime_components(component_type: str | None = None) -> list[dict[str, Any]]:
+    platform = require_runtime()
+    try:
+        ctype = None if component_type is None else ComponentType(component_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"unknown type {component_type!r}") from exc
+    return [
+        r.to_dict(platform.registry.dependents(r.component_id))
+        for r in platform.registry.components(ctype)
+    ]
+
+
+@app.get("/runtime/components/{component_id}", dependencies=_RUNTIME_READ)
+async def runtime_component(component_id: str) -> dict[str, Any]:
+    platform = require_runtime()
+    result: dict[str, Any] = _runtime_call(runtime_control.component, platform, component_id)
+    return result
+
+
+@app.get("/runtime/dependencies", dependencies=_RUNTIME_READ)
+async def runtime_dependencies() -> dict[str, Any]:
+    return require_runtime().dependencies()
+
+
+@app.get("/runtime/changes", dependencies=_RUNTIME_READ)
+async def runtime_changes() -> list[dict[str, Any]]:
+    return [c.to_dict() for c in require_runtime().changes.changes()]
+
+
+@app.get("/runtime/changes/{change_id}", dependencies=_RUNTIME_READ)
+async def runtime_change(change_id: str) -> dict[str, Any]:
+    result: dict[str, Any] = _runtime_call(runtime_control.change, require_runtime(), change_id)
+    return result
+
+
+@app.get("/runtime/traces", dependencies=_RUNTIME_READ)
+async def runtime_traces(limit: int = Query(default=20, ge=1, le=200)) -> list[dict[str, Any]]:
+    return [t.to_dict() for t in require_runtime().traces.recent(limit)]
+
+
+@app.get("/runtime/traces/{trace_id}", dependencies=_RUNTIME_READ)
+async def runtime_trace(trace_id: str) -> dict[str, Any]:
+    result: dict[str, Any] = _runtime_call(runtime_control.trace, require_runtime(), trace_id)
+    return result
+
+
+@app.post("/runtime/changes", dependencies=_RUNTIME_WRITE)
+async def runtime_submit_change(body: RuntimeChangeBody, request: Request) -> dict[str, Any]:
+    _state.check_endpoint_rate_limit("runtime", request.client.host if request.client else "")
+    platform = require_runtime()
+    result = _runtime_call(runtime_control.submit_change, platform, body)
+    await platform.flush()
+    return cast(dict[str, Any], result)
+
+
+@app.post("/runtime/changes/{change_id}/{verb}", dependencies=_RUNTIME_WRITE)
+async def runtime_decide(
+    change_id: str, verb: str, body: RuntimeDecisionBody, request: Request
+) -> dict[str, Any]:
+    _state.check_endpoint_rate_limit("runtime", request.client.host if request.client else "")
+    platform = require_runtime()
+    result = _runtime_call(runtime_control.decide, platform, change_id, verb, body)
+    await platform.flush()
+    return cast(dict[str, Any], result)
+
+
+@app.post("/runtime/components/{component_id}/{action}", dependencies=_RUNTIME_WRITE)
+async def runtime_component_action(
+    component_id: str, action: str, body: RuntimeActionBody, request: Request
+) -> dict[str, Any]:
+    _state.check_endpoint_rate_limit("runtime", request.client.host if request.client else "")
+    platform = require_runtime()
+    result = _runtime_call(runtime_control.component_action, platform, component_id, action, body)
+    await platform.flush()
+    return cast(dict[str, Any], result)
+
+
+@app.post("/runtime/desired", dependencies=_RUNTIME_WRITE)
+async def runtime_set_desired(body: RuntimeDesiredBody, request: Request) -> dict[str, Any]:
+    _state.check_endpoint_rate_limit("runtime", request.client.host if request.client else "")
+    platform = require_runtime()
+    result = _runtime_call(runtime_control.set_desired, platform, body)
+    await platform.flush()
+    return cast(dict[str, Any], result)
+
+
+@app.post("/runtime/reconcile", dependencies=_RUNTIME_WRITE)
+async def runtime_reconcile(body: OperatorFactor, request: Request) -> list[dict[str, Any]]:
+    _state.check_endpoint_rate_limit("runtime", request.client.host if request.client else "")
+    platform = require_runtime()
+    result = _runtime_call(runtime_control.reconcile, platform, body)
+    await platform.flush()
+    return cast(list[dict[str, Any]], result)

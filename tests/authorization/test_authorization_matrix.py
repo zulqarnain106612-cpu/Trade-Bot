@@ -52,6 +52,8 @@ EXPECTED: dict[Role, frozenset[Permission]] = {
             Permission.VIEW_TRADES,
             Permission.APPROVE_TRADE,
             Permission.CHANGE_EXECUTION_MODE,
+            # RES-017: runtime-platform changes are operator authority.
+            Permission.CHANGE_RUNTIME,
         }
     ),
 }

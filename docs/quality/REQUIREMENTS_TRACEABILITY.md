@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 187 |
+| VERIFIED | 188 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **187** |
+| **Total** | **188** |
 
 ## Summary by subsystem
 
@@ -63,7 +63,7 @@ deletion of the thing it points at.
 | Signal and features | 5 | 5 |
 | Models and leakage | 10 | 10 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 18 | 18 |
+| API and WebSocket | 19 | 19 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 15 | 15 |
@@ -877,6 +877,18 @@ frontend/ runs vitest under jsdom, and `npm test` is a step of the gated `fronte
 - **Owned by:** `frontend/vitest.config.js`, `.github/workflows/ci.yml`
 - **Verification:**
   - `frontend/src/hooks/useApi.test.js` (contract)
+
+#### `RES-017` — The runtime is controlled only through the existing API and the change manager
+
+**VERIFIED** · critical · requirement · source: OPS-2026-10-07
+
+Runtime state (components, dependencies, changes, decision traces, mismatches) is readable with VIEW_STATUS on the existing API; every runtime mutation route needs the CHANGE_RUNTIME permission (trade-authorizing keys only), the operator second factor and the endpoint rate limit, and is a change-manager call -- LIVE_SAFE changes execute at once, everything else waits for a human approver, and an AI actor is refused approval; the runtime topic is operator-only on the websocket; a failed platform build leaves the routes at 503 rather than stopping trading.
+
+- **If violated:** A read-only key, a caller without the operator secret, or an AI agent changes live runtime state, or a runtime change bypasses the change manager.
+- **Owned by:** `src/api/runtime_control.py`, `src/api/main.py`, `src/api/access_control.py`, `src/runtime/platform.py`
+- **Depends on:** `RES-013`, `RES-015`
+- **Verification:**
+  - `tests/runtime/test_runtime_endpoints.py` (api)
 
 #### `REG-0019` — The dashboard socket does not reconnect after unmount, and backs off with jitter
 
@@ -2412,4 +2424,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 187 entries.
+Registry version: 1.0.0 — 188 entries.

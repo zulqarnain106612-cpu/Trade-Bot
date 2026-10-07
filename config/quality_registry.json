@@ -4673,6 +4673,33 @@
       "depends_on": [
         "RES-013"
       ]
+    },
+    {
+      "id": "RES-017",
+      "kind": "requirement",
+      "title": "The runtime is controlled only through the existing API and the change manager",
+      "statement": "Runtime state (components, dependencies, changes, decision traces, mismatches) is readable with VIEW_STATUS on the existing API; every runtime mutation route needs the CHANGE_RUNTIME permission (trade-authorizing keys only), the operator second factor and the endpoint rate limit, and is a change-manager call -- LIVE_SAFE changes execute at once, everything else waits for a human approver, and an AI actor is refused approval; the runtime topic is operator-only on the websocket; a failed platform build leaves the routes at 503 rather than stopping trading.",
+      "criticality": "critical",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A read-only key, a caller without the operator secret, or an AI agent changes live runtime state, or a runtime change bypasses the change manager.",
+      "owning_modules": [
+        "src/api/runtime_control.py",
+        "src/api/main.py",
+        "src/api/access_control.py",
+        "src/runtime/platform.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_runtime_endpoints.py",
+          "test_type": "api"
+        }
+      ],
+      "depends_on": [
+        "RES-013",
+        "RES-015"
+      ]
     }
   ]
 }
