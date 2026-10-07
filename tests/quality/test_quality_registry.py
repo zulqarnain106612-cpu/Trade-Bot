@@ -18,7 +18,7 @@ Decides:
   - GOV-038 — verified entry depends on verified or accepted_gap only
   - GOV-043 — test docstrings name the entries they decide
   - GOV-046 — declared taxonomy has a user
-  - GOV-058 — every declared test_types term is used by an entry
+  - GOV-059 — the registry holds one entry per requirement
 """
 
 from __future__ import annotations
@@ -721,6 +721,24 @@ class TestTheRealRegistry:
         # planned entries, which reference no test, could never satisfy it.
         used = {v.test_type for e in registry for v in e.verification}
         assert not sorted(set(registry.test_types) - used)
+
+    def test_no_two_entries_state_the_same_requirement(self, registry):
+        # GOV-059. GOV-046 and GOV-058 were one rule under two ids: the same
+        # title, the same source, the same single deciding test. Nothing here
+        # caught it -- the loader refuses a duplicate id, and two distinct ids
+        # are two requirements as far as it can tell -- and the screen that
+        # let the second one in compared its added LINES against main, where
+        # the wording differed, so line-level absence read as novelty.
+        # A split requirement is worse than a missing one: a fix can satisfy
+        # one entry and leave the other standing, stale and still `verified`.
+        by_title: dict[str, list[str]] = {}
+        for entry in registry:
+            by_title.setdefault(" ".join(entry.title.lower().split()), []).append(entry.id)
+        collisions = {title: ids for title, ids in by_title.items() if len(ids) > 1}
+        assert not collisions, (
+            "one requirement stated by more than one entry; merge them and keep the "
+            "older id: " + repr(collisions)
+        )
 
     def test_every_invariant_is_critical(self, registry):
         # An invariant that is not critical is not an invariant.
