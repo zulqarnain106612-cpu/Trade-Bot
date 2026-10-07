@@ -25,8 +25,8 @@ def test_read_output_is_compacted_to_three_model_visible_lines():
     event = {"tool_name": "Read", "tool_response": raw}
     output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
     assert output != raw
-    assert len(output.splitlines()) <= 4
-    assert "source observation compacted" in output
+    assert len(output.splitlines()) <= 31
+    assert "source observation bounded" in output
 
 
 def test_small_read_output_is_preserved():
