@@ -150,7 +150,9 @@ class RuntimeRegistry:
         with self._lock:
             return self._records.get(component_id)
 
-    def components(self, component_type: ComponentType | None = None) -> tuple[ComponentRecord, ...]:
+    def components(
+        self, component_type: ComponentType | None = None
+    ) -> tuple[ComponentRecord, ...]:
         with self._lock:
             return tuple(
                 r
@@ -195,12 +197,12 @@ class RuntimeRegistry:
         """``notify=False`` when the value came from the store (restore)."""
         with self._lock:
             record = self.get(component_id)
-            if desired is not None and desired.target_version is not None:
-                if desired.target_version not in self._versions[component_id]:
-                    raise RuntimeContractError(
-                        f"{component_id}: desired version {desired.target_version} is not a "
-                        f"version this component has run"
-                    )
+            wanted = None if desired is None else desired.target_version
+            if wanted is not None and wanted not in self._versions[component_id]:
+                raise RuntimeContractError(
+                    f"{component_id}: desired version {wanted} is not a "
+                    f"version this component has run"
+                )
             updated = self._store(record, desired=desired)
             if notify:
                 for listener in self._desired_listeners:
@@ -208,7 +210,9 @@ class RuntimeRegistry:
                         listener(component_id, desired)
                     except Exception as exc:  # a listener is a mirror; the record stands
                         log.error(
-                            "runtime.desired_listener_failed", component_id=component_id, error=str(exc)
+                            "runtime.desired_listener_failed",
+                            component_id=component_id,
+                            error=str(exc),
                         )
             return updated
 

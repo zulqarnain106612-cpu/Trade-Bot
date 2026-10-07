@@ -174,7 +174,9 @@ class DependencyGraph:
             target = self._records.get(dep.component_id)
             if target is None:
                 if dep.required:
-                    problems.append(f"{component_id} needs {dep.component_id}, which is not registered")
+                    problems.append(
+                        f"{component_id} needs {dep.component_id}, which is not registered"
+                    )
                 continue
             if dep.version is not None and target.version.version != dep.version:
                 problems.append(

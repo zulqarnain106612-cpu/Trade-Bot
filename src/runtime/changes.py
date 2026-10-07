@@ -465,9 +465,10 @@ class ChangeManager:
             needs_stage = change.classification in STAGE_FOR
             ready = ChangeStatus.STAGED if needs_stage else ChangeStatus.APPROVED
             if change.status is not ready:
+                stage = STAGE_FOR.get(change.classification)
+                hint = "" if stage is None else f" (a passed {stage} stage)"
                 raise ChangeError(
-                    f"{change_id} is {change.status.value}; execution needs {ready.value}"
-                    + (f" (a passed {STAGE_FOR[change.classification]} stage)" if needs_stage else "")
+                    f"{change_id} is {change.status.value}; execution needs {ready.value}{hint}"
                 )
             request = change.request
             current = self._registry.get(request.component_id)
@@ -517,7 +518,8 @@ class ChangeManager:
                 result=f"{transition.from_state} -> {transition.to_state.value}",
             )
             self._previous_desired[change_id] = previous_desired
-            return self._observe(executed, actor, final=change.classification is ChangeClass.LIVE_SAFE)
+            final = change.classification is ChangeClass.LIVE_SAFE
+            return self._observe(executed, actor, final=final)
 
     def promote(self, change_id: str, actor: Actor) -> ChangeRecord:
         """End observation: PROMOTED when healthy, rolled back when not."""
@@ -556,7 +558,9 @@ class ChangeManager:
         if not final:
             self._audit_entry(change, "observing", actor.name, report.state.value)
             return change
-        return self._move(change, ChangeStatus.PROMOTED, actor.name, "promoted", result=report.state.value)
+        return self._move(
+            change, ChangeStatus.PROMOTED, actor.name, "promoted", result=report.state.value
+        )
 
     def _rollback(self, change: ChangeRecord, actor: Actor, reason: str) -> ChangeRecord:
         request = change.request
@@ -628,7 +632,9 @@ class ChangeManager:
             updated_at=now,
         )
         self._changes[request.change_id] = change
-        self._audit_entry(change, f"submitted:{status.value}", request.actor.name, "; ".join(reasons))
+        self._audit_entry(
+            change, f"submitted:{status.value}", request.actor.name, "; ".join(reasons)
+        )
         return change
 
     def _move(

@@ -99,7 +99,9 @@ class Mismatch:
         }
 
 
-def plan_path(record: ComponentRecord, target: LifecycleState) -> tuple[LifecycleAction, ...] | None:
+def plan_path(
+    record: ComponentRecord, target: LifecycleState
+) -> tuple[LifecycleAction, ...] | None:
     """Shortest action sequence from the record's state to ``target`` (BFS)."""
     start = record.state
     if start is target:
@@ -134,9 +136,8 @@ def diff(registry: RuntimeRegistry) -> list[Mismatch]:
         if desired is None:
             continue
         if desired.target_version is not None and desired.target_version != record.version.version:
-            target = next(
-                v for v in registry.versions(record.component_id) if v.version == desired.target_version
-            )
+            versions = {v.version: v for v in registry.versions(record.component_id)}
+            target = versions[desired.target_version]
             action = A.ROLLBACK if target in record.previous_versions else A.REPLACE
             mismatches.append(
                 Mismatch(
@@ -228,7 +229,8 @@ class Reconciler:
         )
         change = self._changes.submit(request)
         if change.status is ChangeStatus.REJECTED:
-            self._raise_alert(f"rejected {action.value}: {mismatch.detail}: {'; '.join(change.reasons)}")
+            reasons = "; ".join(change.reasons)
+            self._raise_alert(f"rejected {action.value}: {mismatch.detail}: {reasons}")
             return ReconcileOutcome(mismatch, "alerted: rejected", change.change_id)
         if change.status is ChangeStatus.AWAITING_APPROVAL:
             return ReconcileOutcome(mismatch, "awaiting approval", change.change_id)

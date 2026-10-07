@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 179 |
+| VERIFIED | 185 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **179** |
+| **Total** | **185** |
 
 ## Summary by subsystem
 
@@ -66,7 +66,7 @@ deletion of the thing it points at.
 | API and WebSocket | 18 | 18 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 8 | 8 |
+| Resilience and recovery | 14 | 14 |
 | Release and production | 13 | 13 |
 | Governance | 59 | 59 |
 
@@ -1410,6 +1410,90 @@ Fuzzed API payloads, market data, exchange responses, WebSocket messages, config
 - **Verification:**
   - `tests/fuzz/test_malformed_input_is_safe.py` (fuzz) — Each arrow of the source document's chain is a separate assertion: rejected safely, no corrupted state, no secret leakage, audit event -- not merely 'it did not crash'.
 
+#### `RES-009` — Runtime components have explicit identity, immutable versions and declared capabilities
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+Every runtime component is identified as '<type>:<name>'; a version is immutable (canonical-JSON configuration, copies handed out) and fingerprinted; desired state is a request distinct from actual state and may only name a desirable target; a lifecycle action is legal only when the fixed transition table has the edge and the component's capability set declares the action, and an active component is never stopped without being deactivated or drained first.
+
+- **If violated:** Bookkeeping claims a component paused, swapped or stopped that its subsystem cannot pause, swap or stop, or a version's configuration changes after it was recorded.
+- **Owned by:** `src/runtime/contracts.py`
+- **Verification:**
+  - `tests/runtime/test_contracts.py` (unit)
+  - `tests/runtime/test_lifecycle.py` (unit)
+  - `tests/runtime/test_capabilities.py` (unit)
+
+#### `RES-010` — One runtime registry, fed by adapters over the existing registries
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+The runtime registry records identity, version history, lifecycle state, desired state, health and transitions for every component; a component id is registered once, batch registration is atomic, a version string names one content forever across replace and rollback; adapters read the strategy, model, tuning, upgrade, engine, worker, task, provider and event-bus registries without mutating them and declare only actions the subsystem has (a shadow model's promotion and discard; everything else observe-only).
+
+- **If violated:** Two components share an identity, a rollback restores different code under an old version name, or the runtime view declares a lever (strategy pause, parameter write) that bypasses the kill switch or the tuning promotion path.
+- **Owned by:** `src/runtime/registry.py`, `src/runtime/adapters.py`, `src/engines/orchestrator.py`
+- **Depends on:** `RES-009`
+- **Verification:**
+  - `tests/runtime/test_registry.py` (unit)
+  - `tests/runtime/test_registry_identity.py` (unit)
+  - `tests/runtime/test_registry_adapters.py` (unit)
+
+#### `RES-011` — Supervisors act only through previewed, capability-checked transitions
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+A supervisor previews every action in the registry before calling a controller, refuses a concurrent action on the same component, records a controller exception as FAILED, leaves state untouched when the subsystem declines (a model promotion the model registry's evaluation does not allow), quarantines past the restart budget when the component can be quarantined and otherwise reports it unhealthy, and reports a failed probe as unhealthy.
+
+- **If violated:** A model is promoted without passing its shadow evaluation, a failure leaves a component looking healthy, or two operators interleave actions on one component.
+- **Owned by:** `src/runtime/supervisor.py`
+- **Depends on:** `RES-010`
+- **Verification:**
+  - `tests/runtime/test_supervisors.py` (unit)
+  - `tests/runtime/test_supervisor_failures.py` (unit)
+  - `tests/runtime/test_runtime_state.py` (unit)
+
+#### `RES-012` — Runtime changes are dependency-aware
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+Dependency edges come from the component specs; cycles are found and reported as a closed path; impact analysis names the transitive dependents, the required validations, the failure domains (including the decision path) and the rollout class; putting a component into service with an unregistered, stopped or version-mismatched required dependency, or breaking a dependent's version pin, is FORBIDDEN, while risk-reducing actions are never blocked by dependencies.
+
+- **If violated:** A feature-set or model change silently invalidates the strategies built on it, or a dependency problem prevents an operator from taking risk off.
+- **Owned by:** `src/runtime/dependencies.py`, `src/runtime/classification.py`
+- **Depends on:** `RES-010`
+- **Verification:**
+  - `tests/runtime/test_dependencies.py` (unit)
+  - `tests/runtime/test_dependency_cycles.py` (unit)
+  - `tests/runtime/test_impact_analysis.py` (unit)
+
+#### `RES-013` — Every runtime mutation goes through the change manager; an AI cannot approve
+
+**VERIFIED** · critical · requirement · source: OPS-2026-10-07
+
+A runtime change is a request with actor, reason, component, action and optional expected version; it is classified (LIVE_SAFE, LIVE_GATED, SHADOW_REQUIRED, CANARY_REQUIRED, DRAIN_REQUIRED, RESTART_REQUIRED, FORBIDDEN), analysed, validated and policy-checked; only LIVE_SAFE changes skip approval; approval, stage results and promotion need a human approver (or the system for stages and promotion), never an AI actor; shadow/canary classes execute only after a passed stage; one open change per component; stale versions are rejected; an unhealthy result rolls back through the inverse action and restores the previous desired state; every step is audited.
+
+- **If violated:** An AI or a single unreviewed request activates a model or changes live behaviour, two changes interleave on one component, or a bad change stays live with no record.
+- **Owned by:** `src/runtime/changes.py`
+- **Depends on:** `RES-011`, `RES-012`
+- **Verification:**
+  - `tests/runtime/test_change_manager.py` (unit)
+  - `tests/runtime/test_change_authorization.py` (unit)
+  - `tests/runtime/test_rollout.py` (unit)
+  - `tests/runtime/test_rollback.py` (unit)
+
+#### `RES-014` — Desired state persists and is reconciled through the change manager
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+Desired state is stored in runtime_desired_state (migration v9 in both the SQLite and TimescaleDB backends), queued per component so a failed or overlapping write never loses the newest intent, and restored into a fresh registry with every unusable row reported; the reconciler classifies mismatches (VERSION, STATE, FAILED, UNREACHABLE) and submits only the next step of the shortest path as a change request, so risk-reducing steps execute and everything else waits for approval, raising an alert for unreachable, rejected and failed steps.
+
+- **If violated:** An operator's intent is lost on restart, or the reconciler drives a component into service without the approval a direct request would need.
+- **Owned by:** `src/runtime/persistence.py`, `src/runtime/reconcile.py`, `src/data/storage.py`, `src/data/timescale_storage.py`
+- **Depends on:** `RES-013`
+- **Verification:**
+  - `tests/runtime/test_desired_state.py` (unit)
+  - `tests/runtime/test_reconciliation.py` (unit)
+  - `tests/test_timescale_storage.py` (unit)
+
 ## Release and production
 
 #### `INV-010` — Live mode cannot bypass qualification gates
@@ -2302,4 +2386,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 179 entries.
+Registry version: 1.0.0 — 185 entries.

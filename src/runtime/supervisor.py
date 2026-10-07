@@ -165,7 +165,11 @@ class Supervisor:
             raise TransitionInProgressError(f"{component_id}: another action is in progress")
         try:
             return self._execute_locked(
-                component_id, action, actor=actor, target_version=target_version, change_id=change_id
+                component_id,
+                action,
+                actor=actor,
+                target_version=target_version,
+                change_id=change_id,
             )
         finally:
             lock.release()
@@ -187,12 +191,19 @@ class Supervisor:
             self._controller.perform(record, action, resolved_version if swap else None)
         except ActionRefusedError as exc:
             log.info(
-                "runtime.action_refused", component_id=component_id, action=action.value, reason=str(exc)
+                "runtime.action_refused",
+                component_id=component_id,
+                action=action.value,
+                reason=str(exc),
             )
             raise
         except Exception as exc:  # the controller's failure is the component's failure
             failed = self._registry.mark_failed(
-                component_id, action, f"{type(exc).__name__}: {exc}", actor=actor, change_id=change_id
+                component_id,
+                action,
+                f"{type(exc).__name__}: {exc}",
+                actor=actor,
+                change_id=change_id,
             )
             log.warning(
                 "runtime.action_failed",
@@ -219,7 +230,9 @@ class Supervisor:
         self._after_success(record, action, actor=actor)
         return transition
 
-    def _after_success(self, record: ComponentRecord, action: LifecycleAction, *, actor: str) -> None:
+    def _after_success(
+        self, record: ComponentRecord, action: LifecycleAction, *, actor: str
+    ) -> None:
         """Hook for side effects on other components (see ModelSupervisor)."""
 
     def _after_failure(self, component_id: str, *, actor: str, change_id: str | None) -> None:
@@ -254,7 +267,9 @@ class Supervisor:
         )
         log.error("runtime.quarantined", component_id=component_id)
 
-    def restart(self, component_id: str, *, actor: str, change_id: str | None = None) -> TransitionRecord:
+    def restart(
+        self, component_id: str, *, actor: str, change_id: str | None = None
+    ) -> TransitionRecord:
         """STOP then START a FAILED component, within the restart budget."""
         record = self._record(component_id)
         if record.restart_count >= self._policy.max_restarts:
@@ -274,7 +289,9 @@ class Supervisor:
             report = self._controller.probe(record)
         except Exception as exc:  # an unreadable component is unhealthy, not healthy
             report = HealthReport(
-                HealthState.UNHEALTHY, f"probe failed: {type(exc).__name__}: {exc}", record.updated_at
+                HealthState.UNHEALTHY,
+                f"probe failed: {type(exc).__name__}: {exc}",
+                record.updated_at,
             )
             log.warning("runtime.probe_failed", component_id=component_id, error=report.detail)
         self._registry.record_health(component_id, report)
@@ -379,7 +396,9 @@ class ShadowModelController:
 class ModelSupervisor(Supervisor):
     component_type = ComponentType.MODEL
 
-    def _after_success(self, record: ComponentRecord, action: LifecycleAction, *, actor: str) -> None:
+    def _after_success(
+        self, record: ComponentRecord, action: LifecycleAction, *, actor: str
+    ) -> None:
         # Promotion takes the live slot: whichever model held it is retired.
         if action is not LifecycleAction.ACTIVATE:
             return
@@ -390,7 +409,9 @@ class ModelSupervisor(Supervisor):
                     LifecycleState.STOPPED,
                     actor=actor,
                     health=HealthReport(
-                        HealthState.UNKNOWN, f"superseded by {record.component_id}", other.updated_at
+                        HealthState.UNKNOWN,
+                        f"superseded by {record.component_id}",
+                        other.updated_at,
                     ),
                 )
 
@@ -421,10 +442,10 @@ class SupervisorSet:
     ) -> None:
         self._registry = registry
         given = dict(controllers or {})
-        self._supervisors: dict[ComponentType, Supervisor] = {
-            ctype: factory(ctype)(registry, given.get(ctype, ObserveOnlyController()), policy=policy)
-            for ctype in ComponentType
-        }
+        self._supervisors: dict[ComponentType, Supervisor] = {}
+        for ctype in ComponentType:
+            controller = given.get(ctype, ObserveOnlyController())
+            self._supervisors[ctype] = factory(ctype)(registry, controller, policy=policy)
 
     def for_type(self, component_type: ComponentType) -> Supervisor:
         return self._supervisors[component_type]

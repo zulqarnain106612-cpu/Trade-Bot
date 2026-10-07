@@ -4422,6 +4422,200 @@
       "depends_on": [
         "GOV-063"
       ]
+    },
+    {
+      "id": "RES-009",
+      "kind": "requirement",
+      "title": "Runtime components have explicit identity, immutable versions and declared capabilities",
+      "statement": "Every runtime component is identified as '<type>:<name>'; a version is immutable (canonical-JSON configuration, copies handed out) and fingerprinted; desired state is a request distinct from actual state and may only name a desirable target; a lifecycle action is legal only when the fixed transition table has the edge and the component's capability set declares the action, and an active component is never stopped without being deactivated or drained first.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "Bookkeeping claims a component paused, swapped or stopped that its subsystem cannot pause, swap or stop, or a version's configuration changes after it was recorded.",
+      "owning_modules": [
+        "src/runtime/contracts.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_contracts.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_lifecycle.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_capabilities.py",
+          "test_type": "unit"
+        }
+      ]
+    },
+    {
+      "id": "RES-010",
+      "kind": "requirement",
+      "title": "One runtime registry, fed by adapters over the existing registries",
+      "statement": "The runtime registry records identity, version history, lifecycle state, desired state, health and transitions for every component; a component id is registered once, batch registration is atomic, a version string names one content forever across replace and rollback; adapters read the strategy, model, tuning, upgrade, engine, worker, task, provider and event-bus registries without mutating them and declare only actions the subsystem has (a shadow model's promotion and discard; everything else observe-only).",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "Two components share an identity, a rollback restores different code under an old version name, or the runtime view declares a lever (strategy pause, parameter write) that bypasses the kill switch or the tuning promotion path.",
+      "owning_modules": [
+        "src/runtime/registry.py",
+        "src/runtime/adapters.py",
+        "src/engines/orchestrator.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_registry.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_registry_identity.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_registry_adapters.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-009"
+      ]
+    },
+    {
+      "id": "RES-011",
+      "kind": "requirement",
+      "title": "Supervisors act only through previewed, capability-checked transitions",
+      "statement": "A supervisor previews every action in the registry before calling a controller, refuses a concurrent action on the same component, records a controller exception as FAILED, leaves state untouched when the subsystem declines (a model promotion the model registry's evaluation does not allow), quarantines past the restart budget when the component can be quarantined and otherwise reports it unhealthy, and reports a failed probe as unhealthy.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A model is promoted without passing its shadow evaluation, a failure leaves a component looking healthy, or two operators interleave actions on one component.",
+      "owning_modules": [
+        "src/runtime/supervisor.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_supervisors.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_supervisor_failures.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_runtime_state.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-010"
+      ]
+    },
+    {
+      "id": "RES-012",
+      "kind": "requirement",
+      "title": "Runtime changes are dependency-aware",
+      "statement": "Dependency edges come from the component specs; cycles are found and reported as a closed path; impact analysis names the transitive dependents, the required validations, the failure domains (including the decision path) and the rollout class; putting a component into service with an unregistered, stopped or version-mismatched required dependency, or breaking a dependent's version pin, is FORBIDDEN, while risk-reducing actions are never blocked by dependencies.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A feature-set or model change silently invalidates the strategies built on it, or a dependency problem prevents an operator from taking risk off.",
+      "owning_modules": [
+        "src/runtime/dependencies.py",
+        "src/runtime/classification.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_dependencies.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_dependency_cycles.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_impact_analysis.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-010"
+      ]
+    },
+    {
+      "id": "RES-013",
+      "kind": "requirement",
+      "title": "Every runtime mutation goes through the change manager; an AI cannot approve",
+      "statement": "A runtime change is a request with actor, reason, component, action and optional expected version; it is classified (LIVE_SAFE, LIVE_GATED, SHADOW_REQUIRED, CANARY_REQUIRED, DRAIN_REQUIRED, RESTART_REQUIRED, FORBIDDEN), analysed, validated and policy-checked; only LIVE_SAFE changes skip approval; approval, stage results and promotion need a human approver (or the system for stages and promotion), never an AI actor; shadow/canary classes execute only after a passed stage; one open change per component; stale versions are rejected; an unhealthy result rolls back through the inverse action and restores the previous desired state; every step is audited.",
+      "criticality": "critical",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "An AI or a single unreviewed request activates a model or changes live behaviour, two changes interleave on one component, or a bad change stays live with no record.",
+      "owning_modules": [
+        "src/runtime/changes.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_change_manager.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_change_authorization.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_rollout.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_rollback.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-011",
+        "RES-012"
+      ]
+    },
+    {
+      "id": "RES-014",
+      "kind": "requirement",
+      "title": "Desired state persists and is reconciled through the change manager",
+      "statement": "Desired state is stored in runtime_desired_state (migration v9 in both the SQLite and TimescaleDB backends), queued per component so a failed or overlapping write never loses the newest intent, and restored into a fresh registry with every unusable row reported; the reconciler classifies mismatches (VERSION, STATE, FAILED, UNREACHABLE) and submits only the next step of the shortest path as a change request, so risk-reducing steps execute and everything else waits for approval, raising an alert for unreachable, rejected and failed steps.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "An operator's intent is lost on restart, or the reconciler drives a component into service without the approval a direct request would need.",
+      "owning_modules": [
+        "src/runtime/persistence.py",
+        "src/runtime/reconcile.py",
+        "src/data/storage.py",
+        "src/data/timescale_storage.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_desired_state.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/runtime/test_reconciliation.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/test_timescale_storage.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-013"
+      ]
     }
   ]
 }

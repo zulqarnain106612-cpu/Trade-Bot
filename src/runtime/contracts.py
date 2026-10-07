@@ -241,11 +241,11 @@ def next_state(
         return target
     if action not in capabilities.actions:
         raise UnsupportedActionError(component_id, action, "not declared")
-    if action in (A.REPLACE, A.ROLLBACK) and state in _HOT_SWAP_STATES:
-        if not capabilities.supports_hot_swap:
-            raise UnsupportedActionError(
-                component_id, action, f"no hot swap; drain or stop it first (state {_name(state)})"
-            )
+    hot = action in (A.REPLACE, A.ROLLBACK) and state in _HOT_SWAP_STATES
+    if hot and not capabilities.supports_hot_swap:
+        raise UnsupportedActionError(
+            component_id, action, f"no hot swap; drain or stop it first (state {_name(state)})"
+        )
     return target
 
 
@@ -329,7 +329,11 @@ class DependencyDescriptor:
     required: bool = True
 
     def to_dict(self) -> dict[str, Any]:
-        return {"component_id": self.component_id, "version": self.version, "required": self.required}
+        return {
+            "component_id": self.component_id,
+            "version": self.version,
+            "required": self.required,
+        }
 
 
 @dataclass(frozen=True, slots=True)

@@ -39,12 +39,13 @@ class DesiredStateBackend(Protocol):
 def desired_from_dict(data: dict[str, Any]) -> DesiredState:
     """Inverse of ``DesiredState.to_dict``; raises RuntimeContractError on bad data."""
     try:
+        raw_version = data.get("target_version")
         return DesiredState(
             target_state=LifecycleState(data["target_state"]),
             requested_by=str(data["requested_by"]),
             reason=str(data["reason"]),
             requested_at=datetime.fromisoformat(str(data["requested_at"])),
-            target_version=None if data.get("target_version") is None else str(data["target_version"]),
+            target_version=None if raw_version is None else str(raw_version),
         )
     except (KeyError, ValueError, TypeError) as exc:
         raise RuntimeContractError(f"malformed desired state: {exc}") from exc
@@ -55,7 +56,9 @@ def _utc_ms() -> int:
 
 
 class DesiredStatePersister:
-    def __init__(self, backend: DesiredStateBackend, *, clock_ms: Callable[[], int] = _utc_ms) -> None:
+    def __init__(
+        self, backend: DesiredStateBackend, *, clock_ms: Callable[[], int] = _utc_ms
+    ) -> None:
         self._backend = backend
         self._clock_ms = clock_ms
         self._lock = threading.Lock()
@@ -85,7 +88,9 @@ class DesiredStatePersister:
                     component_id, payload, self._clock_ms()
                 )
             except Exception as exc:  # stays queued; the next flush retries it
-                log.error("runtime.desired_persist_failed", component_id=component_id, error=str(exc))
+                log.error(
+                    "runtime.desired_persist_failed", component_id=component_id, error=str(exc)
+                )
                 continue
             with self._lock:
                 # Only clear what was written: a newer value queued meanwhile stays.
