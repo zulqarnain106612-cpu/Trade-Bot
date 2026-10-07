@@ -8,6 +8,7 @@ synchronous, non-blocking and total.
 """
 
 from src.eventbus.bus import (
+    CORRELATION_KEYS,
     DEFAULT_MAXLEN,
     TOPICS,
     Event,
@@ -15,12 +16,17 @@ from src.eventbus.bus import (
     Subscription,
     get_event_bus,
 )
+from src.eventbus.envelope import EventEnvelope, correlated, envelope_of
 
 __all__ = [
+    "CORRELATION_KEYS",
     "DEFAULT_MAXLEN",
     "TOPICS",
     "Event",
     "EventBus",
+    "EventEnvelope",
     "Subscription",
+    "correlated",
+    "envelope_of",
     "get_event_bus",
 ]

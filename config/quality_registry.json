@@ -4616,6 +4616,36 @@
       "depends_on": [
         "RES-013"
       ]
+    },
+    {
+      "id": "RES-015",
+      "kind": "requirement",
+      "title": "Events carry their correlation context; decisions and runtime changes are traceable",
+      "statement": "Every event published on the bus carries an id and the correlation ids (trace_id, order_key, decision_id, strategy_id, model_id, runtime_component_id, change_id, task_id, causation_id, timeframe) bound where it was published, copied inside publish's never-raise path; the universal envelope is a view over that event; the decision-trace index rebuilds one tick's stages, its first blocking condition (the first refusing risk gate, or the signal's skip reason) and its final decision (FILLED, ORDERED, REJECTED, NO_TRADE, INCOMPLETE) within fixed bounds; runtime transitions and change steps are published on the operator-only runtime topic and recorded in the hash-chained audit trail.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A rejected or filled trade cannot be traced back to its signal and blocking gate, or a runtime change leaves no tamper-evident record.",
+      "owning_modules": [
+        "src/eventbus/bus.py",
+        "src/eventbus/envelope.py",
+        "src/diagnostics/decision_trace.py",
+        "src/runtime/events.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_causal_tracing.py",
+          "test_type": "integration"
+        },
+        {
+          "test": "tests/runtime/test_registry.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-013"
+      ]
     }
   ]
 }

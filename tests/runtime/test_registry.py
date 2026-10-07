@@ -143,6 +143,24 @@ def test_a_failing_desired_listener_does_not_undo_the_record(registry: RuntimeRe
     assert registry.set_desired("worker:w", desired).desired == desired
 
 
+def test_transition_listeners_see_every_transition_and_cannot_undo_it(
+    registry: RuntimeRegistry,
+) -> None:
+    seen: list[str] = []
+
+    def broken(transition: object) -> None:
+        raise OSError("bus down")
+
+    registry.add_transition_listener(lambda t: seen.append(f"{t.component_id}:{t.to_state}"))
+    registry.add_transition_listener(broken)
+    registry.register(spec("w"), observed_state=S.STANDBY)
+    registry.apply("worker:w", A.ACTIVATE, actor="op")
+    registry.mark_failed("worker:w", A.RELOAD, "boom", actor="op")
+    registry.observe("worker:w", S.STOPPED, actor="adapter")
+    assert seen == ["worker:w:STANDBY", "worker:w:ACTIVE", "worker:w:FAILED", "worker:w:STOPPED"]
+    assert registry.get("worker:w").state is S.STOPPED
+
+
 def test_health_restart_and_failure_bookkeeping(registry: RuntimeRegistry) -> None:
     registry.register(spec("w"), observed_state=S.ACTIVE)
     report = HealthReport(HealthState.DEGRADED, "slow", NOW)

@@ -150,7 +150,9 @@ def _validate_operator(v: str) -> str:
 
 
 # Topics a read-only key never receives. See AppState.permitted_topics.
-_OPERATOR_ONLY_TOPICS: frozenset[str] = frozenset({"approval"})
+# "runtime" carries change requests -- actors, reasons, approvals -- which are
+# control-plane information, like the approval queue.
+_OPERATOR_ONLY_TOPICS: frozenset[str] = frozenset({"approval", "runtime"})
 
 
 class AppState:
@@ -1690,6 +1692,10 @@ async def _event_fanout_loop(subscription: Subscription) -> None:
                     # would measure the age of this line of code.
                     "ts_ms": event.ts_ms,
                     "data": event.data,
+                    # Additive: the id and correlation context (trace_id,
+                    # order_key, change_id, ...) bound where it was published.
+                    "event_id": event.event_id,
+                    "context": dict(event.context),
                 },
                 topic=event.topic,
             )

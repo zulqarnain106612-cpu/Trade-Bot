@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 185 |
+| VERIFIED | 186 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **185** |
+| **Total** | **186** |
 
 ## Summary by subsystem
 
@@ -66,7 +66,7 @@ deletion of the thing it points at.
 | API and WebSocket | 18 | 18 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 14 | 14 |
+| Resilience and recovery | 15 | 15 |
 | Release and production | 13 | 13 |
 | Governance | 59 | 59 |
 
@@ -1494,6 +1494,19 @@ Desired state is stored in runtime_desired_state (migration v9 in both the SQLit
   - `tests/runtime/test_reconciliation.py` (unit)
   - `tests/test_timescale_storage.py` (unit)
 
+#### `RES-015` — Events carry their correlation context; decisions and runtime changes are traceable
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+Every event published on the bus carries an id and the correlation ids (trace_id, order_key, decision_id, strategy_id, model_id, runtime_component_id, change_id, task_id, causation_id, timeframe) bound where it was published, copied inside publish's never-raise path; the universal envelope is a view over that event; the decision-trace index rebuilds one tick's stages, its first blocking condition (the first refusing risk gate, or the signal's skip reason) and its final decision (FILLED, ORDERED, REJECTED, NO_TRADE, INCOMPLETE) within fixed bounds; runtime transitions and change steps are published on the operator-only runtime topic and recorded in the hash-chained audit trail.
+
+- **If violated:** A rejected or filled trade cannot be traced back to its signal and blocking gate, or a runtime change leaves no tamper-evident record.
+- **Owned by:** `src/eventbus/bus.py`, `src/eventbus/envelope.py`, `src/diagnostics/decision_trace.py`, `src/runtime/events.py`
+- **Depends on:** `RES-013`
+- **Verification:**
+  - `tests/runtime/test_causal_tracing.py` (integration)
+  - `tests/runtime/test_registry.py` (unit)
+
 ## Release and production
 
 #### `INV-010` — Live mode cannot bypass qualification gates
@@ -2386,4 +2399,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 185 entries.
+Registry version: 1.0.0 — 186 entries.

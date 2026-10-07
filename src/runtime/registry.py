@@ -46,6 +46,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 _HISTORY_LIMIT = 1000
 
 DesiredListener = Callable[[str, DesiredState | None], None]
+TransitionListener = Callable[[TransitionRecord], None]
 
 
 class DuplicateComponentError(ValueError):
@@ -77,6 +78,7 @@ class RuntimeRegistry:
         # version string names one content forever.
         self._versions: dict[str, dict[str, ComponentVersion]] = {}
         self._desired_listeners: list[DesiredListener] = []
+        self._transition_listeners: list[TransitionListener] = []
 
     # -- registration --------------------------------------------------
 
@@ -120,7 +122,7 @@ class RuntimeRegistry:
             )
             self._records[spec.component_id] = record
             self._versions[spec.component_id] = {spec.version.version: spec.version}
-            self._history.append(transition)
+            self._remember(transition)
             return record
 
     def register_all(
@@ -185,6 +187,23 @@ class RuntimeRegistry:
             return [r.to_dict(self.dependents(r.component_id)) for r in self.components()]
 
     # -- mutations -----------------------------------------------------
+
+    def add_transition_listener(self, listener: TransitionListener) -> None:
+        """Called after every recorded transition (event publishing hooks in here)."""
+        with self._lock:
+            self._transition_listeners.append(listener)
+
+    def _remember(self, transition: TransitionRecord) -> None:
+        self._history.append(transition)
+        for listener in self._transition_listeners:
+            try:
+                listener(transition)
+            except Exception as exc:  # a listener is a mirror; the record stands
+                log.error(
+                    "runtime.transition_listener_failed",
+                    component_id=transition.component_id,
+                    error=str(exc),
+                )
 
     def add_desired_listener(self, listener: DesiredListener) -> None:
         """Called after every desired-state change (persistence hooks in here)."""
@@ -258,7 +277,7 @@ class RuntimeRegistry:
                 last_transition=transition,
                 last_error=None,
             )
-            self._history.append(transition)
+            self._remember(transition)
             return transition
 
     def preview(
@@ -339,7 +358,7 @@ class RuntimeRegistry:
                 actor=actor,
                 at=self._clock(),
             )
-            self._history.append(transition)
+            self._remember(transition)
             return self._store(
                 record,
                 state=state,
@@ -379,7 +398,7 @@ class RuntimeRegistry:
                 last_error=error,
                 failure_count=record.failure_count + 1,
             )
-            self._history.append(transition)
+            self._remember(transition)
             return transition
 
     def note_restart(self, component_id: str) -> ComponentRecord:
