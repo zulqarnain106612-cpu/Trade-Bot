@@ -319,9 +319,19 @@ ALTER TABLE regime_snapshots
         "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_blend_p_long DOUBLE PRECISION;\n"
         "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ensemble_p_long DOUBLE PRECISION;",
     ),
+    # v9 -- parity with storage._MIGRATIONS v9: runtime component desired state.
+    (
+        9,
+        "add runtime_desired_state for the runtime platform's reconciler",
+        """CREATE TABLE IF NOT EXISTS runtime_desired_state (
+    component_id  TEXT    PRIMARY KEY,
+    desired       JSONB   NOT NULL,
+    updated_ms    BIGINT  NOT NULL
+);""",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 8
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 9
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (
@@ -1451,6 +1461,43 @@ class TimescaleBackend:
             )
         if not val:
             raise ValueError(f"Unknown symbol {symbol!r} — not found in stored bars")
+
+    # ------------------------------------------------------------------
+    # Runtime desired state (src/runtime/persistence.py)
+    # ------------------------------------------------------------------
+
+    async def upsert_runtime_desired_state(
+        self, component_id: str, desired: dict[str, Any] | None, updated_ms: int
+    ) -> None:
+        """Store (or, for None, remove) one component's desired state."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            if desired is None:
+                await conn.execute(
+                    "DELETE FROM runtime_desired_state WHERE component_id = $1", component_id
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO runtime_desired_state (component_id, desired, updated_ms)
+                    VALUES ($1, $2::jsonb, $3)
+                    ON CONFLICT (component_id) DO UPDATE SET
+                        desired = EXCLUDED.desired, updated_ms = EXCLUDED.updated_ms
+                    """,
+                    component_id,
+                    json.dumps(desired, sort_keys=True),
+                    updated_ms,
+                )
+
+    async def fetch_runtime_desired_states(self) -> dict[str, dict[str, Any]]:
+        """Every stored desired state, by component id."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT component_id, desired::text AS desired FROM runtime_desired_state "
+                "ORDER BY component_id"
+            )
+        return {r["component_id"]: json.loads(r["desired"]) for r in rows}
 
     # ------------------------------------------------------------------
     # Audit log

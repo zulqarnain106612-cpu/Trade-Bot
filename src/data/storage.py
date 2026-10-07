@@ -187,9 +187,23 @@ ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.
         "ALTER TABLE trades ADD COLUMN pre_blend_p_long REAL;\n"
         "ALTER TABLE trades ADD COLUMN ensemble_p_long REAL;",
     ),
+    # v9 -- runtime platform (src/runtime/persistence.py): the desired state of
+    # each runtime component, so an operator's intent survives a restart and
+    # the reconciler compares it with what actually runs. One row per
+    # component; no row means nothing is desired. Change audit reuses
+    # audit_log rather than a second audit table.
+    (
+        9,
+        "add runtime_desired_state for the runtime platform's reconciler",
+        """CREATE TABLE IF NOT EXISTS runtime_desired_state (
+    component_id  TEXT    PRIMARY KEY,
+    desired       TEXT    NOT NULL,
+    updated_ms    INTEGER NOT NULL
+);""",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 8
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 9
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -1947,6 +1961,41 @@ class StorageBackend:
             operator=operator,
             details=details or {},
         )
+
+    # ------------------------------------------------------------------
+    # Runtime desired state (src/runtime/persistence.py)
+    # ------------------------------------------------------------------
+
+    async def upsert_runtime_desired_state(
+        self, component_id: str, desired: dict[str, Any] | None, updated_ms: int
+    ) -> None:
+        """Store (or, for None, remove) one component's desired state."""
+        conn = self._require_conn()
+        async with self._write_ctx():
+            if desired is None:
+                await conn.execute(
+                    "DELETE FROM runtime_desired_state WHERE component_id = ?", (component_id,)
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO runtime_desired_state (component_id, desired, updated_ms)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(component_id) DO UPDATE SET
+                        desired = excluded.desired, updated_ms = excluded.updated_ms
+                    """,
+                    (component_id, json.dumps(desired, sort_keys=True), updated_ms),
+                )
+            await conn.commit()
+
+    async def fetch_runtime_desired_states(self) -> dict[str, dict[str, Any]]:
+        """Every stored desired state, by component id."""
+        conn = self._require_conn()
+        async with conn.execute(
+            "SELECT component_id, desired FROM runtime_desired_state ORDER BY component_id"
+        ) as cur:
+            rows = await cur.fetchall()
+        return {r["component_id"]: json.loads(r["desired"]) for r in rows}
 
     # ------------------------------------------------------------------
     # Health

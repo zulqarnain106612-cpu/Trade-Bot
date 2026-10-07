@@ -103,6 +103,13 @@ class EngineOrchestrator:
         self._consensus = ConsensusLayer()
         self._risk = RiskQuantifier()
 
+    def engine_roster(self) -> tuple[tuple[str, str], ...]:
+        """(engine id, implementation) in run()'s positional E-01..E-18 order."""
+        return tuple(
+            (f"E-{i:02d}", f"{type(engine).__module__}.{type(engine).__qualname__}")
+            for i, engine in enumerate(self._engines, start=1)
+        )
+
     async def run(self, symbol: str, data: dict[str, Any]) -> OrchestratorResult:
         """Run all engines in parallel, aggregate consensus, return trade signal."""
         # Wall clock for the cycle's reported timestamp (a point in history);
