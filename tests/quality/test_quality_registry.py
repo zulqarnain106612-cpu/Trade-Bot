@@ -236,6 +236,7 @@ class TestVocabularies:
             "not in the declared test taxonomy",
         )
 
+
 class TestStatusContract:
     def test_verified_must_name_a_test(self, tree):
         expect_error(
