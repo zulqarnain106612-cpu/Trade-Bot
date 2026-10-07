@@ -3,6 +3,7 @@
 Decides:
   - GOV-057 — all model-visible tool observations cross the repository boundary
 """
+
 import json
 import os
 import subprocess

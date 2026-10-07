@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 169 |
+| VERIFIED | 170 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **169** |
+| **Total** | **170** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 12 | 12 |
-| Governance | 52 | 52 |
+| Governance | 53 | 53 |
 
 ## Outstanding work by phase
 
@@ -2063,6 +2063,17 @@ Every successful Claude Code tool result in a repository session is passed throu
   - `tests/test_observation_failure.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
+#### `GOV-058` — declared taxonomy has a user
+
+**VERIFIED** · low · requirement · source: QE-52
+
+Every term declared in the registry's test_types taxonomy is used by at least one entry's verification. Vocabulary is defined by its users; a term with no user is dead vocabulary, to be deleted or given its first entry. The opposite direction -- an entry naming a type the taxonomy never declared -- is the loader's job, because it holds for any registry; this direction holds only for the real one, so the suite asserts it.
+
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry. Enforcing it in the loader instead would be wrong and was tried: every fixture registry in the suite declares a few types and uses one, so the loader would refuse them all and report an unused type where the test asked about a schema violation.
+- **Owned by:** `config/quality_registry.json`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -2174,4 +2185,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 169 entries.
+Registry version: 1.0.0 — 170 entries.

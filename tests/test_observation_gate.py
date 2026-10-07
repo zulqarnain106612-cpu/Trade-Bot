@@ -3,6 +3,7 @@
 Decides:
   - GOV-057 — all model-visible tool observations cross the repository boundary
 """
+
 from importlib import util
 from pathlib import Path
 

@@ -16,8 +16,9 @@ Decides:
   - GOV-002 — every security finding yields a permanent SEC-#### test
   - GOV-005 — requirement-to-test traceability is machine-checked
   - GOV-038 — verified entry depends on verified or accepted_gap only
-  - GOV-046 — declared taxonomy has a user
   - GOV-043 — test docstrings name the entries they decide
+  - GOV-046 — declared taxonomy has a user
+  - GOV-058 — every declared test_types term is used by an entry
 """
 
 from __future__ import annotations
@@ -692,9 +693,7 @@ class TestTheRealRegistry:
             if not file.exists():
                 continue  # test_every_named_test_exists owns that failure
             doc = ast.get_docstring(ast.parse(file.read_text(encoding="utf-8"))) or ""
-            unnamed = sorted(
-                e.id for e in registry if path in e.test_paths and e.id not in doc
-            )
+            unnamed = sorted(e.id for e in registry if path in e.test_paths and e.id not in doc)
             if unnamed:
                 offenders.append((path, unnamed))
         assert not offenders, (
