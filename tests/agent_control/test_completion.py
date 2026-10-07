@@ -50,9 +50,10 @@ NOW = "2026-10-07T00:00:00+00:00"
 
 
 def _evidence(kind: EvidenceKind, subject: str, **overrides: object) -> Evidence:
+    record_kind = overrides.pop("kind", kind)
     record = Evidence(
         evidence_id=f"EV-{subject}",
-        kind=kind,
+        kind=record_kind,
         source=EvidenceSource.EXECUTED,
         subject=subject,
         ok=True,
