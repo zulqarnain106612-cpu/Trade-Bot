@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,50 @@ def _read_limit(tool_input: dict[str, Any]) -> int | None:
     return None
 
 
+def _changed_tracked_file(event: dict[str, Any]) -> bool:
+    tool = str(event.get("tool_name", ""))
+    if tool not in {"Read", "NotebookRead"} and not any(
+        re.search(p, tool, re.IGNORECASE)
+        for p in policy_read_patterns(event)
+    ):
+        return False
+    tool_input = event.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return False
+    raw = tool_input.get("file_path") or tool_input.get("path")
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    project = PROJECT_DIR.resolve()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = project / path
+    try:
+        path = path.resolve()
+        relative = path.relative_to(project)
+    except (OSError, ValueError):
+        return False
+    try:
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", str(relative)],
+            cwd=project, capture_output=True, text=True, timeout=2, check=False,
+        )
+        if tracked.returncode != 0:
+            return False
+        changed = subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--", str(relative)],
+            cwd=project, capture_output=True, text=True, timeout=2, check=False,
+        )
+        return changed.returncode == 1
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def policy_read_patterns(event: dict[str, Any]) -> list[str]:
+    # Kept separate so the changed-file check remains independent of the JSON
+    # policy object while using the same tool vocabulary as the read boundary.
+    return [r"read_file$", r"fetch_file$", r"get_file$", r"fetch_blob$", r"read_process_output$", r"read_terminal$"]
+
+
 def _read_boundary_violation(event: dict[str, Any], policy: dict[str, Any]) -> str:
     cfg = policy.get("observation_boundary", {})
     if not cfg.get("enabled", True):
@@ -136,6 +181,16 @@ def _read_boundary_violation(event: dict[str, Any], policy: dict[str, Any]) -> s
         return str(cfg.get("read_refusal_message", "Read calls require an explicit bound."))
     if limit < 1 or limit > max_lines:
         return str(cfg.get("read_refusal_message", "Read calls must be bounded."))
+
+    changed_cfg = cfg.get("changed_file_candidates", {})
+    if changed_cfg.get("enabled", True) and _changed_tracked_file(event):
+        max_changed = int(changed_cfg.get("max_read_lines", 10))
+        if limit > max_changed:
+            return (
+                "This tracked file has uncommitted changes. Do not replay the file into context. "
+                "Inspect the changed candidates with `git diff --unified=2 -- <file>` or request "
+                f"an exact range of <= {max_changed} lines only where the diff leaves a real ambiguity."
+            )
     return ""
 
 
