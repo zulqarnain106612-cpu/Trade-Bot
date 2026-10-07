@@ -167,7 +167,11 @@ def _changed_file_candidates(event: dict[str, Any]) -> str | None:
         return None
     lines = _normalize_lines(diff)
     if len(lines) <= MAX_CHANGED_DIFF_LINES:
-        return diff
+        return _finalize(
+            lines,
+            len(lines),
+            marker="[changed candidates bounded; request a narrower range only if needed]",
+        )
     candidates = [
         line
         for line in lines
