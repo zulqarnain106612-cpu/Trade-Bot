@@ -137,7 +137,8 @@
     "changed_file_candidates": {
       "enabled": true,
       "max_diff_lines": 80,
-      "rule": "When a bounded source read targets a tracked file changed in the current worktree, the PostToolUse boundary returns only git diff candidates for that file instead of replaying the source. Untracked files retain the bounded read because no baseline diff exists."
+      "rule": "When a bounded source read targets a tracked file changed in the current worktree, the PostToolUse boundary returns only git diff candidates for that file instead of replaying the source. Untracked files retain the bounded read because no baseline diff exists.",
+      "max_read_lines": 10
     }
   },
   "destructive": {
