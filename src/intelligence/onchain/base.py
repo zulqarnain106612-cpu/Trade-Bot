@@ -21,6 +21,7 @@ from typing import Any
 import aiohttp
 import structlog
 
+from src.eventbus import get_event_bus
 from src.intelligence.providers.base import ExchangeIntelligenceProvider
 
 log = structlog.get_logger(__name__)
@@ -93,26 +94,66 @@ class CircuitBreaker:
     occasionally trips eventually — a process running for months opens every
     breaker it owns regardless of how healthy the providers are, and then
     spends the rest of its life cycling through the cooldown.
+
+    ``name`` exists so a state change can be attributed to a provider on the
+    ``intel`` bus topic. This breaker *is* the intelligence layer's health
+    signal: the layer fails open by design, so an OPEN breaker means the
+    feature pipeline is quietly running on fallback values and the risk gates
+    are quietly seeing a lower confidence. Nothing else in the process knows
+    that happened, which is why it is published rather than only logged.
     """
 
-    def __init__(self, failure_threshold: int = 3, cooldown_s: float = 300.0) -> None:
+    def __init__(
+        self, failure_threshold: int = 3, cooldown_s: float = 300.0, name: str = ""
+    ) -> None:
         self._threshold = failure_threshold
         self._cooldown = cooldown_s
         self._failures = 0
         self._state = _CBState.CLOSED
         self._opened_at: float = 0.0
+        self._name = name
+
+    def _transition(self, new_state: _CBState, reason: str) -> None:
+        """
+        Move to ``new_state`` and publish the change. Idempotent.
+
+        Every assignment to ``_state`` goes through here. Publishing at the
+        call sites instead means the next path added -- a manual reset, a
+        second failure mode -- changes state without telling anyone, and a
+        provider health panel that is right except for one path is worse than
+        no panel, because nothing distinguishes the two.
+        """
+        if new_state is self._state:
+            return
+        previous = self._state
+        self._state = new_state
+        if new_state is _CBState.OPEN:
+            # Stamped here so opening always starts the cooldown; a path that
+            # sets the state without the clock leaves the breaker OPEN until
+            # the process restarts.
+            self._opened_at = time.monotonic()
+        get_event_bus().publish(
+            "intel",
+            {
+                "provider": self._name,
+                "state": new_state.name.lower(),
+                "previous_state": previous.name.lower(),
+                "reason": reason,
+                "consecutive_failures": self._failures,
+            },
+        )
 
     async def call(self, coro_factory: Callable[[], Awaitable[Any]]) -> Any:
         if self._state == _CBState.OPEN:
             if time.monotonic() - self._opened_at >= self._cooldown:
-                self._state = _CBState.HALF_OPEN
+                self._transition(_CBState.HALF_OPEN, "cooldown_elapsed")
             else:
                 raise CircuitOpenError("Circuit is OPEN")
         try:
             result = await coro_factory()
             if self._state == _CBState.HALF_OPEN:
                 self._failures = 0
-                self._state = _CBState.CLOSED
+                self._transition(_CBState.CLOSED, "probe_succeeded")
             else:
                 # A success while CLOSED clears the run. Without this the
                 # counter is cumulative rather than consecutive: it was only
@@ -125,8 +166,10 @@ class CircuitBreaker:
         except Exception:
             self._failures += 1
             if self._state == _CBState.HALF_OPEN or self._failures >= self._threshold:
-                self._state = _CBState.OPEN
-                self._opened_at = time.monotonic()
+                self._transition(
+                    _CBState.OPEN,
+                    "probe_failed" if self._state is _CBState.HALF_OPEN else "threshold_reached",
+                )
             raise
 
 
@@ -195,7 +238,12 @@ class OnChainProvider(ExchangeIntelligenceProvider):
     def __init__(self) -> None:
         self._async_cache: AsyncHTTPCache = AsyncHTTPCache(default_ttl_s=self._CACHE_TTL_S)
         self._limiter = RateLimiter(rate=self._RATE)
-        self._breaker = CircuitBreaker()
+        # type(self).__name__ rather than exchange_id: exchange_id is an
+        # abstract property, and reading it from __init__ works only for
+        # subclasses that return a constant. The class name is also what
+        # /intelligence/providers already calls a provider ("ArkhamProvider"),
+        # so the published events and the hydrate payload agree on the key.
+        self._breaker = CircuitBreaker(name=type(self).__name__)
         self._session: aiohttp.ClientSession | None = None
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
