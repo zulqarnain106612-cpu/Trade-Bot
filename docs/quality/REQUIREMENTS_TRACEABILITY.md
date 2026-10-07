@@ -2013,10 +2013,10 @@ The math registry loader refuses any wiring pointing at a file that does not exi
 
 **VERIFIED** · low · requirement · source: QE-52
 
-The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.
+Every term declared in the registry's test_types taxonomy is used by at least one entry's verification. Vocabulary is defined by its users; a term with no user is dead vocabulary, to be deleted or given its first entry. The opposite direction -- an entry naming a type the taxonomy never declared -- is the loader's job, because it holds for any registry; this direction holds only for the real one, so the suite asserts it.
 
-- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.
-- **Owned by:** `src/quality/registry.py`
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry. Enforcing it in the loader instead would be wrong and was tried: every fixture registry in the suite declares a few types and uses one, so the loader would refuse them all and report an unused type where the test asked about a schema violation.
+- **Owned by:** `config/quality_registry.json`
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
@@ -2101,13 +2101,13 @@ Every successful Claude Code tool result in a repository session is passed throu
   - `tests/test_observation_failure.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
-#### `GOV-058` — declared taxonomy has a user
+#### `GOV-059` — the registry holds one entry per requirement
 
-**VERIFIED** · low · requirement · source: QE-52
+**VERIFIED** · low · requirement · source: OPS-2026-10-07
 
-Every term declared in the registry's test_types taxonomy is used by at least one entry's verification. Vocabulary is defined by its users; a term with no user is dead vocabulary, to be deleted or given its first entry. The opposite direction -- an entry naming a type the taxonomy never declared -- is the loader's job, because it holds for any registry; this direction holds only for the real one, so the suite asserts it.
+No two registry entries state the same requirement: entry titles are unique once case and surrounding whitespace are normalised. Two entries for one concept split its evidence, so a reader cannot tell which entry a failure breaks, and a fix can satisfy one while leaving the other stale.
 
-- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry. Enforcing it in the loader instead would be wrong and was tried: every fixture registry in the suite declares a few types and uses one, so the loader would refuse them all and report an unused type where the test asked about a schema violation.
+- **If violated:** Two entries describe one rule under different ids. GOV-046 and GOV-058 did -- identical title, identical source, the same single deciding test -- because the branch that added GOV-058 was screened by comparing its added LINES against main, and its wording differed, so line-level absence was read as a new requirement. The traceability matrix then lists one requirement twice, and removing the duplicate later looks like dropping a verified requirement.
 - **Owned by:** `config/quality_registry.json`
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
