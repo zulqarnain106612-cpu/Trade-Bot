@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Universal PreToolUse safety and observation guard.
-
-Hard context-boundary rules are enforced independently of the command-policy
-rollback switch: native source reads must be bounded and direct CI run data is
-not a model-observation channel. Ordinary destructive/secret/local-check rules
-retain their existing enforcement levels.
-"""
+"""Universal PreToolUse safety, observation and boundary-self-protection guard."""
 
 from __future__ import annotations
 
@@ -16,8 +10,41 @@ import sys
 from pathlib import Path
 from typing import Any
 
-PROJECT_DIR = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2]))
+PROJECT_DIR = Path(
+    os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])
+).resolve()
+CONFIG_PATH = PROJECT_DIR / "config" / "observation_boundary.json"
 POLICY_PATH = PROJECT_DIR / "config" / "command_policy.json"
+
+HARD_MAX_READ_LINES = 80
+DEFAULT_READ_TOOLS = {"Read"}
+DEFAULT_MCP_READ_PATTERNS = [r"mcp__Desktop_Commander__read_file$"]
+
+PROTECTED_BOUNDARY_PATHS = frozenset(
+    {
+        ".claude/settings.json",
+        ".claude/hooks/pre_tool_use.py",
+        ".claude/hooks/observation_gate.py",
+        ".claude/hooks/observation_failure.py",
+        "config/observation_boundary.json",
+        "tests/test_observation_boundary_contract.py",
+    }
+)
+PROTECTED_MUTATION_TOOLS = {
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "mcp__GitHub__create_file",
+    "mcp__GitHub__update_file",
+    "mcp__GitHub__delete_file",
+}
+
+BASH_MUTATOR_RE = re.compile(
+    r"(?i)(?:>|>>|tee\b|sed\s+-i\b|perl\s+-pi\b|"
+    r"python(?:3)?\s+-c\b|ruby\s+-e\b|"
+    r"\b(?:cp|mv|rm|dd|git\s+(?:apply|checkout|restore|reset|clean))\b)"
+)
 
 sys.path.insert(0, str(PROJECT_DIR))
 
@@ -53,8 +80,25 @@ def _fail_open(note: str) -> None:
 
 
 def _load_policy() -> dict[str, Any]:
-    with POLICY_PATH.open(encoding="utf-8") as fh:
-        return json.load(fh)
+    try:
+        with POLICY_PATH.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        print(
+            "[pre_tool_use] policy unavailable; hard observation controls remain active",
+            file=sys.stderr,
+        )
+        return {}
+
+
+def _load_observation_config() -> dict[str, Any]:
+    try:
+        with CONFIG_PATH.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        return {}
 
 
 def _enforcement(policy: dict[str, Any]) -> str:
@@ -69,23 +113,18 @@ def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
     cfg = policy.get("local_checks", {})
     if not cfg.get("enabled", False):
         return ""
-
     wrapper = str(cfg.get("wrapper", "scripts/local_checks.py"))
     run_marker = str(cfg.get("run_marker", "TB_LOCAL_CHECKS=1"))
     if wrapper in command:
-        if re.search(r"\bprepare\b", command):
-            return ""
-        if run_marker in command:
+        if re.search(r"\bprepare\b", command) or run_marker in command:
             return ""
         return f"Local CI checks must be invoked with the per-command marker {run_marker}."
-
     for pattern in cfg.get("blocked_patterns", []):
         if re.search(pattern, command, re.IGNORECASE):
             return (
                 "Direct local test/check execution is disabled. Use "
                 f"{run_marker} python3 {wrapper} run <failed-check> instead; "
-                "the wrapper permits only checks that were non-green on the "
-                "last completed PR run."
+                "the wrapper permits only checks that were non-green on the last completed PR run."
             )
     return ""
 
@@ -99,7 +138,6 @@ def _read_limit(tool_input: dict[str, Any]) -> int | None:
             return value
         if isinstance(value, str) and value.isdigit():
             return int(value)
-
     start = tool_input.get("start_line")
     end = tool_input.get("end_line")
     if isinstance(start, int) and isinstance(end, int) and end >= start:
@@ -107,49 +145,106 @@ def _read_limit(tool_input: dict[str, Any]) -> int | None:
     return None
 
 
-def _read_boundary_violation(event: dict[str, Any], policy: dict[str, Any]) -> str:
-    cfg = policy.get("observation_boundary", {})
-    if not cfg.get("enabled", True):
-        return ""
-
+def _read_boundary_violation(event: dict[str, Any], _policy: dict[str, Any]) -> str:
+    cfg = _load_observation_config()
     tool = str(event.get("tool_name", ""))
-    names = set(cfg.get("native_read_tools", ["Read"]))
-    patterns = [re.compile(p, re.IGNORECASE) for p in cfg.get("mcp_read_tool_patterns", [])]
-    is_native_read = tool in names
-    is_mcp_read = any(rx.search(tool) for rx in patterns)
-    if not (is_native_read or is_mcp_read):
+    names = set(DEFAULT_READ_TOOLS)
+    configured = cfg.get("native_read_tools")
+    if isinstance(configured, list):
+        names.update(str(item) for item in configured)
+
+    patterns = list(DEFAULT_MCP_READ_PATTERNS)
+    configured_patterns = cfg.get("mcp_read_tool_patterns")
+    if isinstance(configured_patterns, list):
+        patterns.extend(str(item) for item in configured_patterns)
+
+    if tool not in names and not any(
+        re.search(pattern, tool, re.IGNORECASE) for pattern in patterns
+    ):
         return ""
 
     tool_input = event.get("tool_input") or {}
     if not isinstance(tool_input, dict):
-        return str(cfg.get("read_refusal_message", "Read calls require an explicit bound."))
+        return "Read operations require an explicit bounded range."
 
-    # NotebookRead is cell-oriented rather than line-oriented; successful
-    # output still passes through PostToolUse compaction, so do not invent a
-    # line limit for notebooks.
     if tool == "NotebookRead":
         return ""
 
     limit = _read_limit(tool_input)
-    max_lines = int(cfg.get("max_read_lines", 30))
+    configured_max = cfg.get("max_read_lines", HARD_MAX_READ_LINES)
+    try:
+        max_lines = min(int(configured_max), HARD_MAX_READ_LINES)
+    except (TypeError, ValueError):
+        max_lines = HARD_MAX_READ_LINES
+
     if limit is None:
-        return str(cfg.get("read_refusal_message", "Read calls require an explicit bound."))
+        return (
+            f"Read operations require an explicit bounded range of at most {max_lines} lines. "
+            "Use a targeted search first, then request the smallest exact range needed."
+        )
     if limit < 1 or limit > max_lines:
-        return str(cfg.get("read_refusal_message", "Read calls must be bounded."))
+        return f"Read operations are permanently bounded to at most {max_lines} lines."
+    return ""
+
+
+def _protected_boundary_violation(event: dict[str, Any]) -> str:
+    tool = str(event.get("tool_name", ""))
+    tool_input = event.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return ""
+
+    targets: list[str] = []
+    for key in ("file_path", "path", "filename", "notebook_path"):
+        value = tool_input.get(key)
+        if isinstance(value, str):
+            raw = value.replace("\\", "/")
+            marker = str(PROJECT_DIR).replace("\\", "/").rstrip("/") + "/"
+            if raw.startswith(marker):
+                raw = raw[len(marker) :]
+            if raw.startswith("./"):
+                raw = raw[2:]
+            targets.append(raw.lstrip("/"))
+
+    protected = [path for path in targets if path in PROTECTED_BOUNDARY_PATHS]
+
+    if tool == "Bash":
+        command = str(tool_input.get("command", ""))
+        for protected_path in PROTECTED_BOUNDARY_PATHS:
+            absolute_path = (PROJECT_DIR / protected_path).as_posix()
+            if (protected_path in command or absolute_path in command) and BASH_MUTATOR_RE.search(
+                command
+            ):
+                return f"Protected observation-boundary file mutation denied: {protected_path}."
+
+    if not protected:
+        return ""
+
+    if tool in PROTECTED_MUTATION_TOOLS:
+        return f"Protected observation-boundary file mutation denied: {protected[0]}."
+
+    if (
+        any(key in tool_input for key in ("content", "new_string", "replacement"))
+        and tool != "Read"
+    ):
+        return f"Protected observation-boundary file mutation denied: {protected[0]}."
+
     return ""
 
 
 def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
     problems: list[str] = []
-    tool = str(event.get("tool_name", ""))
-    tool_input = event.get("tool_input") or {}
-    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
-    # These are hard context-boundary controls. They do not become warnings
-    # when TB_COMMAND_POLICY is set to off.
+    protected_violation = _protected_boundary_violation(event)
+    if protected_violation:
+        problems.append(protected_violation)
+
     read_violation = _read_boundary_violation(event, policy)
     if read_violation:
         problems.append(read_violation)
+
+    tool = str(event.get("tool_name", ""))
+    tool_input = event.get("tool_input") or {}
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
     if tool == "Bash" and isinstance(command, str) and is_ci_log_access(command):
         problems.append(CI_LOG_REFUSAL)
@@ -184,29 +279,17 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
                 f"{marker} after explicit human approval."
             )
 
-    # Last, and only when nothing else refused the command: the guard spends
-    # a single-use authorization, which a command denied anyway must not use.
     if not problems:
-        guard = _git_guard_violation(event)
-        if guard:
-            problems.append(guard)
+        try:
+            from src.agent_control.hooks import git_guard
+
+            guard = git_guard(event) if tool == "Bash" and "git" in command else ""
+            if guard:
+                problems.append(guard)
+        except Exception as exc:  # pragma: no cover
+            print(f"[pre_tool_use] git guard degraded, allowing: {exc!r}", file=sys.stderr)
 
     return problems
-
-
-def _git_guard_violation(event: dict[str, Any]) -> str:
-    """Guarded Git operations need an agent-control task authorization (GOV-061)."""
-    tool_input = event.get("tool_input") or {}
-    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-    if event.get("tool_name") != "Bash" or not isinstance(command, str) or "git" not in command:
-        return ""
-    try:
-        from src.agent_control.hooks import git_guard
-
-        return git_guard(event) or ""
-    except Exception as exc:  # fail open, like the rest of this hook
-        print(f"[pre_tool_use] git guard degraded, allowing: {exc!r}", file=sys.stderr)
-        return ""
 
 
 def main() -> None:
@@ -222,11 +305,6 @@ def main() -> None:
 
     try:
         policy = _load_policy()
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
-        _fail_open(f"policy unavailable: {exc}")
-        return
-
-    try:
         problems = _violations(event, policy)
     except (re.error, TypeError, ValueError) as exc:
         _fail_open(f"invalid policy/configuration: {exc}")
@@ -236,9 +314,11 @@ def main() -> None:
         _emit("allow")
 
     reason = " ".join(dict.fromkeys(problems))
-    if _enforcement(policy) == "warn" and not any(
-        msg in reason for msg in (CI_LOG_REFUSAL, "Read calls")
-    ):
+    hard = any(
+        marker in reason
+        for marker in ("Protected observation-boundary", "Read operations", CI_LOG_REFUSAL)
+    )
+    if _enforcement(policy) == "warn" and not hard:
         print(f"[pre_tool_use] policy warning: {reason}", file=sys.stderr)
         _emit("allow")
 

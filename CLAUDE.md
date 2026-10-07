@@ -258,18 +258,29 @@ before execution and the PostToolUse observation hook after every successful
 tool execution.
 
 The PreToolUse boundary enforces hard observation controls for native source
-reads and direct CI run-data access. The PostToolUse boundary replaces the
-successful result delivered to Claude with a compact representation while
-preserving the returned tool shape and structured metadata. Large textual
-payloads are reduced to diagnostic or task-relevant signal lines; source reads
-are reduced to at most three model-visible lines unless the result is already
-small; search inventories are compacted semantically instead of by arbitrary
-head/tail truncation.
+reads and direct CI run-data access. These observation controls remain active
+even when TB_COMMAND_POLICY=off and cannot be disabled by observation config
+flags. The PostToolUse boundary replaces every successful result delivered to
+Claude with a semantically compact representation while preserving useful
+structured metadata.
 
-The same PostToolUse rule applies to built-in tools and MCP tools. It is
-therefore the repository-level observation boundary for shell execution, file
-reads, Git/GitHub operations, search/navigation, MCP responses, browser/tool
-results, and other successful tool observations.
+Changed local source files are **diff-first**: after a write/test/fix cycle, a
+subsequent Read returns the current tracked diff candidates instead of
+re-injecting the whole changed file. Clean source reads remain explicitly
+bounded and retain useful content within the hard 80-line limit rather than
+collapsing useful source context to three lines.
+
+Diff/patch fields, execution logs, search inventories, Git status output,
+nested MCP content and large result lists are compacted by semantic type. The
+same PostToolUse rule applies to built-in tools and MCP tools. It is therefore
+the repository-level observation boundary for shell execution, file reads,
+Git/GitHub operations, search/navigation, MCP responses, browser/tool results,
+and every other successful tool observation.
+
+The observation-boundary hook files and config are protected targets:
+Claude-tool writes/edits and remote file mutation calls aimed at those paths
+are refused by PreToolUse, so the session cannot silently weaken its own
+context boundary.
 
 .claude/hooks/observation_failure.py is registered for PostToolUseFailure.
 Claude Code exposes only additionalContext at this event, so the hook adds a
