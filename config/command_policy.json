@@ -121,10 +121,24 @@
     "max_success_lines": 3,
     "max_success_chars": 1200,
     "max_read_lines": 30,
-    "native_read_tools": ["Read"],
-    "mcp_read_tool_patterns": ["read_file$", "read_process_output$", "read_terminal$"],
+    "native_read_tools": [
+      "Read"
+    ],
+    "mcp_read_tool_patterns": [
+      "read_file$",
+      "fetch_file$",
+      "get_file$",
+      "fetch_blob$",
+      "read_process_output$",
+      "read_terminal$"
+    ],
     "read_refusal_message": "Read operations must declare a bounded range of at most 30 lines. Use a targeted search first, then request the smallest exact range needed. The returned model observation is additionally compacted to at most three useful lines.",
-    "_note": "This is a model-context boundary, not a filesystem access control. PostToolUse compacts every successful tool result; PreToolUse prevents unbounded native source reads and direct CI run-data access."
+    "_note": "This is a model-context boundary, not a filesystem access control. PostToolUse compacts every successful tool result; PreToolUse prevents unbounded native source reads and direct CI run-data access.",
+    "changed_file_candidates": {
+      "enabled": true,
+      "max_diff_lines": 80,
+      "rule": "When a bounded source read targets a tracked file changed in the current worktree, the PostToolUse boundary returns only git diff candidates for that file instead of replaying the source. Untracked files retain the bounded read because no baseline diff exists."
+    }
   },
   "destructive": {
     "enabled": true,
