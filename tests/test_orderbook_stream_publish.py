@@ -18,6 +18,9 @@ that wiring must not get wrong.
                wrong with nothing to say so.
 
 No sleeps (GOV-016): the clock is injected.
+
+Decides:
+  - INV-033 — A display refresh never advances risk state
 """
 
 from __future__ import annotations

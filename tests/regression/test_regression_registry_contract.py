@@ -24,6 +24,12 @@ There are no REG/SEC entries yet. That is the honest state of a registry
 created three phases ago, and the tests below assert the *contract* those
 entries will be held to, so the first one filed lands on rails rather than
 inventing its own shape.
+
+Decides:
+  - EXEC-007 — Mutation score on the execution subsystem is at or above 90%
+  - GOV-003 — Mutation testing runs nightly on the critical subsystems
+  - RISK-006 — Mutation score on the risk subsystem is at or above 90%
+  - SIG-003 — Mutation score on the signal subsystem is at or above 85%
 """
 
 from __future__ import annotations

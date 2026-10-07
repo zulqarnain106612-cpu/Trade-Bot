@@ -3750,8 +3750,8 @@
       ],
       "verification": [
         {
-          "test": "tests/test_pre_tool_use_hook.py",
-          "test_type": "contract"
+          "test": "tests/quality/test_quality_registry.py",
+          "test_type": "unit"
         }
       ]
     },

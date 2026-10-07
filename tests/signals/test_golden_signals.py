@@ -14,6 +14,10 @@ nobody can explain is the finding. That is why the generator prints "then READ
 the diff" and why this module asserts on the *content* of the fixtures as well
 as on their reproducibility: a fixture set that has quietly become trivial
 (every case blocked, every feature null) would still round-trip perfectly.
+
+Decides:
+  - DATA-001 — Market data failing the quality gate never reaches the signal engine
+  - INV-008 — A stale market-data sample cannot be treated as current
 """
 
 from __future__ import annotations

@@ -24,6 +24,9 @@ Summary of what is pinned here:
 | exchange stress reduce       | `score > reduce_threshold`    | no warning   |
 | whale sell threshold         | `ratio < sell_threshold`      | allowed      |
 | paper_trading_days_minimum   | `days < min_days`             | allowed      |
+
+Decides:
+  - RISK-001 — Maximum position exposure must not exceed the configured ceiling
 """
 
 from __future__ import annotations
