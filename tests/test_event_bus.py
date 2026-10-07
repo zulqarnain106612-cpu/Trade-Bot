@@ -343,6 +343,7 @@ class TestTopicRegistry:
             "intel",
             "price",
             "book",
+            "runtime",  # RES-015: runtime transitions and change audit
         } == set(TOPICS)
 
     def test_the_cached_accessor_returns_one_instance(self) -> None:

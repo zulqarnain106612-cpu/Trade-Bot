@@ -57,6 +57,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
+from src.api import runtime_control
 from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
 from src.api.control_surface import ControlWriteError, apply_control, build_control_surface
@@ -74,7 +75,6 @@ from src.api.object_refs import (
     not_found_response,
     validate_object_id,
 )
-from src.api import runtime_control
 from src.api.runtime_control import (
     OperatorFactor,
     RuntimeActionBody,

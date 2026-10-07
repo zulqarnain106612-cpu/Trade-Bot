@@ -673,4 +673,3 @@ class ChangeManager:
                 sink(entry)
             except Exception as exc:  # the in-memory log is the record; a sink is a mirror
                 log.error("runtime.audit_sink_failed", change_id=entry.change_id, error=str(exc))
-

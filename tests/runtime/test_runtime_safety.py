@@ -105,9 +105,13 @@ def test_the_api_reaches_runtime_only_through_the_change_manager() -> None:
     tree = TREES["runtime_control.py"]
     chains = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):
-            if isinstance(node.value.value, ast.Name) and node.value.value.id == "platform":
-                chains.add(f"{node.value.attr}.{node.attr}")
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "platform"
+        ):
+            chains.add(f"{node.value.attr}.{node.attr}")
     allowed_prefixes = ("changes.", "reconciler.reconcile_once", "traces.trace")
     allowed_registry = {"registry.find", "registry.dependents", "registry.history"}
     stray = {c for c in chains if not c.startswith(allowed_prefixes) and c not in allowed_registry}

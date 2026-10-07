@@ -20,26 +20,32 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from src.diagnostics.audit_trail import AuditTrail
-from src.eventbus import EventBus, correlated
+from src.eventbus import EventBus, correlated, get_event_bus
 from src.runtime.changes import AuditEntry
 from src.runtime.contracts import TransitionRecord
 
 
-def transition_publisher(bus: EventBus) -> Callable[[TransitionRecord], None]:
+def transition_publisher(bus: EventBus | None = None) -> Callable[[TransitionRecord], None]:
+    """Publishes on ``bus``, or on the process bus (``get_event_bus``)."""
+    target = bus if bus is not None else get_event_bus()
+
     def publish(transition: TransitionRecord) -> None:
         ids = {"runtime_component_id": transition.component_id}
         if transition.change_id is not None:
             ids["change_id"] = transition.change_id
         with correlated(**ids):
-            bus.publish("runtime", {"kind": "transition", **transition.to_dict()})
+            target.publish("runtime", {"kind": "transition", **transition.to_dict()})
 
     return publish
 
 
-def eventbus_audit_sink(bus: EventBus) -> Callable[[AuditEntry], None]:
+def eventbus_audit_sink(bus: EventBus | None = None) -> Callable[[AuditEntry], None]:
+    """Publishes on ``bus``, or on the process bus (``get_event_bus``)."""
+    target = bus if bus is not None else get_event_bus()
+
     def publish(entry: AuditEntry) -> None:
         with correlated(change_id=entry.change_id, runtime_component_id=entry.component_id):
-            bus.publish(
+            target.publish(
                 "runtime",
                 {
                     "kind": "change",

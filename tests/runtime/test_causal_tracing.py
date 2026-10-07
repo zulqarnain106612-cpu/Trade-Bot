@@ -169,3 +169,23 @@ def test_runtime_changes_reach_the_bus_and_the_hash_chained_trail() -> None:
     ]
     assert entries[1].prev_hash == entries[0].entry_hash
     assert trail.verify_chain_integrity() == (True, None)
+
+
+def test_publishers_default_to_the_process_bus() -> None:
+    from datetime import UTC, datetime
+
+    from src.eventbus import get_event_bus
+    from src.runtime.changes import AuditEntry
+    from src.runtime.contracts import TransitionRecord
+
+    now = datetime(2026, 10, 7, tzinfo=UTC)
+    sub = get_event_bus().subscribe(["runtime"])
+    try:
+        transition_publisher()(
+            TransitionRecord("worker:w", None, None, S.ACTIVE, None, "1", "adapter", now)
+        )
+        eventbus_audit_sink()(AuditEntry("chg-1", "worker:w", "executed", "op", "x", now))
+        kinds = [e.data["kind"] for e in sub._queue]
+    finally:
+        sub.close()
+    assert kinds == ["transition", "change"]
